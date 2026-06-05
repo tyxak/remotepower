@@ -64,6 +64,11 @@ Endpoints: `GET`/`POST /api/drift/profiles`,
 under `cfg['drift']['profiles']` / `['assignments']`. Admin-only to
 mutate; changes take effect on each device's next heartbeat.
 
+A device's **drift detail** view shows *how* its watched list was
+resolved — `device-override`, `profile:<device|tag|group>` (with the
+profile name), `default`, or `disabled` — so it's never a mystery
+which rule won.
+
 ## How it works
 
 1. On every poll, the server hands the agent the current

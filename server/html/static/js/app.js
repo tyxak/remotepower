@@ -3009,6 +3009,8 @@ const _DYK_TIPS = [
   "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
   "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
+  "Take a full disaster-recovery backup from Settings → Advanced → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
+  "Network shares (NFS/SMB/CIFS) now appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
   "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
   "Set a Software Policy rule (banned / required / min-version) and RemotePower checks it against every host's installed packages — e.g. 'fail2ban required, telnetd banned'.",
   "The Storage page tracks ZFS / mdadm / btrfs pool health fleet-wide; a degraded array or an overdue scrub raises an alert.",
@@ -4516,6 +4518,36 @@ async function openAllowlistModal(id) { document.getElementById('allowlist-devic
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
 async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353" data-color="${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Swap</div>${spark('swap','var(--purple)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
+
+// v3.13.0: full disaster-recovery backup (complete data dir, incl. vault) + restore.
+function downloadBackup() {
+  _downloadAuthed('/api/backup/download', 'remotepower-backup.tar.gz', 'Full backup downloaded');
+}
+function pickRestoreFile() { document.getElementById('restore-file-input')?.click(); }
+async function restoreBackup() {
+  const inp = document.getElementById('restore-file-input');
+  const file = inp && inp.files && inp.files[0];
+  if (!file) return;
+  if (!confirm(`Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`)) { inp.value = ''; return; }
+  const res = document.getElementById('backup-result');
+  if (res) { res.hidden = false; res.textContent = 'Uploading & restoring…'; }
+  try {
+    const r = await fetch('/api/backup/restore', { method: 'POST', headers: { 'X-Token': getToken() }, body: file });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      if (res) res.textContent = `Restored ${data.restored} files. Safety snapshot: ${data.snapshot}. Reload the page to see the restored state.`;
+      toast(`Restored ${data.restored} files`, 'success');
+    } else {
+      const msg = (data && data.error) || ('HTTP ' + r.status);
+      if (res) res.textContent = 'Restore failed: ' + msg;
+      toast('Restore failed: ' + msg, 'error');
+    }
+  } catch (e) {
+    if (res) res.textContent = 'Restore failed: ' + e;
+    toast('Restore failed', 'error');
+  }
+  if (inp) inp.value = '';
+}
 
 // ── v3.12.0: storage backend (JSON <-> SQLite) ───────────────────────────────
 function _fmtBytes(n) {
@@ -9890,8 +9922,19 @@ async function openDriftDetail(devId, devName) {
       document.getElementById('drift-accept-all').style.display = 'flex';
     }
 
+    // v3.13.0: explain where this device's watched list comes from.
+    const _srcLabel = {
+      'device-override': 'per-device override (set in the device drawer)',
+      'profile:device':  'drift profile (assigned to this device)',
+      'profile:tag':     'drift profile (assigned to a tag)',
+      'profile:group':   'drift profile (assigned to its group)',
+      'default':         'global default',
+      'disabled':        'drift disabled',
+    }[data.source] || data.source || '—';
+    const _srcText = _srcLabel + (data.profile ? ` — “${data.profile}”` : '');
     let html = `<div class="isl-539">
       Watched: ${watched.length} ${watched.length === 1 ? 'path' : 'paths'} · Reported: ${fileKeys.length}
+      <span class="hint"> · via ${escHtml(_srcText)}</span>
     </div>`;
 
     html += '<table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';

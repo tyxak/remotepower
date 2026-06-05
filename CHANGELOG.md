@@ -31,6 +31,20 @@ already being reported and stored.
   `PUT/DELETE /api/drift/profiles/<id>`, `POST /api/drift/assign`). Resolution
   precedence: an explicit per-device file list (set in the device drawer) wins,
   then an assigned profile (device > tag > group), then the global default.
+  The device drift detail now also **explains** where a host's watched list
+  comes from (override / profile+scope / default).
+- **Network mounts trended.** NFS/SMB/CIFS shares now flow into the daily
+  metrics history, so each filesystem — including network shares — gets its own
+  line on the **Trends** chart and is covered by disk-fill **forecasting**.
+  (Also fixes a pre-existing bug where the per-device Trends endpoint read the
+  history store with the wrong shape and returned nothing.)
+- **Controller backup & restore.** A new **full disaster-recovery backup**
+  (`GET /api/backup/download`) streams a tar.gz of the entire data directory —
+  *including* the encrypted credentials vault and integration secrets — and a
+  matching **restore** (`POST /api/backup/restore`) rebuilds the controller from
+  it, taking a safety snapshot of the current data first and extracting with
+  strict path validation. Admin-only, in **Settings → Advanced → Backup &
+  restore** alongside the existing redacted (shareable) ZIP export.
 
 ### Changed
 - **Every box fits — project-wide.** Beyond the drawer cards, *every* table card

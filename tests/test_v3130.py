@@ -371,6 +371,107 @@ class TestDriftProfiles(unittest.TestCase):
             self.assertIn(f'function {fn}', self.js)
 
 
+class TestDriftEffective(unittest.TestCase):
+    """Drift explainability: _drift_effective reports the resolution source."""
+
+    DC = {
+        'enabled': True,
+        'default_watched_files': ['/default'],
+        'profiles': [
+            {'id': 'pg', 'name': 'grp', 'files': ['/g']},
+            {'id': 'pt', 'name': 'tagp', 'files': ['/t']},
+            {'id': 'pd', 'name': 'devp', 'files': ['/d']},
+        ],
+        'assignments': [
+            {'scope_type': 'group', 'scope_value': 'web', 'profile_id': 'pg'},
+            {'scope_type': 'tag', 'scope_value': 'db', 'profile_id': 'pt'},
+            {'scope_type': 'device', 'scope_value': 'dev1', 'profile_id': 'pd'},
+        ],
+    }
+
+    def test_device_override(self):
+        r = api._drift_effective('x', {'watched_files': ['/m']}, self.DC)
+        self.assertEqual(r['source'], 'device-override')
+        self.assertEqual(r['files'], ['/m'])
+
+    def test_profile_scopes(self):
+        self.assertEqual(api._drift_effective('x', {'group': 'web'}, self.DC)['source'], 'profile:group')
+        self.assertEqual(api._drift_effective('x', {'tags': ['db']}, self.DC)['source'], 'profile:tag')
+        r = api._drift_effective('dev1', {'group': 'web', 'tags': ['db']}, self.DC)
+        self.assertEqual(r['source'], 'profile:device')
+        self.assertEqual(r['profile'], 'devp')
+
+    def test_default_and_disabled(self):
+        self.assertEqual(api._drift_effective('x', {}, self.DC)['source'], 'default')
+        self.assertEqual(api._drift_effective('x', {}, {'enabled': False})['source'], 'disabled')
+
+    def test_endpoint_exposes_source(self):
+        self.assertIn("effective['source']", (_CGI_BIN / "api.py").read_text())
+
+
+class TestControllerBackup(unittest.TestCase):
+    """Full backup/restore: routes, helpers, exclusion rules, tar round-trip."""
+
+    def test_routes_registered(self):
+        routes = api._build_exact_routes()
+        self.assertIn(('GET', '/api/backup/download'), routes)
+        self.assertIn(('POST', '/api/backup/restore'), routes)
+
+    def test_handlers_exist(self):
+        for fn in ('handle_backup_download', 'handle_backup_restore', '_write_data_dir_tar'):
+            self.assertTrue(callable(getattr(api, fn, None)), fn)
+
+    def test_exclude_rules(self):
+        self.assertFalse(api._backup_include('attention_cache.json'))
+        self.assertFalse(api._backup_include('fleet_risk_cache.json'))
+        self.assertFalse(api._backup_include('restore-snapshots/pre-restore-x.tar.gz'))
+        self.assertFalse(api._backup_include('devices.json.tmp.1.2'))
+        self.assertTrue(api._backup_include('devices.json'))
+        self.assertTrue(api._backup_include('cmdb_vault.json'))
+
+    def test_tar_roundtrip_excludes_caches(self):
+        import tarfile, tempfile
+        from pathlib import Path as _P
+        d = _P(tempfile.mkdtemp())
+        (d / 'devices.json').write_text('{}')
+        (d / 'attention_cache.json').write_text('{}')
+        (d / 'restore-snapshots').mkdir()
+        (d / 'restore-snapshots' / 'old.tar.gz').write_text('x')
+        old = api.DATA_DIR
+        api.DATA_DIR = d
+        try:
+            buf = d / 'out.tar.gz'
+            with tarfile.open(str(buf), 'w:gz') as t:
+                api._write_data_dir_tar(t)
+            with tarfile.open(str(buf), 'r:gz') as t:
+                names = set(t.getnames())
+            self.assertIn('devices.json', names)
+            self.assertNotIn('attention_cache.json', names)
+            self.assertFalse(any(n.startswith('restore-snapshots') for n in names))
+        finally:
+            api.DATA_DIR = old
+
+
+class TestMountTrends(unittest.TestCase):
+    """Network mounts flow into the daily history + per-mount Trends series."""
+
+    def setUp(self):
+        self.src = (_CGI_BIN / "api.py").read_text()
+
+    def test_daily_history_skips_stalled(self):
+        # The daily-sample mount builder must skip mounts with no numeric percent.
+        self.assertIn("if not isinstance(pct, (int, float)):", self.src)
+
+    def test_metrics_history_reads_samples_key(self):
+        # Shape-bug fix: read rec['samples'], not the dict itself.
+        self.assertIn("rec = (load(METRICS_HIST_FILE) or {}).get(dev_id) or {}", self.src)
+        self.assertIn("samples = rec.get('samples') or []", self.src)
+
+    def test_metrics_history_per_mount_series(self):
+        self.assertIn("mount_pts", self.src)
+        self.assertIn("(net)", self.src)
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored

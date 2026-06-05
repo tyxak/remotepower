@@ -17675,12 +17675,20 @@ def _maybe_sample_metrics(dev_id, sysinfo, now):
     for mnt in (sysinfo.get('mounts') or [])[:50]:
         if not isinstance(mnt, dict):
             continue
-        mounts.append({
+        pct = mnt.get('percent')
+        # v3.13.0: skip stalled / no-usage network shares — recording them as 0%
+        # would inject false drops that wreck disk-fill slope forecasting.
+        if not isinstance(pct, (int, float)):
+            continue
+        m = {
             'path':     mnt.get('path', ''),
             'used_gb':  mnt.get('used_gb', 0),
             'total_gb': mnt.get('total_gb', 0),
-            'percent':  mnt.get('percent', 0),
-        })
+            'percent':  pct,
+        }
+        if mnt.get('network'):
+            m['network'] = True   # so Trends/forecast can label NFS/SMB shares
+        mounts.append(m)
 
     ports = sorted({f"{p.get('proto','')}/{p.get('port','')}"
                     for p in (sysinfo.get('listening_ports') or [])
@@ -19397,17 +19405,32 @@ def handle_device_metrics_history(dev_id):
         dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
         if not _device_in_scope(scope, dev):
             respond(403, {'error': 'Device outside your role scope'})
-    samples = (load(METRICS_HIST_FILE) or {}).get(dev_id) or []
+    # v3.13.0: the store shape is {dev_id: {'samples': [...]}} — the old
+    # `.get(dev_id) or []` handed a dict to `samples[-120:]` (a no-op/throw), so
+    # the per-device Trends chart was effectively broken. Read 'samples'.
+    rec = (load(METRICS_HIST_FILE) or {}).get(dev_id) or {}
+    samples = rec.get('samples') or []
     mem, swap, disk, load_sat = [], [], [], []
+    # v3.13.0: per-mount disk series (incl. NFS/SMB shares) so each filesystem —
+    # not just the busiest — can be trended on the chart.
+    mount_pts, mount_net = {}, set()
     for s in samples[-120:]:
         ts = s.get('ts')
         if isinstance(s.get('mem_percent'), (int, float)):
             mem.append({'ts': ts, 'v': s['mem_percent']})
         if isinstance(s.get('swap_percent'), (int, float)):
             swap.append({'ts': ts, 'v': s['swap_percent']})
-        busiest = max((m.get('percent', 0) for m in (s.get('mounts') or [])), default=None)
+        sm = s.get('mounts') or []
+        busiest = max((m.get('percent', 0) for m in sm), default=None)
         if isinstance(busiest, (int, float)):
             disk.append({'ts': ts, 'v': busiest})
+        for m in sm:
+            p, v = m.get('path'), m.get('percent')
+            if not p or not isinstance(v, (int, float)):
+                continue
+            mount_pts.setdefault(p, []).append({'ts': ts, 'v': v})
+            if m.get('network'):
+                mount_net.add(p)
         # CPU-load saturation: loadavg_1m as a percentage of core count
         # (100% = load equals cores). Pre-v3.9.0 samples lack these fields.
         lv = s.get('loadavg_1m'); cores = s.get('cpu_count')
@@ -19418,6 +19441,16 @@ def handle_device_metrics_history(dev_id):
               {'name': 'disk % (busiest)', 'points': disk}]
     if load_sat:
         series.append({'name': 'cpu load %', 'points': load_sat})
+    # Per-mount series, ordered by the most recent sample, capped so the chart
+    # stays readable. Network shares are labelled so the SMB/NFS line stands out.
+    recent_paths, seen_p = [], set()
+    for m in ((samples[-1].get('mounts') if samples else []) or []):
+        p = m.get('path')
+        if p and p in mount_pts and p not in seen_p:
+            seen_p.add(p); recent_paths.append(p)
+    for p in recent_paths[:8]:
+        label = f'disk {p}' + (' (net)' if p in mount_net else '')
+        series.append({'name': label, 'points': mount_pts[p]})
     respond(200, {'device_id': dev_id, 'series': series})
 
 
@@ -20059,6 +20092,43 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
 # A profile is {id, name, files:[paths], created, updated}. Assignments map a
 # profile onto a device / tag / group ({scope_type, scope_value, profile_id}).
 # get_watched_files_for() resolves them (device override > profile > default).
+def _drift_effective(dev_id, dev, drift_cfg=None):
+    """Explain how a device's watched-file list is resolved (for the Drift UI):
+    {files, source, profile}. source ∈ device-override | profile:device |
+    profile:tag | profile:group | default | disabled."""
+    dc = drift_cfg if drift_cfg is not None else ((_config().get('drift')) or {})
+    if not dc.get('enabled', True):
+        return {'files': [], 'source': 'disabled', 'profile': None}
+    if isinstance(dev.get('watched_files'), list):
+        return {'files': list(dev['watched_files']),
+                'source': 'device-override', 'profile': None}
+    profiles = {p['id']: p for p in (dc.get('profiles') or [])
+                if isinstance(p, dict) and p.get('id')}
+    if profiles:
+        by = {'device': {}, 'tag': {}, 'group': {}}
+        for a in (dc.get('assignments') or []):
+            if isinstance(a, dict) and a.get('profile_id') in profiles and a.get('scope_type') in by:
+                by[a['scope_type']][a.get('scope_value')] = a['profile_id']
+        pid = scope = None
+        if dev_id in by['device']:
+            pid, scope = by['device'][dev_id], 'device'
+        if not pid:
+            for tg in (dev.get('tags') or []):
+                if tg in by['tag']:
+                    pid, scope = by['tag'][tg], 'tag'
+                    break
+        if not pid:
+            g = dev.get('group')
+            if g and g in by['group']:
+                pid, scope = by['group'][g], 'group'
+        if pid:
+            p = profiles[pid]
+            return {'files': list(p.get('files') or []),
+                    'source': f'profile:{scope}', 'profile': p.get('name')}
+    return {'files': list(dc.get('default_watched_files') or DEFAULT_WATCHED_FILES),
+            'source': 'default', 'profile': None}
+
+
 def _validate_drift_files(raw):
     """Sanitise a watched-files list: absolute paths, ≤512 chars, ≤50 entries,
     deduped, order preserved."""
@@ -20175,6 +20245,128 @@ def handle_drift_assign():
     respond(200, {'ok': True})
 
 
+# ── v3.13.0: controller backup / restore (disaster recovery for the data dir) ─
+# Snapshot the ENTIRE RemotePower data dir (config, devices, all state, the
+# encrypted credentials vault) as a gzip tarball; restore it the same way. The
+# operator already needs the vault passphrase to decrypt secrets, so the
+# encrypted vault is safe to include in the backup.
+_BACKUP_EXCLUDE_NAMES = {'attention_cache.json', 'fleet_risk_cache.json'}
+_BACKUP_SNAPSHOT_DIR = 'restore-snapshots'
+
+
+def _backup_include(rel):
+    """True if a data-dir-relative path belongs in a backup. Skips transient
+    caches, lock/tmp artifacts, and the pre-restore snapshots themselves."""
+    parts = rel.replace('\\', '/').split('/')
+    if parts and parts[0] == _BACKUP_SNAPSHOT_DIR:
+        return False
+    base = parts[-1]
+    if base in _BACKUP_EXCLUDE_NAMES:
+        return False
+    if base.endswith('.lock') or base.endswith('.tmp') or '.tmp.' in base:
+        return False
+    return True
+
+
+def _write_data_dir_tar(tar):
+    """Add every backup-eligible file under DATA_DIR to an open tarfile."""
+    base = str(DATA_DIR)
+    for root, dirs, fnames in os.walk(base):
+        # Don't descend into the snapshot dir.
+        dirs[:] = [d for d in dirs if not (root == base and d == _BACKUP_SNAPSHOT_DIR)]
+        for fn in fnames:
+            full = os.path.join(root, fn)
+            rel = os.path.relpath(full, base)
+            if not _backup_include(rel):
+                continue
+            try:
+                tar.add(full, arcname=rel, recursive=False)
+            except Exception:
+                pass
+
+
+def handle_backup_download():
+    """GET /api/backup/download — stream a gzip tarball of the whole data dir.
+    Admin only. This is the controller's disaster-recovery snapshot."""
+    actor = require_admin_auth()
+    import tarfile
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    fname = f'remotepower-backup-{stamp}.tar.gz'
+    audit_log(actor, 'backup_download', fname)
+    print("Status: 200 OK")
+    print("Content-Type: application/gzip")
+    print(f'Content-Disposition: attachment; filename="{fname}"')
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    tar = tarfile.open(mode='w:gz', fileobj=sys.stdout.buffer)
+    try:
+        _write_data_dir_tar(tar)
+    finally:
+        tar.close()
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_backup_restore():
+    """POST /api/backup/restore — restore the data dir from an uploaded gzip
+    tarball (as produced by /api/backup/download). Admin only. Takes a safety
+    snapshot of the CURRENT data dir first, then extracts with strict path
+    validation (no absolute paths, no '..', regular files/dirs only — symlinks,
+    devices and hardlinks are rejected)."""
+    actor = require_admin_auth()
+    import tarfile, io as _io
+    raw = get_body()
+    if not raw:
+        respond(400, {'error': 'empty body — POST the backup .tar.gz'})
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    # 1) Safety snapshot of the current state before we overwrite anything.
+    try:
+        snap_dir = DATA_DIR / _BACKUP_SNAPSHOT_DIR
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        snap_name = f'pre-restore-{stamp}.tar.gz'
+        with tarfile.open(str(snap_dir / snap_name), 'w:gz') as snap:
+            _write_data_dir_tar(snap)
+    except Exception as e:
+        respond(500, {'error': f'pre-restore snapshot failed (nothing changed): {e}'})
+    # 2) Open + validate the uploaded archive.
+    try:
+        tf = tarfile.open(fileobj=_io.BytesIO(raw), mode='r:gz')
+    except Exception as e:
+        respond(400, {'error': f'not a valid .tar.gz: {e}'})
+    base = os.path.realpath(str(DATA_DIR))
+    safe_members = []
+    for m in tf.getmembers():
+        if not (m.isfile() or m.isdir()):
+            respond(400, {'error': f'archive contains a non-regular entry ({m.name}) — refused'})
+        name = m.name
+        if name.startswith('/') or '..' in name.replace('\\', '/').split('/'):
+            respond(400, {'error': f'unsafe path in archive: {name}'})
+        dest = os.path.realpath(os.path.join(base, name))
+        if dest != base and not dest.startswith(base + os.sep):
+            respond(400, {'error': f'path escapes data dir: {name}'})
+        safe_members.append(m)
+    # 3) Extract.
+    restored = 0
+    for m in safe_members:
+        try:
+            tf.extract(m, path=base)
+            if m.isfile():
+                restored += 1
+        except Exception:
+            pass
+    tf.close()
+    # Storage backend may cache file handles / mtimes — drop them.
+    try:
+        _invalidate_backend_cache()
+    except Exception:
+        pass
+    audit_log(actor, 'backup_restore',
+              f'{restored} files restored (safety snapshot {snap_name})')
+    respond(200, {'ok': True, 'restored': restored, 'snapshot': snap_name})
+
+
 def handle_drift_overview():
     """GET /api/drift — fleet-wide overview. Returns one row per device with
     summary counts (total files watched, files with drift, files missing)."""
@@ -20272,10 +20464,14 @@ def handle_device_drift_get(dev_id):
     entry = state.get(dev_id) or {'files': {}}
     devices = load(DEVICES_FILE)
     watched = get_watched_files_for(dev_id, devices)
+    # v3.13.0: explain WHERE the watched list came from (override / profile / default).
+    effective = _drift_effective(dev_id, (devices or {}).get(dev_id) or {})
     respond(200, {
         'device_id':     dev_id,
         'watched_files': watched,
         'files':         entry.get('files') or {},
+        'source':        effective['source'],
+        'profile':       effective['profile'],
     })
 
 
@@ -31167,6 +31363,8 @@ def _build_exact_routes():
         ('POST', '/api/cve/scan'): handle_cve_scan,
         ('GET', '/api/dashboard/kinds'): handle_dashboard_kinds,
         ('POST', '/api/dashboard/kinds'): handle_dashboard_kinds_set,
+        ('GET', '/api/backup/download'): handle_backup_download,
+        ('POST', '/api/backup/restore'): handle_backup_restore,
         ('GET', '/api/debug-log'): handle_debug_log_download,
         ('POST', '/api/debug-log'): handle_debug_log_post,
         ('POST', '/api/devices/agentless'): handle_agentless_create,

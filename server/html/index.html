@@ -1451,9 +1451,15 @@
           </div>
 
           <div class="settings-section">
-            <h3>Backup &amp; export</h3>
-            <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
-            <button class="btn-icon" data-action="exportBackup" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
+            <h3>Backup &amp; restore</h3>
+            <p class="hint">Two kinds of backup. The <strong>redacted export</strong> is a ZIP with API keys and integration secrets stripped — safe to store or share. The <strong>full disaster-recovery backup</strong> is a tar.gz of the <em>entire</em> data directory <em>including</em> the encrypted credentials vault and integration secrets — it can fully rebuild this controller, so keep it private. <strong>Restore</strong> applies a full backup and <em>overwrites current data</em>; a safety snapshot of the existing data is taken first (under <code>restore-snapshots/</code> in the data dir).</p>
+            <div class="sb-controls">
+              <button class="btn-icon" data-action="exportBackup" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export (redacted ZIP)</button>
+              <button class="btn-icon" data-action="downloadBackup" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M1 3h22v5H1z"/><line x1="10" y1="12" x2="14" y2="12"/></svg> Full backup (tar.gz)</button>
+              <button class="btn-icon" data-action="pickRestoreFile" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Restore…</button>
+              <input type="file" id="restore-file-input" accept=".gz,.tgz,application/gzip" class="d-none" data-change="restoreBackup">
+            </div>
+            <div id="backup-result" class="hint sb-result" hidden></div>
           </div>
 
           <!-- ── Storage backend (v3.12.0) ───────────────────────────────── -->
@@ -2092,7 +2098,9 @@
                 <li><strong>Listening ports gain Address &amp; Scope.</strong> The drawer Ports card now shows the bind address and a world / LAN / local badge for each socket, so you can see that <code>:22</code> is bound <code>0.0.0.0</code> right where you're inspecting the host.</li>
                 <li><strong>Firewall ruleset summary.</strong> The Firewall card shows the active backend, rule count and fingerprint (the drift baseline the <em>firewall changed</em> alert compares against).</li>
                 <li><strong>Brute-force lockouts &amp; pressure pills.</strong> Active brute-force sources now show as a badge on the device card, and the drawer adds at-a-glance <em>Disk</em> and <em>Swap</em> pills.</li>
-                <li><strong>Named drift profiles.</strong> Reusable sets of watched config files, managed on the <strong>Drift</strong> page and assigned to a device, tag, or group — instead of editing each host's watched-file list by hand. A device's own explicit list still overrides any profile.</li>
+                <li><strong>Named drift profiles.</strong> Reusable sets of watched config files, managed on the <strong>Drift</strong> page and assigned to a device, tag, or group — instead of editing each host's watched-file list by hand. A device's own explicit list still overrides any profile, and the drift detail explains which rule won.</li>
+                <li><strong>Network-mount trends.</strong> NFS/SMB/CIFS shares now appear as their own line on the <strong>Trends</strong> chart and feed disk-fill forecasting, alongside local filesystems.</li>
+                <li><strong>Controller backup &amp; restore.</strong> <strong>Settings → Advanced → Backup &amp; restore</strong> adds a full disaster-recovery backup (tar.gz of the whole data dir, including the encrypted vault) and a restore that takes a safety snapshot first — in addition to the existing redacted ZIP export.</li>
               </ul>
               <h4>Every box now fits</h4>
               <ul>
