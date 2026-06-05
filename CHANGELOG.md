@@ -62,6 +62,11 @@ already being reported and stored.
   `Cache-Control: immutable, max-age=1y` (no more per-load 304 revalidations);
   front-end scripts load `defer`; `_compute_fleet_risk()` is file-cached for 10s
   so `/api/home` and `/api/risk` share the work.
+- **app.js split further.** ~1,800 more lines moved out of the monolithic
+  `app.js` into focused classic-script modules (`app-hostconfig.js`,
+  `app-compliance.js`, `app-integrations.js`), cutting its parse cost. A new
+  load-order test (`tests/test_jsload.py`, V8 via py_mini_racer) guards against a
+  function/var being referenced at load time after a future move.
 
 ### Security
 - **Sandboxed SCAP reports.** Agent-supplied OpenSCAP HTML is served under a
