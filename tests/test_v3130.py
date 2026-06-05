@@ -129,9 +129,9 @@ class TestFleetRiskCache(unittest.TestCase):
 
     def test_callers_use_cache(self):
         src = (_CGI_BIN / "api.py").read_text()
-        # Both the risk endpoint and fleet health route through the cache.
+        # The Risk endpoint routes through the cache. (v3.13.0: fleet health no
+        # longer calls it — risk is decoupled from health.)
         self.assertIn("risks = _fleet_risk_cached()", src)
-        self.assertIn("_fleet_risk_cached(use_cache=use_cache)", src)
 
 
 class TestSecurityHardening(unittest.TestCase):
@@ -742,6 +742,55 @@ class TestSecurityAuditFixes(unittest.TestCase):
     def test_sha1_fingerprints_not_for_security(self):
         # Both dedupe fingerprints annotated usedforsecurity=False.
         self.assertEqual(self.src.count("usedforsecurity=False"), 2)
+
+
+class TestRiskScoring(unittest.TestCase):
+    """Risk no longer influences fleet health, and ignored/muted don't count."""
+
+    def _risk(self, dev, **kw):
+        import time as _t
+        return api._device_risk('d1', dev, {}, kw.get('cve', {}), {},
+                                int(_t.time()), 180, {},
+                                cve_ignore=kw.get('cve_ignore'),
+                                exposure_mutes=kw.get('exposure_mutes'))
+
+    def test_muted_exposure_not_counted(self):
+        import time as _t
+        dev = {'name': 'd1', 'last_seen': int(_t.time()),
+               'sysinfo': {'listening_ports': [
+                   {'proto': 'tcp', 'port': 22, 'process': 'sshd', 'scope': 'world'},
+                   {'proto': 'tcp', 'port': 8211, 'process': 'palserver', 'scope': 'world'}]}}
+        full = self._risk(dev, exposure_mutes=[])
+        muted = self._risk(dev, exposure_mutes=[{'process': 'palserver'}])
+        f_full = next(f for f in full['factors'] if f['kind'] == 'exposed_world')
+        f_muted = next(f for f in muted['factors'] if f['kind'] == 'exposed_world')
+        self.assertIn('2 world', f_full['detail'])
+        self.assertIn('1 world', f_muted['detail'])
+        self.assertLess(f_muted['points'], f_full['points'])
+
+    def test_host_mute_removes_exposure_entirely(self):
+        import time as _t
+        dev = {'name': 'd1', 'last_seen': int(_t.time()),
+               'sysinfo': {'listening_ports': [
+                   {'proto': 'tcp', 'port': 22, 'process': 'sshd', 'scope': 'world'}]}}
+        r = self._risk(dev, exposure_mutes=[{'device_id': 'd1'}])
+        self.assertFalse(any(f['kind'] == 'exposed_world' for f in r['factors']))
+
+    def test_ignored_cve_not_counted(self):
+        import time as _t
+        dev = {'name': 'd1', 'last_seen': int(_t.time()), 'sysinfo': {}}
+        cve = {'findings': [{'vuln_id': 'CVE-2024-9999', 'severity': 'critical'}]}
+        counted = self._risk(dev, cve=cve, cve_ignore={})
+        ignored = self._risk(dev, cve=cve, cve_ignore={'CVE-2024-9999': {'scope': 'global'}})
+        self.assertTrue(any(f['kind'] == 'cve_critical' for f in counted['factors']))
+        self.assertFalse(any(f['kind'] == 'cve_critical' for f in ignored['factors']))
+
+    def test_fleet_health_no_longer_blends_risk(self):
+        src = (_CGI_BIN / "api.py").read_text()
+        fh = src.split("def _fleet_health(")[1].split("\ndef ")[0]
+        self.assertNotIn("risk_by_id", fh)
+        self.assertNotIn("rec['risk']", fh)
+        self.assertIn("independent", fh)
 
 
 class TestStaticCacheImmutable(unittest.TestCase):

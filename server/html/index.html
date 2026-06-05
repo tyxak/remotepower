@@ -4568,7 +4568,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.12.0: per-asset risk score ──────────────────────────────── -->
       <div id="page-risk" class="page">
         <div class="page-title">Risk</div>
-        <div class="page-subtitle">A per-asset risk score (0–100) computed on demand from everything RemotePower already knows — open CVEs, world-reachable services, software-policy violations, pending updates, contract/license expiry, mount issues and more. Every point is attributed, and the score also influences <a href="#" data-action-btn="_showPageBtn" data-page="about" data-prevent-default class="c-accent">fleet health</a>.</div>
+        <div class="page-subtitle">A per-asset risk score (0–100) computed on demand from everything RemotePower already knows — open CVEs, world-reachable services, software-policy violations, pending updates, contract/license expiry, mount issues and more. Every point is attributed. Findings you've <strong>ignored</strong> (CVEs) or <strong>muted</strong> (Exposure) don't count. Risk is a security-posture lens, independent of <a href="#" data-action-btn="_showPageBtn" data-page="about" data-prevent-default class="c-accent">fleet health</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadRisk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Recompute</button>
           <input type="text" class="form-input page-filter" placeholder="Filter devices / factors…" data-input="filterRows" data-input-el="1" data-filter-target="#risk-tbody tr">

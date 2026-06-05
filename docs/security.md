@@ -44,10 +44,17 @@ sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
 
 ## Security posture
 
-RemotePower was audited end-to-end for v3.0.2 covering the server (`api.py`,
-nginx config), the agent (`remotepower-agent`), and the extended modules
-(WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI provider, Proxmox).
-Summary of the defences in place:
+RemotePower has been audited end-to-end across multiple releases — the server
+(`api.py`, helper modules, nginx config), the agent (`remotepower-agent`), and
+the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
+provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
+backup/restore, host-config, and the RBAC scope model). The full reviews live in
+`docs/security-review-*.md` (v2.3.2 → v3.13.0); each release-over-release pass is
+summarised in the latest, [security-review-3.13.0.md](security-review-3.13.0.md).
+The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
+OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
+**no exploitable findings** (see *Security testing* below). Summary of the
+defences in place (kept current):
 
 ### Authentication
 

@@ -19169,7 +19169,8 @@ def _risk_level(score):
     return 'low'
 
 
-def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
+def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
+                 cve_ignore=None, exposure_mutes=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     factors = []
@@ -19183,6 +19184,14 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
     if last and (now - last) > ttl:
         _add('offline', _RISK_WEIGHTS['offline'], 'host is offline')
     finds = cve_rec.get('findings') if isinstance(cve_rec, dict) else cve_rec
+    # v3.13.0: respect the CVE ignore list (accepted-risk findings) — an ignored
+    # CVE shouldn't keep driving the asset's risk score.
+    if finds and cve_ignore is not None:
+        try:
+            finds = [f for f in cve_scanner.apply_ignore_list(list(finds), cve_ignore, dev_id)
+                     if not f.get('ignored')]
+        except Exception:
+            pass
     crit = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'critical')
     high = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'high')
     if crit:
@@ -19195,7 +19204,12 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
         up = 0
     if up:
         _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * _RISK_WEIGHTS['pending_updates']), f'{up} pending update(s)')
-    world = sum(1 for p in (si.get('listening_ports') or []) if isinstance(p, dict) and p.get('scope') == 'world')
+    # v3.13.0: don't count world-reachable sockets the operator has muted on the
+    # Exposure page (surgical mute, or a host-level mute).
+    world = sum(1 for p in (si.get('listening_ports') or [])
+                if isinstance(p, dict) and p.get('scope') == 'world'
+                and not _exposure_muted(p.get('process'), p.get('proto'), p.get('port'),
+                                        exposure_mutes or [], dev_id))
     if world:
         _add('exposed_world', min(_RISK_CAPS['exposed_world'], world * _RISK_WEIGHTS['exposed_world']), f'{world} world-reachable service(s)')
     viol = len(sv_rec.get('violations') or []) if isinstance(sv_rec, dict) else 0
@@ -19296,7 +19310,8 @@ def _fleet_risk_cached(use_cache=True):
                 if (time.time() - cache_mtime) < _FLEET_RISK_CACHE_TTL:
                     fresher = False
                     for src in (DEVICES_FILE, CMDB_FILE, CVE_FINDINGS_FILE,
-                                SOFTWARE_VIOLATIONS_FILE, HARDWARE_FILE):
+                                SOFTWARE_VIOLATIONS_FILE, HARDWARE_FILE,
+                                CVE_IGNORE_FILE, CONFIG_FILE):
                         try:
                             if src.exists() and src.stat().st_mtime > cache_mtime:
                                 fresher = True
@@ -19325,6 +19340,9 @@ def _compute_fleet_risk():
     cve = (load(CVE_FINDINGS_FILE) or {}) if backend_exists(CVE_FINDINGS_FILE) else {}
     sv = (load(SOFTWARE_VIOLATIONS_FILE) or {}) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
     hw = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
+    # v3.13.0: ignored CVEs + muted exposure must not contribute to risk.
+    cve_ignore = (load(CVE_IGNORE_FILE) or {}) if backend_exists(CVE_IGNORE_FILE) else {}
+    exposure_mutes = (load(CONFIG_FILE) or {}).get('exposure_mutes') or []
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -19336,7 +19354,8 @@ def _compute_fleet_risk():
             continue
         out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
                                 cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl,
-                                hw.get(dev_id) or {}))
+                                hw.get(dev_id) or {},
+                                cve_ignore=cve_ignore, exposure_mutes=exposure_mutes))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -19378,21 +19397,9 @@ def _fleet_health(use_cache=True):
             continue
         rec['score'] = max(0, rec['score'] - _HEALTH_WEIGHTS[sev])
         rec[sev] += 1
-    # v3.12.0: blend in the per-asset risk score. Risk emphasises security
-    # posture (CVEs, exposure, policy, expiry); attach it to each device and let
-    # it cap health so a high-risk asset can't read as perfectly healthy. The
-    # cap is bounded (≤40) and halved so signals already counted in NA aren't
-    # double-penalised into the ground.
-    try:
-        risk_by_id = {r['device_id']: r for r in _fleet_risk_cached(use_cache=use_cache)}
-    except Exception:
-        risk_by_id = {}
-    for did, rec in per.items():
-        rk = risk_by_id.get(did)
-        if rk:
-            rec['risk'] = rk['score']
-            rec['risk_level'] = rk['level']
-            rec['score'] = min(rec['score'], 100 - min(40, rk['score'] // 2))
+    # v3.13.0: fleet health is now derived purely from Needs-Attention signals.
+    # The per-asset risk score is a SEPARATE lens (security posture) and no
+    # longer blends into / caps health — they're independent on purpose.
     # Worst first (lowest score; ties broken by critical count) so the UI can
     # slice the top N "needs attention most" devices without re-sorting.
     devs = sorted(per.values(), key=lambda r: (r['score'], -r['critical']))

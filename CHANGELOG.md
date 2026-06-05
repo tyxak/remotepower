@@ -77,6 +77,13 @@ already being reported and stored.
   restore** alongside the existing redacted (shareable) ZIP export.
 
 ### Changed
+- **Risk score decoupled from fleet health, and respects ignores/mutes.** The
+  per-asset Risk score no longer blends into or caps the fleet-health score —
+  they're independent lenses now (health = Needs-Attention signals; risk =
+  security posture). Risk also no longer counts findings you've accepted:
+  **ignored CVEs** (the CVE ignore list) and **muted exposure** (Exposure-page
+  mutes, including host-level mutes) are excluded from the score and its factor
+  breakdown.
 - **Every box fits — project-wide.** Beyond the drawer cards, *every* table card
   in the app now caps at ~15 rows and scrolls internally with a sticky header
   (one central `.table-card` rule), so no page — Exposure included, which was not
