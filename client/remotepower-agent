@@ -1289,12 +1289,53 @@ CONTAINER_CMD_TIMEOUT = 5      # seconds — never let a stuck runtime hang us
 
 
 def _which(prog):
-    """Return path to ``prog`` if it's executable on PATH, else None."""
-    for d in os.environ.get('PATH', '/usr/bin:/bin:/usr/local/bin').split(':'):
+    """Return path to ``prog`` if it's executable on PATH, else None.
+
+    v3.13.0: also searches the standard sbin dirs even when they're absent from
+    a minimal service PATH — firewall tools (iptables/nft) live in /usr/sbin and
+    /sbin, and a systemd unit's PATH often omits them, which made firewall
+    detection report "unknown"."""
+    seen = []
+    for d in os.environ.get('PATH', '').split(':'):
+        if d:
+            seen.append(d)
+    for d in ('/usr/sbin', '/sbin', '/usr/bin', '/bin', '/usr/local/sbin', '/usr/local/bin'):
+        if d not in seen:
+            seen.append(d)
+    for d in seen:
         full = os.path.join(d, prog)
         if os.path.isfile(full) and os.access(full, os.X_OK):
             return full
     return None
+
+
+def _cpu_model():
+    """Best-effort CPU model string for the CMDB Hardware panel. Reads
+    /proc/cpuinfo, matching exact field names so the numeric x86 `model : 33`
+    line isn't mistaken for the human-readable `model name`."""
+    try:
+        fields = {}
+        for line in _safe_read('/proc/cpuinfo').splitlines():
+            if ':' not in line:
+                continue
+            k, v = line.split(':', 1)
+            k, v = k.strip().lower(), v.strip()
+            if k and v and k not in fields:
+                fields[k] = v
+        for key in ('model name', 'hardware', 'cpu model'):
+            if fields.get(key):
+                return fields[key][:128]
+        # ARM boards put a full name in 'model' (e.g. "Raspberry Pi 4"); x86
+        # puts a bare number there — only use it when it isn't numeric.
+        m = fields.get('model', '')
+        if m and not m.isdigit():
+            return m[:128]
+    except Exception:
+        pass
+    try:
+        return (platform.processor() or platform.machine() or '')[:128]
+    except Exception:
+        return ''
 
 
 def _docker_stats(cmd_path):
@@ -2518,38 +2559,41 @@ def collect_firewall_detail():
         backends.append({'name': 'nftables', 'present': True, 'rules': rules,
                          'active': None if _unreadable(rc, txt) else rules > 0})
 
-    # iptables — scan EVERY table (filter/nat/mangle/raw/security) via
-    # `iptables-save`, and probe BOTH the nft and legacy backends. On Proxmox /
-    # PMG the active ruleset frequently lives in the *legacy* backend even when
-    # `iptables` resolves to the nft shim, and custom chains (PVEFW-*) put rules
-    # in non-filter tables — so the old single `iptables -S` (filter only, one
-    # backend) read 0 rules and wrongly reported the host unfirewalled. Take the
-    # union across backends/tables.
+    # iptables — probe EVERY available variant and take the best reading. The
+    # active ruleset can live in the nft *or* the legacy backend (Docker and
+    # Proxmox/PMG commonly use legacy even when `iptables` resolves to the nft
+    # shim), and `iptables-save` dumps all tables (filter/nat/mangle/raw) where
+    # custom chains like Docker's or PVEFW-* live. We try -save AND the plain
+    # `-S` list for both backends — crucially falling back to `-S` when `-save`
+    # is present but errors (the v3.13.0 regression that reported "unknown"),
+    # and take the MAX rule count across whatever was readable.
     ipt_present = False
     ipt_rules = 0
     ipt_policy = ''
     ipt_readable = False
-    for save_bin, list_bin in (('iptables-save', 'iptables'),
-                               ('iptables-legacy-save', 'iptables-legacy')):
-        sb, lb = _which(save_bin), _which(list_bin)
-        if sb:
-            rc, txt, _ = _run([sb])
-        elif lb:
-            rc, txt, _ = _run([lb, '-S'])
-        else:
+    for binname, arg in (('iptables-save', None), ('iptables', '-S'),
+                         ('iptables-legacy-save', None), ('iptables-legacy', '-S')):
+        b = _which(binname)
+        if not b:
             continue
         ipt_present = True
+        rc, txt, _ = _run([b] if arg is None else [b, arg])
         if _unreadable(rc, txt) or not txt.strip():
             continue
         ipt_readable = True
+        n, pol = 0, ''
         for l in txt.splitlines():
             ls = l.strip()
             if ls.startswith('-A '):
-                ipt_rules += 1
-            elif ls.startswith(':INPUT ') and not ipt_policy:      # save form
-                p = ls.split();  ipt_policy = p[1] if len(p) >= 2 else ''
-            elif ls.startswith('-P INPUT ') and not ipt_policy:    # -S form
-                p = ls.split();  ipt_policy = p[2] if len(p) >= 3 else ''
+                n += 1
+            elif ls.startswith(':INPUT ') and not pol:      # save form
+                p = ls.split();  pol = p[1] if len(p) >= 2 else ''
+            elif ls.startswith('-P INPUT ') and not pol:    # -S form
+                p = ls.split();  pol = p[2] if len(p) >= 3 else ''
+        if n > ipt_rules:
+            ipt_rules = n
+        if pol and (not ipt_policy or ipt_policy == 'ACCEPT'):
+            ipt_policy = pol
     if ipt_present:
         b = {'name': 'iptables', 'present': True, 'rules': ipt_rules}
         if ipt_policy:
@@ -3472,6 +3516,12 @@ def get_metrics():
     except Exception:
         out['cpu_count'] = 1
 
+    # v3.13.0: total RAM (MB) for the CMDB Hardware panel.
+    try:
+        out['mem_total_mb'] = round(_psutil.virtual_memory().total / (1024 ** 2))
+    except Exception:
+        pass
+
     # Per-mount usage. Filter to "interesting" filesystems: skip
     # tmpfs, devtmpfs, squashfs (snap mounts), overlay (containers).
     # Include ext*, xfs, btrfs, zfs, AND network shares (NFS/SMB/CIFS) —
@@ -3493,6 +3543,8 @@ def get_metrics():
                     'nsfs', 'tracefs', 'securityfs'}
     mounts = []
     seen_mp = set()
+    seen_dev = set()        # for disk-total dedupe by block device
+    local_total_gb = 0.0    # total LOCAL disk, counting each device once
     try:
         for part in _psutil.disk_partitions(all=True):
             fstype = part.fstype or ''
@@ -3528,6 +3580,14 @@ def get_metrics():
             if is_net:
                 entry['network'] = True
                 entry['server'] = (part.device or '')[:128]   # e.g. 1.2.3.4:/export
+            else:
+                # Count each local block device once toward the disk total —
+                # btrfs subvolumes share one device (don't multi-count), while
+                # separate LVM volumes are distinct devices (count each).
+                dev = part.device or mp
+                if dev not in seen_dev and u.total > 0:
+                    seen_dev.add(dev)
+                    local_total_gb += u.total / (1024 ** 3)
             mounts.append(entry)
     except Exception:
         pass
@@ -3536,6 +3596,11 @@ def get_metrics():
     # data filesystems and network shares come before transient bind mounts.
     mounts.sort(key=lambda m: (not m.get('network', False) and m['path'] != '/', m['path']))
     out['mounts'] = mounts[:60]
+    # v3.13.0: total LOCAL disk (GB) for the CMDB Hardware panel — accumulated
+    # above, deduped by block device (btrfs subvolumes collapse to one; LVM
+    # volumes count individually; network shares excluded).
+    if local_total_gb > 0:
+        out['disk_total_gb'] = round(local_total_gb, 1)
 
     # v3.12.0: mount-point health — fstab entries that aren't mounted
     # ("missing"), and mounted network shares that don't respond ("stalled",
@@ -5247,6 +5312,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             sysinfo = {
                 'uptime':   get_uptime(),
                 'platform': platform.platform(),
+                'kernel':   platform.release(),     # v3.13.0: CMDB Hardware panel
+                'cpu':      _cpu_model(),            # v3.13.0: CPU model string
                 'packages': cached_patch,
                 'network':  get_network_info(),
             }

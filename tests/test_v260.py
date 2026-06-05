@@ -224,7 +224,7 @@ class TestHeartbeatWiring(unittest.TestCase):
     def setUpClass(cls):
         api = (_ROOT / 'server/cgi-bin/api.py').read_text()
         idx = api.find('def handle_heartbeat(')
-        cls.hb = api[idx: idx + 52000]   # widened as handle_heartbeat grew (firewall posture)
+        cls.hb = api[idx: idx + 53000]   # widened as handle_heartbeat grew (v3.13.0 CMDB hardware fields)
 
     def test_desired_pushed_in_response(self):
         self.assertIn('host_config_desired', self.hb)

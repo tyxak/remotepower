@@ -7791,6 +7791,19 @@ def handle_heartbeat():
             cc = si.get('cpu_count')
             if isinstance(cc, int) and 1 <= cc <= 1024:
                 safe_si['cpu_count'] = cc
+            # v3.13.0: hardware identity for the CMDB Hardware panel — CPU model,
+            # kernel release, total RAM and total local disk (the panel showed
+            # only Cores before because the agent never reported the rest).
+            if 'cpu' in si:
+                safe_si['cpu'] = _sanitize_str(si['cpu'], 128)
+            if 'kernel' in si:
+                safe_si['kernel'] = _sanitize_str(si['kernel'], 128)
+            mt = si.get('mem_total_mb')
+            if isinstance(mt, (int, float)) and 0 < mt <= 100 * 1024 * 1024:
+                safe_si['mem_total_mb'] = int(mt)
+            dt = si.get('disk_total_gb')
+            if isinstance(dt, (int, float)) and 0 < dt <= 10 * 1024 * 1024:
+                safe_si['disk_total_gb'] = round(float(dt), 1)
             # mounts: bounded list, each with sanitised path, percent, sizes.
             # v3.13.0: network shares (NFS/SMB/CIFS) carry network/server flags,
             # and a stalled net share has no usable percent — keep it anyway so

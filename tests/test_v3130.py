@@ -214,11 +214,75 @@ class TestFirewallDetection(unittest.TestCase):
         self.assertIn("iptables-save", self.agent)
         self.assertIn("iptables-legacy-save", self.agent)
 
+    def test_falls_back_to_list_command(self):
+        # The v3.13.0 regression: a present-but-failing iptables-save suppressed
+        # the working `iptables -S`. The probe must try the plain list too.
+        self.assertIn("('iptables', '-S')", self.agent)
+        self.assertIn("('iptables-legacy', '-S')", self.agent)
+
+    def test_which_searches_sbin(self):
+        # Firewall tools live in /usr/sbin; a minimal service PATH omits it.
+        self.assertIn("/usr/sbin", self.agent)
+        self.assertIn("/sbin", self.agent)
+
     def test_nft_counts_by_handle(self):
         self.assertIn("# handle ", self.agent)
 
     def test_detects_firewalld(self):
         self.assertIn("firewall-cmd", self.agent)
+
+
+class TestCmdbHardwareFields(unittest.TestCase):
+    """Agent reports CPU model / kernel / RAM / disk total; server passes them."""
+
+    def setUp(self):
+        self.agent_mod = self._load_agent()
+        self.api_src = (_CGI_BIN / "api.py").read_text()
+        self.js = client_js()
+
+    @staticmethod
+    def _load_agent():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rpa_hw", _ROOT / "client/remotepower-agent.py")
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except SystemExit:
+            pass
+        return mod
+
+    def test_cpu_model_skips_numeric_model_line(self):
+        # /proc/cpuinfo has both `model : 33` (numeric) and `model name : ...`.
+        # _cpu_model must return the human-readable name, never the bare number.
+        m = self.agent_mod._cpu_model()
+        self.assertIsInstance(m, str)
+        self.assertFalse(m.isdigit(), f"_cpu_model returned a bare number: {m!r}")
+
+    def test_metrics_report_hardware(self):
+        if not getattr(self.agent_mod, '_PSUTIL', None):
+            self.skipTest('psutil not available in this environment')
+        met = self.agent_mod.get_metrics()
+        self.assertIn('mem_total_mb', met)
+        self.assertGreater(met['mem_total_mb'], 0)
+        if 'disk_total_gb' in met:
+            self.assertGreater(met['disk_total_gb'], 0)
+
+    def test_metrics_source_has_hardware(self):
+        # Source-level guarantee independent of psutil availability.
+        src = (_ROOT / "client/remotepower-agent.py").read_text()
+        self.assertIn("out['mem_total_mb']", src)
+        self.assertIn("out['disk_total_gb']", src)
+        self.assertIn("'kernel':   platform.release()", src)
+
+    def test_server_passes_hardware_fields(self):
+        for f in ("safe_si['cpu']", "safe_si['kernel']",
+                  "safe_si['mem_total_mb']", "safe_si['disk_total_gb']"):
+            self.assertIn(f, self.api_src)
+
+    def test_frontend_reads_hardware_fields(self):
+        # The CMDB Hardware panel reads these keys.
+        for key in ('mem_total_mb', 'disk_total_gb', 'si.kernel', 'si.cpu'):
+            self.assertIn(key, self.js)
 
     def test_collect_runs(self):
         # Import the agent and run the collector — must not raise even where

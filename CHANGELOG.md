@@ -62,13 +62,19 @@ already being reported and stored.
   closing the rebinding window the HTTP path already guarded.
 
 ### Fixed
-- **Host firewall detection.** On hosts where the active ruleset lives in the
-  *legacy* iptables backend or in non-filter tables (common on Proxmox / PMG with
-  `PVEFW-*` chains), the agent read 0 rules from a single `iptables -S` and wrongly
-  reported the host as having no firewall. It now scans every table via
-  `iptables-save`, probes both the nft and legacy backends, counts nftables rules
-  by handle, and detects firewalld — so an active firewall is no longer mislabeled
-  inactive.
+- **Host firewall detection (round two).** Beyond scanning all tables + both
+  backends + firewalld, the probe now (a) **falls back to `iptables -S`** when
+  `iptables-save` is present but errors — the earlier change regressed such hosts
+  to "unknown" — taking the max rule count across every readable variant, and
+  (b) `_which` now searches `/usr/sbin` and `/sbin`, since a minimal systemd
+  service PATH omits them and firewall tools live there (another "unknown" cause).
+- **CMDB Hardware panel was empty.** The panel expected `cpu` (model),
+  `mem_total_mb`, `disk_total_gb` and `kernel`, but the agent never reported them
+  (only `cpu_count`). The agent now sends all four (CPU model from
+  `/proc/cpuinfo`, total RAM, total **local** disk deduped by block device so
+  btrfs subvolumes don't multi-count, and the kernel release), and the server
+  passes them through. CPU-model parsing matches the exact `model name` field so
+  the numeric `model :` line isn't shown instead.
 - Purely numeric device tags now highlight correctly when selected.
 - `escHtml` now also escapes single quotes (matches the other escape helpers).
 - The update banner's release-notes link is scheme-validated before render.
