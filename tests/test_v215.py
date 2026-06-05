@@ -148,6 +148,10 @@ class TestHtmlIdReferences(unittest.TestCase):
         'ros-fw-body', 'ros-qos-body',
         # v3.4.0: OPNsense firewall body, rendered into the audit card.
         'opn-fw-body',
+        # v3.13.0: drift-profile + assign modals, created via createElement in
+        # _ensureDriftProfileModal() / _ensureDriftAssignModal().
+        'drift-profile-modal', 'drift-profile-title',
+        'drift-assign-modal', 'drift-assign-title',
     }
 
     def test_modal_title_body_ids_all_exist_in_html(self):

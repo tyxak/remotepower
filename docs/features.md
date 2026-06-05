@@ -101,6 +101,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Port bind address + scope (drawer)** | The listening-ports card shows each socket's bind address and a world / LAN / local badge, matching the Exposure page (v3.13.0) |
 | **Firewall ruleset fingerprint (drawer)** | The firewall card shows the active backend, rule count and fingerprint — the drift baseline the `firewall_changed` alert compares against (v3.13.0) |
 | **Brute-force lockout badge** | Active brute-force sources show as a badge on the device card; Disk/Swap pressure pills added to the drawer (v3.13.0) |
+| **Named drift profiles** | Reusable named sets of watched config files, created/edited/deleted on the Drift page and assigned to a device / tag / group; precedence device-override > profile (device > tag > group) > global default. `GET/POST /api/drift/profiles`, `POST /api/drift/assign` (v3.13.0) |
 
 ### Custom monitoring scripts *(v2.5.0)*
 

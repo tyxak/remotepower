@@ -19845,11 +19845,53 @@ def handle_force_package_scan(dev_id):
                              'fresh inventory within the next minute or two.'})
 
 
+def _resolve_drift_profile_files(dev_id, dev, drift_cfg):
+    """v3.13.0: resolve an assigned drift profile to its watched-file list.
+
+    A profile is a named, reusable set of watched files
+    (``drift_cfg['profiles']``). Assignments (``drift_cfg['assignments']``) map a
+    profile onto a device, tag, or group. Precedence within profiles:
+    device assignment > tag assignment > group assignment. Returns the file list
+    or None if no profile applies."""
+    profiles = {p['id']: p for p in (drift_cfg.get('profiles') or [])
+                if isinstance(p, dict) and p.get('id')}
+    if not profiles:
+        return None
+    by_device, by_tag, by_group = {}, {}, {}
+    for a in (drift_cfg.get('assignments') or []):
+        if not isinstance(a, dict):
+            continue
+        pid = a.get('profile_id')
+        if pid not in profiles:
+            continue
+        t, v = a.get('scope_type'), a.get('scope_value')
+        if t == 'device':
+            by_device[v] = pid
+        elif t == 'tag':
+            by_tag[v] = pid
+        elif t == 'group':
+            by_group[v] = pid
+    pid = by_device.get(dev_id)
+    if not pid:
+        for tg in (dev.get('tags') or []):
+            if tg in by_tag:
+                pid = by_tag[tg]
+                break
+    if not pid:
+        g = dev.get('group')
+        if g and g in by_group:
+            pid = by_group[g]
+    if pid and pid in profiles and isinstance(profiles[pid].get('files'), list):
+        return list(profiles[pid]['files'])
+    return None
+
+
 def get_watched_files_for(dev_id, devices=None):
     """Return the list of files this device should watch.
 
-    Defaults from config / DEFAULT_WATCHED_FILES, with optional per-device
-    overrides in devices[dev_id].watched_files.
+    Precedence: an explicit per-device ``watched_files`` override (set manually
+    from the device drawer) wins; else an assigned drift profile (v3.13.0); else
+    the global default (``drift.default_watched_files`` / DEFAULT_WATCHED_FILES).
     """
     cfg = _config()
     drift_cfg = cfg.get('drift') or {}
@@ -19860,8 +19902,12 @@ def get_watched_files_for(dev_id, devices=None):
         devices = load(DEVICES_FILE)
     dev = devices.get(dev_id) if isinstance(devices, dict) else None
     if dev and isinstance(dev.get('watched_files'), list):
-        # Per-device override completely replaces defaults
+        # Explicit per-device override completely replaces everything else.
         return list(dev['watched_files'])
+    if dev:
+        prof = _resolve_drift_profile_files(dev_id, dev, drift_cfg)
+        if prof is not None:
+            return prof
     return list(defaults)
 
 
@@ -19994,6 +20040,126 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
                 })
             except Exception as e:
                 sys.stderr.write(f"[remotepower] drift webhook failed: {e}\n")
+
+
+# ── v3.13.0: named drift profiles (reusable watched-file sets) ───────────────
+# A profile is {id, name, files:[paths], created, updated}. Assignments map a
+# profile onto a device / tag / group ({scope_type, scope_value, profile_id}).
+# get_watched_files_for() resolves them (device override > profile > default).
+def _validate_drift_files(raw):
+    """Sanitise a watched-files list: absolute paths, ≤512 chars, ≤50 entries,
+    deduped, order preserved."""
+    files, seen = [], set()
+    if isinstance(raw, list):
+        for p in raw[:80]:
+            s = str(p).strip()
+            if s.startswith('/') and len(s) <= 512 and s not in seen:
+                seen.add(s)
+                files.append(s)
+    return files[:50]
+
+
+def handle_drift_profiles():
+    """GET  /api/drift/profiles — list profiles + assignments.
+       POST /api/drift/profiles — create {name, files:[...]} (admin)."""
+    m = method()
+    if m == 'GET':
+        require_auth()
+        drift_cfg = (load(CONFIG_FILE) or {}).get('drift') or {}
+        respond(200, {'profiles': drift_cfg.get('profiles') or [],
+                      'assignments': drift_cfg.get('assignments') or []})
+    if m == 'POST':
+        actor = require_admin_auth()
+        body = get_json_body()
+        name = _sanitize_str((body or {}).get('name', ''), 80).strip()
+        if not name:
+            respond(400, {'error': 'name is required'})
+        files = _validate_drift_files((body or {}).get('files'))
+        pid = 'dp_' + secrets.token_urlsafe(8)
+        now = int(time.time())
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            dr = cfg.setdefault('drift', {})
+            profs = dr.setdefault('profiles', [])
+            if any(isinstance(p, dict) and p.get('name', '').lower() == name.lower()
+                   for p in profs):
+                respond(409, {'error': 'a profile with that name already exists'})
+            if len(profs) >= 100:
+                respond(400, {'error': 'too many drift profiles (max 100)'})
+            profs.append({'id': pid, 'name': name, 'files': files,
+                          'created': now, 'updated': now})
+        audit_log(actor, 'drift_profile_create', f'{name} ({len(files)} files)')
+        respond(201, {'ok': True, 'id': pid})
+    respond(405, {'error': 'method not allowed'})
+
+
+def handle_drift_profile_edit(pid):
+    """PUT    /api/drift/profiles/<id> — update {name?, files?} (admin).
+       DELETE /api/drift/profiles/<id> — delete the profile + its assignments."""
+    actor = require_admin_auth()
+    m = method()
+    if m == 'PUT':
+        body = get_json_body() or {}
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            dr = cfg.setdefault('drift', {})
+            profs = dr.setdefault('profiles', [])
+            prof = next((p for p in profs if isinstance(p, dict) and p.get('id') == pid), None)
+            if not prof:
+                respond(404, {'error': 'profile not found'})
+            if 'name' in body:
+                nm = _sanitize_str(body.get('name', ''), 80).strip()
+                if not nm:
+                    respond(400, {'error': 'name cannot be empty'})
+                if any(isinstance(p, dict) and p.get('id') != pid
+                       and p.get('name', '').lower() == nm.lower() for p in profs):
+                    respond(409, {'error': 'a profile with that name already exists'})
+                prof['name'] = nm
+            if 'files' in body:
+                prof['files'] = _validate_drift_files(body.get('files'))
+            prof['updated'] = int(time.time())
+            nfiles = len(prof.get('files') or [])
+        audit_log(actor, 'drift_profile_edit', f'{pid} ({nfiles} files)')
+        respond(200, {'ok': True})
+    if m == 'DELETE':
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            dr = cfg.setdefault('drift', {})
+            profs = dr.get('profiles') or []
+            if not any(isinstance(p, dict) and p.get('id') == pid for p in profs):
+                respond(404, {'error': 'profile not found'})
+            dr['profiles'] = [p for p in profs
+                              if not (isinstance(p, dict) and p.get('id') == pid)]
+            # Drop any assignments that referenced it.
+            dr['assignments'] = [a for a in (dr.get('assignments') or [])
+                                 if not (isinstance(a, dict) and a.get('profile_id') == pid)]
+        audit_log(actor, 'drift_profile_delete', pid)
+        respond(200, {'ok': True})
+    respond(405, {'error': 'method not allowed'})
+
+
+def handle_drift_assign():
+    """POST /api/drift/assign — assign/unassign a profile to a scope (admin).
+    Body: {scope_type: device|tag|group, scope_value, profile_id|null}. A null
+    profile_id clears the assignment for that scope."""
+    actor = require_admin_auth()
+    body = get_json_body() or {}
+    st = _sanitize_str(body.get('scope_type', ''), 16)
+    sv = _sanitize_str(body.get('scope_value', ''), 128).strip()
+    pid = body.get('profile_id')
+    if st not in ('device', 'tag', 'group') or not sv:
+        respond(400, {'error': 'scope_type (device|tag|group) and scope_value required'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        dr = cfg.setdefault('drift', {})
+        assigns = [a for a in (dr.get('assignments') or [])
+                   if not (isinstance(a, dict) and a.get('scope_type') == st
+                           and a.get('scope_value') == sv)]
+        if pid:
+            if not any(isinstance(p, dict) and p.get('id') == pid
+                       for p in (dr.get('profiles') or [])):
+                respond(404, {'error': 'profile not found'})
+            assigns.append({'scope_type': st, 'scope_value': sv, 'profile_id': pid})
+        dr['assignments'] = assigns
+    audit_log(actor, 'drift_profile_assign',
+              f'{st}:{sv} -> {pid or "(cleared)"}')
+    respond(200, {'ok': True})
 
 
 def handle_drift_overview():
@@ -30995,6 +31161,9 @@ def _build_exact_routes():
         ('GET', '/api/digest'): handle_digest,
         ('GET', '/api/discovery'): handle_discovery,
         ('GET', '/api/drift'): handle_drift_overview,
+        ('GET', '/api/drift/profiles'): handle_drift_profiles,
+        ('POST', '/api/drift/profiles'): handle_drift_profiles,
+        ('POST', '/api/drift/assign'): handle_drift_assign,
         ('GET', '/api/forecast'): handle_forecast,
         (None, '/api/enroll/pin'): handle_enroll_pin,
         ('GET', '/api/enrollment-tokens'): handle_enroll_token_list,
@@ -31418,6 +31587,9 @@ def _dispatch(pi, m):
     # v2.3.4: per-file drift ignore toggle
     elif pi.startswith('/api/devices/') and pi.endswith('/drift/ignore') and m == 'POST':
         handle_drift_ignore(pi[len('/api/devices/'):-len('/drift/ignore')])
+    # v3.13.0: named drift profiles (edit / delete)
+    elif pi.startswith('/api/drift/profiles/') and m in ('PUT', 'DELETE'):
+        handle_drift_profile_edit(pi[len('/api/drift/profiles/'):])
     # v2.4.3: mailbox-count monitor config (paths + dashboard promotion)
     elif pi.startswith('/api/devices/') and pi.endswith('/mailwatch') and m == 'POST':
         handle_mailwatch_set(pi[len('/api/devices/'):-len('/mailwatch')])

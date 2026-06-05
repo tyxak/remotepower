@@ -25,6 +25,12 @@ already being reported and stored.
   count and fingerprint (the *firewall changed* drift baseline).
 - **Brute-force lockout badge** on device cards, plus **Disk** and **Swap**
   pressure pills in the drawer.
+- **Named drift profiles.** Reusable, named sets of watched config files,
+  managed from the **Drift** page (create / edit / delete) and assignable to a
+  device, tag, or group (`GET/POST /api/drift/profiles`,
+  `PUT/DELETE /api/drift/profiles/<id>`, `POST /api/drift/assign`). Resolution
+  precedence: an explicit per-device file list (set in the device drawer) wins,
+  then an assigned profile (device > tag > group), then the global default.
 
 ### Changed
 - **Every box fits — project-wide.** Beyond the drawer cards, *every* table card

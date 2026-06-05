@@ -44,6 +44,26 @@ configs) are *not* in the default list.
 list to replace the global default for that device. The agent picks
 up the new list on its next heartbeat.
 
+**Drift profiles** *(v3.13.0)* — reusable, named sets of watched
+files, managed from the **Drift** page (the *Drift profiles* panel:
+create, edit, delete). Assign a profile to a **device**, **tag**, or
+**group** and every matching host monitors that set — no need to edit
+each device individually.
+
+Resolution precedence for a device's watched list:
+
+1. an **explicit per-device** `watched_files` list (set in the device
+   drawer) — always wins;
+2. an **assigned profile** — device assignment, then tag, then group;
+3. the **global default** above.
+
+Endpoints: `GET`/`POST /api/drift/profiles`,
+`PUT`/`DELETE /api/drift/profiles/<id>`, and `POST /api/drift/assign`
+(`{scope_type: device|tag|group, scope_value, profile_id}`; a null
+`profile_id` clears the assignment). Profiles and assignments live
+under `cfg['drift']['profiles']` / `['assignments']`. Admin-only to
+mutate; changes take effect on each device's next heartbeat.
+
 ## How it works
 
 1. On every poll, the server hands the agent the current

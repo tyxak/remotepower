@@ -234,6 +234,79 @@ class TestFirewallDetection(unittest.TestCase):
         self.assertTrue(res is None or isinstance(res, dict))
 
 
+class TestDriftProfiles(unittest.TestCase):
+    """Named drift profiles: routes, resolution precedence, frontend wiring."""
+
+    def setUp(self):
+        self.api_src = (_CGI_BIN / "api.py").read_text()
+        self.js = client_js()
+
+    def test_routes_registered(self):
+        routes = api._build_exact_routes()
+        self.assertIn(('GET', '/api/drift/profiles'), routes)
+        self.assertIn(('POST', '/api/drift/profiles'), routes)
+        self.assertIn(('POST', '/api/drift/assign'), routes)
+
+    def test_handlers_exist(self):
+        for fn in ('handle_drift_profiles', 'handle_drift_profile_edit',
+                   'handle_drift_assign', '_resolve_drift_profile_files'):
+            self.assertTrue(callable(getattr(api, fn, None)), fn)
+
+    def test_resolution_precedence(self):
+        # device assignment beats tag beats group.
+        drift_cfg = {
+            'profiles': [
+                {'id': 'pg', 'name': 'g', 'files': ['/g']},
+                {'id': 'pt', 'name': 't', 'files': ['/t']},
+                {'id': 'pd', 'name': 'd', 'files': ['/d']},
+            ],
+            'assignments': [
+                {'scope_type': 'group', 'scope_value': 'web', 'profile_id': 'pg'},
+                {'scope_type': 'tag', 'scope_value': 'db', 'profile_id': 'pt'},
+                {'scope_type': 'device', 'scope_value': 'dev1', 'profile_id': 'pd'},
+            ],
+        }
+        # group only (no matching tag) -> group profile
+        self.assertEqual(
+            api._resolve_drift_profile_files('x', {'group': 'web'}, drift_cfg), ['/g'])
+        # tag wins over group when both match
+        self.assertEqual(
+            api._resolve_drift_profile_files('x', {'group': 'web', 'tags': ['db']}, drift_cfg), ['/t'])
+        # device assignment wins over tag and group
+        self.assertEqual(
+            api._resolve_drift_profile_files('dev1', {'group': 'web', 'tags': ['db']}, drift_cfg), ['/d'])
+        # no match -> None (falls back to default upstream)
+        self.assertIsNone(
+            api._resolve_drift_profile_files('z', {'group': 'none'}, drift_cfg))
+
+    def test_get_watched_files_uses_profile_and_override(self):
+        api.save(api.CONFIG_FILE, {'drift': {
+            'enabled': True,
+            'default_watched_files': ['/default'],
+            'profiles': [{'id': 'p1', 'name': 'p', 'files': ['/profile']}],
+            'assignments': [{'scope_type': 'group', 'scope_value': 'g1', 'profile_id': 'p1'}],
+        }})
+        api.save(api.DEVICES_FILE, {
+            'd_default': {'name': 'a'},                       # no group -> default
+            'd_profile': {'name': 'b', 'group': 'g1'},        # group -> profile
+            'd_manual':  {'name': 'c', 'group': 'g1',
+                          'watched_files': ['/manual']},      # explicit override
+        })
+        self.assertEqual(api.get_watched_files_for('d_default'), ['/default'])
+        self.assertEqual(api.get_watched_files_for('d_profile'), ['/profile'])
+        self.assertEqual(api.get_watched_files_for('d_manual'), ['/manual'])
+
+    def test_validate_drift_files(self):
+        out = api._validate_drift_files(['/etc/a', 'relative', '/etc/a', '  /etc/b  '])
+        self.assertEqual(out, ['/etc/a', '/etc/b'])   # abs-only, deduped, trimmed
+
+    def test_frontend_management_functions(self):
+        for fn in ('loadDriftProfiles', 'openDriftProfileModal', 'saveDriftProfile',
+                   'deleteDriftProfile', 'openDriftAssignModal', 'assignDriftProfile',
+                   'unassignDriftProfile'):
+            self.assertIn(f'function {fn}', self.js)
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored

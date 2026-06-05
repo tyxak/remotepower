@@ -2092,6 +2092,7 @@
                 <li><strong>Listening ports gain Address &amp; Scope.</strong> The drawer Ports card now shows the bind address and a world / LAN / local badge for each socket, so you can see that <code>:22</code> is bound <code>0.0.0.0</code> right where you're inspecting the host.</li>
                 <li><strong>Firewall ruleset summary.</strong> The Firewall card shows the active backend, rule count and fingerprint (the drift baseline the <em>firewall changed</em> alert compares against).</li>
                 <li><strong>Brute-force lockouts &amp; pressure pills.</strong> Active brute-force sources now show as a badge on the device card, and the drawer adds at-a-glance <em>Disk</em> and <em>Swap</em> pills.</li>
+                <li><strong>Named drift profiles.</strong> Reusable sets of watched config files, managed on the <strong>Drift</strong> page and assigned to a device, tag, or group — instead of editing each host's watched-file list by hand. A device's own explicit list still overrides any profile.</li>
               </ul>
               <h4>Every box now fits</h4>
               <ul>
@@ -4497,6 +4498,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="loadDrift" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" id="drift-filter" class="form-input isl-177" placeholder="Filter by device name…">
           <span id="drift-summary" class="isl-100"></span>
+        </div>
+        <!-- v3.13.0: named, reusable drift profiles (watched-file sets) -->
+        <div class="table-card card-padded" id="drift-profiles-card">
+          <div class="drift-prof-head">
+            <div class="section-title">Drift profiles</div>
+            <button class="btn-secondary fs-12" data-action="openDriftProfileModal">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New profile
+            </button>
+          </div>
+          <p class="hint">Reusable named sets of watched files. Assign a profile to a device, tag, or group and every matching host monitors that set. A device's own explicit file list (set in its drawer) still overrides any profile; an unassigned host falls back to the global default.</p>
+          <div id="drift-profiles-body"><div class="c-muted">Loading…</div></div>
         </div>
         <div class="table-card">
           <table class="data-table w-full">

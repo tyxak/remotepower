@@ -3008,6 +3008,7 @@ const _DYK_TIPS = [
   "A device drawer's Scheduled jobs / timers card shows every systemd timer failed-first, so a broken backup or cleanup job is obvious without SSHing in.",
   "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
+  "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
   "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
   "Set a Software Policy rule (banned / required / min-version) and RemotePower checks it against every host's installed packages — e.g. 'fail2ban required, telnetd banned'.",
   "The Storage page tracks ZFS / mdadm / btrfs pool health fleet-wide; a degraded array or an overdue scrub raises an alert.",
@@ -9315,10 +9316,170 @@ let _lastOpenDeviceName = '';
 let _driftLastResponse = null;
 let _driftDeviceModal = null;
 
+// ── v3.13.0: named drift profiles (reusable watched-file sets) ──────────────
+let _driftProfiles = [];
+let _driftAssignments = [];
+
+async function loadDriftProfiles() {
+  const body = document.getElementById('drift-profiles-body');
+  if (!body) return;
+  const data = await api('GET', '/drift/profiles').catch(() => null);
+  if (!data) { body.innerHTML = '<div class="c-muted">Failed to load profiles.</div>'; return; }
+  _driftProfiles = data.profiles || [];
+  _driftAssignments = data.assignments || [];
+  if (!_driftProfiles.length) {
+    body.innerHTML = '<div class="c-muted fs-13">No drift profiles yet. Create one to apply a reusable watched-file set to a device, tag, or group.</div>';
+    return;
+  }
+  const scopeChip = (a) => `<span class="tag-pill">${escHtml(a.scope_type)}: ${escHtml(a.scope_value)}` +
+    `<button class="tag-x" title="Unassign" data-action="unassignDriftProfile" data-arg="${escAttr(a.scope_type)}" data-arg2="${escAttr(a.scope_value)}">×</button></span>`;
+  body.innerHTML = _driftProfiles.map(p => {
+    const files = p.files || [];
+    const preview = files.slice(0, 4).map(f => escHtml(f)).join(', ') + (files.length > 4 ? ` +${files.length - 4} more` : '');
+    const assigns = _driftAssignments.filter(a => a.profile_id === p.id);
+    return `<div class="drift-prof-item">
+      <div class="drift-prof-row">
+        <div><strong>${escHtml(p.name)}</strong> <span class="hint">${files.length} file${files.length === 1 ? '' : 's'}</span></div>
+        <div class="drift-prof-actions">
+          <button class="btn-icon cell-sm" data-action="openDriftAssignModal" data-arg="${escAttr(p.id)}">Assign</button>
+          <button class="btn-icon cell-sm" data-action="openDriftProfileModal" data-arg="${escAttr(p.id)}">Edit</button>
+          <button class="btn-icon cell-sm c-red" data-action="deleteDriftProfile" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}">Delete</button>
+        </div>
+      </div>
+      <div class="hint drift-prof-files">${preview || '<em>no files</em>'}</div>
+      ${assigns.length ? `<div class="drift-prof-assigns">${assigns.map(scopeChip).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function _ensureDriftProfileModal() {
+  if (document.getElementById('drift-profile-modal')) return;
+  const m = document.createElement('div');
+  m.id = 'drift-profile-modal';
+  m.className = 'modal-overlay';
+  m.innerHTML = `<div class="modal">
+    <div class="modal-title" id="drift-profile-title">New drift profile</div>
+    <input type="hidden" id="drift-profile-id">
+    <div class="form-group"><label class="form-label">Name</label>
+      <input id="drift-profile-name" class="form-input" placeholder="e.g. web-server set" maxlength="80"></div>
+    <div class="form-group"><label class="form-label">Watched files — one absolute path per line</label>
+      <textarea id="drift-profile-files" class="form-textarea" rows="10" placeholder="/etc/nginx/nginx.conf&#10;/etc/ssh/sshd_config"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-action="closeModal" data-arg="drift-profile-modal">Cancel</button>
+      <button class="btn-primary" data-action="saveDriftProfile">Save profile</button>
+    </div></div>`;
+  document.body.appendChild(m);
+}
+
+function openDriftProfileModal(pid) {
+  _ensureDriftProfileModal();
+  const prof = pid ? _driftProfiles.find(p => p.id === pid) : null;
+  document.getElementById('drift-profile-title').textContent = prof ? `Edit profile — ${prof.name}` : 'New drift profile';
+  document.getElementById('drift-profile-id').value = prof ? prof.id : '';
+  document.getElementById('drift-profile-name').value = prof ? prof.name : '';
+  document.getElementById('drift-profile-files').value = prof ? (prof.files || []).join('\n') : '';
+  openModal('drift-profile-modal');
+}
+
+async function saveDriftProfile() {
+  const id = document.getElementById('drift-profile-id').value;
+  const name = document.getElementById('drift-profile-name').value.trim();
+  const files = document.getElementById('drift-profile-files').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  if (!name) { toast('Name is required', 'error'); return; }
+  const r = id
+    ? await api('PUT', `/drift/profiles/${encodeURIComponent(id)}`, {name, files})
+    : await api('POST', '/drift/profiles', {name, files});
+  if (!r || r.error) { toast('Save failed: ' + (r?.error || 'unknown'), 'error'); return; }
+  closeModal('drift-profile-modal');
+  toast(id ? 'Profile updated' : 'Profile created', 'success');
+  loadDriftProfiles();
+}
+
+async function deleteDriftProfile(pid, name) {
+  if (!confirm(`Delete drift profile "${name}"? Devices assigned to it fall back to their group/global watched-file set.`)) return;
+  const r = await api('DELETE', `/drift/profiles/${encodeURIComponent(pid)}`);
+  if (!r || r.error) { toast('Delete failed: ' + (r?.error || 'unknown'), 'error'); return; }
+  toast('Profile deleted', 'success');
+  loadDriftProfiles();
+}
+
+function _ensureDriftAssignModal() {
+  if (document.getElementById('drift-assign-modal')) return;
+  const m = document.createElement('div');
+  m.id = 'drift-assign-modal';
+  m.className = 'modal-overlay';
+  m.innerHTML = `<div class="modal">
+    <div class="modal-title" id="drift-assign-title">Assign profile</div>
+    <input type="hidden" id="drift-assign-pid">
+    <div class="form-group"><label class="form-label">Apply to</label>
+      <select id="drift-assign-type" class="form-input">
+        <option value="device">Device</option>
+        <option value="group">Group</option>
+        <option value="tag">Tag</option>
+      </select></div>
+    <div class="form-group"><label class="form-label">Name / value</label>
+      <input id="drift-assign-value" class="form-input" list="drift-assign-options" placeholder="group / tag name, or device id">
+      <datalist id="drift-assign-options"></datalist></div>
+    <p class="hint">An explicit per-device file list (set in the device drawer) always overrides a profile.</p>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-action="closeModal" data-arg="drift-assign-modal">Cancel</button>
+      <button class="btn-primary" data-action="assignDriftProfile">Assign</button>
+    </div></div>`;
+  document.body.appendChild(m);
+}
+
+async function openDriftAssignModal(pid) {
+  _ensureDriftAssignModal();
+  const prof = _driftProfiles.find(p => p.id === pid);
+  document.getElementById('drift-assign-title').textContent = prof ? `Assign “${prof.name}”` : 'Assign profile';
+  document.getElementById('drift-assign-pid').value = pid;
+  document.getElementById('drift-assign-value').value = '';
+  // Populate suggestions from the fleet (groups, tags, device names/ids).
+  const devs = await api('GET', '/devices?slim=1').catch(() => null) || [];
+  const groups = [...new Set(devs.map(d => d.group).filter(Boolean))];
+  const tags = [...new Set(devs.flatMap(d => d.tags || []))];
+  window._driftAssignDevices = devs;
+  const dl = document.getElementById('drift-assign-options');
+  const typeSel = document.getElementById('drift-assign-type');
+  const fill = () => {
+    const t = typeSel.value;
+    const opts = t === 'group' ? groups : t === 'tag' ? tags
+      : devs.map(d => `${d.id}`);
+    const labels = t === 'device'
+      ? devs.map(d => `<option value="${escAttr(d.id)}">${escAttr(d.name || d.id)}</option>`)
+      : opts.map(o => `<option value="${escAttr(o)}">`);
+    dl.innerHTML = labels.join('');
+  };
+  typeSel.onchange = fill;
+  fill();
+  openModal('drift-assign-modal');
+}
+
+async function assignDriftProfile() {
+  const pid = document.getElementById('drift-assign-pid').value;
+  const scope_type = document.getElementById('drift-assign-type').value;
+  const scope_value = document.getElementById('drift-assign-value').value.trim();
+  if (!scope_value) { toast('Enter a device, group, or tag', 'error'); return; }
+  const r = await api('POST', '/drift/assign', {scope_type, scope_value, profile_id: pid});
+  if (!r || r.error) { toast('Assign failed: ' + (r?.error || 'unknown'), 'error'); return; }
+  closeModal('drift-assign-modal');
+  toast('Profile assigned', 'success');
+  loadDriftProfiles();
+}
+
+async function unassignDriftProfile(scope_type, scope_value) {
+  const r = await api('POST', '/drift/assign', {scope_type, scope_value, profile_id: null});
+  if (!r || r.error) { toast('Unassign failed: ' + (r?.error || 'unknown'), 'error'); return; }
+  toast('Unassigned', 'success');
+  loadDriftProfiles();
+}
+
 async function loadDrift() {
   const tbody = document.getElementById('drift-tbody');
   const summary = document.getElementById('drift-summary');
   if (!tbody) return;
+  loadDriftProfiles();   // v3.13.0: named drift profiles panel
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
   try {
     const data = await api('GET', '/drift');
