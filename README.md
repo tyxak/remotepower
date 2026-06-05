@@ -41,6 +41,10 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 <td align="center"><b>Custom scripts</b><br><a href="docs/screenshots/Scripts.png"><img src="docs/screenshots/Scripts.png" width="400"></a></td>
 </tr>
 <tr>
+<td align="center"><b>Software center &amp; policy</b><br><a href="docs/screenshots/Software.png"><img src="docs/screenshots/Software.png" width="400"></a></td>
+<td align="center"><b>Release signing</b><br><a href="docs/screenshots/Signing.png"><img src="docs/screenshots/Signing.png" width="400"></a></td>
+</tr>
+<tr>
 <td align="center"><b>CMDB</b><br><a href="docs/screenshots/CMDB.png"><img src="docs/screenshots/CMDB.png" width="400"></a></td>
 <td align="center"><b>Proxmox snapshots</b><br><a href="docs/screenshots/Snapshots.png"><img src="docs/screenshots/Snapshots.png" width="400"></a></td>
 </tr>
