@@ -74,7 +74,37 @@ in v3.4.2.)*
 
 ---
 
-## ✅ Everything on the roadmap is shipped
+## 🔜 Planned — next test release
 
-Every item in the table above landed across v3.4.1 and v3.4.2. New ideas get
-appended here.
+Two bind-it-together follow-ups identified during the v3.13.0 sweep. Both are
+low-risk and operate over data the system **already collects and caches** — no
+agent change, no new storage.
+
+| Feature | Effort | Builds On |
+|---|:---:|---|
+| Per-container stale-image badge | 🟢 Small | image-update digest cache + `/devices/<id>/containers` |
+| Fleet thermal roll-up ("hottest hosts") | 🟡 Medium | `hardware.json` temps/SMART + Storage-health page pattern |
+
+- **Per-container stale-image badge.** Surface the registry-staleness the fleet
+  **Image Updates** page already computes (`_image_update_view` produces a
+  per-`(device, container)` `stale` flag) directly on each row of the
+  device-drawer Containers table — right next to the new Restarts column. Minimal
+  change: stamp `update_available` onto each item in `handle_device_containers`
+  by joining the container's `repo_digest` against the cached registry digest in
+  `image_updates.json` (same logic as the fleet page, so the two never disagree),
+  then render a badge. No agent change, no new storage.
+- **Fleet thermal roll-up.** A "Hottest hosts" page mirroring the Storage / RAID
+  health page: one row per host with its max temperature and hottest sensor, so
+  thermals are answerable fleet-wide instead of only inside one device's drawer.
+  The data already persists per-device in `hardware.json`
+  (`hardware.temps[].current_c` and `smart[].temperature_c`); add a read-only
+  `GET /api/fleet/thermal` aggregation modelled on `handle_storage_overview`,
+  plus a sortable table page (with the mandatory `tableCtl.wireSortOnly` /
+  `sortRows` / `data-col` wiring). No agent or schema change.
+
+---
+
+## ✅ Earlier roadmap — shipped
+
+Every item in the Overview table landed across v3.4.1 and v3.4.2. New ideas get
+appended above.

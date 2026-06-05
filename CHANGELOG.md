@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v3.13.0 — unreleased (dev)
+## v3.13.0 — 2026-06-05
 
 A **bind-it-together** sweep (round four): surface the host signals the agent
 already collects but the UI never showed, cap every panel so it scrolls instead
