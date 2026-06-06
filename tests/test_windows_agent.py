@@ -88,6 +88,67 @@ class TestWindowsUpdatePatches(unittest.TestCase):
         self.assertEqual(info['packages']['upgradable'], 3)
 
 
+class TestParityCollectors(unittest.TestCase):
+    """v3.14.0 (#21): Windows agent parity — listening ports + Event Log journal,
+    in the same shapes the Linux agent sends so the existing UI renders them."""
+
+    def test_port_scope_buckets(self):
+        self.assertEqual(agent._port_scope('0.0.0.0'), 'world')
+        self.assertEqual(agent._port_scope('::'), 'world')
+        self.assertEqual(agent._port_scope('8.8.8.8'), 'world')
+        self.assertEqual(agent._port_scope('127.0.0.1'), 'local')
+        self.assertEqual(agent._port_scope('::1'), 'local')
+        self.assertEqual(agent._port_scope(''), 'local')
+        self.assertEqual(agent._port_scope('192.168.1.10'), 'lan')
+        self.assertEqual(agent._port_scope('10.0.0.5'), 'lan')
+        self.assertEqual(agent._port_scope('172.16.5.5'), 'lan')
+        self.assertEqual(agent._port_scope('172.32.0.1'), 'world')   # outside 16-31
+
+    def test_listening_ports_shape(self):
+        ports = agent.collect_listening_ports()
+        self.assertIsInstance(ports, list)
+        for p in ports:
+            self.assertEqual(set(p), {'proto', 'port', 'process', 'addr', 'scope'})
+            self.assertIn(p['proto'], ('tcp', 'udp'))
+            self.assertIn(p['scope'], ('world', 'lan', 'local'))
+
+    def test_parse_eventlog(self):
+        raw = "Jun 06 10:00:00 Error Foo: bad thing\n\n  Jun 06 10:01:00 Warning Bar: meh  \n"
+        out = agent._parse_eventlog(raw)
+        self.assertEqual(out, ['Jun 06 10:00:00 Error Foo: bad thing',
+                               'Jun 06 10:01:00 Warning Bar: meh'])
+
+    def test_parse_eventlog_caps_lines_and_length(self):
+        many = "\n".join(f"line {i} " + "x" * 600 for i in range(150))
+        out = agent._parse_eventlog(many)
+        self.assertEqual(len(out), 100)            # capped at 100 lines
+        self.assertTrue(all(len(l) <= 512 for l in out))
+
+    def test_event_log_journal_empty_off_windows(self):
+        self.assertEqual(agent.get_event_log_journal(), [])
+
+    def test_sysinfo_includes_listening_ports_when_present(self):
+        orig = agent.collect_listening_ports
+        agent.collect_listening_ports = lambda: [
+            {'proto': 'tcp', 'port': 22, 'process': 'sshd', 'addr': '0.0.0.0', 'scope': 'world'}]
+        try:
+            info = agent.collect_sysinfo()
+        finally:
+            agent.collect_listening_ports = orig
+        self.assertEqual(info['listening_ports'][0]['port'], 22)
+
+    def test_heartbeat_adds_journal_on_sysinfo_cadence(self):
+        orig = agent.get_event_log_journal
+        agent.get_event_log_journal = lambda: ['Jun 06 Error svc: boom']
+        try:
+            on = agent.build_heartbeat({'device_id': 'd', 'token': 't'}, 1)   # cadence poll
+            off = agent.build_heartbeat({'device_id': 'd', 'token': 't'}, 2)  # non-cadence
+        finally:
+            agent.get_event_log_journal = orig
+        self.assertEqual(on.get('journal'), ['Jun 06 Error svc: boom'])
+        self.assertNotIn('journal', off)   # only on the slow sysinfo cadence
+
+
 class TestHostFacts(unittest.TestCase):
     def test_os_info_nonempty(self):
         self.assertTrue(agent.get_os_info())

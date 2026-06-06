@@ -8,11 +8,14 @@ Windows host can be managed:
   * enroll (PIN or enrollment token)
   * heartbeat loop with core sysinfo (CPU / memory / disk / uptime / network)
   * remote reboot / shutdown / exec / poll-interval / uninstall
+  * posture parity: Windows Update pending (→ Patches), listening ports
+    (→ Exposure + port audit), and the Event Log tail (→ Logs/journal), all in
+    the same shapes the Linux agent sends so the existing UI renders them
 
-It deliberately does NOT (yet) collect the Linux-specific posture (packages,
-services, journal, SMART, drift, …) — those are added in later parity phases,
-at which point this converges onto the cross-platform agent. Keeping it separate
-for now means it can't destabilise the production Linux agent.
+Still pending for full parity: watched-service status, SMART, drift apply,
+signed self-update, and PyInstaller packaging — added in later phases, at which
+point this converges onto the cross-platform agent. Keeping it separate for now
+means it can't destabilise the production Linux agent.
 
 Stdlib only (urllib/json/socket/subprocess/platform/hashlib). `psutil` is used
 for richer metrics when present, but the agent runs without it.
@@ -154,6 +157,105 @@ def windows_update_pending():
         return None
 
 
+def _port_scope(ip):
+    """Classify a bind address into world / lan / local — matches the server's
+    exposure buckets so Windows listeners render like Linux ones. Pure."""
+    if not ip or ip in ('127.0.0.1', '::1', 'localhost'):
+        return 'local'
+    if ip in ('0.0.0.0', '::'):
+        return 'world'
+    if ip.startswith(('10.', '192.168.', '169.254.', 'fe80:', 'fc', 'fd')):
+        return 'lan'
+    if ip.startswith('172.'):
+        try:
+            if 16 <= int(ip.split('.')[1]) <= 31:
+                return 'lan'
+        except (ValueError, IndexError):
+            pass
+    return 'world'
+
+
+def collect_listening_ports():
+    """LISTEN sockets via psutil (cross-platform). Returns the same shape the
+    Linux agent sends — [{proto, port, process, addr, scope}] — so the Exposure
+    page and port audit work unchanged for Windows hosts. [] without psutil."""
+    try:
+        import psutil
+    except ImportError:
+        return []
+    try:
+        conns = psutil.net_connections(kind='inet')
+    except Exception:
+        return []
+    ports, seen = [], set()
+    for c in conns:
+        laddr = getattr(c, 'laddr', None)
+        if not laddr:
+            continue
+        is_tcp = (c.type == socket.SOCK_STREAM)
+        # TCP listeners report LISTEN; UDP sockets have no state but no peer.
+        if is_tcp and c.status != getattr(psutil, 'CONN_LISTEN', 'LISTEN'):
+            continue
+        if not is_tcp and getattr(c, 'raddr', None):
+            continue
+        proto = 'tcp' if is_tcp else 'udp'
+        port = getattr(laddr, 'port', 0)
+        key = (proto, port)
+        if not port or key in seen:
+            continue
+        seen.add(key)
+        proc = ''
+        if c.pid:
+            try:
+                proc = psutil.Process(c.pid).name()
+            except Exception:
+                pass
+        ip = getattr(laddr, 'ip', '') or ''
+        ports.append({'proto': proto, 'port': port, 'process': proc,
+                      'addr': ip, 'scope': _port_scope(ip)})
+    ports.sort(key=lambda p: p['port'])
+    return ports[:80]
+
+
+# PowerShell: recent System/Application events at Critical/Error/Warning level,
+# one formatted line each — the Windows analogue of the Linux journal tail.
+_EVENTLOG_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "Get-WinEvent -FilterHashtable @{LogName='System','Application'; Level=1,2,3} "
+    "-MaxEvents 100 | ForEach-Object { '{0} {1} {2}: {3}' -f "
+    "$_.TimeCreated.ToString('MMM dd HH:mm:ss'), $_.LevelDisplayName, "
+    "$_.ProviderName, ($_.Message -replace '\\s+',' ') }"
+)
+
+
+def _parse_eventlog(stdout):
+    """One trimmed line per event, capped like the server's journal store
+    (≤100 lines, ≤512 bytes each). Pure — unit-testable off-Windows."""
+    out = []
+    for ln in (stdout or '').splitlines():
+        s = ln.strip()
+        if s:
+            out.append(s[:512])
+        if len(out) >= 100:
+            break
+    return out
+
+
+def get_event_log_journal():
+    """Recent Windows Event Log entries as journal lines, or []. Off-Windows []."""
+    if not sys.platform.startswith('win'):
+        return []
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive',
+                            '-Command', _EVENTLOG_PS],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return []
+        return _parse_eventlog(r.stdout)
+    except Exception:
+        return []
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -165,6 +267,9 @@ def collect_sysinfo():
     pkgs = windows_update_pending()
     if pkgs is not None:
         info['packages'] = pkgs                # Windows Update pending → Patches page
+    lports = collect_listening_ports()
+    if lports:
+        info['listening_ports'] = lports       # → Exposure page + port audit
     try:
         cpu = platform.processor()
         if cpu:
@@ -322,6 +427,9 @@ def build_heartbeat(creds, poll_count, pending_output=None):
     # sysinfo on a slower cadence (every ~12 polls), like the Linux agent.
     if poll_count <= 1 or poll_count % 12 == 0:
         payload['sysinfo'] = collect_sysinfo()
+        journal = get_event_log_journal()      # Event Log tail → Logs page
+        if journal:
+            payload['journal'] = journal
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')

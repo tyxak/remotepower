@@ -81,6 +81,13 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
   `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
   config, SSRF-safe, interval-gated). Off by default.
+- **Windows agent — posture parity (pass 1).** The standalone Windows agent now
+  also reports **listening ports** (→ Exposure page + port audit) and a **Windows
+  Event Log tail** (System/Application criticals/errors/warnings → the Logs page /
+  device journal), in the same shapes the Linux agent sends, on top of the
+  existing Windows Update pending (→ Patches). No server changes — the heartbeat
+  ingest is OS-agnostic. (Watched-service status, signed self-update and packaging
+  are still pending for full parity.)
 - **GitOps — drift config from Git.** *Settings → Integrations → GitOps* can pull
   a JSON manifest from a raw Git URL and reconcile your **drift profiles**
   (watched-config-file sets) and their tag/group assignments to match it — so your
