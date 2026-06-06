@@ -62,6 +62,32 @@ class TestHeartbeatPayload(unittest.TestCase):
         self.assertEqual(p['executed_command'], 'reboot')
 
 
+class TestWindowsUpdatePatches(unittest.TestCase):
+    def test_parse_wu_titles(self):
+        out = "2024-05 Cumulative Update\n\n  Security Intelligence Update  \nDefender Update\n"
+        self.assertEqual(agent._parse_wu_titles(out),
+                         ['2024-05 Cumulative Update', 'Security Intelligence Update', 'Defender Update'])
+
+    def test_parse_wu_titles_empty(self):
+        self.assertEqual(agent._parse_wu_titles(''), [])
+        self.assertEqual(agent._parse_wu_titles(None), [])
+
+    def test_pending_none_off_windows(self):
+        # On Linux (CI), the COM search is never invoked.
+        self.assertIsNone(agent.windows_update_pending())
+
+    def test_sysinfo_includes_packages_when_pending(self):
+        orig = agent.windows_update_pending
+        agent.windows_update_pending = lambda: {'manager': 'windows-update', 'upgradable': 3,
+                                                'upgradable_names': ['KB1', 'KB2', 'KB3']}
+        try:
+            info = agent.collect_sysinfo()
+        finally:
+            agent.windows_update_pending = orig
+        self.assertEqual(info['packages']['manager'], 'windows-update')
+        self.assertEqual(info['packages']['upgradable'], 3)
+
+
 class TestHostFacts(unittest.TestCase):
     def test_os_info_nonempty(self):
         self.assertTrue(agent.get_os_info())

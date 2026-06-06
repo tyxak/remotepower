@@ -5680,6 +5680,8 @@ function _registerPatchTable() {
       const _patchCmdLabel = (cmd) => !cmd ? ''
         : cmd.includes('command -v apt-get') ? 'upgrade packages'
         : cmd.replace(/^exec:/, '').substring(0, 30);
+      // v3.14.0: friendly package-manager labels (Windows hosts report 'windows-update').
+      const _pkgMgrLabel = (m) => m === 'windows-update' ? 'Windows Update' : (m || '—');
       const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div title="${escHtml(c.output||'')}" class="isl-370">${escHtml(_patchCmdLabel(c.cmd))} (rc=${c.rc})</div>`).join('');
       // v2.1.5: AIPrioritise only on devices with pending updates
       // v3.0.4: pass the event so the handler can disable the button +
@@ -5708,7 +5710,7 @@ function _registerPatchTable() {
       const recheckBtn = (d.upgrade_verify === 'pending' || d.upgrade_verify === 'stalled')
         ? `<button class="btn-icon cell-sm" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Force a fresh package scan now — re-runs the post-upgrade verification instead of waiting for the periodic scan">Re-check</button>`
         : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(_pkgMgrLabel(d.pkg_manager))}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',

@@ -121,6 +121,39 @@ def self_sha256():
         return ''
 
 
+def _parse_wu_titles(stdout):
+    """Parse one-title-per-line output from the Windows Update searcher into a
+    clean list. Pure — unit-testable off-Windows."""
+    return [ln.strip() for ln in (stdout or '').splitlines() if ln.strip()][:200]
+
+
+# PowerShell: pending (not-installed, not-hidden) Windows Updates, one title/line.
+_WU_PS = (
+    "$ErrorActionPreference='Stop';"
+    "$u=(New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher()"
+    ".Search('IsInstalled=0 and IsHidden=0').Updates;"
+    "$u | ForEach-Object { $_.Title }"
+)
+
+
+def windows_update_pending():
+    """Pending Windows Updates as a packages entry, or None. This is the
+    security-patch posture on Windows; it surfaces on the Patches page. The COM
+    search can be slow, so it only runs on the (infrequent) sysinfo cadence."""
+    if not sys.platform.startswith('win'):
+        return None
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', _WU_PS],
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            return None
+        titles = _parse_wu_titles(r.stdout)
+        return {'manager': 'windows-update', 'upgradable': len(titles),
+                'upgradable_names': titles[:50]}
+    except Exception:
+        return None
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -129,6 +162,9 @@ def collect_sysinfo():
         'kernel':   platform.version(),       # Windows build string
         'hostname': socket.gethostname(),
     }
+    pkgs = windows_update_pending()
+    if pkgs is not None:
+        info['packages'] = pkgs                # Windows Update pending → Patches page
     try:
         cpu = platform.processor()
         if cpu:
