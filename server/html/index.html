@@ -474,6 +474,16 @@
         <div class="page-title">Fleet at a glance</div>
         <div class="page-subtitle">Everything that needs your attention, in one screen.</div>
 
+        <!-- v3.14.0 (#22): per-account dashboard customization — show/hide &
+             reorder the widget cards below. Stored in ui_prefs.dashboard. -->
+        <div class="dash-toolbar">
+          <button class="btn-icon" data-action="toggleDashEdit" title="Show, hide and reorder dashboard widgets">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Customize
+          </button>
+        </div>
+        <div id="dash-edit-panel" class="dash-edit-panel hidden"></div>
+
         <!-- v3.13.0: ask-the-fleet AI omnibox (uses RAG over fleet state) -->
         <div class="home-ai-ask mb-16">
           <input type="text" id="home-ai-q" class="form-input" placeholder="Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?" data-enter="aiAskFleet">
@@ -490,7 +500,7 @@
         </div>
 
         <!-- Fleet health score (v3.4.1) -->
-        <div class="dash-card mt-16 mb-16" id="home-health">
+        <div class="dash-card mt-16 mb-16" id="home-health" data-widget="health">
           <h3>Fleet health</h3>
           <div id="home-health-body">
             <div class="skeleton skeleton-line med mb-6"></div>
@@ -499,13 +509,13 @@
         </div>
 
         <!-- Fleet heat map (v3.4.2) -->
-        <div class="dash-card mb-16" id="home-heatmap-card">
+        <div class="dash-card mb-16" id="home-heatmap-card" data-widget="heatmap">
           <div class="row-8-center mb-6"><h3 class="m-0">Fleet heat map</h3><span class="fs-12 c-muted">health score per device — green healthy, red needs attention</span></div>
           <div id="home-heatmap"></div>
         </div>
 
         <!-- Two-column: needs attention | recent activity -->
-        <div class="dash-cols">
+        <div class="dash-cols" id="home-overview" data-widget="overview">
           <div class="dash-card">
             <h3>Needs attention</h3>
             <div id="home-attention">
@@ -525,7 +535,7 @@
         </div>
 
         <!-- Fleet roster with 7-day status stripe per device -->
-        <div class="dash-card">
+        <div class="dash-card" id="home-roster" data-widget="roster">
           <h3>Fleet roster · 7-day status</h3>
           <div id="home-fleet" class="col-4">
             <div class="skeleton skeleton-line long"></div>
@@ -536,7 +546,7 @@
         </div>
 
         <!-- Links widget — hidden until at least one link is saved -->
-        <div class="dash-card mt-16 d-none" id="home-links">
+        <div class="dash-card mt-16 d-none" id="home-links" data-widget="links">
           <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
           <div id="home-links-body" class="isl-762"></div>
         </div>
@@ -2188,6 +2198,7 @@
                 <li><strong>Fleet drift-enforcement policy.</strong> The Drift page can auto-apply (or correct-on-drift) the desired config for every host matching a tag or group.</li>
                 <li><strong>Alerts for the new signals.</strong> Predicted disk failure, UPS on battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts/webhooks, not just dashboard views.</li>
                 <li><strong>Metrics push (Prometheus).</strong> Settings → Integrations can periodically POST the <code>/api/metrics</code> exposition to a Pushgateway / remote target.</li>
+                <li><strong>Customizable dashboard.</strong> A <em>Customize</em> button on the Home page shows/hides and reorders the dashboard widgets; the layout is saved to your account and follows you across devices.</li>
                 <li><strong>Interface language.</strong> <em>My Account → Language</em> switches the UI between English, Mandarin, Hindi, Spanish and Arabic (RTL); the choice is saved to your account and follows you across devices.</li>
                 <li><strong>Change approval covers more actions.</strong> The optional second-admin approval now also gates reboot, shutdown, update/upgrade, uninstall and container actions — not just Run command.</li>
               </ul>

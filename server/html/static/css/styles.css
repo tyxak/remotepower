@@ -3298,6 +3298,15 @@ td .kev-badge { margin-left: 0; }
 .ta-center { text-align: center; }
 .ta-right { text-align: right; }
 .ff-mono { font-family: var(--font-mono); }
+/* v3.14.0 (#22): customizable dashboard */
+.dash-off { display: none !important; }
+.dash-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.dash-edit-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
+.dash-edit-hint { margin-bottom: 8px; }
+.dash-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.dash-edit-row + .dash-edit-row { border-top: 1px solid var(--border); }
+.dash-edit-name { display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; }
+.dash-edit-moves { display: flex; gap: 4px; flex-shrink: 0; }
 .row-8 { display: flex; gap: 8px; }
 .row-8-mb8 { display: flex; gap: 8px; margin-bottom: 8px; }
 .row-8-center { display: flex; gap: 8px; align-items: center; }

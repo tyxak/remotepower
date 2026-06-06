@@ -81,6 +81,12 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
   `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
   config, SSRF-safe, interval-gated). Off by default.
+- **Customizable dashboard.** A **Customize** button on the Home page lets each
+  user show/hide and reorder the dashboard widgets (Fleet health, heat map,
+  Needs attention + Recent activity, Fleet roster, Quick links). The layout is
+  saved on your account (`ui_prefs.dashboard`) and reuses the existing cards —
+  no new data path. New widgets shipped later appear by default without
+  resetting a saved layout.
 - **Interface language (i18n).** *My Account → Language* switches the UI between
   **English, 中文 (Mandarin), हिन्दी (Hindi), Español, and العربية (Arabic, RTL)**.
   The choice is saved on your user record (`GET /api/me` returns `lang`, `POST

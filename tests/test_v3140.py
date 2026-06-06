@@ -1057,5 +1057,60 @@ class TestI18nLangEndpoint(_HandlerBase):
         self.assertEqual(self.cap['s'], 405)
 
 
+class TestDashboardCustomization(unittest.TestCase):
+    """v3.14.0 #22 — per-account customizable Home dashboard."""
+
+    HTML = (_ROOT / "server/html/index.html").read_text()
+    JS = client_js()
+    CSS = (_ROOT / "server/html/static/css/styles.css").read_text()
+
+    def test_widget_keys_match_between_server_and_client(self):
+        # server allowlist must equal the client DASH_WIDGETS key list
+        m = re.search(r"DASH_WIDGETS = \[(.*?)\];", self.JS, re.S)
+        self.assertIsNotNone(m)
+        js_keys = tuple(re.findall(r"key:\s*'([a-z]+)'", m.group(1)))
+        self.assertEqual(js_keys, api.DASHBOARD_WIDGETS)
+
+    def test_every_widget_card_tagged(self):
+        for key in api.DASHBOARD_WIDGETS:
+            self.assertIn(f'data-widget="{key}"', self.HTML,
+                          f'home card for {key} missing data-widget')
+
+    def test_customize_ui_present(self):
+        self.assertIn('data-action="toggleDashEdit"', self.HTML)
+        self.assertIn('id="dash-edit-panel"', self.HTML)
+        self.assertIn('.dash-off', self.CSS)
+
+    def test_layout_applied_and_persisted(self):
+        self.assertIn('applyDashboardLayout()', self.JS)
+        self.assertIn('_uiPrefs.dashboard', self.JS)
+        self.assertIn('_scheduleFlushUiPrefs()', self.JS)
+
+    def test_sanitiser_keeps_known_widgets_drops_unknown(self):
+        clean = api._sanitise_ui_prefs({'dashboard': [
+            {'key': 'roster', 'on': False},
+            {'key': 'health', 'on': True},
+            {'key': 'bogus', 'on': True},      # unknown → dropped
+            {'key': 'roster', 'on': True},     # dup → dropped
+            'not-a-dict',                       # junk → dropped
+        ]})
+        self.assertEqual(clean['dashboard'],
+                         [{'key': 'roster', 'on': False},
+                          {'key': 'health', 'on': True}])
+
+    def test_sanitiser_defaults_on_true(self):
+        clean = api._sanitise_ui_prefs({'dashboard': [{'key': 'links'}]})
+        self.assertEqual(clean['dashboard'], [{'key': 'links', 'on': True}])
+
+    def test_sanitiser_ignores_non_list_dashboard(self):
+        clean = api._sanitise_ui_prefs({'dashboard': 'nope'})
+        self.assertNotIn('dashboard', clean)
+
+    def test_no_emoji_arrows_use_svg(self):
+        # reorder buttons must use Lucide-style SVG, not unicode arrows/emoji
+        self.assertIn('_SVG_UP', self.JS)
+        self.assertNotIn('↑</button>', self.JS)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -408,6 +408,10 @@ MAX_UI_PREFS_FILTER_LEN    = 256           # per-filter string cap
 MAX_UI_PREFS_SORT_KEYS     = 5             # multi-column sort depth limit
 MAX_UI_PREFS_TABLES        = 50            # distinct tables we'll remember prefs for
 MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
+# v3.14.0 (#22): customizable dashboard — the widget keys the Home page exposes
+# for show/hide/reorder. Must mirror DASH_WIDGETS in app.js (a guardrail test
+# pins the two together).
+DASHBOARD_WIDGETS          = ('health', 'heatmap', 'overview', 'roster', 'links')
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
 UI_DENSITY_DEFAULT         = 'comfortable'
 
@@ -11256,10 +11260,28 @@ def _sanitise_ui_prefs(raw):
         if views:
             out['views'] = views
 
+    # v3.14.0 (#22): customizable dashboard — an ordered list of widget
+    # visibility toggles, [{key, on}]. Keys are validated against the known
+    # widget set; unknown keys are dropped so a stale client can't wedge junk.
+    raw_dash = raw.get('dashboard')
+    if isinstance(raw_dash, list):
+        dash = []
+        seen = set()
+        for e in raw_dash[:len(DASHBOARD_WIDGETS)]:
+            if not isinstance(e, dict):
+                continue
+            k = e.get('key')
+            if k not in DASHBOARD_WIDGETS or k in seen:
+                continue
+            seen.add(k)
+            dash.append({'key': k, 'on': bool(e.get('on', True))})
+        if dash:
+            out['dashboard'] = dash
+
     # Cap how many distinct table prefs we'll persist for one user. Stops
     # a misbehaving client from filling users.json with junk keys.
     for table_name, prefs in list(raw.items())[:MAX_UI_PREFS_TABLES]:
-        if table_name in ('default_ssh_username', 'views'):
+        if table_name in ('default_ssh_username', 'views', 'dashboard'):
             continue   # handled above — not a table
         # Table names are short alphanumeric identifiers (e.g. 'devices',
         # 'cves_overview'). Strip anything not in that vocabulary.

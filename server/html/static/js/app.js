@@ -3161,6 +3161,7 @@ const _DYK_TIPS = [
   "Predicted disk failures, UPS-on-battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts — wire them to a channel under Settings → Notifications.",
   "Settings → Integrations → Metrics push periodically POSTs the fleet's Prometheus metrics to a Pushgateway, for stacks that pull from a gateway instead of scraping /api/metrics.",
   "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish and Arabic — your choice is saved to your account and follows you across devices.",
+  "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -11309,6 +11310,101 @@ async function loadHome() {
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs);
   _renderHomeLinks(linksResp.links);
+  applyDashboardLayout();   // v3.14.0 (#22): honour the user's widget layout
+}
+
+// ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
+// Per-account choice of which Home widgets show and in what order, stored in
+// _uiPrefs.dashboard as [{key, on}] and persisted via the existing ui-prefs
+// flush. Widgets map onto the existing home cards by their data-widget
+// attribute — no new data path, we only toggle visibility and reorder nodes.
+const DASH_WIDGETS = [
+  { key: 'health',   label: 'Fleet health' },
+  { key: 'heatmap',  label: 'Fleet heat map' },
+  { key: 'overview', label: 'Needs attention + Recent activity' },
+  { key: 'roster',   label: 'Fleet roster' },
+  { key: 'links',    label: 'Quick links' },
+];
+const _DASH_KEYS = DASH_WIDGETS.map(w => w.key);
+const _SVG_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
+const _SVG_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+// Normalised layout: saved order/visibility first, then any widget the user has
+// never seen appended (visible), with unknown keys dropped. So shipping a new
+// widget later shows it by default without resetting anyone's saved prefs.
+function _dashLayout() {
+  const saved = Array.isArray(_uiPrefs.dashboard) ? _uiPrefs.dashboard : [];
+  const out = [];
+  const seen = new Set();
+  for (const e of saved) {
+    if (!e || !_DASH_KEYS.includes(e.key) || seen.has(e.key)) continue;
+    seen.add(e.key);
+    out.push({ key: e.key, on: e.on !== false });
+  }
+  for (const k of _DASH_KEYS) {
+    if (!seen.has(k)) out.push({ key: k, on: true });
+  }
+  return out;
+}
+
+function applyDashboardLayout() {
+  const home = document.getElementById('page-home');
+  if (!home) return;
+  for (const { key, on } of _dashLayout()) {
+    const node = home.querySelector('[data-widget="' + key + '"]');
+    if (!node) continue;
+    node.classList.toggle('dash-off', !on);   // .dash-off hides via CSS; this
+    home.appendChild(node);                    // is independent of .d-none so
+  }                                            // the links card's own logic wins
+}
+
+function toggleDashEdit() {
+  const panel = document.getElementById('dash-edit-panel');
+  if (!panel) return;
+  const willOpen = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !willOpen);
+  if (willOpen) _renderDashEditPanel();
+}
+
+function _renderDashEditPanel() {
+  const panel = document.getElementById('dash-edit-panel');
+  if (!panel) return;
+  const layout = _dashLayout();
+  panel.innerHTML =
+    '<div class="dash-edit-hint hint">Show, hide and reorder your dashboard. Saved to your account.</div>'
+    + layout.map((e, i) => {
+      const w = DASH_WIDGETS.find(x => x.key === e.key);
+      return '<div class="dash-edit-row">'
+        + '<label class="form-label dash-edit-name">'
+        + '<input type="checkbox" data-action="dashToggle" data-arg="' + escAttr(e.key) + '"' + (e.on ? ' checked' : '') + '> '
+        + escHtml(w ? w.label : e.key) + '</label>'
+        + '<span class="dash-edit-moves">'
+        + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="-1"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">' + _SVG_UP + '</button>'
+        + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="1"' + (i === layout.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">' + _SVG_DOWN + '</button>'
+        + '</span></div>';
+    }).join('');
+}
+
+function dashToggle(key) {
+  const layout = _dashLayout();
+  const e = layout.find(x => x.key === key);
+  if (e) e.on = !e.on;
+  _uiPrefs.dashboard = layout;
+  applyDashboardLayout();
+  _renderDashEditPanel();
+  _scheduleFlushUiPrefs();
+}
+
+function dashMove(key, dir) {
+  const layout = _dashLayout();
+  const i = layout.findIndex(x => x.key === key);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= layout.length) return;
+  const t = layout[i]; layout[i] = layout[j]; layout[j] = t;
+  _uiPrefs.dashboard = layout;
+  applyDashboardLayout();
+  _renderDashEditPanel();
+  _scheduleFlushUiPrefs();
 }
 
 function _renderHomeLinks(links) {
