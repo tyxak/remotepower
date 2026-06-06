@@ -8719,14 +8719,18 @@ def handle_heartbeat():
     # push silently never happened at all — see CHANGELOG.)
     _hc = saved_dev.get('host_config') or {}
     _desired = _hc.get('desired') or None
+    # v3.14.0: a fleet drift-enforcement policy (by tag/group) can switch on
+    # apply/enforce for matching devices. The per-device flag still wins.
+    _pol_mode = _drift_policy_mode(saved_dev) if _desired else None
     # Continuous enforcement (v3.4.0): push desired every heartbeat when
     # apply_enabled is set; a drift-only baseline never auto-applies.
-    host_config_desired = _desired if (_desired and _hc.get('apply_enabled')) else None
+    _apply_on = bool(_hc.get('apply_enabled')) or _pol_mode == 'apply'
+    host_config_desired = _desired if (_desired and _apply_on) else None
     # v3.7.0 corrective enforcement: when `enforce` is set (and not already
     # continuously applying), re-apply desired ONLY when the host has drifted.
     # saved_dev predates this heartbeat's ingest, so read the freshly-stored
     # drift state (load() is per-request memoised; the ingest invalidated it).
-    if host_config_desired is None and _desired and _hc.get('enforce'):
+    if host_config_desired is None and _desired and (_hc.get('enforce') or _pol_mode == 'enforce'):
         _fresh_hc = (load(DEVICES_FILE).get(dev_id) or {}).get('host_config') or _hc
         if not (_fresh_hc.get('drift') or {}).get('clean', True):
             host_config_desired = _desired
@@ -8839,6 +8843,71 @@ def _record_metrics(dev_id, sysinfo):
                             'disk': disk, 'swap': swap})
     metrics[dev_id] = metrics[dev_id][-MAX_METRICS:]
     save(METRICS_FILE, metrics)
+
+
+def _drift_policy_mode(dev):
+    """v3.14.0: strongest fleet drift-enforcement mode matching this device by
+    tag/group ('apply' beats 'enforce'); None if none match. Per-device
+    host_config flags take precedence (the caller ORs this in)."""
+    policies = (load(CONFIG_FILE) or {}).get('drift_enforce_policies') or []
+    if not policies:
+        return None
+    tags = set(dev.get('tags') or [])
+    group = dev.get('group', '')
+    mode = None
+    for p in policies:
+        if not isinstance(p, dict):
+            continue
+        scope, val, pmode = p.get('scope'), p.get('value'), p.get('mode')
+        match = (scope == 'tag' and val in tags) or (scope == 'group' and val and val == group)
+        if not match:
+            continue
+        if pmode == 'apply':
+            return 'apply'      # strongest — short-circuit
+        if pmode == 'enforce':
+            mode = 'enforce'
+    return mode
+
+
+def handle_drift_policies_get():
+    """GET /api/drift-policies — fleet drift-enforcement policies (by tag/group)."""
+    require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    respond(200, {'policies': cfg.get('drift_enforce_policies') or []})
+
+
+def handle_drift_policies_set():
+    """PUT /api/drift-policies — replace the fleet drift-enforcement policy list.
+    Admin-only. Each entry: {scope: tag|group, value, mode: apply|enforce}."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    raw = body.get('policies') if isinstance(body, dict) else body
+    if not isinstance(raw, list):
+        respond(400, {'error': 'policies must be a list'})
+    clean = []
+    seen = set()
+    for p in raw[:100]:
+        if not isinstance(p, dict):
+            continue
+        scope = p.get('scope')
+        mode = p.get('mode')
+        if scope not in ('tag', 'group') or mode not in ('apply', 'enforce'):
+            continue
+        maxlen = MAX_TAG_LEN if scope == 'tag' else MAX_GROUP_LEN
+        val = re.sub(r'[^a-zA-Z0-9_\-/]', '', str(p.get('value', '')))[:maxlen]
+        if not val:
+            continue
+        key = (scope, val)
+        if key in seen:
+            continue
+        seen.add(key)
+        clean.append({'scope': scope, 'value': val, 'mode': mode})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['drift_enforce_policies'] = clean
+    audit_log(actor, 'drift_policies_set', f'{len(clean)} policy/policies')
+    respond(200, {'ok': True, 'policies': clean})
 
 
 def _resolve_targets(body):
@@ -18257,16 +18326,50 @@ def _disk_health_view():
     return rows
 
 
+def _unstable_hosts_view(days=7, threshold=3):
+    """v3.14.0: hosts that returned-to-online unusually often in the window —
+    a reboot/flap-trend proxy from the uptime transition events."""
+    uptime = load(UPTIME_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    now = int(time.time())
+    win = now - days * 86400
+    rows = []
+    for dev_id, dev in devices.items():
+        if dev.get('monitored') is False:
+            continue
+        events = (uptime.get(dev_id) or {}).get('events') or []
+        prev_online = None
+        returns = 0
+        for e in events:
+            ts = int(e.get('ts', 0))
+            online = bool(e.get('online'))
+            if prev_online is False and online and ts >= win:
+                returns += 1
+            prev_online = online
+        if returns >= threshold:
+            rows.append({
+                'device_id': dev_id, 'device': dev.get('name', dev_id),
+                'restarts': returns, 'days': days,
+                'last_boot_reason': dev.get('last_boot_reason', ''),
+                'last_boot_reason_at': dev.get('last_boot_reason_at', 0),
+            })
+    rows.sort(key=lambda r: -r['restarts'])
+    return rows
+
+
 def handle_disk_health():
-    """GET /api/fleet/disk-health — at-risk disks across the fleet (predictive)."""
+    """GET /api/fleet/disk-health — predictive health: at-risk disks (SMART
+    trend) + hosts restarting unusually often (uptime trend)."""
     require_auth()
     rows = _disk_health_view()
     by = {'critical': 0, 'high': 0, 'medium': 0}
     for r in rows:
         by[r['risk']] = by.get(r['risk'], 0) + 1
+    unstable = _unstable_hosts_view()
     respond(200, {'disks': rows, 'count': len(rows),
                   'critical': by.get('critical', 0), 'high': by.get('high', 0),
-                  'medium': by.get('medium', 0)})
+                  'medium': by.get('medium', 0),
+                  'unstable': unstable, 'unstable_count': len(unstable)})
 
 
 def _ingest_custom_script_results(dev_id, dev_name, results):
@@ -28227,10 +28330,14 @@ def _build_sbom_doc(dev_id, dev, fmt):
     pkg_entry = pkg_store.get(dev_id) or {}
     findings = (findings_all.get(dev_id) or {}).get('findings') or []
     findings = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+    # v3.14.0: include running container images as SBOM components.
+    containers = ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}).get('items') or []
     dev = dict(dev); dev['id'] = dev_id
     if fmt == 'spdx':
-        return sbom_mod.build_spdx(dev, pkg_entry, findings, server_version=SERVER_VERSION)
-    return sbom_mod.build_cyclonedx(dev, pkg_entry, findings, server_version=SERVER_VERSION)
+        return sbom_mod.build_spdx(dev, pkg_entry, findings,
+                                   server_version=SERVER_VERSION, containers=containers)
+    return sbom_mod.build_cyclonedx(dev, pkg_entry, findings,
+                                    server_version=SERVER_VERSION, containers=containers)
 
 
 def _stream_json_download(obj, filename):
@@ -32990,6 +33097,8 @@ def _dispatch(pi, m):
     elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()
     elif pi == '/api/report/schedule' and m == 'PUT': handle_report_schedule_set()
     # v3.14.0: custom report builder — saved definitions
+    elif pi == '/api/drift-policies' and m == 'GET': handle_drift_policies_get()
+    elif pi == '/api/drift-policies' and m == 'PUT': handle_drift_policies_set()
     elif pi == '/api/report/definitions' and m == 'GET': handle_report_defs_list()
     elif pi == '/api/report/definitions' and m == 'POST': handle_report_defs_save()
     elif pi.startswith('/api/report/definitions/') and m == 'DELETE':

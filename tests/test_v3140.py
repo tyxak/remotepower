@@ -81,7 +81,7 @@ class _HandlerBase(unittest.TestCase):
                      'TOKENS_FILE', 'CONFIG_FILE', 'KEV_EPSS_FILE',
                      'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
-                     'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE'):
+                     'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -657,6 +657,90 @@ class TestPowerSchedule(_HandlerBase):
         r = self.call(api.handle_schedule_add)
         self.assertTrue(r['ok'])
         self.assertIn('Wake-on-LAN', r['warning'])
+
+
+class TestContainerSbom(_HandlerBase):
+    def test_sbom_includes_container_components(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'os': 'Ubuntu'}})
+        api.save(api.PACKAGES_FILE, {'d1': {'packages': [{'name': 'nginx', 'version': '1.0'}],
+                                            'pkg_manager': 'apt', 'os_id': 'ubuntu'}})
+        api.save(api.CONTAINERS_FILE, {'d1': {'items': [
+            {'name': 'web', 'image': 'nginx', 'tag': 'latest', 'repo_digest': 'sha256:abc', 'runtime': 'docker'},
+        ]}})
+        doc = api._build_sbom_doc('d1', {'name': 'web', 'os': 'Ubuntu'}, 'cyclonedx')
+        comps = doc['components']
+        ctr = [c for c in comps if c.get('type') == 'container']
+        self.assertEqual(len(ctr), 1)
+        self.assertTrue(ctr[0]['purl'].startswith('pkg:docker/nginx@sha256'))
+        # host packages still present
+        self.assertTrue(any(c.get('type') == 'library' for c in comps))
+
+    def test_spdx_includes_container_package(self):
+        api.save(api.PACKAGES_FILE, {'d1': {'packages': [], 'pkg_manager': 'apt'}})
+        api.save(api.CONTAINERS_FILE, {'d1': {'items': [
+            {'name': 'db', 'image': 'postgres', 'tag': '16', 'repo_digest': ''},
+        ]}})
+        doc = api._build_sbom_doc('d1', {'name': 'db', 'os': 'Ubuntu'}, 'spdx')
+        pkgs = [p for p in doc['packages'] if p['name'] == 'postgres']
+        self.assertEqual(len(pkgs), 1)
+        self.assertEqual(pkgs[0]['versionInfo'], '16')
+
+
+class TestDriftPolicy(_HandlerBase):
+    def test_policy_mode_resolves_by_tag_and_group(self):
+        api.save(api.CONFIG_FILE, {'drift_enforce_policies': [
+            {'scope': 'tag', 'value': 'prod', 'mode': 'enforce'},
+            {'scope': 'group', 'value': 'db', 'mode': 'apply'},
+        ]})
+        self.assertEqual(api._drift_policy_mode({'tags': ['prod']}), 'enforce')
+        self.assertEqual(api._drift_policy_mode({'group': 'db'}), 'apply')
+        # apply (group) beats enforce (tag) when both match
+        self.assertEqual(api._drift_policy_mode({'tags': ['prod'], 'group': 'db'}), 'apply')
+        self.assertIsNone(api._drift_policy_mode({'tags': ['staging']}))
+
+    def test_set_policies_sanitizes(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'policies': [
+            {'scope': 'tag', 'value': 'prod', 'mode': 'enforce'},
+            {'scope': 'bogus', 'value': 'x', 'mode': 'apply'},       # bad scope → dropped
+            {'scope': 'group', 'value': 'web', 'mode': 'nope'},      # bad mode → dropped
+            {'scope': 'tag', 'value': 'prod', 'mode': 'apply'},      # dup (tag,prod) → dropped
+        ]}
+        r = self.call(api.handle_drift_policies_set)
+        self.assertEqual(r['policies'], [{'scope': 'tag', 'value': 'prod', 'mode': 'enforce'}])
+
+
+class TestUnstableHosts(_HandlerBase):
+    def test_flags_frequent_restarters(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'flappy', 'last_boot_reason': 'power-loss'},
+                                    'd2': {'name': 'steady'}})
+        now = int(__import__('time').time())
+        day = 86400
+        # d1: 4 offline→online returns within 7 days; d2: 1
+        d1_events = []
+        for i in range(4):
+            d1_events.append({'ts': now - (6 - i) * day, 'online': False})
+            d1_events.append({'ts': now - (6 - i) * day + 60, 'online': True})
+        api.save(api.UPTIME_FILE, {
+            'd1': {'name': 'flappy', 'events': d1_events},
+            'd2': {'name': 'steady', 'events': [{'ts': now - 3 * day, 'online': False},
+                                                {'ts': now - 3 * day + 60, 'online': True}]},
+        })
+        rows = api._unstable_hosts_view(days=7, threshold=3)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['device'], 'flappy')
+        self.assertEqual(rows[0]['restarts'], 4)
+        self.assertEqual(rows[0]['last_boot_reason'], 'power-loss')
+
+    def test_disk_health_endpoint_includes_unstable(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'x'}})
+        api.save(api.HARDWARE_FILE, {})
+        api.save(api.UPTIME_FILE, {})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_disk_health)
+        self.assertIn('unstable', r)
+        self.assertIn('unstable_count', r)
 
 
 if __name__ == "__main__":

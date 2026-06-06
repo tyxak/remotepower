@@ -296,9 +296,9 @@
           <span>Power</span>
         </button>
         <!-- v3.14.0: predictive disk-failure maintenance -->
-        <button class="nav-btn" data-page="disk-health" title="Disks predicted at risk from SMART trends">
+        <button class="nav-btn" data-page="disk-health" title="Predictive health — disks at risk (SMART trend) + frequently-restarting hosts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
-          <span>Disk health</span>
+          <span>Predictive health</span>
         </button>
         <!-- v3.11.0: fleet software policy -->
         <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
@@ -2147,12 +2147,14 @@
                 <li><strong>Local certificate-file inventory.</strong> A <strong>Local certificate files</strong> drawer card shows the expiry of x509 files on the host, coloured like the TLS page.</li>
                 <li><strong>Local account audit.</strong> A flagged-first <strong>Local accounts</strong> drawer card (extra UID 0, empty/stale passwords, locked, sudo) — no password hashes ever leave the host.</li>
                 <li><strong>Power scheduling.</strong> The Schedule page adds <strong>Suspend</strong> and <strong>Wake (Wake-on-LAN)</strong> actions alongside shut down / reboot, one-shot or recurring.</li>
-                <li><strong>Disk health (predictive).</strong> A new <strong>Disk health</strong> page flags disks before they fail — daily SMART snapshots feed a trend that projects an ETA when bad sectors grow or SSD wear climbs.</li>
+                <li><strong>Predictive health.</strong> A new page flags hardware before it fails — daily SMART snapshots project a disk-failure ETA, and frequently-restarting hosts (uptime-trend) are listed too.</li>
                 <li><strong>Power &amp; energy.</strong> A new agent UPS probe (NUT / apcupsd) drives a drawer <strong>UPS / power</strong> card and a fleet <strong>Power</strong> page; set your price/kWh to estimate energy cost from the live total.</li>
                 <li><strong>SSH key audit.</strong> A new <strong>SSH keys</strong> page lists every <code>authorized_keys</code> entry across the fleet with SHA256 fingerprints, weak-type flags, and a reuse count.</li>
                 <li><strong>Container logs.</strong> A per-container <em>logs</em> button in the drawer fetches recent docker/podman logs on demand — no SSH needed.</li>
                 <li><strong>Global omnisearch.</strong> The command palette (<kbd>/</kbd> or <kbd>Ctrl-K</kbd>) now searches open alerts and CVE findings too, not just pages and devices.</li>
                 <li><strong>Custom report builder.</strong> <em>Reports → Custom reports</em>: build a report from just the sections you want, pick JSON/CSV, download, and schedule each one to its own recipients.</li>
+                <li><strong>Container images in SBOMs.</strong> A host's CycloneDX/SPDX SBOM now also lists its running container images as components.</li>
+                <li><strong>Fleet drift-enforcement policy.</strong> The Drift page can auto-apply (or correct-on-drift) the desired config for every host matching a tag or group.</li>
               </ul>
               <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
             </div>
@@ -4112,6 +4114,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <p class="hint">Reusable named sets of watched files. Assign a profile to a device, tag, or group and every matching host monitors that set. A device's own explicit file list (set in its drawer) still overrides any profile; an unassigned host falls back to the global default.</p>
           <div id="drift-profiles-body" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
+        <!-- v3.14.0: fleet drift-enforcement policy by tag/group -->
+        <div class="table-card card-padded" id="drift-policy-card">
+          <div class="drift-prof-head">
+            <div class="section-title">Enforcement policy</div>
+          </div>
+          <p class="hint">Auto-apply the desired config for every device matching a tag or group — <strong>apply</strong> pushes it every poll, <strong>correct on drift</strong> re-applies only when a host diverges. A device's own per-device setting (in its drawer) still wins. Only devices that already have a desired host config are affected.</p>
+          <div id="drift-policy-body" class="scroll-cap-sm"><div class="c-muted">Loading…</div></div>
+          <div class="sb-controls mt-8">
+            <select id="dpol-scope" class="form-input input-auto"><option value="tag">Tag</option><option value="group">Group</option></select>
+            <input type="text" id="dpol-value" class="form-input input-auto" placeholder="value (tag or group)" autocomplete="off">
+            <select id="dpol-mode" class="form-input input-auto"><option value="enforce">Correct on drift</option><option value="apply">Apply every poll</option></select>
+            <button class="btn-secondary fs-12" data-action="addDriftPolicy">Add policy</button>
+          </div>
+        </div>
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="drift-thead"><tr>
@@ -4255,8 +4271,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v3.14.0: predictive disk-failure maintenance ───────────────── -->
       <div id="page-disk-health" class="page">
-        <div class="page-title">Disk health</div>
-        <div class="page-subtitle">Disks predicted at risk — combining the reactive SMART verdict with trends in reallocated/pending sectors and SSD wear over time. Most urgent first; an ETA appears once there's enough history. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-title">Predictive health</div>
+        <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadDiskHealth" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / disk…" data-input="filterRows" data-input-el="1" data-filter-target="#disk-health-tbody tr">
@@ -4270,6 +4286,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th data-col="eta">ETA</th><th data-col="reasons">Signals</th>
             </tr></thead>
             <tbody id="disk-health-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <!-- v3.14.0: frequently-restarting hosts (uptime-trend prediction) -->
+        <div class="section-title mt-16">Frequently restarting hosts <span id="disk-health-unstable-sub" class="hint"></span></div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="unstable-thead"><tr>
+              <th data-col="device">Device</th><th data-col="restarts">Restarts (7d)</th>
+              <th data-col="reason">Last boot reason</th>
+            </tr></thead>
+            <tbody id="unstable-tbody"><tr><td colspan="3" class="hint">—</td></tr></tbody>
           </table>
         </div>
       </div>

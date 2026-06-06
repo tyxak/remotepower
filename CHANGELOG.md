@@ -51,10 +51,12 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Power scheduling.** The Schedule page adds **Suspend** and **Wake (WoL)**
   actions alongside shut down / reboot, one-shot or recurring; scheduling a
   power-down on a host with no MAC warns that a scheduled wake won't be possible.
-- **Predictive disk maintenance ("Disk health" page).** Per-disk SMART counters
+- **Predictive maintenance ("Predictive health" page).** Per-disk SMART counters
   are snapshotted daily (6-month history); a least-squares trend projects an ETA
   when reallocated/pending sectors grow or SSD wear climbs toward 100%. Combines
-  the reactive SMART verdict with the predictive trend, most-urgent-first.
+  the reactive SMART verdict with the predictive trend. The page also lists
+  **frequently-restarting hosts** (≥3 returns-to-online in 7 days, from uptime
+  history) with their last boot reason.
 - **Power & energy ("Power" page).** New agent UPS probe (NUT `upsc` / apcupsd)
   → status, battery, load, runtime, watts. Drawer **UPS / power** card + a fleet
   Power page with a client-side cost/kWh → estimated energy cost.
@@ -68,6 +70,10 @@ dependencies; most of it surfaces data the agent already reports. See
   (devices/health/attention/patches/cve/sla/compliance), choose JSON/CSV,
   download, and optionally schedule each saved report to its own recipients
   (`/api/report/definitions`, `?sections=` filter on `/api/report/fleet`).
+- **Container images in SBOMs.** Host CycloneDX/SPDX SBOMs now also list running
+  container images as components (`pkg:docker/<image>@<digest|tag>`).
+- **Fleet drift-enforcement policy.** Set apply/correct-on-drift by tag or group
+  on the Drift page (`/api/drift-policies`); the per-device flag still wins.
 
 ### Fixed
 - **Favorites no longer "reset" on a normal refresh.** The service-worker cache

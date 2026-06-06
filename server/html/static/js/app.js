@@ -845,7 +845,7 @@ const _SIDEBAR_KW = {
   'thermal': 'thermal heat temperature temps hottest hosts overheat cpu disk sensor degrees celsius cooling',
   'ssh keys': 'ssh keys authorized_keys public key fingerprint audit pubkey access ed25519 rsa weak reused',
   'power': 'power ups energy watts kwh cost battery nut apcupsd load runtime electricity draw consumption',
-  'disk health': 'disk health smart predictive failure prediction wear reallocated pending sectors ssd nvme at risk eol end of life trend',
+  'predictive health': 'predictive health disk smart failure prediction wear reallocated pending sectors ssd nvme at risk eol end of life trend reboot restart unstable flapping uptime',
   'schedule': 'schedule cron scheduled jobs recurring',
   'calendar': 'calendar ical events maintenance schedule',
   'tasks': 'tasks todo work items',
@@ -3146,7 +3146,7 @@ const _DYK_TIPS = [
   "On the Devices page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
   "Open a device drawer's Hardware tab to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
   "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
-  "The Disk health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear over time and projects an ETA, so you can replace a drive on your schedule, not its.",
+  "The Predictive health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear and projects an ETA — and also lists hosts that have been restarting unusually often.",
   "The Power page shows UPS status and power draw fleet-wide (via NUT or apcupsd). Set your price per kWh and it estimates your fleet's daily and monthly energy cost from the live total.",
   "The SSH keys page lists every authorized_keys entry across the fleet with its SHA256 fingerprint — weak key types and keys reused on many hosts float to the top for a quick access audit.",
   "Open a container in the device drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
@@ -9774,6 +9774,44 @@ let _driftDeviceModal = null;
 let _driftProfiles = [];
 let _driftAssignments = [];
 
+// v3.14.0: fleet drift-enforcement policy (by tag/group)
+let _driftPolicies = [];
+async function loadDriftPolicies() {
+  const body = document.getElementById('drift-policy-body');
+  if (!body) return;
+  const data = await api('GET', '/drift-policies').catch(() => null);
+  _driftPolicies = (data && data.policies) || [];
+  if (!_driftPolicies.length) { body.innerHTML = '<div class="c-muted">No enforcement policies — drift is monitor-only unless set per device.</div>'; return; }
+  const modeLabel = { apply: 'Apply every poll', enforce: 'Correct on drift' };
+  body.innerHTML = _driftPolicies.map((p, i) =>
+    `<div class="rdef-row">
+      <span><code>${escHtml(p.scope)}=${escHtml(p.value)}</code> → <strong>${escHtml(modeLabel[p.mode] || p.mode)}</strong></span>
+      <button class="btn-icon cell-sm c-danger-outline" data-action="removeDriftPolicy" data-arg="${i}">Remove</button>
+    </div>`).join('');
+}
+async function _saveDriftPolicies() {
+  const r = await api('PUT', '/drift-policies', { policies: _driftPolicies }).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return false; }
+  _driftPolicies = r.policies || [];
+  loadDriftPolicies();
+  return true;
+}
+async function addDriftPolicy() {
+  const scope = document.getElementById('dpol-scope').value;
+  const value = document.getElementById('dpol-value').value.trim();
+  const mode = document.getElementById('dpol-mode').value;
+  if (!value) { toast('Enter a tag or group value', 'error'); return; }
+  _driftPolicies = _driftPolicies.concat([{ scope, value, mode }]);
+  if (await _saveDriftPolicies()) {
+    document.getElementById('dpol-value').value = '';
+    toast('Enforcement policy added', 'success');
+  }
+}
+async function removeDriftPolicy(i) {
+  _driftPolicies = _driftPolicies.filter((_, idx) => idx !== Number(i));
+  await _saveDriftPolicies();
+}
+
 async function loadDriftProfiles() {
   const body = document.getElementById('drift-profiles-body');
   if (!body) return;
@@ -9945,6 +9983,7 @@ async function loadDrift() {
   const summary = document.getElementById('drift-summary');
   if (!tbody) return;
   loadDriftProfiles();   // v3.13.0: named drift profiles panel
+  loadDriftPolicies();   // v3.14.0: fleet enforcement policy by tag/group
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
   try {
     const data = await api('GET', '/drift');
@@ -10390,13 +10429,35 @@ async function loadDiskHealth() {
   tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
-    if (summary) summary.textContent = `${_diskHealthResp.count} at risk · ${_diskHealthResp.critical} critical · ${_diskHealthResp.high} high`;
+    if (summary) summary.textContent = `${_diskHealthResp.count} disk(s) at risk · ${_diskHealthResp.critical} critical · ${_diskHealthResp.high} high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
     _renderDiskHealth();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
+function _renderUnstableHosts() {
+  const tbody = document.getElementById('unstable-tbody');
+  const sub = document.getElementById('disk-health-unstable-sub');
+  if (!tbody || !_diskHealthResp) return;
+  const rows = _diskHealthResp.unstable || [];
+  if (sub) sub.textContent = rows.length ? `· ${rows.length} host${rows.length === 1 ? '' : 's'} (≥3 restarts in 7 days)` : '';
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="c-green ta-center">No hosts restarting unusually often.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const reason = r.last_boot_reason
+      ? `${escHtml(r.last_boot_reason)}${r.last_boot_reason_at ? ` <span class="hint">· ${escHtml(new Date(r.last_boot_reason_at * 1000).toLocaleString())}</span>` : ''}`
+      : '<span class="hint">—</span>';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td class="ta-center ${r.restarts >= 6 ? 'c-red' : 'c-amber'} fw-600">${r.restarts}</td>
+      <td>${reason}</td>
+    </tr>`;
+  }).join('');
+}
 function _renderDiskHealth() {
+  _renderUnstableHosts();
   const tbody = document.getElementById('disk-health-tbody');
   if (!tbody || !_diskHealthResp) return;
   const _rank = { critical: 0, high: 1, medium: 2, low: 3 };

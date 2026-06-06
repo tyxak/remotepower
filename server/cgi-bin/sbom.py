@@ -58,6 +58,16 @@ def _purl(name: str, version: str, arch: str, pkg_manager: str, os_id: str) -> s
     return base
 
 
+def _purl_container(image: str, tag: str, digest: str) -> str:
+    """PackageURL for a running container image: pkg:docker/<image>@<digest|tag>.
+    Prefers the immutable repo digest; falls back to the tag, then 'latest'."""
+    img = (image or '').strip()
+    if not img:
+        return ''
+    ver = (digest or '').strip() or (tag or '').strip() or 'latest'
+    return f'pkg:docker/{quote(img, safe="/")}@{quote(ver, safe=":")}'
+
+
 def _stable_serial(dev_id: str, collected_at) -> str:
     """Deterministic urn:uuid for the document — same host + same inventory
     snapshot yields the same serial, so re-exports are reproducible (and tests
@@ -76,12 +86,13 @@ def _ts(epoch=None) -> str:
 _CDX_SEV = {'critical', 'high', 'medium', 'low', 'info', 'none', 'unknown'}
 
 
-def build_cyclonedx(dev, pkg_entry, findings, *, server_version='') -> dict:
+def build_cyclonedx(dev, pkg_entry, findings, *, server_version='', containers=None) -> dict:
     """CycloneDX 1.5 BOM for one device.
 
     ``dev`` is the device record, ``pkg_entry`` the packages.json entry, and
     ``findings`` the (ignore-filtered) CVE finding list. ``findings`` may be
-    empty — the vulnerabilities section is then omitted."""
+    empty — the vulnerabilities section is then omitted. ``containers`` (v3.14.0),
+    when given, adds each running container image as a ``container`` component."""
     dev_id = dev.get('id') or dev.get('_id') or ''
     packages = pkg_entry.get('packages') or []
     pkg_manager = pkg_entry.get('pkg_manager', '')
@@ -110,6 +121,28 @@ def build_cyclonedx(dev, pkg_entry, findings, *, server_version='') -> dict:
         }
         if arch:
             comp['properties'] = [{'name': 'remotepower:arch', 'value': arch}]
+        components.append(comp)
+
+    # v3.14.0: running container images as components.
+    for j, c in enumerate(containers or []):
+        image = (c.get('image') or '').strip()
+        if not image:
+            continue
+        purl = _purl_container(image, c.get('tag', ''), c.get('repo_digest', ''))
+        comp = {
+            'type': 'container',
+            'bom-ref': f'ctr-{j}',
+            'name': image,
+            'version': (c.get('repo_digest') or c.get('tag') or 'latest'),
+            'purl': purl,
+        }
+        props = []
+        if c.get('name'):
+            props.append({'name': 'remotepower:container', 'value': c['name']})
+        if c.get('runtime'):
+            props.append({'name': 'remotepower:runtime', 'value': c['runtime']})
+        if props:
+            comp['properties'] = props
         components.append(comp)
 
     host_ref = f'host-{dev_id or "device"}'
@@ -188,7 +221,7 @@ def _spdx_id(prefix: str, i: int) -> str:
     return f'SPDXRef-{prefix}-{i}'
 
 
-def build_spdx(dev, pkg_entry, findings, *, server_version='') -> dict:
+def build_spdx(dev, pkg_entry, findings, *, server_version='', containers=None) -> dict:
     """SPDX 2.3 JSON for one device. SPDX has no first-class vulnerability
     object in 2.3, so CVEs are attached as ExternalRefs (SECURITY / cpe-or
     advisory URLs) on the affected package where we can resolve it; otherwise
@@ -255,6 +288,32 @@ def build_spdx(dev, pkg_entry, findings, *, server_version='') -> dict:
         relationships.append({
             'spdxElementId': host_id,
             'relatedSpdxElement': pid,
+            'relationshipType': 'CONTAINS',
+        })
+
+    # v3.14.0: running container images as SPDX packages.
+    for j, c in enumerate(containers or []):
+        image = (c.get('image') or '').strip()
+        if not image:
+            continue
+        cid = _spdx_id('Container', j)
+        purl = _purl_container(image, c.get('tag', ''), c.get('repo_digest', ''))
+        spdx_packages.append({
+            'SPDXID': cid,
+            'name': image,
+            'versionInfo': (c.get('repo_digest') or c.get('tag') or 'latest'),
+            'downloadLocation': 'NOASSERTION',
+            'filesAnalyzed': False,
+            'copyrightText': 'NOASSERTION',
+            'externalRefs': [{
+                'referenceCategory': 'PACKAGE-MANAGER',
+                'referenceType': 'purl',
+                'referenceLocator': purl,
+            }],
+        })
+        relationships.append({
+            'spdxElementId': host_id,
+            'relatedSpdxElement': cid,
             'relationshipType': 'CONTAINS',
         })
 

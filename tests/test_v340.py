@@ -390,8 +390,11 @@ class TestServerWiring(unittest.TestCase):
         # apply_enabled opt-in is set — never auto-apply a drift-only baseline.
         # (That host_config is actually cached into saved_dev is enforced by
         # the round-trip guard in tests/test_heartbeat_contract.py.)
-        seg = self.API[self.API.index('host_config_desired ='):
-                       self.API.index('host_config_desired =') + 400]
+        # v3.14.0: the gate moved one line up into `_apply_on = ...apply_enabled
+        # or <fleet policy>`, so look at a window around the decision, not just
+        # after it. apply_enabled must still gate the push.
+        _idx = self.API.index('host_config_desired =')
+        seg = self.API[max(0, _idx - 300):_idx + 400]
         self.assertIn('apply_enabled', seg,
             'host_config push must be gated on apply_enabled')
 
