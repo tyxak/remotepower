@@ -84,7 +84,7 @@
     display: block; background: rgba(0,0,0,0.35);
     border: 1px solid rgba(245,158,11,0.2);
     padding: 8px 12px; border-radius: 4px;
-    font-family: var(--font-mono, monospace); font-size: 12.5px;
+    font-family: var(--font-mono, monospace); font-size: 12px;
     color: var(--text); white-space: pre-wrap; word-break: break-all;
   }
   .tag-pill {
@@ -169,7 +169,7 @@
   .btn-reboot svg { width: 14px; height: 14px; }
   .cmd-badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px;
-    font-size: 11px; font-weight: 600; font-family: monospace;
+    font-size: 11px; font-weight: 600; font-family: var(--font-mono);
   }
   .cmd-badge.shutdown           { background: rgba(239,68,68,0.1); color: var(--red); }
   .cmd-badge.reboot             { background: rgba(245,158,11,0.1); color: var(--amber); }
@@ -224,7 +224,7 @@
   }
   .form-textarea:focus { border-color: var(--accent); }
   .apikey-value {
-    font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border);
     border-radius: 6px; padding: 8px 12px; word-break: break-all; color: var(--green);
   }
   .batch-bar {
@@ -1004,7 +1004,7 @@
   }
   .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
   .device-name     { font-size: 15px; font-weight: 600; }
-  .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+  .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: var(--font-mono); }
   .status-badge {
     display: flex;
     align-items: center;
@@ -1029,7 +1029,7 @@
     margin-bottom: 20px;
   }
   .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: monospace; }
+  .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: var(--font-mono); }
   .patch-badge {
     display: inline-block;
     padding: 1px 6px;
@@ -1246,7 +1246,7 @@
     margin-bottom: 24px;
   }
   .pin-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .pin-code  { font-family: monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: var(--accent); }
+  .pin-code  { font-family: var(--font-mono); font-size: 36px; font-weight: 700; letter-spacing: 8px; color: var(--accent); }
   .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .pin-countdown { color: var(--amber); font-weight: 600; }
   .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
@@ -1376,7 +1376,7 @@
     padding: 16px;
     max-height: 360px;
     overflow-y: auto;
-    font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.65;
     color: #94a3b8;
@@ -1395,7 +1395,7 @@
     font-size: 12px;
   }
   .sysinfo-pill .label { color: var(--muted); margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
-  .sysinfo-pill .value { font-weight: 600; font-family: monospace; }
+  .sysinfo-pill .value { font-weight: 600; font-family: var(--font-mono); }
   .settings-section {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -1542,7 +1542,7 @@
     vertical-align: middle;
   }
   .event-toggle-table td:first-child {
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     color: var(--accent);
     width: 180px;
@@ -1649,7 +1649,7 @@
   .kanban-card-device {
     background: var(--accent); color: white;
     padding: 1px 6px; border-radius: 3px;
-    font-size: 10px; font-family: monospace;
+    font-size: 10px; font-family: var(--font-mono);
   }
 
 
@@ -1713,7 +1713,7 @@ body {
 }
 
 /* Apply mono font to anywhere code/hash/path-like content lives.
- * Existing inline style="font-family:monospace" still works; this is
+ * Existing inline style="font-family: var(--font-mono)" still works; this is
  * an enhancement for consistency. */
 code, pre, .mono, [data-mono], kbd,
 .audit-log td:nth-child(4),
@@ -2032,7 +2032,7 @@ input.form-input[type="text"][data-token],
 .isl-779 { align-items: flex-end; }
 .err-text { color: var(--red); }
 /* recurring event glyph on calendar chips */
-.cal-recur-glyph { font-size: 9px; opacity: 0.75; margin-right: 2px; vertical-align: middle; }
+.cal-recur-glyph { font-size: 10px; opacity: 0.75; margin-right: 2px; vertical-align: middle; }
 .cmd-badge.script { background: rgba(124,58,237,0.1); color: #a78bfa; }
 .dash-feed-item .ts {
   font-size: 11px;
@@ -2830,7 +2830,7 @@ button, a, [role="button"],
 
 /* v3.4.0: "new" badge on freshly-added nav items (dismissed once visited) */
 .nav-new {
-  margin-left: 6px; font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+  margin-left: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
   font-weight: 700; background: rgba(59,126,255,0.15); color: var(--accent);
   border: 1px solid var(--accent); border-radius: 8px; padding: 0 5px; line-height: 14px;
 }
@@ -3006,7 +3006,7 @@ td .kev-badge { margin-left: 0; }
 .audit-cmd-output {
   padding: 8px 10px; display: none;
   background: var(--surface2); border-top: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: 11.5px;
+  font-family: var(--font-mono); font-size: 12px;
   max-height: 200px; overflow-y: auto; white-space: pre-wrap;
   word-break: break-all;
 }
@@ -3149,7 +3149,7 @@ td .kev-badge { margin-left: 0; }
 .iac-convo-role.assistant { color: var(--amber); }
 .iac-convo-content {
   padding: 10px 12px;
-  font-family: var(--font-mono); font-size: 11.5px;
+  font-family: var(--font-mono); font-size: 12px;
   white-space: pre-wrap; word-break: break-word;
   max-height: 400px; overflow-y: auto;
   color: var(--text);
@@ -3297,7 +3297,7 @@ td .kev-badge { margin-left: 0; }
 .empty-state-sm { color: var(--muted); text-align: center; padding: 24px; }
 .ta-center { text-align: center; }
 .ta-right { text-align: right; }
-.ff-mono { font-family: monospace; }
+.ff-mono { font-family: var(--font-mono); }
 .row-8 { display: flex; gap: 8px; }
 .row-8-mb8 { display: flex; gap: 8px; margin-bottom: 8px; }
 .row-8-center { display: flex; gap: 8px; align-items: center; }
@@ -3363,7 +3363,7 @@ td .kev-badge { margin-left: 0; }
 .isl-28 { flex:0 0 auto; align-self:flex-end }
 .isl-29 { padding:9px 12px }
 .isl-30 { font-size:12px; color:var(--green); margin-top:4px; display:none }
-.isl-31 { font-size:12px; color:var(--muted); margin-top:6px; font-family:monospace; word-break:break-all; display:none }
+.isl-31 { font-size:12px; color:var(--muted); margin-top:6px; font-family: var(--font-mono); word-break:break-all; display:none }
 .isl-32 { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:4px 16px }
 .isl-33 { display:flex; align-items:center; gap:8px; margin-bottom:14px; cursor:pointer }
 .isl-34 { width:18px; height:18px; accent-color:var(--accent) }
@@ -3386,7 +3386,7 @@ td .kev-badge { margin-left: 0; }
 .isl-51 { display:flex; align-items:center; gap:6px; cursor:pointer; padding:9px 4px }
 .isl-52 { flex:0 0 90px }
 .isl-53 { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap }
-.isl-54 { font-size:12px; margin-top:8px; display:none; padding:8px 12px; border-radius:6px; font-family:monospace }
+.isl-54 { font-size:12px; margin-top:8px; display:none; padding:8px 12px; border-radius:6px; font-family: var(--font-mono) }
 .isl-55 { margin-top:8px; font-size:12px }
 .isl-56 { display:none; color:var(--green) }
 /* v3.12.0: top-align so a field with a hint below (e.g. AI Model) doesn't push
@@ -3444,7 +3444,7 @@ td .kev-badge { margin-left: 0; }
 .isl-107 { margin-bottom:16px; display:none }
 .isl-108 { display:flex; flex-wrap:wrap; gap:24px; align-items:flex-start }
 .isl-109 { font-weight:600; margin-top:2px }
-.isl-110 { font-size:12px; color:var(--muted); font-family:monospace }
+.isl-110 { font-size:12px; color:var(--muted); font-family: var(--font-mono) }
 .isl-111 { margin-top:2px }
 .isl-112 { margin-top:2px; font-size:13px }
 .isl-113 { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center }
@@ -3474,7 +3474,7 @@ td .kev-badge { margin-left: 0; }
 .isl-137 { color:#f97316 }
 .isl-138 { display:none; font-size:12px; color:var(--amber); margin-left:12px }
 .isl-139 { grid-template-columns:repeat(4,1fr); margin-bottom:24px }
-.isl-140 { flex:1; min-width:300px; padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:monospace; font-size:13px }
+.isl-140 { flex:1; min-width:300px; padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family: var(--font-mono); font-size:13px }
 .isl-141 { max-width:100px }
 .isl-142 { grid-template-columns:repeat(4,1fr); margin-bottom:16px }
 .isl-143 { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
@@ -3542,13 +3542,13 @@ td .kev-badge { margin-left: 0; }
 .isl-205 { background:rgba(0,0,0,0.92) }
 .isl-206 { max-width:1100px; width:90vw; height:80vh; display:flex; flex-direction:column; padding:12px }
 .isl-207 { display:flex; align-items:center; gap:12px; margin-bottom:8px }
-.isl-208 { flex:1; font-weight:600; font-family:monospace; font-size:13px }
+.isl-208 { flex:1; font-weight:600; font-family: var(--font-mono); font-size:13px }
 .isl-209 { flex:1; background:#000; border-radius:6px; overflow:hidden }
 .isl-210 { min-height:80px }
-.isl-211 { min-height:160px; font-family:monospace }
+.isl-211 { min-height:160px; font-family: var(--font-mono) }
 .isl-212 { display:none; margin-bottom:16px }
-.isl-213 { font-family:monospace; min-height:240px; resize:vertical; white-space:pre }
-.isl-214 { display:none; font-size:12px; padding:10px 12px; border-radius:6px; margin-bottom:8px; font-family:monospace; white-space:pre-wrap; word-break:break-word }
+.isl-213 { font-family: var(--font-mono); min-height:240px; resize:vertical; white-space:pre }
+.isl-214 { display:none; font-size:12px; padding:10px 12px; border-radius:6px; margin-bottom:8px; font-family: var(--font-mono); white-space:pre-wrap; word-break:break-word }
 .isl-215 { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px }
 .isl-216 { font-size:11px; color:var(--muted); margin-left:auto }
 .isl-217 { margin-right:auto }
@@ -3556,11 +3556,11 @@ td .kev-badge { margin-left: 0; }
 .isl-219 { margin-right:6px }
 .isl-220 { min-height:120px; max-height:60vh; overflow-y:auto }
 .isl-221 { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap }
-.isl-222 { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-family:monospace; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:280px; overflow-y:auto; color:var(--muted) }
+.isl-222 { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-family: var(--font-mono); font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:280px; overflow-y:auto; color:var(--muted) }
 .isl-223 { min-height:120px; max-height:70vh; overflow-y:auto }
 .isl-224 { font-size:13px; color:var(--muted); margin-bottom:12px }
 .isl-225 { display:flex; align-items:center; gap:8px; margin:6px 0; cursor:pointer; font-size:13px }
-.isl-226 { width:100%; font-family:monospace; font-size:13px; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; resize:vertical }
+.isl-226 { width:100%; font-family: var(--font-mono); font-size:13px; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; resize:vertical }
 .isl-227 { display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:0 }
 .isl-228 { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px }
 .isl-229 { font-weight:600; font-size:14px }
@@ -3568,12 +3568,12 @@ td .kev-badge { margin-left: 0; }
 .isl-231 { display:none; padding:12px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:6px; color:var(--amber); font-size:13px; margin-bottom:12px }
 .isl-232 { color:var(--muted); text-align:center; padding:24px; font-size:13px }
 .isl-233 { display:flex; gap:6px; margin-bottom:6px }
-.isl-234 { min-height:300px; font-family:monospace; font-size:13px }
+.isl-234 { min-height:300px; font-family: var(--font-mono); font-size:13px }
 .isl-235 { display:none; min-height:300px; padding:12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-size:13px; line-height:1.55; overflow-y:auto; max-height:50vh }
 .isl-236 { min-height:120px; max-height:65vh; overflow-y:auto }
-.isl-237 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-family:monospace }
+.isl-237 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-family: var(--font-mono) }
 .isl-238 { font-size:11px; padding:2px 8px }
-.isl-239 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-family:monospace; word-break:break-all }
+.isl-239 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-family: var(--font-mono); word-break:break-all }
 .isl-240 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-size:13px; color:var(--muted) }
 .isl-241 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px }
 .isl-242 { font-size:11px; color:var(--muted); margin-top:4px; padding-left:24px }
@@ -3648,8 +3648,8 @@ td .kev-badge { margin-left: 0; }
 .cell-pad { padding: 6px 4px; }
 .cell-padl { padding: 6px 16px 6px 0; }
 .fs-10 { font-size: 10px; }
-.code-pill { background: var(--bg); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); font-family: monospace; }
-.mono-12 { font-family: monospace; font-size: 12px; }
+.code-pill { background: var(--bg); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); font-family: var(--font-mono); }
+.mono-12 { font-family: var(--font-mono); font-size: 12px; }
 .fw-600-mb10 { font-weight: 600; margin-bottom: 10px; }
 .nowrap { white-space: nowrap; }
 .hint-nowrap { font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -3711,7 +3711,7 @@ td .kev-badge { margin-left: 0; }
 
 /* CSP L1 fix: one-off auto-generated classes from app.js */
 .isl-304 { color: var(--muted); opacity: .3; font-size: 10px }
-.isl-305 { font-size: 9px; opacity: .7 }
+.isl-305 { font-size: 10px; opacity: .7 }
 .isl-306 { color: var(--accent); font-size: 10px }
 .isl-307 { padding: 6px 10px; font-size: 11px; font-weight: 500; background: var(--surface); color: var(--muted); border: 1px solid var(--border); cursor: pointer }
 .isl-308 { display: inline-flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--border) }
@@ -3726,7 +3726,7 @@ td .kev-badge { margin-left: 0; }
 .isl-317 { text-align: center; padding: 0 6px }
 .isl-318 { padding: 1px 8px; font-size: 10px }
 .isl-319 { color: var(--text); text-decoration: none; font-weight: 500 }
-.isl-320 { font-size: 9px; color: var(--muted); background: var(--surface2); padding: 1px 4px; border-radius: 3px }
+.isl-320 { font-size: 10px; color: var(--muted); background: var(--surface2); padding: 1px 4px; border-radius: 3px }
 .isl-321 { width: 36px; text-align: center }
 .isl-322 { width: 190px }
 .isl-323 { width: 160px }
@@ -3735,8 +3735,8 @@ td .kev-badge { margin-left: 0; }
 .isl-326 { font-size: 24px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: all 0.15s; min-width: 44px; text-align: center }
 /* v3.0.5: hover effect was inline `onmouseover`/`onmouseout` pre-CSP; now CSS. */
 .isl-326:hover { border-color: var(--accent); }
-.isl-327 { font-family: monospace; font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }
-.isl-328 { font-family: monospace; font-size: 12px; color: var(--muted) }
+.isl-327 { font-family: var(--font-mono); font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }
+.isl-328 { font-family: var(--font-mono); font-size: 12px; color: var(--muted) }
 .isl-329 { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 2px; background: var(--muted) }
 /* .isl-330 — dynamic colour, applied via data-color attribute */
 /* .isl-331 — dynamic colour, applied via data-color attribute */
@@ -3749,15 +3749,15 @@ td .kev-badge { margin-left: 0; }
 .isl-338 { display: flex; gap: 10px; flex-wrap: wrap }
 .isl-339 { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px }
 .isl-340 { accent-color: var(--accent) }
-.isl-341 { font-family: monospace; font-size: 11px }
+.isl-341 { font-family: var(--font-mono); font-size: 11px }
 .isl-342 { background: rgba(59,126,255,0.1); color: var(--accent) }
 .isl-343 { font-weight: 600 }
 .isl-344 { font-size: 12px; color: var(--muted); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .isl-345 { color: var(--muted); font-size: 12px; white-space: nowrap }
 .isl-346 { color: var(--red); border-color: rgba(239,68,68,0.3); font-size: 14px; padding: 4px 8px }
 .isl-347 { background: rgba(239,68,68,0.18); color: var(--red); font-size: 10px }
-.isl-348 { font-family: monospace }
-.isl-349 { font-family: monospace; font-size: 11px; margin-right: 10px }
+.isl-348 { font-family: var(--font-mono) }
+.isl-349 { font-family: var(--font-mono); font-size: 11px; margin-right: 10px }
 .isl-350 { color: var(--text); text-decoration: none }
 .isl-351 { font-size: 11px; padding: 4px 8px; margin-right: 4px }
 .isl-352 { font-size: 11px; padding: 4px 8px }
@@ -3766,7 +3766,7 @@ td .kev-badge { margin-left: 0; }
 .isl-355 { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 16px }
 .isl-356 { font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px }
 .isl-357 { font-size: 12px; color: var(--muted); margin-top: 12px }
-.isl-358 { font-family: monospace; font-size: 12px; color: var(--accent) }
+.isl-358 { font-family: var(--font-mono); font-size: 12px; color: var(--accent) }
 .isl-359 { padding: 16px; color: #666; font-size: 12px; text-align: center }
 .isl-360 { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px }
 .isl-361 { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap }
@@ -3776,9 +3776,9 @@ td .kev-badge { margin-left: 0; }
 .isl-365 { font-size: 13px; font-weight: 600; margin-bottom: 8px }
 .isl-366 { font-size: 12px; color: var(--muted); margin-bottom: 12px }
 .isl-367 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px }
-.isl-368 { font-family: monospace; font-size: 14px; letter-spacing: 2px; color: var(--accent); word-break: break-all; background: var(--surface2); padding: 10px; border-radius: 6px; cursor: pointer }
+.isl-368 { font-family: var(--font-mono); font-size: 14px; letter-spacing: 2px; color: var(--accent); word-break: break-all; background: var(--surface2); padding: 10px; border-radius: 6px; cursor: pointer }
 .isl-369 { max-width: 200px; text-align: center; font-size: 18px; letter-spacing: 4px }
-.isl-370 { font-size: 11px; font-family: monospace; color: var(--muted); margin-top: 2px }
+.isl-370 { font-size: 11px; font-family: var(--font-mono); color: var(--muted); margin-top: 2px }
 .isl-371 { padding: 4px 6px; font-size: 11px }
 .isl-372 { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: 600; color: var(--amber); background: var(--amber-soft); border: 1px solid var(--amber-edge); white-space: nowrap; vertical-align: middle }
 .isl-373 { width: 10px; height: 10px; margin-right: 2px; flex-shrink: 0 }
@@ -3807,11 +3807,11 @@ td .kev-badge { margin-left: 0; }
 .isl-397 { display: flex; gap: 8px; font-size: 11px; flex-wrap: wrap; align-items: center }
 .isl-398 { padding: 2px 6px; font-size: 11px; margin-left: auto }
 .isl-399 { padding: 2px 6px; font-size: 11px }
-.isl-400 { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 2px 8px; font-size: 11px; margin: 1px; font-family: monospace }
+.isl-400 { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 2px 8px; font-size: 11px; margin: 1px; font-family: var(--font-mono) }
 /* .isl-401 — dynamic colour, applied via data-color attribute */
 .isl-402 { text-align: center; color: var(--green); font-weight: 600 }
 .isl-403 { text-align: center; color: var(--red); font-weight: 600 }
-.isl-404 { font-size: 11px; color: var(--muted); font-family: monospace }
+.isl-404 { font-size: 11px; color: var(--muted); font-family: var(--font-mono) }
 .isl-405 { font-size: 11px; color: var(--muted); font-style: italic; padding: 4px 0 }
 .isl-406 { font-size: 11px; padding: 2px 8px; margin-left: 8px }
 .isl-407 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px }
@@ -3822,16 +3822,16 @@ td .kev-badge { margin-left: 0; }
 .isl-412 { font-size: 12px; color: var(--muted); cursor: pointer }
 .isl-413 { padding-top: 6px }
 .isl-414 { max-height: 200px; margin-top: 6px }
-.isl-415 { font-size: 12px; font-family: monospace; color: var(--muted) }
+.isl-415 { font-size: 12px; font-family: var(--font-mono); color: var(--muted) }
 .isl-416 { padding: 4px 8px; font-size: 11px; color: var(--red); border-color: rgba(239,68,68,0.3) }
-.isl-417 { font-family: monospace; font-size: 11px; color: var(--muted) }
+.isl-417 { font-family: var(--font-mono); font-size: 11px; color: var(--muted) }
 .isl-418 { text-align: center; color: var(--muted); padding: 20px }
-.isl-419 { font-family: monospace; font-size: 12px; line-height: 1.5; padding: 1px 4px }
+.isl-419 { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; padding: 1px 4px }
 .isl-420 { text-align: center; color: var(--red); padding: 40px }
 .isl-421 { font-weight: 600; margin-bottom: 6px }
 .isl-422 { font-size: 11px; color: var(--muted); margin-top: 10px }
 .isl-423 { font-size: 13px; color: var(--accent); cursor: pointer; padding: 4px 0 }
-.isl-424 { font-family: monospace; font-size: 12px; padding: 1px 4px 1px 20px }
+.isl-424 { font-family: var(--font-mono); font-size: 12px; padding: 1px 4px 1px 20px }
 .isl-425 { font-size: 12px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }
 .isl-426 { font-size: 12px; color: var(--amber) }
 .isl-427 { font-size: 12px; color: var(--muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis }
@@ -3856,7 +3856,7 @@ td .kev-badge { margin-left: 0; }
 .isl-446 { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end }
 .isl-447 { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; background: var(--surface2) }
 .isl-448 { padding: 10px 12px; cursor: pointer; display: flex; gap: 12px; align-items: center; flex-wrap: wrap }
-.isl-449 { margin: 0; padding: 12px; background: var(--surface); border-top: 1px solid var(--border); font-family: monospace; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; overflow-y: auto }
+.isl-449 { margin: 0; padding: 12px; background: var(--surface); border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; overflow-y: auto }
 .isl-450 { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: var(--amber); color: #000; font-weight: 600 }
 .isl-451 { opacity: .75 }
 .isl-452 { background: var(--amber); color: #000; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; font-weight: 500 }
@@ -3872,7 +3872,7 @@ td .kev-badge { margin-left: 0; }
 .isl-462 { font-weight: 600; display: flex; align-items: center; gap: 6px }
 .isl-463 { display: flex; gap: 8px; align-items: center; font-size: 12px }
 .isl-464 { font-size: 10px; padding: 2px 6px }
-.isl-465 { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: monospace }
+.isl-465 { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono) }
 .isl-466 { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap }
 .isl-467 { cursor: grab }
 .isl-468 { text-align: left; border-bottom: 1px solid var(--border) }
@@ -3883,11 +3883,11 @@ td .kev-badge { margin-left: 0; }
 .isl-473 { color: var(--muted); font-size: 11px; margin-top: 2px }
 .isl-474 { color: var(--accent); font-size: 10px; margin-left: 6px; background: rgba(59,126,255,0.12); padding: 1px 5px; border-radius: 3px; text-transform: uppercase }
 .isl-475 { padding: 2px 6px; font-size: 11px; margin-right: 6px }
-.isl-476 { font-family: monospace; color: var(--muted) }
+.isl-476 { font-family: var(--font-mono); color: var(--muted) }
 .isl-477 { background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 11px; margin-right: 4px }
 .isl-478 { color: var(--red); margin-top: 4px }
 .isl-479 { color: var(--amber); margin-top: 4px }
-.isl-480 { width: 100%; margin-top: 8px; font-family: monospace; font-size: 11px; border-collapse: collapse }
+.isl-480 { width: 100%; margin-top: 8px; font-family: var(--font-mono); font-size: 11px; border-collapse: collapse }
 .isl-481 { border-bottom: 1px solid var(--border); text-align: left }
 .isl-482 { padding: 4px 8px; word-break: break-all }
 .isl-483 { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border) }
@@ -3906,7 +3906,7 @@ td .kev-badge { margin-left: 0; }
 .isl-496 { border-radius: 8px; padding: 12px 14px; background: var(--surface2); transition: background 0.1s; height: 100%; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; border: 1px solid var(--border) }
 .isl-497 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px }
 .isl-498 { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.isl-499 { font-family: monospace; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.isl-499 { font-family: var(--font-mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .isl-500 { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
 .isl-501 { text-decoration: none; color: inherit; display: block }
 .isl-502 { font-size: 11px; padding: 4px 8px; color: var(--red); border-color: rgba(239,68,68,0.3) }
@@ -3961,7 +3961,7 @@ td .kev-badge { margin-left: 0; }
 .isl-548 { padding: 0 4px 6px 16px; font-size: 10px; color: var(--muted) }
 .isl-549 { padding: 0 4px 8px 16px }
 .isl-550 { font-size: 11px; color: var(--muted); cursor: pointer }
-.isl-551 { margin-top: 4px; font-family: monospace; font-size: 10px; color: var(--muted) }
+.isl-551 { margin-top: 4px; font-family: var(--font-mono); font-size: 10px; color: var(--muted) }
 .isl-552 { color: var(--muted); font-size: 18px }
 .isl-553 { padding: 14px 8px }
 .isl-554 { font-size: 12px; padding: 2px 8px }
@@ -3998,7 +3998,7 @@ td .kev-badge { margin-left: 0; }
 .isl-585 { color: var(--muted); padding: 12px }
 .isl-586 { color: var(--red); padding: 12px }
 .isl-587 { padding: 6px 4px; font-family: var(--font-mono) }
-.isl-588 { font-size: 9px; color: var(--muted) }
+.isl-588 { font-size: 10px; color: var(--muted) }
 .isl-589 { padding: 6px 4px; text-align: right; white-space: nowrap }
 .isl-590 { font-size: 10px; padding: 2px 6px; margin-right: 4px; color: var(--amber); border-color: rgba(245,158,11,0.3) }
 .isl-591 { font-size: 10px; padding: 2px 6px; color: var(--red); border-color: rgba(239,68,68,0.3) }
@@ -4034,10 +4034,10 @@ td .kev-badge { margin-left: 0; }
 .isl-621 { width: 80px; padding: 5px 8px; font-size: 12px }
 .isl-622 { align-items: flex-start }
 .isl-623 { padding-top: 4px }
-.isl-624 { flex: 1; padding: 5px 8px; font-size: 11.5px; font-family: var(--font-mono); resize: vertical }
+.isl-624 { flex: 1; padding: 5px 8px; font-size: 12px; font-family: var(--font-mono); resize: vertical }
 .isl-625 { padding: 12px 0 4px; display: flex; gap: 8px }
 .isl-626 { font-size: 12px; padding: 6px 16px }
-.isl-627 { font-size: 11.5px; width: 100%; border-collapse: collapse }
+.isl-627 { font-size: 12px; width: 100%; border-collapse: collapse }
 .isl-628 { text-align: left; padding: 3px 6px }
 .isl-629 { padding: 3px 6px }
 .isl-630 { text-align: center }
@@ -4048,7 +4048,7 @@ td .kev-badge { margin-left: 0; }
 /* .isl-635 — dynamic colour, applied via data-color attribute */
 .isl-636 { max-height: 300px; overflow-y: auto }
 .isl-637 { max-height: 320px; overflow-y: auto }
-.isl-638 { flex: 1; font-size: 11.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis }
+.isl-638 { flex: 1; font-size: 12px; color: var(--accent); overflow: hidden; text-overflow: ellipsis }
 .isl-639 { font-size: 10px; color: var(--muted); white-space: nowrap; margin-left: 8px }
 .isl-640 { font-size: 11px; color: var(--muted); margin-left: 6px }
 .isl-641 { font-size: 11px; margin-top: 6px }
@@ -4176,12 +4176,12 @@ td .kev-badge { margin-left: 0; }
 .isl-740 { padding: 4px 10px; color: var(--red); font-size: 14px }
 .isl-741 { display: flex; gap: 10px; margin-bottom: 10px }
 .isl-742 { flex: 0 0 180px; padding: 6px 10px; font-size: 13px }
-.isl-743 { flex: 1; padding: 6px 10px; font-size: 13px; font-family: monospace }
+.isl-743 { flex: 1; padding: 6px 10px; font-size: 13px; font-family: var(--font-mono) }
 .isl-744 { cursor: pointer; color: var(--muted) }
 .isl-745 { margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
 .isl-746 { display: flex; align-items: center; gap: 6px }
 .isl-747 { padding: 4px 8px; font-size: 12px }
-.isl-748 { width: 100%; padding: 6px 10px; font-size: 12px; font-family: monospace; resize: vertical }
+.isl-748 { width: 100%; padding: 6px 10px; font-size: 12px; font-family: var(--font-mono); resize: vertical }
 .icon-inline-flex { display: inline-flex; vertical-align: middle; line-height: 0; }
 .input-url-dest { flex: 1; padding: 6px 10px; font-size: 13px; }
 

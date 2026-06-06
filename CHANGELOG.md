@@ -101,6 +101,12 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Favorites no longer "reset" on a normal refresh.** The service-worker cache
   is now versioned to `remotepower-shell-v3.14.0` (and `?v=` bumped), so a plain
   F5 loads the current front-end instead of a stale cached shell.
+- **UI consistency sweep.** The Reports page's *Scheduled email delivery* and
+  *Custom reports* cards no longer touch (both now use the page's standard
+  `dash-card mb-16` spacing). Monospace text renders in one font fleet-wide —
+  ~47 rules that used the bare OS-default `monospace` now use the shared
+  `--font-mono` stack — and a few off-scale font sizes (12.5/11.5/9px) were
+  folded onto the canonical type scale.
 
 ## v3.13.0 — 2026-06-05
 
