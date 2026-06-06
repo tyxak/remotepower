@@ -80,6 +80,9 @@ class TestRouteResolution(unittest.TestCase):
         # v3.14.0: Tier-2 gap mop-up
         ('GET',    '/api/drift-policies', 'handle_drift_policies_get'),
         ('PUT',    '/api/drift-policies', 'handle_drift_policies_set'),
+        # v3.14.0: Pass A — metrics push
+        ('GET',    '/api/metrics/push/config', 'handle_metrics_push_get'),
+        ('PUT',    '/api/metrics/push/config', 'handle_metrics_push_set'),
         # bespoke conditional routes (the ones the elif ordering used to gate)
         ('DELETE', '/api/devices/abc123', 'handle_device_delete'),
         ('POST',   '/api/devices/abc123', 'handle_device_save_bulk'),

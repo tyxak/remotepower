@@ -1174,6 +1174,28 @@
 
         <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-integrations">
+          <!-- v3.14.0: push fleet metrics to a Prometheus Pushgateway / remote target. -->
+          <div class="settings-section">
+            <h3>Metrics push (Prometheus)</h3>
+            <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher.</p>
+            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span class="fs-14">Enable metrics push</span></label>
+            <div class="settings-row">
+              <div class="form-group flex-1">
+                <label class="form-label">Pushgateway URL</label>
+                <input type="url" id="cfg-metrics-push-url" class="form-input ff-mono" placeholder="http://pushgateway.example.com:9091">
+              </div>
+              <div class="form-group mw-200">
+                <label class="form-label">Interval (seconds)</label>
+                <input type="number" id="cfg-metrics-push-interval" class="form-input" min="15" max="3600" value="60">
+              </div>
+              <div class="form-group mw-200">
+                <label class="form-label">Job label</label>
+                <input type="text" id="cfg-metrics-push-job" class="form-input" placeholder="remotepower">
+              </div>
+            </div>
+            <button class="btn-primary" data-action="saveMetricsPush">Save metrics push</button>
+            <span id="metrics-push-status" class="fs-12 c-muted"></span>
+          </div>
           <!-- v3.4.2: moved here from Advanced — it's an external-access integration. -->
           <div class="settings-section">
             <h3>Status endpoint</h3>
@@ -2155,6 +2177,8 @@
                 <li><strong>Custom report builder.</strong> <em>Reports → Custom reports</em>: build a report from just the sections you want, pick JSON/CSV, download, and schedule each one to its own recipients.</li>
                 <li><strong>Container images in SBOMs.</strong> A host's CycloneDX/SPDX SBOM now also lists its running container images as components.</li>
                 <li><strong>Fleet drift-enforcement policy.</strong> The Drift page can auto-apply (or correct-on-drift) the desired config for every host matching a tag or group.</li>
+                <li><strong>Alerts for the new signals.</strong> Predicted disk failure, UPS on battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts/webhooks, not just dashboard views.</li>
+                <li><strong>Metrics push (Prometheus).</strong> Settings → Integrations can periodically POST the <code>/api/metrics</code> exposition to a Pushgateway / remote target.</li>
               </ul>
               <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
             </div>

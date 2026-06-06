@@ -2045,6 +2045,8 @@ async function loadSettings() {
   const hcInt = document.getElementById('cfg-healthchecks-interval');
   if (hcInt) hcInt.value = data.healthchecks_interval_seconds || 60;
 
+  loadMetricsPush();   // v3.14.0: metrics-push config (separate endpoint)
+
   // v3.11.0: scheduled posture digest
   const _pde = document.getElementById('cfg-posture-digest-enabled');
   if (_pde) _pde.checked = !!data.posture_digest_enabled;
@@ -3152,6 +3154,8 @@ const _DYK_TIPS = [
   "Open a container in the device drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
   "Press / (or Ctrl-K) anywhere for the command palette — it now searches open alerts and CVE findings too, not just pages and devices.",
   "Reports → Custom reports lets you build a report from just the sections you care about, download it as JSON/CSV, and schedule each saved report to its own recipients.",
+  "Predicted disk failures, UPS-on-battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts — wire them to a channel under Settings → Notifications.",
+  "Settings → Integrations → Metrics push periodically POSTs the fleet's Prometheus metrics to a Pushgateway, for stacks that pull from a gateway instead of scraping /api/metrics.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -11678,6 +11682,7 @@ function _renderHomeActivity(fleetEvents) {
     'login_new_source', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue',
+    'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'cert_file_expiring', 'rogue_uid0',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -11832,6 +11837,10 @@ function _homeActivityAttrs(event, p) {
     case 'db_integrity_failed':
       return `${base} data-home-act="self"`;
     case 'mount_issue':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    // v3.14.0: predictive / posture alerts — open the affected host's drawer.
+    case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':
+    case 'cert_file_expiring': case 'rogue_uid0':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
@@ -12874,6 +12883,35 @@ function loadSshUsername() {
 // guard refuses to enable the allowlist if the caller's own IP would
 // be excluded.
 // v3.3.0: save Healthchecks.io watchdog config. Empty URL disables.
+// v3.14.0: metrics push (Prometheus Pushgateway)
+async function loadMetricsPush() {
+  const en = document.getElementById('cfg-metrics-push-enabled');
+  if (!en) return;
+  const d = await api('GET', '/metrics/push/config').catch(() => null);
+  if (!d) return;
+  en.checked = !!d.enabled;
+  const url = document.getElementById('cfg-metrics-push-url');   if (url) url.value = d.url || '';
+  const iv  = document.getElementById('cfg-metrics-push-interval'); if (iv) iv.value = d.interval || 60;
+  const jb  = document.getElementById('cfg-metrics-push-job');   if (jb) jb.value = d.job || 'remotepower';
+  const st  = document.getElementById('metrics-push-status');
+  if (st) {
+    if (d.last_error) st.textContent = `Last push failed: ${d.last_error}`;
+    else if (d.last_push) st.textContent = `Last push ${timeAgo(d.last_push)}${d.last_status ? ` (HTTP ${d.last_status})` : ''}`;
+    else st.textContent = d.enabled ? 'Enabled — not pushed yet.' : '';
+  }
+}
+async function saveMetricsPush() {
+  const payload = {
+    enabled:  document.getElementById('cfg-metrics-push-enabled').checked,
+    url:      document.getElementById('cfg-metrics-push-url').value.trim(),
+    interval: parseInt(document.getElementById('cfg-metrics-push-interval').value, 10) || 60,
+    job:      document.getElementById('cfg-metrics-push-job').value.trim() || 'remotepower',
+  };
+  const r = await api('PUT', '/metrics/push/config', payload).catch(() => null);
+  if (r?.ok) { toast(r.enabled ? `Metrics push enabled (every ${r.interval}s)` : 'Metrics push disabled', 'success'); loadMetricsPush(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
 async function saveHealthchecks() {
   const url      = document.getElementById('cfg-healthchecks-url').value.trim();
   const interval = parseInt(document.getElementById('cfg-healthchecks-interval').value, 10) || 60;

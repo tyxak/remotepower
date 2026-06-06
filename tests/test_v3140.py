@@ -743,5 +743,128 @@ class TestUnstableHosts(_HandlerBase):
         self.assertIn('unstable_count', r)
 
 
+class TestMetricsPush(_HandlerBase):
+    def test_config_round_trip(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'enabled': True, 'url': 'http://pg:9091', 'interval': 30, 'job': 'rp!!'}
+        r = self.call(api.handle_metrics_push_set)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['job'], 'rp')   # sanitized
+        api.method = lambda: 'GET'
+        g = self.call(api.handle_metrics_push_get)
+        self.assertTrue(g['enabled'])
+        self.assertEqual(g['url'], 'http://pg:9091')
+        self.assertEqual(g['interval'], 30)
+
+    def test_enabled_requires_url(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'enabled': True, 'url': ''}
+        self.call(api.handle_metrics_push_set)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_push_posts_to_pushgateway_then_gates(self):
+        api.METRICS_PUSH_STATE_FILE = self.d / 'mps.json'
+        api.save(api.CONFIG_FILE, {'metrics_push': {'enabled': True, 'url': 'http://pg:9091',
+                                                    'interval': 60, 'job': 'rp'}})
+        cap = {}
+
+        class _Resp:
+            status = 200
+
+        class _Opener:
+            def open(self, req, timeout=10):
+                cap['url'] = req.full_url
+                cap['data'] = req.data
+                return _Resp()
+
+        saved = (api._build_metrics_ctx, api.prometheus_export.generate_metrics,
+                 api._ssrf_safe_opener, api._get_ssl_context)
+        api._build_metrics_ctx = lambda: {}
+        api.prometheus_export.generate_metrics = lambda ctx: 'rp_metric 1\n'
+        api._ssrf_safe_opener = lambda **k: _Opener()
+        api._get_ssl_context = lambda: None
+        try:
+            api._maybe_push_metrics()
+            self.assertEqual(cap.get('url'), 'http://pg:9091/metrics/job/rp')
+            self.assertIn(b'rp_metric', cap['data'])
+            cap.clear()
+            api._maybe_push_metrics()                 # within interval → no push
+            self.assertNotIn('url', cap)
+        finally:
+            (api._build_metrics_ctx, api.prometheus_export.generate_metrics,
+             api._ssrf_safe_opener, api._get_ssl_context) = saved
+
+
+class TestAlertEvents(_HandlerBase):
+    NEW = ('disk_predict_fail', 'ups_on_battery', 'ups_on_line',
+           'cert_file_expiring', 'rogue_uid0')
+
+    def test_events_fully_wired(self):
+        for ev in self.NEW:
+            self.assertIn(ev, api.WEBHOOK_EVENT_NAMES, ev)
+            self.assertIn(ev, api.EVENT_KIND_MAP, f'{ev} not in a channel kind')
+            self.assertFalse(api._webhook_title(ev).startswith('RemotePower: '),
+                             f'{ev} has no friendly title')
+        for ev in ('disk_predict_fail', 'ups_on_battery', 'cert_file_expiring', 'rogue_uid0'):
+            self.assertIn(ev, api._ALERT_RULES, ev)
+        self.assertEqual(api._ALERT_RECOVER.get('ups_on_line'), 'ups_on_battery')
+
+    def _ingest(self, body):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        fired = []
+        orig = api.fire_webhook
+        api.fire_webhook = lambda ev, pl: fired.append((ev, pl))
+        try:
+            api._ingest_hardware('d1', 'web', body, 1_000_000)
+        finally:
+            api.fire_webhook = orig
+        return [e for e, _ in fired]
+
+    def test_ups_on_battery_then_on_line(self):
+        on = self._ingest({'ups': [{'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 80}]})
+        self.assertIn('ups_on_battery', on)
+        # same state again → no re-fire
+        again = self._ingest({'ups': [{'name': 'apc', 'status': 'OB DISCHRG', 'battery_pct': 75}]})
+        self.assertNotIn('ups_on_battery', again)
+        # back on line → resolve event
+        back = self._ingest({'ups': [{'name': 'apc', 'status': 'OL', 'battery_pct': 100}]})
+        self.assertIn('ups_on_line', back)
+
+    def test_cert_expiring_fires_once(self):
+        body = {'cert_files': [{'path': '/etc/ssl/x.pem', 'not_after': 1_000_000 + 10 * 86400}]}
+        self.assertIn('cert_file_expiring', self._ingest(body))
+        self.assertNotIn('cert_file_expiring', self._ingest(body))   # edge-triggered
+
+    def test_cert_far_off_does_not_fire(self):
+        body = {'cert_files': [{'path': '/etc/ssl/y.pem', 'not_after': 1_000_000 + 200 * 86400}]}
+        self.assertNotIn('cert_file_expiring', self._ingest(body))
+
+    def test_rogue_uid0_fires(self):
+        body = {'accounts': [{'user': 'root', 'uid': 0, 'flags': []},
+                             {'user': 'sneaky', 'uid': 0, 'flags': ['uid0']}]}
+        fired = self._ingest(body)
+        self.assertIn('rogue_uid0', fired)
+
+    def test_disk_predict_fail_periodic(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.HARDWARE_FILE, {'d1': {'smart': [
+            {'device': '/dev/sda', 'serial': 'S1', 'health': 'PASSED', 'pending_sectors': 30}]}})
+        day = 86400
+        samples = [{'date': f'd{i}', 'ts': 1_000_000 + i * day,
+                    'pending': i * 10, 'realloc': 0, 'wear': None, 'temp': 40} for i in range(4)]
+        api.save(api.SMART_HIST_FILE, {'d1': {'S1': {'device': '/dev/sda', 'samples': samples}}})
+        api.save(api.CONFIG_FILE, {})   # last_disk_predict_check unset → runs
+        fired = []
+        orig = api.fire_webhook
+        api.fire_webhook = lambda ev, pl: fired.append(ev)
+        try:
+            api._maybe_check_disk_predictions()
+        finally:
+            api.fire_webhook = orig
+        self.assertIn('disk_predict_fail', fired)
+
+
 if __name__ == "__main__":
     unittest.main()

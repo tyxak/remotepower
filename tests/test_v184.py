@@ -290,6 +290,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'storage_degraded', 'scrub_overdue', 'storage_recovered',
             'login_new_source', 'firewall_changed', 'timer_failed',
             'db_integrity_failed', 'mount_issue',
+            'disk_predict_fail', 'ups_on_battery', 'ups_on_line',
+            'cert_file_expiring', 'rogue_uid0',
         }
         self.assertEqual(names, expected)
 

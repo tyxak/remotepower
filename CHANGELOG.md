@@ -74,6 +74,13 @@ dependencies; most of it surfaces data the agent already reports. See
   container images as components (`pkg:docker/<image>@<digest|tag>`).
 - **Fleet drift-enforcement policy.** Set apply/correct-on-drift by tag or group
   on the Drift page (`/api/drift-policies`); the per-device flag still wins.
+- **Alerts for the posture signals.** New edge-triggered events: `disk_predict_fail`
+  (predicted disk failure with ETA), `ups_on_battery`/`ups_on_line` (auto-resolving),
+  `cert_file_expiring` (≤21d), `rogue_uid0` (unexpected root-equivalent account) —
+  wired into the alert inbox, channels, and activity feed.
+- **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
+  `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
+  config, SSRF-safe, interval-gated). Off by default.
 
 ### Fixed
 - **Favorites no longer "reset" on a normal refresh.** The service-worker cache

@@ -705,6 +705,12 @@ WEBHOOK_EVENTS = (
     ('db_integrity_failed',   'Database integrity check failed (possible corruption)', True),
     # v3.12.0: an fstab mount is missing, or a mounted network share is stalled.
     ('mount_issue',           'Mount point missing or a network share is stalled', True),
+    # v3.14.0: surface the predictive/posture signals as alerts.
+    ('disk_predict_fail',     'A disk is predicted to fail (SMART trend)',   True),
+    ('ups_on_battery',        'UPS switched to battery power',               True),
+    ('ups_on_line',           'UPS returned to line power',                  True),
+    ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
+    ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -3144,6 +3150,10 @@ _ALERT_RULES = {
     'timer_failed':               ('medium', None),
     'db_integrity_failed':        ('critical', None),
     'mount_issue':                ('high', None),
+    'disk_predict_fail':          ('high', None),       # v3.14.0
+    'ups_on_battery':             ('critical', None),   # v3.14.0
+    'cert_file_expiring':         ('medium', None),     # v3.14.0
+    'rogue_uid0':                 ('high', None),        # v3.14.0
 }
 
 # Map recover event → firing event it resolves
@@ -3164,6 +3174,7 @@ _ALERT_RECOVER = {
     # v3.11.0: an array returning to healthy resolves its storage_degraded
     # alert (and scrub_overdue via _ALERT_RECOVER_EXTRA).
     'storage_recovered':       'storage_degraded',
+    'ups_on_line':             'ups_on_battery',          # v3.14.0
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -3231,6 +3242,11 @@ CHANNEL_KINDS = [
     ('timer',       'Scheduled-job failures',   'operational',   ['timer_failed']),
     ('database',    'Database integrity',       'operational',   ['db_integrity_failed']),
     ('mount',       'Mount-point health',       'operational',   ['mount_issue']),
+    # v3.14.0: predictive / posture alerts
+    ('disk_predict', 'Disk failure prediction', 'operational',   ['disk_predict_fail']),
+    ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
+    ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
+    ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4298,6 +4314,11 @@ def _webhook_title(event):
         'timer_failed':              'Scheduled Job Failed',
         'db_integrity_failed':       'Database Integrity Check Failed',
         'mount_issue':               'Mount Point Problem',
+        'disk_predict_fail':         'Disk Predicted To Fail',
+        'ups_on_battery':            'UPS On Battery',
+        'ups_on_line':               'UPS Back On Line Power',
+        'cert_file_expiring':        'Certificate File Expiring',
+        'rogue_uid0':                'Unexpected Root-Equivalent Account',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -4978,6 +4999,22 @@ def _webhook_message(event, payload):
         act = payload.get('activates', '')
         extra = f' → {act}' if act else ''
         return f'{name}: scheduled job {payload.get("unit","?")} failed{extra}'
+    elif event == 'disk_predict_fail':
+        eta = payload.get('eta_days')
+        when = f' (~{eta}d to failure)' if isinstance(eta, int) else ''
+        return (f'{name}: disk {payload.get("disk","?")} predicted to fail{when} — '
+                f'{payload.get("reason","SMART trend")}')
+    elif event == 'ups_on_battery':
+        return (f'{name}: UPS {payload.get("ups","?")} on battery '
+                f'(battery {payload.get("battery_pct","?")}%)')
+    elif event == 'ups_on_line':
+        return f'{name}: UPS {payload.get("ups","?")} back on line power'
+    elif event == 'cert_file_expiring':
+        return (f'{name}: certificate {payload.get("path","?")} expires in '
+                f'{payload.get("days","?")} days')
+    elif event == 'rogue_uid0':
+        return (f'{name}: account {payload.get("user","?")} has UID 0 '
+                f'(root-equivalent) — verify it is expected')
     return f'{event}: {name}'
 
 
@@ -5045,6 +5082,11 @@ def _webhook_tags(event):
         'timer_failed':              'warning,alarm_clock',
         'db_integrity_failed':       'rotating_light,floppy_disk',
         'mount_issue':               'warning,floppy_disk',
+        'disk_predict_fail':         'warning,floppy_disk',
+        'ups_on_battery':            'rotating_light,battery',
+        'ups_on_line':               'green_circle,electric_plug',
+        'cert_file_expiring':        'warning,lock',
+        'rogue_uid0':                'rotating_light,bust_in_silhouette',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -17995,6 +18037,17 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     'not_after': int(na) if isinstance(na, (int, float)) and na >= 0 else 0,
                 })
             rec['cert_files'] = certs
+            # Alert on certs expiring within the threshold (edge-triggered per
+            # path; clears implicitly once the cert renews and drops out).
+            soon = now + 21 * 86400
+            expiring = {c['path'] for c in certs if 0 < c['not_after'] <= soon}
+            prev_cert = set(rec.get('_cert_alerted') or [])
+            for c in certs:
+                if c['path'] in expiring and c['path'] not in prev_cert:
+                    events.append(('cert_file_expiring', {
+                        'device_id': dev_id, 'name': dev_name, 'path': c['path'],
+                        'days': max(0, int((c['not_after'] - now) / 86400))}))
+            rec['_cert_alerted'] = sorted(expiring)
 
         # ── v3.14.0: local account posture ───────────────────────────
         if isinstance(body.get('accounts'), list):
@@ -18018,6 +18071,12 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                                 if isinstance(flags, list) else [],
                 })
             rec['accounts'] = accts
+            # Alert on unexpected UID-0 accounts (edge-triggered per user).
+            rogue = {a['user'] for a in accts if 'uid0' in (a.get('flags') or [])}
+            prev_uid0 = set(rec.get('_uid0_alerted') or [])
+            for u in (rogue - prev_uid0):
+                events.append(('rogue_uid0', {'device_id': dev_id, 'name': dev_name, 'user': u}))
+            rec['_uid0_alerted'] = sorted(rogue)
 
         # ── v3.14.0: UPS / power ─────────────────────────────────────
         if isinstance(body.get('ups'), list):
@@ -18034,6 +18093,20 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                         entry[k] = round(float(v), 1)
                 upses.append(entry)
             rec['ups'] = upses
+            # Edge-triggered UPS on-battery → on-line (ups_on_line auto-resolves).
+            def _ob(u):
+                s = (u.get('status') or '')
+                return 'OB' in s or 'BATT' in s.upper()
+            on_batt = any(_ob(u) for u in upses)
+            was_on_batt = bool(rec.get('_ups_on_battery'))
+            if on_batt and not was_on_batt:
+                u0 = next((u for u in upses if _ob(u)), {})
+                events.append(('ups_on_battery', {'device_id': dev_id, 'name': dev_name,
+                    'ups': u0.get('name', ''), 'battery_pct': u0.get('battery_pct')}))
+            elif was_on_batt and not on_batt:
+                events.append(('ups_on_line', {'device_id': dev_id, 'name': dev_name,
+                    'ups': (upses[0].get('name') if upses else '')}))
+            rec['_ups_on_battery'] = on_batt
 
         rec['ts'] = now
 
@@ -18370,6 +18443,41 @@ def handle_disk_health():
                   'critical': by.get('critical', 0), 'high': by.get('high', 0),
                   'medium': by.get('medium', 0),
                   'unstable': unstable, 'unstable_count': len(unstable)})
+
+
+def _maybe_check_disk_predictions():
+    """v3.14.0: every ~6h, fire disk_predict_fail for disks newly PREDICTED to
+    fail (a SMART trend that projected an ETA) — edge-triggered. Reactive
+    failures are already covered by smart_failure; this is the look-ahead."""
+    cfg = load(CONFIG_FILE)
+    now = int(time.time())
+    if now - int(cfg.get('last_disk_predict_check', 0)) < 6 * 3600:
+        return
+    cfg['last_disk_predict_check'] = now
+    save(CONFIG_FILE, cfg)
+    try:
+        rows = _disk_health_view()
+    except Exception:
+        return
+    state_file = DATA_DIR / 'disk_predict_state.json'
+    prev = set((load(state_file) or {}).get('alerted') or [])
+    cur, fresh = set(), []
+    for r in rows:
+        if r.get('eta_days') is None:
+            continue  # predictive (has an ETA), not just reactive-critical
+        key = f"{r['device_id']}|{r.get('serial') or r.get('disk')}"
+        cur.add(key)
+        if key not in prev:
+            fresh.append(r)
+    save(state_file, {'alerted': sorted(cur)})
+    for r in fresh:
+        try:
+            fire_webhook('disk_predict_fail', {
+                'device_id': r['device_id'], 'name': r['device'],
+                'disk': r.get('disk', ''), 'eta_days': r.get('eta_days'),
+                'reason': '; '.join(r.get('reasons') or [])[:200]})
+        except Exception:
+            pass
 
 
 def _ingest_custom_script_results(dev_id, dev_name, results):
@@ -28602,6 +28710,45 @@ def handle_schedule_ics():
     sys.exit(0)
 
 
+def _build_metrics_ctx():
+    """Assemble the context generate_metrics() needs. Shared by the /api/metrics
+    scrape endpoint and the v3.14.0 metrics-push so the two never diverge."""
+    now = int(time.time())
+    cfg = load(CONFIG_FILE)
+    mon_hist = load(MON_HIST_FILE)
+    monitor_state = {}
+    for label, entries in mon_hist.items():
+        if entries:
+            last = entries[-1]
+            monitor_state[label] = {'up': bool(last.get('up', True)), 'last': last.get('ts', 0)}
+    maint_active = 0
+    for w in ((load(MAINT_FILE) or {}).get('windows') or []):
+        try:
+            if _window_active(w, now):
+                maint_active += 1
+        except Exception:
+            pass
+    return {
+        'server_version':  SERVER_VERSION,
+        'now':             now,
+        'online_ttl':      get_online_ttl(),
+        'devices':         load(DEVICES_FILE),
+        'monitors':        cfg.get('monitors') or [],
+        'monitor_state':   monitor_state,
+        'schedule':        load(SCHEDULE_FILE),
+        'pending_cmds':    load(CMDS_FILE),
+        'webhook_log':     load(WEBHOOK_LOG_FILE),
+        'webhook_log_cap': MAX_WEBHOOK_LOG,
+        'cve_findings':    load(CVE_FINDINGS_FILE),
+        'cve_ignore':      load(CVE_IGNORE_FILE),
+        'services':        load(SERVICES_FILE),
+        'maintenance_active_count': maint_active,
+        'health':            _fleet_health(),
+        'fleet_events':      load(FLEET_EVENTS_FILE),
+        'cve_fixable_total': sum(_cve_fixable_by_device().values()),
+    }
+
+
 def handle_prometheus_metrics():
     """
     GET /api/metrics — Prometheus text exposition.
@@ -28653,51 +28800,7 @@ def handle_prometheus_metrics():
             print('Unauthorized')
             sys.exit(0)
 
-    now = int(time.time())
-    devices = load(DEVICES_FILE)
-    cfg = load(CONFIG_FILE)
-    mon_hist = load(MON_HIST_FILE)
-
-    monitor_state = {}
-    for label, entries in mon_hist.items():
-        if entries:
-            last = entries[-1]
-            monitor_state[label] = {
-                'up':   bool(last.get('up', True)),
-                'last': last.get('ts', 0),
-            }
-
-    # v1.8.0: maintenance-window context — count currently active
-    maint = load(MAINT_FILE)
-    maint_active = 0
-    for w in (maint.get('windows') or []):
-        try:
-            if _window_active(w, now):
-                maint_active += 1
-        except Exception:
-            pass
-
-    ctx = {
-        'server_version':  SERVER_VERSION,
-        'now':             now,
-        'online_ttl':      get_online_ttl(),
-        'devices':         devices,
-        'monitors':        cfg.get('monitors') or [],
-        'monitor_state':   monitor_state,
-        'schedule':        load(SCHEDULE_FILE),
-        'pending_cmds':    load(CMDS_FILE),
-        'webhook_log':     load(WEBHOOK_LOG_FILE),
-        'webhook_log_cap': MAX_WEBHOOK_LOG,
-        'cve_findings':    load(CVE_FINDINGS_FILE),
-        'cve_ignore':      load(CVE_IGNORE_FILE),
-        'services':        load(SERVICES_FILE),
-        'maintenance_active_count': maint_active,
-        # v3.4.1: health score, recent-activity counts, CVE↔patch rollup.
-        'health':            _fleet_health(),
-        'fleet_events':      load(FLEET_EVENTS_FILE),
-        'cve_fixable_total': sum(_cve_fixable_by_device().values()),
-    }
-    body = prometheus_export.generate_metrics(ctx)
+    body = prometheus_export.generate_metrics(_build_metrics_ctx())
 
     print('Status: 200 OK')
     print('Content-Type: text/plain; version=0.0.4; charset=utf-8')
@@ -28705,6 +28808,85 @@ def handle_prometheus_metrics():
     print()
     print(body)
     sys.exit(0)
+
+
+# ─── v3.14.0: metrics push (Prometheus Pushgateway / remote target) ──────────
+METRICS_PUSH_STATE_FILE = DATA_DIR / 'metrics_push_state.json'
+
+
+def _maybe_push_metrics():
+    """Periodically POST the Prometheus exposition to a configured Pushgateway
+    (config `metrics_push` {enabled,url,interval,job}). Interval-gated and
+    SSRF-safe; the slot is claimed atomically so concurrent heartbeats don't
+    double-push. Errors are recorded, never raised onto the request path."""
+    cfg = load(CONFIG_FILE) or {}
+    mp = cfg.get('metrics_push') or {}
+    if not mp.get('enabled') or not (mp.get('url') or '').strip():
+        return
+    interval = max(15, int(mp.get('interval') or 60))
+    now = int(time.time())
+    due = False
+    with _LockedUpdate(METRICS_PUSH_STATE_FILE) as st:
+        if now - int(st.get('last_push', 0)) >= interval:
+            st['last_push'] = now
+            due = True
+    if not due:
+        return
+    err, status = '', 0
+    try:
+        body = prometheus_export.generate_metrics(_build_metrics_ctx()).encode('utf-8')
+        job = re.sub(r'[^A-Za-z0-9_-]', '', str(mp.get('job') or 'remotepower'))[:64] or 'remotepower'
+        push_url = f"{mp['url'].strip().rstrip('/')}/metrics/job/{job}"
+        parsed = urllib.parse.urlparse(push_url)
+        opener = _ssrf_safe_opener(allow_loopback=True,
+                                   ssl_ctx=_get_ssl_context() if parsed.scheme == 'https' else None,
+                                   no_redirect=True)
+        req = urllib.request.Request(push_url, data=body, method='POST', headers={
+            'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+            'User-Agent': f'RemotePower/{SERVER_VERSION}'})
+        resp = opener.open(req, timeout=10)
+        status = getattr(resp, 'status', 0) or 0
+    except Exception as e:
+        err = str(e)[:200]
+    try:
+        with _LockedUpdate(METRICS_PUSH_STATE_FILE) as st:
+            st['last_status'] = status
+            st['last_error'] = err
+    except Exception:
+        pass
+
+
+def handle_metrics_push_get():
+    """GET /api/metrics/push/config — current metrics-push config + last result."""
+    require_auth()
+    mp = dict((load(CONFIG_FILE) or {}).get('metrics_push') or {})
+    st = load(METRICS_PUSH_STATE_FILE) if METRICS_PUSH_STATE_FILE.exists() else {}
+    respond(200, {'enabled': bool(mp.get('enabled')), 'url': mp.get('url', ''),
+                  'interval': int(mp.get('interval') or 60),
+                  'job': mp.get('job') or 'remotepower',
+                  'last_push': st.get('last_push', 0),
+                  'last_status': st.get('last_status', 0),
+                  'last_error': st.get('last_error', '')})
+
+
+def handle_metrics_push_set():
+    """PUT /api/metrics/push/config — configure the metrics push. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    enabled = bool(body.get('enabled'))
+    url = _sanitize_str(str(body.get('url', '')).strip(), 512)
+    if enabled and not url:
+        respond(400, {'error': 'A Pushgateway URL is required when enabled.'})
+    if url and not re.match(r'^https?://', url):
+        respond(400, {'error': 'url must be http(s)://'})
+    interval = max(15, min(3600, int(body.get('interval') or 60)))
+    job = re.sub(r'[^A-Za-z0-9_-]', '', str(body.get('job') or 'remotepower'))[:64] or 'remotepower'
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['metrics_push'] = {'enabled': enabled, 'url': url, 'interval': interval, 'job': job}
+    audit_log(actor, 'metrics_push_set', f'enabled={enabled} url={url} interval={interval}')
+    respond(200, {'ok': True, 'enabled': enabled, 'url': url, 'interval': interval, 'job': job})
 
 
 # ─── v1.8.0: Maintenance windows ───────────────────────────────────────────────
@@ -33128,6 +33310,8 @@ def _dispatch(pi, m):
 
     # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
+    elif pi == '/api/metrics/push/config' and m == 'GET': handle_metrics_push_get()
+    elif pi == '/api/metrics/push/config' and m == 'PUT': handle_metrics_push_set()
     # v3.4.1: iCal feed of scheduled jobs + maintenance windows
     elif pi == '/api/schedule.ics' and m == 'GET': handle_schedule_ics()
 
@@ -33332,6 +33516,10 @@ def main():
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
     # v3.14.0: daily refresh of CISA KEV + FIRST EPSS for CVE prioritization.
     _safe(refresh_kev_epss_if_due, 'refresh_kev_epss_if_due')
+    # v3.14.0: predictive disk-failure alerting (edge-triggered, ~6h cadence).
+    _safe(_maybe_check_disk_predictions, '_maybe_check_disk_predictions')
+    # v3.14.0: push Prometheus metrics to a Pushgateway on its interval.
+    _safe(_maybe_push_metrics, '_maybe_push_metrics')
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies
     _safe(process_backup_jobs, 'process_backup_jobs')
