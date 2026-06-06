@@ -1174,6 +1174,67 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestSSOProvisioning(_HandlerBase):
+    """v3.14.0 — shared SSO provisioning + session minting (SAML prerequisite;
+    OIDC now routes through these, password/LDAP login unchanged)."""
+
+    def test_provision_creates_user_with_metadata(self):
+        api.save(api.USERS_FILE, {})
+        rec = api._provision_or_promote_user('alice', 'viewer',
+                                             {'oidc_subject': 'sub-1'}, 'oidc')
+        self.assertEqual(rec['role'], 'viewer')
+        self.assertEqual(rec['oidc_subject'], 'sub-1')
+        self.assertTrue(rec['password_hash'].startswith('!'))   # never matches
+        self.assertEqual(api.load(api.USERS_FILE)['alice']['role'], 'viewer')
+
+    def test_promote_viewer_to_admin(self):
+        api.save(api.USERS_FILE, {'bob': {'role': 'viewer', 'created': 1}})
+        rec = api._provision_or_promote_user('bob', 'admin', {}, 'oidc')
+        self.assertEqual(rec['role'], 'admin')
+        self.assertEqual(api.load(api.USERS_FILE)['bob']['role'], 'admin')
+
+    def test_never_auto_demotes_admin(self):
+        api.save(api.USERS_FILE, {'carol': {'role': 'admin', 'created': 1}})
+        rec = api._provision_or_promote_user('carol', 'viewer', {}, 'oidc')
+        self.assertEqual(rec['role'], 'admin')                  # stays admin
+
+    def test_mint_session_resolves_via_verify_token(self):
+        api.save(api.USERS_FILE, {'dave': {'role': 'admin', 'created': 1}})
+        token = api._mint_session('dave', extra={'oidc': True})
+        rec = api.load(api.TOKENS_FILE)[token]
+        self.assertEqual(rec['user'], 'dave')
+        self.assertTrue(rec['oidc'])
+        self.assertIn('last_seen', rec)
+        # _HandlerBase stubs verify_token; use the real one to prove resolution.
+        self.assertEqual(self._orig['verify_token'](token), ('dave', 'admin'))
+
+
+class TestMetricChartsWiring(unittest.TestCase):
+    """v3.14.0 — richer per-device metric charts (time axis + overlay)."""
+
+    JS = client_js()
+    CSS = (_ROOT / "server/html/static/css/styles.css").read_text()
+
+    def test_chart_helpers_present(self):
+        for fn in ('_metricSeriesChart', '_metricsOverlayChart', '_mcGrid', '_fmtClock'):
+            self.assertIn(fn, self.JS, f'{fn} missing')
+
+    def test_timestamped_axis(self):
+        # the grid builder must place clock labels on the x-axis
+        self.assertIn('_fmtClock(ts)', self.JS)
+        self.assertIn('text-anchor="middle"', self.JS)
+
+    def test_overlay_and_stats(self):
+        self.assertIn('All metrics', self.JS)        # combined overlay chart
+        self.assertIn('metric-stats', self.JS)       # min/avg/max line
+        self.assertIn('.metric-svg', self.CSS)
+
+    def test_csp_safe_no_inline_style_in_charts(self):
+        # charts must color via SVG fill/stroke attrs, never a style="" attribute
+        seg = self.JS[self.JS.index('_metricSeriesChart'):self.JS.index('async function openMetrics')]
+        self.assertNotIn('style=', seg)
+
+
 class TestGitOps(_HandlerBase):
     """v3.14.0 #27 — GitOps: drift profiles + assignments synced from a Git manifest."""
 

@@ -3164,6 +3164,7 @@ const _DYK_TIPS = [
   "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish and Arabic — your choice is saved to your account and follows you across devices.",
   "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
   "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
+  "Click Trend on a device in Device Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -4734,7 +4735,103 @@ function openPollModal(id, current) { document.getElementById('poll-device-id').
 async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 async function openAllowlistModal(id) { document.getElementById('allowlist-device-id').value = id; document.getElementById('allowlist-input').value = ''; openModal('allowlist-modal'); const r = await api('GET', '/devices/' + id + '/allowlist'); if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n'); }
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
-async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353" data-color="${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Swap</div>${spark('swap','var(--purple)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
+// ─── v3.14.0: richer per-device metric charts ──────────────────────────────
+// Time-series area-line charts (CPU / memory / swap / disk) with a timestamped
+// x-axis + min/avg/max stats, plus a combined "all metrics" overlay. Built from
+// SVG presentation attributes (fill/stroke) only — CSP-safe, no inline style.
+const _METRIC_SERIES = [
+  { key: 'cpu',  label: 'CPU',    color: 'var(--accent)' },
+  { key: 'mem',  label: 'Memory', color: 'var(--green)' },
+  { key: 'swap', label: 'Swap',   color: 'var(--purple)' },
+  { key: 'disk', label: 'Disk',   color: 'var(--amber)' },
+];
+const _MC = { W: 560, H: 150, padL: 28, padR: 10, padT: 14, padB: 24 };
+
+function _fmtClock(ts) {
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function _metricPts(samples, key) {
+  return samples.map(m => ({ ts: m.ts, v: m[key] }))
+                .filter(p => p.v !== null && p.v !== undefined && !isNaN(p.v));
+}
+function _mcX(ts, t0, span) { return _MC.padL + ((ts - t0) / span) * (_MC.W - _MC.padL - _MC.padR); }
+function _mcY(v) {
+  const ph = _MC.H - _MC.padT - _MC.padB;
+  return _MC.padT + (1 - Math.max(0, Math.min(100, v)) / 100) * ph;
+}
+function _mcLine(pts, t0, span) {
+  return pts.map((p, i) => `${i ? 'L' : 'M'}${_mcX(p.ts, t0, span).toFixed(1)},${_mcY(p.v).toFixed(1)}`).join(' ');
+}
+// Shared gridlines + y labels (0/50/100) + timestamped x-axis (start/mid/end).
+function _mcGrid(t0, t1) {
+  let g = '';
+  for (const pct of [0, 25, 50, 75, 100]) {
+    const yy = _mcY(pct).toFixed(1);
+    g += `<line x1="${_MC.padL}" y1="${yy}" x2="${_MC.W - _MC.padR}" y2="${yy}" stroke="var(--border)" stroke-width="1" stroke-opacity="0.5"/>`;
+    if (pct % 50 === 0) g += `<text x="${_MC.padL - 4}" y="${(+yy + 3).toFixed(1)}" fill="var(--muted)" font-size="10" text-anchor="end">${pct}</text>`;
+  }
+  const mid = Math.round((t0 + t1) / 2);
+  for (const [ts, xx, anchor] of [[t0, _MC.padL, 'start'], [mid, _MC.W / 2, 'middle'], [t1, _MC.W - _MC.padR, 'end']]) {
+    g += `<text x="${xx.toFixed(1)}" y="${_MC.H - 7}" fill="var(--muted)" font-size="10" text-anchor="${anchor}">${_fmtClock(ts)}</text>`;
+  }
+  return g;
+}
+function _metricSeriesChart(samples, key, label, color) {
+  const pts = _metricPts(samples, key);
+  if (!pts.length) return `<div class="isl-355"><div class="isl-356">${label}</div><span class="hint">no data</span></div>`;
+  const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts, span = Math.max(1, t1 - t0);
+  const line = _mcLine(pts, t0, span);
+  const baseY = (_MC.H - _MC.padB).toFixed(1);
+  const last = pts[pts.length - 1];
+  const area = `${line} L${_mcX(last.ts, t0, span).toFixed(1)},${baseY} L${_mcX(pts[0].ts, t0, span).toFixed(1)},${baseY} Z`;
+  const vals = pts.map(p => p.v);
+  const cur = vals[vals.length - 1], mn = Math.min(...vals), mx = Math.max(...vals);
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  return `<div class="isl-355">
+    <div class="metric-chart-head"><span class="isl-356">${label}</span>
+      <span class="metric-stats">now <b>${cur.toFixed(1)}%</b> · min ${mn.toFixed(0)} · avg ${avg.toFixed(0)} · max ${mx.toFixed(0)}</span></div>
+    <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${label} over time">
+      ${_mcGrid(t0, t1)}
+      <path d="${area}" fill="${color}" fill-opacity="0.13" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${_mcX(last.ts, t0, span).toFixed(1)}" cy="${_mcY(cur).toFixed(1)}" r="3" fill="${color}"/>
+    </svg></div>`;
+}
+function _metricsOverlayChart(samples) {
+  const present = _METRIC_SERIES.filter(s => _metricPts(samples, s.key).length);
+  if (present.length < 2) return '';
+  const allTs = samples.map(m => m.ts);
+  const t0 = Math.min(...allTs), t1 = Math.max(...allTs), span = Math.max(1, t1 - t0);
+  let paths = '', legend = '';
+  present.forEach((s, i) => {
+    paths += `<path d="${_mcLine(_metricPts(samples, s.key), t0, span)}" fill="none" stroke="${s.color}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    legend += `<g transform="translate(${_MC.padL + i * 78},2)"><rect width="11" height="3" y="3" fill="${s.color}"/><text x="15" y="7" fill="var(--muted)" font-size="10">${s.label}</text></g>`;
+  });
+  return `<div class="isl-355"><div class="isl-356">All metrics</div>
+    <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="All metrics over time">
+      ${_mcGrid(t0, t1)}${legend}${paths}</svg></div>`;
+}
+async function openMetrics(id, name) {
+  document.getElementById('metrics-title').textContent = `Metrics: ${name}`;
+  document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>';
+  openModal('metrics-modal');
+  const data = await api('GET', '/devices/' + id + '/metrics');
+  if (!data || !data.metrics || !data.metrics.length) {
+    document.getElementById('metrics-body').innerHTML =
+      '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>';
+    return;
+  }
+  const metrics = data.metrics.slice(-120);
+  const header = `<div class="sysinfo-row isl-128">
+    <div class="sysinfo-pill"><div class="label">Samples</div><div class="value">${metrics.length}</div></div>
+    <div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${_fmtClock(metrics[0].ts)}</div></div>
+    <div class="sysinfo-pill"><div class="label">To</div><div class="value fs-11">${_fmtClock(metrics[metrics.length - 1].ts)}</div></div>
+  </div>`;
+  const charts = _METRIC_SERIES.map(s => _metricSeriesChart(metrics, s.key, s.label, s.color)).join('');
+  document.getElementById('metrics-body').innerHTML =
+    header + `<div class="isl-354">${_metricsOverlayChart(metrics)}${charts}</div>` +
+    `<p class="isl-357">Each point is one agent sample. Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`;
+}
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
 
 // v3.13.0: full disaster-recovery backup (complete data dir, incl. vault) + restore.

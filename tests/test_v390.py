@@ -386,7 +386,9 @@ class TestV390Polish(unittest.TestCase):
         self.assertIn('k.livepatch.state', APP)
 
     def test_swap_sparkline_track(self):
-        self.assertIn("spark('swap'", APP)
+        # v3.14.0: the latest-value sparkbars became full time-series charts;
+        # swap is still tracked as one of the metric series.
+        self.assertIn("key: 'swap'", APP)
 
     def test_toast_uses_svg_icons(self):
         # Toast icons are Lucide SVG, not the old ✓/✕/ℹ glyphs.

@@ -81,6 +81,16 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
   `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
   config, SSRF-safe, interval-gated). Off by default.
+- **Richer per-device metric charts.** The device **Trend** modal now draws full
+  time-series **area-line charts** for CPU / memory / swap / disk with a
+  **timestamped x-axis** (start / middle / end), 0–50–100% gridlines, and
+  per-metric **now / min / avg / max** stats — plus a combined **"All metrics"**
+  overlay for at-a-glance correlation. Replaces the old latest-value-only
+  sparkbars. Pure SVG, CSP-safe.
+- **SSO groundwork.** Factored shared `_provision_or_promote_user` /
+  `_mint_session` helpers so every SSO path provisions users and mints sessions
+  by identical rules (OIDC now routes through them); this is the prerequisite for
+  the upcoming SAML support. No behaviour change for existing logins.
 - **Windows agent — posture parity (pass 1).** The standalone Windows agent now
   also reports **listening ports** (→ Exposure page + port audit) and a **Windows
   Event Log tail** (System/Application criticals/errors/warnings → the Logs page /

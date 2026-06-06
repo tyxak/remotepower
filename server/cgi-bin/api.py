@@ -2028,6 +2028,55 @@ ensure_default_user()
 def make_token():
     return secrets.token_urlsafe(32)
 
+
+# ── v3.14.0: shared SSO provisioning + session minting ──────────────────────
+# Factored out so every SSO path (OIDC today, SAML next) provisions users and
+# mints sessions by the SAME rules — provisioning logic can't drift between
+# protocols, and SAML can reuse this instead of copy-pasting. (The password
+# login + LDAP path in handle_login keeps its own inline copy for now to avoid
+# disturbing the most security-critical flow; it converges here in the SAML pass.)
+def _provision_or_promote_user(username, role, metadata, source):
+    """JIT-provision an SSO user, or promote viewer→admin on group match. Never
+    auto-demotes (an operator may have changed the role for cause). `metadata`
+    is merged only on create (e.g. {'oidc_subject': …} / {'saml_name_id': …}).
+    Returns the current user record (a copy)."""
+    with _LockedUpdate(USERS_FILE) as users:
+        user = users.get(username)
+        if not user:
+            rec = {
+                'role':          role,
+                'password_hash': '!' + secrets.token_hex(32),  # never matches
+                'created':       int(time.time()),
+            }
+            rec.update(metadata or {})
+            users[username] = rec
+            audit_log(username, f'{source}_auto_provision', f'created from {source}, role={role}')
+            return dict(rec)
+        if role == 'admin' and user.get('role') != 'admin':
+            user['role'] = 'admin'
+            users[username] = user
+            audit_log(username, f'{source}_role_promoted', 'matched admin group')
+        return dict(users[username])
+
+
+def _mint_session(username, extra=None, remember_me=False):
+    """Create a session-token record with the standard fields (so an SSO session
+    looks exactly like a password-login one) and return the token."""
+    token = make_token()
+    rec = {
+        'user':      username,
+        'created':   int(time.time()),
+        'ttl':       get_session_ttl(remember_me=remember_me),
+        'ip':        os.environ.get('REMOTE_ADDR', ''),
+        'ua':        _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+        'last_seen': int(time.time()),
+    }
+    if extra:
+        rec.update(extra)
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        tokens[token] = rec
+    return token
+
 def verify_token(token):
     """Returns (username, role) or (None, None).
     Session tokens: O(1) dict lookup.
@@ -25692,41 +25741,12 @@ def handle_oidc_callback():
 
     role = _oidc_role_for(claims, cfg)
 
-    # Provision or update the local user record
-    users = load(USERS_FILE)
-    user = users.get(username)
-    if not user:
-        users[username] = {
-            'role':           role,
-            'password_hash':  '!' + secrets.token_hex(32),  # never matches
-            'created':        int(time.time()),
-            'oidc_subject':   _sanitize_str(str(claims.get('sub') or ''), 128),
-            'oidc_email':     _sanitize_str(str(claims.get('email') or ''), 128),
-        }
-        save(USERS_FILE, users)
-        user = users[username]
-        audit_log(username, 'oidc_auto_provision',
-                  f'created from OIDC, role={role}, sub={claims.get("sub", "?")[:64]}')
-    else:
-        # Promote viewers→admins on group match (never auto-demote — operator
-        # may have manually changed role for cause).
-        if role == 'admin' and user.get('role') != 'admin':
-            user['role'] = 'admin'
-            users[username] = user
-            save(USERS_FILE, users)
-            audit_log(username, 'oidc_role_promoted', 'matched admin group')
-
-    # Mint a session token. Use the normal session TTL.
-    token = make_token()
-    ttl = get_session_ttl(remember_me=False)
-    tokens = load(TOKENS_FILE)
-    tokens[token] = {
-        'user':    username,
-        'created': int(time.time()),
-        'ttl':     ttl,
-        'oidc':    True,
-    }
-    save(TOKENS_FILE, tokens)
+    # Provision/promote + mint a session via the shared SSO helpers.
+    user = _provision_or_promote_user(username, role, {
+        'oidc_subject': _sanitize_str(str(claims.get('sub') or ''), 128),
+        'oidc_email':   _sanitize_str(str(claims.get('email') or ''), 128),
+    }, 'oidc')
+    token = _mint_session(username, extra={'oidc': True})
     audit_log(username, 'login_oidc',
               f'authenticated via OIDC (sub={claims.get("sub", "?")[:64]})')
 
