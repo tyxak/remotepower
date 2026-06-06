@@ -2279,6 +2279,10 @@ _ACME_DNS_LABELS = {
 }
 
 MAX_ACME_CERTS = 100
+# v3.14.0: caps for the new heartbeat sections (match server-side sanitizers).
+MAX_GPUS       = 16
+MAX_CERT_FILES = 256
+MAX_ACCOUNTS   = 1024
 
 def _acme_decode_reload(s):
     """acme.sh stores Le_ReloadCmd base64-wrapped between sentinels."""
@@ -3155,6 +3159,17 @@ def get_smart_status():
                         entry[_SMART_ATTRS[aid]] = int(raw)
                     except ValueError:
                         entry[_SMART_ATTRS[aid]] = raw
+                # v3.4.0+: SATA SSD wear. Vendors expose a life-remaining
+                # NORMALIZED value (col 4, counts 100→0); invert to a used%.
+                if 'wear_pct' not in entry and any(
+                        t in parts[1].lower() for t in
+                        ('wear_leveling', 'media_wearout', 'ssd_life_left',
+                         'percent_lifetime', 'percent_life')):
+                    try:
+                        norm = int(parts[3])
+                        entry['wear_pct'] = max(0, min(100, 100 - norm))
+                    except (ValueError, IndexError):
+                        pass
         # NVMe health lines (different format) — pull a couple of useful ones.
         nm = re.search(r'Temperature:\s*(\d+)\s*Celsius', out)
         if nm and 'temperature_c' not in entry:
@@ -3162,6 +3177,10 @@ def get_smart_status():
         nh = re.search(r'Power On Hours:\s*([\d,]+)', out)
         if nh and 'power_on_hours' not in entry:
             entry['power_on_hours'] = int(nh.group(1).replace(',', ''))
+        # v3.14.0: NVMe reports a direct "Percentage Used" (a used%) — wins.
+        nw = re.search(r'Percentage Used:\s*(\d+)\s*%', out)
+        if nw:
+            entry['wear_pct'] = max(0, min(100, int(nw.group(1))))
         disks.append(entry)
     return disks
 
@@ -3248,6 +3267,173 @@ def _kernel_ver_key(v):
         else:
             key.append((0, 0, p))
     return key
+
+
+def get_gpu_status():
+    """v3.14.0: GPU telemetry via nvidia-smi (and rocm-smi for AMD). Best-effort,
+    read-only. Empty list when no GPU tooling is present."""
+    gpus = []
+
+    def _num(x):
+        try:
+            return round(float(x), 1)
+        except (ValueError, TypeError):
+            return None
+
+    nv = _which('nvidia-smi')
+    if nv:
+        try:
+            r = subprocess.run(
+                [nv, '--query-gpu=name,utilization.gpu,memory.used,memory.total,'
+                     'temperature.gpu,power.draw',
+                 '--format=csv,noheader,nounits'],
+                capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                for ln in r.stdout.splitlines():
+                    c = [x.strip() for x in ln.split(',')]
+                    if len(c) < 6:
+                        continue
+                    gpus.append({'vendor': 'nvidia', 'name': c[0][:96],
+                                 'util_pct': _num(c[1]), 'mem_used_mb': _num(c[2]),
+                                 'mem_total_mb': _num(c[3]), 'temp_c': _num(c[4]),
+                                 'power_w': _num(c[5])})
+        except Exception:
+            pass
+    amd = _which('rocm-smi')
+    if amd and not gpus:
+        try:
+            r = subprocess.run([amd, '--showproductname', '--showtemp',
+                                '--showuse', '--json'],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout.strip().startswith('{'):
+                data = json.loads(r.stdout)
+                for k, v in data.items():
+                    if not isinstance(v, dict) or not k.lower().startswith('card'):
+                        continue
+                    name = v.get('Card series') or v.get('Card model') or k
+                    temp = next((v[t] for t in v if 'Temperature' in t and 'edge' in t.lower()), None)
+                    use = next((v[u] for u in v if 'GPU use' in u), None)
+                    gpus.append({'vendor': 'amd', 'name': str(name)[:96],
+                                 'util_pct': _num(use), 'temp_c': _num(temp)})
+        except Exception:
+            pass
+    return gpus[:MAX_GPUS]
+
+
+def _parse_openssl_date(s):
+    """notAfter=Jun  6 12:00:00 2026 GMT → epoch seconds (0 on failure)."""
+    import calendar
+    s = re.sub(r'\s+', ' ', s.replace('GMT', '')).strip()
+    try:
+        return int(calendar.timegm(time.strptime(s, '%b %d %H:%M:%S %Y')))
+    except ValueError:
+        return 0
+
+
+def get_cert_files():
+    """v3.14.0: expiry inventory of x509 cert files in common locations, parsed
+    with `openssl x509`. Best-effort; empty list when openssl is absent."""
+    openssl = _which('openssl')
+    if not openssl:
+        return []
+    import glob as _glob
+    patterns = ['/etc/ssl/certs/*.pem', '/etc/ssl/*.crt', '/etc/ssl/*.pem',
+                '/etc/pki/tls/certs/*.crt', '/etc/pki/tls/certs/*.pem',
+                '/etc/letsencrypt/live/*/fullchain.pem',
+                '/etc/letsencrypt/live/*/cert.pem',
+                '/etc/nginx/ssl/*.crt', '/etc/nginx/ssl/*.pem',
+                '/etc/pki/ca-trust/*.pem']
+    seen = set()
+    out = []
+    for pat in patterns:
+        for path in _glob.glob(pat):
+            rp = os.path.realpath(path)
+            if rp in seen:
+                continue
+            seen.add(rp)
+            try:
+                r = subprocess.run([openssl, 'x509', '-in', path, '-noout',
+                                    '-enddate', '-subject', '-issuer'],
+                                   capture_output=True, text=True, timeout=5)
+            except Exception:
+                continue
+            if r.returncode != 0:
+                continue
+            nm = re.search(r'notAfter=(.+)', r.stdout)
+            if not nm:
+                continue
+            subj = re.search(r'subject=(.+)', r.stdout)
+            iss = re.search(r'issuer=(.+)', r.stdout)
+            out.append({'path': path[:256],
+                        'not_after': _parse_openssl_date(nm.group(1).strip()),
+                        'subject': (subj.group(1).strip() if subj else '')[:256],
+                        'issuer': (iss.group(1).strip() if iss else '')[:256]})
+            if len(out) >= MAX_CERT_FILES:
+                return out
+    return out
+
+
+_LOGIN_SHELLS = ('/bin/bash', '/bin/sh', '/bin/zsh', '/usr/bin/bash',
+                 '/usr/bin/zsh', '/bin/ksh', '/usr/bin/fish', '/bin/dash')
+
+
+def get_local_accounts():
+    """v3.14.0: local account posture from /etc/passwd + /etc/shadow (root) +
+    sudo group membership. Never includes password hashes; flags risky accounts
+    (extra UID 0, empty/stale passwords)."""
+    pw = _safe_read('/etc/passwd', 200_000)
+    if not pw:
+        return []
+    shadow = {}
+    sh = _safe_read('/etc/shadow', 500_000) if os.geteuid() == 0 else None
+    if sh:
+        today = int(time.time() // 86400)
+        for ln in sh.splitlines():
+            f = ln.split(':')
+            if len(f) < 3:
+                continue
+            pwf = f[1]
+            age = None
+            try:
+                if f[2]:
+                    age = today - int(f[2])
+            except ValueError:
+                pass
+            shadow[f[0]] = {'locked': pwf.startswith(('!', '*')),
+                            'empty': pwf == '', 'age_days': age}
+    sudoers = set()
+    for ln in (_safe_read('/etc/group', 200_000) or '').splitlines():
+        f = ln.split(':')
+        if len(f) >= 4 and f[0] in ('sudo', 'wheel', 'admin'):
+            sudoers.update(m for m in f[3].split(',') if m)
+    accts = []
+    for ln in pw.splitlines():
+        f = ln.split(':')
+        if len(f) < 7:
+            continue
+        try:
+            uid = int(f[2])
+        except ValueError:
+            continue
+        name, home, shell = f[0], f[5], f[6]
+        s = shadow.get(name, {})
+        can_login = shell in _LOGIN_SHELLS
+        flags = []
+        if uid == 0 and name != 'root':
+            flags.append('uid0')
+        if s.get('empty'):
+            flags.append('empty_password')
+        if can_login and s.get('locked') is False and isinstance(s.get('age_days'), int) and s['age_days'] > 365:
+            flags.append('stale_password')
+        if name in sudoers:
+            flags.append('sudo')
+        accts.append({'user': name[:64], 'uid': uid, 'shell': shell[:64],
+                      'home': home[:128], 'login': can_login,
+                      'locked': bool(s.get('locked')), 'sudo': name in sudoers,
+                      'age_days': s.get('age_days'), 'flags': flags})
+        if len(accts) >= MAX_ACCOUNTS:
+            break
+    return accts
 
 
 def get_hardware_inventory():
@@ -4121,6 +4307,11 @@ def execute_command(cmd):
             _safe_state_write('last-cmd', 'reboot')
             subprocess.run(['systemctl', 'reboot'], check=True)
         except Exception as e: log.error(f"Reboot failed: {e}")
+    elif cmd == 'suspend':
+        # v3.14.0: power scheduling — suspend to RAM (Wake-on-LAN can resume it).
+        log.info("Executing: suspend")
+        try: subprocess.run(['systemctl', 'suspend'], check=True)
+        except Exception as e: log.error(f"Suspend failed: {e}")
     elif cmd == 'update':
         log.info("Executing: self-update (server-initiated)")
         creds = load_credentials()
@@ -5304,6 +5495,27 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['hardware'] = hw
             except Exception as e:
                 log.debug(f'hardware inventory error: {e}')
+            # v3.14.0: GPU telemetry (nvidia-smi / rocm-smi).
+            try:
+                gpus = get_gpu_status()
+                if gpus:
+                    payload['gpus'] = gpus
+            except Exception as e:
+                log.debug(f'gpu status error: {e}')
+            # v3.14.0: local x509 cert-file expiry inventory.
+            try:
+                certs = get_cert_files()
+                if certs:
+                    payload['cert_files'] = certs
+            except Exception as e:
+                log.debug(f'cert files error: {e}')
+            # v3.14.0: local account posture (passwd/shadow/sudo).
+            try:
+                accts = get_local_accounts()
+                if accts:
+                    payload['accounts'] = accts
+            except Exception as e:
+                log.debug(f'accounts probe error: {e}')
             # v3.6.0: endpoint AV/malware posture (ClamAV / rkhunter).
             try:
                 av = get_av_status()

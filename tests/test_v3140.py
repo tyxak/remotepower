@@ -77,15 +77,20 @@ class _HandlerBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('USERS_FILE', 'DEVICES_FILE', 'CONTAINERS_FILE',
-                     'HARDWARE_FILE', 'IMAGE_UPDATES_FILE', 'IMAGE_IGNORE_FILE'):
+                     'HARDWARE_FILE', 'IMAGE_UPDATES_FILE', 'IMAGE_IGNORE_FILE',
+                     'TOKENS_FILE', 'CONFIG_FILE', 'KEV_EPSS_FILE',
+                     'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
+                     'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
         self.cap = {}
         self._orig = {n: getattr(api, n) for n in
-                      ('require_auth', 'verify_token', 'get_token_from_request',
-                       'audit_log', 'respond', 'method', 'get_json_body')}
+                      ('require_auth', 'require_admin_auth', 'verify_token',
+                       'get_token_from_request', 'audit_log', 'respond',
+                       'method', 'get_json_body')}
         api.require_auth = lambda require_admin=False: 'jakob'
+        api.require_admin_auth = lambda: 'jakob'
         api.verify_token = lambda t: ('jakob', 'admin')
         api.get_token_from_request = lambda: 't'
         api.audit_log = lambda *a, **k: None
@@ -281,6 +286,212 @@ class TestClientWiring(unittest.TestCase):
         self.assertIn('data-page="thermal"', self.HTML)
         self.assertIn('id="page-thermal"', self.HTML)
         self.assertIn('id="thermal-thead"', self.HTML)
+
+    # ── Tier-1 batch wiring (v3.14.0) ───────────────────────────────────
+    def test_sessions_wiring(self):
+        self.assertIn("function loadSessions", self.JS)
+        self.assertIn("function revokeSession", self.JS)
+        self.assertIn("revokeOtherSessions", self.JS)
+        self.assertIn('id="acct-sessions"', self.HTML)
+
+    def test_saved_views_wiring(self):
+        self.assertIn("function saveDeviceView", self.JS)
+        self.assertIn("function applyDeviceView", self.JS)
+        self.assertIn("toggleViewsMenu", self.JS)
+        self.assertIn('id="views-dropdown"', self.HTML)
+        self.assertIn(".views-dropdown", self.CSS)
+
+    def test_kev_epss_wiring(self):
+        self.assertIn("kev-badge", self.JS)
+        self.assertIn("epss-chip", self.JS)
+        self.assertIn('data-col="kev"', self.HTML)
+        self.assertIn(".kev-badge", self.CSS)
+
+    def test_hw_sections_wiring(self):
+        # wear column, GPU / accounts / cert-file cards in the hardware drawer
+        self.assertIn("wear_pct", self.JS)
+        self.assertIn("Local accounts", self.JS)
+        self.assertIn("Local certificate files", self.JS)
+        self.assertIn(">GPUs<", self.JS)
+
+    def test_power_schedule_wiring(self):
+        self.assertIn('value="suspend"', self.HTML)
+        self.assertIn('value="wol"', self.HTML)
+
+
+class TestSessions(_HandlerBase):
+    def _seed(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin'}, 'bob': {'role': 'admin'}})
+        now = 1_000_000
+        api.save(api.TOKENS_FILE, {
+            't':     {'user': 'jakob', 'created': now, 'ttl': 10 ** 12, 'ip': '10.0.0.1', 'ua': 'Firefox', 'last_seen': now},
+            'other': {'user': 'jakob', 'created': now, 'ttl': 10 ** 12, 'ip': '10.0.0.2', 'ua': 'curl', 'last_seen': now},
+            'bobs':  {'user': 'bob',   'created': now, 'ttl': 10 ** 9},
+        })
+
+    def test_lists_only_own_sessions_with_current_flag(self):
+        self._seed()
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_me_sessions)
+        self.assertEqual(r['count'], 2)                       # jakob's two, not bob's
+        ids = {s['id'] for s in r['sessions']}
+        self.assertIn(api._session_id('t'), ids)
+        self.assertNotIn(api._session_id('bobs'), ids)
+        cur = next(s for s in r['sessions'] if s['current'])
+        self.assertEqual(cur['id'], api._session_id('t'))     # 't' is the request token
+        # raw tokens never leak
+        self.assertNotIn('t', ids)
+
+    def test_revoke_one_session(self):
+        self._seed()
+        api.method = lambda: 'DELETE'
+        r = self.call(api.handle_me_session_revoke, api._session_id('other'))
+        self.assertTrue(r['ok'])
+        self.assertNotIn('other', api.load(api.TOKENS_FILE))
+        self.assertIn('t', api.load(api.TOKENS_FILE))          # current kept
+
+    def test_cannot_revoke_other_users_session(self):
+        self._seed()
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_me_session_revoke, api._session_id('bobs'))
+        self.assertEqual(self.cap['s'], 404)
+        self.assertIn('bobs', api.load(api.TOKENS_FILE))       # bob's session untouched
+
+    def test_revoke_others_keeps_current(self):
+        self._seed()
+        api.method = lambda: 'POST'
+        r = self.call(api.handle_me_sessions_revoke_others)
+        self.assertEqual(r['revoked'], 1)                      # 'other'
+        toks = api.load(api.TOKENS_FILE)
+        self.assertIn('t', toks)                               # current kept
+        self.assertNotIn('other', toks)
+        self.assertIn('bobs', toks)                            # bob untouched
+
+
+class TestSavedViews(unittest.TestCase):
+    def test_sanitise_accepts_views(self):
+        out = api._sanitise_ui_prefs({'views': [
+            {'name': 'Offline', 'page': 'devices', 'state': {'status': 'offline', 'q': 'web'}},
+        ]})
+        self.assertEqual(len(out['views']), 1)
+        self.assertEqual(out['views'][0]['name'], 'Offline')
+        self.assertEqual(out['views'][0]['state']['status'], 'offline')
+
+    def test_sanitise_drops_malformed_views(self):
+        out = api._sanitise_ui_prefs({'views': [
+            {'name': '', 'page': 'devices', 'state': {}},      # no name
+            {'name': 'x', 'page': '', 'state': {}},            # no page
+            {'name': 'y', 'page': 'devices'},                  # no state
+            'notadict',
+            {'name': 'ok', 'page': 'devices', 'state': {'q': 'a'}},
+        ]})
+        self.assertEqual([v['name'] for v in out.get('views', [])], ['ok'])
+
+    def test_views_count_capped(self):
+        many = [{'name': f'v{i}', 'page': 'devices', 'state': {'q': str(i)}}
+                for i in range(api.MAX_UI_PREFS_VIEWS + 10)]
+        out = api._sanitise_ui_prefs({'views': many})
+        self.assertLessEqual(len(out['views']), api.MAX_UI_PREFS_VIEWS)
+
+
+class TestCveKevEpss(_HandlerBase):
+    def test_enrich_stamps_kev_and_epss(self):
+        kev = {'CVE-2024-0001'}
+        epss = {'CVE-2024-0001': 0.97, 'CVE-2024-0002': 0.10}
+        findings = [
+            {'vuln_id': 'CVE-2024-0001', 'aliases': []},
+            {'vuln_id': 'CVE-2024-0002', 'aliases': []},
+            {'vuln_id': 'CVE-2024-9999', 'aliases': []},
+        ]
+        kev_count, epss_max = api._enrich_cve_findings(findings, kev, epss)
+        self.assertEqual(kev_count, 1)
+        self.assertEqual(epss_max, 0.97)
+        self.assertTrue(findings[0]['kev'])
+        self.assertEqual(findings[0]['epss'], 0.97)
+        self.assertFalse(findings[1]['kev'])
+        self.assertEqual(findings[2]['epss'], 0.0)
+
+    def test_enrich_matches_via_alias(self):
+        kev = {'CVE-2024-1111'}
+        findings = [{'vuln_id': 'GHSA-xxxx', 'aliases': ['CVE-2024-1111']}]
+        kev_count, _ = api._enrich_cve_findings(findings, kev, {})
+        self.assertEqual(kev_count, 1)
+        self.assertTrue(findings[0]['kev'])
+
+    def test_findings_view_prioritises_kev(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}, 'd2': {'name': 'b'}})
+        api.save(api.PACKAGES_FILE, {'d1': {'ecosystem': 'Ubuntu', 'count': 1},
+                                     'd2': {'ecosystem': 'Ubuntu', 'count': 1}})
+        api.save(api.CVE_FINDINGS_FILE, {
+            'd1': {'scanned_at': 1, 'findings': [{'vuln_id': 'CVE-X', 'severity': 'low', 'aliases': []}]},
+            'd2': {'scanned_at': 1, 'findings': [{'vuln_id': 'CVE-KEV', 'severity': 'low', 'aliases': []}]},
+        })
+        api.save(api.KEV_EPSS_FILE, {'kev': ['CVE-KEV'], 'epss': {}})
+        api.method = lambda: 'GET'
+        # _scope_filter_devices passes through with admin/no scope
+        r = self.call(api.handle_cve_findings)
+        self.assertEqual(r['summary']['kev'], 1)
+        self.assertEqual(r['devices'][0]['name'], 'b')   # KEV device sorted first
+
+
+class TestHardwareIngest(_HandlerBase):
+    def _ingest(self, body):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api._ingest_hardware('d1', 'web', body, 1234)
+        return (api.load(api.HARDWARE_FILE) or {}).get('d1', {})
+
+    def test_wear_pct_clamped(self):
+        rec = self._ingest({'smart': [
+            {'device': '/dev/sda', 'health': 'PASSED', 'wear_pct': 42},
+            {'device': '/dev/sdb', 'health': 'PASSED', 'wear_pct': 999},  # out of range → dropped
+        ]})
+        self.assertEqual(rec['smart'][0]['wear_pct'], 42)
+        self.assertNotIn('wear_pct', rec['smart'][1])
+
+    def test_gpus_cert_files_accounts_ingested(self):
+        rec = self._ingest({
+            'gpus': [{'vendor': 'nvidia', 'name': 'RTX 4090', 'util_pct': 50, 'temp_c': 60, 'power_w': 200}],
+            'cert_files': [{'path': '/etc/ssl/x.pem', 'subject': 'CN=x', 'issuer': 'CN=ca', 'not_after': 99999}],
+            'accounts': [{'user': 'root', 'uid': 0, 'shell': '/bin/bash', 'login': True,
+                          'sudo': True, 'flags': []},
+                         {'user': 'bad', 'uid': 0, 'shell': '/bin/bash', 'flags': ['uid0']}],
+        })
+        self.assertEqual(rec['gpus'][0]['name'], 'RTX 4090')
+        self.assertEqual(rec['gpus'][0]['temp_c'], 60.0)
+        self.assertEqual(rec['cert_files'][0]['not_after'], 99999)
+        self.assertEqual(rec['accounts'][1]['flags'], ['uid0'])
+
+    def test_thermal_rollup_includes_gpu(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'rig'}})
+        api.save(api.HARDWARE_FILE, {'d1': {'ts': 1, 'temps': [{'label': 'cpu', 'current_c': 55}],
+                                            'gpus': [{'name': 'RTX', 'temp_c': 88}]}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_fleet_thermal)
+        host = r['hosts'][0]
+        self.assertEqual(host['max_temp'], 88.0)
+        self.assertEqual(host['sensor_type'], 'gpu')
+        self.assertTrue(host['critical'])
+
+
+class TestPowerSchedule(_HandlerBase):
+    def test_accepts_suspend_and_wol(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'mac': 'aa:bb:cc:dd:ee:ff'}})
+        api.save(api.SCHEDULE_FILE, {'jobs': []})
+        for cmd in ('suspend', 'wol'):
+            api.method = lambda: 'POST'
+            api.get_json_body = lambda c=cmd: {'device_id': 'd1', 'command': c, 'cron': '0 3 * * *'}
+            r = self.call(api.handle_schedule_add)
+            self.assertTrue(r['ok'], cmd)
+            self.assertEqual(r['job']['command'], cmd)
+
+    def test_shutdown_without_mac_warns(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})   # no mac
+        api.save(api.SCHEDULE_FILE, {'jobs': []})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'command': 'shutdown', 'cron': '0 3 * * *'}
+        r = self.call(api.handle_schedule_add)
+        self.assertTrue(r['ok'])
+        self.assertIn('Wake-on-LAN', r['warning'])
 
 
 if __name__ == "__main__":

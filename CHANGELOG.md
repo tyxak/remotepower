@@ -4,9 +4,10 @@ All notable changes to RemotePower. Newest first.
 
 ## v3.14.0 — 2026-06-06
 
-Three operator-facing conveniences. No breaking changes, no new dependencies;
-the thermal page and stale-image badge both render data the agent already
-reports. See [docs/v3.14.0.md](docs/v3.14.0.md).
+A batch of operator-facing features — favorites, container/CVE/thermal/endurance
+visibility, session management, and power scheduling. No breaking changes, no new
+dependencies; most of it surfaces data the agent already reports. See
+[docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
 - **Per-account sidebar favorites.** Star any entry in the sidebar's collapsible
@@ -23,9 +24,33 @@ reports. See [docs/v3.14.0.md](docs/v3.14.0.md).
   and accepted/ignored images are never flagged.
 - **Fleet thermal roll-up — "Hottest hosts".** A new **Thermal** page (next to
   Storage) with one row per host showing its hottest sensor (CPU / chipset /
-  SMART disk), sorted hottest-first, flagged ≥75 °C amber / ≥85 °C red. Backed by
-  a read-only `GET /api/fleet/thermal` aggregation over the `hardware.json` temps
-  the agent already reports. No agent or schema change.
+  SMART disk / GPU), sorted hottest-first, flagged ≥75 °C amber / ≥85 °C red.
+  Backed by a read-only `GET /api/fleet/thermal` aggregation over the
+  `hardware.json` temps the agent already reports. No agent or schema change.
+- **CVE prioritization with KEV + EPSS.** The CVEs page ranks by real-world risk:
+  a daily refresh joins the CISA **Known-Exploited Vulnerabilities** catalog and
+  **FIRST EPSS** scores onto findings (red **KEV** badge, **EPSS %**, a KEV column
+  on the device list, KEV-first sort). Feeds fetch through the SSRF-safe opener
+  and degrade to plain CVSS if unreachable.
+- **Active session management.** *My Account → Active sessions* lists every
+  browser/device signed in as you (IP, device, last-active, "this session"), with
+  per-session revoke and "sign out all other sessions". `GET /api/me/sessions` +
+  `DELETE /api/me/sessions/<id>`; the raw token never leaves the server.
+- **Saved & shareable views (Devices).** Save the current Devices filter set as a
+  named view (per-account, via `ui_prefs`) and share it by URL (`#devices?view=`).
+- **SSD / NVMe endurance.** The drawer SMART table gains a **Wear** column (used %
+  + projected end-of-life), amber ≥80 % / red ≥90 %.
+- **GPU monitoring.** `nvidia-smi` / `rocm-smi` hosts report a **GPUs** drawer card
+  (util / memory / temp / power); GPU temps feed the Thermal roll-up.
+- **Local certificate-file inventory.** The agent parses x509 files under common
+  cert dirs (`openssl x509`); a **Local certificate files** drawer card shows
+  expiry, coloured like the TLS page.
+- **Local account audit.** A **Local accounts** drawer card from passwd + shadow
+  age + sudo membership, flagged-first (extra UID 0, empty/stale passwords,
+  locked). No password hashes leave the host.
+- **Power scheduling.** The Schedule page adds **Suspend** and **Wake (WoL)**
+  actions alongside shut down / reboot, one-shot or recurring; scheduling a
+  power-down on a host with no MAC warns that a scheduled wake won't be possible.
 
 ### Fixed
 - **Favorites no longer "reset" on a normal refresh.** The service-worker cache

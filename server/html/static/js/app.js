@@ -605,6 +605,7 @@ async function showApp() {
   // devices array are warm for whenever the operator clicks Devices.
   loadHome();
   loadDevices();
+  _applyInitialViewHash();   // v3.14.0: honor a shared #devices?view=Name link
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
@@ -3057,6 +3058,7 @@ async function addScheduleJob() {
       await api('POST', '/calendar', calBody).catch(() => {});
     }
     toast(cron ? `Recurring "${label}" scheduled (${cron})` : `"${label}" scheduled`, 'success');
+    if (data.warning) toast(data.warning, 'info');   // v3.14.0: WoL guard-rail
     closeModal('schedule-add-modal'); loadSchedule();
   } else toast(data?.error || 'Failed', 'error');
 }
@@ -3133,6 +3135,11 @@ async function sendExecCmd() { const id = document.getElementById('exec-device-i
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
   "Hover any sidebar entry and click the star to pin it under 'Main' — your favorites are saved to your account, so they follow you to any browser or device you log in from.",
+  "The CVEs page now flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
+  "My Account → Active sessions lists every browser and device signed in as you. See one you don't recognise? Revoke it — or sign out all other sessions — in a click.",
+  "On the Devices page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
+  "Open a device drawer's Hardware tab to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
+  "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -4547,6 +4554,12 @@ document.addEventListener('click', e => {
   if (dd && !dd.classList.contains('hidden') && menu && !menu.contains(e.target)) {
     dd.classList.add('hidden');
   }
+  // v3.14.0: close the Views dropdown on click-outside
+  const vmenu = document.querySelector('.views-menu');
+  const vdd = document.getElementById('views-dropdown');
+  if (vdd && !vdd.classList.contains('hidden') && vmenu && !vmenu.contains(e.target)) {
+    vdd.classList.add('hidden');
+  }
 });
 
 async function loadAccount() {
@@ -4580,6 +4593,48 @@ async function loadAccount() {
   if (ssh) ssh.value = me.default_ssh_username || '';
   loadTotpStatus();
   loadMyAckedAlerts();
+  loadSessions();
+}
+
+// v3.14.0: active session management
+async function loadSessions() {
+  const el = document.getElementById('acct-sessions');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  const data = await api('GET', '/me/sessions');
+  const sessions = (data && data.sessions) || [];
+  if (!sessions.length) { el.textContent = 'No active sessions.'; return; }
+  const _ago = (ts) => ts ? new Date(ts * 1000).toLocaleString() : '—';
+  el.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
+    <thead><tr class="c-muted"><th>Session</th><th>IP</th><th>Signed in</th><th>Last active</th><th></th></tr></thead>
+    <tbody>${sessions.map(s => {
+      const ua = s.ua ? escHtml(s.ua) : '<span class="c-muted">unknown device</span>';
+      const here = s.current ? ' <span class="pill" data-color="var(--green)">this session</span>' : '';
+      const revoke = s.current
+        ? '<span class="hint">—</span>'
+        : `<button class="btn-icon c-danger-outline" data-action="revokeSession" data-arg="${escAttr(s.id)}">Revoke</button>`;
+      return `<tr>
+        <td>${ua}${here}</td>
+        <td class="hint mono-12">${escHtml(s.ip || '—')}</td>
+        <td class="hint">${escHtml(_ago(s.created))}</td>
+        <td class="hint">${escHtml(_ago(s.last_seen))}</td>
+        <td>${revoke}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+async function revokeSession(sid) {
+  if (!confirm('Revoke this session? That browser/device will be signed out.')) return;
+  const r = await api('DELETE', `/me/sessions/${encodeURIComponent(sid)}`);
+  if (r && r.ok) { toast('Session revoked', 'success'); loadSessions(); }
+  else toast((r && r.error) || 'Failed to revoke session', 'error');
+}
+
+async function revokeOtherSessions() {
+  if (!confirm('Sign out all other sessions? Only this browser will stay signed in.')) return;
+  const r = await api('POST', '/me/sessions/revoke-others');
+  if (r && r.ok) { toast(`Signed out ${r.revoked} other session${r.revoked === 1 ? '' : 's'}`, 'success'); loadSessions(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 async function loadMyAckedAlerts() {
@@ -5488,6 +5543,94 @@ function filterDevices() {
   }
   renderDevices();
 }
+
+// ─── v3.14.0: saved & shareable views (Devices page) ────────────────────────
+// A view is a named snapshot of the Devices filter controls, stored per-account
+// in _uiPrefs.views and shareable via the URL hash (#devices?view=Name).
+const _DEVICE_VIEW_CONTROLS = {
+  q:      'device-search-input',
+  status: 'device-status-filter',
+  snmp:   'device-snmp-filter',
+  group:  'device-group-filter',
+  site:   'device-site-filter',
+};
+function _captureDeviceViewState() {
+  const st = {};
+  for (const [k, id] of Object.entries(_DEVICE_VIEW_CONTROLS)) {
+    const el = document.getElementById(id);
+    if (el) st[k] = el.value || '';
+  }
+  return st;
+}
+function _applyDeviceViewState(st) {
+  if (!st) return;
+  for (const [k, id] of Object.entries(_DEVICE_VIEW_CONTROLS)) {
+    const el = document.getElementById(id);
+    if (el && st[k] !== undefined) el.value = st[k];
+  }
+  // Persist the search box like a normal edit, then re-filter.
+  const se = document.getElementById('device-search-input');
+  if (se && _uiPrefsLoaded) { getTablePrefs('devices').filter = se.value || ''; _scheduleFlushUiPrefs(); }
+  renderDevices();
+}
+function _getViews() {
+  if (!Array.isArray(_uiPrefs.views)) _uiPrefs.views = [];
+  return _uiPrefs.views;
+}
+function toggleViewsMenu() {
+  const dd = document.getElementById('views-dropdown');
+  if (!dd) return;
+  if (dd.classList.contains('hidden')) renderViewsMenu();
+  dd.classList.toggle('hidden');
+}
+function renderViewsMenu() {
+  const dd = document.getElementById('views-dropdown');
+  if (!dd) return;
+  const views = _getViews().filter(v => v.page === 'devices');
+  const items = views.length
+    ? views.map(v => `<div class="views-row">
+        <button class="views-item" data-action="applyDeviceView" data-arg="${escAttr(v.name)}">${escHtml(v.name)}</button>
+        <button class="views-del" data-action="deleteDeviceView" data-arg="${escAttr(v.name)}" title="Delete view">&times;</button>
+      </div>`).join('')
+    : '<div class="views-empty hint">No saved views yet.</div>';
+  dd.innerHTML = items
+    + '<button class="views-item views-save" data-action="saveDeviceView"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Save current view…</button>';
+}
+async function saveDeviceView() {
+  const name = (await uiPrompt({title: 'Save view', message: 'Name this view (current filters will be saved):', confirmText: 'Save'}) || '').trim();
+  if (!name) return;
+  const views = _getViews();
+  const existing = views.find(v => v.page === 'devices' && v.name === name);
+  const state = _captureDeviceViewState();
+  if (existing) existing.state = state;
+  else views.push({ name, page: 'devices', state });
+  _scheduleFlushUiPrefs();
+  renderViewsMenu();
+  toast(`View “${name}” saved`, 'success');
+}
+function applyDeviceView(name) {
+  const v = _getViews().find(x => x.page === 'devices' && x.name === name);
+  if (!v) return;
+  _applyDeviceViewState(v.state);
+  try { history.replaceState(null, '', `#devices?view=${encodeURIComponent(name)}`); } catch (_) {}
+  document.getElementById('views-dropdown')?.classList.add('hidden');
+}
+function deleteDeviceView(name) {
+  const views = _getViews();
+  const i = views.findIndex(v => v.page === 'devices' && v.name === name);
+  if (i >= 0) { views.splice(i, 1); _scheduleFlushUiPrefs(); renderViewsMenu(); }
+}
+function _applyInitialViewHash() {
+  try {
+    const m = (location.hash || '').match(/^#devices\?view=(.+)$/);
+    if (!m) return;
+    const name = decodeURIComponent(m[1]);
+    showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+    // Give loadDevices() time to populate the group/site dropdowns so the
+    // restored select values stick, then apply the saved view.
+    setTimeout(() => applyDeviceView(name), 400);
+  } catch (_) {}
+}
 let patchReportData = null;
 // v1.11.6: register patches table for sort. The existing 3-control filter
 // system (text + group dropdown + device dropdown) keeps owning filter
@@ -5661,12 +5804,13 @@ function _registerCveTable() {
     tbody: 'cve-tbody',
     filterInput: 'cve-filter',
     sortHeaders: 'cve-thead',
-    colspan: 9,
-    columns: ['name', 'group', 'ecosystem', 'critical', 'high', 'medium', 'low', 'last_scan'],
+    colspan: 10,
+    columns: ['name', 'group', 'ecosystem', 'kev', 'critical', 'high', 'medium', 'low', 'last_scan'],
     getColumns: (d) => ({
       name:      d.name || '',
       group:     d.group || '',
       ecosystem: d.ecosystem || '',
+      kev:       d.kev || 0,
       critical:  d.counts?.critical || 0,
       high:      d.counts?.high || 0,
       medium:    d.counts?.medium || 0,
@@ -5686,7 +5830,7 @@ function _registerCveTable() {
       const prioBtn = cveTotal > 0
         ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this device's CVEs">${_icon('sparkles',14)}</button> `
         : '';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -5696,7 +5840,7 @@ function _registerCveTable() {
 async function loadCVEReport() {
   _registerCveTable();
   const tbody = document.getElementById('cve-tbody');
-  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr>';
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/cve/findings');
   if (!data) return;
   cveReportData = data;
@@ -5761,11 +5905,17 @@ async function openDeviceCVE(devId, devName) {
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
   if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found.</div>'; }
   else {
+    // v3.14.0: surface exploited-in-wild + high-EPSS first.
+    const _sevRank = {critical: 4, high: 3, medium: 2, low: 1, unknown: 0};
+    data.findings.sort((a, b) =>
+      (b.kev ? 1 : 0) - (a.kev ? 1 : 0)
+      || (_sevRank[b.severity] || 0) - (_sevRank[a.severity] || 0)
+      || (b.epss || 0) - (a.epss || 0));
     html += data.findings.map(f => {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
@@ -14638,13 +14788,21 @@ function _renderHardwareSection(id, hw, fc, ch) {
       realloc: d.reallocated_sectors || 0, pending: d.pending_sectors || 0,
       crc: (d.crc_errors || 0) + _uncorr(d),
       temp: d.temperature_c || 0, hours: d.power_on_hours || 0,
+      wear: d.wear_pct ?? -1,
     }));
+    // v3.14.0: project end-of-life from wear rate over power-on hours.
+    const _wearEol = (d) => {
+      if (d.wear_pct == null || d.wear_pct <= 0 || !d.power_on_hours) return '';
+      const yrsLeft = ((100 - d.wear_pct) / d.wear_pct) * (d.power_on_hours / 8760);
+      if (!isFinite(yrsLeft) || yrsLeft > 50) return '';
+      return yrsLeft < 1 ? `~${Math.round(yrsLeft * 12)} mo left` : `~${yrsLeft.toFixed(1)} yr left`;
+    };
     h += `<div class="hw-block"><div class="hw-h">SMART disk health</div>
       <table class="audit-table"><thead id="hw-smart-thead"><tr>
         <th data-col="device">Device</th><th data-col="model">Model</th>
         <th data-col="health">Health</th><th data-col="realloc">Realloc</th>
         <th data-col="pending">Pending</th><th data-col="crc" title="CRC errors / uncorrectable sectors — these drive the FAILED verdict">CRC / Unc.</th><th data-col="temp">Temp</th>
-        <th data-col="hours">Power-on h</th></tr></thead><tbody>` +
+        <th data-col="hours">Power-on h</th><th data-col="wear" title="SSD/NVMe wear (used %); projected life from wear rate">Wear</th></tr></thead><tbody>` +
       sorted.map(d => {
         const hUp = String(d.health||'').toUpperCase();
         const healthCls = d.failed ? 'c-red'
@@ -14660,7 +14818,8 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
           <td class="ta-center ${crcBad?'c-red':''}">${crcCell}</td>
           <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
-          <td class="ta-center">${d.power_on_hours??'—'}</td></tr>`;
+          <td class="ta-center">${d.power_on_hours??'—'}</td>
+          <td class="ta-center ${d.wear_pct>=90?'c-red':d.wear_pct>=80?'c-amber':''}">${d.wear_pct!=null?`${d.wear_pct}%${_wearEol(d)?`<div class="fs-11 c-muted">${_wearEol(d)}</div>`:''}`:'—'}</td></tr>`;
       }).join('') + `</tbody></table>`;
     // Cross-feature: a failing disk → a prefilled AI runbook.
     const bad = disks.filter(d => d && d.failed);
@@ -14669,6 +14828,64 @@ function _renderHardwareSection(id, hw, fc, ch) {
       h += `<div class="mt-6"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName||'')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen',13)} Get a runbook for this disk &rarr;</a></div>`;
     }
     h += `</div>`;
+  }
+
+  // ── v3.14.0: GPUs ──────────────────────────────────────────────────
+  const gpus = hw.gpus || [];
+  if (gpus.length) {
+    h += `<div class="hw-block"><div class="hw-h">GPUs</div>
+      <table class="audit-table"><thead><tr>
+        <th>Name</th><th>Vendor</th><th class="ta-center">Util</th><th class="ta-center">Memory</th><th class="ta-center">Temp</th><th class="ta-center">Power</th></tr></thead><tbody>` +
+      gpus.map(g => {
+        const mem = (g.mem_used_mb != null && g.mem_total_mb != null) ? `${Math.round(g.mem_used_mb)} / ${Math.round(g.mem_total_mb)} MB` : '—';
+        const tcls = g.temp_c >= 85 ? 'c-red' : g.temp_c >= 75 ? 'c-amber' : '';
+        return `<tr><td>${escHtml(g.name || 'GPU')}</td><td class="hint">${escHtml(g.vendor || '—')}</td>
+          <td class="ta-center">${g.util_pct != null ? g.util_pct + '%' : '—'}</td>
+          <td class="ta-center">${mem}</td>
+          <td class="ta-center ${tcls}">${g.temp_c != null ? g.temp_c + '°C' : '—'}</td>
+          <td class="ta-center">${g.power_w != null ? g.power_w + ' W' : '—'}</td></tr>`;
+      }).join('') + `</tbody></table></div>`;
+  }
+
+  // ── v3.14.0: Local accounts ────────────────────────────────────────
+  const accts = hw.accounts || [];
+  if (accts.length) {
+    const flagged = accts.filter(a => (a.flags || []).length);
+    const sorted = [...accts].sort((a, b) => ((b.flags || []).length) - ((a.flags || []).length) || (a.uid - b.uid));
+    const flabel = { uid0: 'extra UID 0', empty_password: 'empty password', stale_password: 'stale password' };
+    h += `<div class="hw-block"><div class="hw-h">Local accounts${flagged.length ? ` — <span class="c-amber">${flagged.length} flagged</span>` : ''}</div>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr>
+        <th>User</th><th class="ta-center">UID</th><th>Shell</th><th class="ta-center">Login</th><th class="ta-center">Pw age</th><th>Flags</th></tr></thead><tbody>` +
+      sorted.map(a => {
+        const fl = (a.flags || []).filter(f => f !== 'sudo').map(f => `<span class="kev-badge" title="${escAttr(flabel[f] || f)}">${escHtml(flabel[f] || f)}</span>`).join(' ');
+        const sudo = a.sudo ? '<span class="epss-chip">sudo</span>' : '';
+        const login = a.login ? (a.locked ? '<span class="c-muted">locked</span>' : '<span class="c-green">yes</span>') : '<span class="c-muted">no</span>';
+        return `<tr><td><code>${escHtml(a.user)}</code></td>
+          <td class="ta-center ${a.uid === 0 ? 'c-red' : ''}">${a.uid}</td>
+          <td class="hint mono-12">${escHtml(a.shell || '—')}</td>
+          <td class="ta-center">${login}</td>
+          <td class="ta-center hint">${a.age_days != null ? a.age_days + 'd' : '—'}</td>
+          <td>${fl} ${sudo}</td></tr>`;
+      }).join('') + `</tbody></table></div></div>`;
+  }
+
+  // ── v3.14.0: Local certificate files ───────────────────────────────
+  const certFiles = hw.cert_files || [];
+  if (certFiles.length) {
+    const nowS = Date.now() / 1000;
+    const sorted = [...certFiles].sort((a, b) => (a.not_after || 0) - (b.not_after || 0));
+    h += `<div class="hw-block"><div class="hw-h">Local certificate files</div>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr>
+        <th>Path</th><th>Subject</th><th>Issuer</th><th class="ta-center">Expires</th></tr></thead><tbody>` +
+      sorted.map(c => {
+        const days = c.not_after ? Math.floor((c.not_after - nowS) / 86400) : null;
+        const cls = days == null ? '' : (days < 14 ? 'c-red' : days < 45 ? 'c-amber' : '');
+        const exp = days == null ? '—' : (days < 0 ? 'expired' : `${days}d`);
+        return `<tr><td class="mono-12">${escHtml(c.path)}</td>
+          <td class="hint">${escHtml(c.subject || '—')}</td>
+          <td class="hint">${escHtml(c.issuer || '—')}</td>
+          <td class="ta-center ${cls}">${exp}</td></tr>`;
+      }).join('') + `</tbody></table></div></div>`;
   }
 
   // ── Forecast ───────────────────────────────────────────────────────

@@ -618,6 +618,11 @@
                selected state matches the user's stored preference on first
                paint. Empty placeholder; populated by renderDevices(). -->
           <span id="devices-density-toggle" class="isl-12"></span>
+          <!-- v3.14.0: saved & shareable views -->
+          <span class="views-menu">
+            <button class="btn-icon" data-action="toggleViewsMenu" aria-haspopup="true" title="Saved filter views"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Views</button>
+            <div id="views-dropdown" class="views-dropdown hidden"></div>
+          </span>
           <button class="btn-icon" data-action="agentlessAddOpen" title="Add a switch, AP, printer, or other device that can't run the agent">+ Agentless device</button>
         </div>
         <div id="devices-container" class="devices-grid"></div>
@@ -879,6 +884,17 @@
           <h3>My acknowledged alerts</h3>
           <p class="hint">Open alerts you've taken ownership of (acknowledged but not yet resolved).</p>
           <div id="acct-acked-alerts" class="sb-result">—</div>
+        </div>
+
+        <!-- v3.14.0: active session management -->
+        <div class="settings-section">
+          <h3>Active sessions</h3>
+          <p class="hint">Browsers and devices currently signed in as you. Revoke any you don't recognise.</p>
+          <div class="sb-controls mb-8">
+            <button class="btn-icon" data-action="loadSessions" title="Refresh sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-secondary c-danger-outline" data-action="revokeOtherSessions">Sign out all other sessions</button>
+          </div>
+          <div id="acct-sessions" class="sb-result">—</div>
         </div>
       </div>
 
@@ -2107,7 +2123,15 @@
               <ul>
                 <li><strong>Per-account sidebar favorites.</strong> Hover any entry in the sidebar groups and click the star to pin a copy under the <strong>“Main”</strong> label, so your most-used pages are always one click away. Favorites are stored on your account and follow you across browsers and devices (the browser keeps only a fast-paint cache). Keyboard accessible; works for real pages and section-jump rows alike.</li>
                 <li><strong>Per-container stale-image badge.</strong> The device drawer's <strong>Containers</strong> table now shows an <em>update</em> badge when a container's running image is older than the latest digest in the registry — the same check the fleet <strong>Image Updates</strong> page makes, so the two never disagree. Locally-built and accepted images aren't flagged.</li>
-                <li><strong>Fleet thermal roll-up.</strong> A new <strong>Thermal</strong> page (next to Storage) lists the hottest hosts fleet-wide — one row per host with its hottest CPU / chipset / disk sensor, sorted hottest-first, flagged ≥75 °C amber and ≥85 °C red. Answerable without opening each device drawer.</li>
+                <li><strong>Fleet thermal roll-up.</strong> A new <strong>Thermal</strong> page (next to Storage) lists the hottest hosts fleet-wide — one row per host with its hottest CPU / chipset / disk / GPU sensor, sorted hottest-first, flagged ≥75 °C amber and ≥85 °C red. Answerable without opening each device drawer.</li>
+                <li><strong>CVE prioritization (KEV + EPSS).</strong> The CVEs page ranks by real-world risk — a daily join of the CISA <em>Known-Exploited Vulnerabilities</em> catalog and <em>FIRST EPSS</em> scores, with a red <strong>KEV</strong> badge, an EPSS %, a KEV column on the device list, and KEV-first sorting.</li>
+                <li><strong>Active session management.</strong> <em>My Account → Active sessions</em> lists every browser/device signed in as you and lets you revoke any one — or sign out all other sessions — in a click.</li>
+                <li><strong>Saved &amp; shareable views.</strong> Save the current Devices filter set as a named <strong>view</strong> (per-account) and share it by URL.</li>
+                <li><strong>SSD / NVMe endurance.</strong> The drawer's SMART table gains a <strong>Wear</strong> column with a projected end-of-life, flagged amber ≥80 % / red ≥90 %.</li>
+                <li><strong>GPU monitoring.</strong> Hosts with <code>nvidia-smi</code> / <code>rocm-smi</code> get a <strong>GPUs</strong> drawer card (util / memory / temp / power), and GPU temps feed the Thermal page.</li>
+                <li><strong>Local certificate-file inventory.</strong> A <strong>Local certificate files</strong> drawer card shows the expiry of x509 files on the host, coloured like the TLS page.</li>
+                <li><strong>Local account audit.</strong> A flagged-first <strong>Local accounts</strong> drawer card (extra UID 0, empty/stale passwords, locked, sudo) — no password hashes ever leave the host.</li>
+                <li><strong>Power scheduling.</strong> The Schedule page adds <strong>Suspend</strong> and <strong>Wake (Wake-on-LAN)</strong> actions alongside shut down / reboot, one-shot or recurring.</li>
               </ul>
               <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
             </div>
@@ -3627,7 +3651,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value c-muted" id="cve-stat-low">0</div><div class="stat-label">Low</div></div></div>
           <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
         </div>
-        <div class="table-card"><table><thead id="cve-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="ecosystem">Ecosystem</th><th data-col="critical" class="ta-center">Critical</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Medium</th><th data-col="low" class="ta-center">Low</th><th data-col="last_scan">Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="cve-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="ecosystem">Ecosystem</th><th data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th data-col="critical" class="ta-center">Critical</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Medium</th><th data-col="low" class="ta-center">Low</th><th data-col="last_scan">Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->
@@ -4459,6 +4483,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <select id="sched-command" class="form-input" data-change="onSchedCommandChange" >
         <option value="shutdown">Shut down</option>
         <option value="reboot">Reboot</option>
+        <option value="suspend">Suspend (sleep)</option>
+        <option value="wol">Wake (Wake-on-LAN)</option>
         <option value="upgrade_packages">Upgrade packages (apt / dnf / pacman + cleanup)</option>
         <option value="upgrade_and_reboot">Upgrade packages + cleanup + reboot</option>
         <option value="script">Run script…</option>

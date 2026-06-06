@@ -66,6 +66,10 @@ class TestRouteResolution(unittest.TestCase):
         # v3.14.0: per-account favorites + fleet thermal roll-up
         ('POST', '/api/favorites', 'handle_favorites_set'),
         ('GET',  '/api/fleet/thermal', 'handle_fleet_thermal'),
+        # v3.14.0: active session management
+        ('GET',    '/api/me/sessions', 'handle_me_sessions'),
+        ('POST',   '/api/me/sessions/revoke-others', 'handle_me_sessions_revoke_others'),
+        ('DELETE', '/api/me/sessions/abc123', 'handle_me_session_revoke'),
         # bespoke conditional routes (the ones the elif ordering used to gate)
         ('DELETE', '/api/devices/abc123', 'handle_device_delete'),
         ('POST',   '/api/devices/abc123', 'handle_device_save_bulk'),

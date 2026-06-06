@@ -17,6 +17,7 @@ import socket
 import subprocess
 import shutil
 import fcntl
+import gzip
 import traceback
 import urllib.request
 import urllib.error
@@ -138,6 +139,11 @@ COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs', 'upd
 PACKAGES_FILE       = DATA_DIR / 'packages.json'
 CVE_FINDINGS_FILE   = DATA_DIR / 'cve_findings.json'
 CVE_IGNORE_FILE     = DATA_DIR / 'cve_ignore.json'
+# v3.14.0: CVE prioritization feeds — CISA Known-Exploited (KEV) + FIRST EPSS.
+KEV_EPSS_FILE       = DATA_DIR / 'kev_epss.json'
+KEV_FEED_URL        = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+EPSS_FEED_URL       = 'https://epss.cyentia.com/epss_scores-current.csv.gz'
+KEV_EPSS_INTERVAL   = 86400        # refresh once a day
 
 MAX_PACKAGE_LIST    = 10000      # hard cap on packages per device payload
 CVE_SCAN_MAX_AGE    = 86400      # auto-scan if findings older than this
@@ -399,6 +405,7 @@ MAX_UI_PREFS_BYTES         = 16 * 1024     # 16 KB total per user — generous
 MAX_UI_PREFS_FILTER_LEN    = 256           # per-filter string cap
 MAX_UI_PREFS_SORT_KEYS     = 5             # multi-column sort depth limit
 MAX_UI_PREFS_TABLES        = 50            # distinct tables we'll remember prefs for
+MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
 UI_DENSITY_DEFAULT         = 'comfortable'
 
@@ -2036,6 +2043,17 @@ def verify_token(token):
             if not u:
                 return None, None
             role = u.get('role', 'admin')
+            # v3.14.0: throttled activity stamp for the session-management UI —
+            # update last_seen at most once/min so we don't write tokens.json on
+            # every request. Backfill ip/ua for sessions created before v3.14.0.
+            if now - int(entry.get('last_seen', 0)) > 60:
+                entry['last_seen'] = now
+                entry.setdefault('ip', os.environ.get('REMOTE_ADDR', ''))
+                entry.setdefault('ua', _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256))
+                try:
+                    save(TOKENS_FILE, tokens)
+                except Exception:
+                    pass  # activity stamp is best-effort, never block auth
             return username, role
 
     # API keys — full constant-time scan (no early exit)
@@ -5648,10 +5666,15 @@ def handle_login():
     remember_me = bool(body.get('remember_me', False))
     ttl = get_session_ttl(remember_me=remember_me)
     tokens = load(TOKENS_FILE)
+    _now_login = int(time.time())
     tokens[token] = {
-        'user':    username,
-        'created': int(time.time()),
-        'ttl':     ttl,
+        'user':      username,
+        'created':   _now_login,
+        'ttl':       ttl,
+        # v3.14.0: session-origin metadata for the My Account → Sessions UI.
+        'ip':        os.environ.get('REMOTE_ADDR', ''),
+        'ua':        _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+        'last_seen': _now_login,
     }
     save(TOKENS_FILE, tokens)
     respond(200, {
@@ -8644,7 +8667,8 @@ def handle_heartbeat():
 
     # v3.4.0: hardware health (SMART / kernel / inventory). Fires
     # smart_failure / kernel_outdated edge-triggered. Best-effort.
-    if any(k in body for k in ('smart', 'kernel', 'hardware')):
+    # v3.14.0: also carries gpus / cert_files / accounts posture sections.
+    if any(k in body for k in ('smart', 'kernel', 'hardware', 'gpus', 'cert_files', 'accounts')):
         try:
             _ingest_hardware(dev_id, saved_dev['name'], body, now)
         except Exception as e:
@@ -9385,6 +9409,34 @@ def handle_uninstall_packages():
     _handle_pkg_action('uninstall')
 
 
+def _send_wol(dev):
+    """Send a Wake-on-LAN magic packet for a device record. Returns
+    (ok: bool, info: dict|str). Shared by the manual WoL endpoint and the
+    v3.14.0 power scheduler."""
+    mac = (dev.get('mac') or '').strip()
+    if not mac:
+        return False, 'No MAC address on record for this device'
+    if not _MAC_RE.match(mac):
+        return False, 'Invalid MAC address format'
+    magic = b'\xff' * 6 + bytes.fromhex(mac.replace(':', '').replace('-', '')) * 16
+    cfg = load(CONFIG_FILE)
+    try:
+        port = int(cfg.get('wol_port', 9))
+        if not (1 <= port <= 65535):
+            port = 9
+    except (ValueError, TypeError):
+        port = 9
+    device_ip = _sanitize_ip(dev.get('ip', ''))
+    target = device_ip or _sanitize_ip(cfg.get('wol_broadcast', '')) or '255.255.255.255'
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.sendto(magic, (target, port))
+    except Exception:
+        return False, 'WoL send failed'
+    return True, {'mac': mac, 'target': target}
+
+
 def handle_wol():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
@@ -9393,28 +9445,10 @@ def handle_wol():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    mac = devices[dev_id].get('mac', '').strip()
-    if not mac: respond(400, {'error': 'No MAC address on record for this device'})
-    if not _MAC_RE.match(mac): respond(400, {'error': 'Invalid MAC address format'})
-    mac_bytes = bytes.fromhex(mac.replace(':', '').replace('-', ''))
-    magic = b'\xff' * 6 + mac_bytes * 16
-    cfg = load(CONFIG_FILE)
-    try:
-        port = int(cfg.get('wol_port', 9))
-        if not (1 <= port <= 65535):
-            port = 9
-    except (ValueError, TypeError):
-        port = 9
-    device_ip = _sanitize_ip(devices[dev_id].get('ip', ''))
-    broadcast  = _sanitize_ip(cfg.get('wol_broadcast', '')) or '255.255.255.255'
-    target = device_ip if device_ip else broadcast
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s.sendto(magic, (target, port))
-    except Exception as e:
-        respond(500, {'error': 'WoL send failed'})
-    respond(200, {'ok': True, 'mac': mac, 'target': target})
+    ok, info = _send_wol(devices[dev_id])
+    if not ok:
+        respond(400 if 'MAC' in info else 500, {'error': info})
+    respond(200, {'ok': True, **info})
 
 
 def handle_sysinfo(dev_id):
@@ -11002,10 +11036,33 @@ def _sanitise_ui_prefs(raw):
         if re.fullmatch(r'[A-Za-z0-9._-]{1,32}', ssh_user):
             out['default_ssh_username'] = ssh_user
 
+    # v3.14.0: saved & shareable views — named snapshots of a page's filter
+    # controls. A top-level list, not a per-table pref. Each entry is
+    # {name, page, state:{<control>: <value>}}; values are short strings.
+    raw_views = raw.get('views')
+    if isinstance(raw_views, list):
+        views = []
+        for v in raw_views[:MAX_UI_PREFS_VIEWS]:
+            if not isinstance(v, dict):
+                continue
+            name = _sanitize_str(str(v.get('name', '')), 48).strip()
+            page = re.sub(r'[^a-zA-Z0-9_-]', '', str(v.get('page', '')))[:32]
+            st = v.get('state')
+            if not name or not page or not isinstance(st, dict):
+                continue
+            clean_state = {}
+            for k, val in list(st.items())[:20]:
+                ck = re.sub(r'[^a-zA-Z0-9_]', '', str(k))[:32]
+                if ck and isinstance(val, (str, int, float, bool)):
+                    clean_state[ck] = _sanitize_str(str(val), 256)
+            views.append({'name': name, 'page': page, 'state': clean_state})
+        if views:
+            out['views'] = views
+
     # Cap how many distinct table prefs we'll persist for one user. Stops
     # a misbehaving client from filling users.json with junk keys.
     for table_name, prefs in list(raw.items())[:MAX_UI_PREFS_TABLES]:
-        if table_name == 'default_ssh_username':
+        if table_name in ('default_ssh_username', 'views'):
             continue   # handled above — not a table
         # Table names are short alphanumeric identifiers (e.g. 'devices',
         # 'cves_overview'). Strip anything not in that vocabulary.
@@ -12701,7 +12758,8 @@ def handle_schedule_add():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
+    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot',
+                     'suspend', 'wol')   # v3.14.0: power actions
     if command not in _SCHED_STATIC:
         if not (command.startswith('script:') and _validate_id(command[7:])):
             respond(400, {'error': 'Invalid command'})
@@ -12734,7 +12792,12 @@ def handle_schedule_add():
     jobs.append(job)
     schedule['jobs'] = jobs
     save(SCHEDULE_FILE, schedule)
-    respond(201, {'ok': True, 'job': job})
+    # v3.14.0: warn (non-fatal) if a power-down host can't be woken on a schedule.
+    warning = ''
+    if command in ('shutdown', 'suspend') and not (devices[dev_id].get('mac') or '').strip():
+        warning = ("This host has no MAC on record, so a scheduled Wake-on-LAN "
+                   "won't be possible — it will stay down until woken manually.")
+    respond(201, {'ok': True, 'job': job, 'warning': warning})
 
 
 def handle_schedule_update(job_id):
@@ -12755,7 +12818,8 @@ def handle_schedule_update(job_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
+    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot',
+                     'suspend', 'wol')   # v3.14.0: power actions
     if command not in _SCHED_STATIC:
         if not (command.startswith('script:') and _validate_id(command[7:])):
             respond(400, {'error': 'Invalid command'})
@@ -12818,7 +12882,8 @@ def process_schedule():
         if due:
             dev_id  = job['device_id']
             command = job['command']
-            _ALLOWED_SCHED = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
+            _ALLOWED_SCHED = ('shutdown', 'reboot', 'upgrade_packages',
+                              'upgrade_and_reboot', 'suspend', 'wol')  # v3.14.0
             is_script = command.startswith('script:') and _validate_id(command[7:])
             if command not in _ALLOWED_SCHED and not is_script:  # extra safety
                 if job.get('recurring'):
@@ -12828,6 +12893,17 @@ def process_schedule():
             if _validate_id(dev_id):
                 devices = load(DEVICES_FILE)
                 if dev_id in devices:
+                    # v3.14.0: wake-on-LAN can't be queued (the host is down) —
+                    # the server sends the magic packet directly when due.
+                    if command == 'wol':
+                        ok, _info = _send_wol(devices[dev_id])
+                        log_command(f"scheduler({job['actor']})", dev_id,
+                                    job['device_name'], 'wol' if ok else 'wol(failed)')
+                        if job.get('recurring'):
+                            job['last_fired_minute'] = current_minute
+                            remaining.append(job)
+                        changed = True
+                        continue
                     cmds = load(CMDS_FILE)
                     if dev_id not in cmds: cmds[dev_id] = []
                     # Translate named commands to exec: strings.
@@ -16407,6 +16483,9 @@ def handle_device_hardware(dev_id):
         'smart':     _smart,
         'kernel':    hw.get('kernel', {}),
         'hardware':  hw.get('hardware', {}),
+        'gpus':      hw.get('gpus', []),         # v3.14.0
+        'cert_files': hw.get('cert_files', []),  # v3.14.0
+        'accounts':  hw.get('accounts', []),     # v3.14.0
         'ts':        hw.get('ts'),
         'speedtest': speed[-10:],
         'discovery': disc,
@@ -17546,6 +17625,10 @@ def _get_custom_scripts_for_device(dev_id):
 MAX_SMART_DISKS = 32
 MAX_DIMMS       = 64
 MAX_TEMPS       = 64
+# v3.14.0: caps for the new hardware-record sections (match the agent).
+MAX_GPUS        = 16
+MAX_CERT_FILES  = 256
+MAX_ACCOUNTS    = 1024
 
 
 def _smart_disk_failed(d):
@@ -17661,6 +17744,10 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     v = d.get(k)
                     if isinstance(v, (int, float)) and -1 < v < 1e12:
                         entry[k] = int(v)
+                # v3.14.0: SSD/NVMe wear (used %, 0–100).
+                w = d.get('wear_pct')
+                if isinstance(w, (int, float)) and 0 <= w <= 100:
+                    entry['wear_pct'] = int(w)
                 # Persist the verdict so the UI (and any consumer) reads one
                 # authoritative `failed` flag instead of re-deriving the rule
                 # client-side — they drifted once already (UNKNOWN handling).
@@ -17744,6 +17831,59 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     for r in raid[:32] if isinstance(r, dict)
                 ]
             rec['hardware'] = safe
+
+        # ── v3.14.0: GPU telemetry ───────────────────────────────────
+        if isinstance(body.get('gpus'), list):
+            gpus = []
+            for g in body['gpus'][:MAX_GPUS]:
+                if not isinstance(g, dict):
+                    continue
+                entry = {'vendor': _sanitize_str(str(g.get('vendor', '')), 16),
+                         'name':   _sanitize_str(str(g.get('name', '')), 96)}
+                for k in ('util_pct', 'mem_used_mb', 'mem_total_mb', 'temp_c', 'power_w'):
+                    v = g.get(k)
+                    if isinstance(v, (int, float)) and -1 < v < 1e9:
+                        entry[k] = round(float(v), 1)
+                gpus.append(entry)
+            rec['gpus'] = gpus
+
+        # ── v3.14.0: local x509 cert-file expiry inventory ───────────
+        if isinstance(body.get('cert_files'), list):
+            certs = []
+            for c in body['cert_files'][:MAX_CERT_FILES]:
+                if not isinstance(c, dict):
+                    continue
+                na = c.get('not_after')
+                certs.append({
+                    'path':      _sanitize_str(str(c.get('path', '')), 256),
+                    'subject':   _sanitize_str(str(c.get('subject', '')), 256),
+                    'issuer':    _sanitize_str(str(c.get('issuer', '')), 256),
+                    'not_after': int(na) if isinstance(na, (int, float)) and na >= 0 else 0,
+                })
+            rec['cert_files'] = certs
+
+        # ── v3.14.0: local account posture ───────────────────────────
+        if isinstance(body.get('accounts'), list):
+            accts = []
+            for a in body['accounts'][:MAX_ACCOUNTS]:
+                if not isinstance(a, dict):
+                    continue
+                uid = a.get('uid')
+                age = a.get('age_days')
+                flags = a.get('flags')
+                accts.append({
+                    'user':     _sanitize_str(str(a.get('user', '')), 64),
+                    'uid':      int(uid) if isinstance(uid, (int, float)) and -1 < uid < 1e9 else -1,
+                    'shell':    _sanitize_str(str(a.get('shell', '')), 64),
+                    'home':     _sanitize_str(str(a.get('home', '')), 128),
+                    'login':    bool(a.get('login')),
+                    'locked':   bool(a.get('locked')),
+                    'sudo':     bool(a.get('sudo')),
+                    'age_days': int(age) if isinstance(age, (int, float)) else None,
+                    'flags':    [_sanitize_str(str(x), 24) for x in flags[:8]]
+                                if isinstance(flags, list) else [],
+                })
+            rec['accounts'] = accts
 
         rec['ts'] = now
 
@@ -23173,6 +23313,81 @@ def handle_me_avatar():
     respond(405, {'error': 'Method not allowed'})
 
 
+def _session_id(token):
+    """Stable, non-reversible handle for a session token — exposed to the UI so
+    the raw token (the secret) never leaves the server."""
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
+
+
+def handle_me_sessions():
+    """GET /api/me/sessions — the current user's active login sessions.
+
+    Session tokens only (not API keys). The raw token is never returned; each
+    session is identified by a one-way `id` used for revocation.
+    """
+    require_auth()
+    user, _role = verify_token(get_token_from_request())
+    if not user:
+        respond(401, {'error': 'not authenticated'})
+    cur = _session_id(get_token_from_request())
+    now = int(time.time())
+    out = []
+    for tok, e in (load(TOKENS_FILE) or {}).items():
+        if not isinstance(e, dict) or e.get('user') != user:
+            continue
+        ttl = e.get('ttl', TOKEN_TTL)
+        if now - int(e.get('created', 0)) > ttl:
+            continue  # expired but not yet swept
+        out.append({
+            'id':       _session_id(tok),
+            'current':  _session_id(tok) == cur,
+            'ip':       _sanitize_str(str(e.get('ip', '')), 64),
+            'ua':       _sanitize_str(str(e.get('ua', '')), 256),
+            'created':  int(e.get('created', 0)),
+            'last_seen': int(e.get('last_seen', e.get('created', 0))),
+        })
+    out.sort(key=lambda s: s['last_seen'], reverse=True)
+    respond(200, {'sessions': out, 'count': len(out)})
+
+
+def handle_me_session_revoke(sid):
+    """DELETE /api/me/sessions/<id> — revoke one of the current user's sessions
+    by its one-way id. A user can only revoke their own sessions."""
+    user = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    revoked = False
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        for tok in list(tokens.keys()):
+            e = tokens.get(tok)
+            if isinstance(e, dict) and e.get('user') == user and _session_id(tok) == sid:
+                del tokens[tok]
+                revoked = True
+                break
+    if not revoked:
+        respond(404, {'error': 'session not found'})
+    audit_log(user, 'session_revoke', f'id={sid}')
+    respond(200, {'ok': True})
+
+
+def handle_me_sessions_revoke_others():
+    """POST /api/me/sessions/revoke-others — revoke all of the current user's
+    sessions except the one making this request."""
+    user = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cur = _session_id(get_token_from_request())
+    n = 0
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        for tok in list(tokens.keys()):
+            e = tokens.get(tok)
+            if isinstance(e, dict) and e.get('user') == user and _session_id(tok) != cur:
+                del tokens[tok]
+                n += 1
+    audit_log(user, 'session_revoke_others', f'count={n}')
+    respond(200, {'ok': True, 'revoked': n})
+
+
 def handle_user_avatar(target_user):
     """GET /api/users/<user>/avatar — serve any user's avatar (so the alerts
     inbox / audit views can show who acked). Auth required; image is non-secret."""
@@ -27112,6 +27327,13 @@ def handle_fleet_thermal():
             sensors += 1
             if hottest is None or c > hottest[0]:
                 hottest = (float(c), str(s.get('device') or 'disk'), 'disk')
+        for g in (hw.get('gpus') or []):    # v3.14.0: GPUs are sensors too
+            c = g.get('temp_c')
+            if not isinstance(c, (int, float)):
+                continue
+            sensors += 1
+            if hottest is None or c > hottest[0]:
+                hottest = (float(c), str(g.get('name') or 'GPU'), 'gpu')
         if hottest is None:
             continue  # host reports no temperatures — omit rather than show 0 °C
         max_c = round(hottest[0], 1)
@@ -27347,6 +27569,114 @@ def handle_cve_scan():
     respond(200, {'scanned': scanned, 'skipped': skipped, 'errors': errors})
 
 
+# ─── v3.14.0: CVE prioritization (CISA KEV + FIRST EPSS) ─────────────────────
+
+def _collect_finding_cve_ids():
+    """All CVE ids (+ aliases) present in current findings — used to keep the
+    cached EPSS map small (we only store scores for CVEs we actually have)."""
+    ids = set()
+    for entry in (load(CVE_FINDINGS_FILE) or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        for f in (entry.get('findings') or []):
+            if not isinstance(f, dict):
+                continue
+            vid = f.get('vuln_id')
+            if vid:
+                ids.add(str(vid).upper())
+            for a in (f.get('aliases') or []):
+                if isinstance(a, str):
+                    ids.add(a.upper())
+    return ids
+
+
+def _fetch_feed_bytes(url, timeout=30):
+    """Fetch an external prioritization feed through the SSRF-safe opener
+    (peer-IP re-validated at connect; external-only)."""
+    opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=_get_ssl_context(),
+                               no_redirect=False, enforce_ip=True)
+    req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def refresh_kev_epss_if_due(force=False):
+    """Daily refresh of the CISA KEV catalog + FIRST EPSS scores. Cheap-when-
+    not-due; degrades gracefully (keeps the last cache, and the CVE views fall
+    back to plain CVSS) if a feed is unreachable."""
+    cfg = load(CONFIG_FILE)
+    now = int(time.time())
+    last = int(cfg.get('last_kev_epss_refresh', 0))
+    if not force and (now - last) < KEV_EPSS_INTERVAL:
+        return
+    store = load(KEV_EPSS_FILE) or {}
+    # KEV — full catalog (small, ~1–2k CVEs).
+    try:
+        data = json.loads(_fetch_feed_bytes(KEV_FEED_URL).decode('utf-8'))
+        kev = sorted({(v.get('cveID') or '').upper()
+                      for v in data.get('vulnerabilities', []) if v.get('cveID')})
+        store['kev'] = kev
+        store['kev_error'] = ''
+    except Exception as e:
+        store['kev_error'] = str(e)[:200]
+    # EPSS — gzipped CSV; keep only scores for CVEs we actually have findings for.
+    try:
+        want = _collect_finding_cve_ids()
+        text = gzip.decompress(_fetch_feed_bytes(EPSS_FEED_URL)).decode('utf-8', 'replace')
+        epss = {}
+        for line in text.splitlines():
+            if not line or line[0] == '#' or line.startswith('cve,'):
+                continue
+            parts = line.split(',')
+            if len(parts) < 2:
+                continue
+            cid = parts[0].upper()
+            if want and cid not in want:
+                continue
+            try:
+                epss[cid] = round(float(parts[1]), 4)
+            except ValueError:
+                pass
+        store['epss'] = epss
+        store['epss_error'] = ''
+    except Exception as e:
+        store['epss_error'] = str(e)[:200]
+    store['last_checked'] = now
+    save(KEV_EPSS_FILE, store)
+    cfg['last_kev_epss_refresh'] = now
+    save(CONFIG_FILE, cfg)
+
+
+def _kev_epss():
+    """(kev_set, epss_map) from the cache — empty if never fetched."""
+    s = load(KEV_EPSS_FILE) or {}
+    return set(s.get('kev') or []), (s.get('epss') or {})
+
+
+def _enrich_cve_findings(findings, kev, epss):
+    """Stamp `kev` (bool) and `epss` (0–1 float) onto each finding by matching
+    its vuln_id/aliases. Returns (kev_count, epss_max) for aggregation."""
+    kev_count = 0
+    epss_max = 0.0
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        ids = [str(f.get('vuln_id') or '').upper()]
+        ids += [str(a).upper() for a in (f.get('aliases') or []) if isinstance(a, str)]
+        is_kev = any(i in kev for i in ids)
+        score = 0.0
+        for i in ids:
+            if i in epss and epss[i] > score:
+                score = epss[i]
+        f['kev'] = is_kev
+        f['epss'] = score
+        if is_kev:
+            kev_count += 1
+        if score > epss_max:
+            epss_max = score
+    return kev_count, round(epss_max, 4)
+
+
 def handle_cve_findings():
     """GET /api/cve/findings — aggregate CVE report across all devices."""
     require_auth()
@@ -27357,11 +27687,13 @@ def handle_cve_findings():
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     now = int(time.time())
 
+    kev, epss = _kev_epss()   # v3.14.0: KEV/EPSS prioritization overlay
     report = {
         'generated_at': now,
         'devices':      [],
         'summary':      {'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
-                         'unknown':  0, 'ignored':  0, 'devices_scanned': 0,
+                         'unknown':  0, 'ignored':  0, 'kev': 0,
+                         'devices_scanned': 0,
                          'devices_with_findings': 0,
                          'devices_unsupported': 0},
     }
@@ -27371,6 +27703,7 @@ def handle_cve_findings():
         ecosystem = pkg_entry.get('ecosystem', '')
         f_entry = findings_all.get(dev_id) or {}
         findings = f_entry.get('findings') or []
+        kev_count, epss_max = _enrich_cve_findings(findings, kev, epss)
         summary = cve_scanner.summarize_findings(
             findings,
             {k for k, v in ignore_data.items()
@@ -27391,6 +27724,7 @@ def handle_cve_findings():
                 report['summary']['devices_with_findings'] += 1
             for k in ('critical', 'high', 'medium', 'low', 'unknown', 'ignored'):
                 report['summary'][k] += summary[k]
+            report['summary']['kev'] += kev_count
 
         report['devices'].append({
             'device_id':   dev_id,
@@ -27402,10 +27736,14 @@ def handle_cve_findings():
             'scanned_at':  f_entry.get('scanned_at', 0),
             'package_count': pkg_entry.get('count', 0),
             'counts':      summary,
+            'kev':         kev_count,    # v3.14.0
+            'epss_max':    epss_max,     # v3.14.0 (0–1)
         })
 
+    # v3.14.0: prioritize by exploited-in-wild (KEV) → criticals → highs → EPSS.
     report['devices'].sort(
-        key=lambda d: (-d['counts']['critical'], -d['counts']['high'], d['name'].lower())
+        key=lambda d: (-d.get('kev', 0), -d['counts']['critical'],
+                       -d['counts']['high'], -d.get('epss_max', 0), d['name'].lower())
     )
     respond(200, report)
 
@@ -27429,6 +27767,8 @@ def handle_cve_device(dev_id):
     pkg_entry = pkg_store.get(dev_id) or {}
     findings  = f_entry.get('findings') or []
     findings  = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+    _kev, _epss = _kev_epss()                       # v3.14.0
+    _enrich_cve_findings(findings, _kev, _epss)     # stamp kev/epss per finding
 
     respond(200, {
         'device_id':      dev_id,
@@ -31793,6 +32133,9 @@ def _build_exact_routes():
         # v3.12.0: My Account
         ('GET', '/api/me'): handle_me,
         (None, '/api/me/avatar'): handle_me_avatar,
+        # v3.14.0: active session management
+        ('GET', '/api/me/sessions'): handle_me_sessions,
+        ('POST', '/api/me/sessions/revoke-others'): handle_me_sessions_revoke_others,
         # v3.14.0: per-account sidebar favorites
         ('POST', '/api/favorites'): handle_favorites_set,
         # v3.12.0: relay satellites
@@ -32143,6 +32486,8 @@ def _dispatch(pi, m):
         handle_user_avatar(pi[len('/api/users/'):-len('/avatar')])
     elif pi.startswith('/api/satellites/') and m == 'DELETE':
         handle_satellites_delete(pi[len('/api/satellites/'):])
+    elif pi.startswith('/api/me/sessions/') and m == 'DELETE':
+        handle_me_session_revoke(pi[len('/api/me/sessions/'):])
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
         handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
     elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':
@@ -32446,6 +32791,8 @@ def main():
     # v3.3.4: refresh registry digests for container image-update detection.
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
+    # v3.14.0: daily refresh of CISA KEV + FIRST EPSS for CVE prioritization.
+    _safe(refresh_kev_epss_if_due, 'refresh_kev_epss_if_due')
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies
     _safe(process_backup_jobs, 'process_backup_jobs')
