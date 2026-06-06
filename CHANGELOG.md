@@ -10,6 +10,20 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **PostgreSQL storage backend.** A third storage backend (after JSON files and
+  SQLite) behind the same `load`/`save`/`LockedUpdate`/`DeviceTxn` abstraction —
+  for fleets/operators who want a real RDBMS (concurrency, replication/HA, central
+  backups). Same logical schema as SQLite (`devices`/`entity`/`listrow`/`kv`/
+  `file_meta`, with the decomposition logic shared so the two DB backends never
+  drift); per-file read-modify-write serialised with a Postgres transaction-scoped
+  **advisory lock**; the heartbeat fast path is a single-row `INSERT … ON CONFLICT
+  DO UPDATE`. Selected via `RP_STORAGE_BACKEND=postgres` or a `storage_backend.json`
+  marker (`{"backend":"postgres","dsn":"…"}`); `psycopg` is imported lazily so
+  non-Postgres deployments never need it. `storage_pg.import_from_json` migrates an
+  existing JSON/SQLite fleet in. *(The in-app Settings migrate toggle still covers
+  JSON↔SQLite; switching to Postgres is via env/marker + the import helper for now,
+  and a persistent app-server/connection-pool layer for true horizontal scale is
+  the next phase.)*
 - **Per-account sidebar favorites.** Star any entry in the sidebar's collapsible
   groups (hover-reveal star, yellow when active, keyboard accessible) and a copy
   pins under the **"Main"** label. Favorites are stored on the user record

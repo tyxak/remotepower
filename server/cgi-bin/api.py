@@ -494,6 +494,7 @@ import openapi_spec
 # here runs until the first sqlite-mode persistence call.
 import storage
 storage.configure(DATA_DIR)
+import storage_pg   # v3.14.0 (#1): Postgres backend (psycopg imported lazily inside)
 # v1.11.0: container/pod awareness. Agent posts a normalised list in
 # heartbeats; this module validates and summarises.
 import containers as containers_mod
@@ -1181,25 +1182,45 @@ SATELLITES_FILE = DATA_DIR / 'satellites.json'       # v3.12.0: relay satellites
 _BACKEND_CACHE = None
 
 
+STORAGE_BACKENDS = ('json', 'sqlite', 'postgres')   # v3.14.0 (#1): + postgres
+
+
 def _storage_backend():
     global _BACKEND_CACHE
     if _BACKEND_CACHE is not None:
         return _BACKEND_CACHE
     env = os.environ.get('RP_STORAGE_BACKEND')
-    if env in ('json', 'sqlite'):
+    if env in STORAGE_BACKENDS:
         _BACKEND_CACHE = env
         return env
     try:
         if STORAGE_MARKER_FILE.exists():
             marker = json.loads(STORAGE_MARKER_FILE.read_text())
             b = marker.get('backend')
-            if b in ('json', 'sqlite'):
+            if b in STORAGE_BACKENDS:
+                # For Postgres, the DSN can live in the marker (raw read here, so
+                # no recursion through load()); env RP_PG_DSN wins if set.
+                if b == 'postgres' and marker.get('dsn') and not os.environ.get('RP_PG_DSN'):
+                    storage_pg.configure_dsn(marker['dsn'])
                 _BACKEND_CACHE = b
                 return b
     except Exception:
         pass
     _BACKEND_CACHE = 'json'
     return 'json'
+
+
+def _dbmod():
+    """The active database-backend module — `storage` (SQLite), `storage_pg`
+    (Postgres), or None for the JSON file backend. Both DB modules expose the
+    same interface, so dispatch sites call `_dbmod().load(...)` etc. Side-effect
+    free (DSN configured during the marker read in _storage_backend)."""
+    b = _storage_backend()
+    if b == 'sqlite':
+        return storage
+    if b == 'postgres':
+        return storage_pg
+    return None
 
 
 def _invalidate_backend_cache():
@@ -1216,27 +1237,30 @@ def backend_exists(path):
     make the guarded feature silently see no data. Use this for data-presence
     guards only; keep Path.exists() for genuine filesystem paths (agent binary,
     archive .gz files, debug.log, the storage marker)."""
-    if _storage_backend() == 'sqlite':
-        return storage.exists(path)
+    _m = _dbmod()
+    if _m is not None:
+        return _m.exists(path)
     return path.exists()
 
 
 def backend_iter_files():
     """Logical .json data-file names that currently hold data, regardless of
     backend — drives backup/export/migration in place of DATA_DIR.glob('*.json')."""
-    if _storage_backend() == 'sqlite':
-        return storage.iter_files(DATA_DIR)
+    _m = _dbmod()
+    if _m is not None:
+        return _m.iter_files(DATA_DIR)
     return sorted(p.name for p in DATA_DIR.glob('*.json'))
 
 
 def backend_mtime(path):
     """Backend-aware last-modified time (epoch seconds) for change detection,
-    replacing Path.stat().st_mtime on data files. Under SQLite, data files have
-    no on-disk artifact — we use the per-file write time tracked in the store.
-    Paths that aren't tracked data files (e.g. real markdown docs under
-    RP_DOCS_DIR) fall through to the real filesystem mtime on both backends."""
-    if _storage_backend() == 'sqlite':
-        m = storage.mtime(path)
+    replacing Path.stat().st_mtime on data files. Under a DB backend, data files
+    have no on-disk artifact — we use the per-file write time tracked in the
+    store. Paths that aren't tracked data files (e.g. real markdown docs under
+    RP_DOCS_DIR) fall through to the real filesystem mtime on every backend."""
+    _m = _dbmod()
+    if _m is not None:
+        m = _m.mtime(path)
         if m:
             return m
         # Not a tracked data file (a real on-disk file like a docs .md) — stat it.
@@ -1406,10 +1430,11 @@ def handle_maintenance_run():
 def _data_file_bytes(path):
     """Approximate on-disk byte size of a logical data file, for the
     self-status disk report — Path.stat() under JSON, summed row sizes under
-    SQLite (where there's no per-file artifact to stat)."""
-    if _storage_backend() == 'sqlite':
+    a DB backend (where there's no per-file artifact to stat)."""
+    _m = _dbmod()
+    if _m is not None:
         try:
-            return storage.doc_size(path)
+            return _m.doc_size(path)
         except Exception:
             return 0
     try:
@@ -1449,11 +1474,12 @@ def load(path):
             import copy as _copy
             return _copy.deepcopy(cached[0])
     import copy as _copy
-    if _storage_backend() == 'sqlite':
+    _m = _dbmod()
+    if _m is not None:
         # Reconstruct the whole document from decomposed rows. Cache the
         # canonical copy (same invariant as the JSON path) and hand back a
         # separate deepcopy so caller mutations don't leak into the cache.
-        data = storage.load(path)
+        data = _m.load(path)
         _LOAD_CACHE[path] = (data, True)
         return _copy.deepcopy(data)
     if not path.exists():
@@ -1631,11 +1657,12 @@ def save(path, data, non_blocking=False, clamp_last_seen=True):
     pre-save snapshot.
     """
     _invalidate_load_cache(path)
-    if _storage_backend() == 'sqlite':
+    _m = _dbmod()
+    if _m is not None:
         try:
-            storage.save(path, data, non_blocking=non_blocking,
-                         clamp_last_seen=clamp_last_seen)
-        except storage.LockBusyError:
+            _m.save(path, data, non_blocking=non_blocking,
+                    clamp_last_seen=clamp_last_seen)
+        except _m.LockBusyError:
             raise LockBusy(path, 0)
         return
     # Step 1: serialise + validate before any disk write. Same as before —
@@ -1875,29 +1902,30 @@ class _JsonLockedUpdate:
         return False  # don't swallow exceptions
 
 
-class _SqliteLockedUpdate:
-    """Thin api-side wrapper over storage.LockedUpdate that translates the
-    backend's LockBusyError (raised in __enter__ by BEGIN IMMEDIATE under
-    contention) into api's LockBusy, so non_blocking callers catch the same
-    exception type regardless of backend."""
+class _DbLockedUpdate:
+    """Thin api-side wrapper over the active DB backend's LockedUpdate (SQLite or
+    Postgres) that translates the backend's LockBusyError (raised in __enter__
+    under write contention) into api's LockBusy, so non_blocking callers catch
+    the same exception type regardless of backend."""
 
     def __init__(self, path, non_blocking=False):
         self.path = path
-        self._inner = storage.LockedUpdate(path, non_blocking)
+        self._mod = _dbmod()
+        self._inner = self._mod.LockedUpdate(path, non_blocking)
 
     def __enter__(self):
         try:
             return self._inner.__enter__()
-        except storage.LockBusyError:
+        except self._mod.LockBusyError:
             raise LockBusy(self.path, 0)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             return self._inner.__exit__(exc_type, exc_val, exc_tb)
         finally:
-            # storage.LockedUpdate wrote (or rolled back) through its own
-            # helpers, which can't touch this process's load cache. Invalidate
-            # here so a load()-after-update in the same request re-reads.
+            # The backend wrote (or rolled back) through its own helpers, which
+            # can't touch this process's load cache. Invalidate here so a
+            # load()-after-update in the same request re-reads.
             _invalidate_load_cache(self.path)
 
 
@@ -1908,23 +1936,25 @@ def _LockedUpdate(path, non_blocking=False):
     the flock-backed JSON variant otherwise. Named like a class because ~100
     call sites use `with _LockedUpdate(...)` directly — they don't care which
     implementation they get."""
-    if _storage_backend() == 'sqlite':
-        return _SqliteLockedUpdate(path, non_blocking)
+    if _dbmod() is not None:
+        return _DbLockedUpdate(path, non_blocking)
     return _JsonLockedUpdate(path, non_blocking)
 
 
-class _SqliteDeviceUpdate:
-    """api-side wrapper over storage.DeviceTxn — translates LockBusyError to
-    api's LockBusy and invalidates the per-request load cache for DEVICES_FILE."""
+class _DbDeviceUpdate:
+    """api-side wrapper over the active DB backend's DeviceTxn — translates
+    LockBusyError to api's LockBusy and invalidates the per-request load cache
+    for DEVICES_FILE."""
 
     def __init__(self, dev_id, non_blocking=False):
         self.dev_id = dev_id
-        self._inner = storage.DeviceTxn(DEVICES_FILE, dev_id, non_blocking)
+        self._mod = _dbmod()
+        self._inner = self._mod.DeviceTxn(DEVICES_FILE, dev_id, non_blocking)
 
     def __enter__(self):
         try:
             return self._inner.__enter__()
-        except storage.LockBusyError:
+        except self._mod.LockBusyError:
             raise LockBusy(DEVICES_FILE, 0)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1940,8 +1970,8 @@ def _DeviceUpdate(dev_id, non_blocking=False):
     code is unchanged. SQLite → one-row load + upsert (no whole-table scan or
     rewrite). JSON → identical to _locked_update(DEVICES_FILE) (yields the whole
     dict; the handler only touches dev_id, so behaviour is unchanged)."""
-    if _storage_backend() == 'sqlite':
-        return _SqliteDeviceUpdate(dev_id, non_blocking)
+    if _dbmod() is not None:
+        return _DbDeviceUpdate(dev_id, non_blocking)
     return _JsonLockedUpdate(DEVICES_FILE, non_blocking)
 
 
@@ -1957,11 +1987,12 @@ def _save_held(path, data):
     and anywhere else inside an already-locked section.
     """
     _invalidate_load_cache(path)  # v3.0.2: same invariant as save()
-    if _storage_backend() == 'sqlite':
-        # No separate "held" concept under SQLite — storage.save joins the
-        # current transaction if one is open (i.e. we're inside a LockedUpdate)
-        # or opens its own otherwise.
-        storage.save(path, data)
+    _m = _dbmod()
+    if _m is not None:
+        # No separate "held" concept under a DB backend — the backend's save
+        # joins the current transaction if one is open (i.e. we're inside a
+        # LockedUpdate) or opens its own otherwise.
+        _m.save(path, data)
         return
     try:
         serialised = json.dumps(data, indent=2, allow_nan=False)
@@ -2777,8 +2808,9 @@ def log_command(actor, device_id, device_name, command):
         'device_name': _sanitize_str(device_name, MAX_NAME_LEN),
         'command':     _sanitize_str(command, 600),
     }
-    if _storage_backend() == 'sqlite':
-        storage.list_append(HISTORY_FILE, entry, cap=MAX_HISTORY)
+    _m = _dbmod()
+    if _m is not None:
+        _m.list_append(HISTORY_FILE, entry, cap=MAX_HISTORY)
         _invalidate_load_cache(HISTORY_FILE)
         return
     history = load(HISTORY_FILE)

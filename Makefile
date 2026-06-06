@@ -56,6 +56,15 @@ test-sqlite:
 
 test-both: test test-sqlite
 
+# v3.14.0 (#1): Postgres backend integration tests. They self-skip unless a DSN
+# is provided (RP_PG_TEST_DSN env or ~/.rp_pg_test_dsn) and psycopg is installed,
+# so this is safe to run anywhere — it just no-ops without a target database.
+test-pg:
+	$(PY) -m unittest tests.test_pg -v
+
+# Full matrix: JSON + SQLite + (when a DSN is configured) Postgres.
+test-all: test-both test-pg
+
 format:
 	$(PY) -m isort $(LINT_SRC)
 	$(PY) -m black $(LINT_SRC)
