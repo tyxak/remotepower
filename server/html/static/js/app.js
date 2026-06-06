@@ -841,6 +841,7 @@ const _SIDEBAR_KW = {
   'drift': 'drift config drift file integrity changes baseline',
   'audit': 'audit log trail history actions who did what',
   'compliance': 'compliance cis openscap scap stig benchmark baseline pci hipaa soc2 posture',
+  'thermal': 'thermal heat temperature temps hottest hosts overheat cpu disk sensor degrees celsius cooling',
   'schedule': 'schedule cron scheduled jobs recurring',
   'calendar': 'calendar ical events maintenance schedule',
   'tasks': 'tasks todo work items',
@@ -939,9 +940,15 @@ function _initNavNew() {
 document.addEventListener('DOMContentLoaded', _initNavNew);
 
 // v3.14.0: sidebar favorites — star any grouped nav entry; starred copies are
-// cloned under the "Main" label so buried pages are one click away. Persisted
-// in localStorage. CSP-safe: stars + clones reuse the existing delegated
-// sidebar click handler (star toggle is intercepted there before navigation).
+// cloned under the "Main" label so buried pages are one click away.
+//
+// Storage (v3.14.0): favorites are PER-ACCOUNT on the server, so they follow
+// the user across devices/browsers. localStorage (`rp_favorites`) is a
+// fast-first-paint cache + offline/anonymous fallback — on login,
+// _hydrateFavoritesFromServer overwrites it with the server's authoritative
+// list; every star toggle writes the cache and best-effort POSTs /api/favorites.
+// CSP-safe: stars + clones reuse the existing delegated sidebar click handler
+// (star toggle is intercepted there before navigation).
 const _FAV_LS_KEY = 'rp_favorites';
 const _FAV_STAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
 function _getFavorites() {
@@ -949,6 +956,19 @@ function _getFavorites() {
 }
 function _saveFavorites(favs) {
   try { localStorage.setItem(_FAV_LS_KEY, JSON.stringify(favs)); } catch (_) {}
+}
+// Best-effort push of the authoritative list to the server (per-account).
+function _pushFavoritesToServer(favs) {
+  try {
+    const p = api('POST', '/favorites', { favorites: favs });
+    if (p && p.catch) p.catch(() => {});   // older server / offline → cache still holds
+  } catch (_) {}
+}
+// Called once /api/me resolves: the server copy wins over the local cache.
+function _hydrateFavoritesFromServer(list) {
+  if (!Array.isArray(list)) return;
+  _saveFavorites(list);
+  _renderFavorites();
 }
 // Stable identity for a nav entry across reloads — page name, or action+arg
 // for the section-jump buttons (Targets, Ports, …), or an external link.
@@ -964,6 +984,7 @@ function toggleFavorite(key) {
   const i = favs.indexOf(key);
   if (i >= 0) favs.splice(i, 1); else favs.push(key);
   _saveFavorites(favs);
+  _pushFavoritesToServer(favs);
   _renderFavorites();
 }
 function _renderFavorites() {
@@ -1113,6 +1134,7 @@ function showPage(name, btn) {
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
   if (name === 'storage')    loadStorage();
+  if (name === 'thermal')    loadThermal();
   if (name === 'software-policy') loadSoftwarePolicy();
   // v3.12.0: make any long <select> on the page searchable once its loader
   // (often async) has populated it.
@@ -3110,6 +3132,9 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "Hover any sidebar entry and click the star to pin it under 'Main' — your favorites are saved to your account, so they follow you to any browser or device you log in from.",
+  "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
+  "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
   "A device drawer's Scheduled jobs / timers card shows every systemd timer failed-first, so a broken backup or cleanup job is obvious without SSHing in.",
   "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
@@ -4503,6 +4528,9 @@ async function loadMe() {
     if (me.has_avatar) _renderAvatar(av, me.username);
     else av.textContent = _initials(me.username);
   }
+  // v3.14.0: the server holds the authoritative per-account favorites — adopt
+  // them over the local fast-paint cache (older servers omit the field).
+  if ('favorites' in me) _hydrateFavoritesFromServer(me.favorites);
   return me;
 }
 
@@ -9980,6 +10008,53 @@ function _renderStorage() {
   }).join('');
 }
 
+// ─── v3.14.0: Fleet thermal roll-up ("hottest hosts") ───────────────────────
+let _thermalResp = null;
+async function loadThermal() {
+  const tbody = document.getElementById('thermal-tbody');
+  const summary = document.getElementById('thermal-summary');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('thermal-thead', 'thermal', () => _renderThermal());
+  tbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/fleet/thermal');
+    _thermalResp = data;
+    if (summary) summary.textContent = `${data.count} host${data.count === 1 ? '' : 's'} · ${data.hot} hot`;
+    _renderThermal();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderThermal() {
+  const tbody = document.getElementById('thermal-tbody');
+  if (!tbody || !_thermalResp) return;
+  // Server returns hosts hottest-first; sortRows preserves that until a column
+  // header is clicked.
+  let rows = (_thermalResp.hosts || []).slice();
+  rows = tableCtl.sortRows('thermal', rows, (r) => ({
+    device:       (r.device || '').toLowerCase(),
+    max_temp:     r.max_temp || 0,
+    sensor_label: (r.sensor_label || '').toLowerCase(),
+    sensor_type:  r.sensor_type || '',
+    sensors:      r.sensors || 0,
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const cls = r.critical ? 'c-red fw-600' : r.hot ? 'c-amber fw-600' : '';
+    const t = (typeof r.max_temp === 'number') ? `${r.max_temp.toFixed(1)}°C` : '—';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td class="${cls}">${t}</td>
+      <td>${escHtml(r.sensor_label || '—')}</td>
+      <td class="hint">${escHtml(r.sensor_type || '—')}</td>
+      <td class="hint">${r.sensors || 0}</td>
+    </tr>`;
+  }).join('');
+}
+
 // ─── v3.11.0: Fleet Software Policy ──────────────────────────────────────────
 let _swPolicy = { rules: [] };
 let _swViolations = [];
@@ -14107,6 +14182,12 @@ async function _loadAuditSection(key) {
           const cls = rc >= 5 ? 'c-red' : 'c-amber';
           return `<span class="${cls}" title="restart count">${rc}&times;</span>`;
         };
+        // v3.14.0: per-container stale-image badge — the server stamps
+        // update_available using the same registry-digest join as the fleet
+        // Image Updates page, so the drawer and that page never disagree.
+        const _updBadge = (c) => c.update_available
+          ? ` <span class="upd-badge" title="A newer image is available in the registry">update</span>`
+          : '';
         body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="isl-649">
           <thead><tr class="c-muted">
             <th class="isl-650">Name</th>
@@ -14132,7 +14213,7 @@ async function _loadAuditSection(key) {
                 <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}${ctrAi}</td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
                 <td>${_restartCell(c)}</td>
-                <td class="isl-653">${escHtml(img)}</td>
+                <td class="isl-653">${escHtml(img)}${_updBadge(c)}</td>
                 <td class="hint">${_resCell(c)}</td>
                 <td class="hint mono-12">${ports || '—'}</td>
                 <td class="hint">${escHtml(age)}</td>
@@ -18326,6 +18407,7 @@ function _homeNavAction(btn) {
     // v3.11.0 posture pages
     case 'exposure': showPage('exposure',        document.querySelector('.nav-btn[data-page="exposure"]')); break;
     case 'storage':  showPage('storage',         document.querySelector('.nav-btn[data-page="storage"]')); break;
+    case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
     default:

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.13.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.14.0">
 
 </head>
 <body>
@@ -279,6 +279,11 @@
         <button class="nav-btn" data-page="storage" title="ZFS / mdadm / btrfs pool health">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
           <span>Storage</span>
+        </button>
+        <!-- v3.14.0: fleet thermal roll-up (hottest hosts) -->
+        <button class="nav-btn" data-page="thermal" title="Hottest hosts — CPU / chipset / disk temperatures, fleet-wide">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+          <span>Thermal</span>
         </button>
         <!-- v3.11.0: fleet software policy -->
         <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
@@ -2095,7 +2100,19 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.13.0 bind it together device drawer recent logins source ip access watch who logged in systemd timers scheduled jobs failed cron storage raid pools zfs mdadm btrfs per host listening port bind address scope world lan local firewall fingerprint ruleset brute force lockout badge disk swap pills overflow scrollbar 15 lines max height scroll cap performance immutable cache static assets defer script fleet risk cache hardening scap report sandbox csp oidc id_token exp aud iss expiry audience syslog dns rebinding toctou polish">
+          <details class="doc-card" open data-keywords="release notes changelog v3.14.0 favorites favourite star pin sidebar nav per account per user sync across devices localStorage api me api favorites stale image badge container update available registry digest image updates drawer fleet thermal hottest hosts temperature temps cpu chipset disk smart sensor heat overheat celsius degrees service worker cache f5 refresh reset">
+            <summary><strong>What's new — v3.14.0</strong> — per-account sidebar favorites, per-container stale-image badge, and a fleet thermal "hottest hosts" page</summary>
+            <div class="doc-body">
+              <p>Three operator-facing conveniences. No breaking changes, no new dependencies — the thermal page and the stale-image badge both render data the agent already reports. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.14.0</code>).</p>
+              <ul>
+                <li><strong>Per-account sidebar favorites.</strong> Hover any entry in the sidebar groups and click the star to pin a copy under the <strong>“Main”</strong> label, so your most-used pages are always one click away. Favorites are stored on your account and follow you across browsers and devices (the browser keeps only a fast-paint cache). Keyboard accessible; works for real pages and section-jump rows alike.</li>
+                <li><strong>Per-container stale-image badge.</strong> The device drawer's <strong>Containers</strong> table now shows an <em>update</em> badge when a container's running image is older than the latest digest in the registry — the same check the fleet <strong>Image Updates</strong> page makes, so the two never disagree. Locally-built and accepted images aren't flagged.</li>
+                <li><strong>Fleet thermal roll-up.</strong> A new <strong>Thermal</strong> page (next to Storage) lists the hottest hosts fleet-wide — one row per host with its hottest CPU / chipset / disk sensor, sorted hottest-first, flagged ≥75 °C amber and ≥85 °C red. Answerable without opening each device drawer.</li>
+              </ul>
+              <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.13.0 bind it together device drawer recent logins source ip access watch who logged in systemd timers scheduled jobs failed cron storage raid pools zfs mdadm btrfs per host listening port bind address scope world lan local firewall fingerprint ruleset brute force lockout badge disk swap pills overflow scrollbar 15 lines max height scroll cap performance immutable cache static assets defer script fleet risk cache hardening scap report sandbox csp oidc id_token exp aud iss expiry audience syslog dns rebinding toctou polish">
             <summary><strong>What's new — v3.13.0</strong> — bind round four: surface every signal the agent already collects, cap overflowing boxes, plus perf &amp; hardening</summary>
             <div class="doc-body">
               <p>This release is a <strong>bind-it-together</strong> sweep: a lot of data the agent has always reported was stored and even served by the API, but had no home in the UI. v3.13.0 wires those signals into the device drawer and device cards, caps every panel so it scrolls instead of growing without bound, and adds a round of performance and security hardening. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.13.0</code>).</p>
@@ -2184,31 +2201,6 @@
               <ul>
                 <li>The <strong>config-drift alert title</strong> read a field the drift events never send, so every one said &ldquo;<code>? file(s)</code>&rdquo;. It now names the file that changed (file-integrity drift) or the number of sections that drifted (host-config drift).</li>
                 <li>The Devices <strong>table view</strong> showed a sort arrow on the <em>Hostname</em> column but never reordered (the sort key was missing); it sorts correctly now.</li>
-              </ul>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v3.9.0 bind it together hardening polish ssrf http monitor uptime monitor dns rebinding rebind connect time peer ip ipv6 loopback integer ip metadata link local inbound webhook alert links scheme validate javascript file patched didn't take verify stalled offline pending fleet upgrade metric threshold stray return disk alerting cpu load saturation history trends swap sparkline rkhunter last run systemd alias canonical mariadb mysql livepatch state sortable tables log alert rules maintenance suppression lucide icons svg glyph aria-label accessibility close button tls expiry severity days_left command queue clear all pending clear log acme dispatched image updates update button compose pull up recreate untagged sha256 bare image id container name compose working dir docker">
-            <summary><strong>What's new — v3.9.0</strong> — bind-it-together round two, alerting/patch fixes, monitor SSRF, polish</summary>
-            <div class="doc-body">
-              <p>A second bind-it-together and hardening sweep on top of v3.8.0 — more dropped agent data wired into the UI, a few correctness bugs fixed in the alerting and patch-verification paths, an SSRF gap closed in the uptime monitor, and front-end polish. No new headline features. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.9.0</code>).</p>
-              <h4>Security</h4>
-              <ul>
-                <li><strong>HTTP uptime-monitor SSRF closed.</strong> The monitor's <code>http</code>/<code>https</code> check used a string-prefix blocklist and a bare fetch — bypassable with an IPv6 loopback (<code>[::1]</code>), an integer-encoded IPv4, or a hostname that rebinds to a metadata/loopback address. It now runs through the same connect-time SSRF guard as the webhook/audit/OIDC channels (the connected peer IP is re-validated, redirects refused). RFC1918 LAN targets stay allowed by design. See <code>docs/security-review-3.9.0.md</code>.</li>
-                <li>Inbound-webhook alert links are scheme-validated (<code>http(s)</code> only) at ingest, matching the operator quick-links and CVE reference-links.</li>
-              </ul>
-              <h4>Fixes</h4>
-              <ul>
-                <li><strong>&ldquo;Patched — didn't take&rdquo; no longer cries wolf.</strong> The post-upgrade verification badge wrongly flagged hosts that had nothing to patch (a fleet-wide upgrade touches already-patched hosts) and offline hosts whose command was still queued. Both now read as &ldquo;nothing to verify&rdquo; / &ldquo;pending&rdquo; instead of a failure.</li>
-                <li>A stray <code>return</code> in the metric-threshold engine could skip per-mount <strong>disk alerting</strong> for a heartbeat when CPU load was easing back through the recovery band — fixed.</li>
-                <li><strong>TLS-expiry alerts</strong> now carry the correct severity and title (they read the wrong field, so every cert-expiry alert was labelled <code>high</code> / &ldquo;expires in ?d&rdquo;).</li>
-              </ul>
-              <h4>Bind it together &amp; polish</h4>
-              <ul>
-                <li><strong>CPU-load history</strong> is now plotted on the Trends page (load &divide; cores, as a saturation %), and <strong>swap</strong> joins the per-device metrics sparkline — both were collected but never charted.</li>
-                <li><strong>rkhunter last-run time</strong> shows on the AV pill; the <strong>systemd alias</strong> a watched unit resolved to (e.g. <code>mysql.service&rarr;mariadb.service</code>) shows in the Services table; <strong>livepatch state</strong> shows on the kernel pill when no patch is applied.</li>
-                <li>Three tables gained their missing <strong>sort wiring</strong> (Log Alert per-device &amp; fleet-wide rules, Maintenance suppression log); typographic button glyphs were replaced with <strong>Lucide SVG icons</strong>; icon-only close buttons gained <strong>aria-labels</strong>.</li>
-                <li><strong>Command Queue:</strong> ACME actions now show in the &ldquo;recently dispatched&rdquo; log (they used to queue invisibly), plus <strong>Clear all pending</strong> and <strong>Clear log</strong> buttons next to the existing per-command cancel and per-device clear.</li>
-                <li><strong>Image Updates:</strong> a one-click <strong>Update</strong> button on stale, compose-managed rows runs <code>docker compose pull</code> + <code>up -d</code> to fetch the new image and recreate the container. The agent now recovers the real image name when <code>docker ps</code> shows a bare untagged ID (right after a pull), and rows show the container name — so an image is never just an anonymous <code>sha256:…</code>.</li>
               </ul>
             </div>
           </details>
@@ -4123,6 +4115,27 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th data-col="state">State</th><th data-col="capacity">Capacity</th><th data-col="scrub">Last scrub</th>
             </tr></thead>
             <tbody id="storage-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.14.0: Fleet thermal roll-up (hottest hosts) ─────────────── -->
+      <div id="page-thermal" class="page">
+        <div class="page-title">Thermal health</div>
+        <div class="page-subtitle">Hottest hosts across the fleet — CPU, chipset and disk temperatures the agents already report. Each host shows its single hottest sensor; the list is sorted hottest-first and anything ≥75 °C is flagged. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadThermal" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" class="form-input page-filter" placeholder="Filter device / sensor…" data-input="filterRows" data-input-el="1" data-filter-target="#thermal-tbody tr">
+          <span id="thermal-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="thermal-thead"><tr>
+              <th data-col="device">Device</th><th data-col="max_temp">Max temp</th>
+              <th data-col="sensor_label">Hottest sensor</th><th data-col="sensor_type">Type</th>
+              <th data-col="sensors">Sensors</th>
+            </tr></thead>
+            <tbody id="thermal-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -6141,18 +6154,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script defer src="static/js/app.js?v=3.13.0"></script>
+<script defer src="static/js/app.js?v=3.14.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=3.13.0"></script>
-<script defer src="static/js/app-cmdb.js?v=3.13.0"></script>
-<script defer src="static/js/app-containers.js?v=3.13.0"></script>
-<script defer src="static/js/app-network.js?v=3.13.0"></script>
+<script defer src="static/js/app-calendar.js?v=3.14.0"></script>
+<script defer src="static/js/app-cmdb.js?v=3.14.0"></script>
+<script defer src="static/js/app-containers.js?v=3.14.0"></script>
+<script defer src="static/js/app-network.js?v=3.14.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=3.13.0"></script>
-<script defer src="static/js/app-compliance.js?v=3.13.0"></script>
-<script defer src="static/js/app-integrations.js?v=3.13.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=3.14.0"></script>
+<script defer src="static/js/app-compliance.js?v=3.14.0"></script>
+<script defer src="static/js/app-integrations.js?v=3.14.0"></script>
 
-<script defer src="static/js/sw-register.js?v=3.13.0"></script>
+<script defer src="static/js/sw-register.js?v=3.14.0"></script>
 </body>
 </html>

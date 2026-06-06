@@ -2,6 +2,36 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.14.0 — 2026-06-06
+
+Three operator-facing conveniences. No breaking changes, no new dependencies;
+the thermal page and stale-image badge both render data the agent already
+reports. See [docs/v3.14.0.md](docs/v3.14.0.md).
+
+### Added
+- **Per-account sidebar favorites.** Star any entry in the sidebar's collapsible
+  groups (hover-reveal star, yellow when active, keyboard accessible) and a copy
+  pins under the **"Main"** label. Favorites are stored on the user record
+  (`GET /api/me` returns them, `POST /api/favorites` saves them), so they follow
+  you across browsers and devices; `localStorage` is kept only as a
+  fast-first-paint cache and offline/signed-out fallback. Works for real pages
+  and the section-jump rows alike.
+- **Per-container stale-image badge.** The device-drawer **Containers** table
+  shows an **update** badge when a container's running image differs from the
+  latest registry digest — the same join the fleet **Image Updates** page uses
+  (shared `_image_stale` primitive, so the two never disagree). Locally-built
+  and accepted/ignored images are never flagged.
+- **Fleet thermal roll-up — "Hottest hosts".** A new **Thermal** page (next to
+  Storage) with one row per host showing its hottest sensor (CPU / chipset /
+  SMART disk), sorted hottest-first, flagged ≥75 °C amber / ≥85 °C red. Backed by
+  a read-only `GET /api/fleet/thermal` aggregation over the `hardware.json` temps
+  the agent already reports. No agent or schema change.
+
+### Fixed
+- **Favorites no longer "reset" on a normal refresh.** The service-worker cache
+  is now versioned to `remotepower-shell-v3.14.0` (and `?v=` bumped), so a plain
+  F5 loads the current front-end instead of a stale cached shell.
+
 ## v3.13.0 — 2026-06-05
 
 A **bind-it-together** sweep (round four): surface the host signals the agent

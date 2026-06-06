@@ -963,7 +963,7 @@ sortable; typographic glyphs were replaced with Lucide icons. The **Image
 Updates** page gained a one-click **Update** button on stale, compose-managed
 rows (`docker compose pull` + `up -d`), and the **Command Queue** now logs
 ACME certificate actions with **Clear all pending** / **Clear log** controls.
-See `docs/v3.9.0.md`.
+See [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## v3.10.0 additions
 

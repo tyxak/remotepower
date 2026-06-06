@@ -2846,6 +2846,15 @@ button, a, [role="button"],
 body.sidebar-collapsed .nav-star,
 body.sidebar-collapsed .nav-fav-empty { display: none; }
 
+/* v3.14.0: per-container "update available" badge (device-drawer Containers) */
+.upd-badge {
+  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; vertical-align: middle;
+  color: var(--amber, #d98a00); background: rgba(217,138,0,0.14);
+  border: 1px solid var(--amber, #d98a00); border-radius: 8px;
+  padding: 0 5px; line-height: 14px;
+}
+
 /* v3.4.0: audit-section group labels (drawer) */
 .audit-group-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: .06em;

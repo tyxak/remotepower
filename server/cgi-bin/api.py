@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.13.0'
+SERVER_VERSION = '3.14.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -11097,6 +11097,56 @@ def handle_ui_prefs_set():
     respond(200, {'ok': True, 'prefs': clean})
 
 
+# v3.14.0: per-account sidebar favorites. Keys come from the client's _favKey()
+# — 'p:<page>' (a data-page), 'a:<action>:<arg>' (a section-jump button), or
+# 'h:<href>' (an external link). We store them on the user record so they sync
+# across devices instead of living only in browser localStorage.
+MAX_FAVORITES = 50
+
+
+def _clean_favorites(raw):
+    """Validate + dedupe a favorites list. Tolerant: bad entries are dropped,
+    never raises — favorites are cosmetic and must never break /api/me."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    seen = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        key = item.strip()
+        # Shape: a 1-char kind prefix (p/a/h), a colon, then a non-empty body.
+        if len(key) < 3 or len(key) > 200 or key[0] not in 'pah' or key[1] != ':':
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+        if len(out) >= MAX_FAVORITES:
+            break
+    return out
+
+
+def handle_favorites_set():
+    """``POST /api/favorites`` — overwrite the current user's favorites list.
+
+    Whole-list replacement (same model as UI prefs): the client holds the
+    authoritative ordered list and POSTs it after every star toggle.
+    """
+    username = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    # Accept either a bare list or {"favorites": [...]} for forward-compat.
+    raw = body.get('favorites') if isinstance(body, dict) else body
+    clean = _clean_favorites(raw)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            respond(404, {'error': 'User not found'})
+        users[username]['favorites'] = clean
+    respond(200, {'ok': True, 'favorites': clean})
+
+
 def handle_ui_prefs_clear():
     """``DELETE /api/ui-prefs`` — wipe current user's UI prefs.
 
@@ -12929,6 +12979,25 @@ def handle_device_containers(dev_id: str) -> None:
     entry = store.get(dev_id) or {}
     items = entry.get('items', [])
     reported_at = entry.get('ts', 0)
+    # v3.14.0: stamp registry-staleness onto each container so the drawer can
+    # show a per-row "update available" badge, using the SAME digest join the
+    # fleet Image Updates page uses (shared via _image_stale → never disagree).
+    # Shallow-copy each item so we never mutate the loaded/cached store.
+    img_cache = (load(IMAGE_UPDATES_FILE) or {}).get('images') or {}
+    img_ignores = load(IMAGE_IGNORE_FILE) or {}
+    stamped = []
+    for c in items:
+        if not isinstance(c, dict):
+            stamped.append(c)
+            continue
+        c = dict(c)
+        image = (c.get('image') or '').strip()
+        ref = f"{image}:{(c.get('tag') or '').strip() or 'latest'}"
+        reg_dig = ((img_cache.get(ref) or {}).get('registry_digest') or '').strip()
+        ignored = bool(img_ignores.get(ref)) and _image_ignored(ref, reg_dig, img_ignores)
+        c['update_available'] = bool(image) and not ignored and _image_stale(c.get('repo_digest'), reg_dig)
+        stamped.append(c)
+    items = stamped
     # v1.11.4: surface staleness so the UI can flag old data without each
     # caller having to recompute the threshold.
     ttl = get_container_stale_ttl()
@@ -23014,6 +23083,9 @@ def handle_me():
         'ldap':                 bool(u.get('ldap_dn')),
         'created':              u.get('created'),
         'must_change_password': bool(u.get('must_change_password')),
+        # v3.14.0: per-account sidebar favorites, so they follow the user
+        # across devices/browsers instead of living only in localStorage.
+        'favorites':            _clean_favorites(u.get('favorites')),
     })
 
 
@@ -25153,6 +25225,17 @@ def _maybe_fire_image_alert(ref, meta, registry, registry_digest, entry, ignores
         entry['alerted_digest'] = ''
 
 
+def _image_stale(local_digest, registry_digest):
+    """Canonical container-staleness test: a known registry digest that
+    differs from the locally-running digest. Shared by the fleet Image
+    Updates view and the per-device containers endpoint (v3.14.0) so the
+    two never disagree. A missing digest on either side → not stale
+    (locally-built / not-yet-checked images don't count as updates)."""
+    local = (local_digest or '').strip()
+    reg = (registry_digest or '').strip()
+    return bool(reg and local and local != reg)
+
+
 def _image_update_view():
     """Per-image rows joining the registry-digest cache against live
     container digests.
@@ -25207,8 +25290,7 @@ def _image_update_view():
                 h['stale'] = False
         else:
             for h in e['hosts']:
-                h['stale'] = bool(reg_dig and h['local_digest']
-                                  and h['local_digest'] != reg_dig)
+                h['stale'] = _image_stale(h['local_digest'], reg_dig)
                 update_available = update_available or h['stale']
         if ignored:
             update_available = False
@@ -26992,6 +27074,59 @@ def handle_storage_overview():
             })
     rows.sort(key=lambda r: (0 if r['degraded'] else 1, r['device'], r['pool'] or ''))
     respond(200, {'pools': rows, 'degraded': degraded, 'count': len(rows)})
+
+
+# ─── v3.14.0: fleet thermal roll-up ("hottest hosts") ────────────────────────
+# Mirrors handle_storage_overview: one row per host with its hottest sensor, so
+# temperatures are answerable fleet-wide instead of only inside one device's
+# drawer. Reads the per-device hardware.json the agent already reports — no agent
+# or schema change. Thresholds match the device-drawer temps (>=75 °C = hot).
+THERMAL_HOT_C = 75.0
+THERMAL_CRIT_C = 85.0
+
+
+def handle_fleet_thermal():
+    """GET /api/fleet/thermal — hottest-host roll-up across the fleet."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    hw_all = load(HARDWARE_FILE) or {}
+    rows = []
+    hot = 0
+    for dev_id, d in devices.items():
+        if d.get('monitored') is False:
+            continue
+        hw = hw_all.get(dev_id) or {}
+        hottest = None  # (temp_c, label, kind)
+        sensors = 0
+        for t in (hw.get('temps') or []):
+            c = t.get('current_c')
+            if not isinstance(c, (int, float)):
+                continue
+            sensors += 1
+            if hottest is None or c > hottest[0]:
+                hottest = (float(c), str(t.get('label') or 'sensor'), 'sensor')
+        for s in (hw.get('smart') or []):
+            c = s.get('temperature_c')
+            if not isinstance(c, (int, float)):
+                continue
+            sensors += 1
+            if hottest is None or c > hottest[0]:
+                hottest = (float(c), str(s.get('device') or 'disk'), 'disk')
+        if hottest is None:
+            continue  # host reports no temperatures — omit rather than show 0 °C
+        max_c = round(hottest[0], 1)
+        is_hot = max_c >= THERMAL_HOT_C
+        if is_hot:
+            hot += 1
+        rows.append({
+            'device_id': dev_id, 'device': d.get('name', dev_id),
+            'max_temp': max_c, 'sensor_label': hottest[1], 'sensor_type': hottest[2],
+            'sensors': sensors,
+            'hot': is_hot, 'critical': max_c >= THERMAL_CRIT_C,
+            'reported_at': hw.get('ts', 0),
+        })
+    rows.sort(key=lambda r: -r['max_temp'])
+    respond(200, {'hosts': rows, 'count': len(rows), 'hot': hot})
 
 
 # ─── v3.11.0: scheduled posture digest email ─────────────────────────────────
@@ -31658,6 +31793,8 @@ def _build_exact_routes():
         # v3.12.0: My Account
         ('GET', '/api/me'): handle_me,
         (None, '/api/me/avatar'): handle_me_avatar,
+        # v3.14.0: per-account sidebar favorites
+        ('POST', '/api/favorites'): handle_favorites_set,
         # v3.12.0: relay satellites
         ('GET', '/api/satellites'): handle_satellites_list,
         ('POST', '/api/satellites'): handle_satellites_create,
@@ -31670,6 +31807,8 @@ def _build_exact_routes():
         ('GET', '/api/exposure'): handle_exposure_overview,
         ('POST', '/api/exposure/mute'): handle_exposure_mute,
         ('GET', '/api/storage'): handle_storage_overview,
+        # v3.14.0: fleet thermal roll-up ("hottest hosts")
+        ('GET', '/api/fleet/thermal'): handle_fleet_thermal,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,
         ('GET', '/api/status'): handle_status,
         ('GET', '/api/tasks'): handle_tasks_list,

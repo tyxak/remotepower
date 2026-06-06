@@ -46,6 +46,8 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v3.14.0.md](v3.14.0.md)** — per-account sidebar favorites; per-container
+ stale-image badge; fleet thermal roll-up ("hottest hosts").
 - **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
  at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.
 - **[v3.12.0.md](v3.12.0.md)** — optional SQLite storage backend with a live,
@@ -54,8 +56,6 @@ The five most recent per-release notes are kept here:
  policy, storage/RAID health, access watch, firewall drift).
 - **[v3.10.0.md](v3.10.0.md)** — fleet-wide container restart tracking;
  image-registry SSRF hardening.
-- **[v3.9.0.md](v3.9.0.md)** — uptime-monitor SSRF closure; more bound host
- signals; correctness polish.
 
 ## Feature guides
 

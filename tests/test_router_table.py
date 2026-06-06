@@ -63,6 +63,9 @@ class TestRouteResolution(unittest.TestCase):
         ('GET',  '/api/devices', 'handle_devices_list'),
         ('GET',  '/api/health', 'handle_health'),
         ('GET',  '/api/public-info', 'handle_public_info'),
+        # v3.14.0: per-account favorites + fleet thermal roll-up
+        ('POST', '/api/favorites', 'handle_favorites_set'),
+        ('GET',  '/api/fleet/thermal', 'handle_fleet_thermal'),
         # bespoke conditional routes (the ones the elif ordering used to gate)
         ('DELETE', '/api/devices/abc123', 'handle_device_delete'),
         ('POST',   '/api/devices/abc123', 'handle_device_save_bulk'),
