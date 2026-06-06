@@ -4877,17 +4877,29 @@ async function loadStorageBackendStatus() {
   if (!el) return;
   const s = await api('GET', '/storage-backend/status');
   if (!s) { el.textContent = 'Could not load storage backend status.'; return; }
-  const active = (s.active === 'sqlite') ? 'SQLite (database)' : 'JSON (flat files)';
-  let txt = `Active backend: ${active}`;
+  const LABEL = { sqlite: 'SQLite (database)', postgres: 'PostgreSQL (server)', json: 'JSON (flat files)' };
+  let txt = `Active backend: ${LABEL[s.active] || s.active}`;
   if (s.active === 'sqlite' && s.sqlite_db_bytes != null)
     txt += `  ·  DB ${_fmtBytes(s.sqlite_db_bytes)} · ${s.sqlite_files || 0} files`;
-  if (s.active === 'json' && s.json_files != null)
+  else if (s.active === 'json' && s.json_files != null)
     txt += `  ·  ${s.json_files} files`;
+  else if (s.active === 'postgres')
+    txt += `  ·  external server${s.pg_configured ? ' · DSN configured' : ''}`;
   if (s.env_override) txt += '  ·  pinned by RP_STORAGE_BACKEND (cannot switch from UI)';
   el.textContent = txt;
-  // Default the target select to the *other* backend.
   const sel = document.getElementById('storage-backend-target');
-  if (sel) sel.value = (s.active === 'sqlite') ? 'json' : 'sqlite';
+  if (sel) {
+    // The Postgres option needs psycopg installed on the server.
+    const pgOpt = sel.querySelector('option[value="postgres"]');
+    if (pgOpt) {
+      pgOpt.disabled = !s.pg_available;
+      pgOpt.textContent = s.pg_available ? 'PostgreSQL (server)'
+                                         : 'PostgreSQL — psycopg not installed';
+    }
+    // Default to a sensible *other* backend.
+    sel.value = (s.active === 'json') ? 'sqlite' : 'json';
+    onStorageTargetChange();
+  }
   const warn = document.getElementById('storage-backend-netfs-warn');
   if (warn) {
     if (s.network_fs) {
@@ -4897,13 +4909,24 @@ async function loadStorageBackendStatus() {
   }
 }
 
+function onStorageTargetChange() {
+  const sel = document.getElementById('storage-backend-target');
+  const pg = document.getElementById('storage-backend-pg');
+  if (sel && pg) pg.hidden = (sel.value !== 'postgres');
+}
+
 async function _runStorageMigrate(opts) {
   const sel = document.getElementById('storage-backend-target');
   const target = sel ? sel.value : 'sqlite';
   const out = document.getElementById('storage-backend-result');
-  if (out) { out.hidden = false; out.textContent = (opts.dry_run ? 'Previewing…' : 'Migrating… do not close this tab.'); }
   const body = { target };
   if (opts.dry_run) body.dry_run = true;
+  if (target === 'postgres') {
+    const dsn = (document.getElementById('storage-backend-dsn')?.value || '').trim();
+    if (!dsn) { if (out) { out.hidden = false; out.textContent = 'Enter a PostgreSQL connection string (DSN) first.'; } return; }
+    body.dsn = dsn;
+  }
+  if (out) { out.hidden = false; out.textContent = (opts.dry_run ? 'Previewing…' : 'Migrating… do not close this tab.'); }
   const res = await api('POST', '/storage-backend/migrate', body);
   if (!res) { if (out) out.textContent = 'Request failed.'; return; }
   let txt = '';

@@ -1223,6 +1223,15 @@ def _dbmod():
     return None
 
 
+def storage_pg_available():
+    """True if the Postgres backend can run here (psycopg importable)."""
+    try:
+        storage_pg._pg()
+        return True
+    except Exception:
+        return False
+
+
 def _invalidate_backend_cache():
     """Force the next _storage_backend() to re-read the marker — used by the
     migrate handler right after it flips the active backend."""
@@ -12350,12 +12359,23 @@ def handle_storage_backend_status():
     (where SQLite WAL is unsafe)."""
     require_admin_auth()
     active = _storage_backend()
-    forced_by_env = os.environ.get('RP_STORAGE_BACKEND') in ('json', 'sqlite')
+    forced_by_env = os.environ.get('RP_STORAGE_BACKEND') in STORAGE_BACKENDS
+    marker = storage.read_marker(DATA_DIR)
+    # v3.14.0 (#1): is the Postgres backend usable here? (psycopg installed)
+    pg_available = False
+    try:
+        storage_pg._pg()
+        pg_available = True
+    except Exception:
+        pg_available = False
     out = {
         'active': active,
         'selected_by': 'env' if forced_by_env else 'marker',
         'env_override': forced_by_env,
-        'marker': storage.read_marker(DATA_DIR),
+        'marker': marker,
+        'pg_available': pg_available,
+        # whether a DSN is already configured (marker or env) — never returned raw
+        'pg_configured': bool(marker.get('dsn') or os.environ.get('RP_PG_DSN')),
     }
     try:
         out['json_files'] = len(storage.json_inventory(DATA_DIR))
@@ -12376,34 +12396,105 @@ def handle_storage_backend_status():
     respond(200, out)
 
 
+def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambda m: None):
+    """Migrate to/from the Postgres backend (the shared storage.migrate_run only
+    covers JSON↔SQLite). Reads every logical file from the CURRENT backend via
+    load() and writes it to the target backend, verifies the round-trip, then
+    flips the marker (carrying the DSN for postgres). target or source is
+    'postgres'; the other side is json/sqlite."""
+    src = _storage_backend()
+    if target == 'postgres':
+        if not dsn:
+            raise ValueError('a Postgres DSN is required to switch to Postgres')
+        storage_pg.configure_dsn(dsn)
+        storage_pg._connect(DATA_DIR)            # fail fast if unreachable / bad DSN
+    elif src == 'postgres':
+        storage_pg._connect(DATA_DIR)            # source must be reachable
+
+    files = backend_iter_files()                 # logical files in the source backend
+    if dry_run:
+        log(f"dry-run: would migrate {len(files)} files to {target}")
+        return {'ok': True, 'dry_run': True, 'files': files}
+
+    def _write(name, data):
+        p = DATA_DIR / name
+        if target == 'sqlite':
+            storage.save(p, data, clamp_last_seen=False)
+        elif target == 'postgres':
+            storage_pg.save(p, data, clamp_last_seen=False)
+        else:
+            storage._write_json_atomic(p, data)
+    def _read_target(name):
+        p = DATA_DIR / name
+        if target == 'sqlite':
+            return storage.load(p)
+        if target == 'postgres':
+            return storage_pg.load(p)
+        return storage._read_json(p)
+
+    if not verify_only:
+        for name in files:
+            _write(name, load(DATA_DIR / name))   # load() = current/source backend
+            log(f"  {src} -> {target}  {name}")
+
+    # Verify: source reconstruction must equal target reconstruction.
+    problems = []
+    for name in files:
+        if storage._norm(load(DATA_DIR / name)) != storage._norm(_read_target(name)):
+            problems.append(f"{name}: content differs after migrate")
+    if problems:
+        return {'ok': False, 'problems': problems,
+                'error': 'verification failed — backend NOT switched'}
+    if verify_only:
+        return {'ok': True, 'verified': True, 'problems': []}
+
+    # Flip the marker (carry the DSN for postgres so the next process reconnects).
+    if target == 'postgres':
+        storage._write_json_atomic(STORAGE_MARKER_FILE,
+                                   {'backend': 'postgres', 'dsn': dsn,
+                                    'migrated_at': int(time.time())})
+    else:
+        storage.write_marker(DATA_DIR, target)
+    log(f"marker: active backend is now '{target}'")
+    return {'ok': True, 'target': target, 'files': len(files)}
+
+
 def handle_storage_backend_migrate():
     """POST /api/storage-backend/migrate — migrate data + switch backend.
 
-    Body: {"target": "sqlite"|"json", "dry_run"?: bool, "verify_only"?: bool}.
-    Runs the shared migration core in-process: pre-migration snapshot →
-    decompose/reconstruct every file → verify round-trip → flip the active-
-    backend marker only if verification passes. Read-only/demo mode and non-
-    admins are rejected upstream."""
+    Body: {"target": "json"|"sqlite"|"postgres", "dsn"?: str (postgres),
+    "dry_run"?: bool, "verify_only"?: bool}. Pre-migration snapshot (where
+    applicable) → copy/decompose every file → verify round-trip → flip the
+    active-backend marker only if verification passes. Read-only/demo mode and
+    non-admins are rejected upstream."""
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     body = get_json_body() or {}
     target = body.get('target')
-    if target not in ('json', 'sqlite'):
-        respond(400, {'error': "target must be 'json' or 'sqlite'"}); return
-    if os.environ.get('RP_STORAGE_BACKEND') in ('json', 'sqlite'):
+    if target not in STORAGE_BACKENDS:
+        respond(400, {'error': "target must be 'json', 'sqlite' or 'postgres'"}); return
+    if os.environ.get('RP_STORAGE_BACKEND') in STORAGE_BACKENDS:
         respond(409, {'error': 'storage backend is pinned by the '
                       'RP_STORAGE_BACKEND environment variable and cannot be '
                       'switched from the UI'}); return
     dry_run = bool(body.get('dry_run'))
     verify_only = bool(body.get('verify_only'))
+    dsn = _sanitize_str(str(body.get('dsn', '')).strip(), 1024)
     lines = []
     try:
-        result = storage.migrate_run(
-            DATA_DIR, target, dry_run=dry_run, verify_only=verify_only,
-            do_snapshot=not dry_run and not verify_only,
-            flip=not dry_run and not verify_only,
-            log=lines.append)
+        if target == 'postgres' or _storage_backend() == 'postgres':
+            if not storage_pg_available():
+                respond(409, {'error': 'the Postgres backend is unavailable on '
+                              'this server (psycopg is not installed)'}); return
+            result = _migrate_storage_pg(target, dsn, dry_run=dry_run,
+                                         verify_only=verify_only, log=lines.append)
+        else:
+            result = storage.migrate_run(
+                DATA_DIR, target, dry_run=dry_run, verify_only=verify_only,
+                do_snapshot=not dry_run and not verify_only,
+                flip=not dry_run and not verify_only,
+                log=lines.append)
     except Exception as e:
         respond(500, {'error': f'migration failed: {e}'}); return
     result['log'] = lines

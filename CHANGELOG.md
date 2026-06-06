@@ -19,11 +19,13 @@ dependencies; most of it surfaces data the agent already reports. See
   **advisory lock**; the heartbeat fast path is a single-row `INSERT … ON CONFLICT
   DO UPDATE`. Selected via `RP_STORAGE_BACKEND=postgres` or a `storage_backend.json`
   marker (`{"backend":"postgres","dsn":"…"}`); `psycopg` is imported lazily so
-  non-Postgres deployments never need it. `storage_pg.import_from_json` migrates an
-  existing JSON/SQLite fleet in. *(The in-app Settings migrate toggle still covers
-  JSON↔SQLite; switching to Postgres is via env/marker + the import helper for now,
-  and a persistent app-server/connection-pool layer for true horizontal scale is
-  the next phase.)*
+  non-Postgres deployments never need it. **Switch from *Settings → Advanced →
+  Storage backend*** — pick *PostgreSQL*, paste a connection string, Preview, then
+  Migrate & switch: it copies every record into Postgres, verifies the round-trip,
+  and only then flips the active backend (the DSN is saved to `storage_backend.json`
+  so the server reconnects on restart). Fully reversible. *(A persistent
+  app-server/connection-pool layer for true horizontal scale is the next phase —
+  the backend itself is done.)*
 - **Per-account sidebar favorites.** Star any entry in the sidebar's collapsible
   groups (hover-reveal star, yellow when active, keyboard accessible) and a copy
   pins under the **"Main"** label. Favorites are stored on the user record

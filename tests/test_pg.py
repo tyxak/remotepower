@@ -204,5 +204,55 @@ class TestApiDispatchPostgres(unittest.TestCase):
         self.assertEqual(self.api.load(dev)['d1']['cpu'], 88)
 
 
+@unittest.skipIf(_SKIP, "no Postgres DSN")
+class TestPgMigration(unittest.TestCase):
+    """The in-app migrate path JSON -> Postgres (_migrate_storage_pg): copy every
+    file, verify the round-trip, flip the marker (carrying the DSN)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import storage_pg
+        cls.S = storage_pg
+        cls.S.configure_dsn(_DSN)
+        cls._prev_dd = os.environ.get('RP_DATA_DIR')
+        os.environ['RP_DATA_DIR'] = tempfile.mkdtemp()
+        _spec = importlib.util.spec_from_file_location("api_pgmig", _CGI_BIN / "api.py")
+        cls.api = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(cls.api)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.S.close_connection()
+        if cls._prev_dd is None:
+            os.environ.pop('RP_DATA_DIR', None)
+        else:
+            os.environ['RP_DATA_DIR'] = cls._prev_dd
+
+    def test_json_to_postgres_migrate(self):
+        import json as _json
+        d = Path(tempfile.mkdtemp())
+        # Point the module at a fresh data dir holding JSON, with JSON active.
+        self.api.DATA_DIR = d
+        self.api.STORAGE_MARKER_FILE = d / 'storage_backend.json'
+        self.api._BACKEND_CACHE = 'json'
+        (d / 'config.json').write_text(_json.dumps({'k': 'v'}))
+        (d / 'devices.json').write_text(_json.dumps({'d1': {'name': 'h', 'last_seen': 3}}))
+        _truncate(self.S)
+
+        # dry run lists files, writes nothing
+        dry = self.api._migrate_storage_pg('postgres', _DSN, dry_run=True)
+        self.assertTrue(dry['dry_run'])
+        self.assertIn('config.json', dry['files'])
+
+        res = self.api._migrate_storage_pg('postgres', _DSN)
+        self.assertTrue(res['ok'], res)
+        marker = _json.loads((d / 'storage_backend.json').read_text())
+        self.assertEqual(marker['backend'], 'postgres')
+        self.assertEqual(marker['dsn'], _DSN)
+        # data is now reconstructable from Postgres
+        self.assertEqual(self.S.load(d / 'config.json'), {'k': 'v'})
+        self.assertEqual(self.S.load(d / 'devices.json')['d1']['name'], 'h')
+
+
 if __name__ == "__main__":
     unittest.main()
