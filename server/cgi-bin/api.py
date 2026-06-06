@@ -31648,7 +31648,9 @@ def handle_cmdb_list() -> None:
         Calls :func:`respond` with status 200 and the asset list.
     """
     require_auth()
-    devices = load(DEVICES_FILE)
+    # v3.5.0 RBAC v2: a scoped role only sees CMDB metadata for in-scope assets
+    # (mirrors the device-list filter — the per-device GET is already guarded).
+    devices = _scope_filter_devices(load(DEVICES_FILE))
     cmdb = _cmdb_load()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
     q = (qs.get('q', [''])[0] or '').strip().lower()
@@ -31804,6 +31806,7 @@ def handle_cmdb_update(dev_id: str) -> None:
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
@@ -31962,6 +31965,7 @@ def handle_cmdb_doc_add(dev_id: str) -> None:
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
@@ -32016,6 +32020,7 @@ def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
@@ -32079,6 +32084,7 @@ def handle_cmdb_doc_delete(dev_id: str, doc_id: str) -> None:
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})

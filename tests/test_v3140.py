@@ -1112,5 +1112,67 @@ class TestDashboardCustomization(unittest.TestCase):
         self.assertNotIn('↑</button>', self.JS)
 
 
+class TestCmdbScope(_HandlerBase):
+    """v3.14.0 — RBAC hardening: CMDB endpoints must honour device scope, so a
+    scoped (non-admin) role can't read or write CMDB for out-of-scope devices.
+    (Closes a gap found auditing the existing 'soft multi-tenancy'.)"""
+
+    def setUp(self):
+        super().setUp()
+        api.CMDB_FILE = self.d / 'cmdb.json'
+        api.save(api.DEVICES_FILE, {
+            'in1':  {'name': 'prod-web', 'tags': ['prod']},
+            'out1': {'name': 'dev-box',  'tags': ['dev']},
+        })
+        # Simulate an operator whose role is scoped to the 'prod' tag.
+        self._orig_scope = api._caller_scope
+        api._caller_scope = lambda: {'type': 'tags', 'values': ['prod']}
+
+    def tearDown(self):
+        api._caller_scope = self._orig_scope
+        super().tearDown()
+
+    def test_list_only_shows_in_scope_assets(self):
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_cmdb_list)
+        self.assertEqual({e['device_id'] for e in out}, {'in1'})
+
+    def test_update_blocked_out_of_scope(self):
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'asset_id': 'X'}
+        self.call(api.handle_cmdb_update, 'out1')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_update_allowed_in_scope(self):
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'asset_id': 'A1'}
+        self.call(api.handle_cmdb_update, 'in1')
+        self.assertNotEqual(self.cap['s'], 403)   # scope lets it through
+
+    def test_doc_add_blocked_out_of_scope(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'title': 't', 'body': 'b'}
+        self.call(api.handle_cmdb_doc_add, 'out1')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_doc_update_blocked_out_of_scope(self):
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'title': 't', 'body': 'b'}
+        self.call(api.handle_cmdb_doc_update, 'out1', 'doc_x')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_doc_delete_blocked_out_of_scope(self):
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_cmdb_doc_delete, 'out1', 'doc_x')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_admin_sees_everything(self):
+        # all-scope (admin) — _caller_scope returns None → no filtering
+        api._caller_scope = lambda: None
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_cmdb_list)
+        self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -102,6 +102,16 @@ dependencies; most of it surfaces data the agent already reports. See
   immediately — reusing the existing maker-checker store. Off by default.
 
 ### Fixed
+- **RBAC: CMDB now honours device scope (closes a cross-scope gap).** A role
+  scoped to a subset of the fleet (by group / tag / site) could previously read
+  the CMDB asset list for **all** devices and edit the asset metadata and
+  documentation of devices **outside** its scope. The CMDB list is now filtered
+  to in-scope assets, and the metadata/documentation write endpoints enforce the
+  same per-device scope guard the per-device GET already used. (Credential
+  reveal/write were already admin-only — admins are all-scope — so they were
+  never affected.) The fleet **posture report** remains a read-only, no-secrets
+  aggregate visible to any authenticated user; tightening it to the caller's
+  scope is tracked as a follow-up.
 - **`cert_file_expiring` no longer floods every host, and is off by default.**
   The agent now inventories only your own **service** certificates (Let's Encrypt
   live, nginx/apache TLS, `/etc/ssl/*.crt`) and never the system **CA trust
