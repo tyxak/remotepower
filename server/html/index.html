@@ -1302,8 +1302,8 @@
           <!-- v3.7.0 (moved to Security in v3.8.0): change approval (maker-checker) -->
           <div class="settings-section">
             <h3>Change approval (maker-checker)</h3>
-            <p class="hint">When enabled, an arbitrary command run (Run command) is parked as a pending approval instead of executing immediately. A second admin approves it on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for arbitrary commands</label></div>
+            <p class="hint">When enabled, risky actions — Run command, reboot, shutdown, package update/upgrade, agent uninstall, and container start/stop/restart — are parked as a pending approval instead of executing immediately. A second admin approves them on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for risky actions</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
           </div>
 
@@ -1312,6 +1312,7 @@
             <h3>Listening-port &amp; firewall audit</h3>
             <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cert-expiry-alerts-enabled"> Alert on expiring local certificate files (off by default — only your own service certs, not the CA trust store)</label></div>
             <p class="hint">Muted services — silence new-port / world-exposed alerts for a specific process and/or proto/port (e.g. <code>docker-proxy</code>) without turning the whole audit off. You can also mute straight from the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> table.</p>
             <div id="exposure-mute-list" class="sb-result"></div>
             <div class="sb-controls">

@@ -76,13 +76,28 @@ dependencies; most of it surfaces data the agent already reports. See
   on the Drift page (`/api/drift-policies`); the per-device flag still wins.
 - **Alerts for the posture signals.** New edge-triggered events: `disk_predict_fail`
   (predicted disk failure with ETA), `ups_on_battery`/`ups_on_line` (auto-resolving),
-  `cert_file_expiring` (≤21d), `rogue_uid0` (unexpected root-equivalent account) —
-  wired into the alert inbox, channels, and activity feed.
+  `cert_file_expiring` (≤21d, opt-in — see *Fixed*), `rogue_uid0` (unexpected
+  root-equivalent account) — wired into the alert inbox, channels, and activity feed.
 - **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
   `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
   config, SSRF-safe, interval-gated). Off by default.
+- **Change approval now covers the risky actions, not just Run command.** With
+  *Settings → Security → Change approval* enabled, reboot, shutdown, package
+  update/upgrade, agent uninstall, and container start/stop/restart are also
+  parked for a second admin (Confirmations page) instead of executing
+  immediately — reusing the existing maker-checker store. Off by default.
 
 ### Fixed
+- **`cert_file_expiring` no longer floods every host, and is off by default.**
+  The agent now inventories only your own **service** certificates (Let's Encrypt
+  live, nginx/apache TLS, `/etc/ssl/*.crt`) and never the system **CA trust
+  bundle** (`/etc/ssl/certs`, `/etc/pki/ca-trust`, …) — which was hundreds of
+  certs per host. The alert is now **opt-in** (*Settings → Security → "Alert on
+  expiring local certificate files"*, default off), the server coalesces to **one
+  alert per host** (soonest cert + a count), filters CA-bundle paths even from
+  older agents, and the Alerts inbox now shows **which** cert and **how many days**
+  remain instead of a bare event name. Existing flooded alerts won't auto-clear —
+  resolve/clear them once after upgrading.
 - **Favorites no longer "reset" on a normal refresh.** The service-worker cache
   is now versioned to `remotepower-shell-v3.14.0` (and `?v=` bumped), so a plain
   F5 loads the current front-end instead of a stale cached shell.

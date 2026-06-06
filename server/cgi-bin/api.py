@@ -3596,6 +3596,21 @@ def _alert_title(event, payload):
         return f'Mount {_iw} on {name}: {p.get("path","?")} ({p.get("fstype","?")})'
     if event == 'timer_failed':
         return f'Scheduled job failed on {name}: {p.get("unit","?")}'
+    # v3.14.0 events
+    if event == 'disk_predict_fail':
+        eta = p.get('eta_days')
+        when = f' (~{eta}d to failure)' if isinstance(eta, int) else ''
+        return f'Disk predicted to fail on {name}: {p.get("disk","?")}{when}'
+    if event == 'ups_on_battery':
+        return f'UPS on battery on {name}: {p.get("ups","?")} (battery {p.get("battery_pct","?")}%)'
+    if event == 'ups_on_line':
+        return f'UPS back on line power on {name}: {p.get("ups","?")}'
+    if event == 'cert_file_expiring':
+        extra = f' (+{p.get("count")-1} more)' if isinstance(p.get('count'), int) and p['count'] > 1 else ''
+        return (f'Certificate expiring on {name}: {p.get("path","?")} in '
+                f'{p.get("days","?")} days{extra}')
+    if event == 'rogue_uid0':
+        return f'Unexpected root-equivalent account on {name}: {p.get("user","?")} (UID 0)'
     return f'{event}: {name}'
 
 
@@ -8987,6 +9002,38 @@ def _device_quarantined(dev):
 MAX_QUEUED_PER_DEVICE = 100
 
 
+# v3.14.0: 4-eyes approval. When change_approval_enabled, these queued-command
+# kinds are parked as a confirmation for a SECOND admin to approve (exec is
+# already gated in handle_custom_cmd). Reuses the MCP confirmations store + UI.
+_APPROVAL_GATED_KINDS = ('reboot', 'shutdown', 'update', 'uninstall', 'upgrade', 'container')
+
+
+def _command_kind(command):
+    s = str(command)
+    if s.startswith('container:'):
+        return 'container'
+    if s.startswith('exec:'):
+        return 'exec'
+    if s.startswith(('compose:', 'compose_deploy:')):
+        return 'compose'
+    if s.startswith('poll_interval:'):
+        return 'poll'
+    if s in ('reboot', 'shutdown', 'update', 'uninstall', 'scan'):
+        return s
+    return 'other'
+
+
+def _needs_approval(kind, cfg=None):
+    cfg = cfg if cfg is not None else (load(CONFIG_FILE) or {})
+    return bool(cfg.get('change_approval_enabled')) and kind in _APPROVAL_GATED_KINDS
+
+
+def _park_for_approval(dev_id, command, actor, kind):
+    """Park a queued command as a 4-eyes confirmation; returns the confirmation id."""
+    return _create_confirmation('queue_command', dev_id,
+                                {'command': command, 'kind': kind}, actor, None, None)
+
+
 def _queue_command(dev_id, command, actor):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
@@ -8995,6 +9042,12 @@ def _queue_command(dev_id, command, actor):
     # is the one exception — it changes only the agent's local timer.
     if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
         respond(409, {'error': 'Device is quarantined — exec/reboot/actions are disabled.'})
+    # v3.14.0: 4-eyes — park risky actions for a second admin when enabled.
+    _kind = _command_kind(command)
+    if _needs_approval(_kind):
+        cid = _park_for_approval(dev_id, command, actor, _kind)
+        respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
+                      'detail': 'Parked — a second admin must approve it.'})
     # v3.4.2: locked read-modify-write so a concurrent enqueue or a heartbeat
     # dispatch can't clobber this append (lost-update race). log_command /
     # fire_webhook / respond run AFTER the lock commits — never hold the queue
@@ -9021,6 +9074,16 @@ def _queue_command(dev_id, command, actor):
 
 def _queue_command_batch(dev_ids, command, actor):
     devices = load(DEVICES_FILE); results = {}
+    # v3.14.0: 4-eyes — park each target as its own confirmation when enabled.
+    _kind = _command_kind(command)
+    if _needs_approval(_kind):
+        for dev_id in dev_ids:
+            if not _validate_id(dev_id) or dev_id not in devices:
+                results[dev_id] = {'ok': False, 'error': 'Device not found'}
+                continue
+            cid = _park_for_approval(dev_id, command, actor, _kind)
+            results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}
+        return results
     # v3.4.2: do the queue mutations under one CMDS_FILE lock (atomic
     # read-modify-write — the old unlocked load/append/save raced both with a
     # heartbeat dispatch and with a concurrent batch). Defer log_command /
@@ -9249,10 +9312,19 @@ def handle_uninstall_agent(dev_id):
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
+        dev_name = devices[dev_id].get('name', dev_id)
+    # v3.14.0: 4-eyes — park the uninstall for a second admin when enabled.
+    # (Done before marking the record so an un-approved request leaves no trace.)
+    if _needs_approval('uninstall'):
+        cid = _park_for_approval(dev_id, 'uninstall', actor, 'uninstall')
+        respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
+                      'detail': 'Parked — a second admin must approve it.'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
         devices[dev_id]['agent_uninstalled']    = True
         devices[dev_id]['agent_uninstalled_at'] = int(time.time())
         devices[dev_id]['agent_uninstalled_by'] = actor
-        dev_name = devices[dev_id].get('name', dev_id)
     # Queue the command outside the device-file lock.
     with _LockedUpdate(CMDS_FILE) as cmds:
         bucket = cmds.setdefault(dev_id, [])
@@ -9359,12 +9431,16 @@ def handle_upgrade_device():
 
     devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}
     queued_str = f'exec:{_UPGRADE_CMD}'
+    _gate = _needs_approval('upgrade')   # v3.14.0: 4-eyes — park upgrades for a second admin
     for dev_id in ids:
         if not _validate_id(dev_id):
             results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
         dev = devices.get(dev_id)
         if not dev:
             results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+        if _gate:
+            cid = _park_for_approval(dev_id, queued_str, actor, 'upgrade')
+            results[dev_id] = {'ok': True, 'approval_required': True, 'confirmation_id': cid}; continue
         if dev_id not in cmds:
             cmds[dev_id] = []
         if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE and queued_str not in cmds[dev_id]:
@@ -9388,6 +9464,10 @@ def handle_upgrade_device():
     save(CMDS_FILE, cmds)
     if len(ids) == 1:
         r = results[ids[0]]
+        if r.get('approval_required'):
+            respond(202, {'ok': True, 'approval_required': True,
+                          'confirmation_id': r.get('confirmation_id'),
+                          'detail': 'Parked — a second admin must approve it.'})
         if r.get('ok'): respond(200, {'ok': True})
         else:           respond(400, {'error': r.get('error', 'Failed')})
     respond(200, {'ok': True, 'results': results})
@@ -9962,6 +10042,7 @@ def handle_config_get():
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
+    safe.setdefault('cert_expiry_alerts_enabled', False)  # v3.14.0: cert-expiry alerts, opt-in (noisy)
     safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
@@ -10731,6 +10812,9 @@ def handle_config_save():
         cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
     if 'change_approval_no_self' in body:
         cfg['change_approval_no_self'] = bool(body['change_approval_no_self'])
+    # v3.14.0: cert-expiry alerts (opt-in — noisy on hosts with many service certs)
+    if 'cert_expiry_alerts_enabled' in body:
+        cfg['cert_expiry_alerts_enabled'] = bool(body['cert_expiry_alerts_enabled'])
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
@@ -14452,6 +14536,11 @@ def handle_device_container_action(dev_id):
                       'list (refresh the listing if you just started it)'})
 
     cmd_payload = f'container:{runtime}:{action}:{container_id}'
+    # v3.14.0: 4-eyes — park container actions for a second admin when enabled.
+    if _needs_approval('container'):
+        cid = _park_for_approval(dev_id, cmd_payload, actor, 'container')
+        respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
+                      'detail': 'Parked — a second admin must approve it.'})
     cmds = load(CMDS_FILE)
     cmds.setdefault(dev_id, [])
     if cmd_payload not in cmds[dev_id]:
@@ -18037,17 +18126,27 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     'not_after': int(na) if isinstance(na, (int, float)) and na >= 0 else 0,
                 })
             rec['cert_files'] = certs
-            # Alert on certs expiring within the threshold (edge-triggered per
-            # path; clears implicitly once the cert renews and drops out).
-            soon = now + 21 * 86400
-            expiring = {c['path'] for c in certs if 0 < c['not_after'] <= soon}
-            prev_cert = set(rec.get('_cert_alerted') or [])
-            for c in certs:
-                if c['path'] in expiring and c['path'] not in prev_cert:
+            # v3.14.0: cert-expiry alerting is OPT-IN (off by default — see
+            # cert_expiry_alerts_enabled) and only for the host's OWN service
+            # certs, never the CA trust bundle. Coalesced to ONE alert per host
+            # (soonest cert + a count) so it can't flood, edge-triggered.
+            if (load(CONFIG_FILE) or {}).get('cert_expiry_alerts_enabled'):
+                soon = now + 21 * 86400
+                _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
+                       '/usr/share/ca-certificates', '/etc/ca-certificates')
+                expiring = sorted((c for c in certs
+                                   if 0 < c['not_after'] <= soon
+                                   and not str(c['path']).startswith(_ca)),
+                                  key=lambda c: c['not_after'])
+                paths = [c['path'] for c in expiring]
+                prev_cert = set(rec.get('_cert_alerted') or [])
+                if expiring and any(p not in prev_cert for p in paths):
+                    s = expiring[0]
                     events.append(('cert_file_expiring', {
-                        'device_id': dev_id, 'name': dev_name, 'path': c['path'],
-                        'days': max(0, int((c['not_after'] - now) / 86400))}))
-            rec['_cert_alerted'] = sorted(expiring)
+                        'device_id': dev_id, 'name': dev_name, 'path': s['path'],
+                        'days': max(0, int((s['not_after'] - now) / 86400)),
+                        'count': len(expiring)}))
+                rec['_cert_alerted'] = paths
 
         # ── v3.14.0: local account posture ───────────────────────────
         if isinstance(body.get('accounts'), list):
@@ -24895,7 +24994,7 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
     # still exists and is not quarantined. A maker-checker request parked while
     # the device was healthy could otherwise be approved after the device was
     # deleted (orphaned queue entry) or quarantined (command would still run).
-    if action in ('reboot_device', 'run_saved_script', 'exec_command'):
+    if action in ('reboot_device', 'run_saved_script', 'exec_command', 'queue_command'):
         if device_id not in devs:
             return {'ok': False, 'error': 'device not found'}
         if _device_quarantined(devs[device_id]):
@@ -24967,6 +25066,22 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
         log_command(actor, device_id, dev_name, queued[:200])
         fire_webhook('command_queued', {
             'device_id': device_id, 'name': dev_name, 'command': queued, 'actor': actor,
+        })
+
+    elif action == 'queue_command':
+        # v3.14.0: a risky queued command (reboot/shutdown/update/upgrade/
+        # container/uninstall) approved by a second admin. params['command'] is
+        # the full queued string.
+        cmd = (params or {}).get('command') or ''
+        if not cmd:
+            return {'ok': False, 'error': 'no command to queue'}
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            cmds.setdefault(device_id, [])
+            if cmd not in cmds[device_id]:
+                cmds[device_id].append(cmd)
+        log_command(actor, device_id, dev_name, str(cmd)[:200])
+        fire_webhook('command_queued', {
+            'device_id': device_id, 'name': dev_name, 'command': cmd, 'actor': actor,
         })
 
     else:

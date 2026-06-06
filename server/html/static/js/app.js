@@ -2100,6 +2100,8 @@ async function loadSettings() {
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
   if (_pae) _pae.checked = !!data.port_audit_enabled;
+  const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
+  if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
   _renderExposureMutes(data.exposure_mutes);
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
@@ -2400,6 +2402,8 @@ async function saveSettings(btn) {
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');
   if (_paEn) payload.port_audit_enabled = _paEn.checked;
+  const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
+  if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
   // would clear them on the server. Leave key out to preserve existing.
   const smtpPw = document.getElementById('cfg-smtp-password').value;

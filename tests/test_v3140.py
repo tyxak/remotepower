@@ -81,7 +81,8 @@ class _HandlerBase(unittest.TestCase):
                      'TOKENS_FILE', 'CONFIG_FILE', 'KEV_EPSS_FILE',
                      'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
-                     'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE'):
+                     'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
+                     'CONFIRMATIONS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -832,14 +833,35 @@ class TestAlertEvents(_HandlerBase):
         back = self._ingest({'ups': [{'name': 'apc', 'status': 'OL', 'battery_pct': 100}]})
         self.assertIn('ups_on_line', back)
 
-    def test_cert_expiring_fires_once(self):
+    def test_cert_off_by_default(self):
+        # opt-in: with cert_expiry_alerts_enabled unset, an expiring cert is silent
+        api.save(api.CONFIG_FILE, {})
+        body = {'cert_files': [{'path': '/etc/ssl/x.pem', 'not_after': 1_000_000 + 10 * 86400}]}
+        self.assertNotIn('cert_file_expiring', self._ingest(body))
+
+    def test_cert_expiring_fires_once_when_enabled(self):
+        api.save(api.CONFIG_FILE, {'cert_expiry_alerts_enabled': True})
         body = {'cert_files': [{'path': '/etc/ssl/x.pem', 'not_after': 1_000_000 + 10 * 86400}]}
         self.assertIn('cert_file_expiring', self._ingest(body))
         self.assertNotIn('cert_file_expiring', self._ingest(body))   # edge-triggered
 
+    def test_cert_ca_bundle_ignored(self):
+        # server-side defense: CA-bundle paths never alert even if reported
+        api.save(api.CONFIG_FILE, {'cert_expiry_alerts_enabled': True})
+        body = {'cert_files': [{'path': '/etc/ssl/certs/ca123.pem', 'not_after': 1_000_000 + 5 * 86400}]}
+        self.assertNotIn('cert_file_expiring', self._ingest(body))
+
     def test_cert_far_off_does_not_fire(self):
+        api.save(api.CONFIG_FILE, {'cert_expiry_alerts_enabled': True})
         body = {'cert_files': [{'path': '/etc/ssl/y.pem', 'not_after': 1_000_000 + 200 * 86400}]}
         self.assertNotIn('cert_file_expiring', self._ingest(body))
+
+    def test_cert_alert_title_has_path_and_days(self):
+        title = api._alert_title('cert_file_expiring',
+                                 {'name': 'web', 'path': '/etc/ssl/x.pem', 'days': 10})
+        self.assertIn('/etc/ssl/x.pem', title)
+        self.assertIn('10', title)
+        self.assertNotEqual(title, 'cert_file_expiring: web')   # not the generic fallback
 
     def test_rogue_uid0_fires(self):
         body = {'accounts': [{'user': 'root', 'uid': 0, 'flags': []},
@@ -864,6 +886,93 @@ class TestAlertEvents(_HandlerBase):
         finally:
             api.fire_webhook = orig
         self.assertIn('disk_predict_fail', fired)
+
+
+class TestApprovalGates(_HandlerBase):
+    """v3.14.0 #29 — 4-eyes change-approval gates on risky actions."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_perm = api.require_perm
+        api.require_perm = lambda perm, ids=None: 'jakob'
+        api.save(api.DEVICES_FILE, {'dev1': {'name': 'web'}})
+
+    def tearDown(self):
+        api.require_perm = self._orig_perm
+        super().tearDown()
+
+    def _pending(self):
+        return (api.load(api.CONFIRMATIONS_FILE) or {}).get('confirmations', [])
+
+    def _enable(self):
+        api.save(api.CONFIG_FILE, {'change_approval_enabled': True})
+
+    # --- off by default: actions queue straight through ---
+    def test_reboot_queues_when_disabled(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1'}
+        self.call(api.handle_reboot)
+        self.assertIn('reboot', (api.load(api.CMDS_FILE) or {}).get('dev1', []))
+        self.assertEqual(self._pending(), [])
+
+    # --- enabled: risky actions are parked, not queued ---
+    def test_reboot_parked_when_enabled(self):
+        self._enable()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1'}
+        r = self.call(api.handle_reboot)
+        self.assertEqual(self.cap['s'], 202)
+        self.assertTrue(r['approval_required'])
+        self.assertNotIn('reboot', (api.load(api.CMDS_FILE) or {}).get('dev1', []))
+        self.assertEqual(len(self._pending()), 1)
+
+    def test_upgrade_parked_when_enabled(self):
+        self._enable()
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1'}
+        r = self.call(api.handle_upgrade_device)
+        self.assertEqual(self.cap['s'], 202)
+        self.assertTrue(r['approval_required'])
+        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('dev1', []), [])
+        self.assertEqual(self._pending()[0]['params']['kind'], 'upgrade')
+
+    def test_uninstall_parked_and_leaves_no_trace(self):
+        self._enable()
+        api.method = lambda: 'POST'
+        r = self.call(api.handle_uninstall_agent, 'dev1')
+        self.assertEqual(self.cap['s'], 202)
+        self.assertTrue(r['approval_required'])
+        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('dev1', []), [])
+        # device record must NOT be flagged until a second admin approves
+        self.assertNotIn('agent_uninstalled',
+                         (api.load(api.DEVICES_FILE) or {}).get('dev1', {}))
+
+    def test_container_action_parked_when_enabled(self):
+        self._enable()
+        api.save(api.CONTAINERS_FILE,
+                 {'dev1': {'ts': 1, 'items': [{'id': 'abc123', 'name': 'nginx'}]}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'runtime': 'docker', 'action': 'restart',
+                                     'container_id': 'abc123'}
+        r = self.call(api.handle_device_container_action, 'dev1')
+        self.assertEqual(self.cap['s'], 202)
+        self.assertTrue(r['approval_required'])
+        self.assertEqual((api.load(api.CMDS_FILE) or {}).get('dev1', []), [])
+
+    # --- approving a parked queue_command actually queues it ---
+    def test_approved_queue_command_executes(self):
+        res = api._mcp_execute('queue_command', 'dev1',
+                               {'command': 'reboot', 'kind': 'reboot'},
+                               'second-admin', None, None)
+        self.assertNotEqual(res.get('ok'), False)
+        self.assertIn('reboot', (api.load(api.CMDS_FILE) or {}).get('dev1', []))
+
+    def test_command_kind_classifier(self):
+        self.assertEqual(api._command_kind('reboot'), 'reboot')
+        self.assertEqual(api._command_kind('container:docker:restart:x'), 'container')
+        self.assertEqual(api._command_kind('exec:rm -rf /'), 'exec')
+        self.assertEqual(api._command_kind('poll_interval:60'), 'poll')
 
 
 if __name__ == "__main__":

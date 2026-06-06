@@ -3338,12 +3338,14 @@ def get_cert_files():
     if not openssl:
         return []
     import glob as _glob
-    patterns = ['/etc/ssl/certs/*.pem', '/etc/ssl/*.crt', '/etc/ssl/*.pem',
-                '/etc/pki/tls/certs/*.crt', '/etc/pki/tls/certs/*.pem',
-                '/etc/letsencrypt/live/*/fullchain.pem',
+    # v3.14.0 fix: scan only the host's OWN service certs — NOT the system CA
+    # trust bundle (/etc/ssl/certs, /etc/pki/ca-trust, …), which holds hundreds
+    # of CA certs and flooded the cert inventory/alerts.
+    patterns = ['/etc/letsencrypt/live/*/fullchain.pem',
                 '/etc/letsencrypt/live/*/cert.pem',
                 '/etc/nginx/ssl/*.crt', '/etc/nginx/ssl/*.pem',
-                '/etc/pki/ca-trust/*.pem']
+                '/etc/apache2/ssl/*.crt', '/etc/apache2/ssl/*.pem',
+                '/etc/ssl/*.crt']
     seen = set()
     out = []
     for pat in patterns:
