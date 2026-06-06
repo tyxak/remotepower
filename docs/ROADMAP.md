@@ -84,6 +84,7 @@ agent change, no new storage.
 |---|:---:|---|
 | Per-container stale-image badge | 🟢 Small | image-update digest cache + `/devices/<id>/containers` |
 | Fleet thermal roll-up ("hottest hosts") | 🟡 Medium | `hardware.json` temps/SMART + Storage-health page pattern |
+| Per-account sidebar favorites | 🟡 Medium | sidebar favorites (localStorage) + My Account / `/api/me` |
 
 - **Per-container stale-image badge.** Surface the registry-staleness the fleet
   **Image Updates** page already computes (`_image_update_view` produces a
@@ -101,6 +102,15 @@ agent change, no new storage.
   `GET /api/fleet/thermal` aggregation modelled on `handle_storage_overview`,
   plus a sortable table page (with the mandatory `tableCtl.wireSortOnly` /
   `sortRows` / `data-col` wiring). No agent or schema change.
+- **Per-account sidebar favorites.** Sidebar favorites currently persist in
+  `localStorage` (`rp_favorites`) — per *browser*, so they don't follow a user
+  across devices and are shared if two users share a browser profile (same model
+  as theme / sidebar-collapse / group state). Optional upgrade: persist them on
+  the user record and hydrate on login through the existing My Account `/api/me`
+  plumbing, so favorites become true per-account and sync across devices. Needs a
+  user-record field + a small read/write endpoint + a load-on-login hydrate that
+  seeds `_renderFavorites`; keep localStorage as the offline/anonymous fallback.
+  No agent change.
 
 ---
 
