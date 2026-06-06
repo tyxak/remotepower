@@ -2283,6 +2283,7 @@ MAX_ACME_CERTS = 100
 MAX_GPUS       = 16
 MAX_CERT_FILES = 256
 MAX_ACCOUNTS   = 1024
+MAX_UPS        = 8
 
 def _acme_decode_reload(s):
     """acme.sh stores Le_ReloadCmd base64-wrapped between sentinels."""
@@ -3434,6 +3435,70 @@ def get_local_accounts():
         if len(accts) >= MAX_ACCOUNTS:
             break
     return accts
+
+
+def get_ups_status():
+    """v3.14.0: UPS / power status via NUT (`upsc`) or apcupsd (`apcaccess`).
+    Best-effort, read-only. Empty list when no UPS tooling is present."""
+    def _f(s):
+        try:
+            return round(float(s), 1)
+        except (TypeError, ValueError):
+            return None
+
+    out = []
+    upsc = _which('upsc')
+    if upsc:
+        try:
+            r = subprocess.run([upsc, '-l'], capture_output=True, text=True, timeout=8)
+            names = [n.strip() for n in r.stdout.splitlines() if n.strip()][:8] if r.returncode == 0 else []
+            for name in names:
+                rr = subprocess.run([upsc, name], capture_output=True, text=True, timeout=8)
+                if rr.returncode != 0:
+                    continue
+                kv = {}
+                for ln in rr.stdout.splitlines():
+                    if ':' in ln:
+                        k, _, v = ln.partition(':')
+                        kv[k.strip()] = v.strip()
+                out.append({
+                    'name': name[:64], 'driver': 'nut',
+                    'status': kv.get('ups.status', '')[:32],
+                    'battery_pct': _f(kv.get('battery.charge')),
+                    'load_pct': _f(kv.get('ups.load')),
+                    'runtime_s': _f(kv.get('battery.runtime')),
+                    'input_v': _f(kv.get('input.voltage')),
+                    'power_w': _f(kv.get('ups.realpower')) or _f(kv.get('ups.power')),
+                })
+        except Exception:
+            pass
+    if not out and _which('apcaccess'):
+        try:
+            r = subprocess.run([_which('apcaccess'), 'status'], capture_output=True, text=True, timeout=8)
+            if r.returncode == 0:
+                kv = {}
+                for ln in r.stdout.splitlines():
+                    if ':' in ln:
+                        k, _, v = ln.partition(':')
+                        kv[k.strip()] = v.strip()
+
+                def _num(key):
+                    m = re.search(r'[-\d.]+', kv.get(key, '') or '')
+                    return float(m.group()) if m else None
+                load, nom = _num('LOADPCT'), _num('NOMPOWER')
+                tl = _num('TIMELEFT')
+                out.append({
+                    'name': (kv.get('UPSNAME') or 'apcups')[:64], 'driver': 'apcupsd',
+                    'status': (kv.get('STATUS') or '')[:32],
+                    'battery_pct': _num('BCHARGE'),
+                    'load_pct': load,
+                    'runtime_s': round(tl * 60, 1) if tl is not None else None,
+                    'input_v': _num('LINEV'),
+                    'power_w': round(nom * load / 100, 1) if (nom is not None and load is not None) else None,
+                })
+        except Exception:
+            pass
+    return out[:MAX_UPS]
 
 
 def get_hardware_inventory():
@@ -5516,6 +5581,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['accounts'] = accts
             except Exception as e:
                 log.debug(f'accounts probe error: {e}')
+            # v3.14.0: UPS / power status (NUT / apcupsd).
+            try:
+                ups = get_ups_status()
+                if ups:
+                    payload['ups'] = ups
+            except Exception as e:
+                log.debug(f'ups probe error: {e}')
             # v3.6.0: endpoint AV/malware posture (ClamAV / rkhunter).
             try:
                 av = get_av_status()

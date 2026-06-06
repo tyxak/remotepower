@@ -80,7 +80,8 @@ class _HandlerBase(unittest.TestCase):
                      'HARDWARE_FILE', 'IMAGE_UPDATES_FILE', 'IMAGE_IGNORE_FILE',
                      'TOKENS_FILE', 'CONFIG_FILE', 'KEV_EPSS_FILE',
                      'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
-                     'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE'):
+                     'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
+                     'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -317,6 +318,170 @@ class TestClientWiring(unittest.TestCase):
     def test_power_schedule_wiring(self):
         self.assertIn('value="suspend"', self.HTML)
         self.assertIn('value="wol"', self.HTML)
+
+    # ── Tier-2 net-new wiring ───────────────────────────────────────────
+    def test_container_logs_wiring(self):
+        self.assertIn("function fetchContainerLogs", self.JS)
+        self.assertIn('id="container-logs-modal"', self.HTML)
+
+    def test_ssh_keys_page_wiring(self):
+        self.assertIn("function loadSshKeys", self.JS)
+        self.assertIn('data-page="ssh-keys"', self.HTML)
+        self.assertIn('id="ssh-keys-thead"', self.HTML)
+
+    def test_omnisearch_wiring(self):
+        self.assertIn("Alert: ", self.JS)
+        self.assertIn("CVEs: ", self.JS)
+        self.assertIn("/cve/findings", self.JS)
+
+    def test_power_page_wiring(self):
+        self.assertIn("function loadPower", self.JS)
+        self.assertIn('data-page="power"', self.HTML)
+        self.assertIn('id="power-thead"', self.HTML)
+
+    def test_disk_health_page_wiring(self):
+        self.assertIn("function loadDiskHealth", self.JS)
+        self.assertIn('data-page="disk-health"', self.HTML)
+
+    def test_report_builder_wiring(self):
+        self.assertIn("function saveReportDef", self.JS)
+        self.assertIn("function loadReportDefs", self.JS)
+        self.assertIn('id="rdef-sections"', self.HTML)
+
+
+class TestSshKeyAudit(_HandlerBase):
+    def test_fleet_audit_fingerprints_and_reuse(self):
+        # a valid base64 key blob reused on two hosts (guaranteed-valid base64)
+        import base64 as _b64
+        blob = _b64.b64encode(b'\x00\x00\x00\x0bssh-ed25519' + b'K' * 32).decode()
+        line = f'ssh-ed25519 {blob} alice@laptop'
+        weak = f'ssh-dss {_b64.b64encode(b"dss-key-blob!").decode()} bob@old'
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}, 'd2': {'name': 'db'}})
+        api.save(api.SSH_KEY_BASELINE_FILE, {
+            'd1': {'root': [line, weak]},
+            'd2': {'root': [line]},
+        })
+        me = self.call(api.handle_ssh_keys_fleet)
+        self.assertEqual(me['count'], 3)
+        self.assertEqual(me['weak'], 1)
+        # the ed25519 key appears on 2 hosts → reuse count 2, flagged reused
+        ed = [r for r in me['keys'] if r['type'] == 'ssh-ed25519']
+        self.assertTrue(all(r['hosts'] == 2 for r in ed))
+        self.assertEqual(me['reused'], 2)
+        self.assertTrue(all(r['fingerprint'].startswith('SHA256:') for r in ed))
+        # weak key sorted first
+        self.assertTrue(me['keys'][0]['weak'])
+
+
+class TestFleetPower(_HandlerBase):
+    def test_power_rollup_and_on_battery(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}, 'd2': {'name': 'b'},
+                                    'd3': {'name': 'no-power'}})
+        api.save(api.HARDWARE_FILE, {
+            'd1': {'ups': [{'name': 'apc', 'status': 'OL', 'battery_pct': 100,
+                            'load_pct': 30, 'power_w': 120}]},
+            'd2': {'ups': [{'name': 'eaton', 'status': 'OB DISCHRG', 'battery_pct': 80,
+                            'power_w': 90}]},
+            'd3': {'gpus': [{'name': 'gpu', 'power_w': 0}]},
+        })
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_fleet_power)
+        self.assertEqual(r['total_watts'], 210.0)
+        self.assertEqual(r['on_battery'], 1)
+        self.assertTrue(r['hosts'][0]['on_battery'])  # on-battery sorted first
+
+
+class TestDiskHealthPrediction(_HandlerBase):
+    def test_reactive_failed_disk_is_critical(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.HARDWARE_FILE, {'d1': {'smart': [
+            {'device': '/dev/sda', 'serial': 'S1', 'health': 'FAILED', 'failed': True},
+        ]}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_disk_health)
+        self.assertEqual(r['critical'], 1)
+        self.assertEqual(r['disks'][0]['risk'], 'critical')
+
+    def test_growing_pending_sectors_predicts_eta(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.HARDWARE_FILE, {'d1': {'smart': [
+            {'device': '/dev/sda', 'serial': 'S1', 'health': 'PASSED', 'pending_sectors': 30},
+        ]}})
+        # 4 daily snapshots, pending sectors growing 10/day
+        day = 86400
+        samples = [{'date': f'd{i}', 'ts': 1_000_000 + i * day,
+                    'pending': i * 10, 'realloc': 0, 'wear': None, 'temp': 40}
+                   for i in range(4)]
+        api.save(api.SMART_HIST_FILE, {'d1': {'S1': {'device': '/dev/sda', 'samples': samples}}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_disk_health)
+        self.assertTrue(r['count'] >= 1)
+        disk = r['disks'][0]
+        self.assertIn(disk['risk'], ('high', 'critical'))
+        self.assertIsNotNone(disk['eta_days'])   # trend → projected ETA
+
+    def test_healthy_disk_not_listed(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.HARDWARE_FILE, {'d1': {'smart': [
+            {'device': '/dev/sda', 'serial': 'S1', 'health': 'PASSED',
+             'reallocated_sectors': 0, 'pending_sectors': 0, 'wear_pct': 5},
+        ]}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_disk_health)
+        self.assertEqual(r['count'], 0)
+
+
+class TestUpsIngest(_HandlerBase):
+    def test_ups_section_ingested(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api._ingest_hardware('d1', 'web', {'ups': [
+            {'name': 'apc', 'driver': 'apcupsd', 'status': 'ONLINE',
+             'battery_pct': 100, 'load_pct': 25, 'power_w': 110, 'runtime_s': 1800},
+        ]}, 123)
+        rec = (api.load(api.HARDWARE_FILE) or {}).get('d1', {})
+        self.assertEqual(rec['ups'][0]['power_w'], 110.0)
+        self.assertEqual(rec['ups'][0]['status'], 'ONLINE')
+
+
+class TestReportBuilder(_HandlerBase):
+    def test_section_filter_keeps_only_requested(self):
+        report = {'generated_ts': 1, 'server_version': '3.14.0', 'server_name': 'x',
+                  'devices': {'total': 3}, 'cve': {'critical': 1}, 'health': {'score': 90},
+                  'patches': {'total_pending': 2}}
+        out = api._filter_report_sections(report, ['devices', 'cve'])
+        self.assertIn('devices', out)
+        self.assertIn('cve', out)
+        self.assertNotIn('health', out)
+        self.assertNotIn('patches', out)
+        self.assertIn('server_name', out)   # metadata always kept
+
+    def test_clean_report_def_validates(self):
+        d = api._clean_report_def({'name': 'Weekly', 'sections': ['devices', 'bogus'],
+                                   'format': 'csv', 'cron': '0 8 * * 1', 'enabled': True,
+                                   'recipients': ['ops@x.com', 'bad']})
+        self.assertEqual(d['name'], 'Weekly')
+        self.assertEqual(d['sections'], ['devices'])   # bogus dropped
+        self.assertEqual(d['format'], 'csv')
+        self.assertEqual(d['recipients'], ['ops@x.com'])
+        self.assertTrue(d['id'])
+
+    def test_clean_report_def_rejects_bad_cron(self):
+        self.assertEqual(api._clean_report_def(
+            {'name': 'x', 'enabled': True, 'cron': 'not a cron'}), 'badcron')
+
+    def test_save_and_delete_definition(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Ops', 'sections': ['health', 'cve']}
+        r = self.call(api.handle_report_defs_save)
+        self.assertTrue(r['ok'])
+        did = r['definition']['id']
+        defs = (api.load(api.CONFIG_FILE) or {}).get('report_definitions')
+        self.assertEqual(len(defs), 1)
+        api.method = lambda: 'DELETE'
+        r2 = self.call(api.handle_report_def_delete, did)
+        self.assertTrue(r2['ok'])
+        self.assertEqual((api.load(api.CONFIG_FILE) or {}).get('report_definitions'), [])
 
 
 class TestSessions(_HandlerBase):

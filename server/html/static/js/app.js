@@ -843,6 +843,9 @@ const _SIDEBAR_KW = {
   'audit': 'audit log trail history actions who did what',
   'compliance': 'compliance cis openscap scap stig benchmark baseline pci hipaa soc2 posture',
   'thermal': 'thermal heat temperature temps hottest hosts overheat cpu disk sensor degrees celsius cooling',
+  'ssh keys': 'ssh keys authorized_keys public key fingerprint audit pubkey access ed25519 rsa weak reused',
+  'power': 'power ups energy watts kwh cost battery nut apcupsd load runtime electricity draw consumption',
+  'disk health': 'disk health smart predictive failure prediction wear reallocated pending sectors ssd nvme at risk eol end of life trend',
   'schedule': 'schedule cron scheduled jobs recurring',
   'calendar': 'calendar ical events maintenance schedule',
   'tasks': 'tasks todo work items',
@@ -1136,6 +1139,9 @@ function showPage(name, btn) {
   if (name === 'exposure')   loadExposure();
   if (name === 'storage')    loadStorage();
   if (name === 'thermal')    loadThermal();
+  if (name === 'ssh-keys')   loadSshKeys();
+  if (name === 'power')      loadPower();
+  if (name === 'disk-health') loadDiskHealth();
   if (name === 'software-policy') loadSoftwarePolicy();
   // v3.12.0: make any long <select> on the page searchable once its loader
   // (often async) has populated it.
@@ -3140,6 +3146,12 @@ const _DYK_TIPS = [
   "On the Devices page, set your filters then use the Views menu to save them as a named view. Views are saved to your account and shareable by URL.",
   "Open a device drawer's Hardware tab to see SSD/NVMe wear with a projected end-of-life, GPU utilisation/temps, local cert-file expiry, and a flagged-first local account audit.",
   "The Schedule page can Suspend a host and Wake it back up with Wake-on-LAN on a recurring window — handy for powering a lab down overnight.",
+  "The Disk health page predicts disk failure before it happens — it trends SMART reallocated/pending sectors and SSD wear over time and projects an ETA, so you can replace a drive on your schedule, not its.",
+  "The Power page shows UPS status and power draw fleet-wide (via NUT or apcupsd). Set your price per kWh and it estimates your fleet's daily and monthly energy cost from the live total.",
+  "The SSH keys page lists every authorized_keys entry across the fleet with its SHA256 fingerprint — weak key types and keys reused on many hosts float to the top for a quick access audit.",
+  "Open a container in the device drawer and click the logs button to pull its recent docker/podman logs on demand — no SSH session needed.",
+  "Press / (or Ctrl-K) anywhere for the command palette — it now searches open alerts and CVE findings too, not just pages and devices.",
+  "Reports → Custom reports lets you build a report from just the sections you care about, download it as JSON/CSV, and schedule each saved report to its own recipients.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -8848,6 +8860,44 @@ function aiDiagnoseContainer(devId, deviceName, name) {
     context: `device:${devId}`, maxTokens: 1200,
   });
 }
+
+// v3.14.0: on-demand container logs. The agent runs `<rt> logs --tail` when it
+// next drains the command queue (~one heartbeat); we then poll the device's
+// command-output for the matching result and show it.
+let _ctrLogsPoll = null;
+async function fetchContainerLogs(devId, name, runtime) {
+  if (_ctrLogsPoll) { clearInterval(_ctrLogsPoll); _ctrLogsPoll = null; }
+  const body = document.getElementById('container-logs-body');
+  const title = document.getElementById('container-logs-title');
+  if (title) title.textContent = `Logs — ${name}`;
+  if (body) body.textContent = 'Requesting logs from the host…';
+  openModal('container-logs-modal');
+  const r = await api('POST', `/devices/${devId}/containers/action`,
+                      { action: 'logs', container_id: name, runtime: runtime || 'docker' });
+  if (!r || r.error) { if (body) body.textContent = (r && r.error) || 'Failed to queue logs request.'; return; }
+  // Poll the device's command output for the logs result (~up to 2 min).
+  const want = `:logs:${name}`;
+  let tries = 0;
+  _ctrLogsPoll = setInterval(async () => {
+    tries++;
+    if (tries > 24 || !document.getElementById('container-logs-modal')?.classList.contains('active')) {
+      clearInterval(_ctrLogsPoll); _ctrLogsPoll = null;
+      if (tries > 24 && body && body.textContent.startsWith('Requesting')) {
+        body.textContent = 'No logs returned yet — the host may be offline or slow to report. Try again shortly.';
+      }
+      return;
+    }
+    const out = await api('GET', `/devices/${devId}/output`).catch(() => null);
+    const hit = ((out && out.outputs) || []).slice().reverse()
+      .find(o => String(o.cmd || '').includes(want));
+    if (hit) {
+      clearInterval(_ctrLogsPoll); _ctrLogsPoll = null;
+      if (body) body.textContent = hit.output || '(no output)';
+    } else if (body) {
+      body.textContent = `Requesting logs from the host… (waiting for the agent, ${tries}0s)`;
+    }
+  }, 10000);
+}
 function aiExplainDrift() {
   const d = window._driftDetail || {};
   const files = d.files || {};
@@ -10201,6 +10251,182 @@ function _renderThermal() {
       <td>${escHtml(r.sensor_label || '—')}</td>
       <td class="hint">${escHtml(r.sensor_type || '—')}</td>
       <td class="hint">${r.sensors || 0}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── v3.14.0: SSH key audit ─────────────────────────────────────────────────
+let _sshKeysResp = null;
+async function loadSshKeys() {
+  const tbody = document.getElementById('ssh-keys-tbody');
+  const summary = document.getElementById('ssh-keys-summary');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('ssh-keys-thead', 'sshkeys', () => _renderSshKeys());
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/ssh-keys');
+    _sshKeysResp = data;
+    if (summary) summary.textContent = `${data.count} key${data.count === 1 ? '' : 's'} · ${data.weak} weak · ${data.reused} reused`;
+    _renderSshKeys();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderSshKeys() {
+  const tbody = document.getElementById('ssh-keys-tbody');
+  if (!tbody || !_sshKeysResp) return;
+  let rows = (_sshKeysResp.keys || []).slice();
+  rows = tableCtl.sortRows('sshkeys', rows, (r) => ({
+    device: (r.device || '').toLowerCase(),
+    user: (r.user || '').toLowerCase(),
+    type: r.type || '',
+    comment: (r.comment || '').toLowerCase(),
+    fingerprint: r.fingerprint || '',
+    hosts: r.hosts || 0,
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No authorized_keys collected yet. Keys are gathered from hosts whose config includes authorized_keys.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const typeCell = r.weak
+      ? `<span class="kev-badge" title="Weak/legacy key type">${escHtml(r.type)}</span>`
+      : `<code>${escHtml(r.type)}</code>`;
+    const hostsCell = r.hosts > 1
+      ? `<span class="epss-chip" title="This key is present on ${r.hosts} hosts">${r.hosts} hosts</span>`
+      : '<span class="hint">1</span>';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td>${escHtml(r.user)}</td>
+      <td>${typeCell}</td>
+      <td class="hint">${escHtml(r.comment || '—')}</td>
+      <td class="hint mono-12">${escHtml(r.fingerprint)}</td>
+      <td class="ta-center">${hostsCell}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── v3.14.0: Fleet power / UPS + energy ────────────────────────────────────
+let _powerResp = null;
+async function loadPower() {
+  const tbody = document.getElementById('power-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('power-thead', 'power', () => _renderPower());
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  // restore the saved cost/kWh
+  try {
+    const saved = localStorage.getItem('rp_cost_kwh');
+    const inp = document.getElementById('power-cost-kwh');
+    if (saved && inp) inp.value = saved;
+  } catch (_) {}
+  try {
+    _powerResp = await api('GET', '/fleet/power');
+    _renderPower();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _costKwh() {
+  const v = parseFloat(document.getElementById('power-cost-kwh')?.value);
+  return (isFinite(v) && v >= 0) ? v : 0;
+}
+function renderPowerCost() {
+  try { localStorage.setItem('rp_cost_kwh', String(_costKwh())); } catch (_) {}
+  _renderPowerSummary();
+}
+function _renderPowerSummary() {
+  const el = document.getElementById('power-summary');
+  if (!el || !_powerResp) return;
+  const w = _powerResp.total_watts || 0;
+  const perDay = (w / 1000) * 24 * _costKwh();
+  const ob = _powerResp.on_battery || 0;
+  el.textContent = `${_powerResp.count} host${_powerResp.count === 1 ? '' : 's'} · ${w} W`
+    + (w ? ` · ~${(perDay).toFixed(2)}/day · ~${(perDay * 30).toFixed(0)}/mo` : '')
+    + (ob ? ` · ${ob} on battery` : '');
+}
+function _renderPower() {
+  const tbody = document.getElementById('power-tbody');
+  if (!tbody || !_powerResp) return;
+  _renderPowerSummary();
+  let rows = (_powerResp.hosts || []).slice();
+  rows = tableCtl.sortRows('power', rows, (r) => ({
+    device: (r.device || '').toLowerCase(),
+    status: r.status || '',
+    battery_pct: r.battery_pct || 0,
+    load_pct: r.load_pct || 0,
+    runtime_s: r.runtime_s || 0,
+    watts: r.watts || 0,
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No UPS or power data reported. Hosts report UPS status via NUT (upsc) or apcupsd; GPU power also counts.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const rt = (typeof r.runtime_s === 'number' && r.runtime_s) ? `${Math.round(r.runtime_s / 60)} min` : '—';
+    const statusCell = r.ups
+      ? `<span class="${r.on_battery ? 'c-red fw-600' : 'c-green'}">${escHtml(r.status || '—')}</span>`
+      : '<span class="hint">no UPS</span>';
+    const wattsCell = r.watts != null
+      ? `${r.watts} W${r.watts_source === 'gpu' ? ' <span class="hint">(GPU)</span>' : ''}`
+      : '—';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td>${statusCell}</td>
+      <td class="ta-center ${(r.battery_pct != null && r.battery_pct < 50) ? 'c-amber' : ''}">${r.battery_pct != null ? r.battery_pct + '%' : '—'}</td>
+      <td class="ta-center">${r.load_pct != null ? r.load_pct + '%' : '—'}</td>
+      <td class="ta-center">${rt}</td>
+      <td class="ta-center">${wattsCell}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── v3.14.0: predictive disk-failure maintenance ──────────────────────────
+let _diskHealthResp = null;
+async function loadDiskHealth() {
+  const tbody = document.getElementById('disk-health-tbody');
+  const summary = document.getElementById('disk-health-summary');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('disk-health-thead', 'diskhealth', () => _renderDiskHealth());
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  try {
+    _diskHealthResp = await api('GET', '/fleet/disk-health');
+    if (summary) summary.textContent = `${_diskHealthResp.count} at risk · ${_diskHealthResp.critical} critical · ${_diskHealthResp.high} high`;
+    _renderDiskHealth();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderDiskHealth() {
+  const tbody = document.getElementById('disk-health-tbody');
+  if (!tbody || !_diskHealthResp) return;
+  const _rank = { critical: 0, high: 1, medium: 2, low: 3 };
+  let rows = (_diskHealthResp.disks || []).slice();
+  rows = tableCtl.sortRows('diskhealth', rows, (r) => ({
+    risk: _rank[r.risk] ?? 9,
+    device: (r.device || '').toLowerCase(),
+    disk: (r.disk || '').toLowerCase(),
+    wear: r.wear_pct || 0,
+    eta: r.eta_days != null ? r.eta_days : 1e9,
+    reasons: (r.reasons || []).join(' '),
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="c-green ta-center">No disks predicted at risk. Trends need a few days of SMART samples to build up.</td></tr>';
+    return;
+  }
+  const riskPill = (risk) => {
+    const cls = risk === 'critical' ? 'var(--red)' : risk === 'high' ? '#f97316' : 'var(--amber)';
+    return `<span class="pill" data-color="${cls}">${escHtml(risk)}</span>`;
+  };
+  tbody.innerHTML = rows.map(r => {
+    const eta = r.eta_days != null ? (r.eta_days < 1 ? 'imminent' : `~${r.eta_days}d`) : '—';
+    const etaCls = (r.eta_days != null && r.eta_days < 30) ? 'c-red' : (r.eta_days != null && r.eta_days < 90) ? 'c-amber' : '';
+    return `<tr>
+      <td>${riskPill(r.risk)}</td>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td><code>${escHtml(r.disk)}</code>${r.model ? `<div class="fs-11 c-muted">${escHtml(r.model)}</div>` : ''}</td>
+      <td class="ta-center ${(r.wear_pct >= 90) ? 'c-red' : (r.wear_pct >= 80) ? 'c-amber' : ''}">${r.wear_pct != null ? r.wear_pct + '%' : '—'}</td>
+      <td class="ta-center ${etaCls}">${eta}</td>
+      <td class="hint">${escHtml((r.reasons || []).join(' · '))}</td>
     </tr>`;
   }).join('');
 }
@@ -14359,8 +14585,11 @@ async function _loadAuditSection(key) {
               }
               const unhealthy = !up || /unhealthy|restart/.test((c.health||'') + ' ' + stat);
               const ctrAi = unhealthy ? ` <button class="btn-icon cell-sm" data-action="aiDiagnoseContainer" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" data-arg3="${escAttr(c.name||c.Names||'?')}" title="AI: diagnose this container">${_icon('sparkles',12)}</button>` : '';
+              // v3.14.0: on-demand container log fetch (queues `container:…:logs:…`).
+              const cName = c.name || c.Names || '';
+              const ctrLogs = cName ? ` <button class="btn-icon cell-sm" data-action="fetchContainerLogs" data-arg="${escAttr(id)}" data-arg2="${escAttr(cName)}" data-arg3="${escAttr(c.runtime||'docker')}" title="Fetch this container's recent logs">${_icon('terminal',12)}</button>` : '';
               return `<tr class="border-top">
-                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}${ctrAi}</td>
+                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}${ctrAi}${ctrLogs}</td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
                 <td>${_restartCell(c)}</td>
                 <td class="isl-653">${escHtml(img)}${_updBadge(c)}</td>
@@ -14844,6 +15073,25 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center">${mem}</td>
           <td class="ta-center ${tcls}">${g.temp_c != null ? g.temp_c + '°C' : '—'}</td>
           <td class="ta-center">${g.power_w != null ? g.power_w + ' W' : '—'}</td></tr>`;
+      }).join('') + `</tbody></table></div>`;
+  }
+
+  // ── v3.14.0: UPS / power ───────────────────────────────────────────
+  const upses = hw.ups || [];
+  if (upses.length) {
+    h += `<div class="hw-block"><div class="hw-h">UPS / power</div>
+      <table class="audit-table"><thead><tr>
+        <th>UPS</th><th>Status</th><th class="ta-center">Battery</th><th class="ta-center">Load</th><th class="ta-center">Runtime</th><th class="ta-center">Power</th></tr></thead><tbody>` +
+      upses.map(u => {
+        const onBatt = /OB|BATT/i.test(u.status || '');
+        const rt = (typeof u.runtime_s === 'number') ? `${Math.round(u.runtime_s / 60)} min` : '—';
+        return `<tr>
+          <td><code>${escHtml(u.name || 'UPS')}</code> <span class="hint">${escHtml(u.driver || '')}</span></td>
+          <td class="${onBatt ? 'c-red fw-600' : 'c-green'}">${escHtml(u.status || '—')}</td>
+          <td class="ta-center ${(u.battery_pct != null && u.battery_pct < 50) ? 'c-amber' : ''}">${u.battery_pct != null ? u.battery_pct + '%' : '—'}</td>
+          <td class="ta-center">${u.load_pct != null ? u.load_pct + '%' : '—'}</td>
+          <td class="ta-center">${rt}</td>
+          <td class="ta-center">${u.power_w != null ? u.power_w + ' W' : '—'}</td></tr>`;
       }).join('') + `</tbody></table></div>`;
   }
 
@@ -15506,6 +15754,7 @@ async function loadReports() {
     if (status) status.textContent = sch.last_run
       ? `Last sent ${timeAgo(sch.last_run)}` : 'Never sent yet.';
   }
+  loadReportDefs();   // v3.14.0: custom report builder
 }
 
 async function loadReportsCapacity() {
@@ -16176,6 +16425,108 @@ async function saveReportSchedule() {
   const status = document.getElementById('report-sched-status');
   if (status) status.textContent = enabled
     ? `Scheduled (${cron})` : 'Disabled.';
+}
+
+// ─── v3.14.0: custom report builder ─────────────────────────────────────────
+const _REPORT_SECTION_LABELS = {
+  devices: 'Devices', health: 'Health score', attention: 'Needs attention',
+  patches: 'Patches', cve: 'CVEs', sla: 'SLA / uptime', compliance: 'Compliance',
+};
+let _reportDefs = [];
+let _reportDefEditId = '';
+async function loadReportDefs() {
+  const wrap = document.getElementById('report-defs-list');
+  const secEl = document.getElementById('rdef-sections');
+  if (!wrap) return;
+  const data = await api('GET', '/report/definitions').catch(() => null);
+  _reportDefs = (data && data.definitions) || [];
+  const available = (data && data.available_sections) || Object.keys(_REPORT_SECTION_LABELS);
+  // Build the section checkboxes once.
+  if (secEl && !secEl.dataset.built) {
+    secEl.innerHTML = available.map(s =>
+      `<label class="rdef-sec"><input type="checkbox" class="rdef-sec-cb" value="${escAttr(s)}" checked> ${escHtml(_REPORT_SECTION_LABELS[s] || s)}</label>`).join('');
+    secEl.dataset.built = '1';
+  }
+  // Render the saved-definitions list.
+  if (!_reportDefs.length) { wrap.innerHTML = '<div class="hint">No custom reports yet.</div>'; return; }
+  wrap.innerHTML = _reportDefs.map(d => {
+    const sched = d.enabled && d.cron ? `<span class="epss-chip" title="Scheduled">${escHtml(d.cron)}</span>` : '';
+    return `<div class="rdef-row">
+      <span class="rdef-row-name">${escHtml(d.name)} <span class="hint">· ${(d.sections||[]).length} sections · ${escHtml(d.format||'json')}</span> ${sched}</span>
+      <span class="sb-controls">
+        <button class="btn-icon cell-sm" data-action="downloadReportDef" data-arg="${escAttr(d.id)}">Download</button>
+        <button class="btn-icon cell-sm" data-action="editReportDef" data-arg="${escAttr(d.id)}">Edit</button>
+        <button class="btn-icon cell-sm c-danger-outline" data-action="deleteReportDef" data-arg="${escAttr(d.id)}">Delete</button>
+      </span></div>`;
+  }).join('');
+}
+function _rdefSelectedSections() {
+  return Array.from(document.querySelectorAll('.rdef-sec-cb')).filter(c => c.checked).map(c => c.value);
+}
+function resetReportDef() {
+  _reportDefEditId = '';
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+  set('rdef-name', ''); set('rdef-cron', ''); set('rdef-recipients', '');
+  const fmt = document.getElementById('rdef-format'); if (fmt) fmt.value = 'json';
+  const en = document.getElementById('rdef-enabled'); if (en) en.checked = false;
+  document.querySelectorAll('.rdef-sec-cb').forEach(c => { c.checked = true; });
+  const st = document.getElementById('rdef-status'); if (st) st.textContent = '';
+}
+function editReportDef(id) {
+  const d = _reportDefs.find(x => x.id === id);
+  if (!d) return;
+  _reportDefEditId = id;
+  document.getElementById('rdef-name').value = d.name || '';
+  document.getElementById('rdef-cron').value = d.cron || '';
+  document.getElementById('rdef-recipients').value = (d.recipients || []).join(', ');
+  document.getElementById('rdef-format').value = d.format || 'json';
+  document.getElementById('rdef-enabled').checked = !!d.enabled;
+  const sel = new Set(d.sections || []);
+  document.querySelectorAll('.rdef-sec-cb').forEach(c => { c.checked = sel.has(c.value); });
+  const st = document.getElementById('rdef-status'); if (st) st.textContent = `Editing “${d.name}”`;
+}
+async function saveReportDef() {
+  const name = document.getElementById('rdef-name').value.trim();
+  if (!name) { toast('Name the report', 'error'); return; }
+  const sections = _rdefSelectedSections();
+  if (!sections.length) { toast('Pick at least one section', 'error'); return; }
+  const enabled = document.getElementById('rdef-enabled').checked;
+  const cron = document.getElementById('rdef-cron').value.trim();
+  if (enabled && !cron) { toast('Enter a cron schedule (or untick Email on schedule)', 'error'); return; }
+  const recipients = document.getElementById('rdef-recipients').value
+    .split(',').map(s => s.trim()).filter(s => s.includes('@'));
+  const payload = {
+    id: _reportDefEditId || undefined, name, sections,
+    format: document.getElementById('rdef-format').value, cron, enabled, recipients,
+  };
+  const r = await api('POST', '/report/definitions', payload).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return; }
+  toast(`Report “${name}” saved`, 'success');
+  resetReportDef();
+  loadReportDefs();
+}
+async function deleteReportDef(id) {
+  if (!confirm('Delete this custom report?')) return;
+  const r = await api('DELETE', `/report/definitions/${encodeURIComponent(id)}`).catch(() => null);
+  if (r && r.ok) { toast('Report deleted', 'info'); loadReportDefs(); }
+  else toast((r && r.error) || 'Delete failed', 'error');
+}
+function downloadReportDef(id) {
+  const d = _reportDefs.find(x => x.id === id);
+  if (!d) return;
+  const fmt = d.format === 'csv' ? 'csv' : 'json';
+  const secs = encodeURIComponent((d.sections || []).join(','));
+  fetch(`/api/report/fleet?format=${fmt}&sections=${secs}`, { headers: { 'X-Token': getToken() } })
+    .then(r => r.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${d.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${fmt}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    })
+    .catch(() => toast('Export failed', 'error'));
 }
 
 // v3.4.2: filter + at-risk + pagination so big fleets (many devices × mounts)
@@ -19110,6 +19461,26 @@ function _palBuildIndex() {
       action: () => showPage('scripts'),
     });
   }
+  // v3.14.0: global omnisearch — also index open alerts and CVE findings so the
+  // palette searches across data, not just pages/devices/scripts.
+  for (const a of (_alertsCache || []).slice(0, 80)) {
+    items.push({
+      label: `Alert: ${a.title || a.event || a.id}`,
+      kind: 'alert',
+      sub: `${a.severity || 'info'} · ${a.device_name || a.name || 'fleet'}`,
+      action: () => showPage('alerts'),
+    });
+  }
+  for (const d of ((cveReportData && cveReportData.devices) || [])) {
+    const c = d.counts || {};
+    if (!((c.critical || 0) + (c.high || 0) + (c.medium || 0) + (c.low || 0)) && !d.kev) continue;
+    items.push({
+      label: `CVEs: ${d.name}`,
+      kind: 'cve',
+      sub: `${c.critical || 0} crit · ${c.high || 0} high${d.kev ? ` · ${d.kev} KEV` : ''}`,
+      action: () => openDeviceCVE(d.device_id, d.name),
+    });
+  }
   return items;
 }
 function openCommandPalette() {
@@ -19125,6 +19496,19 @@ function openCommandPalette() {
         window._devicesCache = data;
         if (_palOpen) { _palItems = _palBuildIndex(); _palRender(); }
       }
+    }).catch(() => {});
+  }
+  // v3.14.0: warm the alerts + CVE caches so omnisearch covers them even when
+  // those pages haven't been visited yet. Fire-and-forget; rebuild on land.
+  const _palRefresh = () => { if (_palOpen) { _palItems = _palBuildIndex(); _palRender(); } };
+  if (!_alertsCache || !_alertsCache.length) {
+    api('GET', '/alerts?status=open&limit=100').then(d => {
+      if (d && d.alerts) { _alertsCache = d.alerts; _palRefresh(); }
+    }).catch(() => {});
+  }
+  if (!cveReportData) {
+    api('GET', '/cve/findings').then(d => {
+      if (d) { cveReportData = d; _palRefresh(); }
     }).catch(() => {});
   }
   _palItems = _palBuildIndex();

@@ -270,6 +270,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
           <span>Drift</span>
         </button>
+        <!-- v3.14.0: SSH authorized_keys audit -->
+        <button class="nav-btn" data-page="ssh-keys" title="Audit authorized_keys across the fleet">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
+          <span>SSH keys</span>
+        </button>
         <!-- v3.11.0: attack-surface exposure -->
         <button class="nav-btn" data-page="exposure" title="World/LAN/local exposure of every listening socket">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -284,6 +289,16 @@
         <button class="nav-btn" data-page="thermal" title="Hottest hosts — CPU / chipset / disk temperatures, fleet-wide">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
           <span>Thermal</span>
+        </button>
+        <!-- v3.14.0: fleet power / UPS + energy -->
+        <button class="nav-btn" data-page="power" title="UPS status + power draw and energy cost, fleet-wide">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>Power</span>
+        </button>
+        <!-- v3.14.0: predictive disk-failure maintenance -->
+        <button class="nav-btn" data-page="disk-health" title="Disks predicted at risk from SMART trends">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>
+          <span>Disk health</span>
         </button>
         <!-- v3.11.0: fleet software policy -->
         <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
@@ -2132,6 +2147,12 @@
                 <li><strong>Local certificate-file inventory.</strong> A <strong>Local certificate files</strong> drawer card shows the expiry of x509 files on the host, coloured like the TLS page.</li>
                 <li><strong>Local account audit.</strong> A flagged-first <strong>Local accounts</strong> drawer card (extra UID 0, empty/stale passwords, locked, sudo) — no password hashes ever leave the host.</li>
                 <li><strong>Power scheduling.</strong> The Schedule page adds <strong>Suspend</strong> and <strong>Wake (Wake-on-LAN)</strong> actions alongside shut down / reboot, one-shot or recurring.</li>
+                <li><strong>Disk health (predictive).</strong> A new <strong>Disk health</strong> page flags disks before they fail — daily SMART snapshots feed a trend that projects an ETA when bad sectors grow or SSD wear climbs.</li>
+                <li><strong>Power &amp; energy.</strong> A new agent UPS probe (NUT / apcupsd) drives a drawer <strong>UPS / power</strong> card and a fleet <strong>Power</strong> page; set your price/kWh to estimate energy cost from the live total.</li>
+                <li><strong>SSH key audit.</strong> A new <strong>SSH keys</strong> page lists every <code>authorized_keys</code> entry across the fleet with SHA256 fingerprints, weak-type flags, and a reuse count.</li>
+                <li><strong>Container logs.</strong> A per-container <em>logs</em> button in the drawer fetches recent docker/podman logs on demand — no SSH needed.</li>
+                <li><strong>Global omnisearch.</strong> The command palette (<kbd>/</kbd> or <kbd>Ctrl-K</kbd>) now searches open alerts and CVE findings too, not just pages and devices.</li>
+                <li><strong>Custom report builder.</strong> <em>Reports → Custom reports</em>: build a report from just the sections you want, pick JSON/CSV, download, and schedule each one to its own recipients.</li>
               </ul>
               <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
             </div>
@@ -3408,6 +3429,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <span id="report-sched-status" class="fs-12 c-muted"></span>
           </div>
         </div>
+
+        <!-- v3.14.0: custom report builder — saved, section-picked, scheduled -->
+        <div class="settings-section">
+          <h3>Custom reports</h3>
+          <p class="hint">Build a report from the sections you care about, download it, or schedule it to a specific audience. Saved per server.</p>
+          <div id="report-defs-list" class="mb-12">—</div>
+          <div class="report-builder">
+            <div class="form-group"><label class="form-label">Name</label>
+              <input type="text" id="rdef-name" class="form-input" placeholder="Weekly ops report" maxlength="64" autocomplete="off"></div>
+            <div class="form-group"><label class="form-label">Sections</label>
+              <div id="rdef-sections" class="rdef-sections"></div></div>
+            <div class="sb-controls">
+              <label class="form-label">Format
+                <select id="rdef-format" class="form-input input-auto"><option value="json">JSON</option><option value="csv">CSV</option></select></label>
+              <label class="form-label">Cron <input type="text" id="rdef-cron" class="form-input input-auto" placeholder="0 8 * * 1" autocomplete="off"></label>
+              <label class="form-label"><input type="checkbox" id="rdef-enabled"> Email on schedule</label>
+            </div>
+            <div class="form-group"><label class="form-label">Recipients (comma-separated)</label>
+              <input type="text" id="rdef-recipients" class="form-input input-wide" placeholder="ops@example.com" autocomplete="off"></div>
+            <div class="sb-controls">
+              <button class="btn-primary fs-12" data-action="saveReportDef">Save report</button>
+              <button class="btn-secondary fs-12" data-action="resetReportDef">Clear</button>
+              <span id="rdef-status" class="fs-12 c-muted"></span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ── Trends page (v3.4.2): time-series charts ────────────────────── -->
@@ -4160,6 +4207,69 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th data-col="sensors">Sensors</th>
             </tr></thead>
             <tbody id="thermal-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.14.0: SSH key audit ─────────────────────────────────────── -->
+      <div id="page-ssh-keys" class="page">
+        <div class="page-title">SSH key audit</div>
+        <div class="page-subtitle">Every <code>authorized_keys</code> entry across the fleet, with OpenSSH SHA256 fingerprints. Weak key types and keys reused across multiple hosts are listed first. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadSshKeys" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" class="form-input page-filter" placeholder="Filter device / user / key…" data-input="filterRows" data-input-el="1" data-filter-target="#ssh-keys-tbody tr">
+          <span id="ssh-keys-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="ssh-keys-thead"><tr>
+              <th data-col="device">Device</th><th data-col="user">User</th>
+              <th data-col="type">Type</th><th data-col="comment">Comment</th>
+              <th data-col="fingerprint">Fingerprint</th><th data-col="hosts">Hosts</th>
+            </tr></thead>
+            <tbody id="ssh-keys-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.14.0: Fleet power / UPS + energy ────────────────────────── -->
+      <div id="page-power" class="page">
+        <div class="page-title">Power &amp; energy</div>
+        <div class="page-subtitle">UPS status and measured power draw across the fleet. Hosts on battery are listed first. Set your electricity price to estimate energy cost from the live total. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadPower" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <label class="hint">Cost <input type="number" id="power-cost-kwh" class="form-input input-cost-kwh" min="0" step="0.01" value="0.30" data-input="renderPowerCost" data-input-value="1"> /kWh</label>
+          <span id="power-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="power-thead"><tr>
+              <th data-col="device">Device</th><th data-col="status">UPS status</th>
+              <th data-col="battery_pct">Battery</th><th data-col="load_pct">Load</th>
+              <th data-col="runtime_s">Runtime</th><th data-col="watts">Power</th>
+            </tr></thead>
+            <tbody id="power-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.14.0: predictive disk-failure maintenance ───────────────── -->
+      <div id="page-disk-health" class="page">
+        <div class="page-title">Disk health</div>
+        <div class="page-subtitle">Disks predicted at risk — combining the reactive SMART verdict with trends in reallocated/pending sectors and SSD wear over time. Most urgent first; an ETA appears once there's enough history. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadDiskHealth" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" class="form-input page-filter" placeholder="Filter device / disk…" data-input="filterRows" data-input-el="1" data-filter-target="#disk-health-tbody tr">
+          <span id="disk-health-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="disk-health-thead"><tr>
+              <th data-col="risk">Risk</th><th data-col="device">Device</th>
+              <th data-col="disk">Disk</th><th data-col="wear">Wear</th>
+              <th data-col="eta">ETA</th><th data-col="reasons">Signals</th>
+            </tr></thead>
+            <tbody id="disk-health-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -5041,6 +5151,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      textContent, document.getElementById(...) is null". Restored here. -->
 <div class="modal-overlay" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
 <div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>
+<!-- v3.14.0: on-demand container logs -->
+<div class="modal-overlay" id="container-logs-modal"><div class="modal modal-wide"><div class="modal-title" id="container-logs-title">Container logs</div><pre id="container-logs-body" class="log-pre">…</pre><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="container-logs-modal" >Close</button></div></div></div>
 <div class="modal-overlay" id="cve-ignore-modal"><div class="modal">
   <div class="modal-title">Ignore CVE</div>
   <div class="modal-subtitle isl-224">Mark <code id="cve-ignore-vuln" class="c-accent"></code> as an accepted risk. It stays recorded but stops counting as a finding or raising attention.</div>

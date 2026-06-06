@@ -70,6 +70,13 @@ class TestRouteResolution(unittest.TestCase):
         ('GET',    '/api/me/sessions', 'handle_me_sessions'),
         ('POST',   '/api/me/sessions/revoke-others', 'handle_me_sessions_revoke_others'),
         ('DELETE', '/api/me/sessions/abc123', 'handle_me_session_revoke'),
+        # v3.14.0: Tier-2 net-new
+        ('GET',    '/api/ssh-keys', 'handle_ssh_keys_fleet'),
+        ('GET',    '/api/fleet/power', 'handle_fleet_power'),
+        ('GET',    '/api/fleet/disk-health', 'handle_disk_health'),
+        ('GET',    '/api/report/definitions', 'handle_report_defs_list'),
+        ('POST',   '/api/report/definitions', 'handle_report_defs_save'),
+        ('DELETE', '/api/report/definitions/abc123', 'handle_report_def_delete'),
         # bespoke conditional routes (the ones the elif ordering used to gate)
         ('DELETE', '/api/devices/abc123', 'handle_device_delete'),
         ('POST',   '/api/devices/abc123', 'handle_device_save_bulk'),

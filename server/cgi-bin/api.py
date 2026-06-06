@@ -239,6 +239,8 @@ HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
 DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
+# v3.14.0: daily per-disk SMART snapshots → disk-failure trend prediction.
+SMART_HIST_FILE  = DATA_DIR / 'smart_history.json'
 HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
 HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
@@ -8667,8 +8669,8 @@ def handle_heartbeat():
 
     # v3.4.0: hardware health (SMART / kernel / inventory). Fires
     # smart_failure / kernel_outdated edge-triggered. Best-effort.
-    # v3.14.0: also carries gpus / cert_files / accounts posture sections.
-    if any(k in body for k in ('smart', 'kernel', 'hardware', 'gpus', 'cert_files', 'accounts')):
+    # v3.14.0: also carries gpus / cert_files / accounts / ups posture sections.
+    if any(k in body for k in ('smart', 'kernel', 'hardware', 'gpus', 'cert_files', 'accounts', 'ups')):
         try:
             _ingest_hardware(dev_id, saved_dev['name'], body, now)
         except Exception as e:
@@ -13458,6 +13460,60 @@ def _audit_ssh_keys(dev_id, dev_name, users):
             pass
 
 
+# v3.14.0: SSH key audit view. The authorized_keys baseline already stores every
+# key per device/user (for the ssh_key_added alert) — this surfaces it as a
+# fleet-wide audit with real OpenSSH SHA256 fingerprints, weak-type flags, and a
+# reuse count (same key across N hosts).
+_WEAK_SSH_TYPES = ('ssh-dss', 'ssh-rsa1', 'rsa1')
+
+
+def _ssh_key_sha256(blob_b64):
+    """OpenSSH-style SHA256:… fingerprint of a base64 key blob, '' on error."""
+    try:
+        raw = _base64.b64decode(blob_b64, validate=False)
+        return 'SHA256:' + _base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip('=')
+    except Exception:
+        return ''
+
+
+def handle_ssh_keys_fleet():
+    """GET /api/ssh-keys — every authorized_keys entry across the fleet for audit."""
+    require_auth()
+    baseline = load(SSH_KEY_BASELINE_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    rows = []
+    by_fp = {}
+    for dev_id, users in baseline.items():
+        if dev_id not in devices or not isinstance(users, dict):
+            continue
+        dname = devices[dev_id].get('name', dev_id)
+        for user, keys in users.items():
+            for line in (keys or []):
+                parts = str(line).split()
+                if len(parts) < 2:
+                    continue
+                ktype = parts[0]
+                fp = _ssh_key_sha256(parts[1])
+                rows.append({
+                    'device_id':   dev_id,
+                    'device':      dname,
+                    'user':        _sanitize_str(str(user), 64),
+                    'type':        _sanitize_str(ktype, 32),
+                    'comment':     _sanitize_str(' '.join(parts[2:]), 120) if len(parts) > 2 else '',
+                    'fingerprint': fp or _ssh_key_fingerprint(line),
+                    'weak':        ktype.lower() in _WEAK_SSH_TYPES,
+                })
+                if fp:
+                    by_fp.setdefault(fp, set()).add(dev_id)
+    for r in rows:
+        r['hosts'] = len(by_fp[r['fingerprint']]) if r['fingerprint'] in by_fp else 1
+    # weak first, then most-reused, then device/user
+    rows.sort(key=lambda r: (not r['weak'], -r['hosts'], r['device'].lower(), r['user']))
+    respond(200, {'keys': rows, 'count': len(rows),
+                  'weak': sum(1 for r in rows if r['weak']),
+                  'reused': sum(1 for r in rows if r['hosts'] > 1)})
+
+
 # ── v2.8.0: Brute-force detection ─────────────────────────────────────────────
 
 # Patterns that indicate a failed authentication attempt.
@@ -16486,6 +16542,7 @@ def handle_device_hardware(dev_id):
         'gpus':      hw.get('gpus', []),         # v3.14.0
         'cert_files': hw.get('cert_files', []),  # v3.14.0
         'accounts':  hw.get('accounts', []),     # v3.14.0
+        'ups':       hw.get('ups', []),          # v3.14.0
         'ts':        hw.get('ts'),
         'speedtest': speed[-10:],
         'discovery': disc,
@@ -17629,6 +17686,7 @@ MAX_TEMPS       = 64
 MAX_GPUS        = 16
 MAX_CERT_FILES  = 256
 MAX_ACCOUNTS    = 1024
+MAX_UPS         = 8
 
 
 def _smart_disk_failed(d):
@@ -17756,6 +17814,13 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     failed_devs.append(entry['device'])
                 disks.append(entry)
             rec['smart'] = disks
+            # v3.14.0: snapshot per-disk SMART counters once/UTC-day for trend
+            # prediction (best-effort, outside the hardware lock would be ideal
+            # but the helper takes its own lock on a different file).
+            try:
+                _maybe_sample_smart(dev_id, disks, now)
+            except Exception:
+                pass
             # Edge-trigger on the *set* of failed disks, not a single device-level
             # bool: fire when a disk newly enters the failed set. This re-arms as
             # /dev/sdb, /dev/sdc fail after /dev/sda, and — because the key didn't
@@ -17884,6 +17949,22 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                                 if isinstance(flags, list) else [],
                 })
             rec['accounts'] = accts
+
+        # ── v3.14.0: UPS / power ─────────────────────────────────────
+        if isinstance(body.get('ups'), list):
+            upses = []
+            for u in body['ups'][:MAX_UPS]:
+                if not isinstance(u, dict):
+                    continue
+                entry = {'name':   _sanitize_str(str(u.get('name', '')), 64),
+                         'driver': _sanitize_str(str(u.get('driver', '')), 16),
+                         'status': _sanitize_str(str(u.get('status', '')), 32)}
+                for k in ('battery_pct', 'load_pct', 'runtime_s', 'input_v', 'power_w'):
+                    v = u.get(k)
+                    if isinstance(v, (int, float)) and -1 < v < 1e7:
+                        entry[k] = round(float(v), 1)
+                upses.append(entry)
+            rec['ups'] = upses
 
         rec['ts'] = now
 
@@ -18039,6 +18120,153 @@ def _maybe_sample_metrics(dev_id, sysinfo, now):
         else:
             samples.append(sample)
         rec['samples'] = samples[-MAX_METRIC_SAMPLES:]
+
+
+# ─── v3.14.0: predictive disk maintenance (SMART trend) ──────────────────────
+MAX_SMART_SAMPLES = 185   # ~6 months of daily per-disk snapshots
+_REALLOC_CRIT = 100       # reallocated/pending sectors we treat as "critical"
+
+
+def _disk_key(d):
+    """Stable identity for a disk across samples — serial preferred (device
+    path can shuffle across reboots)."""
+    return (d.get('serial') or '').strip() or (d.get('device') or '').strip()
+
+
+def _maybe_sample_smart(dev_id, disks, now):
+    """Record at most one per-disk SMART snapshot per device per UTC day."""
+    if not disks:
+        return
+    import datetime as _dt
+    day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
+    with _locked_update(SMART_HIST_FILE) as store:
+        rec = store.setdefault(dev_id, {})
+        for d in disks:
+            if not isinstance(d, dict):
+                continue
+            key = _disk_key(d)
+            if not key:
+                continue
+            disk = rec.setdefault(key, {'device': d.get('device', ''),
+                                        'model': d.get('model', ''), 'samples': []})
+            disk['device'] = d.get('device', disk.get('device', ''))
+            disk['model'] = d.get('model', disk.get('model', ''))
+            snap = {'date': day, 'ts': now,
+                    'realloc': d.get('reallocated_sectors'),
+                    'pending': d.get('pending_sectors'),
+                    'wear': d.get('wear_pct'),
+                    'temp': d.get('temperature_c')}
+            s = disk['samples']
+            if s and s[-1].get('date') == day:
+                s[-1] = snap
+            else:
+                s.append(snap)
+            disk['samples'] = s[-MAX_SMART_SAMPLES:]
+
+
+def _smart_trend(samples, field):
+    """(slope_per_day, latest) for a numeric SMART field across daily samples,
+    using the same least-squares fit as the disk-fill forecast. slope is 0 when
+    there isn't enough signal."""
+    pts = [(s['ts'], s[field]) for s in samples
+           if isinstance(s.get(field), (int, float)) and s[field] >= 0]
+    if not pts:
+        return 0.0, None
+    latest = pts[-1][1]
+    if len(pts) < 3:
+        return 0.0, latest
+    t0 = pts[0][0]
+    xs = [(t - t0) / 86400.0 for t, _v in pts]
+    ys = [v for _t, v in pts]
+    slope, _intercept = forecast.linear_fit(xs, ys)
+    return slope, latest
+
+
+def _disk_health_view():
+    """Per-disk failure-risk rows from SMART history + the latest hardware rec.
+
+    Combines the reactive verdict (failed / bad sectors present) with a
+    predictive trend (growing reallocated/pending sectors, wear trajectory)."""
+    hist = load(SMART_HIST_FILE) or {}
+    hw_all = load(HARDWARE_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    rows = []
+    for dev_id, dev in devices.items():
+        if dev.get('monitored') is False:
+            continue
+        disks = (hw_all.get(dev_id) or {}).get('smart') or []
+        dhist = hist.get(dev_id) or {}
+        for d in disks:
+            if not isinstance(d, dict):
+                continue
+            key = _disk_key(d)
+            samples = (dhist.get(key) or {}).get('samples') or []
+            reasons = []
+            risk = 'low'
+            eta_days = None
+
+            realloc = d.get('reallocated_sectors')
+            pending = d.get('pending_sectors')
+            if d.get('failed') or str(d.get('health', '')).upper() not in ('PASSED', 'OK', 'UNKNOWN', ''):
+                risk = 'critical'
+                reasons.append('SMART reports failed/pre-fail')
+
+            # Predictive: growing bad sectors.
+            for fld, label in (('realloc', 'reallocated'), ('pending', 'pending')):
+                slope, latest = _smart_trend(samples, fld)
+                if latest and latest > 0:
+                    if risk == 'low':
+                        risk = 'high'
+                    reasons.append(f'{label} sectors = {int(latest)}')
+                    if slope > 0:
+                        to_crit = (_REALLOC_CRIT - latest) / slope
+                        if to_crit > 0:
+                            eta = int(to_crit)
+                            eta_days = eta if eta_days is None else min(eta_days, eta)
+                            reasons.append(f'{label} +{slope:.1f}/day')
+
+            # Predictive: wear trajectory.
+            w_slope, w_latest = _smart_trend(samples, 'wear')
+            if w_latest is not None and w_latest >= 80:
+                if risk == 'low':
+                    risk = 'high' if w_latest >= 90 else 'medium'
+                reasons.append(f'wear {int(w_latest)}%')
+            if w_slope and w_slope > 0 and w_latest is not None and w_latest < 100:
+                wear_eta = int((100 - w_latest) / w_slope)
+                if wear_eta >= 0:
+                    eta_days = wear_eta if eta_days is None else min(eta_days, wear_eta)
+                    if risk == 'low':
+                        risk = 'medium'
+                    reasons.append('wearing out')
+
+            if risk == 'low':
+                continue  # only surface at-risk disks
+            rows.append({
+                'device_id': dev_id, 'device': dev.get('name', dev_id),
+                'disk': d.get('device', key), 'model': d.get('model', ''),
+                'serial': d.get('serial', ''),
+                'risk': risk, 'eta_days': eta_days,
+                'reallocated': realloc, 'pending': pending,
+                'wear_pct': d.get('wear_pct'), 'temperature_c': d.get('temperature_c'),
+                'reasons': reasons, 'samples': len((dhist.get(key) or {}).get('samples') or []),
+            })
+    _order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+    rows.sort(key=lambda r: (_order.get(r['risk'], 9),
+                             r['eta_days'] if r['eta_days'] is not None else 1e9,
+                             r['device'].lower()))
+    return rows
+
+
+def handle_disk_health():
+    """GET /api/fleet/disk-health — at-risk disks across the fleet (predictive)."""
+    require_auth()
+    rows = _disk_health_view()
+    by = {'critical': 0, 'high': 0, 'medium': 0}
+    for r in rows:
+        by[r['risk']] = by.get(r['risk'], 0) + 1
+    respond(200, {'disks': rows, 'count': len(rows),
+                  'critical': by.get('critical', 0), 'high': by.get('high', 0),
+                  'medium': by.get('medium', 0)})
 
 
 def _ingest_custom_script_results(dev_id, dev_name, results):
@@ -22870,6 +23098,23 @@ def _build_fleet_report():
     }
 
 
+# v3.14.0: custom report builder — selectable sections + saved definitions.
+_REPORT_SECTIONS = ('devices', 'sla', 'patches', 'cve', 'health', 'attention', 'compliance')
+
+
+def _filter_report_sections(report, sections):
+    """Keep report metadata + only the requested sections (empty/None = all)."""
+    keep = set(sections or ()) & set(_REPORT_SECTIONS)
+    if not keep:
+        return report
+    out = {k: report[k] for k in ('generated_ts', 'server_version', 'server_name') if k in report}
+    out['sections'] = sorted(keep)
+    for k in _REPORT_SECTIONS:
+        if k in keep and k in report:
+            out[k] = report[k]
+    return out
+
+
 def _fleet_report_csv_bytes(report):
     """Flatten the posture report into a single summary CSV (Section,Metric,Value)."""
     import csv, io
@@ -22913,6 +23158,10 @@ def handle_fleet_report():
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
     report = _build_fleet_report()
+    # v3.14.0: optional ?sections=devices,cve,health filter (custom reports).
+    sections = (qs.get('sections') or [''])[0]
+    if sections:
+        report = _filter_report_sections(report, [s.strip() for s in sections.split(',') if s.strip()])
     if fmt == 'csv':
         data = _fleet_report_csv_bytes(report)
         ts = time.strftime('%Y%m%d-%H%M%S')
@@ -22931,37 +23180,47 @@ def handle_fleet_report():
 
 
 def _render_report_email(report):
-    """Plain-text body + subject for the scheduled fleet posture report."""
-    d = report['devices']
-    h = report['health']
-    a = report['attention']
-    p = report['patches']
-    c = report['cve']
-    when = time.strftime('%Y-%m-%d %H:%M', time.localtime(report['generated_ts']))
-    subject = (f"{report['server_name']} fleet report — "
-               f"health {h['score']}/100 ({h['grade']})")
+    """Plain-text body + subject for a (possibly section-filtered) fleet report."""
+    # v3.14.0: tolerate custom reports that omit sections — default each to {}.
+    d = report.get('devices') or {}
+    h = report.get('health') or {}
+    a = report.get('attention') or {}
+    p = report.get('patches') or {}
+    c = report.get('cve') or {}
+    sla = report.get('sla') or {}
+    when = time.strftime('%Y-%m-%d %H:%M', time.localtime(report.get('generated_ts', int(time.time()))))
+    subject = f"{report.get('server_name', 'RemotePower')} fleet report"
+    if h:
+        subject += f" — health {h.get('score', '?')}/100 ({h.get('grade', '?')})"
     lines = [
-        f"{report['server_name']} — fleet posture report",
-        f"Generated {when}  ·  RemotePower {report['server_version']}",
-        "",
-        f"Fleet health score : {h['score']}/100 ({h['grade']})",
-        f"Devices            : {d['total']} total, {d['online']} online, "
-        f"{d['offline']} offline",
-        f"Needs attention    : {a.get('critical',0)} critical, "
-        f"{a.get('warning',0)} warning, {a.get('info',0)} info",
-        f"Patches            : {p['devices_with_patches']} device(s) pending, "
-        f"{p['total_pending']} update(s) total",
-        f"CVEs               : {c['critical']} critical, {c['high']} high, "
-        f"{c['medium']} medium ({c['devices_affected']} device(s) affected)",
+        f"{report.get('server_name', 'RemotePower')} — fleet posture report",
+        f"Generated {when}  ·  RemotePower {report.get('server_version', '')}",
         "",
     ]
-    if h['worst']:
+    if h:
+        lines.append(f"Fleet health score : {h.get('score', '?')}/100 ({h.get('grade', '?')})")
+    if d:
+        lines.append(f"Devices            : {d.get('total',0)} total, {d.get('online',0)} online, "
+                     f"{d.get('offline',0)} offline")
+    if a:
+        lines.append(f"Needs attention    : {a.get('critical',0)} critical, "
+                     f"{a.get('warning',0)} warning, {a.get('info',0)} info")
+    if sla and sla.get('fleet_uptime_pct') is not None:
+        lines.append(f"SLA uptime ({sla.get('days',30)}d) : {sla.get('fleet_uptime_pct')}%")
+    if p:
+        lines.append(f"Patches            : {p.get('devices_with_patches',0)} device(s) pending, "
+                     f"{p.get('total_pending',0)} update(s) total")
+    if c:
+        lines.append(f"CVEs               : {c.get('critical',0)} critical, {c.get('high',0)} high, "
+                     f"{c.get('medium',0)} medium ({c.get('devices_affected',0)} device(s) affected)")
+    lines.append("")
+    if h.get('worst'):
         lines.append("Lowest-scoring devices:")
         for dev in h['worst'][:5]:
             lines.append(f"  - {dev['device_name']}: {dev['score']}/100 "
                          f"({dev['critical']} crit, {dev['warning']} warn)")
         lines.append("")
-    fws = report['compliance'].get('frameworks') or {}
+    fws = (report.get('compliance') or {}).get('frameworks') or {}
     if fws:
         lines.append("Compliance:")
         for fw, rep in fws.items():
@@ -23049,6 +23308,119 @@ def handle_report_schedule_set():
               f'enabled={enabled} cron="{cron}" recipients={len(recipients)}')
     respond(200, {'ok': True, 'enabled': enabled, 'cron': cron,
                   'recipients': recipients})
+
+
+# ─── v3.14.0: custom report builder — saved report definitions ───────────────
+MAX_REPORT_DEFS = 30
+
+
+def _clean_report_def(body):
+    """Validate a report definition payload → cleaned dict (or None)."""
+    if not isinstance(body, dict):
+        return None
+    name = _sanitize_str(str(body.get('name', '')), 64).strip()
+    if not name:
+        return None
+    sections = [s for s in (body.get('sections') or []) if s in _REPORT_SECTIONS]
+    fmt = str(body.get('format', 'json')).lower()
+    if fmt not in ('json', 'csv'):
+        fmt = 'json'
+    cron = _sanitize_str(str(body.get('cron', '')), 64).strip()
+    enabled = bool(body.get('enabled'))
+    if enabled and cron and not _valid_cron(cron):
+        return 'badcron'
+    recipients = [_sanitize_str(r, 254) for r in (body.get('recipients') or [])
+                  if isinstance(r, str) and '@' in r][:50]
+    return {
+        'id':         _sanitize_str(str(body.get('id', '')), 16) or secrets.token_hex(6),
+        'name':       name,
+        'sections':   sections or list(_REPORT_SECTIONS),
+        'format':     fmt,
+        'cron':       cron,
+        'enabled':    enabled,
+        'recipients': recipients,
+    }
+
+
+def handle_report_defs_list():
+    """GET /api/report/definitions — saved custom report definitions."""
+    require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    respond(200, {'definitions': cfg.get('report_definitions') or [],
+                  'available_sections': list(_REPORT_SECTIONS)})
+
+
+def handle_report_defs_save():
+    """POST /api/report/definitions — create/update a report definition. Admin."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cleaned = _clean_report_def(get_json_body())
+    if cleaned == 'badcron':
+        respond(400, {'error': 'invalid cron expression'})
+    if not cleaned:
+        respond(400, {'error': 'name is required'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        defs = cfg.get('report_definitions') or []
+        defs = [d for d in defs if d.get('id') != cleaned['id']]
+        defs.append(cleaned)
+        if len(defs) > MAX_REPORT_DEFS:
+            respond(400, {'error': f'too many report definitions (max {MAX_REPORT_DEFS})'})
+        cfg['report_definitions'] = defs
+    audit_log(actor, 'report_def_save', f"name={cleaned['name']} sections={len(cleaned['sections'])}")
+    respond(200, {'ok': True, 'definition': cleaned})
+
+
+def handle_report_def_delete(def_id):
+    """DELETE /api/report/definitions/<id> — remove a report definition. Admin."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    found = False
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        defs = cfg.get('report_definitions') or []
+        new = [d for d in defs if d.get('id') != def_id]
+        found = len(new) != len(defs)
+        cfg['report_definitions'] = new
+    if not found:
+        respond(404, {'error': 'definition not found'})
+    audit_log(actor, 'report_def_delete', f'id={def_id}')
+    respond(200, {'ok': True})
+
+
+def _maybe_send_report_definitions():
+    """Heartbeat hook: send each enabled custom report on its own cron. Shares
+    the once-per-minute claim pattern, keyed per definition id."""
+    cfg = load(CONFIG_FILE) or {}
+    defs = cfg.get('report_definitions') or []
+    if not defs:
+        return
+    now = int(time.time())
+    current_minute = now // 60
+    state_file = DATA_DIR / 'report_schedule_state.json'
+    for d in defs:
+        if not d.get('enabled') or not d.get('cron') or not _valid_cron(d['cron']):
+            continue
+        if not _cron_matches(d['cron'], now):
+            continue
+        claim_key = 'def_' + str(d.get('id'))
+        with _LockedUpdate(state_file) as state:
+            if state.get(claim_key) == current_minute:
+                continue
+            state[claim_key] = current_minute
+        recipients = d.get('recipients') or _smtp_recipients_list(cfg)
+        if not recipients:
+            continue
+        try:
+            report = _filter_report_sections(_build_fleet_report(), d.get('sections'))
+            subject, body = _render_report_email(report)
+            subject = f"[{d.get('name')}] " + subject
+            smtp_notifier.send_email(cfg, recipients, subject, body)
+            _log_email('fleet_report', recipients, 'ok', d.get('name', ''))
+        except smtp_notifier.SmtpError as e:
+            _log_email('fleet_report', recipients, 'error', str(e))
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] custom report '{d.get('name')}' failed: {e}\n")
 
 
 
@@ -27349,6 +27721,53 @@ def handle_fleet_thermal():
         })
     rows.sort(key=lambda r: -r['max_temp'])
     respond(200, {'hosts': rows, 'count': len(rows), 'hot': hot})
+
+
+def handle_fleet_power():
+    """GET /api/fleet/power — UPS status + measured power draw per host.
+
+    Watts come from the UPS load (ups.power_w) when available, else the sum of
+    GPU power draw. Energy/cost is left to the client (a cost/kWh the operator
+    sets) since tariffs vary; we return the instantaneous total watts."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    hw_all = load(HARDWARE_FILE) or {}
+    rows = []
+    total_w = 0.0
+    on_battery = 0
+    for dev_id, d in devices.items():
+        if d.get('monitored') is False:
+            continue
+        hw = hw_all.get(dev_id) or {}
+        ups_list = hw.get('ups') or []
+        gpus = hw.get('gpus') or []
+        ups_w = sum(u.get('power_w') or 0 for u in ups_list if isinstance(u, dict))
+        gpu_w = sum(g.get('power_w') or 0 for g in gpus if isinstance(g, dict))
+        watts = ups_w or gpu_w
+        if not ups_list and not watts:
+            continue  # nothing power-related reported — omit
+        u0 = ups_list[0] if ups_list else {}
+        status = str(u0.get('status', '')) if ups_list else ''
+        ob = bool(ups_list) and ('OB' in status or 'BATT' in status.upper())
+        if ob:
+            on_battery += 1
+        if watts:
+            total_w += watts
+        rows.append({
+            'device_id':   dev_id, 'device': d.get('name', dev_id),
+            'ups':         bool(ups_list),
+            'ups_name':    str(u0.get('name', '')) if ups_list else '',
+            'status':      status,
+            'on_battery':  ob,
+            'battery_pct': u0.get('battery_pct') if ups_list else None,
+            'load_pct':    u0.get('load_pct') if ups_list else None,
+            'runtime_s':   u0.get('runtime_s') if ups_list else None,
+            'watts':       round(watts, 1) if watts else None,
+            'watts_source': 'ups' if ups_w else ('gpu' if gpu_w else ''),
+        })
+    rows.sort(key=lambda r: (-(1 if r['on_battery'] else 0), -(r['watts'] or 0), r['device'].lower()))
+    respond(200, {'hosts': rows, 'count': len(rows),
+                  'total_watts': round(total_w, 1), 'on_battery': on_battery})
 
 
 # ─── v3.11.0: scheduled posture digest email ─────────────────────────────────
@@ -32152,6 +32571,12 @@ def _build_exact_routes():
         ('GET', '/api/storage'): handle_storage_overview,
         # v3.14.0: fleet thermal roll-up ("hottest hosts")
         ('GET', '/api/fleet/thermal'): handle_fleet_thermal,
+        # v3.14.0: SSH key audit
+        ('GET', '/api/ssh-keys'): handle_ssh_keys_fleet,
+        # v3.14.0: fleet power / UPS + energy
+        ('GET', '/api/fleet/power'): handle_fleet_power,
+        # v3.14.0: predictive disk-failure maintenance
+        ('GET', '/api/fleet/disk-health'): handle_disk_health,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,
         ('GET', '/api/status'): handle_status,
         ('GET', '/api/tasks'): handle_tasks_list,
@@ -32564,6 +32989,11 @@ def _dispatch(pi, m):
     elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
     elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()
     elif pi == '/api/report/schedule' and m == 'PUT': handle_report_schedule_set()
+    # v3.14.0: custom report builder — saved definitions
+    elif pi == '/api/report/definitions' and m == 'GET': handle_report_defs_list()
+    elif pi == '/api/report/definitions' and m == 'POST': handle_report_defs_save()
+    elif pi.startswith('/api/report/definitions/') and m == 'DELETE':
+        handle_report_def_delete(pi[len('/api/report/definitions/'):])
     # ── v1.8.6: SMTP + LDAP test endpoints ─────────────────────────────────────
     elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
 
@@ -32799,6 +33229,8 @@ def main():
     _safe(process_autopatch,   'process_autopatch')
     # v3.4.1: send the scheduled fleet posture report when its cron is due.
     _safe(_maybe_send_scheduled_report, '_maybe_send_scheduled_report')
+    # v3.14.0: custom report definitions, each on its own cron.
+    _safe(_maybe_send_report_definitions, '_maybe_send_report_definitions')
     # v3.4.1: sample the fleet health score (once per UTC day) + fire
     # health_degraded / health_recovered alerts on threshold crossings.
     _safe(_maybe_sample_health, '_maybe_sample_health')

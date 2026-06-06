@@ -2868,6 +2868,25 @@ body.sidebar-collapsed .nav-fav-empty { display: none; }
 .views-empty { padding: 8px 10px; }
 .views-save { border-top: 1px solid rgba(127,127,127,0.18); margin-top: 4px; color: var(--accent); }
 
+/* v3.14.0: power page cost/kWh input */
+.input-cost-kwh { width: 90px; }
+
+/* v3.14.0: custom report builder */
+.rdef-sections { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.rdef-sec { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.report-builder { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 8px; }
+.rdef-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.rdef-row:last-child { border-bottom: 0; }
+.rdef-row-name { font-size: 13px; }
+
+/* v3.14.0: on-demand container logs viewer */
+.log-pre {
+  max-height: 60vh; overflow: auto; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px;
+  line-height: 1.45; white-space: pre-wrap; word-break: break-word; margin: 0;
+}
+
 /* v3.14.0: CVE prioritization — KEV (known-exploited) badge + EPSS chip */
 .kev-badge {
   display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
