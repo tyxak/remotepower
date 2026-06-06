@@ -1,0 +1,62 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please **do not** file security vulnerabilities here —
+        see [SECURITY.md](../blob/main/SECURITY.md) for private disclosure.
+  - type: input
+    id: version
+    attributes:
+      label: RemotePower version
+      description: Shown on the Server status page (e.g. 3.14.0).
+      placeholder: "3.14.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dashboard / UI
+        - Server / API
+        - Linux agent
+        - Windows agent
+        - Alerts / notifications
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Server OS, agent OS/version, browser (for UI bugs), storage backend (JSON/SQLite).
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / screenshots
+      description: Server stderr, agent log, browser console — redact secrets, tokens, and hostnames.
+      render: shell
+    validations:
+      required: false
