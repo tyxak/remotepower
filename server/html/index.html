@@ -870,6 +870,14 @@
           </div>
         </div>
 
+        <!-- v3.14.0 (#26): interface language. i18n.js builds the <option>s and
+             wires the change handler; selection persists to the user record. -->
+        <div class="settings-section">
+          <h3 data-i18n="Language">Language</h3>
+          <p class="hint" data-i18n="Choose the interface language. Saved to your account and synced across devices.">Choose the interface language. Saved to your account and synced across devices.</p>
+          <select id="acct-lang" class="form-input input-auto" aria-label="Interface language"></select>
+        </div>
+
         <div class="settings-section">
           <h3>Permissions</h3>
           <p class="hint">What your role lets you do. Managed by an administrator under <a href="#" data-action-btn="_showPageBtn" data-page="users" data-prevent-default class="c-accent">Users &amp; roles</a>.</p>
@@ -2180,6 +2188,8 @@
                 <li><strong>Fleet drift-enforcement policy.</strong> The Drift page can auto-apply (or correct-on-drift) the desired config for every host matching a tag or group.</li>
                 <li><strong>Alerts for the new signals.</strong> Predicted disk failure, UPS on battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts/webhooks, not just dashboard views.</li>
                 <li><strong>Metrics push (Prometheus).</strong> Settings → Integrations can periodically POST the <code>/api/metrics</code> exposition to a Pushgateway / remote target.</li>
+                <li><strong>Interface language.</strong> <em>My Account → Language</em> switches the UI between English, Mandarin, Hindi, Spanish and Arabic (RTL); the choice is saved to your account and follows you across devices.</li>
+                <li><strong>Change approval covers more actions.</strong> The optional second-admin approval now also gates reboot, shutdown, update/upgrade, uninstall and container actions — not just Run command.</li>
               </ul>
               <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
             </div>
@@ -6344,6 +6354,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
+<!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
+     when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
+<script defer src="static/js/i18n.js?v=3.14.0"></script>
 <script defer src="static/js/app.js?v=3.14.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->

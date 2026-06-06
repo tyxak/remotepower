@@ -27,6 +27,7 @@ const CACHE_NAME = 'remotepower-shell-v3.14.0';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
+  '/static/js/i18n.js',
   '/static/js/app.js',
   '/static/js/app-calendar.js',
   '/static/js/app-cmdb.js',

@@ -11401,6 +11401,32 @@ def handle_favorites_set():
     respond(200, {'ok': True, 'favorites': clean})
 
 
+# v3.14.0 (#26): interface language. UI-only i18n — the server just stores the
+# user's choice so it follows them across devices. Allowlist is the set the
+# front-end ships translations for; anything else (incl. missing) means English.
+SUPPORTED_LANGS = ('en', 'zh', 'hi', 'es', 'ar')
+
+
+def handle_me_lang():
+    """``POST /api/me/lang`` — set the current user's interface language.
+
+    Body: ``{"lang": "es"}``. Validated against SUPPORTED_LANGS; an unknown or
+    missing value is rejected rather than silently stored, so the client and
+    server never disagree about what's persisted."""
+    username = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    lang = (body.get('lang') if isinstance(body, dict) else None) or ''
+    if lang not in SUPPORTED_LANGS:
+        respond(400, {'error': f'lang must be one of {", ".join(SUPPORTED_LANGS)}'})
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            respond(404, {'error': 'User not found'})
+        users[username]['lang'] = lang
+    respond(200, {'ok': True, 'lang': lang})
+
+
 def handle_ui_prefs_clear():
     """``DELETE /api/ui-prefs`` — wipe current user's UI prefs.
 
@@ -23908,6 +23934,8 @@ def handle_me():
         # v3.14.0: per-account sidebar favorites, so they follow the user
         # across devices/browsers instead of living only in localStorage.
         'favorites':            _clean_favorites(u.get('favorites')),
+        # v3.14.0 (#26): saved interface language (UI-only i18n). Default English.
+        'lang':                 u.get('lang') if u.get('lang') in SUPPORTED_LANGS else 'en',
     })
 
 
@@ -32961,6 +32989,8 @@ def _build_exact_routes():
         ('POST', '/api/me/sessions/revoke-others'): handle_me_sessions_revoke_others,
         # v3.14.0: per-account sidebar favorites
         ('POST', '/api/favorites'): handle_favorites_set,
+        # v3.14.0 (#26): per-account interface language (UI-only i18n)
+        ('POST', '/api/me/lang'): handle_me_lang,
         # v3.12.0: relay satellites
         ('GET', '/api/satellites'): handle_satellites_list,
         ('POST', '/api/satellites'): handle_satellites_create,

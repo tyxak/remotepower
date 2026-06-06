@@ -8,6 +8,7 @@ next bump) plus functional tests for the three new features and client wiring
 smoke checks.
 """
 import os
+import re
 import tempfile
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
@@ -973,6 +974,87 @@ class TestApprovalGates(_HandlerBase):
         self.assertEqual(api._command_kind('container:docker:restart:x'), 'container')
         self.assertEqual(api._command_kind('exec:rm -rf /'), 'exec')
         self.assertEqual(api._command_kind('poll_interval:60'), 'poll')
+
+
+class TestI18nWiring(unittest.TestCase):
+    """v3.14.0 #26 — UI-only i18n (5 languages, translate-by-source-text)."""
+
+    HTML = (_ROOT / "server/html/index.html").read_text()
+    I18N = (_ROOT / "server/html/static/js/i18n.js").read_text()
+    SW = (_ROOT / "server/html/sw.js").read_text()
+    JS = client_js()
+
+    def test_supported_langs(self):
+        self.assertEqual(api.SUPPORTED_LANGS, ('en', 'zh', 'hi', 'es', 'ar'))
+
+    def test_i18n_loads_before_app(self):
+        i = self.HTML.index('static/js/i18n.js')
+        a = self.HTML.index('static/js/app.js')
+        self.assertLess(i, a, "i18n.js must be loaded before app.js")
+
+    def test_i18n_precached(self):
+        self.assertIn('/static/js/i18n.js', self.SW)
+
+    def test_language_card_present(self):
+        self.assertIn('id="acct-lang"', self.HTML)
+        self.assertIn('data-i18n="Language"', self.HTML)
+
+    def test_app_adopts_server_lang(self):
+        self.assertIn('RPi18n.adopt(me.lang)', self.JS)
+
+    def test_i18n_langs_match_server(self):
+        # the JS LANGS array must equal the server allowlist
+        m = re.search(r"var LANGS = \[([^\]]*)\]", self.I18N)
+        self.assertIsNotNone(m)
+        js_langs = tuple(x.strip().strip("'\"") for x in m.group(1).split(','))
+        self.assertEqual(js_langs, api.SUPPORTED_LANGS)
+
+    def test_every_translation_row_is_complete(self):
+        # each '{ zh: …, hi: …, es: …, ar: … }' row must carry all 4 languages
+        rows = re.findall(r"\{\s*zh:.*?\}", self.I18N, re.S)
+        self.assertGreater(len(rows), 40)
+        for r in rows:
+            for lang in ('zh', 'hi', 'es', 'ar'):
+                self.assertIn(lang + ':', r, f"row missing {lang}: {r[:50]}")
+
+    def test_rtl_for_arabic(self):
+        # Arabic must drive dir=rtl
+        self.assertIn("RTL = { ar: true }", self.I18N)
+        self.assertIn("'rtl'", self.I18N)
+
+
+class TestI18nLangEndpoint(_HandlerBase):
+    def setUp(self):
+        super().setUp()
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'created': 1}})
+
+    def test_me_lang_defaults_english(self):
+        api.method = lambda: 'GET'
+        me = self.call(api.handle_me)
+        self.assertEqual(me['lang'], 'en')
+
+    def test_set_lang_persists_and_returns(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'lang': 'ar'}
+        r = self.call(api.handle_me_lang)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['lang'], 'ar')
+        self.assertEqual((api.load(api.USERS_FILE) or {})['jakob']['lang'], 'ar')
+        api.method = lambda: 'GET'
+        self.assertEqual(self.call(api.handle_me)['lang'], 'ar')
+
+    def test_set_lang_rejects_unknown(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'lang': 'tlh'}   # Klingon — not supported
+        self.call(api.handle_me_lang)
+        self.assertEqual(self.cap['s'], 400)
+        self.assertNotIn('lang', (api.load(api.USERS_FILE) or {})['jakob'])
+
+    def test_set_lang_rejects_get(self):
+        api.method = lambda: 'GET'
+        api.get_json_body = lambda: {'lang': 'es'}
+        self.call(api.handle_me_lang)
+        self.assertEqual(self.cap['s'], 405)
 
 
 if __name__ == "__main__":

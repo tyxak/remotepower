@@ -3160,6 +3160,7 @@ const _DYK_TIPS = [
   "Reports → Custom reports lets you build a report from just the sections you care about, download it as JSON/CSV, and schedule each saved report to its own recipients.",
   "Predicted disk failures, UPS-on-battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts — wire them to a channel under Settings → Notifications.",
   "Settings → Integrations → Metrics push periodically POSTs the fleet's Prometheus metrics to a Pushgateway, for stacks that pull from a gateway instead of scraping /api/metrics.",
+  "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish and Arabic — your choice is saved to your account and follows you across devices.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -4558,6 +4559,9 @@ async function loadMe() {
   // v3.14.0: the server holds the authoritative per-account favorites — adopt
   // them over the local fast-paint cache (older servers omit the field).
   if ('favorites' in me) _hydrateFavoritesFromServer(me.favorites);
+  // v3.14.0 (#26): adopt the account's saved interface language over the local
+  // fast-paint guess (best-effort; i18n.js is loaded before app.js).
+  if (me.lang && window.RPi18n) window.RPi18n.adopt(me.lang);
   return me;
 }
 

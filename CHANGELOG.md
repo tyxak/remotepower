@@ -81,6 +81,14 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
   `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
   config, SSRF-safe, interval-gated). Off by default.
+- **Interface language (i18n).** *My Account → Language* switches the UI between
+  **English, 中文 (Mandarin), हिन्दी (Hindi), Español, and العربية (Arabic, RTL)**.
+  The choice is saved on your user record (`GET /api/me` returns `lang`, `POST
+  /api/me/lang` sets it) and synced across devices, with a `localStorage`
+  fast-paint cache. UI-only and build-free: a self-hosted `i18n.js` translates
+  the navigation chrome by source text, so untranslated strings fall back to
+  English and new UI keeps working with no i18n wiring. Arabic switches the
+  document to `dir="rtl"`.
 - **Change approval now covers the risky actions, not just Run command.** With
   *Settings → Security → Change approval* enabled, reboot, shutdown, package
   update/upgrade, agent uninstall, and container start/stop/restart are also
