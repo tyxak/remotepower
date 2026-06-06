@@ -10142,6 +10142,14 @@ def handle_config_get():
     safe.pop('oidc_client_secret', None)
     safe.pop('status_token', None)
 
+    # v3.14.0 (#27): GitOps manifest auth header is a credential (e.g. a Git PAT);
+    # expose only whether it's set and strip the raw value.
+    if isinstance(safe.get('gitops'), dict):
+        _g = dict(safe['gitops'])
+        _g['auth_header_set'] = bool((_g.get('auth_header') or '').strip())
+        _g.pop('auth_header', None)
+        safe['gitops'] = _g
+
     # Slack / Discord / Teams webhook URLs embed a secret token in their path,
     # so the raw URL is itself a credential. Only admins (who can already edit
     # it) get the value; viewers / MCP keys get the webhook_configured boolean
@@ -29054,6 +29062,261 @@ def handle_metrics_push_set():
     respond(200, {'ok': True, 'enabled': enabled, 'url': url, 'interval': interval, 'job': job})
 
 
+# ─── v3.14.0 (#27): GitOps — desired-state config from a Git repo ───────────────
+# RemotePower already has the *reconciliation* half of GitOps: drift profiles
+# (named watched-file sets), tag/group assignments, and the drift engine that
+# flags (and, where enabled, enforces) changes. What was missing is "Git as the
+# source of truth". This layer periodically fetches a JSON manifest from a raw
+# Git URL (SSRF-safe) and reconciles the drift profiles + assignments it owns to
+# match it — so your watched-config policy lives in version control.
+#
+# Safety: this only manages WATCHED-FILE LISTS and their host assignments — never
+# command execution or file *content* pushes. Actual host enforcement still goes
+# through the existing per-device apply_enabled / enforce opt-in. It's admin-only,
+# off by default, fetched through the anti-rebinding opener with a size cap, and
+# only touches profiles/assignments it created (source == 'gitops') so it never
+# clobbers ones an operator made by hand.
+GITOPS_STATE_FILE = DATA_DIR / 'gitops_state.json'
+GITOPS_MAX_MANIFEST_BYTES = 256 * 1024
+
+
+def _gitops_reconcile(manifest, dry=False):
+    """Reconcile gitops-owned drift profiles + assignments to `manifest`.
+    Returns a summary dict. Pure-ish: only writes CONFIG_FILE when dry is False."""
+    raw_profiles = manifest.get('profiles') if isinstance(manifest, dict) else None
+    raw_assigns = manifest.get('assignments') if isinstance(manifest, dict) else None
+    if not isinstance(raw_profiles, list):
+        raise ValueError("manifest must be an object with a 'profiles' list")
+
+    # Desired gitops profiles, keyed by name (the stable identity in Git).
+    desired = {}
+    skipped = []
+    for p in raw_profiles[:100]:
+        if not isinstance(p, dict):
+            continue
+        name = _sanitize_str(str(p.get('name', '')), 80).strip()
+        if not name:
+            continue
+        desired[name] = _validate_drift_files(p.get('files'))
+    # Desired assignments: {(scope_type, scope_value): profile_name}
+    desired_assigns = []
+    for a in (raw_assigns or [])[:500]:
+        if not isinstance(a, dict):
+            continue
+        st = _sanitize_str(str(a.get('scope_type', '')), 16)
+        sv = _sanitize_str(str(a.get('scope_value', '')), 128).strip()
+        pn = _sanitize_str(str(a.get('profile', '')), 80).strip()
+        if st in ('device', 'tag', 'group') and sv and pn in desired:
+            desired_assigns.append((st, sv, pn))
+
+    summary = {'added': 0, 'updated': 0, 'removed': 0,
+               'assignments': len(desired_assigns), 'skipped': skipped, 'dry': dry}
+    now = int(time.time())
+
+    def _apply(cfg):
+        dr = cfg.setdefault('drift', {})
+        profs = dr.setdefault('profiles', [])
+        # Index existing profiles by name; remember which are gitops-owned.
+        by_name = {}
+        for p in profs:
+            if isinstance(p, dict) and p.get('name'):
+                by_name[p['name']] = p
+        # Upsert desired profiles.
+        name_to_id = {}
+        for name, files in desired.items():
+            ex = by_name.get(name)
+            if ex and ex.get('source') != 'gitops':
+                # A hand-made profile owns this name — don't hijack it.
+                skipped.append(name)
+                if ex.get('id'):
+                    name_to_id[name] = ex['id']
+                continue
+            if ex:
+                if ex.get('files') != files:
+                    ex['files'] = files
+                    ex['updated'] = now
+                    summary['updated'] += 1
+                ex['source'] = 'gitops'
+                name_to_id[name] = ex['id']
+            else:
+                pid = 'dp_' + secrets.token_urlsafe(8)
+                profs.append({'id': pid, 'name': name, 'files': files,
+                              'source': 'gitops', 'created': now, 'updated': now})
+                name_to_id[name] = pid
+                summary['added'] += 1
+        # Remove gitops-owned profiles no longer in the manifest.
+        keep = []
+        removed_ids = set()
+        for p in profs:
+            if (isinstance(p, dict) and p.get('source') == 'gitops'
+                    and p.get('name') not in desired):
+                removed_ids.add(p.get('id'))
+                summary['removed'] += 1
+            else:
+                keep.append(p)
+        dr['profiles'] = keep
+        # Reconcile gitops-owned assignments (leave manual ones untouched).
+        assigns = [a for a in (dr.get('assignments') or [])
+                   if not (isinstance(a, dict) and a.get('source') == 'gitops')]
+        for st, sv, pn in desired_assigns:
+            pid = name_to_id.get(pn)
+            if not pid:
+                continue
+            # A manual assignment for this scope wins — don't double-assign.
+            if any(isinstance(a, dict) and a.get('scope_type') == st
+                   and a.get('scope_value') == sv for a in assigns):
+                continue
+            assigns.append({'scope_type': st, 'scope_value': sv,
+                            'profile_id': pid, 'source': 'gitops'})
+        dr['assignments'] = assigns
+
+    if dry:
+        # Reconcile against a deep copy so we report the diff without persisting.
+        cfg_copy = json.loads(json.dumps(load(CONFIG_FILE) or {}))
+        _apply(cfg_copy)
+    else:
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            _apply(cfg)
+    return summary
+
+
+def _gitops_fetch_manifest(gc):
+    """Fetch + parse the JSON manifest from the configured raw Git URL.
+    SSRF-safe, size-capped. Returns the parsed object or raises."""
+    url = (gc.get('url') or '').strip()
+    if not url:
+        raise ValueError('no manifest URL configured')
+    if not re.match(r'^https?://', url):
+        raise ValueError('url must be http(s)://')
+    parsed = urllib.parse.urlparse(url)
+    headers = {'User-Agent': f'RemotePower/{SERVER_VERSION}',
+               'Accept': 'application/json, text/plain, */*'}
+    tok = (gc.get('auth_header') or '').strip()
+    if tok:
+        headers['Authorization'] = tok
+    opener = _ssrf_safe_opener(allow_loopback=True,
+                               ssl_ctx=_get_ssl_context() if parsed.scheme == 'https' else None,
+                               no_redirect=True)
+    req = urllib.request.Request(url, headers=headers, method='GET')
+    resp = opener.open(req, timeout=15)
+    data = resp.read(GITOPS_MAX_MANIFEST_BYTES + 1)
+    if len(data) > GITOPS_MAX_MANIFEST_BYTES:
+        raise ValueError(f'manifest too large (max {GITOPS_MAX_MANIFEST_BYTES} bytes)')
+    return json.loads(data.decode('utf-8'))
+
+
+def _gitops_sync(actor='system', dry=False):
+    """Fetch the manifest and reconcile. Records status; never raises onto the
+    request path beyond returning {'ok': False, 'error': ...}."""
+    gc = (load(CONFIG_FILE) or {}).get('gitops') or {}
+    if not (gc.get('url') or '').strip():
+        return {'ok': False, 'error': 'no manifest URL configured'}
+    now = int(time.time())
+    try:
+        manifest = _gitops_fetch_manifest(gc)
+        summary = _gitops_reconcile(manifest, dry=dry)
+        result = {'ok': True, **summary}
+        if not dry:
+            with _LockedUpdate(GITOPS_STATE_FILE) as st:
+                st['last_sync'] = now
+                st['last_status'] = 'ok'
+                st['last_error'] = ''
+                st['last_summary'] = summary
+            audit_log(actor, 'gitops_sync',
+                      f"added={summary['added']} updated={summary['updated']} "
+                      f"removed={summary['removed']} assigns={summary['assignments']}")
+        return result
+    except Exception as e:
+        err = str(e)[:300]
+        if not dry:
+            try:
+                with _LockedUpdate(GITOPS_STATE_FILE) as st:
+                    st['last_sync'] = now
+                    st['last_status'] = 'error'
+                    st['last_error'] = err
+            except Exception:
+                pass
+            audit_log(actor, 'gitops_sync_failed', err)
+        return {'ok': False, 'error': err}
+
+
+def _maybe_gitops_sync():
+    """Periodic, interval-gated GitOps reconcile. Off unless enabled + URL set."""
+    cfg = load(CONFIG_FILE) or {}
+    gc = cfg.get('gitops') or {}
+    if not gc.get('enabled') or not (gc.get('url') or '').strip():
+        return
+    interval = max(300, int(gc.get('interval') or 900))
+    now = int(time.time())
+    due = False
+    with _LockedUpdate(GITOPS_STATE_FILE) as st:
+        if now - int(st.get('last_attempt', 0)) >= interval:
+            st['last_attempt'] = now
+            due = True
+    if due:
+        _gitops_sync(actor='system', dry=False)
+
+
+def handle_gitops_get():
+    """GET /api/gitops — config (auth token masked) + last-sync status."""
+    require_auth()
+    gc = dict((load(CONFIG_FILE) or {}).get('gitops') or {})
+    st = load(GITOPS_STATE_FILE) if GITOPS_STATE_FILE.exists() else {}
+    respond(200, {
+        'enabled':       bool(gc.get('enabled')),
+        'url':           gc.get('url', ''),
+        'interval':      int(gc.get('interval') or 900),
+        'auth_header_set': bool((gc.get('auth_header') or '').strip()),
+        'last_sync':     st.get('last_sync', 0),
+        'last_status':   st.get('last_status', ''),
+        'last_error':    st.get('last_error', ''),
+        'last_summary':  st.get('last_summary') or {},
+    })
+
+
+def handle_gitops_set():
+    """PUT /api/gitops — configure GitOps sync (admin). Off by default."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    enabled = bool(body.get('enabled'))
+    url = _sanitize_str(str(body.get('url', '')).strip(), 512)
+    if enabled and not url:
+        respond(400, {'error': 'A manifest URL is required when enabled.'})
+    if url and not re.match(r'^https?://', url):
+        respond(400, {'error': 'url must be http(s)://'})
+    interval = max(300, min(86400, int(body.get('interval') or 900)))
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        gc = dict(cfg.get('gitops') or {})
+        gc['enabled'] = enabled
+        gc['url'] = url
+        gc['interval'] = interval
+        # auth_header: only overwrite when a non-empty value is sent; '' (or the
+        # key absent) keeps the stored token; the sentinel '__clear__' wipes it.
+        if 'auth_header' in body:
+            v = str(body.get('auth_header') or '')
+            if v == '__clear__':
+                gc['auth_header'] = ''
+            elif v.strip():
+                gc['auth_header'] = _sanitize_str(v.strip(), 512)
+        cfg['gitops'] = gc
+    audit_log(actor, 'gitops_set', f'enabled={enabled} url={url} interval={interval}')
+    respond(200, {'ok': True, 'enabled': enabled, 'url': url, 'interval': interval})
+
+
+def handle_gitops_sync():
+    """POST /api/gitops/sync[?dry=1] — sync now (admin). dry=1 reports the diff
+    without writing."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    dry = (qs.get('dry', ['0'])[0] in ('1', 'true', 'yes'))
+    result = _gitops_sync(actor=actor, dry=dry)
+    respond(200 if result.get('ok') else 400, result)
+
+
 # ─── v1.8.0: Maintenance windows ───────────────────────────────────────────────
 
 def _cron_match(expr, ts):
@@ -33485,6 +33748,10 @@ def _dispatch(pi, m):
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
     elif pi == '/api/metrics/push/config' and m == 'GET': handle_metrics_push_get()
     elif pi == '/api/metrics/push/config' and m == 'PUT': handle_metrics_push_set()
+    # v3.14.0 (#27): GitOps — desired-state config from a Git repo
+    elif pi == '/api/gitops' and m == 'GET':  handle_gitops_get()
+    elif pi == '/api/gitops' and m == 'PUT':  handle_gitops_set()
+    elif pi == '/api/gitops/sync' and m == 'POST': handle_gitops_sync()
     # v3.4.1: iCal feed of scheduled jobs + maintenance windows
     elif pi == '/api/schedule.ics' and m == 'GET': handle_schedule_ics()
 
@@ -33693,6 +33960,7 @@ def main():
     _safe(_maybe_check_disk_predictions, '_maybe_check_disk_predictions')
     # v3.14.0: push Prometheus metrics to a Pushgateway on its interval.
     _safe(_maybe_push_metrics, '_maybe_push_metrics')
+    _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies
     _safe(process_backup_jobs, 'process_backup_jobs')

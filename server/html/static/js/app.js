@@ -2046,6 +2046,7 @@ async function loadSettings() {
   if (hcInt) hcInt.value = data.healthchecks_interval_seconds || 60;
 
   loadMetricsPush();   // v3.14.0: metrics-push config (separate endpoint)
+  loadGitops();        // v3.14.0 (#27): GitOps sync config (separate endpoint)
 
   // v3.11.0: scheduled posture digest
   const _pde = document.getElementById('cfg-posture-digest-enabled');
@@ -3162,6 +3163,7 @@ const _DYK_TIPS = [
   "Settings → Integrations → Metrics push periodically POSTs the fleet's Prometheus metrics to a Pushgateway, for stacks that pull from a gateway instead of scraping /api/metrics.",
   "My Account → Language switches the interface between English, Mandarin, Hindi, Spanish and Arabic — your choice is saved to your account and follows you across devices.",
   "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
+  "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -13014,6 +13016,57 @@ async function saveMetricsPush() {
   const r = await api('PUT', '/metrics/push/config', payload).catch(() => null);
   if (r?.ok) { toast(r.enabled ? `Metrics push enabled (every ${r.interval}s)` : 'Metrics push disabled', 'success'); loadMetricsPush(); }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+// ── v3.14.0 (#27): GitOps — desired-state drift config from a Git repo ──────────
+function _gitopsStatusText(d) {
+  if (d.last_error) return `Last sync failed: ${d.last_error}`;
+  if (d.last_sync) {
+    const s = d.last_summary || {};
+    const parts = [`+${s.added || 0}`, `~${s.updated || 0}`, `-${s.removed || 0}`].join(' / ');
+    return `Last sync ${timeAgo(d.last_sync)} — ${parts} profiles`;
+  }
+  return d.enabled ? 'Enabled — not synced yet.' : '';
+}
+async function loadGitops() {
+  const en = document.getElementById('cfg-gitops-enabled');
+  if (!en) return;
+  const d = await api('GET', '/gitops').catch(() => null);
+  if (!d) return;
+  en.checked = !!d.enabled;
+  const url = document.getElementById('cfg-gitops-url');      if (url) url.value = d.url || '';
+  const iv  = document.getElementById('cfg-gitops-interval'); if (iv) iv.value = d.interval || 900;
+  const au  = document.getElementById('cfg-gitops-auth');
+  if (au) au.placeholder = d.auth_header_set ? '•••••••• (saved — leave blank to keep)' : 'leave blank for public repos';
+  const st  = document.getElementById('gitops-status');
+  if (st) st.textContent = _gitopsStatusText(d);
+}
+async function saveGitops() {
+  const payload = {
+    enabled:  document.getElementById('cfg-gitops-enabled').checked,
+    url:      document.getElementById('cfg-gitops-url').value.trim(),
+    interval: parseInt(document.getElementById('cfg-gitops-interval').value, 10) || 900,
+  };
+  // Only send the auth header if the operator typed one — blank keeps the stored value.
+  const au = document.getElementById('cfg-gitops-auth').value;
+  if (au.trim()) payload.auth_header = au.trim();
+  const r = await api('PUT', '/gitops', payload).catch(() => null);
+  if (r?.ok) {
+    document.getElementById('cfg-gitops-auth').value = '';
+    toast(r.enabled ? `GitOps enabled (every ${r.interval}s)` : 'GitOps disabled', 'success');
+    loadGitops();
+  } else toast((r && r.error) || 'Failed', 'error');
+}
+async function syncGitops(dry) {
+  const st = document.getElementById('gitops-status');
+  if (st) st.textContent = dry ? 'Dry run…' : 'Syncing…';
+  const r = await api('POST', `/gitops/sync?dry=${dry ? 1 : 0}`).catch(() => null);
+  if (r?.ok) {
+    const skipped = (r.skipped && r.skipped.length) ? `, ${r.skipped.length} skipped (manual)` : '';
+    toast(`${dry ? 'Dry run' : 'Synced'}: +${r.added} new, ${r.updated} updated, ${r.removed} removed${skipped}`, 'success');
+    if (!dry) loadGitops();
+    else if (st) st.textContent = `Dry run — would: +${r.added} / ~${r.updated} / -${r.removed} profiles`;
+  } else toast((r && r.error) || 'Sync failed', 'error');
 }
 
 async function saveHealthchecks() {

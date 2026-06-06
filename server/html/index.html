@@ -1214,6 +1214,32 @@
             <button class="btn-primary" data-action="saveMetricsPush">Save metrics push</button>
             <span id="metrics-push-status" class="fs-12 c-muted"></span>
           </div>
+          <!-- v3.14.0 (#27): GitOps — desired-state drift config from a Git repo. -->
+          <div class="settings-section">
+            <h3>GitOps (config from Git)</h3>
+            <p class="hint">Keep your <strong>drift profiles</strong> (watched-config-file sets) and their tag/group assignments in version control. RemotePower periodically fetches a JSON manifest from a raw Git URL and reconciles the profiles it owns to match it. It only manages watched-file lists and assignments — never command execution or file-content pushes — and host enforcement still follows each device's existing apply/enforce opt-in. Off by default; fetched through the SSRF-safe fetcher; profiles you create by hand are never touched. <a href="#" data-action-btn="_showPageBtn" data-page="drift" data-prevent-default class="c-accent">View drift profiles →</a></p>
+            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-gitops-enabled"> <span class="fs-14">Enable GitOps sync</span></label>
+            <div class="settings-row">
+              <div class="form-group flex-1">
+                <label class="form-label">Manifest URL (raw JSON)</label>
+                <input type="url" id="cfg-gitops-url" class="form-input ff-mono" placeholder="https://raw.githubusercontent.com/org/repo/main/remotepower.json">
+              </div>
+              <div class="form-group mw-200">
+                <label class="form-label">Interval (seconds)</label>
+                <input type="number" id="cfg-gitops-interval" class="form-input" min="300" max="86400" value="900">
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Auth header <span class="c-muted fs-12">(optional — for private repos, e.g. <span class="ff-mono">Bearer &lt;token&gt;</span>)</span></label>
+              <input type="password" id="cfg-gitops-auth" class="form-input ff-mono" placeholder="leave blank to keep current" autocomplete="off">
+            </div>
+            <div class="row-8-center">
+              <button class="btn-primary" data-action="saveGitops">Save GitOps</button>
+              <button class="btn-secondary" data-action="syncGitops" data-arg="1">Dry run</button>
+              <button class="btn-secondary" data-action="syncGitops" data-arg="0">Sync now</button>
+              <span id="gitops-status" class="fs-12 c-muted"></span>
+            </div>
+          </div>
           <!-- v3.4.2: moved here from Advanced — it's an external-access integration. -->
           <div class="settings-section">
             <h3>Status endpoint</h3>
@@ -2198,6 +2224,7 @@
                 <li><strong>Fleet drift-enforcement policy.</strong> The Drift page can auto-apply (or correct-on-drift) the desired config for every host matching a tag or group.</li>
                 <li><strong>Alerts for the new signals.</strong> Predicted disk failure, UPS on battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts/webhooks, not just dashboard views.</li>
                 <li><strong>Metrics push (Prometheus).</strong> Settings → Integrations can periodically POST the <code>/api/metrics</code> exposition to a Pushgateway / remote target.</li>
+                <li><strong>GitOps (config from Git).</strong> <em>Settings → Integrations → GitOps</em> pulls a JSON manifest from a raw Git URL and reconciles your drift profiles (watched-config sets) + tag/group assignments to match — config-as-code, with a dry-run preview. Off by default; manages watched-file lists only (no exec).</li>
                 <li><strong>Customizable dashboard.</strong> A <em>Customize</em> button on the Home page shows/hides and reorders the dashboard widgets; the layout is saved to your account and follows you across devices.</li>
                 <li><strong>Interface language.</strong> <em>My Account → Language</em> switches the UI between English, Mandarin, Hindi, Spanish and Arabic (RTL); the choice is saved to your account and follows you across devices.</li>
                 <li><strong>Change approval covers more actions.</strong> The optional second-admin approval now also gates reboot, shutdown, update/upgrade, uninstall and container actions — not just Run command.</li>

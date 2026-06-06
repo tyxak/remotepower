@@ -1174,5 +1174,110 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestGitOps(_HandlerBase):
+    """v3.14.0 #27 — GitOps: drift profiles + assignments synced from a Git manifest."""
+
+    def setUp(self):
+        super().setUp()
+        api.GITOPS_STATE_FILE = self.d / 'gitops_state.json'
+        self._orig_fetch = api._gitops_fetch_manifest
+
+    def tearDown(self):
+        api._gitops_fetch_manifest = self._orig_fetch
+        os.environ.pop('QUERY_STRING', None)
+        super().tearDown()
+
+    def test_config_off_by_default_and_no_secret_leak(self):
+        api.save(api.CONFIG_FILE, {'gitops': {'enabled': True, 'url': 'https://x/m.json',
+                                              'auth_header': 'Bearer SECRET'}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_gitops_get)
+        self.assertTrue(r['enabled'])
+        self.assertTrue(r['auth_header_set'])
+        self.assertNotIn('auth_header', r)          # raw token never returned
+
+    def test_set_requires_url_when_enabled(self):
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'enabled': True, 'url': ''}
+        self.call(api.handle_gitops_set)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_set_clamps_interval_and_keeps_token(self):
+        api.save(api.CONFIG_FILE, {'gitops': {'auth_header': 'Bearer KEEP'}})
+        api.method = lambda: 'PUT'
+        api.get_json_body = lambda: {'enabled': True, 'url': 'https://h/m.json', 'interval': 5}
+        self.call(api.handle_gitops_set)
+        gc = api.load(api.CONFIG_FILE)['gitops']
+        self.assertEqual(gc['interval'], 300)               # clamped to floor
+        self.assertEqual(gc['auth_header'], 'Bearer KEEP')  # absent in body → preserved
+
+    def test_reconcile_creates_profiles_and_assignments(self):
+        api.save(api.CONFIG_FILE, {})
+        manifest = {
+            'profiles': [{'name': 'web', 'files': ['/etc/nginx/nginx.conf', '/etc/ssl/x.crt']}],
+            'assignments': [{'scope_type': 'tag', 'scope_value': 'web', 'profile': 'web'}],
+        }
+        summary = api._gitops_reconcile(manifest, dry=False)
+        self.assertEqual(summary['added'], 1)
+        dr = api.load(api.CONFIG_FILE)['drift']
+        prof = dr['profiles'][0]
+        self.assertEqual(prof['source'], 'gitops')
+        self.assertEqual(prof['files'], ['/etc/nginx/nginx.conf', '/etc/ssl/x.crt'])
+        self.assertEqual(dr['assignments'][0]['profile_id'], prof['id'])
+        self.assertEqual(dr['assignments'][0]['source'], 'gitops')
+
+    def test_reconcile_idempotent_and_removes_dropped(self):
+        api.save(api.CONFIG_FILE, {})
+        api._gitops_reconcile({'profiles': [{'name': 'a', 'files': ['/a']},
+                                            {'name': 'b', 'files': ['/b']}]}, dry=False)
+        s2 = api._gitops_reconcile({'profiles': [{'name': 'a', 'files': ['/a']}]}, dry=False)
+        self.assertEqual(s2['removed'], 1)
+        names = {p['name'] for p in api.load(api.CONFIG_FILE)['drift']['profiles']}
+        self.assertEqual(names, {'a'})
+
+    def test_reconcile_never_clobbers_manual_profile(self):
+        api.save(api.CONFIG_FILE, {'drift': {'profiles': [
+            {'id': 'dp_manual', 'name': 'web', 'files': ['/hand/made']}]}})  # no source = manual
+        summary = api._gitops_reconcile(
+            {'profiles': [{'name': 'web', 'files': ['/from/git']}]}, dry=False)
+        self.assertIn('web', summary['skipped'])
+        prof = api.load(api.CONFIG_FILE)['drift']['profiles'][0]
+        self.assertEqual(prof['files'], ['/hand/made'])     # untouched
+        self.assertNotEqual(prof.get('source'), 'gitops')
+
+    def test_dry_run_does_not_write(self):
+        api.save(api.CONFIG_FILE, {})
+        s = api._gitops_reconcile({'profiles': [{'name': 'x', 'files': ['/x']}]}, dry=True)
+        self.assertTrue(s['dry'])
+        self.assertEqual(s['added'], 1)
+        self.assertEqual((api.load(api.CONFIG_FILE).get('drift') or {}).get('profiles', []), [])
+
+    def test_sync_via_stubbed_fetch(self):
+        api.save(api.CONFIG_FILE, {'gitops': {'url': 'https://h/m.json'}})
+        api._gitops_fetch_manifest = lambda gc: {'profiles': [{'name': 'p', 'files': ['/p']}]}
+        api.method = lambda: 'POST'
+        os.environ['QUERY_STRING'] = ''
+        r = self.call(api.handle_gitops_sync)
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['added'], 1)
+
+    def test_reconcile_rejects_bad_manifest(self):
+        with self.assertRaises(ValueError):
+            api._gitops_reconcile({'nope': 1}, dry=True)
+
+    def test_ui_wired(self):
+        html = (_ROOT / "server/html/index.html").read_text()
+        js = client_js()
+        self.assertIn('id="cfg-gitops-url"', html)
+        self.assertIn('data-action="saveGitops"', html)
+        self.assertIn('data-action="syncGitops"', html)
+        self.assertIn('function loadGitops', js)
+        self.assertIn("'/gitops'", js)
+
+    def test_periodic_registered(self):
+        api_src = (_ROOT / "server/cgi-bin/api.py").read_text()
+        self.assertIn("_safe(_maybe_gitops_sync", api_src)
+
+
 if __name__ == "__main__":
     unittest.main()

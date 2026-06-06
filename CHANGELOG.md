@@ -81,6 +81,15 @@ dependencies; most of it surfaces data the agent already reports. See
 - **Metrics push (Prometheus).** Settings → Integrations can periodically POST the
   `/api/metrics` exposition to a Pushgateway / remote target (`metrics_push`
   config, SSRF-safe, interval-gated). Off by default.
+- **GitOps — drift config from Git.** *Settings → Integrations → GitOps* can pull
+  a JSON manifest from a raw Git URL and reconcile your **drift profiles**
+  (watched-config-file sets) and their tag/group assignments to match it — so your
+  watched-config policy lives in version control. It only manages watched-file
+  lists and assignments (never command execution or file-content pushes), only
+  touches profiles it created (hand-made ones are left alone), and host
+  enforcement still follows each device's existing apply/enforce opt-in.
+  `GET/PUT /api/gitops` + `POST /api/gitops/sync?dry=1`; off by default; fetched
+  through the SSRF-safe fetcher with a size cap; admin-only; every sync is audited.
 - **Customizable dashboard.** A **Customize** button on the Home page lets each
   user show/hide and reorder the dashboard widgets (Fleet health, heat map,
   Needs attention + Recent activity, Fleet roster, Quick links). The layout is
