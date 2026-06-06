@@ -870,8 +870,8 @@ const _SIDEBAR_EXTRA = [
 ];
 let _sidebarIdx = null, _sidebarHits = [];
 function _buildSidebarIdx() {
-  const nav = Array.from(document.querySelectorAll('.sidebar .nav-btn')).map(btn => {
-    const span = btn.querySelector('span:not(.nav-badge):not(.nav-new)');
+  const nav = Array.from(document.querySelectorAll('.sidebar .nav-btn:not(.nav-fav-clone)')).map(btn => {
+    const span = btn.querySelector('span:not(.nav-badge):not(.nav-new):not(.nav-star)');
     const label = (span ? span.textContent : (btn.textContent || '')).trim();
     const kw = _SIDEBAR_KW[label.toLowerCase()] || '';
     return { label, hay: (label + ' ' + kw).toLowerCase(), btn };
@@ -937,6 +937,95 @@ function _initNavNew() {
   } catch (_) {}
 }
 document.addEventListener('DOMContentLoaded', _initNavNew);
+
+// v3.14.0: sidebar favorites — star any grouped nav entry; starred copies are
+// cloned under the "Main" label so buried pages are one click away. Persisted
+// in localStorage. CSP-safe: stars + clones reuse the existing delegated
+// sidebar click handler (star toggle is intercepted there before navigation).
+const _FAV_LS_KEY = 'rp_favorites';
+const _FAV_STAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+function _getFavorites() {
+  try { return JSON.parse(localStorage.getItem(_FAV_LS_KEY) || '[]'); } catch (_) { return []; }
+}
+function _saveFavorites(favs) {
+  try { localStorage.setItem(_FAV_LS_KEY, JSON.stringify(favs)); } catch (_) {}
+}
+// Stable identity for a nav entry across reloads — page name, or action+arg
+// for the section-jump buttons (Targets, Ports, …), or an external link.
+function _favKey(btn) {
+  if (btn.dataset.page) return 'p:' + btn.dataset.page;
+  if (btn.dataset.action) return 'a:' + btn.dataset.action + ':' + (btn.dataset.arg || '');
+  if (btn.dataset.openHref) return 'h:' + btn.dataset.openHref;
+  return '';
+}
+function toggleFavorite(key) {
+  if (!key) return;
+  const favs = _getFavorites();
+  const i = favs.indexOf(key);
+  if (i >= 0) favs.splice(i, 1); else favs.push(key);
+  _saveFavorites(favs);
+  _renderFavorites();
+}
+function _renderFavorites() {
+  const wrap = document.getElementById('nav-favorites');
+  if (!wrap) return;
+  const favs = _getFavorites();
+  const faved = new Set(favs);
+  // Sync the star state on the original (in-group) nav buttons.
+  const sources = Array.from(document.querySelectorAll('.sidebar-group .nav-btn[data-fav]'));
+  sources.forEach(b => {
+    const star = b.querySelector('.nav-star');
+    if (!star) return;
+    const on = faved.has(b.dataset.fav);
+    star.classList.toggle('faved', on);
+    star.title = on ? 'Unpin from favorites' : 'Pin to favorites';
+    star.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  // Rebuild the pinned clones under the Main label.
+  wrap.innerHTML = '';
+  if (!favs.length) {
+    const hint = document.createElement('div');
+    hint.className = 'nav-fav-empty';
+    hint.textContent = 'Star a page to pin it here.';
+    wrap.appendChild(hint);
+    return;
+  }
+  favs.forEach(key => {
+    const src = sources.find(b => b.dataset.fav === key);
+    if (!src) return;
+    const clone = src.cloneNode(true);
+    clone.classList.add('nav-fav-clone');
+    clone.classList.remove('active');
+    const star = clone.querySelector('.nav-star');
+    if (star) { star.classList.add('faved'); star.title = 'Unpin from favorites'; star.setAttribute('aria-pressed', 'true'); }
+    wrap.appendChild(clone);
+  });
+}
+function _initFavorites() {
+  // Attach a hover-reveal star to every grouped nav entry (the buried ones
+  // worth pinning — the top-level Main rows are already at the top).
+  document.querySelectorAll('.sidebar-group .nav-btn').forEach(btn => {
+    if (btn.classList.contains('nav-fav-clone')) return;
+    if (btn.querySelector('.nav-star')) return; // idempotent
+    const key = _favKey(btn);
+    if (!key) return;
+    btn.dataset.fav = key;
+    const star = document.createElement('span');
+    star.className = 'nav-star';
+    star.setAttribute('role', 'button');
+    star.setAttribute('tabindex', '0');
+    star.setAttribute('aria-label', 'Toggle favorite');
+    star.title = 'Pin to favorites';
+    star.innerHTML = _FAV_STAR_SVG;
+    btn.appendChild(star);
+  });
+  _renderFavorites();
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initFavorites);
+} else {
+  _initFavorites();
+}
 
 function showPage(name, btn) {
   _markNavSeen(name);
@@ -18052,6 +18141,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const sidebarNav = document.querySelector('nav.sidebar');
   if (sidebarNav) {
     sidebarNav.addEventListener('click', e => {
+      // v3.14.0: a star toggle wins over navigation. stopPropagation keeps the
+      // click from reaching the document-level data-action dispatcher too.
+      const star = e.target.closest('.nav-star');
+      if (star) {
+        e.stopPropagation();
+        const b = star.closest('.nav-btn');
+        if (b) toggleFavorite(b.dataset.fav);
+        return;
+      }
+
       const navBtn = e.target.closest('.nav-btn[data-page]');
       if (navBtn) { showPage(navBtn.dataset.page, navBtn); return; }
 
@@ -18063,6 +18162,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const group = groupToggle.closest('.sidebar-group').dataset.group;
         toggleSidebarGroup(group);
       }
+    });
+    // Keyboard activation for the role=button star toggles.
+    sidebarNav.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const star = e.target.closest('.nav-star');
+      if (!star) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const b = star.closest('.nav-btn');
+      if (b) toggleFavorite(b.dataset.fav);
     });
   }
 

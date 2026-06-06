@@ -642,9 +642,11 @@ class TestFleetUI(unittest.TestCase):
         self.assertIn('audit-group-label', self.APP)
         # compliance/anomaly use the shared sev-pill vocabulary
         self.assertIn('sev-pill', self.APP)
-        # dismiss-on-visit nav "new" badge
+        # dismiss-on-visit nav "new" badge mechanism (the compliance badge
+        # itself was retired in v3.14.0 once Compliance was no longer new;
+        # the generic data-new mechanism is kept for future "new" pages).
         self.assertIn('function _markNavSeen', self.APP)
-        self.assertIn('data-new="compliance"', self.HTML)
+        self.assertIn('.nav-new[data-new]', self.APP)
 
 
 class TestCrossFeatureLinks(unittest.TestCase):

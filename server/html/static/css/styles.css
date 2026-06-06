@@ -2827,6 +2827,25 @@ button, a, [role="button"],
   border: 1px solid var(--accent); border-radius: 8px; padding: 0 5px; line-height: 14px;
 }
 
+/* v3.14.0: sidebar favorites — hover-reveal star + pinned clones under "Main" */
+.nav-favorites { display: flex; flex-direction: column; }
+.nav-fav-empty { font-size: 11px; color: var(--muted); padding: 2px 12px 6px; line-height: 1.35; }
+.nav-star {
+  margin-left: auto; flex-shrink: 0; display: inline-flex; align-items: center;
+  justify-content: center; width: 22px; height: 22px; border-radius: 6px;
+  color: var(--muted); opacity: 0; cursor: pointer;
+  transition: opacity .12s, color .12s, background .12s;
+}
+.nav-star svg { width: 14px; height: 14px; fill: none; }
+.nav-btn:hover .nav-star,
+.nav-btn:focus-within .nav-star { opacity: .85; }
+.nav-star:hover { opacity: 1; color: var(--text); background: var(--surface2); }
+.nav-star:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.nav-star.faved { opacity: 1; color: #f5c518; }
+.nav-star.faved svg { fill: #f5c518; }
+body.sidebar-collapsed .nav-star,
+body.sidebar-collapsed .nav-fav-empty { display: none; }
+
 /* v3.4.0: audit-section group labels (drawer) */
 .audit-group-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: .06em;

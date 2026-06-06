@@ -138,6 +138,9 @@
       <div id="sidebar-search-results" class="sidebar-search-results hidden"></div>
     </div>
     <div class="sidebar-label"><span>Main</span></div>
+    <!-- v3.14.0: starred sidebar entries are cloned into here (populated by
+         _initFavorites in app.js; persisted in localStorage 'rp_favorites'). -->
+    <div id="nav-favorites" class="nav-favorites"></div>
     <button class="nav-btn active" data-page="home" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
       <span>Home</span>
@@ -293,7 +296,7 @@
         <!-- v3.4.0: control-mapped compliance report -->
         <button class="nav-btn" data-page="compliance" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><polyline points="9 12 11 14 15 10"/></svg>
-          <span>Compliance</span><span class="nav-new" data-new="compliance">new</span>
+          <span>Compliance</span>
         </button>
       </div>
     </div>
