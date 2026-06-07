@@ -2046,6 +2046,30 @@
         </div>
 
         <div class="settings-section">
+          <h3>Process thresholds</h3>
+          <p class="hint">Fire <code>process_alert</code> (edge-triggered, with a <code>process_recovered</code> follow-up) when a process whose name matches crosses a CPU or memory threshold. Matched against the agent's top processes each heartbeat.</p>
+          <div id="process-watches-list" class="mb-12"></div>
+          <div class="settings-row isl-82">
+            <div class="form-group isl-83">
+              <label class="form-label">Process name contains</label>
+              <input type="text" id="pw-name" class="form-input" placeholder="postgres">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Metric</label>
+              <select id="pw-metric" class="form-input">
+                <option value="cpu">CPU %</option>
+                <option value="mem">Memory %</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Threshold %</label>
+              <input type="number" id="pw-threshold" class="form-input isl-81" value="80" min="1" max="100">
+            </div>
+            <button class="btn-secondary" data-action="addProcessWatch" >Add</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h3>Log ignore patterns</h3>
           <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc.</p>
           <div id="log-ignore-list" class="isl-85"></div>
@@ -2967,6 +2991,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p>Settings → Dashboard tab controls what appears on the home dashboard for all users:</p>
               <p><strong>Brute-force detection</strong> — enable/disable, set threshold (default 20 failed attempts from same IP in a 5-minute window), and window length.</p>
               <p><strong>Backup file monitoring</strong> — add file paths and max-age thresholds. The agent checks mtime every heartbeat; <code>backup_stale</code> webhook fires edge-triggered and a Needs Attention item appears.</p>
+              <p><strong>Process thresholds</strong> — watch a process by name and fire <code>process_alert</code> (edge-triggered, with a <code>process_recovered</code> follow-up) when its CPU or memory percentage crosses the limit. Evaluated server-side against each heartbeat's top processes.</p>
               <p><strong>Log ignore patterns</strong> — regex patterns (case-insensitive) that silently drop matching log lines before storage and alerting. Useful for noisy kernel notes like <code>Note: After setting.*old kernels</code>.</p>
               <p><strong>Needs Attention kinds</strong> — one toggle per alert type. Toggling a kind off hides it from both the Needs Attention panel and the Recent Activity feed simultaneously.</p>
               <p><strong>Recent Activity events</strong> — toggle the remaining informational events (device online, command queued/executed) independently.</p>

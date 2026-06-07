@@ -1304,6 +1304,92 @@ class TestKeyboardNav(unittest.TestCase):
         self.assertIn("e.key.toLowerCase() === 'k'", self.JS)
 
 
+class TestProcessWatch(_HandlerBase):
+    """v3.14.0 #36 — watched-process CPU/memory threshold alerting."""
+
+    def setUp(self):
+        super().setUp()
+        self._pw_state = api.PROCESS_ALERT_STATE_FILE
+        api.PROCESS_ALERT_STATE_FILE = self.d / 'process_alert_state.json'
+        self._orig_fire = api.fire_webhook
+        self.fired = []
+        api.fire_webhook = lambda ev, pl: self.fired.append((ev, pl))
+
+    def tearDown(self):
+        api.PROCESS_ALERT_STATE_FILE = self._pw_state
+        api.fire_webhook = self._orig_fire
+        super().tearDown()
+
+    def _watch(self, **kw):
+        w = {'name': 'postgres', 'metric': 'cpu', 'threshold': 80}
+        w.update(kw)
+        api.save(api.CONFIG_FILE, {'process_watches': [w]})
+
+    def test_breach_then_recover_edge_triggered(self):
+        self._watch()
+        # First breach → fires process_alert once.
+        api._eval_process_watches('d1', 'web',
+            [{'name': 'postgres', 'cpu': 92.0, 'mem': 5}], 1000)
+        self.assertEqual([e for e, _ in self.fired], ['process_alert'])
+        self.assertEqual(self.fired[0][1]['process'], 'postgres')
+        self.assertEqual(self.fired[0][1]['value'], 92.0)
+        # Still breaching → no duplicate fire.
+        self.fired.clear()
+        api._eval_process_watches('d1', 'web',
+            [{'name': 'postgres', 'cpu': 95.0, 'mem': 5}], 1001)
+        self.assertEqual(self.fired, [])
+        # Drops below threshold → process_recovered.
+        api._eval_process_watches('d1', 'web',
+            [{'name': 'postgres', 'cpu': 10.0, 'mem': 5}], 1002)
+        self.assertEqual([e for e, _ in self.fired], ['process_recovered'])
+
+    def test_dropping_out_of_topn_recovers(self):
+        self._watch()
+        api._eval_process_watches('d1', 'web', [{'name': 'postgres', 'cpu': 90}], 1)
+        self.fired.clear()
+        # Process no longer in the top-N list at all → recovery.
+        api._eval_process_watches('d1', 'web', [{'name': 'nginx', 'cpu': 5}], 2)
+        self.assertEqual([e for e, _ in self.fired], ['process_recovered'])
+
+    def test_mem_metric_and_no_match(self):
+        self._watch(metric='mem', threshold=50)
+        # CPU high but mem low → no fire (watch is on mem).
+        api._eval_process_watches('d1', 'web',
+            [{'name': 'postgres', 'cpu': 99, 'mem': 10}], 1)
+        self.assertEqual(self.fired, [])
+        # Mem crosses → fire.
+        api._eval_process_watches('d1', 'web',
+            [{'name': 'postgres', 'cpu': 1, 'mem': 70}], 2)
+        self.assertEqual([e for e, _ in self.fired], ['process_alert'])
+        self.assertEqual(self.fired[0][1]['metric'], 'mem')
+
+    def test_config_validation(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'process_watches': [
+            {'name': '  redis ', 'metric': 'MEM', 'threshold': 250},   # clamp 100, lower-case
+            {'name': '', 'metric': 'cpu'},                              # dropped (no name)
+            {'name': 'x', 'metric': 'bogus', 'threshold': 'nan'},      # metric→cpu, thr→80
+        ]}
+        self.call(api.handle_config_save)
+        saved = (api.load(api.CONFIG_FILE) or {}).get('process_watches')
+        self.assertEqual(len(saved), 2)
+        self.assertEqual(saved[0], {'name': 'redis', 'metric': 'mem', 'threshold': 100.0})
+        self.assertEqual(saved[1], {'name': 'x', 'metric': 'cpu', 'threshold': 80.0})
+
+    def test_registries_wired(self):
+        self.assertIn('process_alert', api.WEBHOOK_EVENT_NAMES)
+        self.assertIn('process_recovered', api.WEBHOOK_EVENT_NAMES)
+        self.assertEqual(api._alert_severity('process_alert',
+            {'metric': 'cpu', 'value': 90, 'threshold': 80}), 'medium')
+        self.assertEqual(api.EVENT_KIND_MAP.get('process_alert'), 'process')
+        self.assertEqual(api._ALERT_RECOVER.get('process_recovered'), 'process_alert')
+        title = api._alert_title('process_alert',
+            {'name': 'web', 'process': 'postgres', 'metric': 'cpu',
+             'value': 92.0, 'threshold': 80})
+        self.assertIn('postgres', title)
+        self.assertIn('CPU', title)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

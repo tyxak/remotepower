@@ -721,6 +721,10 @@ WEBHOOK_EVENTS = (
     ('ups_on_line',           'UPS returned to line power',                  True),
     ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
     ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
+    # v3.14.0 #36: a watched process crossed its CPU/memory threshold.
+    # Edge-triggered; process_recovered is the matching recover event.
+    ('process_alert',         'A watched process exceeded its CPU/memory threshold', True),
+    ('process_recovered',     'A watched process dropped back below its threshold',  True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -3269,6 +3273,7 @@ _ALERT_RULES = {
     'ups_on_battery':             ('critical', None),   # v3.14.0
     'cert_file_expiring':         ('medium', None),     # v3.14.0
     'rogue_uid0':                 ('high', None),        # v3.14.0
+    'process_alert':              ('medium', None),      # v3.14.0 #36
 }
 
 # Map recover event → firing event it resolves
@@ -3290,6 +3295,7 @@ _ALERT_RECOVER = {
     # alert (and scrub_overdue via _ALERT_RECOVER_EXTRA).
     'storage_recovered':       'storage_degraded',
     'ups_on_line':             'ups_on_battery',          # v3.14.0
+    'process_recovered':       'process_alert',           # v3.14.0 #36
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -3362,6 +3368,7 @@ CHANNEL_KINDS = [
     ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
     ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
     ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
+    ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -3726,6 +3733,13 @@ def _alert_title(event, payload):
                 f'{p.get("days","?")} days{extra}')
     if event == 'rogue_uid0':
         return f'Unexpected root-equivalent account on {name}: {p.get("user","?")} (UID 0)'
+    if event in ('process_alert', 'process_recovered'):
+        metric = 'CPU' if p.get('metric') == 'cpu' else 'memory'
+        unit = '%'
+        verb = 'recovered' if event == 'process_recovered' else 'high'
+        return (f'Process {verb} on {name}: {p.get("process","?")} '
+                f'{metric} {p.get("value","?")}{unit} '
+                f'(threshold {p.get("threshold","?")}{unit})')
     return f'{event}: {name}'
 
 
@@ -4449,6 +4463,8 @@ def _webhook_title(event):
         'ups_on_line':               'UPS Back On Line Power',
         'cert_file_expiring':        'Certificate File Expiring',
         'rogue_uid0':                'Unexpected Root-Equivalent Account',
+        'process_alert':             'Watched Process Threshold',
+        'process_recovered':         'Watched Process Recovered',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -8958,6 +8974,13 @@ def handle_heartbeat():
             _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
         except Exception as e:
             sys.stderr.write(f"[remotepower] posture ingest failed dev={dev_id}: {e}\n")
+    # v3.14.0 #36: watched-process CPU/memory threshold alerting.
+    if _si.get('top_processes'):
+        try:
+            _eval_process_watches(dev_id, saved_dev.get('name', dev_id),
+                                  _si['top_processes'], now)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] process watch eval failed dev={dev_id}: {e}\n")
     _hcc_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
     if _hcc_path.exists():
         try:
@@ -10958,6 +10981,31 @@ def handle_config_save():
                 entry['aliases'] = aliases
             meters.append(entry)
         cfg['software_meters'] = meters
+
+    # v3.14.0 #36: watched processes — fire process_alert when a process whose
+    # name matches `name` exceeds `threshold` percent of `metric` (cpu|mem).
+    # Evaluated server-side against the agent's top_processes each heartbeat.
+    if 'process_watches' in body:
+        raw_pw = body['process_watches'] if isinstance(body['process_watches'], list) else []
+        watches = []
+        for w in raw_pw[:100]:
+            if not isinstance(w, dict):
+                continue
+            nm = _sanitize_str(w.get('name', ''), 64).strip()
+            if not nm:
+                continue
+            metric = str(w.get('metric') or 'cpu').strip().lower()
+            if metric not in ('cpu', 'mem'):
+                metric = 'cpu'
+            try:
+                thr = float(w.get('threshold') or 80)
+                if thr != thr:               # reject nan (inf clamps via min/max below)
+                    thr = 80.0
+            except (TypeError, ValueError):
+                thr = 80.0
+            thr = max(1.0, min(100.0, thr))
+            watches.append({'name': nm, 'metric': metric, 'threshold': round(thr, 1)})
+        cfg['process_watches'] = watches
 
     # v3.4.2: CIS-style compliance baseline — which built-in checks are disabled.
     if 'compliance_baseline' in body:
@@ -14076,6 +14124,82 @@ def _resolve_alerts_for_events(events, match_rule=None, by='exposure-mute'):
     except Exception:
         pass
     return n
+
+
+PROCESS_ALERT_STATE_FILE = DATA_DIR / 'process_alert_state.json'
+
+
+def _eval_process_watches(dev_id, dev_name, top_processes, now):
+    """v3.14.0 #36: fire process_alert / process_recovered edge-triggered.
+
+    For each configured watch ({name, metric: cpu|mem, threshold}), find the
+    matching process in the agent's `top_processes` (case-insensitive name
+    substring) with the highest value of the watched metric. A watch is
+    "breaching" when that max value is >= threshold; it recovers when the
+    process falls below threshold OR drops out of the top-N entirely (the
+    agent only ships top-10-by-cpu ∪ top-10-by-mem, so a process that stops
+    being hot simply disappears — which is itself a recovery signal).
+
+    State is kept per (device, watch-key) in PROCESS_ALERT_STATE_FILE so each
+    watch fires once on the breach transition and once on recovery, matching
+    every other monitor in this file. Best-effort; never raises.
+    """
+    watches = (load(CONFIG_FILE) or {}).get('process_watches') or []
+    if not watches:
+        return
+    procs = [p for p in (top_processes or []) if isinstance(p, dict)]
+    fires = []   # (event, payload) tuples, fired after the lock releases
+    with _locked_update(PROCESS_ALERT_STATE_FILE) as state:
+        dev_state = state.setdefault(dev_id, {})
+        live_keys = set()
+        for w in watches[:100]:
+            nm = str(w.get('name') or '').strip().lower()
+            if not nm:
+                continue
+            metric = 'mem' if w.get('metric') == 'mem' else 'cpu'
+            try:
+                thr = float(w.get('threshold') or 80)
+            except (TypeError, ValueError):
+                thr = 80.0
+            key = f'{nm}|{metric}'
+            live_keys.add(key)
+            # Highest value of this metric among matching processes.
+            best = None
+            best_name = nm
+            for p in procs:
+                pname = str(p.get('name') or '')
+                if nm in pname.lower():
+                    val = p.get(metric)
+                    if isinstance(val, (int, float)) and (best is None or val > best):
+                        best = float(val)
+                        best_name = pname
+            breaching = best is not None and best >= thr
+            was = bool(dev_state.get(key, {}).get('breaching'))
+            if breaching and not was:
+                fires.append(('process_alert', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'process': best_name, 'metric': metric,
+                    'value': round(best, 1), 'threshold': round(thr, 1),
+                }))
+            elif not breaching and was:
+                prev = dev_state.get(key, {})
+                fires.append(('process_recovered', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'process': prev.get('process', best_name), 'metric': metric,
+                    'value': round(best, 1) if best is not None else 0,
+                    'threshold': round(thr, 1),
+                }))
+            dev_state[key] = {'breaching': breaching, 'process': best_name,
+                              'value': round(best, 1) if best is not None else None,
+                              'ts': now}
+        # Drop state for watches the operator deleted so it can't leak/refire.
+        for stale in [k for k in dev_state if k not in live_keys]:
+            dev_state.pop(stale, None)
+    for event, payload in fires:
+        try:
+            fire_webhook(event, payload)
+        except Exception:
+            pass
 
 
 def _audit_listening_ports(dev_id, dev_name, ports):

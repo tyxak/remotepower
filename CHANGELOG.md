@@ -10,6 +10,11 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Process-level alerting.** *Settings → Notifications → Process thresholds*
+  lets you watch a process by name and fire `process_alert` (edge-triggered,
+  with a `process_recovered` follow-up) when it crosses a CPU or memory
+  percentage. Evaluated server-side against each heartbeat's top processes;
+  routed through the full alert/webhook/dashboard matrix like any other event.
 - **Keyboard-first navigation.** The `g`-prefix jump shortcuts (`g h` Home,
   `g d` Devices, `g a` Audit, `g l` Logs, `g c` CVE, `g m` Monitoring, `g r`
   Reports, `g t` Trends, `g v` Server status, `g s` Settings) and the `?` cheat

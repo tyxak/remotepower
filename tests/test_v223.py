@@ -87,7 +87,8 @@ class TestActivityFilter(unittest.TestCase):
         # v2.4.8: widened — the de-dup block lengthened the function.
         # v3.4.2: widened again — added image/health events to FLEET_EVENTS.
         # v3.12.0: widened again — added db_integrity_failed to FLEET_EVENTS.
-        chunk = self.js[func_start:func_start + 3800]
+        # v3.14.0: widened again — added process_alert/process_recovered.
+        chunk = self.js[func_start:func_start + 4000]
         self.assertIn('.filter(', chunk)
         self.assertIn('.slice(', chunk)
         filter_pos = chunk.find('.filter(')

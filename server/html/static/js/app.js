@@ -12070,6 +12070,8 @@ function _renderHomeActivity(fleetEvents) {
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue',
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'cert_file_expiring', 'rogue_uid0',
+    // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
+    'process_alert', 'process_recovered',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -12228,6 +12230,9 @@ function _homeActivityAttrs(event, p) {
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':
     case 'cert_file_expiring': case 'rogue_uid0':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    // v3.14.0 #36: a watched process crossed its threshold → open the host.
+    case 'process_alert': case 'process_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
@@ -13892,6 +13897,7 @@ async function loadDashboardSettings() {
 
   // Backup monitors
   renderBackupMonitors(cfg.backup_monitors || []);
+  renderProcessWatches(cfg.process_watches || []);
 }
 
 // v3.2.3: channel routing matrix. The server is canonical for the kind
@@ -14099,6 +14105,49 @@ async function removeBackupMonitor(idx) {
   else if (_backupEditIdx > idx) _backupEditIdx -= 1;
   const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
   if (r?.ok) { renderBackupMonitors(_backupMonitors); toast('Removed', 'info'); }
+  else toast('Failed', 'error');
+}
+
+// ─── v3.14.0 #36: watched-process CPU/memory thresholds ────────────────────
+// Same list-editor shape as backup monitors: add/remove rows, each POSTs the
+// whole list to /config. Server fires process_alert / process_recovered.
+let _processWatches = [];
+function renderProcessWatches(watches) {
+  _processWatches = watches || [];
+  const el = document.getElementById('process-watches-list');
+  if (!el) return;
+  if (!_processWatches.length) {
+    el.innerHTML = '<div class="isl-616">No process thresholds configured.</div>';
+    return;
+  }
+  el.innerHTML = _processWatches.map((w, i) => `
+    <div class="isl-617">
+      <span class="isl-618"><code>${escHtml(w.name)}</code></span>
+      <span class="cmd-badge">${w.metric === 'mem' ? 'Memory' : 'CPU'} ≥ ${escHtml(String(w.threshold))}%</span>
+      <button class="btn-icon c-red" data-action="removeProcessWatch" data-arg="${i}">✕</button>
+    </div>`).join('');
+}
+
+async function addProcessWatch() {
+  const name = document.getElementById('pw-name').value.trim();
+  const metric = document.getElementById('pw-metric').value === 'mem' ? 'mem' : 'cpu';
+  let threshold = parseFloat(document.getElementById('pw-threshold').value);
+  if (!name) { toast('Process name required', 'error'); return; }
+  if (!(threshold > 0 && threshold <= 100)) threshold = 80;
+  _processWatches.push({name, metric, threshold});
+  const r = await api('POST', '/config', {process_watches: _processWatches});
+  if (r?.ok) {
+    toast('Process threshold added', 'success');
+    document.getElementById('pw-name').value = '';
+    document.getElementById('pw-threshold').value = '80';
+    renderProcessWatches(_processWatches);
+  } else { _processWatches.pop(); toast(r?.error || 'Failed', 'error'); }
+}
+
+async function removeProcessWatch(idx) {
+  _processWatches.splice(idx, 1);
+  const r = await api('POST', '/config', {process_watches: _processWatches});
+  if (r?.ok) { renderProcessWatches(_processWatches); toast('Removed', 'info'); }
   else toast('Failed', 'error');
 }
 
