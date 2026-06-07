@@ -1786,7 +1786,9 @@ class TestSecretsAgentParity(unittest.TestCase):
                                                       _ROOT / "client/remotepower-agent.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
+        import shutil
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)   # don't litter /tmp with the fixture
         (Path(d) / 'creds.env').write_text(
             "AWS_KEY = AKIAIOSFODNN7EXAMPLE\npassword = supersecret12345\n")
         findings = mod.collect_secret_findings([d])
