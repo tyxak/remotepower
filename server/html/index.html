@@ -1440,6 +1440,20 @@
             <div class="settings-row"><button class="btn-secondary" data-action="testSiem">Send test event</button></div>
           </div>
 
+          <!-- v3.14.0 #28: OpenTelemetry (OTLP/HTTP) metrics export -->
+          <div class="settings-section">
+            <h3>OpenTelemetry export (OTLP)</h3>
+            <p class="hint">Push rolled-up fleet gauges (devices online/offline, alerts by severity, health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, or any OTLP endpoint. The push piggybacks on agent heartbeats, rate-limited to the interval below. Same metrics Prometheus scrapes at <code>/api/metrics</code>, pushed instead of pulled.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-enabled"> Enable OTLP export</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-endpoint">Collector endpoint</label>
+              <input type="url" id="cfg-otlp-endpoint" class="form-input" placeholder="http://collector:4318 (›/v1/metrics added)"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-interval">Min push interval (seconds)</label>
+              <input type="number" id="cfg-otlp-interval" class="form-input mw-160" min="15" max="3600" placeholder="60"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-otlp-token">Bearer token</label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-otlp-token" class="form-input" placeholder="optional bearer token" autocomplete="off"></form></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testOtlp">Push metrics now</button></div>
+          </div>
+
           <div class="settings-section">
             <h3>Session length</h3>
             <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>

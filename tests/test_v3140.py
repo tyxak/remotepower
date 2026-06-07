@@ -1559,6 +1559,116 @@ class TestBandwidth(unittest.TestCase):
         self.assertIn('scrollable-table-wrap', self.JS[idx:idx + 600])
 
 
+class TestOtlpExport(_HandlerBase):
+    """v3.14.0 #28 — OTLP/HTTP metrics export (push, interval-gated)."""
+
+    def setUp(self):
+        super().setUp()
+        self._otlp_state = api.OTLP_STATE_FILE
+        api.OTLP_STATE_FILE = self.d / 'otlp_state.json'
+        self._orig_post = api._siem_post
+        self.posts = []
+        api._siem_post = lambda url, data, headers, cfg: self.posts.append((url, data, headers))
+
+    def tearDown(self):
+        api.OTLP_STATE_FILE = self._otlp_state
+        api._siem_post = self._orig_post
+        super().tearDown()
+
+    def test_endpoint_appends_metrics_path(self):
+        self.assertEqual(api._otlp_endpoint('http://c:4318'), 'http://c:4318/v1/metrics')
+        self.assertEqual(api._otlp_endpoint('http://c:4318/v1/metrics'),
+                         'http://c:4318/v1/metrics')
+        self.assertEqual(api._otlp_endpoint(''), '')
+
+    def test_payload_is_spec_shaped(self):
+        p = api._otlp_payload([('remotepower.devices.online', 5)], 1700000000000000000)
+        dp = p['resourceMetrics'][0]['scopeMetrics'][0]['metrics'][0]['gauge']['dataPoints'][0]
+        # OTLP/JSON encodes int64 fields as STRINGS
+        self.assertEqual(dp['asInt'], '5')
+        self.assertEqual(dp['timeUnixNano'], '1700000000000000000')
+
+    def test_export_gated_on_enabled_and_endpoint(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a', 'last_seen': 1, 'monitored': True}})
+        api._export_otlp({})                                         # disabled
+        api._export_otlp({'otlp_enabled': True})                     # no endpoint
+        self.assertEqual(self.posts, [])
+        api._export_otlp({'otlp_enabled': True, 'otlp_endpoint': 'http://c:4318'})
+        self.assertEqual(len(self.posts), 1)
+        self.assertEqual(self.posts[0][0], 'http://c:4318/v1/metrics')
+
+    def test_interval_gate(self):
+        api.save(api.CONFIG_FILE, {'otlp_enabled': True, 'otlp_endpoint': 'http://c:4318',
+                                   'otlp_interval': 60})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a', 'last_seen': 1}})
+        api._maybe_export_otlp()
+        api._maybe_export_otlp()            # immediately again — gated out
+        self.assertEqual(len(self.posts), 1)
+
+    def test_config_validation_and_secret(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'otlp_enabled': True,
+                                     'otlp_endpoint': 'http://c:4318',
+                                     'otlp_interval': 5, 'otlp_token': 'sk'}
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg['otlp_interval'], 15)           # clamped up to floor
+        self.assertEqual(cfg['otlp_token'], 'sk')
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        self.assertTrue(got['otlp_token_set'])
+        self.assertNotIn('otlp_token', got)
+
+    def test_test_endpoint_requires_enabled(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        self.call(api.handle_otlp_test)
+        self.assertEqual(self.cap['s'], 400)
+
+
+class TestReleaseChannels(_HandlerBase):
+    """v3.14.0 #38 — agent release channels (inert until a beta binary ships)."""
+
+    def setUp(self):
+        super().setUp()
+        self._beta = api._AGENT_BETA_PATH
+        api._AGENT_BETA_PATH = self.d / 'remotepower-agent-beta'
+
+    def tearDown(self):
+        api._AGENT_BETA_PATH = self._beta
+        os.environ.pop('QUERY_STRING', None)
+        super().tearDown()
+
+    def test_defaults_to_stable(self):
+        os.environ['QUERY_STRING'] = ''
+        self.assertEqual(api._resolve_agent_channel(), 'stable')
+
+    def test_beta_requested_but_not_published_is_stable(self):
+        os.environ['QUERY_STRING'] = 'channel=beta'
+        self.assertEqual(api._resolve_agent_channel(), 'stable')  # no beta binary
+
+    def test_beta_resolves_only_when_published(self):
+        api._AGENT_BETA_PATH.write_bytes(b'#!/usr/bin/env python3\n')
+        os.environ['QUERY_STRING'] = 'channel=beta'
+        self.assertEqual(api._resolve_agent_channel(), 'beta')
+
+    def test_device_channel_via_query(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a', 'update_channel': 'beta'}})
+        api._AGENT_BETA_PATH.write_bytes(b'x')
+        os.environ['QUERY_STRING'] = 'device_id=d1'
+        self.assertEqual(api._resolve_agent_channel(), 'beta')
+
+    def test_device_update_validates_channel(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'update_channel': 'BETA'}
+        self.call(api.handle_device_save_bulk, 'd1')
+        self.assertEqual((api.load(api.DEVICES_FILE))['d1']['update_channel'], 'beta')
+        api.get_json_body = lambda: {'update_channel': 'nonsense'}
+        self.call(api.handle_device_save_bulk, 'd1')
+        self.assertEqual((api.load(api.DEVICES_FILE))['d1']['update_channel'], 'stable')
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

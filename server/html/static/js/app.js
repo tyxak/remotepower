@@ -2169,6 +2169,16 @@ async function loadSettings() {
     const stk = document.getElementById('cfg-siem-token');
     if (stk) stk.placeholder = data.siem_token_set ? '•••••• (set — leave blank to keep)' : 'HEC token / API key / bearer';
   }
+  // v3.14.0 #28: OTLP export
+  const _otlpEn = document.getElementById('cfg-otlp-enabled');
+  if (_otlpEn) {
+    _otlpEn.checked = !!data.otlp_enabled;
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v ?? ''; };
+    set('cfg-otlp-endpoint', data.otlp_endpoint || '');
+    set('cfg-otlp-interval', data.otlp_interval || 60);
+    const otk = document.getElementById('cfg-otlp-token');
+    if (otk) otk.placeholder = data.otlp_token_set ? '•••••• (set — leave blank to keep)' : 'optional bearer token';
+  }
   const _cae = document.getElementById('cfg-change-approval-enabled');
   if (_cae) {
     _cae.checked = !!data.change_approval_enabled;
@@ -2380,6 +2390,14 @@ async function testSiem() {
   if (d?.ok) toast('Test event sent to the configured SIEM', 'success');
   else toast(d?.error || 'SIEM test failed', 'error');
 }
+// v3.14.0 #28: OTLP push test — save first so the just-typed endpoint/token apply.
+async function testOtlp() {
+  toast('Saving & pushing metrics…', 'info');
+  await saveSettings();
+  const d = await api('POST', '/otlp/test', {});
+  if (d?.ok) toast('Metrics pushed to the OTLP collector', 'success');
+  else toast(d?.error || 'OTLP push failed', 'error');
+}
 async function saveSettings(btn) {
   const webhook_events = {};
   document.querySelectorAll('#event-toggle-table .toggle-webhook').forEach(cb => {
@@ -2497,6 +2515,15 @@ async function saveSettings(btn) {
     payload.siem_url    = (document.getElementById('cfg-siem-url')?.value || '').trim();
     const _siemTok = document.getElementById('cfg-siem-token')?.value;
     if (_siemTok) payload.siem_token = _siemTok;
+  }
+  // v3.14.0 #28: OTLP export
+  const _otlpSaveEn = document.getElementById('cfg-otlp-enabled');
+  if (_otlpSaveEn) {
+    payload.otlp_enabled = _otlpSaveEn.checked;
+    payload.otlp_endpoint = (document.getElementById('cfg-otlp-endpoint')?.value || '').trim();
+    payload.otlp_interval = parseInt(document.getElementById('cfg-otlp-interval')?.value || '60', 10);
+    const _otlpTok = document.getElementById('cfg-otlp-token')?.value;
+    if (_otlpTok) payload.otlp_token = _otlpTok;
   }
   const _caEn = document.getElementById('cfg-change-approval-enabled');
   if (_caEn) {
@@ -14442,6 +14469,15 @@ function _renderDrawerSettings() {
       <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30">
       <span class="hint">seconds</span>
     </div>
+    ${isAgentless ? '' : `
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Release channel</span>
+      <select class="form-input isl-621" id="ds-channel">
+        <option value="stable" ${(d.update_channel||'stable')!=='beta'?'selected':''}>Stable</option>
+        <option value="beta" ${(d.update_channel||'stable')==='beta'?'selected':''}>Beta</option>
+      </select>
+      <span class="hint">Beta receives new agent builds first (when a beta release is published).</span>
+    </div>`}
     <div class="drawer-setting-row isl-622">
       <span class="drawer-setting-label isl-623">Watched services</span>
       <input class="form-input isl-619" id="ds-services" value="${escAttr(watched)}" placeholder="nginx, sshd, postfix">
@@ -14584,6 +14620,9 @@ async function _drawerSaveSettings() {
     body.reachability = reachEl.value;
     body.manual_status = !!document.getElementById('ds-manual-status')?.checked;
   }
+  // v3.14.0 #38: agent release channel (form only shows it for agent devices).
+  const chEl = document.getElementById('ds-channel');
+  if (chEl) body.update_channel = chEl.value;
 
   const r = await api('POST', `/devices/${id}`, body);
   if (r?.ok) toast('Settings saved', 'success');

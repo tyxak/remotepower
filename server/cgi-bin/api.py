@@ -3148,6 +3148,152 @@ def handle_siem_test():
     respond(200, {'ok': True, 'message': 'Test event sent to the configured SIEM.'})
 
 
+# ─── v3.14.0 #28: OpenTelemetry (OTLP/HTTP) metrics export ───────────────────
+# Pushes the same rolled-up fleet gauges Prometheus already scrapes (/api/
+# metrics) to an OTLP/HTTP collector. Push-based, so it piggybacks on the
+# heartbeat with a min-interval gate (the server is CGI — no background loop),
+# mirroring _maybe_run_scheduled_backup. SSRF-guarded like the SIEM forwarder.
+OTLP_STATE_FILE = DATA_DIR / 'otlp_state.json'
+
+
+def _otlp_fleet_gauges():
+    """The numbers to export, computed read-only from current state.
+    Returns a list of (metric_name, int_value) — None values are dropped."""
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    online = offline = 0
+    for dev in devices.values():
+        if not isinstance(dev, dict) or dev.get('agentless') or not dev.get('monitored', True):
+            continue
+        last = dev.get('last_seen', 0)
+        if not last:
+            continue
+        if (now - last) > ttl:
+            offline += 1
+        else:
+            online += 1
+    items = _compute_attention()
+    counts = {'critical': 0, 'warning': 0, 'info': 0}
+    for i in items:
+        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    try:
+        score = _fleet_health().get('score')
+    except Exception:
+        score = None
+    gauges = [
+        ('remotepower.devices.online',  online),
+        ('remotepower.devices.offline', offline),
+        ('remotepower.devices.total',   online + offline),
+        ('remotepower.alerts.critical', counts['critical']),
+        ('remotepower.alerts.warning',  counts['warning']),
+        ('remotepower.alerts.info',     counts['info']),
+        ('remotepower.alerts.total',    len(items)),
+        ('remotepower.health.score',    score),
+    ]
+    return [(n, v) for n, v in gauges if v is not None]
+
+
+def _otlp_payload(gauges, now_ns):
+    """Build an OTLP/HTTP JSON ExportMetricsServiceRequest. OTLP/JSON encodes
+    int64 fields (timeUnixNano, asInt) as strings — kept spec-correct so real
+    collectors (otel-collector, Grafana Alloy) accept it."""
+    metrics = [{
+        'name': name,
+        'unit': '1',
+        'gauge': {'dataPoints': [{
+            'timeUnixNano': str(now_ns),
+            'asInt': str(int(value)),
+        }]},
+    } for name, value in gauges]
+    return {'resourceMetrics': [{
+        'resource': {'attributes': [
+            {'key': 'service.name',
+             'value': {'stringValue': get_server_name() or 'remotepower'}},
+        ]},
+        'scopeMetrics': [{
+            'scope': {'name': 'remotepower', 'version': SERVER_VERSION},
+            'metrics': metrics,
+        }],
+    }]}
+
+
+def _otlp_endpoint(base):
+    """OTLP/HTTP metrics land at <endpoint>/v1/metrics; append it if the
+    operator gave just the collector base URL."""
+    base = (base or '').strip()
+    if not base:
+        return ''
+    if base.rstrip('/').endswith('/v1/metrics'):
+        return base
+    return base.rstrip('/') + '/v1/metrics'
+
+
+def _export_otlp(cfg):
+    """Push the fleet gauges to the configured OTLP collector. Best-effort."""
+    if not cfg.get('otlp_enabled'):
+        return
+    url = _otlp_endpoint(cfg.get('otlp_endpoint'))
+    if not url:
+        return
+    gauges = _otlp_fleet_gauges()
+    if not gauges:
+        return
+    now_ns = int(time.time()) * 1_000_000_000
+    body = json.dumps(_otlp_payload(gauges, now_ns)).encode()
+    headers = {'Content-Type': 'application/json'}
+    token = (cfg.get('otlp_token') or '').strip()
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    _siem_post(url, body, headers, cfg)   # reuse the SSRF-guarded POST
+
+
+def _maybe_export_otlp():
+    """Heartbeat hook: push OTLP at most once per otlp_interval (default 60s).
+    Cheap on the common path — one state read, an integer compare, return."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('otlp_enabled'):
+        return
+    try:
+        interval = max(15, min(3600, int(cfg.get('otlp_interval') or 60)))
+    except (TypeError, ValueError):
+        interval = 60
+    now = int(time.time())
+    try:
+        with _locked_update(OTLP_STATE_FILE) as st:
+            last = st.get('last_push', 0)
+            if now - last < interval:
+                return
+            st['last_push'] = now
+    except Exception:
+        return
+    try:
+        _export_otlp(cfg)
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] OTLP export failed: {e}\n')
+
+
+def handle_otlp_test():
+    """POST /api/otlp/test — push the fleet gauges to the OTLP collector now,
+    bypassing the interval gate, so the operator can confirm ingestion."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('otlp_enabled'):
+        respond(400, {'error': 'OTLP export is not enabled in settings.'})
+    if not _otlp_endpoint(cfg.get('otlp_endpoint')):
+        respond(400, {'error': 'No OTLP endpoint configured.'})
+    try:
+        _export_otlp(cfg)
+    except Exception as e:
+        respond(502, {'error': f'Export failed: {str(e)[:200]}'})
+    respond(200, {'ok': True, 'message': 'Metrics pushed to the OTLP collector.'})
+
+
 # v3.2.0 (B-fix): inbound webhook + syslog hit log
 def _log_inbound(kind, token_id, label, status, detail=''):
     """Append an entry to the inbound webhook log (last MAX_INBOUND_WEBHOOK_LOG).
@@ -6105,6 +6251,8 @@ def handle_devices_list():
             'last_seen': last_ping, 'enrolled': dev.get('enrolled', 0),
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60),
+            'update_channel': dev.get('update_channel', 'stable'),   # v3.14.0 #38
+
             'agentless':    agentless,
             'connected_to': dev.get('connected_to', ''),
             'device_type':  dev.get('device_type', ''),
@@ -6388,6 +6536,14 @@ def handle_device_save_bulk(dev_id):
     # monitored — bool
     if 'monitored' in body:
         updates['monitored'] = bool(body.get('monitored'))
+
+    # v3.14.0 #38: agent release channel (stable|beta). 'beta' devices are
+    # advertised the beta binary by /api/agent/version when one is published;
+    # absent a beta binary, beta resolves to stable (so this is inert until an
+    # operator publishes a beta release). Default stable.
+    if 'update_channel' in body:
+        ch = _sanitize_str(body.get('update_channel') or '', 16).lower()
+        updates['update_channel'] = ch if ch in ('stable', 'beta') else 'stable'
 
     # v3.3.4: agentless reachability mode + manual up/down. 'icmp' pings
     # the host each sweep; 'manual' uses manual_status (set by the Up/Down
@@ -8207,6 +8363,12 @@ def handle_heartbeat():
         _maybe_run_scheduled_backup()
     except Exception as _bk:
         sys.stderr.write(f'[remotepower] scheduled backup hook error: {_bk}\n')
+    # v3.14.0 #28: opportunistic OTLP metrics push (interval-gated, ~1 file read
+    # when not due). Same piggyback pattern as the scheduled-backup hook.
+    try:
+        _maybe_export_otlp()
+    except Exception as _ot:
+        sys.stderr.write(f'[remotepower] OTLP hook error: {_ot}\n')
     body = get_json_body()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
@@ -10545,6 +10707,11 @@ def handle_config_get():
     safe.setdefault('siem_format', 'raw')
     safe.setdefault('siem_url', '')
     safe['siem_token_set'] = bool(cfg.get('siem_token'))
+    # v3.14.0 #28: OTLP export — surface config + a *_set flag, never the token.
+    safe.setdefault('otlp_enabled', False)
+    safe.setdefault('otlp_endpoint', '')
+    safe.setdefault('otlp_interval', 60)
+    safe['otlp_token_set'] = bool(cfg.get('otlp_token'))
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
@@ -11375,6 +11542,27 @@ def handle_config_save():
             cfg['siem_token'] = t[:512]
         else:
             cfg.pop('siem_token', None)
+
+    # v3.14.0 #28: OTLP/HTTP metrics export.
+    if 'otlp_enabled' in body:
+        cfg['otlp_enabled'] = bool(body['otlp_enabled'])
+    if 'otlp_endpoint' in body:
+        u = str(body['otlp_endpoint']).strip()
+        if u and not u.lower().startswith(('http://', 'https://')):
+            respond(400, {'error': 'otlp_endpoint must be http(s)://…'})
+        cfg['otlp_endpoint'] = u[:512]
+    if 'otlp_interval' in body:
+        try:
+            iv = int(body['otlp_interval'] or 60)
+        except (TypeError, ValueError):
+            respond(400, {'error': 'otlp_interval must be an integer'})
+        cfg['otlp_interval'] = max(15, min(3600, iv))
+    if 'otlp_token' in body:
+        t = str(body['otlp_token'])
+        if t != '':
+            cfg['otlp_token'] = t[:512]
+        else:
+            cfg.pop('otlp_token', None)
 
     # v3.7.0: change approval (maker-checker)
     if 'change_approval_enabled' in body:
@@ -12376,6 +12564,43 @@ def _get_agent_sha256():
     return sha
 
 
+# v3.14.0 #38: agent release channels. A published beta binary lives beside the
+# stable one. Channel resolution TRIPLE-defaults to stable, so the update path
+# only diverges when (a) the caller is explicitly on beta AND (b) a beta binary
+# is actually published — otherwise every agent gets the stable binary exactly
+# as before (the feature is inert until an operator publishes a beta release).
+_AGENT_BETA_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent-beta'
+
+
+def _sha256_file(path):
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+    except Exception:
+        return None
+
+
+def _resolve_agent_channel():
+    """Resolve the release channel for the current agent/version request from
+    ?channel= or the requesting ?device_id='s assigned update_channel. Returns
+    'beta' ONLY when beta is requested AND a beta binary exists on disk; else
+    'stable'. Never raises."""
+    try:
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        ch = (qs.get('channel') or [''])[0].lower()
+        if ch not in ('stable', 'beta'):
+            did = (qs.get('device_id') or [''])[0]
+            if did:
+                dev = (load(DEVICES_FILE) or {}).get(did) or {}
+                ch = (dev.get('update_channel') or 'stable').lower()
+            else:
+                ch = 'stable'
+        if ch == 'beta' and _AGENT_BETA_PATH.exists():
+            return 'beta'
+    except Exception:
+        pass
+    return 'stable'
+
+
 def handle_agent_version():
     """GET /api/agent/version — agent canonical identity.
 
@@ -12385,18 +12610,28 @@ def handle_agent_version():
     decision (a re-build with the same version still has a different
     hash and SHOULD trigger an update).
     """
-    sha = _get_agent_sha256()
+    # v3.14.0 #38: serve the beta identity to beta-channel callers when a beta
+    # binary is published; otherwise stable (the default for everyone).
+    channel = _resolve_agent_channel()
+    if channel == 'beta':
+        sha = _sha256_file(_AGENT_BETA_PATH)
+        bin_path = _AGENT_BETA_PATH
+    else:
+        sha = _get_agent_sha256()
+        bin_path = _AGENT_BINARY_PATH
     if sha is None:
-        respond(200, {'version': None, 'sha256': None, 'size': None})
+        respond(200, {'version': None, 'sha256': None, 'size': None, 'channel': channel})
     cfg = load(CONFIG_FILE)
     try:
-        size = _AGENT_BINARY_PATH.stat().st_size
+        size = bin_path.stat().st_size
     except OSError:
         size = None
+    _ver_key = 'agent_beta_version' if channel == 'beta' else 'agent_version'
     respond(200, {
-        'version': cfg.get('agent_version', 'unknown'),
+        'version': cfg.get(_ver_key, cfg.get('agent_version', 'unknown')),
         'sha256':  sha,
         'size':    size,
+        'channel': channel,
         # v3.4.2: cryptographic release signing. Advertise whether a detached
         # signature is published and the expected signing-key fingerprint so an
         # agent with a pinned key knows to require + check it.
@@ -12694,7 +12929,11 @@ def handle_agent_integrity():
 
 
 def handle_agent_download():
-    agent_path = Path('/var/www/remotepower/agent/remotepower-agent')
+    # v3.14.0 #38: serve the beta binary to beta-channel callers when published;
+    # _resolve_agent_channel returns 'beta' only if the beta file exists, so
+    # stable callers (the default) always get the canonical stable binary.
+    agent_path = _AGENT_BETA_PATH if _resolve_agent_channel() == 'beta' \
+        else Path('/var/www/remotepower/agent/remotepower-agent')
     if not agent_path.exists(): respond(404, {'error': 'Agent binary not found'})
     data = agent_path.read_bytes()
     print("Status: 200 OK"); print("Content-Type: application/octet-stream")
@@ -34217,6 +34456,7 @@ def _build_exact_routes():
         ('GET', '/api/audit-log'): handle_audit_log,
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
+        ('POST', '/api/otlp/test'): handle_otlp_test,
         ('GET', '/api/auth/oidc/callback'): handle_oidc_callback,
         ('GET', '/api/auth/oidc/start'): handle_oidc_start,
         ('POST', '/api/auth/oidc/test'): handle_oidc_test,

@@ -10,6 +10,18 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **OpenTelemetry export (OTLP).** *Settings → Security → OpenTelemetry export*
+  pushes rolled-up fleet gauges (devices online/offline, alerts by severity,
+  health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, any
+  OTLP endpoint. Push piggybacks on heartbeats with a configurable min-interval
+  gate; spec-correct OTLP/JSON (int64 fields as strings). SSRF-guarded; token
+  write-only. Same numbers Prometheus scrapes at `/api/metrics`, pushed instead.
+- **Agent release channels.** Devices can be put on a **Stable** or **Beta**
+  channel (device drawer → Release channel). When a beta agent binary is
+  published alongside the stable one, beta-channel devices are served it by
+  `/api/agent/version` + `/api/agent/download`; otherwise beta resolves to
+  stable, so the feature is inert for existing fleets and the default is always
+  stable.
 - **Network bandwidth (per interface).** The agent now reports per-interface
   throughput — in/out **bytes/sec** (diffed across heartbeats) plus lifetime
   totals — surfaced as a "Network bandwidth" card in the device drawer, busiest
