@@ -1472,6 +1472,54 @@ class TestSiemStreaming(_HandlerBase):
         self.assertEqual(self.cap['s'], 400)
 
 
+class TestHaBridge(_HandlerBase):
+    """v3.14.0 #49 — read-only Home Assistant bridge at /api/ha."""
+
+    def _set_qs(self, token):
+        os.environ['QUERY_STRING'] = f'token={token}' if token is not None else ''
+
+    def tearDown(self):
+        os.environ.pop('QUERY_STRING', None)
+        super().tearDown()
+
+    def test_requires_token(self):
+        api.save(api.CONFIG_FILE, {})           # no status token configured
+        self._set_qs('x')
+        self.call(api.handle_ha_bridge)
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_rejects_wrong_token(self):
+        api.save(api.CONFIG_FILE, {'status_token': 'correct'})
+        self._set_qs('wrong')
+        self.call(api.handle_ha_bridge)
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_flat_ha_shape(self):
+        api.save(api.CONFIG_FILE, {'status_token': 'tok'})
+        now = int(__import__('time').time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'a', 'last_seen': now, 'monitored': True},
+            'd2': {'name': 'b', 'last_seen': 1, 'monitored': True},      # offline
+            'd3': {'name': 'c', 'last_seen': now, 'agentless': True},    # skipped
+        })
+        self._set_qs('tok')
+        r = self.call(api.handle_ha_bridge)
+        # HA needs a flat, scalar `state` + attributes (no nested dicts).
+        self.assertIn(r['state'], ('ok', 'warning', 'critical'))
+        self.assertIn(r['problem'], ('on', 'off'))
+        self.assertEqual(r['devices_total'], 2)
+        self.assertEqual(r['devices_online'], 1)
+        self.assertEqual(r['devices_offline'], 1)
+        for k in ('alerts_critical', 'alerts_warning', 'alerts_info', 'alerts_total'):
+            self.assertIsInstance(r[k], int)
+        # Every attribute must be a scalar (HA json_attributes can't nest).
+        for v in r.values():
+            self.assertNotIsInstance(v, (dict, list))
+
+    def test_exempt_from_ip_allowlist(self):
+        self.assertIn('/api/ha', api._IP_ALLOWLIST_EXEMPT_PATHS)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

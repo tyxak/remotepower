@@ -10,6 +10,11 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Home Assistant bridge.** A read-only `GET /api/ha?token=…` endpoint (gated
+  by the existing status token) returns flat JSON shaped for a Home Assistant
+  REST sensor — `state` (ok/warning/critical) plus online/offline and alert
+  counts as scalar attributes, and a `problem` on/off field for a binary sensor.
+  One-way by design: status only, no control surface.
 - **SIEM event streaming.** *Settings → Security → SIEM event streaming* streams
   every fleet event and alert to **Splunk HEC**, **Elasticsearch**, **Grafana
   Loki**, or a raw JSON endpoint — each with its native envelope and auth scheme

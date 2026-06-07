@@ -1263,6 +1263,7 @@
           <div class="settings-section">
             <h3>Status endpoint</h3>
             <p class="hint">A machine-readable fleet summary at <code>/api/status</code> for external dashboards — Uptime Kuma, Homepage, Grafana. It needs a status token (not a login), so a monitoring tool can poll it, but it is not public. Generate a token to enable it.</p>
+            <p class="hint">The same token also powers a read-only <strong>Home Assistant</strong> bridge at <code>/api/ha?token=…</code> — flat JSON shaped for an HA REST sensor (<code>value_template: "{{ value_json.state }}"</code>), with online/offline and alert counts as attributes. One-way: status only, no control.</p>
             <div id="status-token-box">
               <button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>
             </div>

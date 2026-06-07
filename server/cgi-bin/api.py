@@ -2318,6 +2318,7 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     # without being on the operator's IP allowlist.
     '/api/metrics',
     '/api/status',
+    '/api/ha',          # v3.14.0 #49: Home Assistant bridge (status-token gated)
     # v3.4.2: agents POST OpenSCAP results here (self-authenticated by device
     # token); exempt so a host on a dynamic IP can still report.
     '/api/scap/report',
@@ -21681,6 +21682,86 @@ def handle_status():
     })
 
 
+def handle_ha_bridge():
+    """GET /api/ha?token=<status_token> — Home Assistant bridge.
+
+    A READ-ONLY, flat JSON snapshot shaped for Home Assistant's REST sensor:
+    a top-level `state` (the rolled-up health word HA uses as the sensor
+    state) plus flat scalar attributes (no nesting) so HA templates stay
+    trivial — e.g.
+
+        sensor:
+          - platform: rest
+            resource: https://rp.example/api/ha?token=XXX
+            value_template: "{{ value_json.state }}"
+            json_attributes: [devices_online, devices_offline,
+                              alerts_critical, alerts_warning, health_score]
+
+    Deliberately one-way: there is NO control surface here — operators act in
+    the web UI. Reuses the status token (enable the status endpoint in
+    Settings); without it, 403. Mirrors handle_status's computation."""
+    cfg = load(CONFIG_FILE) or {}
+    token = cfg.get('status_token')
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    given = (qs.get('token') or [''])[0]
+    if not token:
+        respond(403, {'error': 'status endpoint not enabled — generate a '
+                               'status token in Settings'})
+        return
+    if not _ct_token_eq(given, token):
+        respond(403, {'error': 'invalid or missing status token'})
+        return
+
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    online = offline = 0
+    for dev in devices.values():
+        if not isinstance(dev, dict) or dev.get('agentless') or not dev.get('monitored', True):
+            continue
+        last = dev.get('last_seen', 0)
+        if not last:
+            continue
+        if (now - last) > ttl:
+            offline += 1
+        else:
+            online += 1
+
+    items = _compute_attention()
+    counts = {'critical': 0, 'warning': 0, 'info': 0}
+    for i in items:
+        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    if counts['critical']:
+        state = 'critical'
+    elif counts['warning']:
+        state = 'warning'
+    else:
+        state = 'ok'
+    try:
+        health = _fleet_health()
+    except Exception:
+        health = {'score': None, 'grade': ''}
+
+    # Flat scalars only — HA's json_attributes can't descend into nested objects.
+    respond(200, {
+        'state':            state,
+        'problem':          'on' if state != 'ok' else 'off',  # HA binary_sensor
+        'server_name':      get_server_name(),
+        'devices_total':    online + offline,
+        'devices_online':   online,
+        'devices_offline':  offline,
+        'alerts_total':     len(items),
+        'alerts_critical':  counts['critical'],
+        'alerts_warning':   counts['warning'],
+        'alerts_info':      counts['info'],
+        'health_score':     health.get('score'),
+        'health_grade':     health.get('grade', ''),
+        'version':          SERVER_VERSION,
+        'generated':        now,
+    })
 
 
 def handle_status_token():
@@ -34301,6 +34382,7 @@ def _build_exact_routes():
         ('GET', '/api/fleet/disk-health'): handle_disk_health,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,
         ('GET', '/api/status'): handle_status,
+        ('GET', '/api/ha'): handle_ha_bridge,
         ('GET', '/api/tasks'): handle_tasks_list,
         ('POST', '/api/tasks'): handle_tasks_add,
         ('GET', '/api/tls/targets'): handle_tls_list,
