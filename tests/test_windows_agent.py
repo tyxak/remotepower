@@ -127,6 +127,40 @@ class TestParityCollectors(unittest.TestCase):
     def test_event_log_journal_empty_off_windows(self):
         self.assertEqual(agent.get_event_log_journal(), [])
 
+    def test_parse_local_accounts(self):
+        raw = ("Administrator|1|1700000000|1\n"
+               "Guest|0|0|0\n"
+               "svc|1|1690000000|0\n"
+               "garbage line without pipes\n")
+        out = agent._parse_local_accounts(raw, 1700000000 + 10 * 86400)
+        self.assertEqual(len(out), 3)
+        admin = out[0]
+        self.assertEqual(admin['user'], 'Administrator')
+        self.assertTrue(admin['login'] and admin['sudo'])
+        self.assertIn('admin', admin['flags'])
+        self.assertEqual(admin['uid'], -1)            # Windows has no numeric uid
+        self.assertEqual(admin['age_days'], 10)
+        guest = out[1]
+        self.assertFalse(guest['login'])
+        self.assertTrue(guest['locked'])
+        self.assertIn('disabled', guest['flags'])
+        self.assertIsNone(guest['age_days'])           # no PasswordLastSet
+
+    def test_local_accounts_empty_off_windows(self):
+        self.assertEqual(agent.get_local_accounts(), [])
+
+    def test_heartbeat_adds_accounts_on_cadence(self):
+        orig = agent.get_local_accounts
+        agent.get_local_accounts = lambda: [{'user': 'x', 'uid': -1, 'sudo': True,
+                                             'login': True, 'locked': False, 'flags': ['admin']}]
+        try:
+            on = agent.build_heartbeat({'device_id': 'd', 'token': 't'}, 1)
+            off = agent.build_heartbeat({'device_id': 'd', 'token': 't'}, 2)
+        finally:
+            agent.get_local_accounts = orig
+        self.assertEqual(on['accounts'][0]['user'], 'x')
+        self.assertNotIn('accounts', off)
+
     def test_sysinfo_includes_listening_ports_when_present(self):
         orig = agent.collect_listening_ports
         agent.collect_listening_ports = lambda: [

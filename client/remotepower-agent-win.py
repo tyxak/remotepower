@@ -9,8 +9,9 @@ Windows host can be managed:
   * heartbeat loop with core sysinfo (CPU / memory / disk / uptime / network)
   * remote reboot / shutdown / exec / poll-interval / uninstall
   * posture parity: Windows Update pending (→ Patches), listening ports
-    (→ Exposure + port audit), and the Event Log tail (→ Logs/journal), all in
-    the same shapes the Linux agent sends so the existing UI renders them
+    (→ Exposure + port audit), the Event Log tail (→ Logs/journal), and local
+    users (→ account audit), all in the same shapes the Linux agent sends so the
+    existing UI renders them
 
 Still pending for full parity: watched-service status, SMART, drift apply,
 signed self-update, and PyInstaller packaging — added in later phases, at which
@@ -256,6 +257,64 @@ def get_event_log_journal():
         return []
 
 
+# PowerShell: local users + whether each is in the Administrators group + when
+# its password was last set. One pipe-separated line per user.
+_LOCAL_USERS_PS = (
+    "$ErrorActionPreference='SilentlyContinue';"
+    "$admins=@(); try { $admins=@(Get-LocalGroupMember -Group 'Administrators' | "
+    "ForEach-Object { ($_.Name -split '\\\\')[-1] }) } catch {};"
+    "Get-LocalUser | ForEach-Object { "
+    "$pls=0; if ($_.PasswordLastSet) { $pls=[int][double]::Parse((Get-Date $_.PasswordLastSet -UFormat %s)) };"
+    "'{0}|{1}|{2}|{3}' -f $_.Name, [int][bool]$_.Enabled, $pls, [int]($admins -contains $_.Name) }"
+)
+
+
+def _parse_local_accounts(stdout, now):
+    """Map Get-LocalUser output to the server's account-audit shape
+    ({user, uid, shell, home, login, locked, sudo, age_days, flags}). Windows has
+    no numeric uid (SIDs) → uid=-1; Administrators membership → sudo/'admin' flag.
+    Pure — unit-testable off-Windows."""
+    out = []
+    for ln in (stdout or '').splitlines():
+        parts = ln.strip().split('|')
+        if len(parts) != 4 or not parts[0]:
+            continue
+        name, en, pls, adm = parts
+        enabled = en.strip() == '1'
+        is_admin = adm.strip() == '1'
+        try:
+            pls_i = int(pls)
+        except ValueError:
+            pls_i = 0
+        age = int((now - pls_i) / 86400) if pls_i > 0 else None
+        flags = []
+        if is_admin:
+            flags.append('admin')
+        if not enabled:
+            flags.append('disabled')
+        out.append({'user': name[:64], 'uid': -1, 'shell': '', 'home': '',
+                    'login': enabled, 'locked': not enabled, 'sudo': is_admin,
+                    'age_days': age, 'flags': flags})
+        if len(out) >= 200:
+            break
+    return out
+
+
+def get_local_accounts():
+    """Local Windows users → the server's account-audit card, or []. Off-Win []."""
+    if not sys.platform.startswith('win'):
+        return []
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive',
+                            '-Command', _LOCAL_USERS_PS],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return []
+        return _parse_local_accounts(r.stdout, int(time.time()))
+    except Exception:
+        return []
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -430,6 +489,9 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         journal = get_event_log_journal()      # Event Log tail → Logs page
         if journal:
             payload['journal'] = journal
+        accounts = get_local_accounts()        # local users → account audit card
+        if accounts:
+            payload['accounts'] = accounts
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')

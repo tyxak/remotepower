@@ -127,12 +127,13 @@ dependencies; most of it surfaces data the agent already reports. See
   by identical rules (OIDC now routes through them); this is the prerequisite for
   the upcoming SAML support. No behaviour change for existing logins.
 - **Windows agent — posture parity (pass 1).** The standalone Windows agent now
-  also reports **listening ports** (→ Exposure page + port audit) and a **Windows
+  also reports **listening ports** (→ Exposure page + port audit), a **Windows
   Event Log tail** (System/Application criticals/errors/warnings → the Logs page /
-  device journal), in the same shapes the Linux agent sends, on top of the
-  existing Windows Update pending (→ Patches). No server changes — the heartbeat
-  ingest is OS-agnostic. (Watched-service status, signed self-update and packaging
-  are still pending for full parity.)
+  device journal), and **local users** (Get-LocalUser + Administrators membership
+  → the account-audit card), in the same shapes the Linux agent sends, on top of
+  the existing Windows Update pending (→ Patches). No server changes — the
+  heartbeat ingest is OS-agnostic. (Watched-service status, signed self-update and
+  packaging are still pending for full parity.)
 - **GitOps — drift config from Git.** *Settings → Integrations → GitOps* can pull
   a JSON manifest from a raw Git URL and reconcile your **drift profiles**
   (watched-config-file sets) and their tag/group assignments to match it — so your
