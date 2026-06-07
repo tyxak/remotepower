@@ -10,6 +10,14 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Multi-tenancy — foundation (P1).** A tenant registry (`GET/POST /api/tenants`,
+  `PUT/DELETE /api/tenants/<id>`), user→tenant assignment
+  (`POST /api/tenants/<id>/users`, `tenant_id` on the user record), and the
+  caller's tenant in `GET /api/me`. This is **deliberately behaviour-neutral** —
+  everyone is in the built-in `default` tenant and nothing is partitioned or
+  filtered by tenant yet (the existing RBAC scopes still govern access). The
+  enforcing half (per-tenant storage isolation) is intentionally left for a
+  reviewed pass. *(Admin/API only in this release; no UI yet.)*
 - **SCIM 2.0 user provisioning.** An identity provider (Okta, Azure AD, OneLogin,
   …) can now **create and — critically — deactivate** users automatically via
   `/api/scim/v2/Users`. Deactivation (SCIM `active:false`, `PATCH`, or `DELETE`)

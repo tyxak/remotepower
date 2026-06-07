@@ -184,6 +184,9 @@ CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
 # always sees all); used to scope dashboard/device views, not as a security
 # wall. Registry: {site_id: {name, slug, created, created_by}}.
 SITES_FILE          = DATA_DIR / 'sites.json'
+TENANTS_FILE        = DATA_DIR / 'tenants.json'   # v3.14.0 (#24): tenancy control plane
+MAX_TENANTS         = 200
+DEFAULT_TENANT      = 'default'
 MAX_SITE_NAME_LEN   = 64
 MAX_SITES           = 500
 # v3.6.0
@@ -6564,6 +6567,137 @@ def handle_site_delete(site_id):
         save(DEVICES_FILE, devices)
     audit_log(actor, 'site_delete', detail=f'site={site_id} unassigned={touched}')
     respond(200, {'ok': True, 'unassigned': touched})
+
+
+# ── v3.14.0 (#24): multi-tenancy — P1 FOUNDATION ONLY ───────────────────────
+# A tenant registry + assignment of users to a tenant, plus surfacing the
+# caller's tenant. This is DELIBERATELY behaviour-neutral: NOTHING is filtered
+# or partitioned by tenant yet (all data stays shared, governed by the existing
+# RBAC scopes). The enforcing half — per-tenant storage isolation (schema-per-
+# tenant on Postgres / RLS) + threading tenant context through every handler — is
+# the security-sensitive part and is intentionally LEFT FOR REVIEW (see
+# docs/enterprise-scoping-internal.md). Building it unsupervised risks cross-
+# tenant leakage. Until then everyone is in the built-in 'default' tenant and the
+# product behaves exactly as before.
+
+def _load_tenants():
+    """Tenant registry; always contains the built-in 'default' tenant."""
+    t = load(TENANTS_FILE)
+    if not isinstance(t, dict):
+        t = {}
+    if DEFAULT_TENANT not in t:
+        t[DEFAULT_TENANT] = {'name': 'Default', 'status': 'active',
+                             'created': 0, 'builtin': True}
+    return t
+
+
+def _user_tenant(username):
+    """The tenant a user belongs to ('default' if unset/unknown)."""
+    u = (load(USERS_FILE) or {}).get(username) or {}
+    tid = u.get('tenant_id') or DEFAULT_TENANT
+    return tid if tid in _load_tenants() else DEFAULT_TENANT
+
+
+def _caller_tenant():
+    user, _ = verify_token(get_token_from_request())
+    return _user_tenant(user) if user else DEFAULT_TENANT
+
+
+def handle_tenants_list():
+    """GET /api/tenants — registry + per-tenant user counts. Admin only."""
+    require_admin_auth()
+    tenants = _load_tenants()
+    users = load(USERS_FILE) or {}
+    counts = {}
+    for u in users.values():
+        tid = u.get('tenant_id') or DEFAULT_TENANT
+        counts[tid] = counts.get(tid, 0) + 1
+    out = [{'id': tid, 'name': t.get('name', tid), 'status': t.get('status', 'active'),
+            'builtin': bool(t.get('builtin')), 'created': t.get('created', 0),
+            'user_count': counts.get(tid, 0)}
+           for tid, t in tenants.items()]
+    out.sort(key=lambda x: (not x['builtin'], x['name'].lower()))
+    respond(200, {'ok': True, 'tenants': out})
+
+
+def handle_tenant_create():
+    """POST /api/tenants — create a tenant {name}. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    name = _sanitize_str((get_json_body() or {}).get('name', ''), 64).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    with _LockedUpdate(TENANTS_FILE) as tenants:
+        if DEFAULT_TENANT not in tenants:
+            tenants[DEFAULT_TENANT] = {'name': 'Default', 'status': 'active',
+                                       'created': 0, 'builtin': True}
+        if len(tenants) >= MAX_TENANTS:
+            respond(400, {'error': f'tenant limit reached (max {MAX_TENANTS})'})
+        if any(t.get('name', '').lower() == name.lower() for t in tenants.values()):
+            respond(409, {'error': 'a tenant with that name already exists'})
+        tid = 'tn_' + secrets.token_urlsafe(8)
+        tenants[tid] = {'name': name, 'status': 'active',
+                        'created': int(time.time()), 'created_by': actor}
+    audit_log(actor, 'tenant_create', detail=f'tenant={tid} name={name}')
+    respond(200, {'ok': True, 'id': tid, 'name': name})
+
+
+def handle_tenant_update(tid):
+    """PUT /api/tenants/{id} — rename / set status (active|suspended). Admin."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    with _LockedUpdate(TENANTS_FILE) as tenants:
+        if tid not in tenants or tid == DEFAULT_TENANT:
+            respond(404, {'error': 'tenant not found'} if tid != DEFAULT_TENANT
+                    else {'error': 'the default tenant cannot be modified'})
+        if 'name' in body:
+            nm = _sanitize_str(body.get('name', ''), 64).strip()
+            if not nm:
+                respond(400, {'error': 'name cannot be empty'})
+            tenants[tid]['name'] = nm
+        if 'status' in body and body['status'] in ('active', 'suspended'):
+            tenants[tid]['status'] = body['status']
+    audit_log(actor, 'tenant_update', detail=f'tenant={tid}')
+    respond(200, {'ok': True, 'id': tid})
+
+
+def handle_tenant_delete(tid):
+    """DELETE /api/tenants/{id}. Refuses the default tenant and any tenant that
+    still has users assigned (reassign them first). Admin only."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if tid == DEFAULT_TENANT:
+        respond(400, {'error': 'the default tenant cannot be deleted'})
+    users = load(USERS_FILE) or {}
+    assigned = [u for u, d in users.items() if (d.get('tenant_id') or DEFAULT_TENANT) == tid]
+    if assigned:
+        respond(409, {'error': f'{len(assigned)} user(s) still assigned — reassign them first'})
+    with _LockedUpdate(TENANTS_FILE) as tenants:
+        if tid not in tenants:
+            respond(404, {'error': 'tenant not found'})
+        tenants.pop(tid, None)
+    audit_log(actor, 'tenant_delete', detail=f'tenant={tid}')
+    respond(200, {'ok': True})
+
+
+def handle_tenant_assign_user(tid):
+    """POST /api/tenants/{id}/users {username} — assign a user to a tenant. Admin."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if tid not in _load_tenants():
+        respond(404, {'error': 'tenant not found'})
+    username = _sanitize_str((get_json_body() or {}).get('username', ''), 64)
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            respond(404, {'error': 'user not found'})
+        users[username]['tenant_id'] = tid
+    audit_log(actor, 'tenant_assign_user', detail=f'tenant={tid} user={username}')
+    respond(200, {'ok': True, 'username': username, 'tenant_id': tid})
 
 
 def handle_device_site(dev_id):
@@ -24394,6 +24528,9 @@ def handle_me():
         'favorites':            _clean_favorites(u.get('favorites')),
         # v3.14.0 (#26): saved interface language (UI-only i18n). Default English.
         'lang':                 u.get('lang') if u.get('lang') in SUPPORTED_LANGS else 'en',
+        # v3.14.0 (#24): tenant the user belongs to (foundation; 'default' for all
+        # until per-tenant isolation lands).
+        'tenant':               _user_tenant(user),
     })
 
 
@@ -33632,6 +33769,9 @@ def _build_exact_routes():
         # v3.5.0: sites/teams registry
         ('GET', '/api/sites'): handle_sites_list,
         ('POST', '/api/sites'): handle_site_create,
+        # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
+        ('GET', '/api/tenants'): handle_tenants_list,
+        ('POST', '/api/tenants'): handle_tenant_create,
         # v3.6.0: backup orchestration + auto-patch policies
         ('GET', '/api/backup-jobs'): handle_backup_jobs_list,
         ('POST', '/api/backup-jobs'): handle_backup_job_create,
@@ -34151,6 +34291,13 @@ def _dispatch(pi, m):
     elif pi == '/api/gitops' and m == 'GET':  handle_gitops_get()
     elif pi == '/api/gitops' and m == 'PUT':  handle_gitops_set()
     elif pi == '/api/gitops/sync' and m == 'POST': handle_gitops_sync()
+    # v3.14.0 (#24): tenant control plane (id-path ops)
+    elif pi.startswith('/api/tenants/') and pi.endswith('/users') and m == 'POST':
+        handle_tenant_assign_user(pi[len('/api/tenants/'):-len('/users')])
+    elif pi.startswith('/api/tenants/') and m == 'PUT':
+        handle_tenant_update(pi[len('/api/tenants/'):])
+    elif pi.startswith('/api/tenants/') and m == 'DELETE':
+        handle_tenant_delete(pi[len('/api/tenants/'):])
     # v3.14.0 (#30): SCIM 2.0 user provisioning (IdP-driven create/deactivate)
     elif pi == '/api/scim/v2/Users': handle_scim_users_collection()
     elif pi.startswith('/api/scim/v2/Users/'):

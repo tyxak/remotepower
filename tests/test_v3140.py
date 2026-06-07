@@ -83,7 +83,7 @@ class _HandlerBase(unittest.TestCase):
                      'CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE', 'PACKAGES_FILE',
                      'SCHEDULE_FILE', 'CMDS_FILE', 'SCRIPTS_FILE',
                      'SSH_KEY_BASELINE_FILE', 'SMART_HIST_FILE', 'UPTIME_FILE',
-                     'CONFIRMATIONS_FILE'):
+                     'CONFIRMATIONS_FILE', 'TENANTS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -1172,6 +1172,65 @@ class TestCmdbScope(_HandlerBase):
         api.method = lambda: 'GET'
         out = self.call(api.handle_cmdb_list)
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
+
+
+class TestTenancyP1(_HandlerBase):
+    """v3.14.0 #24 — multi-tenancy P1 FOUNDATION (registry + assignment only;
+    behaviour-neutral — nothing is filtered by tenant yet)."""
+
+    def test_list_has_default(self):
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_tenants_list)
+        ids = {t['id'] for t in r['tenants']}
+        self.assertIn('default', ids)
+        self.assertTrue(next(t for t in r['tenants'] if t['id'] == 'default')['builtin'])
+
+    def test_create_and_count(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Acme'}
+        r = self.call(api.handle_tenant_create)
+        self.assertTrue(r['ok'])
+        tid = r['id']
+        api.method = lambda: 'GET'
+        lst = self.call(api.handle_tenants_list)
+        self.assertIn(tid, {t['id'] for t in lst['tenants']})
+
+    def test_create_duplicate_name_409(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'Dup'}
+        self.call(api.handle_tenant_create)
+        self.call(api.handle_tenant_create)
+        self.assertEqual(self.cap['s'], 409)
+
+    def test_assign_user_and_me_reflects_it(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'created': 1}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'TeamA'}
+        tid = self.call(api.handle_tenant_create)['id']
+        api.get_json_body = lambda: {'username': 'jakob'}
+        self.call(api.handle_tenant_assign_user, tid)
+        self.assertEqual(api.load(api.USERS_FILE)['jakob']['tenant_id'], tid)
+        self.assertEqual(api._user_tenant('jakob'), tid)
+        api.method = lambda: 'GET'
+        me = self.call(api.handle_me)
+        self.assertEqual(me['tenant'], tid)
+
+    def test_cannot_delete_default(self):
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_tenant_delete, 'default')
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_cannot_delete_tenant_with_users(self):
+        api.save(api.USERS_FILE, {'u1': {'role': 'viewer', 'tenant_id': 'tn_x'}})
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'tn_x': {'name': 'X', 'status': 'active'}})
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_tenant_delete, 'tn_x')
+        self.assertEqual(self.cap['s'], 409)
+
+    def test_unknown_tenant_falls_back_to_default(self):
+        api.save(api.USERS_FILE, {'u2': {'role': 'viewer', 'tenant_id': 'gone'}})
+        self.assertEqual(api._user_tenant('u2'), 'default')
 
 
 class TestScim(_HandlerBase):
