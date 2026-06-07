@@ -380,11 +380,15 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
   surface, text, borders, status colours), picked from a swatch grid. "Follow
   system" tracks your OS light/dark. The accent presets still apply on top of any
   theme. Stored per browser.
-- **Expanded interface translation.** The 5-language UI translation (English,
-  中文, हिन्दी, Español, العربية — Arabic RTL) now covers the full static shell —
-  every page title, page subtitle and section heading, not just the sidebar — via
-  a ~160-entry catalog, and re-translates as you navigate. Still falls back to
-  English for anything untranslated.
+- **Interface translation now covers the operational UI, not just the chrome.**
+  The 5-language UI translation (English, 中文, हिन्दी, Español, العربية — Arabic
+  RTL) gained a real engine: it translates **text nodes** (so inline-markup text,
+  labels and dynamically-rendered status/empty-state messages all translate) and
+  **page subtitles** with their markup preserved, and a `MutationObserver`
+  re-translates content rendered after load. The catalog grew to ~540 entries —
+  every page title and subtitle plus the common status/empty/toast strings. The
+  in-app Documentation pages and code samples stay in English by design; anything
+  uncatalogued still falls back to English gracefully.
 - **"Report an issue" button (Help → Documentation, and About).** Opens a
   prefilled GitHub bug report with the app version, browser/environment, current
   page, and recently-captured (scrubbed) client errors — no credentials, no fleet

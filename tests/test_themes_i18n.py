@@ -81,6 +81,36 @@ class TestI18nCatalog(unittest.TestCase):
         chunk = APP[i:i + 7000]
         self.assertIn("RPi18n.apply", chunk)
 
+    def test_engine_translates_text_nodes_and_observes(self):
+        # v4.2: real engine — text-node translation + markup-preserving subtitle
+        # translation + a MutationObserver for dynamically-rendered content.
+        for sym in ("function translateTextNode", "function translateSubtitles",
+                    "MutationObserver", "var HTMLDICT", "_syncObserver"):
+            self.assertIn(sym, I18N, sym)
+
+    def test_subtitles_translated_markup_preserved(self):
+        # the Exposure subtitle (has inline <span>/<a>) must be in HTMLDICT with
+        # all 4 languages, and the translation must keep the same tags.
+        h = I18N[I18N.index("var HTMLDICT"):]
+        # the entry is one line; grab it (keys/values contain escaped quotes)
+        line = next((ln for ln in h.splitlines()
+                     if "Every listening socket across the fleet" in ln), "")
+        self.assertTrue(line, "Exposure subtitle missing from HTMLDICT")
+        for lang in ('"zh":', '"hi":', '"es":', '"ar":'):
+            self.assertIn(lang, line)
+        # markup preserved in the translated values
+        self.assertIn('class=\\"fw-600\\"', line)
+        self.assertIn('<a href=', line)
+
+    def test_dynamic_status_strings_in_catalog(self):
+        region, _ = self._dict_keys()
+        for src in ("Monitoring disabled", "No CVE findings found."):
+            self.assertIn(src, region, f"{src!r} not translated")
+
+    def test_catalog_is_large(self):
+        _r, keys = self._dict_keys()
+        self.assertGreater(len(keys), 400, f"catalog only {len(keys)}")
+
     def test_dict_block_is_valid_object(self):
         # Pull the DICT object literal and confirm it parses as JSON once the
         # single-quoted keys are normalized (values are already JSON objects).
