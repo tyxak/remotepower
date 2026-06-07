@@ -2126,6 +2126,72 @@ def get_unit_logs(unit, since_seconds=LOG_LOOKBACK_SECONDS, max_lines=MAX_LOG_LI
         return []
 
 
+# v3.14.0 #47: store-and-forward for log submission. get_unit_logs advances a
+# cursor, so a failed POST loses those lines for good — a blind spot in log
+# alerting whenever the server is briefly unreachable. We buffer the failed
+# batch to a bounded on-disk outbox and fold it into the next successful
+# submission (oldest first). Bounded hard on lines + file size so a long outage
+# can't grow it without limit; failsafe — any outbox I/O error degrades to
+# today's behaviour (drop + continue).
+LOG_OUTBOX_FILE = STATE_DIR / 'log_outbox.json'
+_LOG_OUTBOX_MAX_LINES = 5000
+
+
+def _load_log_outbox():
+    try:
+        if LOG_OUTBOX_FILE.exists():
+            d = json.loads(LOG_OUTBOX_FILE.read_text())
+            if isinstance(d, dict):
+                return {u: v for u, v in d.items() if isinstance(v, list)}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_log_outbox(units_payload):
+    """Persist the pending units→entries map, capped to the newest lines."""
+    try:
+        total = sum(len(v) for v in units_payload.values())
+        if total > _LOG_OUTBOX_MAX_LINES:
+            # Drop oldest entries per unit until under the cap (proportional).
+            for u in list(units_payload.keys()):
+                keep = max(0, len(units_payload[u]) - (total - _LOG_OUTBOX_MAX_LINES))
+                units_payload[u] = units_payload[u][-keep:] if keep else []
+                total = sum(len(v) for v in units_payload.values())
+                if total <= _LOG_OUTBOX_MAX_LINES:
+                    break
+        _safe_state_write('log_outbox.json', json.dumps(units_payload))
+    except Exception as e:
+        log.debug(f'log outbox persist failed: {e}')
+
+
+def _clear_log_outbox():
+    try:
+        if LOG_OUTBOX_FILE.exists():
+            LOG_OUTBOX_FILE.unlink()
+    except Exception:
+        pass
+
+
+def _merge_log_payloads(buffered, current):
+    """Combine a buffered units→entries map (older) with the current one, oldest
+    first, capped to _LOG_OUTBOX_MAX_LINES total."""
+    merged = {}
+    for src in (buffered, current):
+        for unit, entries in (src or {}).items():
+            if entries:
+                merged.setdefault(unit, []).extend(entries)
+    total = sum(len(v) for v in merged.values())
+    if total > _LOG_OUTBOX_MAX_LINES:
+        for u in list(merged.keys()):
+            if total <= _LOG_OUTBOX_MAX_LINES:
+                break
+            drop = min(len(merged[u]), total - _LOG_OUTBOX_MAX_LINES)
+            merged[u] = merged[u][drop:]     # drop oldest
+            total -= drop
+    return merged
+
+
 def submit_unit_logs(creds, units, extra_units=None):
     """
     Collect recent logs for each watched unit and submit to /api/logs.
@@ -2150,19 +2216,28 @@ def submit_unit_logs(creds, units, extra_units=None):
     for vunit, ventries in (extra_units or {}).items():
         if ventries:                         # only include if there's something new
             units_payload[vunit] = ventries
+    # v3.14.0 #47: fold in anything buffered from a previous failed submission so
+    # those lines aren't lost (oldest first).
+    outbox = _load_log_outbox()
+    send_payload = _merge_log_payloads(outbox, units_payload) if outbox else units_payload
     try:
         http_post(f"{creds['server_url']}/api/logs", {
             'device_id': creds['device_id'],
             'token':     creds['token'],
-            'units':     units_payload,
+            'units':     send_payload,
         }, timeout=15)
-        total = sum(len(v) for v in units_payload.values())
-        quiet = sum(1 for v in units_payload.values() if not v)
-        log.info(f'Logs submitted: {total} lines across {len(units_payload)} unit(s), '
+        if outbox:
+            _clear_log_outbox()              # delivered the backlog too
+        total = sum(len(v) for v in send_payload.values())
+        quiet = sum(1 for v in send_payload.values() if not v)
+        log.info(f'Logs submitted: {total} lines across {len(send_payload)} unit(s), '
                  f'{quiet} quiet')
         return True
     except Exception as e:
         log.warning(f'Log submission FAILED: {e}')
+        # v3.14.0 #47: buffer this batch (merged with any prior backlog) for the
+        # next successful submission instead of dropping it.
+        _save_log_outbox(_merge_log_payloads(outbox, units_payload))
         return False
 
 

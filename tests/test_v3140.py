@@ -1864,6 +1864,58 @@ class TestCisRemediation(_HandlerBase):
         self.assertTrue((api.load(api.DEVICES_FILE))['d1']['remediation_enabled'])
 
 
+class TestLogOutbox(unittest.TestCase):
+    """v3.14.0 #47 — store-and-forward: a failed log submission is buffered and
+    folded into the next successful one (oldest first), not dropped."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "rp_agent_outbox", _ROOT / "client/remotepower-agent.py")
+        cls.ag = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.ag)
+
+    def setUp(self):
+        import shutil
+        self.d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)
+        self.ag.STATE_DIR = self.d
+        self.ag.LOG_OUTBOX_FILE = self.d / 'log_outbox.json'
+        self.addCleanup(setattr, self.ag, 'http_post', self.ag.http_post)
+        self.addCleanup(setattr, self.ag, 'get_unit_logs', self.ag.get_unit_logs)
+        self.creds = {'server_url': 'http://x', 'device_id': 'd', 'token': 't'}
+
+    def test_merge_orders_buffered_first_and_caps(self):
+        m = self.ag._merge_log_payloads({'u': [1, 2]}, {'u': [3, 4]})
+        self.assertEqual(m['u'], [1, 2, 3, 4])      # buffered (older) first
+        big = {'u': list(range(self.ag._LOG_OUTBOX_MAX_LINES + 100))}
+        capped = self.ag._merge_log_payloads(big, {'u': [999]})
+        self.assertLessEqual(sum(len(v) for v in capped.values()),
+                             self.ag._LOG_OUTBOX_MAX_LINES)
+        self.assertEqual(capped['u'][-1], 999)      # newest kept
+
+    def test_buffer_on_failure_then_replay_on_success(self):
+        self.ag.get_unit_logs = lambda unit: ['oops-line']
+        def boom(*a, **k):
+            raise OSError('server down')
+        self.ag.http_post = boom
+        self.assertFalse(self.ag.submit_unit_logs(self.creds, ['sshd']))
+        self.assertTrue(self.ag.LOG_OUTBOX_FILE.exists())     # buffered, not lost
+
+        sent = {}
+        def ok_post(url, payload, timeout=15):
+            sent.update(payload)
+            return {}
+        self.ag.get_unit_logs = lambda unit: ['fresh-line']
+        self.ag.http_post = ok_post
+        self.assertTrue(self.ag.submit_unit_logs(self.creds, ['sshd']))
+        # Both the buffered and the fresh line went out, oldest first…
+        self.assertEqual(sent['units']['sshd'], ['oops-line', 'fresh-line'])
+        # …and the outbox is cleared once the backlog is delivered.
+        self.assertFalse(self.ag.LOG_OUTBOX_FILE.exists())
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

@@ -10,6 +10,11 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Store-and-forward log buffering.** If a log submission fails (server
+  briefly unreachable), the agent now buffers those lines to a bounded on-disk
+  outbox and folds them into the next successful submission instead of losing
+  them — so log-alert rules have no blind spot across a short outage. Capped on
+  lines + size; failsafe (any outbox error degrades to the old drop behaviour).
 - **One-click CIS remediation (opt-in).** Failing baseline checks on the
   Compliance page now offer a **Fix** — reboot, install pending updates
   (distro-aware), or clear failed units. Every fix is queued through the
