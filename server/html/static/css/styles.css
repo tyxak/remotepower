@@ -3337,7 +3337,20 @@ td .kev-badge { margin-left: 0; }
 .toolbar-mb24 { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
 .click-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .click-row-mb6 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; cursor: pointer; }
-.click-row-6 { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+/* Unified with .click-row / .click-row-mb6 so every checkbox→label gap is 8px
+   (checkmarks line up consistently across Settings). */
+.click-row-6 { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+/* A `.form-label` is a 12px uppercase eyebrow caption meant to sit ABOVE an
+   input. Several Settings toggles reused it as the label NEXT TO a checkbox,
+   which rendered them as tiny uppercase block text (and broke the inline
+   checkbox alignment). When a .form-label directly wraps a checkbox/radio,
+   render it as normal 14px sentence-case body text, inline with the box. */
+label.form-label:has(> input[type="checkbox"]),
+label.form-label:has(> input[type="radio"]) {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 14px; text-transform: none; letter-spacing: normal;
+  color: var(--text); margin-bottom: 0; cursor: pointer;
+}
 .row-12-center { display: flex; align-items: center; gap: 12px; }
 .row-6-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
 .col-4 { display: flex; flex-direction: column; gap: 4px; }

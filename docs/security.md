@@ -31,7 +31,7 @@ fetch path (peer-IP revalidation + no-redirect) were all verified live.
 - Session tokens hashed at rest (above).
 - OIDC token-exchange failures log only the HTTP status + OAuth error code, never the IdP response body (which can echo a client secret).
 - Webhook-host classification is anchored to the apex / a real subdomain, so look-alike hosts (`discord.com.attacker.tld`) aren't trusted.
-- AWS cloud-import validates the region against the AWS region shape and fetches through the anti-rebinding, no-redirect opener.
+- AWS cloud-import validates the region against the AWS region shape, fetches through the anti-rebinding, no-redirect opener, and refuses any EC2 response carrying a DTD / entity declarations before parsing (XXE / entity-expansion hardening).
 - Ansible runs trust host keys on first use (`accept-new` + a per-run `known_hosts`) instead of disabling host-key checking.
 
 > **Defense-in-depth note:** agent self-update enforces a signature only when an

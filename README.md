@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="docs/screenshots/logo-primary.png" alt="RemotePower" width="420">
+<img src="docs/screenshots/RP.png" alt="RemotePower" width="760">
 
 **Self-hosted remote management for your Linux fleet — and your homelab.**
 Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
@@ -80,6 +80,14 @@ up with `tar`. Tested on real homelabs running 5–50 devices, fine up to a few
 hundred — and for larger or write-heavy fleets you can switch to an optional
 embedded **SQLite** backend (stdlib only, still no external server) with a live,
 in-place, reversible migration from **Settings → Advanced → Storage backend**.
+
+…and it scales all the way up. For large or multi-site fleets, point it at
+**PostgreSQL** with **automatic failover + read replicas**, pool connections
+through **PgBouncer**, run **load-balanced multiple app nodes** behind a trusted
+proxy, and reach segmented networks through **relay satellites** — the same flat
+front-end, just a bigger back-end. Same zero-inbound, push-based agents
+throughout. See **[docs/scaling.md](docs/scaling.md)** and
+**[docs/deployment.md](docs/deployment.md)**.
 
 ## Quick start
 

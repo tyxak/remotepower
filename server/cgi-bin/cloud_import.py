@@ -86,6 +86,14 @@ def parse_ec2_instances(xml_text):
     """Parse a DescribeInstances XML response into flat instance dicts. Tolerant
     of the namespace and of missing optional fields."""
     out = []
+    # Defense-in-depth: a DescribeInstances response never carries a DTD or
+    # entity declarations. Refuse any that do before parsing, so a tampered or
+    # MITM'd response can't drive entity expansion (XXE / billion-laughs) through
+    # xml.etree. (ET doesn't fetch external entities, but this also caps the DoS.)
+    _probe = (xml_text[:4096].decode('utf-8', 'replace')
+              if isinstance(xml_text, (bytes, bytearray)) else (xml_text or '')[:4096]).upper()
+    if '<!DOCTYPE' in _probe or '<!ENTITY' in _probe:
+        return out
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:

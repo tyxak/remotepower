@@ -2256,6 +2256,16 @@ class TestCloudImport(_HandlerBase):
                                    _opener=lambda req, timeout=15: _Resp(_EC2_SAMPLE_XML.encode()))
         self.assertEqual(insts[0]['instance_id'], 'i-0abc123')
 
+    def test_parse_rejects_xml_with_doctype_entities(self):
+        # XXE / entity-expansion hardening: a response carrying a DTD or entity
+        # declarations is refused before parsing (returns no instances).
+        xxe = ('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "y">]>'
+               '<DescribeInstancesResponse><reservationSet/></DescribeInstancesResponse>')
+        self.assertEqual(self.ci.parse_ec2_instances(xxe), [])
+        # the same document without the DTD parses normally
+        self.assertIsInstance(
+            self.ci.parse_ec2_instances('<DescribeInstancesResponse/>'), list)
+
     def test_import_handler_no_account(self):
         api.save(api.CONFIG_FILE, {})
         api.method = lambda: 'POST'
