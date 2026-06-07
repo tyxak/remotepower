@@ -20192,12 +20192,33 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ─── v3.0.2 / v3.14.0: keyboard navigation — single source of truth ─────────
+// `g <key>` jumps straight to a page; the `?` cheat sheet renders its
+// "Go to …" rows from this SAME list, so the two can never drift apart
+// (the old cheat sheet documented 4 of 8 shortcuts — exactly the kind of
+// silent mismatch this consolidation removes). [key, page-id, label].
+const _G_NAV = [
+  ['h', 'home',     'Home'],
+  ['d', 'devices',  'Devices'],
+  ['a', 'audit',    'Audit log'],
+  ['l', 'logs',     'Logs'],
+  ['c', 'cve',      'CVE findings'],
+  ['m', 'monitor',  'Monitoring'],
+  ['r', 'reports',  'Reports'],
+  ['t', 'trends',   'Trends'],
+  ['v', 'self',     'Server status'],
+  ['s', 'settings', 'Settings'],
+];
+const _G_NAV_MAP = Object.fromEntries(_G_NAV.map(([k, page]) => [k, page]));
+
 // ─── v3.0.2: Keyboard shortcuts cheat sheet ────────────────────────────────
 function showKeyboardShortcuts() {
   if (document.getElementById('kbd-cheat-overlay')) return;
   const o = document.createElement('div');
   o.id = 'kbd-cheat-overlay';
   o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;justify-content:center;align-items:center';
+  const navRows = _G_NAV.map(([k, , label]) =>
+    `<tr><td class="cell-padl"><kbd class="code-pill">g ${k}</kbd></td><td>Go to ${label}</td></tr>`).join('');
   o.innerHTML = `
     <div class="isl-724">
       <div class="isl-725">
@@ -20208,10 +20229,7 @@ function showKeyboardShortcuts() {
         <tr><td class="cell-padl"><kbd class="code-pill">/</kbd></td><td>Open command palette</td></tr>
         <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-K</kbd></td><td>Open command palette</td></tr>
         <tr><td class="cell-padl"><kbd class="code-pill">?</kbd></td><td>Show this cheat sheet</td></tr>
-        <tr><td class="cell-padl"><kbd class="code-pill">g h</kbd></td><td>Go to Home</td></tr>
-        <tr><td class="cell-padl"><kbd class="code-pill">g d</kbd></td><td>Go to Devices</td></tr>
-        <tr><td class="cell-padl"><kbd class="code-pill">g l</kbd></td><td>Go to Logs</td></tr>
-        <tr><td class="cell-padl"><kbd class="code-pill">g s</kbd></td><td>Go to Settings</td></tr>
+        ${navRows}
         <tr><td class="cell-padl"><kbd class="code-pill">Esc</kbd></td><td>Close any modal</td></tr>
       </table>
     </div>`;
@@ -20236,8 +20254,7 @@ document.addEventListener('keydown', e => {
   if (_gPrefix) {
     _gPrefix = false;
     if (_gPrefixTimer) clearTimeout(_gPrefixTimer);
-    const map = {h:'home', d:'devices', l:'logs', s:'settings', c:'cve', m:'monitor', a:'audit', v:'self'};
-    const dest = map[e.key.toLowerCase()];
+    const dest = _G_NAV_MAP[e.key.toLowerCase()];
     if (dest) { e.preventDefault(); showPage(dest); }
   }
 });

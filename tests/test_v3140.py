@@ -1272,6 +1272,38 @@ class TestChargeback(_HandlerBase):
         self.assertEqual(r['total']['watts'], 120.0)
 
 
+class TestKeyboardNav(unittest.TestCase):
+    """v3.14.0 #43 — `g <key>` nav + `?` cheat sheet, driven by one `_G_NAV`
+    list so the shortcuts and their documentation can never drift apart."""
+
+    JS = client_js()
+    HTML = (_ROOT / "server/html/index.html").read_text()
+
+    def test_single_source_of_truth(self):
+        # Both the keymap and the cheat-sheet render from _G_NAV.
+        self.assertIn('const _G_NAV =', self.JS)
+        self.assertIn('_G_NAV_MAP', self.JS)
+        self.assertIn('_G_NAV.map', self.JS)          # cheat sheet renders from it
+        # The old hard-coded inline map must be gone.
+        self.assertNotIn("const map = {h:'home'", self.JS)
+
+    def test_every_gnav_page_exists(self):
+        import re
+        pairs = re.findall(r"\['([a-z])',\s*'([a-z]+)'", self.JS)
+        # at least the canonical set, each pointing at a real page-<id>
+        keys = {k for k, _ in pairs}
+        for need in ('h', 'd', 'l', 's'):
+            self.assertIn(need, keys)
+        for _, page in pairs:
+            self.assertIn(f'id="page-{page}"', self.HTML,
+                          f'g-nav target page-{page} missing from index.html')
+
+    def test_core_keybinds_present(self):
+        self.assertIn('showKeyboardShortcuts', self.JS)
+        self.assertIn("e.key === '?'", self.JS)
+        self.assertIn("e.key.toLowerCase() === 'k'", self.JS)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

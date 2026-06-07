@@ -10,6 +10,12 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Keyboard-first navigation.** The `g`-prefix jump shortcuts (`g h` Home,
+  `g d` Devices, `g a` Audit, `g l` Logs, `g c` CVE, `g m` Monitoring, `g r`
+  Reports, `g t` Trends, `g v` Server status, `g s` Settings) and the `?` cheat
+  sheet now render from one shared list, so every shortcut is documented and
+  the two can't drift (the old sheet showed 4 of 8). `/` · `Ctrl-K` palette and
+  `Esc` to close unchanged.
 - **White-label branding (MSP).** *Settings → Advanced → Branding* lets an admin
   set the **in-app product name** and a **default accent colour** shown to
   everyone — for resellers. Applied live from `GET /api/me`; users can still
