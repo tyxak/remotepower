@@ -1174,6 +1174,34 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestMetricTimeseriesSqlite(unittest.TestCase):
+    """v3.14.0 — append-only metric time-series on the SQLite backend (the store
+    behind 30-day Trend charts; JSON keeps only the recent metrics.json window)."""
+
+    def setUp(self):
+        import storage
+        self.S = storage
+        self.d = Path(tempfile.mkdtemp())
+        self.S.configure(self.d)
+        self.S.close_connection()
+
+    def tearDown(self):
+        self.S.close_connection()
+
+    def test_append_range_prune(self):
+        now = int(__import__('time').time())
+        for i in range(48):
+            self.S.metric_append(self.d, 'h1', now - i * 3600, float(i % 7), 50.0, 5.0, 30.0)
+        r = self.S.metric_range(self.d, 'h1', now - 86400, max_points=40)
+        self.assertTrue(all(set(p) == {'ts', 'cpu', 'mem', 'swap', 'disk'} for p in r))
+        self.assertGreater(len(r), 0)
+        self.assertAlmostEqual(r[0]['mem'], 50.0, places=1)
+        removed = self.S.metric_prune(self.d, now - 86400)
+        self.assertGreater(removed, 0)
+        left = self.S.metric_range(self.d, 'h1', now - 5 * 86400, max_points=100)
+        self.assertTrue(all(p['ts'] >= now - 86400 - 3600 for p in left))
+
+
 class TestSSOProvisioning(_HandlerBase):
     """v3.14.0 — shared SSO provisioning + session minting (SAML prerequisite;
     OIDC now routes through these, password/LDAP login unchanged)."""
@@ -1231,7 +1259,7 @@ class TestMetricChartsWiring(unittest.TestCase):
 
     def test_csp_safe_no_inline_style_in_charts(self):
         # charts must color via SVG fill/stroke attrs, never a style="" attribute
-        seg = self.JS[self.JS.index('_metricSeriesChart'):self.JS.index('async function openMetrics')]
+        seg = self.JS[self.JS.index('_metricSeriesChart'):self.JS.index('function openMetrics')]
         self.assertNotIn('style=', seg)
 
 

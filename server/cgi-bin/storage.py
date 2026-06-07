@@ -228,6 +228,19 @@ def _ensure_schema(conn):
             file    TEXT PRIMARY KEY,
             updated REAL NOT NULL
         );
+        -- v3.14.0: append-only per-device metric time-series. Unlike metrics.json
+        -- (a per-device blob rewritten every heartbeat), this is one cheap row
+        -- per sample, so long retention (30d+) stays O(1)/heartbeat. Queried by
+        -- device + time range with on-read downsampling.
+        CREATE TABLE IF NOT EXISTS metric_samples (
+            device TEXT NOT NULL,
+            ts     INTEGER NOT NULL,
+            cpu    REAL,
+            mem    REAL,
+            swap   REAL,
+            disk   REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_metric_samples ON metric_samples(device, ts);
         """
     )
     conn.execute(
@@ -610,6 +623,50 @@ def upsert_device(devices_path, dev_id, mutate):
             (dev_id, doc, new_ls))
         _touch(conn, DEVICES_FILE_NAME)
     return new
+
+
+# ── v3.14.0: metric time-series (append-only) ────────────────────────────────
+
+def metric_append(data_dir, device, ts, cpu, mem, swap, disk):
+    """Append one metric sample row — O(1), no whole-document rewrite."""
+    conn = _connect(data_dir)
+    with _Tx(conn, immediate=True):
+        conn.execute(
+            'INSERT INTO metric_samples(device, ts, cpu, mem, swap, disk) '
+            'VALUES(?,?,?,?,?,?)', (device, int(ts), cpu, mem, swap, disk))
+
+
+def metric_range(data_dir, device, since_ts, max_points=400):
+    """Return up to ~max_points downsampled samples for `device` since `since_ts`
+    (epoch seconds). Buckets the range and averages within each bucket so a chart
+    stays readable whether the window is 24h or 30d. [{ts,cpu,mem,swap,disk}]."""
+    conn = _connect(data_dir)
+    now = int(time.time())
+    since = int(since_ts)
+    width = max(1, (now - since) // max(1, int(max_points)))
+    rows = conn.execute(
+        'SELECT CAST(MIN(ts) AS INTEGER) AS ts, '
+        '       AVG(cpu) AS cpu, AVG(mem) AS mem, AVG(swap) AS swap, AVG(disk) AS disk '
+        'FROM metric_samples WHERE device=? AND ts>=? '
+        'GROUP BY (ts - ?) / ? ORDER BY ts',
+        (device, since, since, width)).fetchall()
+    out = []
+    for r in rows:
+        out.append({'ts': int(r['ts']),
+                    'cpu':  round(r['cpu'], 2)  if r['cpu']  is not None else None,
+                    'mem':  round(r['mem'], 2)  if r['mem']  is not None else None,
+                    'swap': round(r['swap'], 2) if r['swap'] is not None else None,
+                    'disk': round(r['disk'], 2) if r['disk'] is not None else None})
+    return out
+
+
+def metric_prune(data_dir, older_than_ts):
+    """Delete samples older than `older_than_ts`. Returns the row count removed."""
+    conn = _connect(data_dir)
+    with _Tx(conn, immediate=True):
+        cur = conn.execute('DELETE FROM metric_samples WHERE ts < ?',
+                           (int(older_than_ts),))
+        return cur.rowcount if cur.rowcount is not None else 0
 
 
 def entity_get(path, key, default=None):

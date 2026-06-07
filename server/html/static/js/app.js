@@ -2075,6 +2075,7 @@ async function loadSettings() {
     'ret-webhook': 'webhook_log_retention_days',
     'ret-monitor': 'monitor_history_retention_days',
     'ret-alerts':  'alerts_retention_days',
+    'ret-metrics': 'metric_samples_retention_days',
   };
   for (const [id, key] of Object.entries(_retMap)) {
     const el = document.getElementById(id);
@@ -4750,6 +4751,15 @@ const _MC = { W: 560, H: 150, padL: 28, padR: 10, padT: 14, padB: 24 };
 function _fmtClock(ts) {
   return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+// Span-aware axis/label format: clock for short windows, date (+clock) for long.
+function _fmtTs(ts, spanSecs) {
+  const d = new Date(ts * 1000);
+  if (spanSecs > 3 * 86400)
+    return d.toLocaleDateString([], { month: 'short', day: '2-digit' });
+  if (spanSecs > 86400)
+    return d.toLocaleString([], { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 function _metricPts(samples, key) {
   return samples.map(m => ({ ts: m.ts, v: m[key] }))
                 .filter(p => p.v !== null && p.v !== undefined && !isNaN(p.v));
@@ -4770,9 +4780,9 @@ function _mcGrid(t0, t1) {
     g += `<line x1="${_MC.padL}" y1="${yy}" x2="${_MC.W - _MC.padR}" y2="${yy}" stroke="var(--border)" stroke-width="1" stroke-opacity="0.5"/>`;
     if (pct % 50 === 0) g += `<text x="${_MC.padL - 4}" y="${(+yy + 3).toFixed(1)}" fill="var(--muted)" font-size="10" text-anchor="end">${pct}</text>`;
   }
-  const mid = Math.round((t0 + t1) / 2);
+  const mid = Math.round((t0 + t1) / 2), span = t1 - t0;
   for (const [ts, xx, anchor] of [[t0, _MC.padL, 'start'], [mid, _MC.W / 2, 'middle'], [t1, _MC.W - _MC.padR, 'end']]) {
-    g += `<text x="${xx.toFixed(1)}" y="${_MC.H - 7}" fill="var(--muted)" font-size="10" text-anchor="${anchor}">${_fmtClock(ts)}</text>`;
+    g += `<text x="${xx.toFixed(1)}" y="${_MC.H - 7}" fill="var(--muted)" font-size="10" text-anchor="${anchor}">${_fmtTs(ts, span)}</text>`;
   }
   return g;
 }
@@ -4811,26 +4821,47 @@ function _metricsOverlayChart(samples) {
     <svg class="metric-svg" viewBox="0 0 ${_MC.W} ${_MC.H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="All metrics over time">
       ${_mcGrid(t0, t1)}${legend}${paths}</svg></div>`;
 }
-async function openMetrics(id, name) {
+const _METRIC_RANGES = [
+  { label: '24h', secs: 86400 },
+  { label: '7d',  secs: 7 * 86400 },
+  { label: '30d', secs: 30 * 86400 },
+  { label: '90d', secs: 90 * 86400 },
+];
+let _metricsCtx = { id: null, name: '', range: 86400 };
+
+function openMetrics(id, name) {
+  _metricsCtx = { id, name, range: 86400 };
   document.getElementById('metrics-title').textContent = `Metrics: ${name}`;
   document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>';
   openModal('metrics-modal');
-  const data = await api('GET', '/devices/' + id + '/metrics');
+  _loadMetrics();
+}
+function setMetricsRange(secs) {
+  _metricsCtx.range = secs;
+  _loadMetrics();
+}
+async function _loadMetrics() {
+  const { id, range } = _metricsCtx;
+  const body = document.getElementById('metrics-body');
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/metrics?range=${range}`);
+  // Range buttons (always shown so the user can switch even on an empty range).
+  const picker = '<div class="metric-range-picker">' + _METRIC_RANGES.map(r =>
+    `<button class="metric-range-btn${r.secs === range ? ' sel' : ''}" data-action="setMetricsRange" data-arg="${r.secs}">${r.label}</button>`).join('') + '</div>';
   if (!data || !data.metrics || !data.metrics.length) {
-    document.getElementById('metrics-body').innerHTML =
-      '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>';
+    body.innerHTML = picker +
+      '<div class="empty-state">No samples in this window yet. Metric history is kept on the SQLite/PostgreSQL backend; on JSON only the recent window is available. (Agent needs psutil for CPU/RAM/disk.)</div>';
     return;
   }
-  const metrics = data.metrics.slice(-120);
-  const header = `<div class="sysinfo-row isl-128">
+  const metrics = data.metrics;
+  const span = `<div class="sysinfo-row isl-128">
     <div class="sysinfo-pill"><div class="label">Samples</div><div class="value">${metrics.length}</div></div>
-    <div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${_fmtClock(metrics[0].ts)}</div></div>
-    <div class="sysinfo-pill"><div class="label">To</div><div class="value fs-11">${_fmtClock(metrics[metrics.length - 1].ts)}</div></div>
+    <div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${_fmtTs(metrics[0].ts, range)}</div></div>
+    <div class="sysinfo-pill"><div class="label">To</div><div class="value fs-11">${_fmtTs(metrics[metrics.length - 1].ts, range)}</div></div>
   </div>`;
   const charts = _METRIC_SERIES.map(s => _metricSeriesChart(metrics, s.key, s.label, s.color)).join('');
-  document.getElementById('metrics-body').innerHTML =
-    header + `<div class="isl-354">${_metricsOverlayChart(metrics)}${charts}</div>` +
-    `<p class="isl-357">Each point is one agent sample. Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`;
+  body.innerHTML = picker + span +
+    `<div class="isl-354">${_metricsOverlayChart(metrics)}${charts}</div>` +
+    `<p class="isl-357">Longer windows are downsampled to keep the charts readable. Metric history is stored on the SQLite/PostgreSQL backend.</p>`;
 }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
 
@@ -4964,6 +4995,7 @@ const _RETENTION_FIELDS = {
   'ret-webhook': 'webhook_log_retention_days',
   'ret-monitor': 'monitor_history_retention_days',
   'ret-alerts':  'alerts_retention_days',
+  'ret-metrics': 'metric_samples_retention_days',
 };
 async function saveRetention() {
   const body = {};

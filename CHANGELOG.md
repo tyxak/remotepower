@@ -10,6 +10,16 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Metric history with a time range (24h / 7d / 30d / 90d).** The device **Trend**
+  modal now has a range selector and shows real point-in-time history instead of
+  just the last ~2 hours. On the **SQLite** or **PostgreSQL** backend, samples are
+  stored in an append-only `metric_samples` time-series (one cheap row per sample,
+  not a per-device blob rewritten every heartbeat), queried by range and
+  **downsampled** so 24-hour and 30-day views stay readable; the x-axis switches
+  to dates for long windows. Retention is configurable under *Settings → Advanced
+  → Data retention* (**Metric samples (days)**, default 30) and pruned by the
+  daily sweep. On the JSON backend the charts show the recent rolling window only
+  (this is one of the concrete reasons to switch to a database backend).
 - **PostgreSQL storage backend.** A third storage backend (after JSON files and
   SQLite) behind the same `load`/`save`/`LockedUpdate`/`DeviceTxn` abstraction —
   for fleets/operators who want a real RDBMS (concurrency, replication/HA, central

@@ -205,6 +205,39 @@ class TestApiDispatchPostgres(unittest.TestCase):
 
 
 @unittest.skipIf(_SKIP, "no Postgres DSN")
+class TestPgMetrics(unittest.TestCase):
+    """v3.14.0 — append-only metric time-series on Postgres (30-day Trend charts)."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['RP_PG_DSN'] = _DSN
+        import storage_pg
+        cls.S = storage_pg
+        cls.S.configure_dsn(_DSN)
+
+    def setUp(self):
+        self.S._connect(None).execute('TRUNCATE metric_samples')
+        self.d = Path(tempfile.mkdtemp())
+
+    def test_append_range_prune(self):
+        import time as _t
+        now = int(_t.time())
+        for i in range(72):                       # 3 days hourly
+            self.S.metric_append(self.d, 'h1', now - i * 3600, float(i % 7), 50.0, 5.0, 30.0)
+        self.S.metric_append(self.d, 'other', now, 99, 99, 99, 99)
+        r24 = self.S.metric_range(self.d, 'h1', now - 86400, max_points=50)
+        r3d = self.S.metric_range(self.d, 'h1', now - 3 * 86400, max_points=50)
+        self.assertTrue(all(set(p) == {'ts', 'cpu', 'mem', 'swap', 'disk'} for p in r24))
+        self.assertLess(len(r24), len(r3d))                 # 3d has more buckets
+        self.assertTrue(all(now - 3 * 86400 <= p['ts'] <= now for p in r3d))
+        self.assertAlmostEqual(r3d[0]['mem'], 50.0, places=1)  # downsample averages
+        removed = self.S.metric_prune(self.d, now - 86400)
+        self.assertGreater(removed, 0)
+        left = self.S.metric_range(self.d, 'h1', now - 3 * 86400, max_points=200)
+        self.assertTrue(all(p['ts'] >= now - 86400 - 3600 for p in left))
+
+
+@unittest.skipIf(_SKIP, "no Postgres DSN")
 class TestPgMigration(unittest.TestCase):
     """The in-app migrate path JSON -> Postgres (_migrate_storage_pg): copy every
     file, verify the round-trip, flip the marker (carrying the DSN)."""

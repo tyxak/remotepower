@@ -1326,7 +1326,8 @@ _RETENTION_LOGS = (
 )
 _RETENTION_KEYS = ('history_retention_days', 'fleet_events_retention_days',
                    'webhook_log_retention_days', 'monitor_history_retention_days',
-                   'alerts_retention_days', 'audit_log_retention_days')
+                   'alerts_retention_days', 'audit_log_retention_days',
+                   'metric_samples_retention_days')   # v3.14.0
 
 
 def _retention_cutoff(cfg, key):
@@ -1391,6 +1392,18 @@ def _purge_old_data(cfg=None):
                     removed['monitor_history.json'] = n
         except Exception:
             pass
+    # v3.14.0: prune the metric time-series (DB backends only — the JSON backend
+    # keeps the recent metrics.json window via its MAX_METRICS count cap).
+    cutoff = _retention_cutoff(cfg, 'metric_samples_retention_days')
+    if cutoff is not None:
+        _m = _dbmod()
+        if _m is not None:
+            try:
+                n = _m.metric_prune(DATA_DIR, cutoff)
+                if n:
+                    removed['metric_samples'] = n
+            except Exception:
+                pass
     return removed
 
 
@@ -5538,6 +5551,7 @@ def handle_security_diag():
         'webhook_log_retention_days':     int(cfg.get('webhook_log_retention_days') or 0),
         'monitor_history_retention_days': int(cfg.get('monitor_history_retention_days') or 0),
         'alerts_retention_days':          int(cfg.get('alerts_retention_days') or 0),
+        'metric_samples_retention_days':  int(cfg.get('metric_samples_retention_days') or 30),  # v3.14.0
         'csp_report_logging':             bool(cfg.get('csp_report_logging', True)),
         'csp_report_throttle_per_minute': int(cfg.get('csp_report_throttle_per_minute', 10) or 0),
         'csp_reports_last_24h':           csp_24h,
@@ -8987,13 +9001,23 @@ def _record_metrics(dev_id, sysinfo):
     swap = sysinfo.get('swap_percent')
     if cpu is None and mem is None and disk is None and swap is None:
         return
+    now = int(time.time())
     metrics = load(METRICS_FILE)
     if dev_id not in metrics:
         metrics[dev_id] = []
-    metrics[dev_id].append({'ts': int(time.time()), 'cpu': cpu, 'mem': mem,
+    metrics[dev_id].append({'ts': now, 'cpu': cpu, 'mem': mem,
                             'disk': disk, 'swap': swap})
     metrics[dev_id] = metrics[dev_id][-MAX_METRICS:]
     save(METRICS_FILE, metrics)
+    # v3.14.0: on a DB backend, also append to the long-retention time-series
+    # (one cheap row; metrics.json stays the recent window for the JSON backend
+    # and any other consumer). Best-effort — never fail a heartbeat over it.
+    _m = _dbmod()
+    if _m is not None:
+        try:
+            _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
+        except Exception:
+            pass
 
 
 def _drift_policy_mode(dev):
@@ -9785,6 +9809,20 @@ def handle_sysinfo_batch():
 def handle_metrics(dev_id):
     require_auth()
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
+    # v3.14.0: ?range=<seconds> serves the long-retention time-series (DB
+    # backends), downsampled to keep the chart readable. No range / JSON backend
+    # → the recent metrics.json window (unchanged).
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    rng = qs.get('range', [''])[0]
+    _m = _dbmod()
+    if rng and _m is not None:
+        try:
+            secs = max(3600, min(int(rng), 366 * 86400))
+            series = _m.metric_range(DATA_DIR, dev_id, int(time.time()) - secs)
+            respond(200, {'device_id': dev_id, 'metrics': series, 'range': secs})
+        except (ValueError, TypeError):
+            respond(400, {'error': 'invalid range'})
     metrics = load(METRICS_FILE)
     respond(200, {'device_id': dev_id, 'metrics': metrics.get(dev_id, [])})
 
@@ -10843,7 +10881,7 @@ def handle_config_save():
     # v3.12.0: per-log age-based retention (days; 0 = keep all, only count caps).
     for _rkey in ('history_retention_days', 'fleet_events_retention_days',
                   'webhook_log_retention_days', 'monitor_history_retention_days',
-                  'alerts_retention_days'):
+                  'alerts_retention_days', 'metric_samples_retention_days'):
         if _rkey in body:
             try:
                 v = int(body[_rkey])

@@ -158,6 +158,14 @@ def _ensure_schema(conn):
             file    TEXT PRIMARY KEY,
             updated DOUBLE PRECISION NOT NULL
         );""")
+    # v3.14.0: append-only per-device metric time-series (see storage.py).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metric_samples (
+            device TEXT NOT NULL,
+            ts     BIGINT NOT NULL,
+            cpu    REAL, mem REAL, swap REAL, disk REAL
+        );""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_metric_samples ON metric_samples(device, ts);")
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', %s) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -483,6 +491,44 @@ def upsert_device(devices_path, dev_id, mutate):
             (dev_id, _dumps(new), new_ls))
         _touch(c, DEVICES_FILE_NAME)
     return new
+
+
+# ── v3.14.0: metric time-series (append-only) ────────────────────────────────
+
+def metric_append(data_dir, device, ts, cpu, mem, swap, disk):
+    conn = _connect(data_dir)
+    with _Tx(conn) as c:
+        c.execute(
+            'INSERT INTO metric_samples(device, ts, cpu, mem, swap, disk) '
+            'VALUES(%s,%s,%s,%s,%s,%s)', (device, int(ts), cpu, mem, swap, disk))
+
+
+def metric_range(data_dir, device, since_ts, max_points=400):
+    conn = _connect(data_dir)
+    now = int(time.time())
+    since = int(since_ts)
+    width = max(1, (now - since) // max(1, int(max_points)))
+    rows = conn.execute(
+        'SELECT MIN(ts) AS ts, AVG(cpu) AS cpu, AVG(mem) AS mem, '
+        '       AVG(swap) AS swap, AVG(disk) AS disk '
+        'FROM metric_samples WHERE device=%s AND ts>=%s '
+        'GROUP BY (ts - %s) / %s ORDER BY MIN(ts)',
+        (device, since, since, width)).fetchall()
+    out = []
+    for r in rows:
+        out.append({'ts': int(r['ts']),
+                    'cpu':  round(float(r['cpu']), 2)  if r['cpu']  is not None else None,
+                    'mem':  round(float(r['mem']), 2)  if r['mem']  is not None else None,
+                    'swap': round(float(r['swap']), 2) if r['swap'] is not None else None,
+                    'disk': round(float(r['disk']), 2) if r['disk'] is not None else None})
+    return out
+
+
+def metric_prune(data_dir, older_than_ts):
+    conn = _connect(data_dir)
+    with _Tx(conn) as c:
+        cur = c.execute('DELETE FROM metric_samples WHERE ts < %s', (int(older_than_ts),))
+        return cur.rowcount if cur.rowcount is not None else 0
 
 
 def entity_get(path, key, default=None):

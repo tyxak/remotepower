@@ -655,7 +655,8 @@ class TestRetentionMaintenance(_HandlerBase):
         self.assertEqual(set(api._RETENTION_KEYS), {
             'history_retention_days', 'fleet_events_retention_days',
             'webhook_log_retention_days', 'monitor_history_retention_days',
-            'alerts_retention_days', 'audit_log_retention_days'})
+            'alerts_retention_days', 'audit_log_retention_days',
+            'metric_samples_retention_days'})   # v3.14.0
 
 
 class TestLargeFleetUI(unittest.TestCase):

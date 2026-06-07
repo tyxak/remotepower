@@ -293,9 +293,13 @@ class TestV342Deployment(unittest.TestCase):
         import json, time
         api, d = self._fresh_api()
         now = int(time.time())
+        # Pin the window to an hour that is NOT the current hour, so it is
+        # reliably inactive right now regardless of wall-clock time (the old
+        # hard-coded '0 2 * * *' flaked when the suite ran 02:00–03:00).
+        off_hour = (time.localtime(now).tm_hour + 12) % 24
         (d / 'maintenance.json').write_text(json.dumps({'windows': [
             {'id': 'w1', 'scope': 'group', 'target': 'prod', 'gate_exec': True,
-             'cron': '0 2 * * *', 'duration': 3600}]}))
+             'cron': f'0 {off_hour} * * *', 'duration': 3600}]}))
         api._LOAD_CACHE.clear()
         # covered by a gate_exec window that is not active right now → hold
         self.assertTrue(api._exec_gated('d1', {'group': 'prod'}, now))
