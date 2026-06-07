@@ -1259,8 +1259,8 @@
                 <input type="text" id="cfg-metrics-push-job" class="form-input" placeholder="remotepower">
               </div>
             </div>
-            <button class="btn-primary" data-action="saveMetricsPush">Save metrics push</button>
-            <span id="metrics-push-status" class="fs-12 c-muted"></span>
+            <button class="btn-primary mt-12" data-action="saveMetricsPush">Save metrics push</button>
+            <span id="metrics-push-status" class="fs-12 c-muted ml-8"></span>
           </div>
           <!-- v3.14.0 (#27): GitOps — desired-state drift config from a Git repo. -->
           <div class="settings-section">
@@ -1674,8 +1674,8 @@
                 </select>
               </div>
             </div>
-            <button class="btn-primary" data-action="saveBranding">Save branding</button>
-            <span id="branding-status" class="fs-12 c-muted"></span>
+            <button class="btn-primary mt-12" data-action="saveBranding">Save branding</button>
+            <span id="branding-status" class="fs-12 c-muted ml-8"></span>
           </div>
           <!-- v3.4.2: "Session timeout" (raw seconds) was a duplicate of
                Security → Session length (hours/days), writing the same
@@ -3968,6 +3968,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></div><div><div class="stat-value c-amber" id="cve-stat-medium">0</div><div class="stat-label">Medium</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value c-muted" id="cve-stat-low">0</div><div class="stat-label">Low</div></div></div>
           <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
+        </div>
+        <div class="hint mb-8" id="cve-kev-feed">
+          <span id="cve-kev-feed-text"></span>
+          <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>
         </div>
         <div class="table-card"><table><thead id="cve-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="ecosystem">Ecosystem</th><th data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th data-col="critical" class="ta-center">Critical</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Medium</th><th data-col="low" class="ta-center">Low</th><th data-col="last_scan">Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
       </div>

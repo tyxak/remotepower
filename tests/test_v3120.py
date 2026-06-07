@@ -524,11 +524,13 @@ class TestMountMonitoring(unittest.TestCase):
             {'path': '/mnt/data', 'issue': 'missing', 'fstype': 'ext4'}]})
         self.assertIn(('mount_issue', 'stalled', '/mnt/nfs'), self.fired)
         self.assertIn(('mount_issue', 'missing', '/mnt/data'), self.fired)
-        # same issues again -> no re-fire
+        # same issue for /mnt/nfs -> no re-fire; /mnt/data is gone -> recovered
+        # (v3.14.0: a cleared mount now fires mount_recovered so its alert
+        # auto-resolves instead of sticking in the inbox).
         self.fired.clear()
         api._ingest_posture_v3110('d1', 'h', {'mount_issues': [
             {'path': '/mnt/nfs', 'issue': 'stalled', 'fstype': 'nfs'}]})
-        self.assertEqual(self.fired, [])
+        self.assertEqual(self.fired, [('mount_recovered', None, '/mnt/data')])
 
     def test_mount_issue_severity_high(self):
         self.assertEqual(api._alert_severity('mount_issue', {'issue': 'stalled'}), 'high')

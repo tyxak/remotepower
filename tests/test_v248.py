@@ -34,7 +34,7 @@ class TestActivityDedup(unittest.TestCase):
         # v3.12.0: widened 3600→3800 — added db_integrity_failed to FLEET_EVENTS.
         # v3.14.0: widened 3800→4000 — added process_alert/process_recovered.
         # v3.14.0: widened 4000→4100 — added secret_exposed.
-        cls.chunk = cls.js[start:start + 4100]
+        cls.chunk = cls.js[start:start + 4200]
 
     def test_dedup_runs_before_slice(self):
         # The de-dup filter must come before .slice(0, 8) — otherwise

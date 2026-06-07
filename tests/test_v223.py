@@ -88,7 +88,7 @@ class TestActivityFilter(unittest.TestCase):
         # v3.4.2: widened again — added image/health events to FLEET_EVENTS.
         # v3.12.0: widened again — added db_integrity_failed to FLEET_EVENTS.
         # v3.14.0: widened again — added process_alert/process_recovered + secret_exposed.
-        chunk = self.js[func_start:func_start + 4100]
+        chunk = self.js[func_start:func_start + 4200]
         self.assertIn('.filter(', chunk)
         self.assertIn('.slice(', chunk)
         filter_pos = chunk.find('.filter(')

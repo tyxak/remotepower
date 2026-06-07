@@ -2358,6 +2358,67 @@ class TestSshAgent(_HandlerBase):
         self.assertNotIn('agentless_ssh_key', got)
 
 
+class TestMountRecovery(_HandlerBase):
+    """v3.14.0 fix — a mount_issue alert auto-resolves when mount_recovered fires
+    for that path (was sticking in the inbox forever)."""
+
+    def test_registry_wired(self):
+        self.assertIn('mount_recovered', api.WEBHOOK_EVENT_NAMES)
+        self.assertEqual(api._ALERT_RECOVER.get('mount_recovered'), 'mount_issue')
+        self.assertEqual(api.EVENT_KIND_MAP.get('mount_recovered'), 'mount')
+
+    def test_recovery_resolves_matching_path_only(self):
+        # Two open mount_issue alerts on the same host, different paths.
+        now = int(__import__('time').time())
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'id': 'a1', 'event': 'mount_issue', 'device_id': 'd1',
+             'payload': {'path': '/mnt/a'}, 'ts': now},
+            {'id': 'a2', 'event': 'mount_issue', 'device_id': 'd1',
+             'payload': {'path': '/mnt/b'}, 'ts': now},
+        ]})
+        api._auto_resolve_alerts('mount_recovered', {'device_id': 'd1', 'path': '/mnt/a'})
+        alerts = {a['id']: a for a in (api.load(api.ALERTS_FILE) or {}).get('alerts', [])}
+        self.assertTrue(alerts['a1'].get('resolved_at'))      # /mnt/a cleared
+        self.assertFalse(alerts['a2'].get('resolved_at'))     # /mnt/b still open
+
+
+class TestSnmpTrends(_HandlerBase):
+    """v3.14.0 fix — SNMP-polled devices record metric samples so they trend."""
+
+    def setUp(self):
+        super().setUp()
+        self._save = {n: getattr(api, n) for n in
+                      ('_record_metrics', '_snmp_cpu_avg_pct',
+                       '_snmp_memory_used_pct', '_snmp_storage_mounts')}
+
+    def tearDown(self):
+        for n, v in self._save.items():
+            setattr(api, n, v)
+        super().tearDown()
+
+    def test_records_busiest_disk_to_timeseries(self):
+        cap = {}
+        api._record_metrics = lambda dev_id, si: cap.update({'dev': dev_id, 'si': si})
+        api._snmp_cpu_avg_pct = lambda e: 30.0
+        api._snmp_memory_used_pct = lambda e: 50.0
+        api._snmp_storage_mounts = lambda e: [{'descr': '/', 'used_pct': 70.0},
+                                              {'descr': '/data', 'used_pct': 40.0}]
+        api._record_snmp_metrics('d1', {})
+        self.assertEqual(cap['dev'], 'd1')
+        self.assertEqual(cap['si']['cpu_percent'], 30.0)
+        self.assertEqual(cap['si']['mem_percent'], 50.0)
+        self.assertEqual(cap['si']['disk_percent'], 70.0)   # busiest mount
+
+    def test_noop_when_nothing_polled(self):
+        called = []
+        api._record_metrics = lambda *a, **k: called.append(1)
+        api._snmp_cpu_avg_pct = lambda e: None
+        api._snmp_memory_used_pct = lambda e: None
+        api._snmp_storage_mounts = lambda e: []
+        api._record_snmp_metrics('d1', {})
+        self.assertEqual(called, [])
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

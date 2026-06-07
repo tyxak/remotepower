@@ -757,6 +757,12 @@
   /* v3.9.0: inline Lucide glyphs in non-flex buttons sit on the baseline;
      nudge them onto the optical centre of the label. */
   .btn-primary svg, .btn-secondary svg { vertical-align: -2px; }
+  /* v3.14.0 fix: put a gap between an icon and its label so they aren't glued
+     together. Only when the svg has a text sibling — icon-only buttons (the svg
+     is the only child) keep no trailing space. Covers btn-icon too. */
+  .btn-primary svg:not(:only-child),
+  .btn-secondary svg:not(:only-child),
+  .btn-icon svg:not(:only-child) { margin-right: 5px; }
   .btn-icon {
     background: transparent;
     border: 1px solid var(--border);

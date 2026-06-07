@@ -294,6 +294,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'cert_file_expiring', 'rogue_uid0',
             'process_alert', 'process_recovered',   # v3.14.0 #36
             'secret_exposed',                        # v3.14.0 #35
+            'mount_recovered',                       # v3.14.0 fix
         }
         self.assertEqual(names, expected)
 

@@ -6283,7 +6283,27 @@ async function loadCVEReport() {
   document.getElementById('cve-stat-medium').textContent = data.summary.medium;
   document.getElementById('cve-stat-low').textContent = data.summary.low;
   document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
+  _renderKevFeedStatus(data.kev_feed);
   tableCtl.render('cves', data.devices || []);
+}
+// v3.14.0 fix: show the KEV/EPSS feed state so "why is there no KEV?" is clear —
+// distinguishes a not-yet-loaded / errored feed from genuinely-zero KEV hits.
+function _renderKevFeedStatus(f) {
+  const el = document.getElementById('cve-kev-feed-text');
+  if (!el) return;
+  if (!f) { el.textContent = ''; return; }
+  if (f.kev_error) { el.innerHTML = `<span class="c-red">KEV feed failed: ${escHtml(f.kev_error)}</span> — KEV flags unavailable until it loads.`; return; }
+  if (!f.kev_count) { el.textContent = 'KEV feed not loaded yet (refreshes daily, or click below). KEV stays 0 until then.'; return; }
+  const when = f.last_checked ? timeAgo(f.last_checked) : 'unknown';
+  el.textContent = `KEV feed: ${f.kev_count.toLocaleString()} known-exploited CVEs loaded (updated ${when}). A 0 here means none of that host's CVEs are on CISA's KEV list.`;
+}
+async function refreshCveFeeds() {
+  toast('Refreshing KEV/EPSS feeds…', 'info');
+  const r = await api('POST', '/cve/refresh-feeds', {}).catch(() => null);
+  if (r?.ok) {
+    toast(`KEV feed: ${r.kev_count} CVEs${r.kev_error ? ' (error: ' + r.kev_error + ')' : ''}`, r.kev_error ? 'error' : 'success');
+    loadCVEReport();
+  } else toast(r?.error || 'Feed refresh failed', 'error');
 }
 async function triggerCVEScan(devId, btn) {
   const label = devId ? 'device' : 'all devices';
@@ -10640,11 +10660,18 @@ function _renderExposureMutes(mutes) {
   }
   el.innerHTML = mutes.map(m => {
     const parts = [];
+    // v3.14.0 fix: a host-scoped mute ({device_id}) used to render as "(empty)"
+    // because only process/proto/port were shown — now show the device too, and
+    // pass it to Remove so device mutes can actually be cleared.
+    if (m.device_id) {
+      const dev = (window._devicesCache || []).find(d => d.id === m.device_id);
+      parts.push('device=' + escHtml(dev ? dev.name : m.device_id));
+    }
     if (m.process) parts.push('process=' + escHtml(m.process));
     if (m.proto) parts.push('proto=' + escHtml(m.proto));
     if (m.port !== undefined && m.port !== null) parts.push('port=' + escHtml(String(m.port)));
     const label = parts.join(' · ') || '(empty)';
-    return `<div class="sb-controls"><span>${label}</span><button class="btn-icon cell-sm" data-action="removeExposureMute" data-arg="${escAttr(m.process || '')}" data-arg2="${escAttr(m.proto || '')}" data-arg3="${escAttr(m.port !== undefined && m.port !== null ? String(m.port) : '')}">Remove</button></div>`;
+    return `<div class="sb-controls"><span>${label}</span><button class="btn-icon cell-sm" data-action="removeExposureMute" data-arg="${escAttr(m.process || '')}" data-arg2="${escAttr(m.proto || '')}" data-arg3="${escAttr(m.port !== undefined && m.port !== null ? String(m.port) : '')}" data-arg4="${escAttr(m.device_id || '')}">Remove</button></div>`;
   }).join('');
 }
 async function addExposureMute() {
@@ -10663,8 +10690,9 @@ async function addExposureMute() {
     _renderExposureMutes(r.mutes);
   } else { toast('Add mute failed', 'error'); }
 }
-async function removeExposureMute(process, proto, port) {
+async function removeExposureMute(process, proto, port, deviceId) {
   const body = { action: 'remove' };
+  if (deviceId) body.device_id = deviceId;
   if (process) body.process = process;
   if (proto) body.proto = proto;
   if (port !== '' && port !== undefined && port !== null) body.port = port;
@@ -12285,7 +12313,7 @@ function _renderHomeActivity(fleetEvents) {
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
     'login_new_source', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
-    'db_integrity_failed', 'mount_issue',
+    'db_integrity_failed', 'mount_issue', 'mount_recovered',
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'cert_file_expiring', 'rogue_uid0',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
@@ -12444,7 +12472,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'db_integrity_failed':
       return `${base} data-home-act="self"`;
-    case 'mount_issue':
+    case 'mount_issue': case 'mount_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':

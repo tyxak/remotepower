@@ -300,6 +300,25 @@ dependencies; most of it surfaces data the agent already reports. See
   immediately — reusing the existing maker-checker store. Off by default.
 
 ### Fixed
+- **Stuck "mount stalled/missing" alerts now auto-resolve.** `mount_issue` had no
+  recovery, so a stalled NFS/SMB mount alert sat in the inbox forever even after
+  the mount came back. A new edge-triggered `mount_recovered` clears the open
+  alert for that exact path when the agent reports it healthy again.
+- **Host-scoped exposure mutes no longer show as "(empty)".** A mute that
+  silenced a whole host (`device_id` only) rendered as a blank "(empty)" row and
+  couldn't be removed, because the list only showed process/proto/port — it now
+  shows the device and the Remove button works.
+- **SNMP devices now have metric trends/graphs.** SNMP-polled (agentless) hosts
+  recorded no metric history, so the Trends/graphs were empty for them. The
+  poller now appends CPU/memory/busiest-disk to the same time-series the agent
+  path uses, so SNMP hosts trend like agent hosts.
+- **CVE page: KEV feed status is now visible.** When KEV showed 0 there was no
+  way to tell "feed not loaded / errored" from "genuinely no known-exploited
+  CVEs". The page now shows the loaded KEV count + last update (or the feed
+  error), with a button to refresh the CISA KEV / FIRST EPSS feeds on demand.
+- **Button polish.** Icons sat flush against their labels on some buttons; added
+  a small gap (icon-only buttons unchanged), and gave the bare Save-branding /
+  Save-metrics-push buttons breathing room.
 - **RBAC: CMDB now honours device scope (closes a cross-scope gap).** A role
   scoped to a subset of the fleet (by group / tag / site) could previously read
   the CMDB asset list for **all** devices and edit the asset metadata and

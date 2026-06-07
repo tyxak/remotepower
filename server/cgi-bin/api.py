@@ -717,6 +717,7 @@ WEBHOOK_EVENTS = (
     ('db_integrity_failed',   'Database integrity check failed (possible corruption)', True),
     # v3.12.0: an fstab mount is missing, or a mounted network share is stalled.
     ('mount_issue',           'Mount point missing or a network share is stalled', True),
+    ('mount_recovered',       'Mount point recovered',                       True),
     # v3.14.0: surface the predictive/posture signals as alerts.
     ('disk_predict_fail',     'A disk is predicted to fail (SMART trend)',   True),
     ('ups_on_battery',        'UPS switched to battery power',               True),
@@ -3743,6 +3744,7 @@ _ALERT_RECOVER = {
     'storage_recovered':       'storage_degraded',
     'ups_on_line':             'ups_on_battery',          # v3.14.0
     'process_recovered':       'process_alert',           # v3.14.0 #36
+    'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -3809,7 +3811,7 @@ CHANNEL_KINDS = [
     ('firewall',    'Host firewall changes',    'operational',   ['firewall_changed']),
     ('timer',       'Scheduled-job failures',   'operational',   ['timer_failed']),
     ('database',    'Database integrity',       'operational',   ['db_integrity_failed']),
-    ('mount',       'Mount-point health',       'operational',   ['mount_issue']),
+    ('mount',       'Mount-point health',       'operational',   ['mount_issue', 'mount_recovered']),
     # v3.14.0: predictive / posture alerts
     ('disk_predict', 'Disk failure prediction', 'operational',   ['disk_predict_fail']),
     ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
@@ -4308,6 +4310,10 @@ def _auto_resolve_alerts(event, payload):
         # for memory/swap/cpu, which compares cleanly against the stored '').
         sub_match['metric'] = p.get('metric')
         sub_match['target'] = p.get('target')
+    elif event == 'mount_recovered':
+        # Per-path: a recovered /mnt/a must not clear the open alert for /mnt/b
+        # on the same host. Match the mount path.
+        sub_match['path'] = p.get('path')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -4927,6 +4933,7 @@ def _webhook_title(event):
         'timer_failed':              'Scheduled Job Failed',
         'db_integrity_failed':       'Database Integrity Check Failed',
         'mount_issue':               'Mount Point Problem',
+        'mount_recovered':           'Mount Point Recovered',
         'disk_predict_fail':         'Disk Predicted To Fail',
         'ups_on_battery':            'UPS On Battery',
         'ups_on_line':               'UPS Back On Line Power',
@@ -15402,6 +15409,14 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
             if key not in prev_mi and not first_seen:
                 _fire('mount_issue', {'path': m.get('path'), 'issue': m.get('issue'),
                                       'fstype': m.get('fstype')})
+        # v3.14.0 fix: recovery — a path that had an issue last time and has
+        # none now is healthy again; fire mount_recovered so the open alert
+        # auto-resolves instead of sticking in the inbox forever.
+        cur_paths = {k.split(':', 1)[1] for k in cur_mi if ':' in k}
+        prev_paths = {k.split(':', 1)[1] for k in prev_mi if ':' in k}
+        for path in (prev_paths - cur_paths):
+            if not first_seen:
+                _fire('mount_recovered', {'path': path})
         new['mount_issues'] = cur_mi
 
     state[dev_id] = new
@@ -27840,6 +27855,13 @@ def _do_snmp_poll(dev_id, dev):
             process_snmp_metric_thresholds(dev_id, dev, entry)
         except Exception as e:
             sys.stderr.write(f'[remotepower] snmp threshold proc failed: {e}\n')
+        # v3.14.0 fix: record SNMP CPU/mem/disk to the metric time-series so
+        # agentless SNMP devices get trend graphs like agent hosts. Collected for
+        # every polled device (the agent path records regardless of monitored).
+        try:
+            _record_snmp_metrics(dev_id, entry)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] snmp metric record failed: {e}\n')
         # Recover transition: previously failing → now ok
         if prev_state == 'fail' and is_monitored:
             try:
@@ -30598,7 +30620,36 @@ def handle_cve_findings():
         key=lambda d: (-d.get('kev', 0), -d['counts']['critical'],
                        -d['counts']['high'], -d.get('epss_max', 0), d['name'].lower())
     )
+    # v3.14.0 fix: surface the KEV/EPSS feed state so "why is there no KEV?" is
+    # answerable — distinguishes "feed not loaded / errored" from "genuinely no
+    # known-exploited CVEs on these hosts".
+    _ke = load(KEV_EPSS_FILE) or {}
+    report['kev_feed'] = {
+        'kev_count':    len(kev),
+        'epss_count':   len(epss),
+        'last_checked': _ke.get('last_checked', 0),
+        'kev_error':    _ke.get('kev_error', ''),
+        'epss_error':   _ke.get('epss_error', ''),
+    }
     respond(200, report)
+
+
+def handle_cve_refresh_feeds():
+    """POST /api/cve/refresh-feeds — force a KEV/EPSS refresh now (admin). Lets
+    an operator populate the feeds immediately instead of waiting for the daily
+    sweep, and see any feed error."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    try:
+        refresh_kev_epss_if_due(force=True)
+    except Exception as e:
+        respond(502, {'error': f'Feed refresh failed: {str(e)[:200]}'})
+    s = load(KEV_EPSS_FILE) or {}
+    respond(200, {'ok': True, 'kev_count': len(s.get('kev') or []),
+                  'epss_count': len(s.get('epss') or {}),
+                  'kev_error': s.get('kev_error', ''),
+                  'epss_error': s.get('epss_error', '')})
 
 
 def handle_cve_device(dev_id):
@@ -32234,6 +32285,22 @@ def _snmp_temp_celsius(snmp_entry, source='board'):
         # Mikrotik returns tenths of degrees. 470 → 47.0 °C.
         return raw / 10.0
     return None
+
+
+def _record_snmp_metrics(dev_id, snmp_entry):
+    """v3.14.0 fix: append the polled SNMP CPU/memory/disk to the metric
+    time-series (reusing _record_metrics, the same sink the agent heartbeat path
+    uses) so SNMP-polled devices show trend graphs. disk_percent is the busiest
+    storage mount; swap isn't an SNMP metric. No-op if nothing numeric polled."""
+    cpu = _snmp_cpu_avg_pct(snmp_entry)
+    mem = _snmp_memory_used_pct(snmp_entry)
+    disks = [s['used_pct'] for s in _snmp_storage_mounts(snmp_entry)
+             if isinstance(s.get('used_pct'), (int, float))]
+    disk = max(disks) if disks else None
+    if cpu is None and mem is None and disk is None:
+        return
+    _record_metrics(dev_id, {'cpu_percent': cpu, 'mem_percent': mem,
+                             'disk_percent': disk, 'swap_percent': None})
 
 
 def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
@@ -35210,6 +35277,7 @@ def _build_exact_routes():
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
+        ('POST', '/api/cve/refresh-feeds'): handle_cve_refresh_feeds,   # v3.14.0 KEV/EPSS
         ('GET', '/api/cve/ignore'): handle_cve_ignore_list,
         ('POST', '/api/cve/ignore'): handle_cve_ignore_add,
         ('POST', '/api/cve/scan'): handle_cve_scan,
