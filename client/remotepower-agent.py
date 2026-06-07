@@ -473,6 +473,100 @@ def collect_net_io():
     out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
     return out[:20]
 
+# v3.14.0 #35: secrets-on-disk scanner. READ-ONLY + REDACTING by construction —
+# it never transmits a secret's value, only the rule, the file:line location, a
+# masked preview, and a sha256 fingerprint (so the server can dedupe/mute a
+# finding without ever seeing the secret). Opt-in (the server pushes
+# secrets_scan_enabled); bounded hard on files, file size, and wall-clock so it
+# can never hog a host.
+SECRETS_SCAN_EVERY = 360            # ~6h at the 60s default poll
+_SECRET_RULES = [
+    ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
+    ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
+    ('github_token',   re.compile(r'\bghp_[A-Za-z0-9]{36}\b')),
+    ('github_pat',     re.compile(r'\bgithub_pat_[A-Za-z0-9_]{60,}\b')),
+    ('slack_token',    re.compile(r'\bxox[baprs]-[0-9A-Za-z-]{10,48}\b')),
+    ('slack_webhook',  re.compile(r'https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}')),
+    ('google_api_key', re.compile(r'\bAIza[0-9A-Za-z_\-]{35}\b')),
+    ('stripe_secret',  re.compile(r'\bsk_live_[0-9A-Za-z]{24,}\b')),
+    ('jwt',            re.compile(r'\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b')),
+    # Lower-confidence catch-all: secret-looking assignment in a config file.
+    ('generic_secret', re.compile(r'(?i)(?:password|passwd|secret|api[_-]?key|token)\s*[=:]\s*[\'"]?([^\s\'"]{8,})')),
+]
+_SECRETS_SKIP_DIRS = {'.git', 'node_modules', 'vendor', '__pycache__', 'site-packages',
+                      '.cache', '.venv', 'venv', 'snap', 'proc', 'sys', 'dev'}
+_SECRETS_DEFAULT_PATHS = ['/etc', '/root', '/home', '/opt', '/srv', '/var/www']
+
+
+def _redact_secret(s):
+    """Mask a matched secret so only its shape survives: a short prefix + the
+    length. NEVER returns the full value."""
+    s = s.strip()
+    if len(s) <= 4:
+        return '****'
+    if len(s) <= 8:
+        return s[:2] + '*' * (len(s) - 2)
+    return s[:4] + '*' * 8 + f'…({len(s)})'
+
+
+def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576,
+                            max_files=5000, time_budget=12.0):
+    paths = paths or _SECRETS_DEFAULT_PATHS
+    findings, seen = [], set()
+    start = time.monotonic()
+    visited = 0
+    for base in paths:
+        if not isinstance(base, str) or not os.path.exists(base):
+            continue
+        if len(findings) >= max_findings or visited >= max_files \
+                or time.monotonic() - start > time_budget:
+            break
+        for dirpath, dirnames, filenames in os.walk(base):
+            if len(findings) >= max_findings or visited >= max_files \
+                    or time.monotonic() - start > time_budget:
+                break
+            dirnames[:] = [d for d in dirnames if d not in _SECRETS_SKIP_DIRS]
+            for fn in filenames:
+                if len(findings) >= max_findings or visited >= max_files:
+                    break
+                fpath = os.path.join(dirpath, fn)
+                try:
+                    if os.path.islink(fpath) or not os.path.isfile(fpath):
+                        continue
+                    sz = os.stat(fpath).st_size
+                    if sz == 0 or sz > max_file_bytes:
+                        continue
+                    visited += 1
+                    with open(fpath, 'rb') as f:
+                        chunk = f.read(max_file_bytes)
+                    if b'\x00' in chunk[:4096]:          # binary — skip
+                        continue
+                    text = chunk.decode('utf-8', 'replace')
+                except Exception:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if len(line) > 4000:
+                        continue
+                    for rule, rx in _SECRET_RULES:
+                        m = rx.search(line)
+                        if not m:
+                            continue
+                        val = m.group(m.lastindex) if m.lastindex else m.group(0)
+                        fph = hashlib.sha256(val.encode('utf-8', 'replace')).hexdigest()[:16]
+                        key = (rule, fph, fpath)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        findings.append({'path': fpath[:300], 'line': lineno,
+                                         'rule': rule, 'preview': _redact_secret(val)[:48],
+                                         'fingerprint': fph})
+                        if len(findings) >= max_findings:
+                            break
+                    if len(findings) >= max_findings:
+                        break
+    return findings
+
+
 def get_uptime():
     try:
         return subprocess.check_output(['uptime', '-p'], text=True).strip()
@@ -5286,6 +5380,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v3.0.2: one-shot ACME rescan request from server (operator clicked
     # "Force rescan" after renewing via CLI; skips the hourly cadence).
     force_acme_rescan = False
+    # v3.14.0 #35: secrets-on-disk scan. Opt-in — stays off until the server
+    # pushes secrets_scan_enabled; paths come from the server too (defaults if
+    # unset). force flag skips the 6h cadence for an on-demand rescan.
+    secrets_scan_on = False
+    secrets_scan_paths = None
+    force_secrets_scan = False
     # v3.0.0: IaC collection request from server
     pending_iac_request_id = None
     pending_iac_categories = None
@@ -5510,6 +5610,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'ACME scan error: {e}')
             force_acme_rescan = False
 
+        # v3.14.0 #35: secrets-on-disk scan — opt-in, bounded, redacting. Only
+        # runs once the server has enabled it; every ~6h or on a force request.
+        if secrets_scan_on and (poll_count % SECRETS_SCAN_EVERY == 0
+                                or force_secrets_scan):
+            try:
+                payload['secret_findings'] = collect_secret_findings(secrets_scan_paths)
+                log.debug(f'secrets scan: {len(payload["secret_findings"])} finding(s)')
+            except Exception as e:
+                log.debug(f'secrets scan error: {e}')
+            force_secrets_scan = False
+
         # v2.5.0: run custom monitoring scripts every SCRIPT_CHECK_EVERY polls.
         # Scripts arrive via the heartbeat response and are stored in
         # custom_scripts. Results are keyed by script ID and held in
@@ -5719,6 +5830,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_acme_rescan'):
                 force_acme_rescan = True
                 log.info('Server requested an ACME rescan')
+            # v3.14.0 #35: secrets scan opt-in + paths pushed by the server.
+            secrets_scan_on = bool(resp.get('secrets_scan_enabled'))
+            _ssp = resp.get('secrets_scan_paths')
+            secrets_scan_paths = _ssp if isinstance(_ssp, list) and _ssp else None
+            if resp.get('force_secrets_scan'):
+                force_secrets_scan = True
+                log.info('Server requested a secrets scan')
             # v3.4.2: one-shot OpenSCAP scan request. oscap is slow (minutes),
             # so run it in a daemon thread and POST results when done — the
             # heartbeat loop keeps running. The lock prevents overlap.

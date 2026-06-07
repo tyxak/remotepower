@@ -239,6 +239,7 @@ CMDB_SSH_PORT_MAX     = 65535
 # device (disk/mem/inode) for forecasting + "what changed"; helm.json keeps
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
+SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
 DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
@@ -725,6 +726,8 @@ WEBHOOK_EVENTS = (
     # Edge-triggered; process_recovered is the matching recover event.
     ('process_alert',         'A watched process exceeded its CPU/memory threshold', True),
     ('process_recovered',     'A watched process dropped back below its threshold',  True),
+    # v3.14.0 #35: the agent's opt-in secrets scan found a new exposed secret.
+    ('secret_exposed',        'A secret was found exposed on a host filesystem',     True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -3541,6 +3544,7 @@ _ALERT_RULES = {
     'cert_file_expiring':         ('medium', None),     # v3.14.0
     'rogue_uid0':                 ('high', None),        # v3.14.0
     'process_alert':              ('medium', None),      # v3.14.0 #36
+    'secret_exposed':             ('high', None),        # v3.14.0 #35
 }
 
 # Map recover event → firing event it resolves
@@ -3636,6 +3640,7 @@ CHANNEL_KINDS = [
     ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
     ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
+    ('secrets',      'Exposed secrets on disk',  'operational',   ['secret_exposed']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4007,6 +4012,11 @@ def _alert_title(event, payload):
         return (f'Process {verb} on {name}: {p.get("process","?")} '
                 f'{metric} {p.get("value","?")}{unit} '
                 f'(threshold {p.get("threshold","?")}{unit})')
+    if event == 'secret_exposed':
+        n = p.get('count') or 1
+        extra = f' (+{n-1} more)' if isinstance(n, int) and n > 1 else ''
+        return (f'Exposed secret on {name}: {p.get("rule","?")} in '
+                f'{p.get("path","?")}{extra}')
     return f'{event}: {name}'
 
 
@@ -4741,6 +4751,7 @@ def _webhook_title(event):
         'rogue_uid0':                'Unexpected Root-Equivalent Account',
         'process_alert':             'Watched Process Threshold',
         'process_recovered':         'Watched Process Recovered',
+        'secret_exposed':            'Exposed Secret Found',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -9324,6 +9335,14 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] av ingest failed dev={dev_id}: {e}\n")
 
+    # v3.14.0 #35: redacted secrets-on-disk findings (opt-in scan).
+    if 'secret_findings' in body:
+        try:
+            _ingest_secret_findings(dev_id, saved_dev.get('name', dev_id),
+                                    body['secret_findings'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] secrets ingest failed dev={dev_id}: {e}\n")
+
     # v3.4.0: Helm releases (visibility only).
     if 'helm' in body:
         try:
@@ -9401,6 +9420,14 @@ def handle_heartbeat():
     _bak_cfg = load(CONFIG_FILE).get('backup_monitors') or []
     if _bak_cfg:
         common_resp['backup_monitors'] = _bak_cfg
+    # v3.14.0 #35: opt-in secrets scan. Only advertised when enabled fleet-wide;
+    # the agent stays inert otherwise. Custom scan paths override its defaults.
+    _sec_cfg = load(CONFIG_FILE)
+    if _sec_cfg.get('secrets_scan_enabled'):
+        common_resp['secrets_scan_enabled'] = True
+        _sec_paths = _sec_cfg.get('secrets_scan_paths') or []
+        if _sec_paths:
+            common_resp['secrets_scan_paths'] = _sec_paths
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
@@ -10712,6 +10739,10 @@ def handle_config_get():
     safe.setdefault('otlp_endpoint', '')
     safe.setdefault('otlp_interval', 60)
     safe['otlp_token_set'] = bool(cfg.get('otlp_token'))
+    # v3.14.0 #35: secrets scanning — opt-in, default off.
+    safe.setdefault('secrets_scan_enabled', False)
+    safe.setdefault('secrets_scan_paths', [])
+    safe.setdefault('secrets_mutes', [])
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
@@ -11323,6 +11354,27 @@ def handle_config_save():
             thr = max(1.0, min(100.0, thr))
             watches.append({'name': nm, 'metric': metric, 'threshold': round(thr, 1)})
         cfg['process_watches'] = watches
+
+    # v3.14.0 #35: secrets-on-disk scanning (opt-in, default OFF — it's heavy
+    # and reads sensitive files, so it never runs until explicitly enabled).
+    if 'secrets_scan_enabled' in body:
+        cfg['secrets_scan_enabled'] = bool(body['secrets_scan_enabled'])
+    if 'secrets_scan_paths' in body:
+        raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
+        paths = []
+        for p in raw_sp[:50]:
+            ps = _sanitize_str(str(p), 256).strip()
+            if ps and ps not in paths:
+                paths.append(ps)
+        cfg['secrets_scan_paths'] = paths
+    if 'secrets_mutes' in body:
+        raw_m = body['secrets_mutes'] if isinstance(body['secrets_mutes'], list) else []
+        mutes = []
+        for m in raw_m[:2000]:
+            ms = _sanitize_str(str(m), 32).strip()
+            if ms and ms not in mutes:
+                mutes.append(ms)
+        cfg['secrets_mutes'] = mutes
 
     # v3.4.2: CIS-style compliance baseline — which built-in checks are disabled.
     if 'compliance_baseline' in body:
@@ -14608,6 +14660,61 @@ def _eval_process_watches(dev_id, dev_name, top_processes, now):
     for event, payload in fires:
         try:
             fire_webhook(event, payload)
+        except Exception:
+            pass
+
+
+def _ingest_secret_findings(dev_id, dev_name, findings):
+    """v3.14.0 #35: persist the agent's REDACTED secret findings and edge-trigger
+    secret_exposed once per ingest when a new (not previously seen, not muted)
+    fingerprint appears. The agent already strips secret values — we re-sanitize
+    defensively and never store anything but the masked preview. Best-effort."""
+    if not isinstance(findings, list):
+        return
+    cfg = load(CONFIG_FILE) or {}
+    muted = set(cfg.get('secrets_mutes') or [])
+    clean = []
+    for f in findings[:200]:
+        if not isinstance(f, dict):
+            continue
+        fp = _sanitize_str(str(f.get('fingerprint', '')), 32)
+        if not fp:
+            continue
+        ent = {
+            'fingerprint': fp,
+            'rule':    _sanitize_str(str(f.get('rule', '')), 40),
+            'path':    _sanitize_str(str(f.get('path', '')), 300),
+            'preview': _sanitize_str(str(f.get('preview', '')), 64),
+            'muted':   fp in muted,
+        }
+        try:
+            ln = int(f.get('line') or 0)
+            if 0 < ln < 10_000_000:
+                ent['line'] = ln
+        except (TypeError, ValueError):
+            pass
+        clean.append(ent)
+    new_fps = []
+    with _locked_update(SECRETS_FILE) as store:
+        rec = store.get(dev_id) or {}
+        prev_seen = set(rec.get('_seen') or [])
+        cur_fps = {e['fingerprint'] for e in clean}
+        new_fps = [e for e in clean
+                   if e['fingerprint'] not in prev_seen and not e['muted']]
+        # Cap the dedup memory so it can't grow without bound across rescans.
+        merged_seen = sorted(prev_seen | cur_fps)[-2000:]
+        store[dev_id] = {'findings': clean, 'ts': int(time.time()),
+                         '_seen': merged_seen}
+    if new_fps:
+        # One summary event per ingest (first finding + count) — avoids a webhook
+        # storm the first time scanning is enabled on a host with many findings.
+        first = new_fps[0]
+        try:
+            fire_webhook('secret_exposed', {
+                'device_id': dev_id, 'name': dev_name,
+                'rule': first['rule'], 'path': first['path'],
+                'count': len(new_fps),
+            })
         except Exception:
             pass
 
@@ -29481,6 +29588,55 @@ def handle_fleet_chargeback():
     respond(200, _chargeback_breakdown(devices, load(HARDWARE_FILE) or {}))
 
 
+def handle_fleet_secrets():
+    """GET /api/fleet/secrets — redacted secret findings across the fleet,
+    scope-filtered. Values are never present (the agent strips them); each
+    finding carries rule / path / masked preview / fingerprint. Auth: require_auth."""
+    require_auth()
+    store = load(SECRETS_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    cfg = load(CONFIG_FILE) or {}
+    muted = set(cfg.get('secrets_mutes') or [])
+    out, total_active = [], 0
+    for did, rec in store.items():
+        if did not in devices:
+            continue
+        findings = [{**f, 'muted': f.get('fingerprint', '') in muted}
+                    for f in (rec.get('findings') or []) if isinstance(f, dict)]
+        active = sum(1 for f in findings if not f['muted'])
+        total_active += active
+        if findings:
+            out.append({'device_id': did, 'name': (devices.get(did) or {}).get('name', did),
+                        'ts': rec.get('ts'), 'active': active,
+                        'findings': findings[:200]})
+    out.sort(key=lambda r: r['active'], reverse=True)
+    respond(200, {'devices': out, 'total_active': total_active,
+                  'enabled': bool(cfg.get('secrets_scan_enabled'))})
+
+
+def handle_secrets_mute():
+    """POST /api/secrets/mute {fingerprint, unmute?} — mute (or unmute) a secret
+    finding by fingerprint so it stops alerting / counting. Admin-only; the
+    fingerprint is a sha256 prefix, never the secret itself. Audit-logged."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    fp = _sanitize_str(str(body.get('fingerprint', '')), 32).strip()
+    if not fp:
+        respond(400, {'error': 'fingerprint required'})
+    unmute = bool(body.get('unmute'))
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        mutes = list(cfg.get('secrets_mutes') or [])
+        if unmute:
+            mutes = [m for m in mutes if m != fp]
+        elif fp not in mutes:
+            mutes.append(fp)
+        cfg['secrets_mutes'] = mutes[:2000]
+    audit_log(actor, 'secret_unmute' if unmute else 'secret_mute', f'fingerprint={fp}')
+    respond(200, {'ok': True, 'muted': not unmute})
+
+
 # ─── v3.11.0: scheduled posture digest email ─────────────────────────────────
 
 def _build_posture_digest():
@@ -34633,6 +34789,8 @@ def _build_exact_routes():
         # v3.14.0: fleet power / UPS + energy
         ('GET', '/api/fleet/power'): handle_fleet_power,
         ('GET', '/api/fleet/chargeback'): handle_fleet_chargeback,   # v3.14.0 (#41)
+        ('GET', '/api/fleet/secrets'): handle_fleet_secrets,         # v3.14.0 (#35)
+        ('POST', '/api/secrets/mute'): handle_secrets_mute,          # v3.14.0 (#35)
         # v3.14.0: predictive disk-failure maintenance
         ('GET', '/api/fleet/disk-health'): handle_disk_health,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,

@@ -31,6 +31,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -509,6 +510,95 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
         return json.loads(resp.read().decode('utf-8'))
 
 
+# v3.14.0 #35: secrets-on-disk scanner (parity with the Linux agent). READ-ONLY
+# + REDACTING — never sends a secret's value, only rule/location/masked-preview/
+# sha256 fingerprint. Opt-in (server pushes secrets_scan_enabled); bounded hard.
+SECRETS_SCAN_EVERY = 360
+_secrets_cfg = {'on': False, 'paths': None}   # updated from each heartbeat response
+_SECRET_RULES = [
+    ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
+    ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
+    ('github_token',   re.compile(r'\bghp_[A-Za-z0-9]{36}\b')),
+    ('github_pat',     re.compile(r'\bgithub_pat_[A-Za-z0-9_]{60,}\b')),
+    ('slack_token',    re.compile(r'\bxox[baprs]-[0-9A-Za-z-]{10,48}\b')),
+    ('slack_webhook',  re.compile(r'https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}')),
+    ('google_api_key', re.compile(r'\bAIza[0-9A-Za-z_\-]{35}\b')),
+    ('stripe_secret',  re.compile(r'\bsk_live_[0-9A-Za-z]{24,}\b')),
+    ('jwt',            re.compile(r'\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b')),
+    ('generic_secret', re.compile(r'(?i)(?:password|passwd|secret|api[_-]?key|token)\s*[=:]\s*[\'"]?([^\s\'"]{8,})')),
+]
+_SECRETS_SKIP_DIRS = {'.git', 'node_modules', 'vendor', '__pycache__', 'site-packages',
+                      '.cache', '.venv', 'venv', 'AppData', 'Windows', '$Recycle.Bin'}
+_SECRETS_DEFAULT_PATHS = [r'C:\Users', r'C:\ProgramData', r'C:\inetpub']
+
+
+def _redact_secret(s):
+    s = s.strip()
+    if len(s) <= 4:
+        return '****'
+    if len(s) <= 8:
+        return s[:2] + '*' * (len(s) - 2)
+    return s[:4] + '*' * 8 + f'({len(s)})'
+
+
+def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576,
+                            max_files=5000, time_budget=12.0):
+    paths = paths or _SECRETS_DEFAULT_PATHS
+    findings, seen = [], set()
+    start = time.monotonic()
+    visited = 0
+    for base in paths:
+        if not isinstance(base, str) or not os.path.exists(base):
+            continue
+        if len(findings) >= max_findings or visited >= max_files \
+                or time.monotonic() - start > time_budget:
+            break
+        for dirpath, dirnames, filenames in os.walk(base):
+            if len(findings) >= max_findings or visited >= max_files \
+                    or time.monotonic() - start > time_budget:
+                break
+            dirnames[:] = [d for d in dirnames if d not in _SECRETS_SKIP_DIRS]
+            for fn in filenames:
+                if len(findings) >= max_findings or visited >= max_files:
+                    break
+                fpath = os.path.join(dirpath, fn)
+                try:
+                    if os.path.islink(fpath) or not os.path.isfile(fpath):
+                        continue
+                    sz = os.stat(fpath).st_size
+                    if sz == 0 or sz > max_file_bytes:
+                        continue
+                    visited += 1
+                    with open(fpath, 'rb') as f:
+                        chunk = f.read(max_file_bytes)
+                    if b'\x00' in chunk[:4096]:
+                        continue
+                    text = chunk.decode('utf-8', 'replace')
+                except Exception:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), 1):
+                    if len(line) > 4000:
+                        continue
+                    for rule, rx in _SECRET_RULES:
+                        m = rx.search(line)
+                        if not m:
+                            continue
+                        val = m.group(m.lastindex) if m.lastindex else m.group(0)
+                        fph = hashlib.sha256(val.encode('utf-8', 'replace')).hexdigest()[:16]
+                        key = (rule, fph, fpath)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        findings.append({'path': fpath[:300], 'line': lineno,
+                                         'rule': rule, 'preview': _redact_secret(val)[:48],
+                                         'fingerprint': fph})
+                        if len(findings) >= max_findings:
+                            break
+                    if len(findings) >= max_findings:
+                        break
+    return findings
+
+
 def build_heartbeat(creds, poll_count, pending_output=None):
     """Assemble the heartbeat payload. Pure (no network) — unit-testable."""
     payload = {
@@ -528,6 +618,13 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         accounts = get_local_accounts()        # local users → account audit card
         if accounts:
             payload['accounts'] = accounts
+    # v3.14.0 #35: opt-in secrets scan on its own ~6h cadence (config from the
+    # previous heartbeat response, stashed in _secrets_cfg by heartbeat_once).
+    if _secrets_cfg.get('on') and (poll_count <= 1 or poll_count % SECRETS_SCAN_EVERY == 0):
+        try:
+            payload['secret_findings'] = collect_secret_findings(_secrets_cfg.get('paths'))
+        except Exception:
+            pass
     if pending_output:
         payload['cmd_output'] = pending_output
         payload['executed_command'] = pending_output.get('cmd', '')
@@ -572,6 +669,10 @@ def heartbeat_once(creds, poll_count, pending_output=None):
         cmd = resp.get('command')
         if cmd:
             new_pending = handle_command(cmd)
+        # v3.14.0 #35: stash secrets-scan opt-in + paths for the next heartbeat.
+        _secrets_cfg['on'] = bool(resp.get('secrets_scan_enabled'))
+        _ssp = resp.get('secrets_scan_paths')
+        _secrets_cfg['paths'] = _ssp if isinstance(_ssp, list) and _ssp else None
     return resp, new_pending
 
 

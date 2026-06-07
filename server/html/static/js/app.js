@@ -2179,6 +2179,13 @@ async function loadSettings() {
     const otk = document.getElementById('cfg-otlp-token');
     if (otk) otk.placeholder = data.otlp_token_set ? '•••••• (set — leave blank to keep)' : 'optional bearer token';
   }
+  // v3.14.0 #35: secrets-on-disk scanning
+  const _secEn = document.getElementById('cfg-secrets-scan-enabled');
+  if (_secEn) {
+    _secEn.checked = !!data.secrets_scan_enabled;
+    const sp = document.getElementById('cfg-secrets-scan-paths');
+    if (sp) sp.value = (data.secrets_scan_paths || []).join('\n');
+  }
   const _cae = document.getElementById('cfg-change-approval-enabled');
   if (_cae) {
     _cae.checked = !!data.change_approval_enabled;
@@ -2524,6 +2531,13 @@ async function saveSettings(btn) {
     payload.otlp_interval = parseInt(document.getElementById('cfg-otlp-interval')?.value || '60', 10);
     const _otlpTok = document.getElementById('cfg-otlp-token')?.value;
     if (_otlpTok) payload.otlp_token = _otlpTok;
+  }
+  // v3.14.0 #35: secrets-on-disk scanning
+  const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
+  if (_secSaveEn) {
+    payload.secrets_scan_enabled = _secSaveEn.checked;
+    payload.secrets_scan_paths = (document.getElementById('cfg-secrets-scan-paths')?.value || '')
+      .split('\n').map(s => s.trim()).filter(Boolean);
   }
   const _caEn = document.getElementById('cfg-change-approval-enabled');
   if (_caEn) {
@@ -10380,6 +10394,63 @@ async function loadExposure() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
+  loadSecrets();   // v3.14.0 #35: the secrets card lives on the same page
+}
+
+// ─── v3.14.0 #35: exposed-secrets fleet card (redacted findings) ────────────
+let _secretsResp = null;
+async function loadSecrets() {
+  const tbody = document.getElementById('secrets-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('secrets-thead', 'secrets', () => _renderSecrets());
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  try {
+    _secretsResp = await api('GET', '/fleet/secrets');
+    _renderSecrets();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderSecrets() {
+  const tbody = document.getElementById('secrets-tbody');
+  const summary = document.getElementById('secrets-summary');
+  if (!tbody || !_secretsResp) return;
+  let rows = [];
+  for (const d of (_secretsResp.devices || [])) {
+    for (const f of (d.findings || [])) rows.push({ device: d.name, ...f });
+  }
+  if (summary) {
+    summary.textContent = !_secretsResp.enabled
+      ? 'Scanning is off — enable it in Settings → Security.'
+      : `${_secretsResp.total_active || 0} active finding(s) across ${(_secretsResp.devices || []).length} host(s).`;
+  }
+  rows = tableCtl.sortRows('secrets', rows, (r) => ({
+    device: (r.device || '').toLowerCase(), rule: r.rule || '',
+    path: (r.path || '').toLowerCase(), preview: r.preview || '', line: r.line || 0,
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hint">${_secretsResp.enabled ? 'No secrets found in the scanned paths.' : 'Secrets scanning is disabled.'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${escHtml(r.device || '—')}</td>
+      <td><span class="cmd-badge">${escHtml(r.rule || '?')}</span>${r.muted ? ' <span class="hint">muted</span>' : ''}</td>
+      <td class="fs-12"><code>${escHtml(r.path || '—')}</code></td>
+      <td class="fs-12"><code>${escHtml(r.preview || '—')}</code></td>
+      <td class="ta-center">${r.line || '—'}</td>
+      <td>${r.muted
+        ? `<button class="btn-icon" data-action="unmuteSecret" data-arg="${escAttr(r.fingerprint || '')}">Unmute</button>`
+        : `<button class="btn-icon" data-action="muteSecret" data-arg="${escAttr(r.fingerprint || '')}">Mute</button>`}</td>
+    </tr>`).join('');
+}
+async function muteSecret(fp) {
+  const r = await api('POST', '/secrets/mute', { fingerprint: fp });
+  if (r?.ok) { toast('Finding muted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+}
+async function unmuteSecret(fp) {
+  const r = await api('POST', '/secrets/mute', { fingerprint: fp, unmute: true });
+  if (r?.ok) { toast('Finding unmuted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
 }
 function _renderExposure() {
   const tbody = document.getElementById('exposure-tbody');
@@ -12128,6 +12199,8 @@ function _renderHomeActivity(fleetEvents) {
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'cert_file_expiring', 'rogue_uid0',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
+    // v3.14.0 #35: exposed-secret finding
+    'secret_exposed',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -12289,6 +12362,9 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
     case 'process_alert': case 'process_recovered':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    // v3.14.0 #35: exposed secret → open the affected host's drawer.
+    case 'secret_exposed':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;

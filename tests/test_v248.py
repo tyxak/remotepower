@@ -33,7 +33,8 @@ class TestActivityDedup(unittest.TestCase):
         # lengthened the literal before the .slice() this test checks for.
         # v3.12.0: widened 3600→3800 — added db_integrity_failed to FLEET_EVENTS.
         # v3.14.0: widened 3800→4000 — added process_alert/process_recovered.
-        cls.chunk = cls.js[start:start + 4000]
+        # v3.14.0: widened 4000→4100 — added secret_exposed.
+        cls.chunk = cls.js[start:start + 4100]
 
     def test_dedup_runs_before_slice(self):
         # The de-dup filter must come before .slice(0, 8) — otherwise

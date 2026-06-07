@@ -1669,6 +1669,136 @@ class TestReleaseChannels(_HandlerBase):
         self.assertEqual((api.load(api.DEVICES_FILE))['d1']['update_channel'], 'stable')
 
 
+class TestSecretsScan(_HandlerBase):
+    """v3.14.0 #35 — secrets-on-disk scanning. Redaction + edge-trigger + mute."""
+
+    def setUp(self):
+        super().setUp()
+        self._sec_file = api.SECRETS_FILE
+        api.SECRETS_FILE = self.d / 'secret_findings.json'
+        self._orig_fire = api.fire_webhook
+        self.fired = []
+        api.fire_webhook = lambda ev, pl: self.fired.append((ev, pl))
+
+    def tearDown(self):
+        api.SECRETS_FILE = self._sec_file
+        api.fire_webhook = self._orig_fire
+        super().tearDown()
+
+    def _finding(self, fp='abc123', rule='aws_access_key', **kw):
+        f = {'fingerprint': fp, 'rule': rule, 'path': '/etc/app.env',
+             'line': 3, 'preview': 'AKIA****…(20)'}
+        f.update(kw)
+        return f
+
+    def test_value_is_never_stored(self):
+        # Even if a (buggy/malicious) agent includes the raw secret, the server
+        # allowlist must drop it — only redacted fields survive.
+        api._ingest_secret_findings('d1', 'web',
+            [self._finding(value='AKIAIOSFODNN7EXAMPLE', secret='supersecret')])
+        rec = (api.load(api.SECRETS_FILE))['d1']['findings'][0]
+        self.assertNotIn('value', rec)
+        self.assertNotIn('secret', rec)
+        self.assertEqual(rec['preview'], 'AKIA****…(20)')
+
+    def test_edge_trigger_once_per_new_fingerprint(self):
+        api._ingest_secret_findings('d1', 'web', [self._finding(fp='f1')])
+        self.assertEqual([e for e, _ in self.fired], ['secret_exposed'])
+        self.assertEqual(self.fired[0][1]['count'], 1)
+        # Same fingerprint again → no re-fire.
+        self.fired.clear()
+        api._ingest_secret_findings('d1', 'web', [self._finding(fp='f1')])
+        self.assertEqual(self.fired, [])
+        # A new one fires again.
+        api._ingest_secret_findings('d1', 'web',
+            [self._finding(fp='f1'), self._finding(fp='f2')])
+        self.assertEqual([e for e, _ in self.fired], ['secret_exposed'])
+
+    def test_muted_fingerprint_does_not_fire(self):
+        api.save(api.CONFIG_FILE, {'secrets_mutes': ['f9']})
+        api._ingest_secret_findings('d1', 'web', [self._finding(fp='f9')])
+        self.assertEqual(self.fired, [])
+        rec = (api.load(api.SECRETS_FILE))['d1']['findings'][0]
+        self.assertTrue(rec['muted'])
+
+    def test_mute_endpoint_round_trip(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'fingerprint': 'fX'}
+        self.call(api.handle_secrets_mute)
+        self.assertIn('fX', (api.load(api.CONFIG_FILE))['secrets_mutes'])
+        api.get_json_body = lambda: {'fingerprint': 'fX', 'unmute': True}
+        self.call(api.handle_secrets_mute)
+        self.assertNotIn('fX', (api.load(api.CONFIG_FILE))['secrets_mutes'])
+
+    def test_fleet_endpoint_scoped_and_counts(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CONFIG_FILE, {'secrets_scan_enabled': True, 'secrets_mutes': ['m1']})
+        api.save(api.SECRETS_FILE, {'d1': {'findings': [
+            self._finding(fp='a1'), self._finding(fp='m1')], 'ts': 1}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_fleet_secrets)
+        self.assertTrue(r['enabled'])
+        self.assertEqual(r['total_active'], 1)            # m1 is muted
+        self.assertEqual(len(r['devices'][0]['findings']), 2)
+
+    def test_config_validation(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'secrets_scan_enabled': True,
+                                     'secrets_scan_paths': ['/etc', '/etc', '  '],
+                                     'secrets_mutes': ['x', 'x', 'y']}
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertTrue(cfg['secrets_scan_enabled'])
+        self.assertEqual(cfg['secrets_scan_paths'], ['/etc'])   # deduped, blank dropped
+        self.assertEqual(cfg['secrets_mutes'], ['x', 'y'])
+
+    def test_registries_wired(self):
+        self.assertIn('secret_exposed', api.WEBHOOK_EVENT_NAMES)
+        self.assertEqual(api._alert_severity('secret_exposed',
+            {'rule': 'aws_access_key', 'path': '/x'}), 'high')
+        self.assertEqual(api.EVENT_KIND_MAP.get('secret_exposed'), 'secrets')
+        t = api._alert_title('secret_exposed',
+            {'name': 'web', 'rule': 'aws_access_key', 'path': '/etc/x', 'count': 2})
+        self.assertIn('aws_access_key', t)
+        self.assertIn('+1 more', t)
+
+
+class TestSecretsAgentParity(unittest.TestCase):
+    """v3.14.0 #35 — both agents scan + redact; the Linux scanner never emits a
+    raw secret value (the load-bearing privacy property)."""
+
+    AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
+    AGENT_X = (_ROOT / "client/remotepower-agent").read_text()
+    WIN = (_ROOT / "client/remotepower-agent-win.py").read_text()
+
+    def test_both_agents_have_scanner(self):
+        for src in (self.AGENT, self.WIN):
+            self.assertIn('def collect_secret_findings', src)
+            self.assertIn('def _redact_secret', src)
+            self.assertIn('fingerprint', src)
+
+    def test_extensionless_in_sync(self):
+        self.assertEqual(self.AGENT, self.AGENT_X)
+
+    def test_linux_scanner_redacts(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rp_agent_sec",
+                                                      _ROOT / "client/remotepower-agent.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        d = tempfile.mkdtemp()
+        (Path(d) / 'creds.env').write_text(
+            "AWS_KEY = AKIAIOSFODNN7EXAMPLE\npassword = supersecret12345\n")
+        findings = mod.collect_secret_findings([d])
+        self.assertTrue(findings)
+        for f in findings:
+            # No raw secret anywhere in what we'd transmit.
+            blob = json.dumps(f)
+            self.assertNotIn('AKIAIOSFODNN7EXAMPLE', blob)
+            self.assertNotIn('supersecret12345', blob)
+            self.assertEqual(len(f['fingerprint']), 16)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

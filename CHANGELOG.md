@@ -10,6 +10,14 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Secrets-on-disk scanning (opt-in).** Agents can scan configured paths for
+  exposed secrets (private keys, cloud keys, API tokens, passwords) and raise a
+  `secret_exposed` alert when a new one appears. **Redacting by design** — the
+  agent never transmits a secret's value, only its type, file:line, a masked
+  preview, and a sha256 fingerprint; bounded hard on files/size/time. Off by
+  default; enable + set scan paths in *Settings → Security*. Findings (with
+  per-finding mute for false positives) show on the **Exposure** page. Linux and
+  Windows agents both scan.
 - **OpenTelemetry export (OTLP).** *Settings → Security → OpenTelemetry export*
   pushes rolled-up fleet gauges (devices online/offline, alerts by severity,
   health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, any

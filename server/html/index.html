@@ -1402,6 +1402,15 @@
             </div>
           </div>
 
+          <!-- v3.14.0 #35: secrets-on-disk scanning (opt-in) -->
+          <div class="settings-section">
+            <h3>Secrets-on-disk scanning</h3>
+            <p class="hint">When enabled, agents scan the paths below for exposed secrets (private keys, API tokens, passwords) and raise a <em>secret_exposed</em> alert when a new one appears. <strong>Off by default</strong> — it reads files and is heavier than other checks. The scan is <strong>redacting by design</strong>: the agent never sends a secret's value, only its type, location, a masked preview and a fingerprint. Findings appear on the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page, where you can mute false positives.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
+              <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
+          </div>
+
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
           <div class="settings-section">
             <h3>Audit log forwarding</h3>
@@ -4365,6 +4374,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th data-col="addr">Bind address</th><th data-col="scope">Scope</th><th></th>
             </tr></thead>
             <tbody id="exposure-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+
+        <!-- v3.14.0 #35: secrets-on-disk findings (opt-in agent scan) -->
+        <div class="section-title mt-24">Exposed secrets on disk</div>
+        <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting.</div>
+        <div id="secrets-summary" class="hint mb-8"></div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="secrets-thead"><tr>
+              <th data-col="device">Device</th><th data-col="rule">Type</th>
+              <th data-col="path">Path</th><th data-col="preview">Preview</th>
+              <th data-col="line">Line</th><th></th>
+            </tr></thead>
+            <tbody id="secrets-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>
