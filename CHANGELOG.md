@@ -10,6 +10,10 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Themes & accents.** *My Account → Appearance* adds a **theme** choice
+  (Dark / Light / **Auto** — follows your OS light/dark setting and switches live)
+  and six **accent colours** (blue, emerald, violet, amber, rose, cyan). Per
+  browser; the header toggle now cycles Dark → Light → Auto.
 - **Cost allocation / chargeback.** The **Power** page now estimates monthly
   energy **cost per group and per tag** (each host's measured draw × your
   price/kWh), for showback/chargeback. Scope-filtered; `GET /api/fleet/chargeback`

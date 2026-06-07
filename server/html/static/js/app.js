@@ -678,18 +678,83 @@ function toggleUpdateSteps() {
 // v3.3.0: theme toggle uses Lucide moon/sun SVGs instead of emoji
 const _THEME_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
 const _THEME_SUN  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+// v3.14.0 (#46): theme = dark | light | auto (follow system); plus a per-user
+// accent preset (data-accent on <body>). Branding (#45) can override the default.
+const ACCENT_PRESETS = ['blue', 'emerald', 'violet', 'amber', 'rose', 'cyan'];
+function _systemPrefersLight() {
+  try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches; }
+  catch (_) { return false; }
+}
+function _effectiveLight(theme) {
+  return theme === 'light' || (theme === 'auto' && _systemPrefersLight());
+}
+function applyAccent() {
+  let a = '';
+  try { a = localStorage.getItem('rp_accent') || ''; } catch (_) {}
+  // Branding default (set by #45) applies when the user hasn't picked one.
+  if (!a && window._brandAccent && ACCENT_PRESETS.includes(window._brandAccent)) a = window._brandAccent;
+  if (a && a !== 'blue' && ACCENT_PRESETS.includes(a)) document.body.dataset.accent = a;
+  else delete document.body.dataset.accent;
+}
 function applyTheme() {
-  const theme = localStorage.getItem('rp_theme') || 'dark';
-  document.body.classList.toggle('light', theme === 'light');
+  let theme = 'dark';
+  try { theme = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  document.body.classList.toggle('light', _effectiveLight(theme));
   const btn = document.querySelector('.theme-btn');
-  if (btn) btn.innerHTML = theme === 'light' ? _THEME_MOON : _THEME_SUN;
+  if (btn) btn.innerHTML = _effectiveLight(theme) ? _THEME_MOON : _THEME_SUN;
+  applyAccent();
 }
 function toggleTheme() {
-  const isLight = document.body.classList.toggle('light');
-  localStorage.setItem('rp_theme', isLight ? 'light' : 'dark');
-  const btn = document.querySelector('.theme-btn');
-  if (btn) btn.innerHTML = isLight ? _THEME_MOON : _THEME_SUN;
+  // cycle dark → light → auto → dark
+  let theme = 'dark';
+  try { theme = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  const next = theme === 'dark' ? 'light' : theme === 'light' ? 'auto' : 'dark';
+  try { localStorage.setItem('rp_theme', next); } catch (_) {}
+  applyTheme();
+  if (next === 'auto') toast('Theme: follow system', 'info');
 }
+function setAccent(name) {
+  try { localStorage.setItem('rp_accent', name); } catch (_) {}
+  applyAccent();
+}
+const _ACCENT_COLORS = { blue: '#3b7eff', emerald: '#10b981', violet: '#8b5cf6', amber: '#f59e0b', rose: '#f43f5e', cyan: '#06b6d4' };
+function _buildAppearancePicker() {
+  const sel = document.getElementById('acct-theme');
+  if (sel) { try { sel.value = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {} }
+  const wrap = document.getElementById('acct-accent');
+  if (!wrap) return;
+  let cur = 'blue'; try { cur = localStorage.getItem('rp_accent') || 'blue'; } catch (_) {}
+  wrap.innerHTML = '';
+  ACCENT_PRESETS.forEach(name => {
+    const b = document.createElement('button');
+    b.className = 'accent-swatch' + (name === cur ? ' sel' : '');
+    b.style.background = _ACCENT_COLORS[name];   // CSP-safe: set via JS, not inline attr
+    b.style.color = _ACCENT_COLORS[name];
+    b.title = name;
+    b.setAttribute('aria-label', 'Accent ' + name);
+    b.dataset.action = 'setAccentUI';
+    b.dataset.arg = name;
+    wrap.appendChild(b);
+  });
+}
+function onThemeSelect() {
+  const sel = document.getElementById('acct-theme');
+  if (!sel) return;
+  try { localStorage.setItem('rp_theme', sel.value); } catch (_) {}
+  applyTheme();
+}
+function setAccentUI(name) {
+  setAccent(name);
+  _buildAppearancePicker();
+}
+// Live-update when the OS theme flips and we're in 'auto'.
+try {
+  window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
+    .addEventListener('change', () => {
+      let t = 'dark'; try { t = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+      if (t === 'auto') applyTheme();
+    });
+} catch (_) {}
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
@@ -4602,6 +4667,7 @@ document.addEventListener('click', e => {
 async function loadAccount() {
   const me = await loadMe();
   if (!me) return;
+  _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   set('acct-username', me.username);
   set('acct-username-2', me.username);

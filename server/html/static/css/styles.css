@@ -44,6 +44,14 @@
   }
   body.light body::before { background-image: linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
   body.light header { background: rgba(241,245,249,0.9); }
+  /* v3.14.0 (#46): per-user accent presets (default = blue when no data-accent). */
+  body[data-accent="emerald"] { --accent: #10b981; --accent-soft: rgba(16,185,129,0.10); --accent-edge: rgba(16,185,129,0.30); }
+  body[data-accent="violet"]  { --accent: #8b5cf6; --accent-soft: rgba(139,92,246,0.10); --accent-edge: rgba(139,92,246,0.30); }
+  body[data-accent="amber"]   { --accent: #f59e0b; --accent-soft: rgba(245,158,11,0.10); --accent-edge: rgba(245,158,11,0.30); }
+  body[data-accent="rose"]    { --accent: #f43f5e; --accent-soft: rgba(244,63,94,0.10);  --accent-edge: rgba(244,63,94,0.30); }
+  body[data-accent="cyan"]    { --accent: #06b6d4; --accent-soft: rgba(6,182,212,0.10);  --accent-edge: rgba(6,182,212,0.30); }
+  .accent-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+  .accent-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor; }
   body.light .journal-wrap { background: #f8fafc; color: #334155; }
   .theme-btn {
     background: transparent;

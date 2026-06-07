@@ -1174,6 +1174,31 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestThemesWiring(unittest.TestCase):
+    """v3.14.0 #46 — accent presets + theme (dark/light/auto) picker, CSP-safe."""
+
+    JS = client_js()
+    CSS = (_ROOT / "server/html/static/css/styles.css").read_text()
+    HTML = (_ROOT / "server/html/index.html").read_text()
+
+    def test_accent_presets_defined(self):
+        for name in ('emerald', 'violet', 'amber', 'rose', 'cyan'):
+            self.assertIn(f'body[data-accent="{name}"]', self.CSS)
+
+    def test_theme_functions(self):
+        for fn in ('applyAccent', 'setAccent', 'onThemeSelect', '_buildAppearancePicker',
+                   '_effectiveLight'):
+            self.assertIn(fn, self.JS)
+        self.assertIn("'auto'", self.JS)   # the follow-system theme option
+
+    def test_auto_follows_system(self):
+        self.assertIn('prefers-color-scheme', self.JS)
+
+    def test_appearance_card_present(self):
+        self.assertIn('id="acct-theme"', self.HTML)
+        self.assertIn('id="acct-accent"', self.HTML)
+
+
 class TestChargeback(_HandlerBase):
     """v3.14.0 #41 — per-group/tag power aggregation for cost allocation."""
 

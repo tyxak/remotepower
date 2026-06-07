@@ -888,6 +888,25 @@
           <select id="acct-lang" class="form-input input-auto" aria-label="Interface language"></select>
         </div>
 
+        <!-- v3.14.0 (#46): appearance — theme + accent (stored locally per browser). -->
+        <div class="settings-section">
+          <h3>Appearance</h3>
+          <p class="hint">Theme and accent colour for this browser. <strong>Auto</strong> follows your operating system's light/dark setting.</p>
+          <div class="row-8-center mb-12">
+            <label class="form-label">Theme
+              <select id="acct-theme" class="form-input input-auto" data-change="onThemeSelect">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+                <option value="auto">Auto (follow system)</option>
+              </select>
+            </label>
+          </div>
+          <div>
+            <div class="form-label mb-6">Accent</div>
+            <div id="acct-accent" class="row-8-center"></div>
+          </div>
+        </div>
+
         <div class="settings-section">
           <h3>Permissions</h3>
           <p class="hint">What your role lets you do. Managed by an administrator under <a href="#" data-action-btn="_showPageBtn" data-page="users" data-prevent-default class="c-accent">Users &amp; roles</a>.</p>
