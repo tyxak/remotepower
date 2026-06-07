@@ -47,9 +47,43 @@ async function loadComplianceBaseline() {
       <td class="fs-11 c-muted">${escHtml(failing)}${(c.failing || []).length > 8 ? '…' : ''}</td>
     </tr>`;
   }).join('');
+  // v3.14.0 #31: one-click remediation for failing, fixable checks. Each Fix
+  // runs through the existing queue/approval/audit pipeline and only on hosts
+  // where the operator has enabled remediation in device settings.
+  const titleById = {}; (r.available_checks || []).forEach(c => { titleById[c.id] = c.title; });
+  const remRows = [];
+  for (const d of (r.devices || [])) {
+    for (const cid of (d.remediable || [])) {
+      remRows.push({ device: d.name, device_id: d.device_id, check: cid,
+                     title: titleById[cid] || cid, enabled: d.remediation_enabled });
+    }
+  }
+  let remHtml = '';
+  if (remRows.length) {
+    remHtml = `<div class="section-title mt-24">Remediation</div>
+      <div class="page-subtitle">One-click fixes for failing checks. Each is queued through your existing approval + audit pipeline (a reboot still needs 4-eyes when that's on), and only on hosts where you've turned on <em>Automatic remediation</em> in device settings.</div>
+      <div class="table-card"><table><thead><tr><th>Device</th><th>Failing check</th><th>Action</th></tr></thead><tbody>` +
+      remRows.map(x => `<tr>
+        <td>${escHtml(x.device)}</td>
+        <td>${escHtml(x.title)}</td>
+        <td>${x.enabled
+          ? `<button class="btn-icon" data-action="remediateCheck" data-arg="${escAttr(x.device_id)}|${escAttr(x.check)}">Fix</button>`
+          : `<span class="hint">remediation off for this host</span>`}</td>
+      </tr>`).join('') + `</tbody></table></div>`;
+  }
   body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} device(s) evaluated.</div>
-    <div class="table-card"><table><thead id="cis-baseline-thead"><tr><th data-col="check">Check</th><th data-col="severity">Severity</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th data-col="na">N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="table-card"><table><thead id="cis-baseline-thead"><tr><th data-col="check">Check</th><th data-col="severity">Severity</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th data-col="na">N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>${remHtml}`;
   tableCtl.wireSortOnly('cis-baseline-thead', 'cis_baseline', loadComplianceBaseline);
+}
+
+// v3.14.0 #31: queue a remediation. arg is "<device_id>|<check_id>".
+async function remediateCheck(arg) {
+  const [device_id, check_id] = String(arg).split('|');
+  const r = await api('POST', '/compliance/remediate', { device_id, check_id }).catch(() => null);
+  if (r?.approval_required) toast('Fix parked — a second admin must approve it', 'info');
+  else if (r?.ok) toast('Fix queued', 'success');
+  else { toast(r?.error || 'Failed to queue fix', 'error'); return; }
+  loadComplianceBaseline();
 }
 
 function _cisSparkline(hist) {

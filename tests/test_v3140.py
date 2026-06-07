@@ -1801,6 +1801,69 @@ class TestSecretsAgentParity(unittest.TestCase):
             self.assertEqual(len(f['fingerprint']), 16)
 
 
+class TestCisRemediation(_HandlerBase):
+    """v3.14.0 #31 — one-click CIS remediation (opt-in, gated via _queue_command)."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_fire = api.fire_webhook
+        api.fire_webhook = lambda ev, pl: None      # avoid heavy side effects
+
+    def tearDown(self):
+        api.fire_webhook = self._orig_fire
+        super().tearDown()
+
+    def test_remediation_map_is_distro_aware_and_partial(self):
+        dev = {'sysinfo': {'packages': {'manager': 'apt'}}}
+        self.assertEqual(api._cis_remediation('cis-reboot', dev)['command'], 'reboot')
+        self.assertEqual(api._cis_remediation('cis-failed', dev)['command'],
+                         'exec:systemctl reset-failed')
+        self.assertEqual(api._cis_remediation('cis-patches', dev)['command'],
+                         'exec:apt-get -y upgrade')
+        # No safe auto-fix for these → advisory only.
+        self.assertIsNone(api._cis_remediation('cis-disk', dev))
+        self.assertIsNone(api._cis_remediation('cis-swap', dev))
+        # No package manager known → no patch remediation.
+        self.assertIsNone(api._cis_remediation('cis-patches', {'sysinfo': {}}))
+
+    def test_requires_per_host_optin(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})   # opt-in NOT set
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-reboot'}
+        self.call(api.handle_compliance_remediate)
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_queues_fix_when_opted_in(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'remediation_enabled': True}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-reboot'}
+        self.call(api.handle_compliance_remediate)
+        self.assertIn('reboot', (api.load(api.CMDS_FILE) or {}).get('d1', []))
+
+    def test_non_remediable_check_rejected(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'remediation_enabled': True}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-swap'}
+        self.call(api.handle_compliance_remediate)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_report_exposes_remediable(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web', 'remediation_enabled': True,
+            'sysinfo': {'reboot_required': True,
+                        'packages': {'manager': 'apt', 'upgradable': 5}}}})
+        d = api._compute_compliance(api.load(api.DEVICES_FILE))['devices'][0]
+        self.assertTrue(d['remediation_enabled'])
+        self.assertIn('cis-reboot', d['remediable'])   # reboot_required → fails + fixable
+        self.assertIn('cis-patches', d['remediable'])  # 5 pending → fails + fixable
+
+    def test_device_save_validates_flag(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'remediation_enabled': True}
+        self.call(api.handle_device_save_bulk, 'd1')
+        self.assertTrue((api.load(api.DEVICES_FILE))['d1']['remediation_enabled'])
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

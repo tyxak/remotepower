@@ -10,6 +10,13 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **One-click CIS remediation (opt-in).** Failing baseline checks on the
+  Compliance page now offer a **Fix** — reboot, install pending updates
+  (distro-aware), or clear failed units. Every fix is queued through the
+  existing command pipeline, so per-device quarantine, **4-eyes approval**
+  (reboot), the queue cap, and audit logging all apply. It only runs on hosts
+  where you've turned on *Automatic remediation* in device settings (default
+  off); checks with no safe automatic fix (disk-full, swap) stay advisory.
 - **Secrets-on-disk scanning (opt-in).** Agents can scan configured paths for
   exposed secrets (private keys, cloud keys, API tokens, passwords) and raise a
   `secret_exposed` alert when a new one appears. **Redacting by design** — the

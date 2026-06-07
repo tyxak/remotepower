@@ -14553,6 +14553,11 @@ function _renderDrawerSettings() {
         <option value="beta" ${(d.update_channel||'stable')==='beta'?'selected':''}>Beta</option>
       </select>
       <span class="hint">Beta receives new agent builds first (when a beta release is published).</span>
+    </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Automatic remediation</span>
+      <label class="click-row-6"><input type="checkbox" id="ds-remediation" ${d.remediation_enabled?'checked':''}><span class="fs-12">Allow one-click CIS fixes on this host</span></label>
+      <span class="hint">Lets the Compliance page queue fixes (reboot, package upgrade, clear failed units) here — through your normal approval + audit pipeline. Off by default.</span>
     </div>`}
     <div class="drawer-setting-row isl-622">
       <span class="drawer-setting-label isl-623">Watched services</span>
@@ -14699,6 +14704,9 @@ async function _drawerSaveSettings() {
   // v3.14.0 #38: agent release channel (form only shows it for agent devices).
   const chEl = document.getElementById('ds-channel');
   if (chEl) body.update_channel = chEl.value;
+  // v3.14.0 #31: per-host opt-in for one-click CIS remediation.
+  const remEl = document.getElementById('ds-remediation');
+  if (remEl) body.remediation_enabled = remEl.checked;
 
   const r = await api('POST', `/devices/${id}`, body);
   if (r?.ok) toast('Settings saved', 'success');

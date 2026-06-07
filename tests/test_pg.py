@@ -43,6 +43,19 @@ def _resolve_dsn():
 
 _DSN = _resolve_dsn()
 _SKIP = not _DSN
+# A DSN can be configured (env or ~/.rp_pg_test_dsn) while the server is
+# unreachable — e.g. the SSH tunnel is down, or the test DB hasn't been created
+# yet. In that case SKIP rather than erroring 16 times: probe once, and if the
+# connection fails, treat it the same as "no DSN configured". (Set
+# RP_PG_REQUIRE=1 to make an unreachable DSN a hard failure in CI instead.)
+_SKIP_REASON = "no Postgres DSN (set RP_PG_TEST_DSN or ~/.rp_pg_test_dsn)"
+if not _SKIP and not os.environ.get('RP_PG_REQUIRE'):
+    try:
+        import psycopg as _probe_psycopg
+        _probe_psycopg.connect(_DSN, connect_timeout=3).close()
+    except Exception as _e:
+        _SKIP = True
+        _SKIP_REASON = f"Postgres DSN configured but unreachable ({type(_e).__name__}) — skipping"
 
 
 def _truncate(S):
@@ -51,7 +64,7 @@ def _truncate(S):
         conn.execute(f'TRUNCATE {t}')
 
 
-@unittest.skipIf(_SKIP, "no Postgres DSN (set RP_PG_TEST_DSN or ~/.rp_pg_test_dsn)")
+@unittest.skipIf(_SKIP, _SKIP_REASON)
 class TestStoragePgBackend(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -140,7 +153,7 @@ class TestStoragePgBackend(unittest.TestCase):
             other.close()
 
 
-@unittest.skipIf(_SKIP, "no Postgres DSN")
+@unittest.skipIf(_SKIP, _SKIP_REASON)
 class TestApiDispatchPostgres(unittest.TestCase):
     """api.load/save/_LockedUpdate/_DeviceUpdate must route to storage_pg when
     the active backend is 'postgres'. Flips the backend for this class only and
@@ -220,7 +233,7 @@ class TestApiDispatchPostgres(unittest.TestCase):
         self.assertGreaterEqual(len(series), 2)   # seeded history present
 
 
-@unittest.skipIf(_SKIP, "no Postgres DSN")
+@unittest.skipIf(_SKIP, _SKIP_REASON)
 class TestPgMetrics(unittest.TestCase):
     """v3.14.0 — append-only metric time-series on Postgres (30-day Trend charts)."""
 
@@ -253,7 +266,7 @@ class TestPgMetrics(unittest.TestCase):
         self.assertTrue(all(p['ts'] >= now - 86400 - 3600 for p in left))
 
 
-@unittest.skipIf(_SKIP, "no Postgres DSN")
+@unittest.skipIf(_SKIP, _SKIP_REASON)
 class TestPgMigration(unittest.TestCase):
     """The in-app migrate path JSON -> Postgres (_migrate_storage_pg): copy every
     file, verify the round-trip, flip the marker (carrying the DSN)."""

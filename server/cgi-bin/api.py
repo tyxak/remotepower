@@ -6263,6 +6263,7 @@ def handle_devices_list():
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60),
             'update_channel': dev.get('update_channel', 'stable'),   # v3.14.0 #38
+            'remediation_enabled': bool(dev.get('remediation_enabled')),  # v3.14.0 #31
 
             'agentless':    agentless,
             'connected_to': dev.get('connected_to', ''),
@@ -6555,6 +6556,12 @@ def handle_device_save_bulk(dev_id):
     if 'update_channel' in body:
         ch = _sanitize_str(body.get('update_channel') or '', 16).lower()
         updates['update_channel'] = ch if ch in ('stable', 'beta') else 'stable'
+
+    # v3.14.0 #31: per-host opt-in for one-click CIS remediation. Default off —
+    # remediation queues mutating commands (reboot, package upgrade), so it only
+    # works on a host the operator has explicitly opted in.
+    if 'remediation_enabled' in body:
+        updates['remediation_enabled'] = bool(body.get('remediation_enabled'))
 
     # v3.3.4: agentless reachability mode + manual up/down. 'icmp' pings
     # the host each sweep; 'manual' uses manual_status (set by the Up/Down
@@ -24015,6 +24022,63 @@ def _cis_disabled():
     return set(cb.get('disabled') or [])
 
 
+# v3.14.0 #31: one-click remediation for the telemetry-derived CIS checks. Only
+# checks with a clean, well-supported fix are remediable; the rest stay advisory
+# (auto-fixing a full disk or high swap is host-specific and risky). EVERY
+# remediation is queued through _queue_command, so per-device quarantine, 4-eyes
+# approval (reboot), the queue cap, and audit all apply — and the handler only
+# runs it on a device whose operator has set remediation_enabled (explicit
+# per-host opt-in, default off).
+def _cis_remediation(check_id, dev):
+    """Return {label, command} for a failed check, or None if not remediable."""
+    mgr = ((dev.get('sysinfo') or {}).get('packages') or {}).get('manager')
+    upgrade = {'apt': 'apt-get -y upgrade', 'dnf': 'dnf -y upgrade',
+               'zypper': 'zypper --non-interactive update'}.get(mgr)
+    pkg = {'label': 'Install pending updates',
+           'command': f'exec:{upgrade}'} if upgrade else None
+    return {
+        'cis-reboot':  {'label': 'Reboot host', 'command': 'reboot'},
+        'cis-failed':  {'label': 'Clear failed units', 'command': 'exec:systemctl reset-failed'},
+        'cis-patches': pkg,
+        'cis-cve':     pkg,
+    }.get(check_id)
+
+
+def _cis_remediable_ids(dev):
+    """The set of check ids that have an available remediation for this device."""
+    return {cid for cid in ('cis-reboot', 'cis-failed', 'cis-patches', 'cis-cve')
+            if _cis_remediation(cid, dev)}
+
+
+def handle_compliance_remediate():
+    """POST /api/compliance/remediate {device_id, check_id} — queue the fix for a
+    failed CIS check on one device. Admin-only; RBAC-scoped; requires the device
+    to have remediation_enabled (per-host opt-in). The fix is queued through
+    _queue_command, which applies quarantine + 4-eyes approval (reboot) + audit
+    + the command cap, so this inherits every existing safety gate."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
+    check_id = _sanitize_str(str(body.get('check_id', '')), 40)
+    devices = load(DEVICES_FILE) or {}
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    if dev_id not in _scope_filter_devices(devices):
+        respond(403, {'error': 'Out of scope'})
+    if not dev.get('remediation_enabled'):
+        respond(403, {'error': 'Automatic remediation is not enabled for this '
+                               'device. Turn it on in the device settings first.'})
+    rem = _cis_remediation(check_id, dev)
+    if not rem:
+        respond(400, {'error': 'No automatic remediation is available for this check.'})
+    audit_log(actor, 'compliance_remediate',
+              f'dev={dev_id} check={check_id} cmd={rem["command"]}')
+    _queue_command(dev_id, rem['command'], actor)   # responds + exits (gates inside)
+
+
 def _compute_compliance(devices=None):
     """Evaluate the active baseline across monitored devices. Returns the full
     report dict (per-check counts, per-device results, fleet score)."""
@@ -24070,6 +24134,10 @@ def _compute_compliance(devices=None):
             'passed': passed, 'applicable': applicable,
             'pct': round(100 * passed / applicable) if applicable else None,
             'fails': fails,
+            # v3.14.0 #31: which failing checks can be one-click remediated, and
+            # whether this host has opted in to remediation.
+            'remediation_enabled': bool(dev.get('remediation_enabled')),
+            'remediable': sorted(set(fails) & _cis_remediable_ids(dev)),
         })
     score = round(100 * tot_pass_w / tot_w) if tot_w else None
     dev_results.sort(key=lambda r: (r['pct'] if r['pct'] is not None else 101))
@@ -35083,6 +35151,7 @@ def _dispatch(pi, m):
     elif pi == '/api/ai/anomaly' and m == 'POST': handle_ai_anomaly()
     # v3.4.0: network discovery + compliance reports
     elif pi == '/api/compliance' and m == 'GET':  handle_compliance()
+    elif pi == '/api/compliance/remediate' and m == 'POST':  handle_compliance_remediate()  # v3.14.0 #31
     # v2.1.7: per-device AI-generated runbooks
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
         handle_runbook_get(pi[len('/api/devices/'):-len('/runbook')])
