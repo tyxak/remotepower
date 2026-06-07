@@ -300,6 +300,13 @@ dependencies; most of it surfaces data the agent already reports. See
   immediately — reusing the existing maker-checker store. Off by default.
 
 ### Fixed
+- **Every device dropdown is now a searchable `device-combo`.** Five device
+  pickers had no type-to-search: *Add agentless device → Connected to (upstream)*,
+  the OpenSCAP-scan and one-time-install *Device* targets, and the network-map
+  editor's per-node *uplink* and *dependencies* selects. They're now searchable
+  combos (the multi-select dependency picker gets the searchable filter, since a
+  single-value combo can't apply). The target value-pickers are searchable for
+  group/tag too.
 - **Stuck "mount stalled/missing" alerts now auto-resolve.** `mount_issue` had no
   recovery, so a stalled NFS/SMB mount alert sat in the inbox forever even after
   the mount came back. A new edge-triggered `mount_recovered` clears the open

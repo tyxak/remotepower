@@ -3568,7 +3568,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="device">Device id</option>
               <option value="all">All devices</option>
             </select>
-            <select id="scap-target-value" class="form-input input-auto"></select>
+            <select id="scap-target-value" class="form-input input-auto" data-combo-placeholder="Type to search&hellip;"></select>
             <button class="btn-primary fs-12" data-action="runScapScan">Run scan</button>
           </div>
           <div id="scap-body"><div class="c-muted">Loading…</div></div>
@@ -3939,7 +3939,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="device">Device id</option>
               <option value="all">All devices</option>
             </select>
-            <select id="install-target-value" class="form-input input-auto"></select>
+            <select id="install-target-value" class="form-input input-auto" data-combo-placeholder="Type to search&hellip;"></select>
             <input type="text" id="install-pkgs" class="form-input" placeholder="packages, e.g. nginx htop">
             <button class="btn-primary fs-12" data-action="runInstall">Install</button>
             <button class="btn-secondary fs-12" data-action="runUninstall" title="Remove the named packages via the host's package manager">Uninstall</button>
@@ -6056,7 +6056,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
     <div class="form-group">
       <label class="form-label">Connected to (upstream)</label>
-      <select id="al-connected-to" class="form-input"><option value="">— none —</option></select>
+      <select id="al-connected-to" class="form-input device-combo" data-combo-placeholder="Search devices…"><option value="">— none —</option></select>
     </div>
   </div>
   <div class="grid-2col">
@@ -6416,7 +6416,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <option value="group">Group</option>
       </select>
       <select id="oti-device" class="form-input device-combo"></select>
-      <select id="oti-target-value" class="form-input d-none"></select>
+      <select id="oti-target-value" class="form-input d-none" data-combo-placeholder="Type to search&hellip;"></select>
     </div>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="one-time-install-modal">Cancel</button><button class="btn-primary" data-action="runOneTimeInstall">Install now</button></div>

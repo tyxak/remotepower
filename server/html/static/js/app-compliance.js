@@ -225,11 +225,18 @@ async function _fleetTargets() {
 // Populate a target-value <select> based on the chosen type. The select is
 // hidden for 'all'. Falls back to a free-text prompt only if there are no
 // options (so you can't blindly install on a group/tag that doesn't exist).
+// v3.14.0: hide/show a select that may have been turned into a device-combo —
+// then the visible element is the .dev-combo wrapper, not the native <select>.
+function _comboToggleHidden(el, hidden) {
+  if (!el) return;
+  (el.closest('.dev-combo') || el).classList.toggle('d-none', hidden);
+}
+
 async function _fillTargetSelect(typeSel, valueSel) {
   const t = document.getElementById(typeSel).value;
   const el = document.getElementById(valueSel);
   if (!el) return;
-  el.classList.toggle('d-none', t === 'all');
+  _comboToggleHidden(el, t === 'all');
   if (t === 'all') { el.innerHTML = ''; return; }
   const tg = await _fleetTargets();
   let opts = [];
@@ -239,6 +246,18 @@ async function _fillTargetSelect(typeSel, valueSel) {
   el.innerHTML = opts.length
     ? opts.map(([v, label]) => `<option value="${escAttr(v)}">${escHtml(label)}</option>`).join('')
     : `<option value="">(no ${t}s defined)</option>`;
+  // v3.14.0: make every target value-picker a searchable device-combo (works
+  // for group/tag too — it's just a searchable single-select). Idempotent.
+  el.classList.add('device-combo');
+  if (typeof enhanceDeviceCombos === 'function') enhanceDeviceCombos(el.parentNode || document);
+  const wrap = el.closest('.dev-combo');
+  if (wrap) {
+    const inp = wrap.querySelector('.dev-combo-input');
+    if (inp && document.activeElement !== inp) {
+      const o = el.options[el.selectedIndex] || el.options[0];
+      inp.value = o ? o.text : '';
+    }
+  }
 }
 function onScapTargetChange() { _fillTargetSelect('scap-target-type', 'scap-target-value'); }
 function onInstallTargetChange() { _fillTargetSelect('install-target-type', 'install-target-value'); }
@@ -324,9 +343,9 @@ async function openInstallModal() {
 }
 function onOtiTargetChange() {
   const t = document.getElementById('oti-target-type').value;
-  document.getElementById('oti-device').classList.toggle('d-none', t !== 'device');
-  const v = document.getElementById('oti-target-value');
-  v.classList.toggle('d-none', t === 'device');
+  // v3.14.0: hide the COMBO wrapper, not just the (visually-hidden) native select.
+  _comboToggleHidden(document.getElementById('oti-device'), t !== 'device');
+  _comboToggleHidden(document.getElementById('oti-target-value'), t === 'device');
   if (t !== 'device') _fillTargetSelect('oti-target-type', 'oti-target-value');
 }
 async function runOneTimeInstall() {

@@ -13,6 +13,9 @@ holds long-form docs that don't fit there.
  per-feature guide.
 - **[architecture.md](architecture.md)** — How the pieces fit together,
  the heartbeat → command → response cycle, file layout on disk.
+- **[scaling.md](scaling.md)** — Running large fleets (1000+ agents): the
+ PostgreSQL backend, poll-interval tuning, FastCGI worker pool, load-balanced
+ multi-node, relay satellites, and retention/maintenance.
 - **[upgrading.md](upgrading.md)** — Migration steps between versions.
 - **[troubleshooting.md](troubleshooting.md)** — Common issues and
  diagnostics.

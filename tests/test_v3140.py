@@ -2419,6 +2419,46 @@ class TestSnmpTrends(_HandlerBase):
         self.assertEqual(called, [])
 
 
+class TestDeviceComboCoverage(unittest.TestCase):
+    """v3.14.0 — every device dropdown is a searchable device-combo (or, for the
+    one multi-select, gets the searchable filter). Pins the 5 fixed gaps."""
+
+    HTML = (_ROOT / "server/html/index.html").read_text()
+    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    NET = (_ROOT / "server/html/static/js/app-network.js").read_text()
+    COMP = (_ROOT / "server/html/static/js/app-compliance.js").read_text()
+
+    def test_al_connected_to_is_combo(self):
+        # the "Connected to (upstream)" picker on Add agentless device
+        import re
+        m = re.search(r'<select id="al-connected-to"[^>]*>', self.HTML)
+        self.assertIsNotNone(m)
+        self.assertIn('device-combo', m.group(0))
+
+    def test_netmap_link_sel_is_combo(self):
+        m = [ln for ln in self.NET.splitlines() if 'netmap-link-sel' in ln and '<select' in ln]
+        self.assertTrue(m and 'device-combo' in m[0])
+        # save query must be scoped to select.* (combo copies classes to its input)
+        self.assertIn("querySelectorAll('select.netmap-link-sel')", self.NET)
+        self.assertIn("querySelectorAll('select.netmap-dep-sel')", self.NET)
+
+    def test_multiselect_now_searchable(self):
+        # _searchifySelect must no longer bail on <select multiple>
+        idx = self.APP.find('function _searchifySelect')
+        chunk = self.APP[idx:idx + 400]
+        self.assertNotIn('sel.multiple ||', chunk)
+
+    def test_fill_target_select_comboifies(self):
+        self.assertIn("el.classList.add('device-combo')", self.COMP)
+        self.assertIn('function _comboToggleHidden', self.COMP)
+        # the value pickers carry a generic placeholder (they can show group/tag)
+        for sid in ('scap-target-value', 'install-target-value', 'oti-target-value'):
+            import re
+            m = re.search(rf'<select id="{sid}"[^>]*>', self.HTML)
+            self.assertIsNotNone(m, sid)
+            self.assertIn('data-combo-placeholder', m.group(0), sid)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

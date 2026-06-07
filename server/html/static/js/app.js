@@ -2948,7 +2948,10 @@ function filterRows(inputEl) {
 // invasive (the select keeps its value/listeners) and idempotent. Opt out with
 // data-nofilter on the select.
 function _searchifySelect(sel) {
-  if (!sel || sel.multiple || sel._searchified || sel.dataset.nofilter !== undefined) return;
+  // v3.14.0: multi-selects are now searchable too (a single-value device-combo
+  // can't apply to a <select multiple>, e.g. the netmap dependency picker, so
+  // they get this filter box instead — selected options are always kept).
+  if (!sel || sel._searchified || sel.dataset.nofilter !== undefined) return;
   if (sel.classList.contains('device-combo')) return;   // handled by the combobox
   if (!sel.options || sel.options.length < 15) return;
   sel._searchified = true;

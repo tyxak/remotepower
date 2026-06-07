@@ -279,7 +279,7 @@ async function netmapEditOpen() {
       return `<tr>
         <td class="isl-469">${escHtml(n.name)}</td>
         <td class="isl-470">${escHtml(n.type || 'host')}</td>
-        <td class="cell-m"><select class="form-input netmap-link-sel w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}">${rowOpts}</select></td>
+        <td class="cell-m"><select class="form-input netmap-link-sel device-combo w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}" data-combo-placeholder="Search devices…">${rowOpts}</select></td>
         <td class="cell-m"><select multiple class="form-input netmap-dep-sel w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(deps.join(','))}" size="3">${depOpts}</select></td>
       </tr>`;
     }).join('')
@@ -288,7 +288,10 @@ async function netmapEditOpen() {
 }
 
 async function netmapEditSaveAll() {
-  const sels = Array.from(document.querySelectorAll('.netmap-link-sel'));
+  // v3.14.0: scope to select.* — the device-combo enhancement copies the
+  // select's classes onto its companion <input>, so a bare '.netmap-link-sel'
+  // would also match the combo input.
+  const sels = Array.from(document.querySelectorAll('select.netmap-link-sel'));
   let changed = 0, failed = 0;
   for (const s of sels) {
     const deviceId = s.getAttribute('data-device-id');
@@ -304,7 +307,7 @@ async function netmapEditSaveAll() {
     }
   }
   // v3.4.2: save dependency changes (multi-select per row).
-  const depSels = Array.from(document.querySelectorAll('.netmap-dep-sel'));
+  const depSels = Array.from(document.querySelectorAll('select.netmap-dep-sel'));
   for (const s of depSels) {
     const deviceId = s.getAttribute('data-device-id');
     const orig = (s.getAttribute('data-original') || '').split(',').filter(Boolean).sort().join(',');
