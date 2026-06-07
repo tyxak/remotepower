@@ -2179,6 +2179,13 @@ async function loadSettings() {
     const otk = document.getElementById('cfg-otlp-token');
     if (otk) otk.placeholder = data.otlp_token_set ? '•••••• (set — leave blank to keep)' : 'optional bearer token';
   }
+  // v3.14.0 #42: browser push (admin enable)
+  const _wpEn = document.getElementById('cfg-webpush-enabled');
+  if (_wpEn) {
+    _wpEn.checked = !!data.webpush_enabled;
+    const sub = document.getElementById('cfg-webpush-subject');
+    if (sub) sub.value = data.webpush_subject || '';
+  }
   // v3.14.0 #35: secrets-on-disk scanning
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
@@ -2531,6 +2538,12 @@ async function saveSettings(btn) {
     payload.otlp_interval = parseInt(document.getElementById('cfg-otlp-interval')?.value || '60', 10);
     const _otlpTok = document.getElementById('cfg-otlp-token')?.value;
     if (_otlpTok) payload.otlp_token = _otlpTok;
+  }
+  // v3.14.0 #42: browser push (admin enable)
+  const _wpSaveEn = document.getElementById('cfg-webpush-enabled');
+  if (_wpSaveEn) {
+    payload.webpush_enabled = _wpSaveEn.checked;
+    payload.webpush_subject = (document.getElementById('cfg-webpush-subject')?.value || '').trim();
   }
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
@@ -4748,10 +4761,63 @@ document.addEventListener('click', e => {
   }
 });
 
+// ─── v3.14.0 #42: browser push notifications (My Account) ───────────────────
+function _urlB64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+function _setPushStatus(text) { const el = document.getElementById('acct-push-status'); if (el) el.textContent = text; }
+function _pushButtons(enable, manage) {
+  const b = (id, on) => { const e = document.getElementById(id); if (e) e.hidden = !on; };
+  b('acct-push-enable', enable); b('acct-push-disable', manage); b('acct-push-test', manage);
+}
+async function _initPushUI() {
+  const sec = document.getElementById('acct-push-section');
+  if (!sec) return;
+  const supported = ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+  let vapid = null;
+  try { vapid = await api('GET', '/push/vapid'); } catch (_) {}
+  if (vapid && !vapid.enabled) { sec.hidden = false; _setPushStatus('Push is turned off on the server (an admin enables it in Settings → Notifications).'); _pushButtons(false, false); return; }
+  if (!supported || !vapid) { sec.hidden = !supported ? false : true; if (!supported) { _setPushStatus('This browser does not support push notifications.'); _pushButtons(false, false); } return; }
+  window._vapidKey = vapid.public_key;
+  sec.hidden = false;
+  if (Notification.permission === 'denied') { _setPushStatus('Notifications are blocked in your browser settings.'); _pushButtons(false, false); return; }
+  const reg = await navigator.serviceWorker.ready.catch(() => null);
+  const existing = reg ? await reg.pushManager.getSubscription() : null;
+  if (existing) { _setPushStatus('Notifications are on for this browser.'); _pushButtons(false, true); }
+  else { _setPushStatus('Notifications are off for this browser.'); _pushButtons(true, false); }
+}
+async function enablePush() {
+  try {
+    if (await Notification.requestPermission() !== 'granted') { toast('Notification permission denied', 'info'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _urlB64ToUint8Array(window._vapidKey) });
+    const r = await api('POST', '/push/subscribe', { subscription: sub.toJSON() });
+    if (r?.ok) { toast('Notifications enabled', 'success'); _initPushUI(); } else toast(r?.error || 'Failed', 'error');
+  } catch (e) { toast('Could not enable notifications: ' + e, 'error'); }
+}
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await api('POST', '/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+    toast('Notifications turned off', 'info'); _initPushUI();
+  } catch (e) { toast('Failed: ' + e, 'error'); }
+}
+async function testPush() {
+  const r = await api('POST', '/push/test', {});
+  if (r?.ok) toast(`Test notification sent (${r.sent})`, 'success'); else toast(r?.error || 'Failed', 'error');
+}
+
 async function loadAccount() {
   const me = await loadMe();
   if (!me) return;
   _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
+  _initPushUI();              // v3.14.0 (#42): browser push notifications
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   set('acct-username', me.username);
   set('acct-username-2', me.username);

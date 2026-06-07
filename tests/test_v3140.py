@@ -1916,6 +1916,121 @@ class TestLogOutbox(unittest.TestCase):
         self.assertFalse(self.ag.LOG_OUTBOX_FILE.exists())
 
 
+class TestWebPushCrypto(unittest.TestCase):
+    """v3.14.0 #42 — Web Push crypto: the RFC 8188 §3.1 vector + a full RFC 8291
+    ECDH round-trip + VAPID JWT structure."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
+        cls.wp = importlib.import_module("webpush")
+
+    def test_rfc8188_section_3_1_vector(self):
+        wp = self.wp
+        ikm = wp.b64u_decode("yqdlZ-tYemfogSmv7Ws5PQ")
+        salt = wp.b64u_decode("I1BsxtFttlv3u_Oo94xnmw")
+        out = wp.aes128gcm_record(b"I am the walrus", ikm, salt, keyid=b'', rs=4096)
+        self.assertEqual(
+            wp.b64u_encode(out),
+            "I1BsxtFttlv3u_Oo94xnmwAAEAAA-NAVub2qFgBEuQKRapoZu-IxkIva3MEB1PD-ly8Thjg")
+
+    def test_full_ecdh_roundtrip(self):
+        wp = self.wp
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization, hashes
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        import os
+        ua_priv = ec.generate_private_key(ec.SECP256R1())
+        ua_pub = ua_priv.public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+        auth = os.urandom(16)
+        body = wp.encrypt(b'{"title":"hi"}', wp.b64u_encode(ua_pub), wp.b64u_encode(auth))
+        salt, idlen = body[:16], body[20]
+        as_pub_bytes, ct = body[21:21 + idlen], body[21 + idlen:]
+        as_pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), as_pub_bytes)
+        ecdh = ua_priv.exchange(ec.ECDH(), as_pub)
+        ikm = HKDF(hashes.SHA256(), 32, auth,
+                   b'WebPush: info\x00' + ua_pub + as_pub_bytes).derive(ecdh)
+        cek = HKDF(hashes.SHA256(), 16, salt, b'Content-Encoding: aes128gcm\x00').derive(ikm)
+        nonce = HKDF(hashes.SHA256(), 12, salt, b'Content-Encoding: nonce\x00').derive(ikm)
+        self.assertEqual(AESGCM(cek).decrypt(nonce, ct, None).rstrip(b'\x02'), b'{"title":"hi"}')
+
+    def test_vapid_jwt_structure(self):
+        wp = self.wp
+        pem, pub = wp.generate_vapid_keys()
+        h = wp.vapid_headers('https://fcm.googleapis.com/fcm/send/x', pem, 'mailto:a@b.c', now=1000)
+        self.assertTrue(h['Authorization'].startswith('vapid t='))
+        jwt = h['Authorization'].split('t=', 1)[1].split(',')[0].strip()
+        self.assertEqual(len(jwt.split('.')), 3)        # header.payload.sig
+        hdr = json.loads(wp.b64u_decode(jwt.split('.')[0]))
+        self.assertEqual(hdr['alg'], 'ES256')
+
+
+class TestWebPushServer(_HandlerBase):
+    """v3.14.0 #42 — subscription storage, send-gating, secret handling."""
+
+    def setUp(self):
+        super().setUp()
+        self._subs = api.PUSH_SUBS_FILE
+        api.PUSH_SUBS_FILE = self.d / 'push_subscriptions.json'
+
+    def tearDown(self):
+        api.PUSH_SUBS_FILE = self._subs
+        super().tearDown()
+
+    def _sub_body(self, ep='https://push.example/abc'):
+        return {'subscription': {'endpoint': ep,
+                                 'keys': {'p256dh': 'BPxxx', 'auth': 'YWJj'}}}
+
+    def test_subscribe_then_unsubscribe(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: self._sub_body()
+        self.call(api.handle_push_subscribe)
+        self.assertEqual(len((api.load(api.PUSH_SUBS_FILE))['jakob']), 1)
+        api.get_json_body = lambda: {'endpoint': 'https://push.example/abc'}
+        self.call(api.handle_push_unsubscribe)
+        self.assertNotIn('jakob', api.load(api.PUSH_SUBS_FILE) or {})
+
+    def test_subscribe_rejects_bad(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'subscription': {'endpoint': 'http://insecure', 'keys': {}}}
+        self.call(api.handle_push_subscribe)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_subscribe_blocks_internal_endpoint(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'subscription': {
+            'endpoint': 'https://127.0.0.1/x', 'keys': {'p256dh': 'B', 'auth': 'a'}}}
+        self.call(api.handle_push_subscribe)
+        self.assertEqual(self.cap['s'], 400)        # SSRF guard
+
+    def test_send_hook_only_high_critical(self):
+        api.save(api.CONFIG_FILE, {'webpush_enabled': True})
+        sent = []
+        orig = api._webpush_send_all
+        api._webpush_send_all = lambda *a, **k: sent.append(a) or 1
+        try:
+            api._maybe_webpush('device_offline', {'name': 'web'})   # critical
+            api._maybe_webpush('command_queued', {'name': 'web'})   # no severity
+            self.assertEqual(len(sent), 1)
+        finally:
+            api._webpush_send_all = orig
+
+    def test_disabled_send_is_noop(self):
+        api.save(api.CONFIG_FILE, {})           # webpush disabled
+        self.assertEqual(api._webpush_send_all('t', 'b'), 0)
+
+    def test_vapid_key_never_leaked(self):
+        api.save(api.CONFIG_FILE, {'webpush_enabled': True,
+                                   'vapid_private_key': '-----BEGIN PRIVATE KEY-----x'})
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        self.assertTrue(got['vapid_keyed'])
+        self.assertNotIn('vapid_private_key', got)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

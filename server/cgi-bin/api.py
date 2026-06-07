@@ -240,6 +240,7 @@ CMDB_SSH_PORT_MAX     = 65535
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
+PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
 DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
@@ -3297,6 +3298,173 @@ def handle_otlp_test():
     respond(200, {'ok': True, 'message': 'Metrics pushed to the OTLP collector.'})
 
 
+# ─── v3.14.0 #42: Web Push (browser notifications) ───────────────────────────
+# Opt-in browser push for high/critical alerts. VAPID keypair is generated on
+# first enable and stored in config (vapid_private_key is auto-scrubbed from
+# GET /config by _SECRET_KEY_RE). Per-user subscriptions live in PUSH_SUBS_FILE.
+# Sending is best-effort and fired from fire_webhook like the SIEM forwarder; a
+# 404/410 from the push service prunes the dead subscription.
+def _webpush_cfg():
+    """Return (enabled, private_pem, public_b64, subject) — minting the VAPID
+    keypair on first use if push is enabled but unkeyed."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('webpush_enabled'):
+        return (False, None, None, None)
+    pem = cfg.get('vapid_private_key')
+    if not pem:
+        try:
+            import webpush as _wp
+            pem, _pub = _wp.generate_vapid_keys()
+            with _LockedUpdate(CONFIG_FILE) as c:
+                if not c.get('vapid_private_key'):
+                    c['vapid_private_key'] = pem
+                else:
+                    pem = c['vapid_private_key']
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] VAPID keygen failed: {e}\n')
+            return (False, None, None, None)
+    try:
+        import webpush as _wp
+        pub = _wp.vapid_public_key_b64(pem)
+    except Exception:
+        return (False, None, None, None)
+    subject = (cfg.get('webpush_subject') or '').strip() or 'mailto:admin@remotepower.local'
+    return (True, pem, pub, subject)
+
+
+def _webpush_send_all(title, body_text, url_hint=''):
+    """Push a notification to every stored subscription. Prunes subs the push
+    service reports as gone (404/410). Best-effort; never raises."""
+    enabled, pem, _pub, subject = _webpush_cfg()
+    if not enabled:
+        return 0
+    subs = load(PUSH_SUBS_FILE) or {}
+    if not subs:
+        return 0
+    try:
+        import webpush as _wp
+    except Exception:
+        return 0
+    payload = json.dumps({'title': title[:120], 'body': body_text[:300],
+                          'url': url_hint[:200]})
+    dead = []   # (user, endpoint)
+    sent = 0
+    for user, slist in list(subs.items()):
+        for s in list(slist or []):
+            try:
+                # defence-in-depth SSRF guard (also enforced at subscribe time)
+                if _url_targets_local_or_meta(
+                        urllib.parse.urlparse(s.get('endpoint', '')), allow_loopback=False):
+                    continue
+                code = _wp.send(s, payload, pem, subject)
+                if code in (404, 410):
+                    dead.append((user, s.get('endpoint')))
+                elif 200 <= code < 300:
+                    sent += 1
+            except Exception:
+                pass   # transient — keep the subscription
+    if dead:
+        try:
+            with _LockedUpdate(PUSH_SUBS_FILE) as store:
+                for user, ep in dead:
+                    store[user] = [s for s in (store.get(user) or [])
+                                   if s.get('endpoint') != ep]
+                    if not store[user]:
+                        store.pop(user, None)
+        except Exception:
+            pass
+    return sent
+
+
+def _maybe_webpush(event, payload):
+    """fire_webhook hook: push high/critical alerts to subscribed browsers."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('webpush_enabled'):
+        return
+    sev = None
+    try:
+        sev = _alert_severity(event, payload)
+    except Exception:
+        pass
+    if sev not in ('high', 'critical'):
+        return
+    try:
+        title = _alert_title(event, payload)
+    except Exception:
+        title = event
+    _webpush_send_all(f'RemotePower: {sev}', title)
+
+
+def handle_push_vapid():
+    """GET /api/push/vapid — the VAPID public key for PushManager.subscribe, and
+    whether push is enabled. Auth required (a logged-in user subscribes)."""
+    require_auth()
+    enabled, _pem, pub, _subj = _webpush_cfg()
+    respond(200, {'enabled': enabled, 'public_key': pub or ''})
+
+
+def handle_push_subscribe():
+    """POST /api/push/subscribe {subscription} — store the caller's browser push
+    subscription. POST .../unsubscribe {endpoint} removes it."""
+    user = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    sub = body.get('subscription') or {}
+    endpoint = str(sub.get('endpoint') or '').strip()
+    keys = sub.get('keys') or {}
+    if not endpoint.startswith('https://') or not keys.get('p256dh') or not keys.get('auth'):
+        respond(400, {'error': 'invalid subscription'})
+    # SSRF guard: the endpoint is attacker-influenceable, so refuse one that
+    # resolves to a loopback / link-local / cloud-metadata address.
+    if _url_targets_local_or_meta(urllib.parse.urlparse(endpoint), allow_loopback=False):
+        respond(400, {'error': 'subscription endpoint not allowed'})
+    clean = {'endpoint': endpoint[:512],
+             'keys': {'p256dh': _sanitize_str(str(keys['p256dh']), 200),
+                      'auth': _sanitize_str(str(keys['auth']), 80)}}
+    with _LockedUpdate(PUSH_SUBS_FILE) as store:
+        lst = [s for s in (store.get(user) or []) if s.get('endpoint') != endpoint]
+        lst.append(clean)
+        store[user] = lst[:10]   # cap subscriptions per user (browsers/devices)
+    respond(200, {'ok': True})
+
+
+def handle_push_unsubscribe():
+    user = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    endpoint = str((get_json_body() or {}).get('endpoint') or '').strip()
+    with _LockedUpdate(PUSH_SUBS_FILE) as store:
+        store[user] = [s for s in (store.get(user) or []) if s.get('endpoint') != endpoint]
+        if not store[user]:
+            store.pop(user, None)
+    respond(200, {'ok': True})
+
+
+def handle_push_test():
+    """POST /api/push/test — send a test notification to the caller's own
+    subscriptions only (not the whole fleet)."""
+    user = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    enabled, pem, _pub, subject = _webpush_cfg()
+    if not enabled:
+        respond(400, {'error': 'Push notifications are not enabled in settings.'})
+    subs = (load(PUSH_SUBS_FILE) or {}).get(user) or []
+    if not subs:
+        respond(400, {'error': 'No push subscription for this account — enable notifications first.'})
+    import webpush as _wp
+    payload = json.dumps({'title': 'RemotePower', 'body': 'Test notification — push is working.', 'url': ''})
+    ok = 0
+    for s in subs:
+        try:
+            if 200 <= _wp.send(s, payload, pem, subject) < 300:
+                ok += 1
+        except Exception:
+            pass
+    respond(200, {'ok': True, 'sent': ok})
+
+
 # v3.2.0 (B-fix): inbound webhook + syslog hit log
 def _log_inbound(kind, token_id, label, status, detail=''):
     """Append an entry to the inbound webhook log (last MAX_INBOUND_WEBHOOK_LOG).
@@ -4489,6 +4657,13 @@ def fire_webhook(event, payload):
         _forward_siem(event, payload, cfg)
     except Exception as _siem_err:
         sys.stderr.write(f'[remotepower] SIEM forward failed: {_siem_err}\n')
+
+    # v3.14.0 #42: browser push for high/critical alerts. Isolated like the SIEM
+    # hook — a push outage must never break the firing path.
+    try:
+        _maybe_webpush(event, payload)
+    except Exception as _wp_err:
+        sys.stderr.write(f'[remotepower] web push failed: {_wp_err}\n')
 
     # v3.0.2: per-device suppression for unmonitored devices.
     # Same principle as the offline-detector at line ~2256 — if the
@@ -10750,6 +10925,10 @@ def handle_config_get():
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
+    # v3.14.0 #42: web push — surface enabled + subject + a keyed flag, never the key.
+    safe.setdefault('webpush_enabled', False)
+    safe.setdefault('webpush_subject', '')
+    safe['vapid_keyed'] = bool(cfg.get('vapid_private_key'))
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
@@ -11374,6 +11553,15 @@ def handle_config_save():
             if ps and ps not in paths:
                 paths.append(ps)
         cfg['secrets_scan_paths'] = paths
+    # v3.14.0 #42: browser push notifications (opt-in).
+    if 'webpush_enabled' in body:
+        cfg['webpush_enabled'] = bool(body['webpush_enabled'])
+    if 'webpush_subject' in body:
+        _sub = str(body['webpush_subject']).strip()
+        if _sub and not _sub.lower().startswith(('mailto:', 'https://')):
+            respond(400, {'error': 'webpush_subject must be a mailto: or https: URI'})
+        cfg['webpush_subject'] = _sub[:200]
+
     if 'secrets_mutes' in body:
         raw_m = body['secrets_mutes'] if isinstance(body['secrets_mutes'], list) else []
         mutes = []
@@ -34681,6 +34869,10 @@ def _build_exact_routes():
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
         ('POST', '/api/otlp/test'): handle_otlp_test,
+        ('GET', '/api/push/vapid'): handle_push_vapid,            # v3.14.0 #42
+        ('POST', '/api/push/subscribe'): handle_push_subscribe,
+        ('POST', '/api/push/unsubscribe'): handle_push_unsubscribe,
+        ('POST', '/api/push/test'): handle_push_test,
         ('GET', '/api/auth/oidc/callback'): handle_oidc_callback,
         ('GET', '/api/auth/oidc/start'): handle_oidc_start,
         ('POST', '/api/auth/oidc/test'): handle_oidc_test,

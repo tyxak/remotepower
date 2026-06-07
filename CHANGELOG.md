@@ -10,6 +10,13 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Browser push notifications (Web Push).** Operators can get a desktop
+  notification for high/critical alerts even when RemotePower isn't the active
+  tab. *My Account → Browser notifications* subscribes this browser; an admin
+  enables it fleet-wide in *Settings → Notifications*. Standards-based (VAPID +
+  RFC 8188 aes128gcm), built on the `cryptography` library already in use — no
+  third-party push service and no new dependency. Subscription endpoints are
+  SSRF-guarded; the VAPID private key is never exposed by the API.
 - **Store-and-forward log buffering.** If a log submission fails (server
   briefly unreachable), the agent now buffers those lines to a bounded on-disk
   outbox and folds them into the next successful submission instead of losing

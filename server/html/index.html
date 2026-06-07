@@ -907,6 +907,18 @@
           </div>
         </div>
 
+        <!-- v3.14.0 #42: browser push notifications -->
+        <div class="settings-section" id="acct-push-section" hidden>
+          <h3>Browser notifications</h3>
+          <p class="hint">Get a desktop notification on this device when a high or critical alert fires — even when RemotePower isn't the active tab. Per-browser; enable it on each device you want notified.</p>
+          <div id="acct-push-status" class="hint mb-8">—</div>
+          <div class="row-8-center">
+            <button class="btn-secondary" id="acct-push-enable" data-action="enablePush">Enable notifications</button>
+            <button class="btn-icon" id="acct-push-disable" data-action="disablePush" hidden>Turn off</button>
+            <button class="btn-icon" id="acct-push-test" data-action="testPush" hidden>Send test</button>
+          </div>
+        </div>
+
         <div class="settings-section">
           <h3>Permissions</h3>
           <p class="hint">What your role lets you do. Managed by an administrator under <a href="#" data-action-btn="_showPageBtn" data-page="users" data-prevent-default class="c-accent">Users &amp; roles</a>.</p>
@@ -1461,6 +1473,15 @@
             <div class="settings-row"><label class="form-label" for="cfg-otlp-token">Bearer token</label>
               <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-otlp-token" class="form-input" placeholder="optional bearer token" autocomplete="off"></form></div>
             <div class="settings-row"><button class="btn-secondary" data-action="testOtlp">Push metrics now</button></div>
+          </div>
+
+          <!-- v3.14.0 #42: browser push notifications (admin enable) -->
+          <div class="settings-section">
+            <h3>Browser push notifications</h3>
+            <p class="hint">When enabled, high and critical alerts are pushed to operators who've turned on notifications in <em>My Account → Browser notifications</em> — even when RemotePower isn't the active tab. A VAPID key is generated automatically on first enable. Uses the Web Push standard; no third-party service.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webpush-enabled"> Enable browser push for high/critical alerts</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-webpush-subject">Contact URI (VAPID subject)</label>
+              <input type="text" id="cfg-webpush-subject" class="form-input" placeholder="mailto:ops@example.com"></div>
           </div>
 
           <div class="settings-section">
