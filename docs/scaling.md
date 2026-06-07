@@ -143,9 +143,33 @@ agents / UI ──> Load Balancer (TLS) ──> app node 1 ─┐
   on a timestamp in the shared config, so running them across N nodes doesn't
   double-fire.
 
-> Not yet built-in: automatic DB failover / read replicas. Use your Postgres
-> platform's HA (managed failover, Patroni, etc.) — RemotePower just needs the
-> DSN to point at the writable primary.
+### Database HA — automatic failover + read replicas
+
+RemotePower has built-in support for a highly-available Postgres:
+
+- **Automatic failover (multi-host DSN).** Point the DSN at every Postgres node:
+  ```
+  postgresql://rp:pw@pg-primary,pg-standby:5432/remotepower
+  ```
+  RemotePower adds `target_session_attrs=read-write` automatically, so libpq
+  always connects to the **writable primary** and skips standbys. When the
+  primary fails and a standby is promoted, the next request reconnects to the
+  new primary — connects are retried across a short promotion window so the blip
+  doesn't surface as an error. Works with managed failover, Patroni, repmgr,
+  pgpool, etc. (RemotePower just needs a host list that includes whoever is
+  primary).
+- **Read replicas (optional, off by default).** Set a separate read DSN —
+  `RP_PG_READ_DSN` (env, per node) or `dsn_read` in the storage marker — and
+  **pure reads (`load()`) are served from the replica**, while every write and
+  every locked read-modify-write stays on the primary. This offloads the
+  read-heavy UI / reporting traffic from the primary. Reads from a replica can
+  be slightly stale (replication lag); RemotePower keeps all read-modify-write
+  on the primary so lag can never cause a lost update. Leave it unset and reads
+  use the primary, unchanged.
+
+Current HA status (primary host(s), whether a replica is configured — never
+credentials) is shown on *Settings → Advanced → Storage backend* and in
+`GET /api/storage-backend/status` (`pg_ha`).
 
 ---
 

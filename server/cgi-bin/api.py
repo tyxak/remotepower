@@ -1216,6 +1216,10 @@ def _storage_backend():
                 # no recursion through load()); env RP_PG_DSN wins if set.
                 if b == 'postgres' and marker.get('dsn') and not os.environ.get('RP_PG_DSN'):
                     storage_pg.configure_dsn(marker['dsn'])
+                # v3.14.0: optional read-replica DSN (HA). env RP_PG_READ_DSN
+                # wins; else the marker's dsn_read. Unset → reads use the primary.
+                if b == 'postgres' and marker.get('dsn_read') and not os.environ.get('RP_PG_READ_DSN'):
+                    storage_pg.configure_read_dsn(marker['dsn_read'])
                 _BACKEND_CACHE = b
                 return b
     except Exception:
@@ -13670,6 +13674,13 @@ def handle_storage_backend_status():
         # whether a DSN is already configured (marker or env) — never returned raw
         'pg_configured': bool(marker.get('dsn') or os.environ.get('RP_PG_DSN')),
     }
+    # v3.14.0: HA status — connected primary host(s) + whether a read replica is
+    # configured (host only, never credentials). Only meaningful on Postgres.
+    if active == 'postgres':
+        try:
+            out['pg_ha'] = storage_pg.pg_status()
+        except Exception:
+            pass
     try:
         out['json_files'] = len(storage.json_inventory(DATA_DIR))
     except Exception:
@@ -13689,7 +13700,8 @@ def handle_storage_backend_status():
     respond(200, out)
 
 
-def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambda m: None):
+def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambda m: None,
+                        dsn_read=''):
     """Migrate to/from the Postgres backend (the shared storage.migrate_run only
     covers JSON↔SQLite). Reads every logical file from the CURRENT backend via
     load() and writes it to the target backend, verifies the round-trip, then
@@ -13743,9 +13755,11 @@ def _migrate_storage_pg(target, dsn, dry_run=False, verify_only=False, log=lambd
 
     # Flip the marker (carry the DSN for postgres so the next process reconnects).
     if target == 'postgres':
-        storage._write_json_atomic(STORAGE_MARKER_FILE,
-                                   {'backend': 'postgres', 'dsn': dsn,
-                                    'migrated_at': int(time.time())})
+        _marker = {'backend': 'postgres', 'dsn': dsn, 'migrated_at': int(time.time())}
+        if dsn_read:                              # v3.14.0: optional read replica
+            _marker['dsn_read'] = dsn_read
+            storage_pg.configure_read_dsn(dsn_read)
+        storage._write_json_atomic(STORAGE_MARKER_FILE, _marker)
     else:
         storage.write_marker(DATA_DIR, target)
     log(f"marker: active backend is now '{target}'")
@@ -13774,6 +13788,7 @@ def handle_storage_backend_migrate():
     dry_run = bool(body.get('dry_run'))
     verify_only = bool(body.get('verify_only'))
     dsn = _sanitize_str(str(body.get('dsn', '')).strip(), 1024)
+    dsn_read = _sanitize_str(str(body.get('dsn_read', '')).strip(), 1024)
     lines = []
     try:
         if target == 'postgres' or _storage_backend() == 'postgres':
@@ -13781,7 +13796,8 @@ def handle_storage_backend_migrate():
                 respond(409, {'error': 'the Postgres backend is unavailable on '
                               'this server (psycopg is not installed)'}); return
             result = _migrate_storage_pg(target, dsn, dry_run=dry_run,
-                                         verify_only=verify_only, log=lines.append)
+                                         verify_only=verify_only, log=lines.append,
+                                         dsn_read=dsn_read)
         else:
             result = storage.migrate_run(
                 DATA_DIR, target, dry_run=dry_run, verify_only=verify_only,

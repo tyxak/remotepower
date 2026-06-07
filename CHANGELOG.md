@@ -10,6 +10,16 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **PostgreSQL high availability — automatic failover + read replicas.** Point
+  the DSN at multiple Postgres hosts (`…@pg-primary,pg-standby:5432/…`) and
+  RemotePower adds `target_session_attrs=read-write` so libpq always lands on
+  the writable primary; on a failover the next request reconnects (with retry
+  across the promotion window) to the newly-promoted primary — no config change.
+  Optionally set a read-replica DSN (`RP_PG_READ_DSN` or the marker's `dsn_read`)
+  to serve pure reads from a replica while every write and locked read-modify-
+  write stays on the primary (so replica lag can't cause a lost update). Off by
+  default; HA status surfaces in *Settings → Advanced → Storage backend*. See
+  [docs/scaling.md](docs/scaling.md).
 - **Agentless SSH.** Hosts with **no agent** can now be polled for basic metrics
   and run the occasional command over SSH — set a device's *reachability* to SSH
   and its SSH user (device drawer), then *Poll over SSH*. Non-interactive

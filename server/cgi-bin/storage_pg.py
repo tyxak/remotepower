@@ -59,17 +59,43 @@ def _pg():
 
 # ── DSN + connection ─────────────────────────────────────────────────────────
 
-_DSN = None        # explicit override (configure_dsn); else env RP_PG_DSN
-_CONN = None
+_DSN = None        # primary / read-write DSN (configure_dsn; else env RP_PG_DSN)
+_READ_DSN = None   # optional read-replica DSN (configure_read_dsn; else env RP_PG_READ_DSN)
+_CONN = None       # cached primary connection
+_READ_CONN = None  # cached read-replica connection (only when a read DSN is set)
 _ATEXIT = False
+# v3.14.0: a primary failover (or a mid-promotion connect) shouldn't fail the
+# request — retry the connect a few times so libpq can re-resolve hosts and land
+# on the newly-promoted primary.
+_CONNECT_RETRIES = 3
+_CONNECT_BACKOFF = 0.5
 
 
 def configure_dsn(dsn):
-    """Set the DSN explicitly (api passes the operator-configured one). Closes
-    any cached connection so the next call reconnects to the new target."""
+    """Set the primary DSN explicitly (api passes the operator-configured one).
+    Closes any cached connection so the next call reconnects to the new target.
+
+    For HA, pass a multi-host DSN (e.g.
+    `postgresql://rp:pw@pg-a,pg-b:5432/db`) — `target_session_attrs=read-write`
+    is added automatically so libpq always lands on the writable primary, and a
+    failover is transparent on the next (retried) reconnect."""
     global _DSN
     close_connection()
     _DSN = dsn or None
+
+
+def configure_read_dsn(dsn):
+    """Optional read-replica DSN. When set, pure `load()` reads are served from
+    it; every write and every locked read-modify-write stays on the primary.
+    Unset (default) → reads use the primary, behaviour unchanged."""
+    global _READ_DSN, _READ_CONN
+    if _READ_CONN is not None:
+        try:
+            _READ_CONN.close()
+        except Exception:
+            pass
+        _READ_CONN = None
+    _READ_DSN = dsn or None
 
 
 def configure(data_dir):
@@ -80,6 +106,47 @@ def configure(data_dir):
 
 def _dsn():
     return _DSN or os.environ.get('RP_PG_DSN') or ''
+
+
+def _read_dsn():
+    return _READ_DSN or os.environ.get('RP_PG_READ_DSN') or ''
+
+
+def _prep_dsn(dsn, read_write=True):
+    """For a multi-host (HA) DSN, make libpq pick the right node automatically:
+    `target_session_attrs=read-write` lands on the primary and skips replicas,
+    so a primary failover is transparent (libpq re-resolves on reconnect). Only
+    injected when several hosts are present AND the operator didn't set it."""
+    if not dsn or 'target_session_attrs' in dsn:
+        return dsn
+    hostpart = dsn.split('@')[-1].split('/')[0] if '://' in dsn else dsn
+    multi = (',' in hostpart) or ('host=' in dsn and ',' in dsn.split('host=', 1)[1].split()[0])
+    if not multi:
+        return dsn
+    attr = 'read-write' if read_write else 'any'
+    if '://' in dsn:
+        return f"{dsn}{'&' if '?' in dsn else '?'}target_session_attrs={attr}"
+    return f'{dsn} target_session_attrs={attr}'   # keyword DSN
+
+
+def _alive(conn):
+    return conn is not None and not conn.closed and not getattr(conn, 'broken', False)
+
+
+def _new_conn(dsn, read_write=True):
+    """Open a connection with bounded retry — survives a brief failover /
+    promotion window instead of erroring the request."""
+    psycopg = _pg()
+    last = None
+    for attempt in range(_CONNECT_RETRIES):
+        try:
+            return psycopg.connect(_prep_dsn(dsn, read_write), autocommit=True,
+                                   connect_timeout=10, row_factory=psycopg.rows.dict_row)
+        except psycopg.OperationalError as e:
+            last = e
+            if attempt < _CONNECT_RETRIES - 1:
+                time.sleep(_CONNECT_BACKOFF * (attempt + 1))
+    raise last
 
 
 def db_path(data_dir=None):
@@ -93,18 +160,19 @@ def _is_network_fs(path):
 
 
 def _connect(data_dir=None):
-    """Single cached connection. autocommit=True; we open explicit BEGIN/COMMIT
-    blocks ourselves (so save() can join a LockedUpdate transaction)."""
+    """The cached primary (read-write) connection. autocommit=True; we open
+    explicit BEGIN/COMMIT blocks ourselves (so save() can join a LockedUpdate
+    transaction). Reconnects if the cached connection was closed or BROKEN
+    (psycopg marks a connection broken after a failover killed it), retrying so
+    a promotion window doesn't surface as an error."""
     global _CONN, _ATEXIT
-    if _CONN is not None and not _CONN.closed:
+    if _alive(_CONN):
         return _CONN
     dsn = _dsn()
     if not dsn:
         raise RuntimeError('Postgres backend selected but no DSN configured '
                            '(set RP_PG_DSN or storage_pg.configure_dsn()).')
-    psycopg = _pg()
-    conn = psycopg.connect(dsn, autocommit=True, connect_timeout=10,
-                           row_factory=psycopg.rows.dict_row)
+    conn = _new_conn(dsn, read_write=True)
     _ensure_schema(conn)
     _CONN = conn
     if not _ATEXIT:
@@ -113,14 +181,50 @@ def _connect(data_dir=None):
     return conn
 
 
+def _read_conn(data_dir=None):
+    """Connection for PURE reads (public load()). Uses the read-replica DSN when
+    one is configured, else the primary. Never used for writes or locked RMW —
+    those always go through _connect()/the primary, so replica lag can't cause a
+    lost update."""
+    global _READ_CONN
+    rdsn = _read_dsn()
+    if not rdsn:
+        return _connect(data_dir)
+    if _alive(_READ_CONN):
+        return _READ_CONN
+    _READ_CONN = _new_conn(rdsn, read_write=False)
+    return _READ_CONN
+
+
 def close_connection():
-    global _CONN
-    if _CONN is not None:
+    global _CONN, _READ_CONN
+    for c in (_CONN, _READ_CONN):
+        if c is not None:
+            try:
+                c.close()
+            except Exception:
+                pass
+    _CONN = None
+    _READ_CONN = None
+
+
+def pg_status():
+    """Small status surface for the UI / db-maintenance: the connected primary
+    host(s) and whether a read replica is configured. Never raises / no secrets."""
+    def _host(dsn):
+        if not dsn:
+            return ''
         try:
-            _CONN.close()
+            if '://' in dsn:
+                return dsn.split('@')[-1].split('/')[0]
+            for tok in dsn.split():
+                if tok.startswith('host='):
+                    return tok[5:]
         except Exception:
             pass
-    _CONN = None
+        return ''
+    return {'primary': _host(_dsn()), 'replica': _host(_read_dsn()),
+            'replica_configured': bool(_read_dsn())}
 
 
 def _ensure_schema(conn):
@@ -242,7 +346,13 @@ def mtime(path):
 # ── load ───────────────────────────────────────────────────────────────────
 
 def load(path):
-    conn = _connect(_dir(path))
+    # Pure read → may use the read replica (when configured). The locked RMW
+    # paths call _load_with_conn(primary_conn, …) directly so they never read a
+    # lagging replica under a lock.
+    return _load_with_conn(_read_conn(_dir(path)), path)
+
+
+def _load_with_conn(conn, path):
     kind = _classify(path)
     if kind == 'devices':
         rows = conn.execute('SELECT id, doc FROM devices').fetchall()
@@ -391,7 +501,9 @@ class LockedUpdate:
             except Exception:
                 pass
             raise
-        self._data = load(self.path)
+        # v3.14.0: read on the PRIMARY conn inside the lock (never the replica),
+        # so the read-modify-write can't be based on stale replica data.
+        self._data = _load_with_conn(conn, self.path)
         return self._data
 
     def __exit__(self, exc_type, exc_val, exc_tb):
