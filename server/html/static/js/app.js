@@ -2104,6 +2104,12 @@ async function loadSettings() {
   if (_pae) _pae.checked = !!data.port_audit_enabled;
   const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
+  const _scimEn = document.getElementById('cfg-scim-enabled');
+  if (_scimEn) _scimEn.checked = !!data.scim_enabled;
+  const _scimSt = document.getElementById('scim-status');
+  if (_scimSt) _scimSt.textContent = data.scim_token_set ? 'Token configured.' : (data.scim_enabled ? 'A token will be generated on save.' : '');
+  const _scimTok = document.getElementById('cfg-scim-token');
+  if (_scimTok) _scimTok.placeholder = data.scim_token_set ? '•••••••• (saved — leave blank to keep)' : 'leave blank to auto-generate on enable';
   _renderExposureMutes(data.exposure_mutes);
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
@@ -3166,6 +3172,7 @@ const _DYK_TIPS = [
   "Click Customize on the Home page to show, hide and reorder your dashboard widgets — the layout is saved to your account and follows you across devices.",
   "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
   "Click Trend on a device in Device Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
+  "SCIM (Settings → Authentication) lets your identity provider create and deactivate users automatically — when someone is offboarded in the IdP, their RemotePower access and live sessions are revoked at once.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -13214,6 +13221,23 @@ async function saveGitops() {
     loadGitops();
   } else toast((r && r.error) || 'Failed', 'error');
 }
+async function saveScim() {
+  const payload = { scim_enabled: document.getElementById('cfg-scim-enabled').checked };
+  const tok = document.getElementById('cfg-scim-token').value;
+  if (tok.trim()) payload.scim_token = tok.trim();
+  const r = await api('POST', '/config', payload).catch(() => null);
+  const reveal = document.getElementById('scim-token-reveal');
+  if (r && r.ok) {
+    document.getElementById('cfg-scim-token').value = '';
+    if (r.scim_token && reveal) {
+      reveal.hidden = false;
+      reveal.textContent = 'SCIM bearer token (copy it into your IdP now — it will not be shown again):\n\n' + r.scim_token;
+    }
+    toast(payload.scim_enabled ? 'SCIM enabled' : 'SCIM disabled', 'success');
+    loadSettings();
+  } else toast((r && r.error) || 'Failed', 'error');
+}
+
 async function syncGitops(dry) {
   const st = document.getElementById('gitops-status');
   if (st) st.textContent = dry ? 'Dry run…' : 'Syncing…';

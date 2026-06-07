@@ -2156,6 +2156,9 @@ def verify_token(token):
             u = users.get(username)
             if not u:
                 return None, None
+            # v3.14.0 (SCIM): a deprovisioned/disabled user's sessions die at once.
+            if u.get('disabled'):
+                return None, None
             role = u.get('role', 'admin')
             # v3.14.0: throttled activity stamp for the session-management UI —
             # update last_seen at most once/min so we don't write tokens.json on
@@ -5790,6 +5793,13 @@ def handle_login():
         _record_login_failure(username)
         audit_log(username, 'login_failed', 'invalid credentials')
         # Small constant delay to slow brute-force even further
+        time.sleep(0.5)
+        respond(200, {'ok': False})
+
+    # v3.14.0 (SCIM): a deactivated account is refused even with valid creds
+    # (covers local + LDAP; the IdP can deprovision via SCIM and lock login out).
+    if ((load(USERS_FILE) or {}).get(username) or {}).get('disabled'):
+        audit_log(username, 'login_blocked_disabled', 'account is deactivated')
         time.sleep(0.5)
         respond(200, {'ok': False})
 
@@ -10284,6 +10294,11 @@ def handle_config_get():
     safe.pop('oidc_client_secret', None)
     safe.pop('status_token', None)
 
+    # v3.14.0 (#30): SCIM bearer token is a credential — expose only whether set.
+    safe['scim_enabled']   = bool(cfg.get('scim_enabled'))
+    safe['scim_token_set'] = bool(cfg.get('scim_token'))
+    safe.pop('scim_token', None)
+
     # v3.14.0 (#27): GitOps manifest auth header is a credential (e.g. a Git PAT);
     # expose only whether it's set and strip the raw value.
     if isinstance(safe.get('gitops'), dict):
@@ -10969,6 +10984,22 @@ def handle_config_save():
     # v3.14.0: cert-expiry alerts (opt-in — noisy on hosts with many service certs)
     if 'cert_expiry_alerts_enabled' in body:
         cfg['cert_expiry_alerts_enabled'] = bool(body['cert_expiry_alerts_enabled'])
+    # v3.14.0 (#30): SCIM provisioning. Enabling without a token mints one (shown
+    # once in the response so the operator can paste it into the IdP); sending a
+    # non-empty scim_token sets it; '__clear__' wipes it.
+    if 'scim_enabled' in body:
+        cfg['scim_enabled'] = bool(body['scim_enabled'])
+    if 'scim_token' in body:
+        v = str(body.get('scim_token') or '')
+        if v == '__clear__':
+            cfg['scim_token'] = ''
+        elif v.strip():
+            cfg['scim_token'] = _sanitize_str(v.strip(), 256)
+    if cfg.get('scim_enabled') and not cfg.get('scim_token'):
+        cfg['scim_token'] = secrets.token_urlsafe(32)
+        _scim_minted_token = cfg['scim_token']
+    else:
+        _scim_minted_token = None
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
@@ -11116,7 +11147,12 @@ def handle_config_save():
             pass
 
     save(CONFIG_FILE, cfg)
-    respond(200, {'ok': True})
+    # v3.14.0 (#30): if we just minted a SCIM token, return it once so the
+    # operator can copy it into the IdP (it's masked on every subsequent GET).
+    _resp = {'ok': True}
+    if locals().get('_scim_minted_token'):
+        _resp['scim_token'] = _scim_minted_token
+    respond(200, _resp)
 
 
 def handle_history():
@@ -11138,6 +11174,174 @@ def handle_users_list():
     users = load(USERS_FILE)
     respond(200, [{'username': u, 'created': d.get('created', 0), 'role': d.get('role', 'admin')}
                   for u, d in users.items()])
+
+
+# ── v3.14.0: SCIM 2.0 user provisioning (#30) ───────────────────────────────
+# Lets an IdP (Okta / Azure AD / OneLogin / …) create, update and — crucially —
+# DEACTIVATE users automatically, the piece JIT login-provisioning can't do
+# (it only ever creates on first login). Deactivation sets users[u]['disabled'],
+# which verify_token + handle_login enforce, so an offboarded user's access (and
+# live sessions) drop immediately. Mounted under /api/scim/v2/ (configurable base
+# URL on the IdP side) so the existing /api/ routing/proxy covers it; auth is a
+# dedicated bearer token (Settings → Security), not a login session.
+SCIM_USER_SCHEMA  = 'urn:ietf:params:scim:schemas:core:2.0:User'
+SCIM_LIST_SCHEMA  = 'urn:ietf:params:scim:api:messages:2.0:ListResponse'
+SCIM_PATCH_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:PatchOp'
+SCIM_ERROR_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:Error'
+
+
+def _scim_respond(status, body):
+    """SCIM uses application/scim+json; respond() sets application/json which IdPs
+    accept. Reuse respond() but tag the schema for errors below."""
+    respond(status, body)
+
+
+def _scim_error(status, detail):
+    _scim_respond(status, {'schemas': [SCIM_ERROR_SCHEMA],
+                           'detail': detail, 'status': str(status)})
+
+
+def _scim_auth():
+    """Bearer-token gate for SCIM. 404 when disabled (don't reveal the surface),
+    401 on a bad/missing token (constant-time compare)."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('scim_enabled'):
+        _scim_error(404, 'SCIM provisioning is not enabled')
+    tok = cfg.get('scim_token') or ''
+    auth = os.environ.get('HTTP_AUTHORIZATION', '')
+    presented = auth[7:].strip() if auth[:7].lower() == 'bearer ' else ''
+    if not tok or not secrets.compare_digest(presented, tok):
+        _scim_error(401, 'invalid or missing SCIM bearer token')
+
+
+def _scim_iso(ts):
+    try:
+        return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(int(ts)))
+    except (TypeError, ValueError):
+        return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(0))
+
+
+def _scim_user_resource(username, rec):
+    email = (rec.get('scim_email') or rec.get('oidc_email')
+             or rec.get('ldap_email') or '')
+    res = {
+        'schemas':  [SCIM_USER_SCHEMA],
+        'id':       username,
+        'userName': username,
+        'active':   not rec.get('disabled'),
+        'name':     {'formatted': rec.get('scim_name') or rec.get('ldap_full_name') or username},
+        'meta':     {'resourceType': 'User',
+                     'created':  _scim_iso(rec.get('created')),
+                     'location': f'/api/scim/v2/Users/{username}'},
+    }
+    if email:
+        res['emails'] = [{'value': email, 'primary': True}]
+    return res
+
+
+def _scim_set_disabled(username, disabled):
+    """Flip the disabled flag, refusing to deactivate the last enabled admin.
+    Returns the updated record, or raises ValueError('last_admin')."""
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            return None
+        if disabled and users[username].get('role', 'admin') == 'admin':
+            enabled_admins = [u for u, d in users.items()
+                              if d.get('role', 'admin') == 'admin' and not d.get('disabled')]
+            if len(enabled_admins) <= 1 and username in enabled_admins:
+                raise ValueError('last_admin')
+        users[username]['disabled'] = bool(disabled)
+        return dict(users[username])
+
+
+def handle_scim_users_collection():
+    """GET /api/scim/v2/Users — list (optional ?filter=userName eq "x").
+       POST /api/scim/v2/Users — create/provision a user."""
+    _scim_auth()
+    m = method()
+    if m == 'GET':
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+        flt = (qs.get('filter', [''])[0] or '')
+        users = load(USERS_FILE) or {}
+        want = None
+        mt = re.match(r'\s*userName\s+eq\s+"([^"]+)"\s*', flt, re.IGNORECASE)
+        if mt:
+            want = mt.group(1)
+        items = [_scim_user_resource(u, d) for u, d in sorted(users.items())
+                 if want is None or u == want]
+        _scim_respond(200, {'schemas': [SCIM_LIST_SCHEMA],
+                            'totalResults': len(items), 'startIndex': 1,
+                            'itemsPerPage': len(items), 'Resources': items})
+    if m == 'POST':
+        body = get_json_body() or {}
+        username = _sanitize_str(str(body.get('userName', '')), 32).strip()
+        if not username or not re.match(r'^[a-zA-Z0-9_.\-@]{2,64}$', username):
+            _scim_error(400, 'invalid userName')
+        # local part of an email-style userName becomes the login name
+        login = re.sub(r'[^a-zA-Z0-9_\-]', '', username.split('@')[0])[:32]
+        if len(login) < 2:
+            _scim_error(400, 'userName does not yield a valid login id')
+        users = load(USERS_FILE) or {}
+        if login in users:
+            _scim_error(409, 'user already exists')
+        email = ''
+        if isinstance(body.get('emails'), list) and body['emails']:
+            email = _sanitize_str(str(body['emails'][0].get('value', '')), 128)
+        name = ''
+        if isinstance(body.get('name'), dict):
+            name = _sanitize_str(str(body['name'].get('formatted', '')), 128)
+        _provision_or_promote_user(login, 'viewer', {
+            'scim_managed': True, 'scim_email': email, 'scim_name': name,
+            'disabled': not bool(body.get('active', True)),
+        }, 'scim')
+        rec = (load(USERS_FILE) or {}).get(login) or {}
+        audit_log('scim', 'scim_user_create', f'provisioned {login}')
+        _scim_respond(201, _scim_user_resource(login, rec))
+    _scim_error(405, 'method not allowed')
+
+
+def handle_scim_user(username):
+    """GET/PUT/PATCH/DELETE /api/scim/v2/Users/<id>. DELETE + active=false
+    deactivate (set disabled) rather than hard-delete, preserving the audit
+    trail; the user can no longer authenticate and existing sessions die."""
+    _scim_auth()
+    m = method()
+    users = load(USERS_FILE) or {}
+    if username not in users:
+        _scim_error(404, 'user not found')
+    if m == 'GET':
+        _scim_respond(200, _scim_user_resource(username, users[username]))
+    if m == 'DELETE':
+        try:
+            _scim_set_disabled(username, True)
+        except ValueError:
+            _scim_error(409, 'cannot deactivate the last admin')
+        audit_log('scim', 'scim_user_deactivate', username)
+        respond(204, None)
+    if m in ('PUT', 'PATCH'):
+        body = get_json_body() or {}
+        desired_active = None
+        if m == 'PUT':
+            desired_active = bool(body.get('active', True))
+        else:  # PATCH PatchOp — handle the common "replace active" operation
+            for op in (body.get('Operations') or []):
+                if (op.get('op') or '').lower() != 'replace':
+                    continue
+                val = op.get('value')
+                path = (op.get('path') or '').lower()
+                if path == 'active':
+                    desired_active = bool(val)
+                elif isinstance(val, dict) and 'active' in val:
+                    desired_active = bool(val['active'])
+        if desired_active is not None:
+            try:
+                _scim_set_disabled(username, not desired_active)
+            except ValueError:
+                _scim_error(409, 'cannot deactivate the last admin')
+            audit_log('scim', 'scim_user_update',
+                      f'{username} active={desired_active}')
+        _scim_respond(200, _scim_user_resource(username, (load(USERS_FILE) or {}).get(username) or {}))
+    _scim_error(405, 'method not allowed')
 
 
 def handle_user_create():
@@ -33947,6 +34151,10 @@ def _dispatch(pi, m):
     elif pi == '/api/gitops' and m == 'GET':  handle_gitops_get()
     elif pi == '/api/gitops' and m == 'PUT':  handle_gitops_set()
     elif pi == '/api/gitops/sync' and m == 'POST': handle_gitops_sync()
+    # v3.14.0 (#30): SCIM 2.0 user provisioning (IdP-driven create/deactivate)
+    elif pi == '/api/scim/v2/Users': handle_scim_users_collection()
+    elif pi.startswith('/api/scim/v2/Users/'):
+        handle_scim_user(urllib.parse.unquote(pi[len('/api/scim/v2/Users/'):]))
     # v3.4.1: iCal feed of scheduled jobs + maintenance windows
     elif pi == '/api/schedule.ics' and m == 'GET': handle_schedule_ics()
 

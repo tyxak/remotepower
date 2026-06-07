@@ -10,6 +10,15 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **SCIM 2.0 user provisioning.** An identity provider (Okta, Azure AD, OneLogin,
+  …) can now **create and — critically — deactivate** users automatically via
+  `/api/scim/v2/Users`. Deactivation (SCIM `active:false`, `PATCH`, or `DELETE`)
+  sets the user disabled, which `verify_token` and login enforce — so an
+  offboarded user's access **and live sessions** drop immediately. This closes
+  the gap OIDC/LDAP JIT-provisioning leaves (it only ever *creates* on first
+  login). Enable + mint a bearer token under *Settings → Authentication → SCIM*;
+  provisioned users start as **viewer**; the last enabled admin can't be
+  deactivated.
 - **Metric history with a time range (24h / 7d / 30d / 90d).** The device **Trend**
   modal now has a range selector and shows real point-in-time history instead of
   just the last ~2 hours. On the **SQLite** or **PostgreSQL** backend, samples are

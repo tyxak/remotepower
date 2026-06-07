@@ -1311,6 +1311,21 @@
               <div id="oidc-test-result" class="mt-12"></div>
             </form>
           </div>
+          <!-- v3.14.0 (#30): SCIM 2.0 provisioning -->
+          <div class="settings-section">
+            <h3>SCIM provisioning (auto user lifecycle)</h3>
+            <p class="hint">Let your identity provider (Okta, Azure AD, OneLogin, …) create and — importantly — <strong>deactivate</strong> users automatically. When the IdP offboards someone, their access and live sessions are revoked at once. SSO (OIDC/LDAP) only ever <em>creates</em> on first login; SCIM closes the offboarding gap. Endpoint base URL: <code class="ff-mono">&lt;your-server&gt;/api/scim/v2</code>. Provisioned users start as <strong>viewer</strong>.</p>
+            <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-scim-enabled"> <span class="fs-14">Enable SCIM provisioning</span></label>
+            <div class="form-group">
+              <label class="form-label">Bearer token <span class="c-muted fs-12">(the IdP authenticates with this)</span></label>
+              <input type="password" id="cfg-scim-token" class="form-input ff-mono" placeholder="leave blank to keep / auto-generate on enable" autocomplete="off">
+            </div>
+            <div class="row-8-center">
+              <button class="btn-primary" data-action="saveScim">Save SCIM</button>
+              <span id="scim-status" class="fs-12 c-muted"></span>
+            </div>
+            <pre id="scim-token-reveal" class="hint sb-result" hidden></pre>
+          </div>
         </div>
 
         <!-- ── Security ─────────────────────────────────────────────────── -->

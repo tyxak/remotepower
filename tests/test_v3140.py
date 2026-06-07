@@ -1174,6 +1174,98 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestScim(_HandlerBase):
+    """v3.14.0 #30 — SCIM 2.0 provisioning (IdP-driven create + deactivate)."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CONFIG_FILE, {'scim_enabled': True, 'scim_token': 'sekret'})
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer sekret'
+        os.environ.pop('QUERY_STRING', None)
+
+    def tearDown(self):
+        os.environ.pop('HTTP_AUTHORIZATION', None)
+        os.environ.pop('QUERY_STRING', None)
+        super().tearDown()
+
+    def _create(self, user='alice@corp.com', active=True):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'schemas': [api.SCIM_USER_SCHEMA], 'userName': user,
+                                     'active': active, 'name': {'formatted': 'A'},
+                                     'emails': [{'value': user, 'primary': True}]}
+        return self.call(api.handle_scim_users_collection)
+
+    def test_disabled_returns_404(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'GET'
+        self.call(api.handle_scim_users_collection)
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_bad_token_401(self):
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer wrong'
+        api.method = lambda: 'GET'
+        self.call(api.handle_scim_users_collection)
+        self.assertEqual(self.cap['s'], 401)
+
+    def test_create_provisions_viewer(self):
+        r = self._create()
+        self.assertEqual(self.cap['s'], 201)
+        self.assertEqual(r['userName'], 'alice')        # local part of the email
+        self.assertTrue(r['active'])
+        rec = api.load(api.USERS_FILE)['alice']
+        self.assertTrue(rec['scim_managed'])
+        self.assertEqual(rec['role'], 'viewer')
+        self.assertFalse(rec.get('disabled'))
+
+    def test_create_duplicate_409(self):
+        self._create(); self._create()
+        self.assertEqual(self.cap['s'], 409)
+
+    def test_list_filter_by_username(self):
+        self._create('bob@corp.com')
+        os.environ['QUERY_STRING'] = 'filter=userName eq "bob"'
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_scim_users_collection)
+        self.assertEqual(r['totalResults'], 1)
+        self.assertEqual(r['Resources'][0]['userName'], 'bob')
+
+    def test_patch_deactivate_kills_sessions(self):
+        import time as _t
+        self._create('carol@corp.com')
+        api.save(api.TOKENS_FILE, {'tok1': {'user': 'carol', 'created': int(_t.time()), 'ttl': 3600}})
+        self.assertEqual(self._orig['verify_token']('tok1')[0], 'carol')   # works pre-deactivation
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'schemas': [api.SCIM_PATCH_SCHEMA],
+                                     'Operations': [{'op': 'replace', 'value': {'active': False}}]}
+        self.call(api.handle_scim_user, 'carol')
+        self.assertTrue(api.load(api.USERS_FILE)['carol']['disabled'])
+        self.assertEqual(self._orig['verify_token']('tok1'), (None, None))  # session dead
+
+    def test_delete_deactivates(self):
+        self._create('dave@corp.com')
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_scim_user, 'dave')
+        self.assertEqual(self.cap['s'], 204)
+        self.assertTrue(api.load(api.USERS_FILE)['dave']['disabled'])
+
+    def test_cannot_deactivate_last_admin(self):
+        api.save(api.USERS_FILE, {'root': {'role': 'admin', 'created': 1}})
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_scim_user, 'root')
+        self.assertEqual(self.cap['s'], 409)
+        self.assertFalse(api.load(api.USERS_FILE)['root'].get('disabled'))
+
+    def test_reactivate_clears_disabled(self):
+        self._create('erin@corp.com')
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'Operations': [{'op': 'replace', 'path': 'active', 'value': False}]}
+        self.call(api.handle_scim_user, 'erin')
+        self.assertTrue(api.load(api.USERS_FILE)['erin']['disabled'])
+        api.get_json_body = lambda: {'Operations': [{'op': 'replace', 'path': 'active', 'value': True}]}
+        self.call(api.handle_scim_user, 'erin')
+        self.assertFalse(api.load(api.USERS_FILE)['erin']['disabled'])
+
+
 class TestMetricTimeseriesSqlite(unittest.TestCase):
     """v3.14.0 — append-only metric time-series on the SQLite backend (the store
     behind 30-day Trend charts; JSON keeps only the recent metrics.json window)."""
