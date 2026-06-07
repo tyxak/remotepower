@@ -373,6 +373,18 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
   unchanged.
 
 ### Added
+- **Real themes (not just an accent).** *My Account → Appearance* now offers a
+  full set of cohesive themes — Midnight, Tokyo Night, Catppuccin, Dracula, Nord,
+  Gruvbox, Rosé Pine, Oceanic, Solarized Dark, plus the light themes Daylight,
+  Paper, Solarized Light and Nord Light — each a complete palette (background,
+  surface, text, borders, status colours), picked from a swatch grid. "Follow
+  system" tracks your OS light/dark. The accent presets still apply on top of any
+  theme. Stored per browser.
+- **Expanded interface translation.** The 5-language UI translation (English,
+  中文, हिन्दी, Español, العربية — Arabic RTL) now covers the full static shell —
+  every page title, page subtitle and section heading, not just the sidebar — via
+  a ~160-entry catalog, and re-translates as you navigate. Still falls back to
+  English for anything untranslated.
 - **"Report an issue" button (Help → Documentation, and About).** Opens a
   prefilled GitHub bug report with the app version, browser/environment, current
   page, and recently-captured (scrubbed) client errors — no credentials, no fleet

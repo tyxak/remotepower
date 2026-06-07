@@ -891,16 +891,9 @@
         <!-- v3.14.0 (#46): appearance — theme + accent (stored locally per browser). -->
         <div class="settings-section">
           <h3>Appearance</h3>
-          <p class="hint">Theme and accent colour for this browser. <strong>Auto</strong> follows your operating system's light/dark setting.</p>
-          <div class="row-8-center mb-12">
-            <label class="form-label">Theme
-              <select id="acct-theme" class="form-input input-auto" data-change="onThemeSelect">
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-                <option value="auto">Auto (follow system)</option>
-              </select>
-            </label>
-          </div>
+          <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting. The accent tints buttons and highlights on top of any theme.</p>
+          <div class="form-label mb-6">Theme</div>
+          <div id="acct-theme-grid" class="theme-grid mb-16"></div>
           <div>
             <div class="form-label mb-6">Accent</div>
             <div id="acct-accent" class="row-8-center"></div>

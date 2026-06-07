@@ -696,31 +696,84 @@ function applyAccent() {
   if (a && a !== 'blue' && ACCENT_PRESETS.includes(a)) document.body.dataset.accent = a;
   else delete document.body.dataset.accent;
 }
+// v4.1: full themes (data-theme on <body>). `dark` = :root, `light` = body.light
+// (no data-theme block); every other id has a complete palette in styles.css.
+// `type:'light'` themes also get the body.light class for structural overrides.
+// preview dots: [bg, surface, accent, text].
+const THEMES = [
+  { id:'dark',            name:'Midnight',        type:'dark',  dots:['#0a0c10','#1c2230','#3b7eff','#e2e8f0'] },
+  { id:'tokyo',           name:'Tokyo Night',     type:'dark',  dots:['#1a1b26','#24283b','#7aa2f7','#c0caf5'] },
+  { id:'catppuccin',      name:'Catppuccin',      type:'dark',  dots:['#1e1e2e','#313244','#cba6f7','#cdd6f4'] },
+  { id:'dracula',         name:'Dracula',         type:'dark',  dots:['#282a36','#44475a','#bd93f9','#f8f8f2'] },
+  { id:'nord',            name:'Nord',            type:'dark',  dots:['#2e3440','#434c5e','#88c0d0','#eceff4'] },
+  { id:'gruvbox',         name:'Gruvbox',         type:'dark',  dots:['#1d2021','#32302f','#fabd2f','#ebdbb2'] },
+  { id:'rosepine',        name:'Rosé Pine',       type:'dark',  dots:['#191724','#26233a','#c4a7e7','#e0def4'] },
+  { id:'oceanic',         name:'Oceanic',         type:'dark',  dots:['#0f1c24','#1b313f','#22b8cf','#cde3ec'] },
+  { id:'solarized',       name:'Solarized Dark',  type:'dark',  dots:['#002b36','#073642','#268bd2','#b3c0c0'] },
+  { id:'light',           name:'Daylight',        type:'light', dots:['#f1f5f9','#ffffff','#3b7eff','#0f172a'] },
+  { id:'paper',           name:'Paper',           type:'light', dots:['#fafafa','#ffffff','#2563eb','#18181b'] },
+  { id:'solarized-light', name:'Solarized Light', type:'light', dots:['#fdf6e3','#fbf3d9','#268bd2','#586e75'] },
+  { id:'nord-light',      name:'Nord Light',      type:'light', dots:['#eceff4','#ffffff','#5e81ac','#2e3440'] },
+  { id:'auto',            name:'Follow system',   type:'auto',  dots:['#0a0c10','#f1f5f9','#3b7eff','#94a3b8'] },
+];
+const THEME_IDS = THEMES.map(t => t.id);
+function _themeById(id) { return THEMES.find(t => t.id === id) || THEMES[0]; }
+function _resolveTheme(id) {
+  if (id === 'auto') return _systemPrefersLight() ? 'light' : 'dark';
+  return THEME_IDS.includes(id) ? id : 'dark';
+}
+function _isLightTheme(resolvedId) { return _themeById(resolvedId).type === 'light'; }
 function applyTheme() {
   let theme = 'dark';
   try { theme = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
-  document.body.classList.toggle('light', _effectiveLight(theme));
+  const resolved = _resolveTheme(theme);
+  const light = _isLightTheme(resolved);
+  // dark (=:root) and light (=body.light) need no data-theme block.
+  if (resolved === 'dark' || resolved === 'light') delete document.body.dataset.theme;
+  else document.body.dataset.theme = resolved;
+  document.body.classList.toggle('light', light);
   const btn = document.querySelector('.theme-btn');
-  if (btn) btn.innerHTML = _effectiveLight(theme) ? _THEME_MOON : _THEME_SUN;
+  if (btn) btn.innerHTML = light ? _THEME_MOON : _THEME_SUN;
   applyAccent();
 }
 function toggleTheme() {
-  // cycle dark → light → auto → dark
+  // Header quick-toggle: flip between the dark and light families. The full
+  // theme catalog lives in Settings → Appearance.
   let theme = 'dark';
   try { theme = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
-  const next = theme === 'dark' ? 'light' : theme === 'light' ? 'auto' : 'dark';
+  const next = _isLightTheme(_resolveTheme(theme)) ? 'dark' : 'light';
   try { localStorage.setItem('rp_theme', next); } catch (_) {}
   applyTheme();
-  if (next === 'auto') toast('Theme: follow system', 'info');
+  _buildThemeGrid();
 }
 function setAccent(name) {
   try { localStorage.setItem('rp_accent', name); } catch (_) {}
   applyAccent();
 }
 const _ACCENT_COLORS = { blue: '#3b7eff', emerald: '#10b981', violet: '#8b5cf6', amber: '#f59e0b', rose: '#f43f5e', cyan: '#06b6d4' };
+function _buildThemeGrid() {
+  const grid = document.getElementById('acct-theme-grid');
+  if (!grid) return;
+  let cur = 'dark'; try { cur = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {}
+  grid.innerHTML = '';
+  THEMES.forEach(t => {
+    const card = document.createElement('button');
+    card.className = 'theme-card' + (t.id === cur ? ' sel' : '');
+    card.dataset.action = 'setThemeUI';
+    card.dataset.arg = t.id;
+    const name = document.createElement('div');
+    name.className = 'tc-name';
+    const label = document.createElement('span'); label.textContent = t.name;
+    const tag = document.createElement('span'); tag.className = 'tc-tag'; tag.textContent = t.type;
+    name.appendChild(label); name.appendChild(tag);
+    const sw = document.createElement('div'); sw.className = 'tc-swatches';
+    t.dots.forEach(c => { const d = document.createElement('span'); d.className = 'tc-dot'; d.style.background = c; sw.appendChild(d); });
+    card.appendChild(name); card.appendChild(sw);
+    grid.appendChild(card);
+  });
+}
 function _buildAppearancePicker() {
-  const sel = document.getElementById('acct-theme');
-  if (sel) { try { sel.value = localStorage.getItem('rp_theme') || 'dark'; } catch (_) {} }
+  _buildThemeGrid();
   const wrap = document.getElementById('acct-accent');
   if (!wrap) return;
   let cur = 'blue'; try { cur = localStorage.getItem('rp_accent') || 'blue'; } catch (_) {}
@@ -737,16 +790,16 @@ function _buildAppearancePicker() {
     wrap.appendChild(b);
   });
 }
-function onThemeSelect() {
-  const sel = document.getElementById('acct-theme');
-  if (!sel) return;
-  try { localStorage.setItem('rp_theme', sel.value); } catch (_) {}
+function setThemeUI(id) {
+  try { localStorage.setItem('rp_theme', id); } catch (_) {}
   applyTheme();
+  _buildThemeGrid();
 }
 function setAccentUI(name) {
   setAccent(name);
   _buildAppearancePicker();
 }
+window.setThemeUI = setThemeUI;
 // Live-update when the OS theme flips and we're in 'auto'.
 try {
   window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
@@ -1210,7 +1263,17 @@ function showPage(name, btn) {
   if (name === 'software-policy') loadSoftwarePolicy();
   // v3.12.0: make any long <select> on the page searchable once its loader
   // (often async) has populated it.
-  if (el) { enhanceDeviceCombos(el); enhanceLongSelects(el); setTimeout(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); }, 350); }
+  // v4.1: re-translate the page once now (static content) and again after the
+  // loader has rendered (dynamic section titles), so i18n covers more than the
+  // sidebar. RPi18n.apply is a no-op when the language is English.
+  if (el) {
+    enhanceDeviceCombos(el); enhanceLongSelects(el);
+    if (window.RPi18n) window.RPi18n.apply(el);
+    setTimeout(() => {
+      enhanceDeviceCombos(el); enhanceLongSelects(el);
+      if (window.RPi18n) window.RPi18n.apply(el);
+    }, 350);
+  }
 }
 
 const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];

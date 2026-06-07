@@ -44,15 +44,118 @@
   }
   body.light body::before { background-image: linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
   body.light header { background: rgba(241,245,249,0.9); }
-  /* v3.14.0 (#46): per-user accent presets (default = blue when no data-accent). */
+  /* Accent presets moved BELOW the data-theme blocks (see ~"v4.1: full themes")
+     so a chosen accent overrides the active theme's default accent. */
+  .accent-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+  .accent-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor; }
+  body.light .journal-wrap { background: #f8fafc; color: #334155; }
+
+  /* ── v4.1: full themes (data-theme on <body>) ──────────────────────────────
+     Each theme is a complete palette, not just an accent. Dark themes set
+     data-theme only; light-type themes ALSO get the `.light` class from JS so
+     the structural light overrides (header bg, grid lines, journal) apply.
+     Declared AFTER body.light and BEFORE the accent presets, so a theme's
+     palette beats the default light palette and a chosen accent beats the
+     theme's default accent. `dark`/`midnight` = :root; `light` = body.light. */
+  body[data-theme="nord"] {
+    --bg:#2e3440; --surface:#3b4252; --surface2:#434c5e; --border:#4c566a;
+    --text:#eceff4; --muted:#8a93a5; --accent:#88c0d0; --accent2:#8fbcbb;
+    --green:#a3be8c; --green-dim:#4a5a3a; --red:#bf616a; --red-dim:#5a2f33;
+    --amber:#ebcb8b; --purple:#b48ead;
+    --accent-soft:rgba(136,192,208,0.12); --accent-edge:rgba(136,192,208,0.30);
+  }
+  body[data-theme="dracula"] {
+    --bg:#282a36; --surface:#2f3240; --surface2:#383b4a; --border:#44475a;
+    --text:#f8f8f2; --muted:#8a8fa3; --accent:#bd93f9; --accent2:#ff79c6;
+    --green:#50fa7b; --green-dim:#1d5a2e; --red:#ff5555; --red-dim:#6e2222;
+    --amber:#f1fa8c; --purple:#bd93f9;
+    --accent-soft:rgba(189,147,249,0.14); --accent-edge:rgba(189,147,249,0.32);
+  }
+  body[data-theme="gruvbox"] {
+    --bg:#1d2021; --surface:#282828; --surface2:#32302f; --border:#3c3836;
+    --text:#ebdbb2; --muted:#a89984; --accent:#fabd2f; --accent2:#fe8019;
+    --green:#b8bb26; --green-dim:#4f5320; --red:#fb4934; --red-dim:#6b2018;
+    --amber:#fabd2f; --purple:#d3869b;
+    --accent-soft:rgba(250,189,47,0.12); --accent-edge:rgba(250,189,47,0.32);
+  }
+  body[data-theme="catppuccin"] {
+    --bg:#1e1e2e; --surface:#24273a; --surface2:#313244; --border:#363a4f;
+    --text:#cdd6f4; --muted:#9399b2; --accent:#cba6f7; --accent2:#f5c2e7;
+    --green:#a6e3a1; --green-dim:#3e5a3c; --red:#f38ba8; --red-dim:#6b2f3e;
+    --amber:#f9e2af; --purple:#cba6f7;
+    --accent-soft:rgba(203,166,247,0.13); --accent-edge:rgba(203,166,247,0.30);
+  }
+  body[data-theme="tokyo"] {
+    --bg:#1a1b26; --surface:#1f2335; --surface2:#24283b; --border:#2f3549;
+    --text:#c0caf5; --muted:#7a82a8; --accent:#7aa2f7; --accent2:#bb9af7;
+    --green:#9ece6a; --green-dim:#3d5230; --red:#f7768e; --red-dim:#6b2733;
+    --amber:#e0af68; --purple:#bb9af7;
+    --accent-soft:rgba(122,162,247,0.13); --accent-edge:rgba(122,162,247,0.30);
+  }
+  body[data-theme="rosepine"] {
+    --bg:#191724; --surface:#1f1d2e; --surface2:#26233a; --border:#2a273f;
+    --text:#e0def4; --muted:#908caa; --accent:#c4a7e7; --accent2:#ebbcba;
+    --green:#9ccfd8; --green-dim:#2f4f55; --red:#eb6f92; --red-dim:#6b2a3c;
+    --amber:#f6c177; --purple:#c4a7e7;
+    --accent-soft:rgba(196,167,231,0.13); --accent-edge:rgba(196,167,231,0.30);
+  }
+  body[data-theme="solarized"] {
+    --bg:#002b36; --surface:#073642; --surface2:#0a4250; --border:#0f4b5a;
+    --text:#b3c0c0; --muted:#5d7479; --accent:#268bd2; --accent2:#2aa198;
+    --green:#859900; --green-dim:#3a4400; --red:#dc322f; --red-dim:#5e1716;
+    --amber:#b58900; --purple:#6c71c4;
+    --accent-soft:rgba(38,139,210,0.13); --accent-edge:rgba(38,139,210,0.32);
+  }
+  body[data-theme="oceanic"] {
+    --bg:#0f1c24; --surface:#152733; --surface2:#1b313f; --border:#23404f;
+    --text:#cde3ec; --muted:#6f8a97; --accent:#22b8cf; --accent2:#3ddbd9;
+    --green:#37b67a; --green-dim:#1c4f39; --red:#e85d6f; --red-dim:#5e2630;
+    --amber:#e0a458; --purple:#9d7cd8;
+    --accent-soft:rgba(34,184,207,0.13); --accent-edge:rgba(34,184,207,0.32);
+  }
+  body[data-theme="solarized-light"] {
+    --bg:#fdf6e3; --surface:#fbf3d9; --surface2:#f3ead0; --border:#e6dcc0;
+    --text:#3f5258; --muted:#93a1a1; --accent:#268bd2; --accent2:#2aa198;
+    --green:#6f7d00; --green-dim:#d3d9a0; --red:#dc322f; --red-dim:#f0c0bf;
+    --amber:#a07700; --purple:#6c71c4;
+    --accent-soft:rgba(38,139,210,0.10); --accent-edge:rgba(38,139,210,0.28);
+  }
+  body[data-theme="nord-light"] {
+    --bg:#eceff4; --surface:#ffffff; --surface2:#e5e9f0; --border:#d8dee9;
+    --text:#2e3440; --muted:#6b7589; --accent:#5e81ac; --accent2:#81a1c1;
+    --green:#4a7a2f; --green-dim:#c8d8b8; --red:#bf616a; --red-dim:#e8c4c8;
+    --amber:#9a6f00; --purple:#9d7cb0;
+    --accent-soft:rgba(94,129,172,0.10); --accent-edge:rgba(94,129,172,0.28);
+  }
+  body[data-theme="paper"] {
+    --bg:#fafafa; --surface:#ffffff; --surface2:#f4f4f5; --border:#e4e4e7;
+    --text:#18181b; --muted:#71717a; --accent:#2563eb; --accent2:#3b82f6;
+    --green:#16a34a; --green-dim:#bbf7d0; --red:#dc2626; --red-dim:#fecaca;
+    --amber:#d97706; --purple:#7c3aed;
+    --accent-soft:rgba(37,99,235,0.08); --accent-edge:rgba(37,99,235,0.26);
+  }
+  /* Theme-picker card preview swatches. */
+  .theme-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .theme-card {
+    border:1px solid var(--border); border-radius:10px; padding:10px;
+    background:var(--surface2); cursor:pointer; text-align:left;
+    color:var(--text); font: inherit; transition: border-color .15s, transform .1s;
+  }
+  .theme-card:hover { border-color:var(--accent); }
+  .theme-card.sel { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-edge, var(--accent)); }
+  .theme-card .tc-name { font-size:13px; font-weight:600; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; }
+  .theme-card .tc-tag { font-size:10px; color:var(--muted); font-weight:500; text-transform:uppercase; letter-spacing:.4px; }
+  .theme-card .tc-swatches { display:flex; gap:4px; }
+  .theme-card .tc-dot { width:18px; height:18px; border-radius:5px; border:1px solid rgba(255,255,255,0.08); }
+
+  /* v3.14.0 (#46): per-user accent presets — declared AFTER the data-theme
+     blocks so a chosen accent overrides the theme's default accent. */
   body[data-accent="emerald"] { --accent: #10b981; --accent-soft: rgba(16,185,129,0.10); --accent-edge: rgba(16,185,129,0.30); }
   body[data-accent="violet"]  { --accent: #8b5cf6; --accent-soft: rgba(139,92,246,0.10); --accent-edge: rgba(139,92,246,0.30); }
   body[data-accent="amber"]   { --accent: #f59e0b; --accent-soft: rgba(245,158,11,0.10); --accent-edge: rgba(245,158,11,0.30); }
   body[data-accent="rose"]    { --accent: #f43f5e; --accent-soft: rgba(244,63,94,0.10);  --accent-edge: rgba(244,63,94,0.30); }
   body[data-accent="cyan"]    { --accent: #06b6d4; --accent-soft: rgba(6,182,212,0.10);  --accent-edge: rgba(6,182,212,0.30); }
-  .accent-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
-  .accent-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor; }
-  body.light .journal-wrap { background: #f8fafc; color: #334155; }
+
   .theme-btn {
     background: transparent;
     border: 1px solid var(--border);

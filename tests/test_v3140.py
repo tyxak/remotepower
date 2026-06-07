@@ -1200,8 +1200,10 @@ class TestThemesWiring(unittest.TestCase):
             self.assertIn(f'body[data-accent="{name}"]', self.CSS)
 
     def test_theme_functions(self):
-        for fn in ('applyAccent', 'setAccent', 'onThemeSelect', '_buildAppearancePicker',
-                   '_effectiveLight'):
+        # v4.1: theme picker is now a full-theme grid (setThemeUI/_buildThemeGrid)
+        # rather than a 3-option select; accent + auto-follow-system still exist.
+        for fn in ('applyAccent', 'setAccent', 'setThemeUI', '_buildAppearancePicker',
+                   '_buildThemeGrid', '_effectiveLight'):
             self.assertIn(fn, self.JS)
         self.assertIn("'auto'", self.JS)   # the follow-system theme option
 
@@ -1209,7 +1211,7 @@ class TestThemesWiring(unittest.TestCase):
         self.assertIn('prefers-color-scheme', self.JS)
 
     def test_appearance_card_present(self):
-        self.assertIn('id="acct-theme"', self.HTML)
+        self.assertIn('id="acct-theme-grid"', self.HTML)
         self.assertIn('id="acct-accent"', self.HTML)
 
 
