@@ -2159,6 +2159,16 @@ async function loadSettings() {
     const tokPh = document.getElementById('cfg-audit-forward-token');
     if (tokPh) tokPh.placeholder = data.audit_forward_token_set ? '•••••• (set — leave blank to keep)' : 'optional bearer token';
   }
+  // v3.14.0 #34: SIEM event streaming
+  const _siemEn = document.getElementById('cfg-siem-enabled');
+  if (_siemEn) {
+    _siemEn.checked = !!data.siem_enabled;
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v ?? ''; };
+    set('cfg-siem-format', data.siem_format || 'raw');
+    set('cfg-siem-url', data.siem_url || '');
+    const stk = document.getElementById('cfg-siem-token');
+    if (stk) stk.placeholder = data.siem_token_set ? '•••••• (set — leave blank to keep)' : 'HEC token / API key / bearer';
+  }
   const _cae = document.getElementById('cfg-change-approval-enabled');
   if (_cae) {
     _cae.checked = !!data.change_approval_enabled;
@@ -2362,6 +2372,14 @@ async function testAuditForward() {
   if (d?.ok) toast('Test entry sent to the configured destination', 'success');
   else toast(d?.error || 'Forward test failed', 'error');
 }
+// v3.14.0 #34: SIEM streaming test — save first so the just-typed URL/token apply.
+async function testSiem() {
+  toast('Saving & sending test event…', 'info');
+  await saveSettings();
+  const d = await api('POST', '/siem/test', {});
+  if (d?.ok) toast('Test event sent to the configured SIEM', 'success');
+  else toast(d?.error || 'SIEM test failed', 'error');
+}
 async function saveSettings(btn) {
   const webhook_events = {};
   document.querySelectorAll('#event-toggle-table .toggle-webhook').forEach(cb => {
@@ -2470,6 +2488,15 @@ async function saveSettings(btn) {
     payload.audit_forward_tcp  = !!document.getElementById('cfg-audit-forward-tcp')?.checked;
     const _afTok = document.getElementById('cfg-audit-forward-token')?.value;
     if (_afTok) payload.audit_forward_token = _afTok;
+  }
+  // v3.14.0 #34: SIEM event streaming
+  const _siemSaveEn = document.getElementById('cfg-siem-enabled');
+  if (_siemSaveEn) {
+    payload.siem_enabled = _siemSaveEn.checked;
+    payload.siem_format = document.getElementById('cfg-siem-format')?.value || 'raw';
+    payload.siem_url    = (document.getElementById('cfg-siem-url')?.value || '').trim();
+    const _siemTok = document.getElementById('cfg-siem-token')?.value;
+    if (_siemTok) payload.siem_token = _siemTok;
   }
   const _caEn = document.getElementById('cfg-change-approval-enabled');
   if (_caEn) {

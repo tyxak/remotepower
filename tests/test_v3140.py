@@ -9,6 +9,7 @@ smoke checks.
 """
 import os
 import re
+import json
 import tempfile
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
@@ -1388,6 +1389,87 @@ class TestProcessWatch(_HandlerBase):
              'value': 92.0, 'threshold': 80})
         self.assertIn('postgres', title)
         self.assertIn('CPU', title)
+
+
+class TestSiemStreaming(_HandlerBase):
+    """v3.14.0 #34 — stream fleet events / alerts to a SIEM (Splunk/Elastic/
+    Loki/raw) with vendor-correct envelopes + auth schemes."""
+
+    def _rec(self):
+        return api._siem_record('device_offline',
+                                {'device_id': 'd1', 'name': 'web'})
+
+    def test_record_has_severity_and_title(self):
+        r = self._rec()
+        self.assertEqual(r['event'], 'device_offline')
+        self.assertEqual(r['host'], 'web')
+        self.assertEqual(r['severity'], 'critical')  # device_offline → _ALERT_RULES
+        self.assertIn('web', r['title'])
+
+    def test_splunk_envelope(self):
+        t, body, h = api._siem_envelope('splunk', 'https://hec:8088/services/collector',
+                                        self._rec(), 'TOK', 1000)
+        self.assertEqual(t, 'https://hec:8088/services/collector')
+        self.assertEqual(h['Authorization'], 'Splunk TOK')
+        doc = json.loads(body)
+        self.assertEqual(doc['time'], 1000)
+        self.assertEqual(doc['event']['event'], 'device_offline')
+
+    def test_elastic_envelope(self):
+        t, body, h = api._siem_envelope('elastic', 'https://es:9200/rp/_doc',
+                                        self._rec(), 'KEY', 1000)
+        self.assertEqual(h['Authorization'], 'ApiKey KEY')
+        self.assertIn('@timestamp', json.loads(body))
+
+    def test_loki_envelope_appends_push_path(self):
+        t, body, h = api._siem_envelope('loki', 'https://loki:3100',
+                                        self._rec(), '', 1000)
+        self.assertEqual(t, 'https://loki:3100/loki/api/v1/push')
+        doc = json.loads(body)
+        self.assertEqual(doc['streams'][0]['values'][0][0], str(1000 * 10**9))
+        self.assertNotIn('Authorization', h)         # no token → no header
+
+    def test_raw_envelope(self):
+        t, body, h = api._siem_envelope('raw', 'https://x/ingest',
+                                        self._rec(), 'B', 1000)
+        self.assertEqual(h['Authorization'], 'Bearer B')
+        self.assertEqual(json.loads(body)['source'], 'remotepower')
+
+    def test_forward_respects_enabled_and_url(self):
+        sent = []
+        orig = api._siem_post
+        api._siem_post = lambda url, data, headers, cfg: sent.append(url)
+        try:
+            api._forward_siem('device_offline', {'name': 'w'}, {})          # disabled
+            api._forward_siem('device_offline', {'name': 'w'},
+                              {'siem_enabled': True})                        # no url
+            self.assertEqual(sent, [])
+            api._forward_siem('device_offline', {'name': 'w'}, {
+                'siem_enabled': True, 'siem_format': 'loki',
+                'siem_url': 'https://loki:3100'})
+            self.assertEqual(sent, ['https://loki:3100/loki/api/v1/push'])
+        finally:
+            api._siem_post = orig
+
+    def test_config_validation_and_secret(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'siem_enabled': True, 'siem_format': 'splunk',
+                                     'siem_url': 'https://hec:8088/x', 'siem_token': 'sekret'}
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg['siem_format'], 'splunk')
+        self.assertEqual(cfg['siem_token'], 'sekret')
+        # GET must surface the *_set flag but never the token itself.
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        self.assertTrue(got['siem_token_set'])
+        self.assertNotIn('siem_token', got)
+
+    def test_config_rejects_bad_format(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'siem_format': 'kafka'}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
 
 
 class TestPackageHold(_HandlerBase):

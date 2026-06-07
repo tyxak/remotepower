@@ -10,6 +10,12 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **SIEM event streaming.** *Settings → Security → SIEM event streaming* streams
+  every fleet event and alert to **Splunk HEC**, **Elasticsearch**, **Grafana
+  Loki**, or a raw JSON endpoint — each with its native envelope and auth scheme
+  (`Splunk`/`ApiKey`/`Bearer`). SSRF-guarded like outbound webhooks; the token is
+  write-only (never returned by the API). Distinct from audit-log forwarding.
+  Includes a "Send test event" button.
 - **Process-level alerting.** *Settings → Notifications → Process thresholds*
   lets you watch a process by name and fire `process_alert` (edge-triggered,
   with a `process_recovered` follow-up) when it crosses a CPU or memory

@@ -1420,6 +1420,25 @@
             <div class="settings-row"><button class="btn-secondary" data-action="testAuditForward">Send test entry</button></div>
           </div>
 
+          <!-- v3.14.0 #34: SIEM event streaming (fleet events / alerts) -->
+          <div class="settings-section">
+            <h3>SIEM event streaming</h3>
+            <p class="hint">Stream every fleet event and alert to a SIEM in its native ingest format. Distinct from audit-log forwarding above (which streams the audit trail). Best-effort and non-blocking.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-siem-enabled"> Enable streaming</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-siem-format">Format</label>
+              <select id="cfg-siem-format" class="form-input mw-200">
+                <option value="splunk">Splunk HEC</option>
+                <option value="elastic">Elasticsearch</option>
+                <option value="loki">Grafana Loki</option>
+                <option value="raw">Raw JSON</option>
+              </select></div>
+            <div class="settings-row"><label class="form-label" for="cfg-siem-url">Ingest URL</label>
+              <input type="url" id="cfg-siem-url" class="form-input" placeholder="https://splunk.example.com:8088/services/collector"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-siem-token">Token</label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-siem-token" class="form-input" placeholder="HEC token / API key / bearer" autocomplete="off"></form></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testSiem">Send test event</button></div>
+          </div>
+
           <div class="settings-section">
             <h3>Session length</h3>
             <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>

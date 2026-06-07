@@ -3027,6 +3027,126 @@ def handle_audit_forward_test():
         respond(502, {'error': f'Forward failed: {str(e)[:200]}'})
     respond(200, {'ok': True, 'message': 'Test entry sent to the configured destination.'})
 
+
+# ─── v3.14.0 #34: SIEM event streaming (Splunk HEC / Elastic / Loki / raw) ───
+# Distinct from audit forwarding (which streams the *audit* log): this streams
+# every fleet event / alert from fire_webhook to a SIEM in its native ingest
+# format. Same SSRF-guarded POST path as the audit HTTP forwarder.
+SIEM_FORMATS = ('splunk', 'elastic', 'loki', 'raw')
+
+
+def _siem_record(event, payload):
+    """Flat, SIEM-friendly record for one event."""
+    p = payload or {}
+    try:
+        sev = _alert_severity(event, p)
+    except Exception:
+        sev = None
+    try:
+        title = _alert_title(event, p)
+    except Exception:
+        title = event
+    return {
+        'source':    'remotepower',
+        'event':     event,
+        'severity':  sev or 'info',
+        'host':      p.get('device_name') or p.get('name') or p.get('host') or '',
+        'device_id': p.get('device_id') or '',
+        'title':     title,
+        'payload':   p,
+    }
+
+
+def _siem_envelope(fmt, url, record, token, now):
+    """Return (target_url, body_bytes, headers) for the given SIEM format.
+
+    The operator supplies the full ingest URL for splunk/elastic/raw; for loki
+    we append the standard push path if it's missing. Auth scheme follows each
+    vendor's convention (Splunk: `Splunk <tok>`, Elastic: `ApiKey <tok>`,
+    Loki/raw: `Bearer <tok>`).
+    """
+    headers = {'Content-Type': 'application/json'}
+    target = url
+    if fmt == 'splunk':
+        body = {'time': now, 'host': record['host'] or 'remotepower',
+                'source': 'remotepower', 'sourcetype': 'remotepower:event',
+                'event': record}
+        if token:
+            headers['Authorization'] = f'Splunk {token}'
+    elif fmt == 'elastic':
+        body = dict(record)
+        body['@timestamp'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))
+        if token:
+            headers['Authorization'] = f'ApiKey {token}'
+    elif fmt == 'loki':
+        if '/loki/api/v1/push' not in target:
+            target = target.rstrip('/') + '/loki/api/v1/push'
+        line = json.dumps(record, separators=(',', ':'))
+        body = {'streams': [{
+            'stream': {'app': 'remotepower', 'event': record['event'],
+                       'severity': record['severity']},
+            'values': [[str(now * 1_000_000_000), line]],
+        }]}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+    else:  # raw
+        body = {'source': 'remotepower', 'event': record}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+    return target, json.dumps(body).encode(), headers
+
+
+def _siem_post(url, data, headers, cfg):
+    """SSRF-guarded POST, mirroring _forward_audit's HTTP path (pre-flight
+    classification + connect-time revalidation + no-redirect opener)."""
+    _block_local = cfg.get('webhook_block_local', True)
+    if _url_targets_local_or_meta(urllib.parse.urlparse(url),
+                                  allow_loopback=not _block_local):
+        return
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    _ctx = _get_ssl_context() if url.lower().startswith('https') else None
+    opener = _ssrf_safe_opener(allow_loopback=not _block_local,
+                               ssl_ctx=_ctx, no_redirect=True)
+    opener.open(req, timeout=5).close()
+
+
+def _forward_siem(event, payload, cfg):
+    """Stream one event to the configured SIEM. Best-effort; never raises into
+    the firing path. Called from fire_webhook for every event."""
+    if not cfg.get('siem_enabled'):
+        return
+    url = (cfg.get('siem_url') or '').strip()
+    if not url:
+        return
+    fmt = (cfg.get('siem_format') or 'raw').lower()
+    if fmt not in SIEM_FORMATS:
+        fmt = 'raw'
+    token = (cfg.get('siem_token') or '').strip()
+    now = int(time.time())
+    record = _siem_record(event, payload)
+    target, body, headers = _siem_envelope(fmt, url, record, token, now)
+    _siem_post(target, body, headers, cfg)
+
+
+def handle_siem_test():
+    """POST /api/siem/test — stream a synthetic event via the configured SIEM
+    forwarder so the operator can confirm ingestion. Admin-only."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('siem_enabled'):
+        respond(400, {'error': 'SIEM streaming is not enabled in settings.'})
+    if not (cfg.get('siem_url') or '').strip():
+        respond(400, {'error': 'No SIEM URL configured.'})
+    try:
+        _forward_siem('siem_test', {'name': 'remotepower-selftest',
+                                    'detail': 'RemotePower SIEM streaming test'}, cfg)
+    except Exception as e:
+        respond(502, {'error': f'Forward failed: {str(e)[:200]}'})
+    respond(200, {'ok': True, 'message': 'Test event sent to the configured SIEM.'})
+
+
 # v3.2.0 (B-fix): inbound webhook + syslog hit log
 def _log_inbound(kind, token_id, label, status, detail=''):
     """Append an entry to the inbound webhook log (last MAX_INBOUND_WEBHOOK_LOG).
@@ -4203,6 +4323,15 @@ def fire_webhook(event, payload):
         pass
 
     cfg = load(CONFIG_FILE)
+
+    # v3.14.0 #34: stream every event to the configured SIEM (Splunk/Elastic/
+    # Loki/raw). Runs before the unmonitored-device pager-suppression below — a
+    # SIEM is a log archive, so it should receive the full event stream. Fully
+    # isolated; a SIEM outage must never break the firing path.
+    try:
+        _forward_siem(event, payload, cfg)
+    except Exception as _siem_err:
+        sys.stderr.write(f'[remotepower] SIEM forward failed: {_siem_err}\n')
 
     # v3.0.2: per-device suppression for unmonitored devices.
     # Same principle as the offline-detector at line ~2256 — if the
@@ -10395,6 +10524,11 @@ def handle_config_get():
     safe.setdefault('audit_forward_mode', 'http')
     safe.setdefault('audit_forward_port', 514)
     safe['audit_forward_token_set'] = bool(safe.pop('audit_forward_token', None))
+    # v3.14.0 #34: SIEM streaming — surface config + a *_set flag, never the token.
+    safe.setdefault('siem_enabled', False)
+    safe.setdefault('siem_format', 'raw')
+    safe.setdefault('siem_url', '')
+    safe['siem_token_set'] = bool(cfg.get('siem_token'))
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
@@ -11204,6 +11338,27 @@ def handle_config_save():
             cfg['audit_forward_token'] = t[:256]
         else:
             cfg.pop('audit_forward_token', None)
+
+    # v3.14.0 #34: SIEM event streaming (Splunk/Elastic/Loki/raw).
+    if 'siem_enabled' in body:
+        cfg['siem_enabled'] = bool(body['siem_enabled'])
+    if 'siem_format' in body:
+        f = str(body['siem_format']).strip().lower()
+        if f not in SIEM_FORMATS:
+            respond(400, {'error': f'siem_format must be one of {", ".join(SIEM_FORMATS)}'})
+        cfg['siem_format'] = f
+    if 'siem_url' in body:
+        u = str(body['siem_url']).strip()
+        if u and not u.lower().startswith(('http://', 'https://')):
+            respond(400, {'error': 'siem_url must be http(s)://…'})
+        cfg['siem_url'] = u[:512]
+    if 'siem_token' in body:
+        # secret: '' clears, omitted preserves (mirrors audit_forward_token)
+        t = str(body['siem_token'])
+        if t != '':
+            cfg['siem_token'] = t[:512]
+        else:
+            cfg.pop('siem_token', None)
 
     # v3.7.0: change approval (maker-checker)
     if 'change_approval_enabled' in body:
@@ -33965,6 +34120,7 @@ def _build_exact_routes():
         ('GET', '/api/attention'): handle_attention,
         ('GET', '/api/audit-log'): handle_audit_log,
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
+        ('POST', '/api/siem/test'): handle_siem_test,
         ('GET', '/api/auth/oidc/callback'): handle_oidc_callback,
         ('GET', '/api/auth/oidc/start'): handle_oidc_start,
         ('POST', '/api/auth/oidc/test'): handle_oidc_test,
