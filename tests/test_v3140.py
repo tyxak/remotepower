@@ -2574,6 +2574,114 @@ class TestCodeQLHardening(_HandlerBase):
         self.assertNotIn('{body_text}', snippet)
 
 
+class TestLargeFleetCapsAndUX(unittest.TestCase):
+    """v4 — no page floods on an extremely large fleet; SNMP Trend button;
+    in-app 'Report an issue' button; ROADMAP* removed."""
+
+    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    HTML = (_ROOT / "server/html/index.html").read_text()
+
+    def test_device_card_grid_is_capped(self):
+        i = self.APP.find('function renderDevices')
+        chunk = self.APP[i:i + 8000]
+        self.assertIn('DEVICE_CARD_CAP', chunk)
+        self.assertIn('_cardOverflow', chunk)
+        # the overflow notice (rendered after the long card template) + its CSS
+        self.assertIn('device-card-more', self.APP)
+        self.assertIn('.device-card-more', (_ROOT / 'server/html/static/css/styles.css').read_text())
+
+    def test_fleet_rollup_tables_capped(self):
+        self.assertIn('FLEET_ROWS_CAP', self.APP)
+        self.assertIn('function _capFleetRows', self.APP)
+        # every directly-rendered roll-up renderer must route through the cap
+        for fn in ('_renderStorage', '_renderThermal', '_renderSshKeys', '_renderPower'):
+            i = self.APP.find(f'function {fn}(')
+            self.assertNotEqual(i, -1, fn)
+            self.assertIn('_capFleetRows', self.APP[i:i + 1400], fn)
+
+    def test_snmp_metrics_row_has_trend_button(self):
+        i = self.APP.find('function _snmpMetricsRow')
+        chunk = self.APP[i:i + 4500]
+        self.assertIn('data-action="openMetrics"', chunk)
+
+    def test_report_issue_button_wired(self):
+        self.assertIn('function reportIssue', self.APP)
+        self.assertIn('window.reportIssue = reportIssue', self.APP)
+        # targets the GitHub issue FORM (blank issues are disabled) …
+        self.assertIn('template: \'bug_report.yml\'', self.APP)
+        self.assertIn('issues/new?', self.APP)
+        # … and the button is reachable from the UI
+        self.assertIn('data-action="reportIssue"', self.HTML)
+
+    def test_report_issue_carries_no_credentials(self):
+        # The reportIssue body must never pull the auth token or fleet data.
+        i = self.APP.find('function reportIssue')
+        chunk = self.APP[i:i + 1600]
+        self.assertNotIn('getToken', chunk)
+        self.assertNotIn('/devices', chunk)
+
+    def test_roadmap_files_removed(self):
+        self.assertFalse((_ROOT / 'docs/ROADMAP.md').exists())
+        self.assertFalse((_ROOT / 'docs/ROADMAP-internal.md').exists())
+
+
+class TestDemoSeedCoversNewFeatures(unittest.TestCase):
+    """v4 — the demo seed populates the newest pages (thermal, power/chargeback,
+    SSH-key audit, CVE KEV/EPSS) in the shapes the read-handlers expect."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            'seed_demo', _ROOT / 'packaging' / 'seed-demo-data.py')
+        cls.seed = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.seed)
+
+    def test_hardware_has_thermal_power_sensors(self):
+        hw = self.seed.build_hardware()
+        self.assertTrue(any(rec.get('temps') for rec in hw.values()), 'no temps seeded')
+        self.assertTrue(any(rec.get('ups') for rec in hw.values()), 'no UPS seeded')
+        self.assertTrue(any(rec.get('gpus') for rec in hw.values()), 'no GPU seeded')
+        # at least one host runs critically hot so the Thermal page shows red
+        hottest = max(t['current_c'] for rec in hw.values() for t in (rec.get('temps') or []))
+        self.assertGreaterEqual(hottest, 85.0)
+
+    def test_kev_epss_overlay_seeded(self):
+        ke = self.seed.build_kev_epss()
+        self.assertTrue(ke.get('kev'))
+        self.assertTrue(ke.get('epss'))
+        self.assertIn('kev_epss.json', self.seed.BUILDERS)
+        # every KEV id must have an EPSS score and be uppercase CVE form
+        for cid in ke['kev']:
+            self.assertRegex(cid, r'^CVE-\d{4}-\d+$')
+            self.assertIn(cid, ke['epss'])
+
+    def test_cve_findings_canonical_shape(self):
+        out = self.seed.build_cve_findings()
+        # keyed by device id at top level (NOT {'findings': {...}})
+        self.assertNotIn('findings', out)
+        self.assertTrue(out, 'no devices got findings')
+        sample = next(iter(out.values()))
+        self.assertIn('findings', sample)
+        self.assertIn('scanned_at', sample)
+        f = sample['findings'][0]
+        self.assertIn('vuln_id', f)            # not cve_id
+        self.assertIn('fixed_version', f)      # not fixed_in
+        self.assertIn(f['severity'], ('critical', 'high', 'medium', 'low'))
+
+    def test_ssh_key_baseline_has_weak_and_reused(self):
+        bl = self.seed.build_ssh_key_baseline()
+        self.assertTrue(bl)
+        lines = [ln for users in bl.values() for ks in users.values() for ln in ks]
+        self.assertTrue(any(ln.startswith('ssh-dss ') for ln in lines), 'no weak key')
+        # a reused key: the same blob present under two different hosts
+        blobs = {}
+        for dev, users in bl.items():
+            for ks in users.values():
+                for ln in ks:
+                    blobs.setdefault(ln.split()[1], set()).add(dev)
+        self.assertTrue(any(len(hosts) > 1 for hosts in blobs.values()), 'no reused key')
+
+
 class TestNoDeprecatedDatetime(unittest.TestCase):
     """v3.14.0 fix — no deprecated naive-UTC datetime calls (they spam stderr →
     nginx error log under Python 3.12+ and are scheduled for removal)."""

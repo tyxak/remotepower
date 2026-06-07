@@ -27,6 +27,7 @@ Schedule a cron entry to re-run this every 30 minutes if you want
 """
 
 import argparse
+import base64
 import datetime
 import hashlib
 import json
@@ -654,28 +655,57 @@ def build_cve_findings() -> dict:
     these are paired with fake versions so any cross-check would fail
     safely (the demo isn't claiming these are real findings on real hosts).
     """
+    # (vuln_id, severity, package, installed, fixed, summary, published)
+    # Severity is lowercase — cve_scanner.summarize_findings buckets by the
+    # literal string into {critical,high,medium,low}.
     fake_cves = [
-        ('CVE-2024-12345', 'HIGH',     'openssh-server', '8.9p1-3ubuntu0.1', '8.9p1-3ubuntu0.10', 'Memory disclosure in pre-auth path.'),
-        ('CVE-2024-23456', 'CRITICAL', 'libcurl4',       '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Heap overflow in URL parsing.'),
-        ('CVE-2024-34567', 'MEDIUM',   'sudo',           '1.9.9-1ubuntu2.4', '1.9.9-1ubuntu2.5',  'Privilege escalation via env var.'),
-        ('CVE-2024-45678', 'LOW',      'curl',           '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Information leak in cookie handling.'),
-        ('CVE-2023-99999', 'HIGH',     'nginx',          '1.18.0-6ubuntu14.4','1.18.0-6ubuntu14.5','Off-by-one in HTTP/2 frame parsing.'),
+        ('CVE-2024-12345', 'high',     'openssh-server', '8.9p1-3ubuntu0.1', '8.9p1-3ubuntu0.10', 'Memory disclosure in pre-auth path.',        '2024-05-14'),
+        ('CVE-2024-23456', 'critical', 'libcurl4',       '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Heap overflow in URL parsing.',             '2024-03-27'),
+        ('CVE-2024-34567', 'medium',   'sudo',           '1.9.9-1ubuntu2.4', '1.9.9-1ubuntu2.5',  'Privilege escalation via env var.',          '2024-06-02'),
+        ('CVE-2024-45678', 'low',      'curl',           '7.81.0-1ubuntu1.16','7.81.0-1ubuntu1.20','Information leak in cookie handling.',       '2024-04-18'),
+        ('CVE-2023-99999', 'high',     'nginx',          '1.18.0-6ubuntu14.4','1.18.0-6ubuntu14.5','Off-by-one in HTTP/2 frame parsing.',        '2023-11-09'),
     ]
     rng = random.Random(42)
-    out = {'findings': {}, 'last_scan': now() - 3600 * 6}
+    # Canonical on-disk shape is {dev_id: {findings: [...], scanned_at: ts}} —
+    # the same shape a real scan writes, so /api/cve/findings + the device drawer
+    # both read it (and the KEV/EPSS overlay in kev_epss.json matches by vuln_id).
+    out = {}
     targets = [d['id'] for d in FAKE_DEVICES if not d['agentless']]
     for dev_id in targets:
         n = rng.choices([0, 0, 1, 2, 3, 5], k=1)[0]
         if n == 0:
             continue
         chosen = rng.sample(fake_cves, min(n, len(fake_cves)))
-        out['findings'][dev_id] = [
-            {'cve_id': c[0], 'severity': c[1], 'package': c[2],
-             'installed': c[3], 'fixed_in': c[4], 'summary': c[5],
-             'references': [f'https://nvd.nist.gov/vuln/detail/{c[0]}']}
-            for c in chosen
-        ]
+        out[dev_id] = {
+            'scanned_at': now() - 3600 * 6,
+            'findings': [
+                {'vuln_id': c[0], 'severity': c[1], 'package': c[2],
+                 'version': c[3], 'fixed_version': c[4], 'summary': c[5],
+                 'published': c[6], 'aliases': [],
+                 'references': [f'https://nvd.nist.gov/vuln/detail/{c[0]}']}
+                for c in chosen
+            ],
+        }
     return out
+
+
+def build_kev_epss() -> dict:
+    """v3.14.0 demo: the CISA KEV + FIRST EPSS overlay so the CVEs page ranks by
+    real-world risk offline (no live feed fetch in the demo). Two of the seeded
+    CVEs are flagged actively-exploited; all carry an EPSS probability. Matched
+    to findings by vuln_id in _enrich_cve_findings()."""
+    return {
+        'kev': ['CVE-2024-23456', 'CVE-2023-99999'],
+        'epss': {
+            'CVE-2024-23456': 0.9421,
+            'CVE-2023-99999': 0.6088,
+            'CVE-2024-12345': 0.1773,
+            'CVE-2024-34567': 0.0421,
+            'CVE-2024-45678': 0.0093,
+        },
+        'last_checked': now() - 3600 * 5,
+        'kev_error': '', 'epss_error': '',
+    }
 
 
 def build_packages() -> dict:
@@ -700,6 +730,10 @@ def build_packages() -> dict:
             continue
         out[dev['id']] = {
             'last_updated': now() - rng.randint(60, 3600),
+            # ecosystem + count let the CVE report mark the host "scanned"
+            # (without an ecosystem it reads as "unsupported").
+            'ecosystem':    'deb',
+            'count':        rng.randint(420, 1180),
             'upgradable':   rng.sample(sample_packages, min(n, len(sample_packages))) if n <= len(sample_packages)
                             else rng.choices(sample_packages, k=n),
         }
@@ -1152,8 +1186,32 @@ def build_port_baseline() -> dict:
 
 
 def build_ssh_key_baseline() -> dict:
-    """v3.0.2 — ~/.ssh/authorized_keys baseline. Same pattern."""
-    return {}
+    """v4 demo: authorized_keys across a few hosts so the SSH-key audit page has
+    content. Includes a key REUSED on two hosts (flagged "N hosts") and a weak
+    legacy ssh-dss key (flagged weak). Format is the on-disk shape the audit
+    reads: {dev_id: {user: ["<type> <base64> <comment>", ...]}}."""
+    def _blob(seed: str) -> str:
+        # Deterministic, VALID base64 (decodes cleanly) so the audit's SHA256
+        # fingerprint and key-reuse detection work on the seeded keys.
+        return base64.b64encode(hashlib.sha256(('rpdemo-ssh-' + seed).encode()).digest()).decode()
+    shared = 'ssh-ed25519 ' + _blob('shared-ops-bastion') + ' ops@bastion'
+    return {
+        'gt01': {
+            'root':   [shared],                                  # reused (also on nc01)
+            'deploy': ['ssh-ed25519 ' + _blob('gt01-deploy') + ' deploy@ci'],
+        },
+        'nc01': {
+            'root':   [shared],                                  # reused (also on gt01)
+            'admin':  ['ssh-rsa ' + _blob('nc01-admin') + ' admin@laptop'],
+        },
+        'bk01': {
+            'backup': ['ssh-ed25519 ' + _blob('bk01-backup') + ' backup@nas',
+                       'ssh-dss ' + _blob('legacy-dss') + ' legacy@old-host'],  # weak (ssh-dss)
+        },
+        'pmx01': {
+            'root':   ['ssh-ed25519 ' + _blob('pmx01-root') + ' jakob@workstation'],
+        },
+    }
 
 
 def build_brute_force() -> dict:
@@ -1353,6 +1411,28 @@ def build_hardware() -> dict:
                    ('/dev/sdb', 'PASSED', 'Seagate IronWolf', 0)], False),
         'gt01':  ([('/dev/sda', 'PASSED', 'Samsung SSD 870',  0)], False),
     }
+    # Board/CPU/chipset temperature sensors (feeds the Thermal "hottest hosts"
+    # roll-up). gt01 runs CRITICAL (≥85 °C), pmx01 runs HOT (≥75 °C) so the page
+    # shows red + amber, the rest are comfortable.
+    temps_map = {
+        'tnas':  [('CPU', 52.0), ('Mainboard', 41.0)],
+        'pmx01': [('Package id 0', 79.0), ('Core 0', 77.5)],   # HOT
+        'nc01':  [('CPU', 49.0)],
+        'bk01':  [('CPU', 44.0)],
+        'gt01':  [('CPU', 88.5), ('Chipset', 63.0)],           # CRITICAL
+    }
+    # GPUs report temp + power draw (feeds Thermal + Power).
+    gpus_map = {
+        'gt01':  [{'name': 'NVIDIA GeForce RTX 3060', 'temp_c': 71.0, 'power_w': 142.0}],
+    }
+    # UPS units (feeds Power + Chargeback). pmx01 is on battery (OB) so the page
+    # shows the on-battery state; both report load/runtime/draw.
+    ups_map = {
+        'tnas':  [{'name': 'APC Back-UPS 1500', 'status': 'OL',
+                   'battery_pct': 100, 'load_pct': 38, 'runtime_s': 1980, 'power_w': 210.0}],
+        'pmx01': [{'name': 'Eaton 5P 1550', 'status': 'OB DISCHRG',
+                   'battery_pct': 74, 'load_pct': 52, 'runtime_s': 720, 'power_w': 305.0}],
+    }
     ts = now()
     out = {}
     for dev_id, (disk_specs, reboot) in specs.items():
@@ -1372,12 +1452,19 @@ def build_hardware() -> dict:
             })
         running = '6.1.0-21-amd64'
         latest  = '6.1.0-27-amd64' if reboot else running
-        out[dev_id] = {
+        rec = {
             'smart':  disks,
             'kernel': {'running': running, 'latest_installed': latest,
                        'reboot_for_kernel': reboot},
             'ts': ts,
         }
+        if dev_id in temps_map:
+            rec['temps'] = [{'label': lbl, 'current_c': c} for lbl, c in temps_map[dev_id]]
+        if dev_id in gpus_map:
+            rec['gpus'] = gpus_map[dev_id]
+        if dev_id in ups_map:
+            rec['ups'] = ups_map[dev_id]
+        out[dev_id] = rec
     return out
 
 
@@ -1906,6 +1993,7 @@ BUILDERS = {
     'containers.json':       build_containers,
     'monitor_history.json':  build_monitor_history,
     'cve_findings.json':     build_cve_findings,
+    'kev_epss.json':         build_kev_epss,
     'packages.json':         build_packages,
     'cmdb.json':             build_cmdb,
     'history.json':          build_history,

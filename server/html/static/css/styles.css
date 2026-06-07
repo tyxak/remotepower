@@ -799,6 +799,15 @@
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 16px;
   }
+  /* Full-width "+N more devices" notice when the card grid is capped on a
+     very large fleet — spans every column so it reads as a footer, not a card. */
+  .device-card-more {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 14px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
   .device-card {
     background: var(--surface);
     border: 1px solid var(--border);

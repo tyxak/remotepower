@@ -2384,8 +2384,12 @@
         <div class="page-title">Documentation</div>
         <div class="page-subtitle">How to use RemotePower — quick reference for the common tasks</div>
 
-        <div class="mb-16">
+        <div class="mb-16 row-6-center">
           <input type="text" id="docs-search" class="form-input input-wide" placeholder="Search docs…" data-input="filterDocs" data-input-value="1" >
+          <button class="btn-secondary nowrap" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data.">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M12 8v4"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="10"/></svg>
+            Report an issue
+          </button>
         </div>
 
         <div id="docs-container" class="isl-102">
@@ -3259,6 +3263,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+          <details class="doc-card" data-keywords="report issue bug github support help feedback diagnostics debug log no credentials">
+            <summary><strong>Report an issue</strong> — file a GitHub bug report from inside the app</summary>
+            <div class="doc-body">
+              <p>The <strong>Documentation</strong> page header and the <strong>About</strong> page both have a <em>Report an issue</em> button. It opens a prefilled GitHub bug report in a new tab.</p>
+              <p><strong>What it includes:</strong> the RemotePower version, your browser/environment, the current page, and any client-side errors captured this session (automatically scrubbed of token/secret-shaped values).</p>
+              <p><strong>What it never includes:</strong> credentials, session tokens, or fleet/device data. The report is a public GitHub issue — review it before submitting. Security vulnerabilities should go through <code>SECURITY.md</code> (private), not the public tracker.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="security hardening pbkdf2 password salt secrets redaction backup must-change-password">
             <summary><strong>Security hardening</strong> (v2.3.2 / v3.0.0)</summary>
             <div class="doc-body">
@@ -3843,7 +3856,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-about" class="page">
         <div class="page-title">About</div><div class="page-subtitle">RemotePower — self-hosted device management</div>
         <div class="settings-section isl-124"><div class="isl-125"><img src="static/img/logo-square.png" alt="RemotePower" class="isl-126"><div><div class="isl-127">RemotePower</div><div class="isl-100">Server version: <span id="about-server-version">—</span></div></div></div>
-        <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr></table>
+        <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr><tr><td class="isl-130">Report a bug</td><td><button class="btn-icon" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M12 8v4"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="10"/></svg> Report an issue</button></td></tr></table>
         <p class="isl-131">Self-hosted remote device management — shutdown, reboot, Wake-on-LAN, monitoring, scheduled commands, and agent self-update.<br><br>No inbound firewall rules on clients. Agents poll the server over HTTPS. Flat JSON storage, Nginx + Python CGI. No Docker, no Node.js.</p></div>
         <div class="settings-section dyk-card" id="about-tip-card">
           <div class="dyk-header">

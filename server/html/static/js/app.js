@@ -1380,7 +1380,14 @@ function renderDevices() {
   } else {
     container.classList.remove('scrollable-grid-wrap');
   }
-  container.innerHTML = filtered.map(d => {
+  // v4: hard cap the number of cards built so an extremely large fleet can't
+  // flood the page (thousands of cards = slow layout). The filters/search above
+  // narrow the set; minimal density paginates instead. Render the first N and
+  // show a "+more" prompt to refine.
+  const DEVICE_CARD_CAP = 300;
+  const _cardOverflow = filtered.length - DEVICE_CARD_CAP;
+  const _cards = _cardOverflow > 0 ? filtered.slice(0, DEVICE_CARD_CAP) : filtered;
+  container.innerHTML = _cards.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
     const si = d.sysinfo || {};
@@ -1462,12 +1469,15 @@ function renderDevices() {
       ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
-  }).join('');
+  }).join('')
+    + (_cardOverflow > 0
+        ? `<div class="device-card-more hint">Showing the first ${DEVICE_CARD_CAP} of ${filtered.length} devices (+${_cardOverflow} more). Narrow with search or the group / tag / status / site filters above, or switch to the <strong>minimal</strong> density (it paginates).</div>`
+        : '');
   // v2.2.1: update the client-side metrics history ring buffer so the
   // next render gets ≥2 points for sparklines. Stored in window so it
   // persists across re-renders within the same session.
   window._metricsHistory = window._metricsHistory || {};
-  filtered.forEach(d => {
+  _cards.forEach(d => {
     const si = d.sysinfo || {};
     const h = window._metricsHistory[d.id] = window._metricsHistory[d.id] || {disk: [], mem: [], cpu: []};
     const rootMount = (si.mounts || []).find(m => m.path === '/');
@@ -3934,7 +3944,7 @@ function _snmpMetricsRow(d) {
     <td>${diskCell}</td>
     <td class="ta-right">${tempCell}</td>
     <td class="ta-right nowrap">${uptimeCell}</td>
-    <td class="nowrap"><button class="btn-icon isl-352" data-action="openMetricThresholds" data-arg="${d.id}" data-arg2="${escAttr(d.name)}">Thresholds</button></td>
+    <td class="nowrap"><button class="btn-icon isl-351" data-action="openMetrics" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" title="Show metric trend over time">Trend</button><button class="btn-icon isl-352" data-action="openMetricThresholds" data-arg="${d.id}" data-arg2="${escAttr(d.name)}">Thresholds</button></td>
   </tr>`;
 }
 
@@ -10727,6 +10737,20 @@ async function loadStorage() {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
+// Cap a full-fleet roll-up table so an extremely large fleet can't flood the
+// page with thousands of <tr>s (same principle as the home roster cap). Rows
+// arrive already sorted, so the first N reflect the active sort; the caller
+// appends `.note` as a trailing row telling the user how many were hidden.
+const FLEET_ROWS_CAP = 200;
+function _capFleetRows(rows, colspan, noun) {
+  if (rows.length <= FLEET_ROWS_CAP) return { rows, note: '' };
+  const more = rows.length - FLEET_ROWS_CAP;
+  return {
+    rows: rows.slice(0, FLEET_ROWS_CAP),
+    note: `<tr><td colspan="${colspan}" class="hint ta-center">Showing the first ${FLEET_ROWS_CAP} of ${rows.length} ${noun} (+${more} more) — sort a column to bring what you need to the top.</td></tr>`,
+  };
+}
+
 function _renderStorage() {
   const tbody = document.getElementById('storage-tbody');
   if (!tbody || !_storageResp) return;
@@ -10743,7 +10767,8 @@ function _renderStorage() {
     tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No ZFS / mdadm / btrfs pools reported. Agents must be on v3.11.0+.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  const { rows: shown, note } = _capFleetRows(rows, 6, 'pools');
+  tbody.innerHTML = shown.map(r => {
     const color = r.degraded ? 'var(--red)' : 'var(--green)';
     const cap = (r.capacity || r.capacity === 0) && r.capacity !== null ? `${r.capacity}%` : '—';
     return `<tr>
@@ -10754,7 +10779,7 @@ function _renderStorage() {
       <td>${cap}</td>
       <td class="hint">${escHtml(r.scrub || '—')}</td>
     </tr>`;
-  }).join('');
+  }).join('') + note;
 }
 
 // ─── v3.14.0: Fleet thermal roll-up ("hottest hosts") ───────────────────────
@@ -10791,7 +10816,8 @@ function _renderThermal() {
     tbody.innerHTML = '<tr><td colspan="5" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  const { rows: shown, note } = _capFleetRows(rows, 5, 'hosts');
+  tbody.innerHTML = shown.map(r => {
     const cls = r.critical ? 'c-red fw-600' : r.hot ? 'c-amber fw-600' : '';
     const t = (typeof r.max_temp === 'number') ? `${r.max_temp.toFixed(1)}°C` : '—';
     return `<tr>
@@ -10801,7 +10827,7 @@ function _renderThermal() {
       <td class="hint">${escHtml(r.sensor_type || '—')}</td>
       <td class="hint">${r.sensors || 0}</td>
     </tr>`;
-  }).join('');
+  }).join('') + note;
 }
 
 // ─── v3.14.0: SSH key audit ─────────────────────────────────────────────────
@@ -10837,7 +10863,8 @@ function _renderSshKeys() {
     tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No authorized_keys collected yet. Keys are gathered from hosts whose config includes authorized_keys.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  const { rows: shown, note } = _capFleetRows(rows, 6, 'keys');
+  tbody.innerHTML = shown.map(r => {
     const typeCell = r.weak
       ? `<span class="kev-badge" title="Weak/legacy key type">${escHtml(r.type)}</span>`
       : `<code>${escHtml(r.type)}</code>`;
@@ -10852,7 +10879,7 @@ function _renderSshKeys() {
       <td class="hint mono-12">${escHtml(r.fingerprint)}</td>
       <td class="ta-center">${hostsCell}</td>
     </tr>`;
-  }).join('');
+  }).join('') + note;
 }
 
 // ─── v3.14.0: Fleet power / UPS + energy ────────────────────────────────────
@@ -10946,7 +10973,8 @@ function _renderPower() {
     tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No UPS or power data reported. Hosts report UPS status via NUT (upsc) or apcupsd; GPU power also counts.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  const { rows: shown, note } = _capFleetRows(rows, 6, 'hosts');
+  tbody.innerHTML = shown.map(r => {
     const rt = (typeof r.runtime_s === 'number' && r.runtime_s) ? `${Math.round(r.runtime_s / 60)} min` : '—';
     const statusCell = r.ups
       ? `<span class="${r.on_battery ? 'c-red fw-600' : 'c-green'}">${escHtml(r.status || '—')}</span>`
@@ -10962,7 +10990,7 @@ function _renderPower() {
       <td class="ta-center">${rt}</td>
       <td class="ta-center">${wattsCell}</td>
     </tr>`;
-  }).join('');
+  }).join('') + note;
 }
 
 // ─── v3.14.0: predictive disk-failure maintenance ──────────────────────────
@@ -18133,6 +18161,67 @@ window.saveDebugLogging = async function(enabled) {
     : 'Debug logging disabled', 'info');
   else toast(r?.error || 'Failed', 'error');
 };
+
+// ══ Report an issue → GitHub (no credentials, public-safe) ═══════════════════
+// A small always-on ring of recent client errors so a bug report carries
+// something useful even when debug logging is off. Independent of rp_debug.
+const _recentErrors = [];
+function _pushClientError(s) {
+  if (!s) return;
+  // Strip anything token/secret-shaped before it can land in a public issue:
+  // bearer-ish query params, `token=…`, and long opaque base64url blobs.
+  const safe = String(s).slice(0, 300)
+    .replace(/([?&](?:token|key|secret|password|passwd|access_token|id_token|code)=)[^&\s]+/gi, '$1<redacted>')
+    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '<redacted>');
+  _recentErrors.push(new Date().toISOString().slice(11, 19) + ' ' + safe);
+  if (_recentErrors.length > 15) _recentErrors.shift();
+}
+window.addEventListener('error', e => _pushClientError(`JS error: ${e.message} @ ${(e.filename||'').split('/').pop()}:${e.lineno}`));
+window.addEventListener('unhandledrejection', e => _pushClientError(`Promise rejection: ${e.reason?.message || e.reason}`));
+
+// Cache the version once so the report doesn't need a live fetch.
+let _issueVersionCache = null;
+async function _issueVersion() {
+  if (_issueVersionCache) return _issueVersionCache;
+  try {
+    const v = await api('GET', '/version').catch(() => null);
+    const a = await api('GET', '/agent/version').catch(() => null);
+    _issueVersionCache = { server: v?.current || 'unknown', agent: a?.version || 'unknown' };
+  } catch (_) { _issueVersionCache = { server: 'unknown', agent: 'unknown' }; }
+  return _issueVersionCache;
+}
+
+// Build a GitHub "new issue" URL prefilled with a template + auto diagnostics.
+// Deliberately carries NO fleet data and NO credentials — only the app version,
+// the browser/environment, the current page, and recent (scrubbed) JS errors.
+async function reportIssue() {
+  const ver = await _issueVersion();
+  // Prefill the bug_report.yml issue FORM by field id (blank issues are
+  // disabled, so a free `?body=` link would just bounce to the chooser).
+  const env = [
+    `Browser: ${navigator.userAgent}`,
+    `Viewport: ${window.innerWidth}×${window.innerHeight} @ ${window.devicePixelRatio || 1}x`,
+    `Language: ${navigator.language || '—'}`,
+    `Page: ${location.hash || '#/'}`,
+    `Agent version: ${ver.agent}`,
+    `Time: ${new Date().toISOString()}`,
+  ].join('\n');
+  const logs = _recentErrors.length
+    ? 'Recent client errors (auto-captured, scrubbed):\n' + _recentErrors.join('\n')
+    : 'No client errors captured this session.';
+  // Field ids must match .github/ISSUE_TEMPLATE/bug_report.yml.
+  const qp = new URLSearchParams({
+    template: 'bug_report.yml',
+    version:  ver.server,
+    env:      env,
+    logs:     logs,
+  });
+  let url = 'https://github.com/tyxak/remotepower/issues/new?' + qp.toString();
+  if (url.length > 7800) url = url.slice(0, 7800);   // GitHub drops over-long prefills
+  window.open(url, '_blank', 'noopener');
+  if (typeof toast === 'function') toast('Opening a prefilled GitHub bug report — review it before submitting (no credentials are included).', 'info');
+}
+window.reportIssue = reportIssue;
 
 // ══ v3.0.0: IaC Generator ════════════════════════════════════════════════════
 // Three-step flow:

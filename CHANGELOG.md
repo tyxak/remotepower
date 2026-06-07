@@ -332,11 +332,49 @@ dependencies; most of it surfaces data the agent already reports. See
   parked for a second admin (Confirmations page) instead of executing
   immediately — reusing the existing maker-checker store. Off by default.
 
+### Security
+- **Session tokens are hashed at rest.** `tokens.json` is now keyed by the
+  SHA-256 of the bearer token, never the token itself — a leaked file yields no
+  usable session. Lookups hash the presented token; sessions minted before the
+  switch keep resolving until they expire (no forced re-login on upgrade).
+  Closes CodeQL "clear-text storage of sensitive information."
+- **OIDC token-exchange errors no longer log the response body.** The error body
+  from the IdP can echo a client secret or partial token; only the HTTP status +
+  OAuth `error` code are logged now. Closes CodeQL "clear-text logging."
+- **Anchored webhook-host matching.** `_auto_detect_format` matches a webhook
+  URL's host on the apex or a real dotted subdomain, so `discord.com` no longer
+  matches `discord.com.attacker.tld`. Closes CodeQL "incomplete URL substring
+  sanitization."
+
 ### Changed
 - **Home "Fleet roster · 7-day status" is now capped at 15 hosts, worst-first.**
   Sorts by most-offline (currently-offline first, then most down-days in the
   7-day stripe) and shows a "+N more" pointer to the Devices page — so the
   widget surfaces what needs attention instead of an unbounded list.
+- **No page floods on an extremely large fleet.** The Devices card grid caps at
+  300 cards with a "narrow your filter" prompt, and the Thermal / Storage / SSH-key
+  / Power roll-up tables cap at 200 rows (sorted, with a "+N more" footer) — the
+  page stays responsive on thousand-host fleets. Filtered/paginated views are
+  unchanged.
+
+### Added
+- **"Report an issue" button (Help → Documentation, and About).** Opens a
+  prefilled GitHub bug report with the app version, browser/environment, current
+  page, and recently-captured (scrubbed) client errors — no credentials, no fleet
+  data. Public-safe; targets the issue form so it works with blank issues off.
+- **Trend button for SNMP device metrics.** Agentless/SNMP hosts now have the
+  same **Trend** chart button as agent hosts on the Device metrics page (SNMP
+  CPU/RAM/disk already flow into the metric history sink).
+- **Richer demo seed.** `seed-demo-data.py` now populates the newest pages:
+  board/CPU/GPU temperatures (Thermal, incl. a hot + a critical host), UPS +
+  GPU power draw (Power / chargeback, one host on battery), authorized_keys for
+  the SSH-key audit (incl. a reused key and a weak `ssh-dss` key), and a
+  CISA-KEV / FIRST-EPSS overlay so the CVEs page ranks by real-world risk
+  offline. (Also fixed the demo CVE findings to the canonical on-disk shape so
+  they actually render.)
+
+### Removed
+- **Public/internal ROADMAP files** (`docs/ROADMAP*`) removed from the repo.
 
 ### Fixed
 - **No more `utcfromtimestamp` DeprecationWarning in the nginx error log.** The
