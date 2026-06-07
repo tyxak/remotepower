@@ -10,6 +10,12 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Compliance evidence pack.** *Reports → Evidence pack* downloads a single JSON
+  document bundling the current fleet posture report (health, patches, CVEs, CIS
+  compliance, uptime), the 90-day compliance-baseline trend, and an audit-log
+  excerpt for the period — the artifact auditors ask for, from data RemotePower
+  already holds. Admin-only (`GET /api/report/evidence`), and generating one is
+  itself audit-logged.
 - **SLO error budgets on the uptime report.** The Reports → *Uptime (SLA)* table
   now shows each device's **error budget** — the downtime its SLA target allows
   over the window, how much is **left** (red when exhausted), and **% used** —

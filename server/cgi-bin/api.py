@@ -24128,6 +24128,59 @@ def handle_fleet_report():
     respond(200, report)
 
 
+def handle_evidence_pack():
+    """GET /api/report/evidence?days=N — a compliance EVIDENCE PACK (admin-only).
+
+    Bundles the data an auditor asks for into one downloadable JSON document: the
+    current fleet posture report (health, patches, CVE, CIS compliance, uptime),
+    the compliance-baseline trend, and an audit-log excerpt for the period — all
+    from data RemotePower already holds, no recompute. The act of generating it is
+    itself audit-logged."""
+    actor = require_admin_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        days = int((qs.get('days') or ['90'])[0])
+    except ValueError:
+        days = 90
+    days = max(1, min(366, days))
+    now = int(time.time())
+    since = now - days * 86400
+    comp_hist = [s for s in ((load(COMPLIANCE_HIST_FILE) or {}).get('fleet') or [])
+                 if isinstance(s, dict) and int(s.get('ts', 0) or 0) >= since][-days:]
+    audit = [e for e in ((load(AUDIT_LOG_FILE) or {}).get('entries') or [])
+             if isinstance(e, dict) and int(e.get('ts', 0) or 0) >= since]
+    pack = {
+        'schema':         'remotepower.evidence.v1',
+        'generated_ts':   now,
+        'generated_by':   actor,
+        'server_name':    get_server_name(),
+        'server_version': SERVER_VERSION,
+        'period_days':    days,
+        'period_start':   since,
+        'posture':        _build_fleet_report(),
+        'compliance_history': comp_hist,
+        'audit_excerpt':  audit[-2000:],   # cap so the pack can't balloon
+        'audit_count':    len(audit),
+    }
+    audit_log(actor, 'evidence_pack_generated', detail=f'period={days}d entries={len(audit)}')
+    fmt = (qs.get('format') or ['json'])[0].lower()
+    if fmt == 'download':
+        data = json.dumps(pack, indent=2).encode('utf-8')
+        ts = time.strftime('%Y%m%d-%H%M%S')
+        print("Status: 200 OK")
+        print("Content-Type: application/json")
+        print(f"Content-Disposition: attachment; filename=evidence-pack-{ts}.json")
+        print(f"Content-Length: {len(data)}")
+        print("Cache-Control: no-store")
+        print("X-Content-Type-Options: nosniff")
+        print()
+        sys.stdout.flush()
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+        sys.exit(0)
+    respond(200, pack)
+
+
 def _render_report_email(report):
     """Plain-text body + subject for a (possibly section-filtered) fleet report."""
     # v3.14.0: tolerate custom reports that omit sections — default each to {}.
@@ -34272,6 +34325,7 @@ def _dispatch(pi, m):
         handle_automation_rule_delete(pi[len('/api/automation/rules/'):])
     # v3.4.1: fleet posture report (patches + CVE + health + compliance)
     elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
+    elif pi == '/api/report/evidence' and m == 'GET': handle_evidence_pack()   # v3.14.0 (#44)
     elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()
     elif pi == '/api/report/schedule' and m == 'PUT': handle_report_schedule_set()
     # v3.14.0: custom report builder — saved definitions

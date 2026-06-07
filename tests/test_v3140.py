@@ -1174,6 +1174,36 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestEvidencePack(_HandlerBase):
+    """v3.14.0 #44 — compliance evidence pack (bundles existing read-only data)."""
+
+    def test_pack_structure_and_period_filter(self):
+        import time as _t
+        api.AUDIT_LOG_FILE = self.d / 'audit.json'
+        api.COMPLIANCE_HIST_FILE = self.d / 'comp.json'
+        now = int(_t.time())
+        api.save(api.AUDIT_LOG_FILE, {'entries': [
+            {'ts': now - 3600, 'actor': 'a', 'action': 'login'},
+            {'ts': now - 200 * 86400, 'actor': 'old', 'action': 'ancient'},  # outside 90d
+        ]})
+        api.save(api.COMPLIANCE_HIST_FILE, {'fleet': [
+            {'ts': now - 86400, 'pct': 88},
+            {'ts': now - 200 * 86400, 'pct': 50},                            # outside 90d
+        ]})
+        os.environ['QUERY_STRING'] = 'days=90'
+        api.method = lambda: 'GET'
+        try:
+            pack = self.call(api.handle_evidence_pack)
+        finally:
+            os.environ.pop('QUERY_STRING', None)
+        self.assertEqual(pack['schema'], 'remotepower.evidence.v1')
+        self.assertEqual(pack['period_days'], 90)
+        self.assertIn('posture', pack)
+        self.assertIn('server_version', pack)
+        self.assertEqual(pack['audit_count'], 1)                 # ancient excluded
+        self.assertEqual(len(pack['compliance_history']), 1)     # old sample excluded
+
+
 class TestErrorBudget(unittest.TestCase):
     """v3.14.0 #40 — SLO error budget derived from the existing uptime/SLA data."""
 

@@ -3173,6 +3173,7 @@ const _DYK_TIPS = [
   "GitOps (Settings → Integrations) keeps your drift profiles in version control — point it at a raw JSON manifest URL in Git and RemotePower reconciles the watched-config profiles to match. Use Dry run to preview before it writes.",
   "Click Trend on a device in Device Metrics for time-series charts of CPU, memory, swap and disk — each with a timestamped axis and now/min/avg/max, plus an all-metrics overlay.",
   "SCIM (Settings → Authentication) lets your identity provider create and deactivate users automatically — when someone is offboarded in the IdP, their RemotePower access and live sessions are revoked at once.",
+  "Reports → Evidence pack downloads one JSON document bundling the posture report, the 90-day compliance trend and an audit-log excerpt — the artifact auditors ask for.",
   "The device drawer's Containers table flags an 'update' badge when a container's running image is behind the registry — the same check the fleet Image Updates page makes, right where you're inspecting the host.",
   "The Thermal page rolls up the hottest hosts fleet-wide — one row per host with its hottest CPU, chipset or disk sensor, sorted hottest-first — so you can spot a host running hot without opening each drawer.",
   "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
@@ -16823,6 +16824,21 @@ function _sbomFleetBtn(btn) {
   const fmt = btn.dataset.fmt === 'spdx' ? 'spdx' : 'cyclonedx';
   _downloadAuthed(`/api/sbom?format=${fmt}`, `fleet-sbom-${fmt}.zip`,
     `Fleet SBOM (${fmt === 'spdx' ? 'SPDX' : 'CycloneDX'}) downloaded`);
+}
+
+function downloadEvidencePack() {
+  fetch('/api/report/evidence?format=download&days=90', { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(blob => {
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = `evidence-pack-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(u);
+      toast('Evidence pack downloaded', 'success');
+    })
+    .catch(() => toast('Evidence pack failed (admin only)', 'error'));
 }
 
 function downloadFleetReport(format) {
