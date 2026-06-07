@@ -13036,6 +13036,24 @@ def _get_agent_sha256():
     return sha
 
 
+_AGENT_VERSION_RE = re.compile(r"^VERSION\s*=\s*'([0-9][^']*)'", re.M)
+
+
+def _read_agent_version(path):
+    """Parse the VERSION constant out of a served agent binary so the advertised
+    version ALWAYS matches the bytes we serve (and the sha256 we advertise),
+    instead of a separately-stored config value that can drift. The version is
+    only informational for the update decision, but a stale string here shows up
+    as a confusing "v3.14.0 → v3.12.0" in the agent's upgrade log. Returns None
+    if the file is missing/unreadable so callers can fall back to config."""
+    try:
+        head = path.read_text(errors='replace')[:8000]
+    except Exception:
+        return None
+    m = _AGENT_VERSION_RE.search(head)
+    return m.group(1) if m else None
+
+
 # v3.14.0 #38: agent release channels. A published beta binary lives beside the
 # stable one. Channel resolution TRIPLE-defaults to stable, so the update path
 # only diverges when (a) the caller is explicitly on beta AND (b) a beta binary
@@ -13098,9 +13116,13 @@ def handle_agent_version():
         size = bin_path.stat().st_size
     except OSError:
         size = None
+    # Read the version from the SERVED binary so it can't drift from the bytes /
+    # sha256 we advertise; fall back to the stored config value only if the file
+    # can't be parsed.
     _ver_key = 'agent_beta_version' if channel == 'beta' else 'agent_version'
+    _ver = _read_agent_version(bin_path) or cfg.get(_ver_key, cfg.get('agent_version', 'unknown'))
     respond(200, {
-        'version': cfg.get(_ver_key, cfg.get('agent_version', 'unknown')),
+        'version': _ver,
         'sha256':  sha,
         'size':    size,
         'channel': channel,

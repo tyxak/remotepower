@@ -411,6 +411,12 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
 - **Public/internal ROADMAP files** (`docs/ROADMAP*`) removed from the repo.
 
 ### Fixed
+- **Agent self-update log shows the right target version.** `/api/agent/version`
+  now reads the version string straight from the served binary instead of a
+  separately-stored config value that could go stale — so the agent's upgrade log
+  no longer prints a confusing mismatched target (e.g. "v3.14.0 → v3.12.0" when it
+  was really updating to 4.0.0). The update decision was always hash-based and
+  correct; only the displayed version was wrong.
 - **No more `utcfromtimestamp` DeprecationWarning in the nginx error log.** The
   calendar/ICS export used `datetime.utcfromtimestamp()`, deprecated in Python
   3.12+, which FastCGI surfaced as a warning on every `/api/calendar.ics` (and
