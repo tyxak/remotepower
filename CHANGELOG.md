@@ -10,6 +10,12 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Proxmox VM/CT lifecycle.** The Virtualization page can now **reboot, clone,
+  and migrate** guests (on top of the existing start/shutdown/snapshots) via the
+  Proxmox API. **Destructive, so gated three ways**: admin-only, a per-deployment
+  *Settings → Proxmox → Allow lifecycle actions* opt-in (default off), and full
+  audit; with 4-eyes approval on, each action waits for a second admin. A
+  dry-run preview returns the planned action without touching Proxmox.
 - **Tenant isolation (multi-tenancy).** An opt-in *Settings → Security →
   Multi-tenancy* switch partitions the fleet by tenant: a tenant's admins and
   operators see only their own devices, while a platform superadmin (an admin in

@@ -11069,6 +11069,7 @@ def handle_config_get():
     # resolves that, and we surface where it came from so the
     # settings page can show the right hint.
     safe.setdefault('proxmox_enabled', False)
+    safe.setdefault('proxmox_lifecycle_enabled', False)   # v3.14.0 #33
     safe.setdefault('proxmox_host', '')
     safe.setdefault('proxmox_node', '')
     safe.setdefault('proxmox_token_id', '')
@@ -11385,6 +11386,9 @@ def handle_config_save():
     # ── v2.3.0: Proxmox connection settings ────────────────────────────────────
     if 'proxmox_enabled' in body:
         cfg['proxmox_enabled'] = bool(body['proxmox_enabled'])
+    # v3.14.0 (#33): allow destructive VM/CT lifecycle actions (default off).
+    if 'proxmox_lifecycle_enabled' in body:
+        cfg['proxmox_lifecycle_enabled'] = bool(body['proxmox_lifecycle_enabled'])
     if 'proxmox_host' in body:
         # Bare host, host:port, or a full URL — the client normalises it.
         cfg['proxmox_host'] = _sanitize_str(body['proxmox_host'], 255)
@@ -14797,6 +14801,51 @@ def handle_proxmox_test() -> None:
     respond(200, result)
 
 
+def handle_proxmox_lifecycle() -> None:
+    """POST /api/proxmox/lifecycle {guest_type, vmid, action, params?, dry?} —
+    perform a VM/CT lifecycle action (start/stop/reboot/snapshot/clone/migrate).
+
+    DESTRUCTIVE — gated three ways: admin-only, a per-deployment opt-in flag
+    (proxmox_lifecycle_enabled, default off), and full audit of every call.
+    `dry: true` returns the action that WOULD run without touching Proxmox, so
+    operators can preview from the UI. When 4-eyes approval is on, the action is
+    parked for a second admin instead of executing."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('proxmox_enabled'):
+        respond(400, {'error': 'Proxmox integration is not enabled.'})
+    if not cfg.get('proxmox_lifecycle_enabled'):
+        respond(403, {'error': 'Proxmox VM lifecycle actions are disabled. '
+                               'Enable them in Settings → Proxmox first.'})
+    body = get_json_body() or {}
+    guest_type = str(body.get('guest_type', '')).strip()
+    action = str(body.get('action', '')).strip()
+    vmid = body.get('vmid')
+    params = body.get('params') if isinstance(body.get('params'), dict) else {}
+    if guest_type not in ('qemu', 'lxc') or action not in proxmox_client.LIFECYCLE_ACTIONS:
+        respond(400, {'error': 'invalid guest_type or action'})
+    label = f'{action} {guest_type}/{vmid}'
+    if body.get('dry'):
+        respond(200, {'ok': True, 'dry': True, 'planned': label})
+    # 4-eyes: park destructive lifecycle actions for a second admin when enabled.
+    if cfg.get('change_approval_enabled'):
+        cid = _create_confirmation('proxmox_lifecycle', str(vmid),
+                                   {'guest_type': guest_type, 'action': action,
+                                    'params': params, 'label': label}, actor, None, None)
+        audit_log(actor, 'proxmox_lifecycle_parked', label)
+        respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid})
+    pc = proxmox_client.config_from(cfg)
+    try:
+        upid = proxmox_client.lifecycle(pc, guest_type, vmid, action, params)
+    except proxmox_client.ProxmoxError as e:
+        audit_log(actor, 'proxmox_lifecycle_failed', f'{label}: {e}')
+        respond(502, {'error': str(e)})
+    audit_log(actor, 'proxmox_lifecycle', label)
+    respond(200, {'ok': True, 'task': upid, 'action': label})
+
+
 # ── v2.8.0: Listening port audit ──────────────────────────────────────────────
 
 def _exposure_muted(process, proto, port, mutes, device_id=None):
@@ -15562,7 +15611,8 @@ def handle_proxmox_list(guest_type: str) -> None:
             pass
 
     respond(200, {'enabled': True, 'configured': True,
-                  'node': pc['node'], 'guests': guests})
+                  'node': pc['node'], 'guests': guests,
+                  'lifecycle': bool((load(CONFIG_FILE) or {}).get('proxmox_lifecycle_enabled'))})
 
 
 def handle_proxmox_action(guest_type: str, rest: str) -> None:
@@ -26871,6 +26921,21 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
             'device_id': device_id, 'name': dev_name, 'command': queued, 'actor': actor,
         })
 
+    elif action == 'proxmox_lifecycle':
+        # v3.14.0 (#33): a destructive Proxmox VM/CT action approved by a second
+        # admin. device_id is the vmid; params carries guest_type/action/params.
+        p = params or {}
+        cfg2 = load(CONFIG_FILE) or {}
+        if not cfg2.get('proxmox_lifecycle_enabled'):
+            return {'ok': False, 'error': 'Proxmox lifecycle actions are disabled'}
+        try:
+            upid = proxmox_client.lifecycle(proxmox_client.config_from(cfg2),
+                                            p.get('guest_type'), device_id,
+                                            p.get('action'), p.get('params') or {})
+        except proxmox_client.ProxmoxError as e:
+            return {'ok': False, 'error': str(e)}
+        return {'ok': True, 'task': upid, 'detail': p.get('label', '')}
+
     elif action == 'queue_command':
         # v3.14.0: a risky queued command (reboot/shutdown/update/upgrade/
         # container/uninstall) approved by a second admin. params['command'] is
@@ -35074,6 +35139,7 @@ def _build_exact_routes():
         ('POST', '/api/proxmox/backups/threshold'): handle_proxmox_backup_threshold,
         ('GET', '/api/proxmox/status'): handle_proxmox_status,
         ('POST', '/api/proxmox/test'): handle_proxmox_test,
+        ('POST', '/api/proxmox/lifecycle'): handle_proxmox_lifecycle,   # v3.14.0 #33
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,
         ('GET', '/api/schedule'): handle_schedule_list,

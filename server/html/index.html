@@ -1792,6 +1792,8 @@
               </div>
             </div>
             <p class="hint">Proxmox ships a self-signed certificate by default — if you haven't installed a trusted cert, set Verify TLS to Off. Prefer installing a real certificate.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-proxmox-lifecycle"> Allow VM/CT <strong>lifecycle actions</strong> (start, stop, reboot, snapshot, clone, migrate)</label></div>
+            <p class="hint">Off by default — these are <strong>destructive</strong>. When on, the Virtualization page gains action buttons. The API token needs the matching privileges (e.g. <code>VM.PowerMgmt</code>, <code>VM.Snapshot</code>, <code>VM.Clone</code>, <code>VM.Migrate</code>). With 4-eyes approval on, each action waits for a second admin.</p>
             <div class="isl-64">
               <button class="btn-primary" data-action="saveProxmoxSettings" >Save Proxmox settings</button>
               <button class="btn-icon" data-action="testProxmoxConnection" >Test connection</button>

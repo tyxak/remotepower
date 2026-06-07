@@ -2234,6 +2234,8 @@ async function loadSettings() {
     document.getElementById('proxmox-node').value = data.proxmox_node || '';
     document.getElementById('proxmox-token-id').value = data.proxmox_token_id || '';
     document.getElementById('proxmox-verify-tls').value = data.proxmox_verify_tls === false ? '0' : '1';
+    const lcEl = document.getElementById('cfg-proxmox-lifecycle');   // v3.14.0 #33
+    if (lcEl) lcEl.checked = !!data.proxmox_lifecycle_enabled;
     const secEl = document.getElementById('proxmox-token-secret');
     secEl.value = '';
     if (data.proxmox_token_secret_from_env) {
@@ -12937,6 +12939,9 @@ function _renderProxmoxGuest(g, kind) {
       ${!running ? `<button class="btn-icon badge-sm" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="start" data-arg4="${escAttr(g.name)}">Start</button>` : ''}
       ${running  ? `<button class="btn-icon isl-573" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="shutdown" data-arg4="${escAttr(g.name)}">Shutdown</button>` : ''}
       <button class="btn-icon badge-sm" data-action="openSnapshots" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}">Snapshots</button>
+      ${window._proxmoxLifecycle && running ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="reboot" data-arg4="${escAttr(g.name)}">Reboot</button>` : ''}
+      ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="migrate" data-arg4="${escAttr(g.name)}">Migrate</button>` : ''}
+      ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="clone" data-arg4="${escAttr(g.name)}">Clone</button>` : ''}
       ${ep === 'lxc' ? `<button class="btn-icon badge-sm btn-danger-soft" data-action="lxcDeleteOpen" data-arg="${g.vmid}" data-arg2="${escAttr(g.name)}" title="Delete this container">Delete</button>` : ''}
     </div>`;
   return `<div class="isl-460">
@@ -12954,6 +12959,32 @@ function _renderProxmoxGuest(g, kind) {
     ${resLine}
     ${actions}
   </div>`;
+}
+
+// v3.14.0 #33: destructive VM/CT lifecycle. reboot is one-shot; migrate/clone
+// collect a target/newid; everything confirms first.
+async function proxmoxLifecycle(guestType, vmid, action, name) {
+  const params = {};
+  if (action === 'migrate') {
+    const target = await uiPrompt({ title: `Migrate ${name} (#${vmid})`,
+      message: 'Target node to migrate to:', confirmText: 'Migrate', danger: true });
+    if (!target) return;
+    params.target = target.trim(); params.online = true;
+  } else if (action === 'clone') {
+    const newid = await uiPrompt({ title: `Clone ${name} (#${vmid})`,
+      message: 'New VMID for the clone (must be unused):', confirmText: 'Clone' });
+    if (!newid) return;
+    params.newid = parseInt(newid.trim(), 10);
+    if (!(params.newid > 0)) { toast('VMID must be a number', 'error'); return; }
+  } else {
+    if (!confirm(`${action} ${name} (#${vmid})? This acts directly on the VM.`)) return;
+  }
+  const r = await api('POST', '/proxmox/lifecycle',
+    { guest_type: guestType, vmid, action, params }).catch(() => null);
+  if (r?.approval_required) toast('Parked — a second admin must approve it', 'info');
+  else if (r?.ok) toast(`${action} requested${r.task ? ' (task ' + String(r.task).slice(-8) + ')' : ''}`, 'success');
+  else { toast(r?.error || `${action} failed`, 'error'); return; }
+  setTimeout(loadVirtualization, 1500);
 }
 
 function _fmtDuration(secs) {
@@ -12991,6 +13022,7 @@ async function loadVirtualization() {
     return;
   }
   if (nodeLabel) nodeLabel.textContent = data.node ? `node: ${data.node}` : '';
+  window._proxmoxLifecycle = !!data.lifecycle;   // v3.14.0 #33
   const guests = data.guests || [];
   if (!guests.length) {
     body.innerHTML = '<div class="table-card isl-578">No QEMU VMs on this node.</div>';
@@ -13282,6 +13314,7 @@ function _collectProxmoxForm() {
     proxmox_node:       document.getElementById('proxmox-node').value.trim(),
     proxmox_token_id:   document.getElementById('proxmox-token-id').value.trim(),
     proxmox_verify_tls: document.getElementById('proxmox-verify-tls').value === '1',
+    proxmox_lifecycle_enabled: !!document.getElementById('cfg-proxmox-lifecycle')?.checked,   // v3.14.0 #33
   };
   const secret = document.getElementById('proxmox-token-secret').value;
   if (secret) payload.proxmox_token_secret = secret;

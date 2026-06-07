@@ -2120,6 +2120,71 @@ class TestTenancyP2(_HandlerBase):
         self.assertTrue(self.call(api.handle_config_get)['tenancy_enforced'])
 
 
+class TestProxmoxLifecycle(_HandlerBase):
+    """v3.14.0 #33 — Proxmox VM/CT lifecycle (destructive, gated)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
+        cls.pc = importlib.import_module("proxmox_client")
+
+    def test_client_builds_correct_paths(self):
+        pc, calls = self.pc, []
+        orig = pc._request
+        pc._request = lambda c, path, method='GET', data=None: (
+            calls.append((path, method, data)) or 'UPID:x')
+        try:
+            n = {'node': 'pve'}
+            pc.lifecycle(n, 'qemu', 100, 'reboot')
+            pc.lifecycle(n, 'lxc', 200, 'snapshot', {'snapname': 'preupd'})
+            pc.lifecycle(n, 'qemu', 100, 'snapshot_delete', {'snapname': 'preupd'})
+            pc.lifecycle(n, 'qemu', 100, 'clone', {'newid': 999})
+            pc.lifecycle(n, 'qemu', 100, 'migrate', {'target': 'pve2', 'online': True})
+        finally:
+            pc._request = orig
+        bym = {c[0]: c[1] for c in calls}
+        self.assertEqual(bym['/nodes/pve/qemu/100/status/reboot'], 'POST')
+        self.assertIn('/nodes/pve/lxc/200/snapshot', bym)
+        self.assertEqual(bym['/nodes/pve/qemu/100/snapshot/preupd'], 'DELETE')
+        self.assertIn('/nodes/pve/qemu/100/clone', bym)
+        self.assertIn('/nodes/pve/qemu/100/migrate', bym)
+
+    def test_client_rejects_bad_input(self):
+        E = self.pc.ProxmoxError
+        with self.assertRaises(E):
+            self.pc.lifecycle({'node': 'pve'}, 'qemu', 1, 'snapshot', {'snapname': '1bad'})
+        with self.assertRaises(E):
+            self.pc.lifecycle({'node': 'pve'}, 'bogus', 1, 'reboot')
+        with self.assertRaises(E):
+            self.pc.lifecycle({'node': 'pve'}, 'qemu', 1, 'migrate', {'target': 'bad!'})
+
+    def test_handler_requires_optin(self):
+        api.save(api.CONFIG_FILE, {'proxmox_enabled': True})   # lifecycle OFF
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'guest_type': 'qemu', 'vmid': 100, 'action': 'reboot'}
+        self.call(api.handle_proxmox_lifecycle)
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_handler_dry_run_does_not_execute(self):
+        api.save(api.CONFIG_FILE, {'proxmox_enabled': True, 'proxmox_lifecycle_enabled': True})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'guest_type': 'qemu', 'vmid': 100,
+                                     'action': 'reboot', 'dry': True}
+        r = self.call(api.handle_proxmox_lifecycle)
+        self.assertTrue(r['dry'])
+        self.assertIn('reboot', r['planned'])
+
+    def test_handler_parks_for_4eyes(self):
+        api.save(api.CONFIG_FILE, {'proxmox_enabled': True, 'proxmox_lifecycle_enabled': True,
+                                   'change_approval_enabled': True})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'guest_type': 'qemu', 'vmid': 100, 'action': 'stop'}
+        self.call(api.handle_proxmox_lifecycle)
+        self.assertEqual(self.cap['s'], 202)
+        self.assertTrue(self.cap['b'].get('approval_required'))
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

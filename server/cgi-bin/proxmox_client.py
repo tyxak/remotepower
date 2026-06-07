@@ -861,3 +861,72 @@ def test_connection(pc: dict) -> dict:
     return {'ok': True,
             'message': f"Connected to Proxmox — node '{pc['node']}' found.",
             'node_count': len(node_names)}
+
+
+# ── v3.14.0 (#33): VM/CT lifecycle (destructive — gated server-side) ─────────
+# Power + snapshot + clone + migrate via the PVE API. These are the actions a
+# Proxmox API token with the right privileges can perform; the RemotePower
+# server gates *who* may call them (admin + per-deployment opt-in + audit) in
+# api.py. Every call returns the PVE task UPID string (or None).
+_POWER_ACTIONS = ('start', 'stop', 'shutdown', 'reboot', 'suspend', 'resume')
+LIFECYCLE_ACTIONS = _POWER_ACTIONS + ('snapshot', 'snapshot_delete', 'clone', 'migrate')
+
+
+def lifecycle(pc: dict, guest_type: str, vmid, action: str,
+              params: dict | None = None):
+    """Perform one lifecycle action on a guest. Raises ProxmoxError on bad
+    input or API failure. `params` carries action-specific fields:
+      snapshot         → {snapname, description?}
+      snapshot_delete  → {snapname}
+      clone            → {newid, name?, full?}
+      migrate          → {target, online?}
+    """
+    params = params or {}
+    if guest_type not in _GUEST_TYPES:
+        raise ProxmoxError('Unknown guest type.')
+    if action not in LIFECYCLE_ACTIONS:
+        raise ProxmoxError(f'Unsupported action: {action}')
+    try:
+        vmid = int(vmid)
+    except (TypeError, ValueError):
+        raise ProxmoxError('Invalid vmid.')
+    base = f"/nodes/{pc['node']}/{guest_type}/{vmid}"
+
+    if action in _POWER_ACTIONS:
+        return _request(pc, f'{base}/status/{action}', 'POST')
+
+    if action == 'snapshot':
+        snap = str(params.get('snapname', '')).strip()
+        if not re.match(r'^[A-Za-z][A-Za-z0-9_\-]{0,39}$', snap):
+            raise ProxmoxError('Snapshot name must be 1–40 chars [A-Za-z0-9_-], letter-first.')
+        data = {'snapname': snap}
+        if params.get('description'):
+            data['description'] = str(params['description'])[:200]
+        return _request(pc, f'{base}/snapshot', 'POST', data)
+
+    if action == 'snapshot_delete':
+        snap = str(params.get('snapname', '')).strip()
+        if not re.match(r'^[A-Za-z][A-Za-z0-9_\-]{0,39}$', snap):
+            raise ProxmoxError('Invalid snapshot name.')
+        return _request(pc, f'{base}/snapshot/{urllib.parse.quote(snap)}', 'DELETE')
+
+    if action == 'clone':
+        try:
+            newid = int(params.get('newid'))
+        except (TypeError, ValueError):
+            raise ProxmoxError('clone requires a numeric newid.')
+        data = {'newid': newid}
+        if params.get('name'):
+            data['name'] = str(params['name'])[:64]
+        if params.get('full') is not None:
+            data['full'] = 1 if params['full'] else 0
+        return _request(pc, f'{base}/clone', 'POST', data)
+
+    # migrate
+    target = str(params.get('target', '')).strip()
+    if not re.match(r'^[A-Za-z0-9_\-.]{1,64}$', target):
+        raise ProxmoxError('migrate requires a valid target node name.')
+    data = {'target': target}
+    if params.get('online') is not None:
+        data['online'] = 1 if params['online'] else 0
+    return _request(pc, f'{base}/migrate', 'POST', data)
