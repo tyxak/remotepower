@@ -13,9 +13,14 @@ holds long-form docs that don't fit there.
  per-feature guide.
 - **[architecture.md](architecture.md)** — How the pieces fit together,
  the heartbeat → command → response cycle, file layout on disk.
+- **[deployment.md](deployment.md)** — Install-everything map: server, agents
+ (Linux/Windows/macOS), satellites, app nodes, load balancer, Postgres/HA —
+ which script installs each and when you need it.
 - **[scaling.md](scaling.md)** — Running large fleets (1000+ agents): the
  PostgreSQL backend, poll-interval tuning, FastCGI worker pool, load-balanced
- multi-node, relay satellites, and retention/maintenance.
+ multi-node, relay satellites, PgBouncer, retention, and the encryption matrix.
+- **[satellites.md](satellites.md)** — Relay satellites for segmented networks:
+ add one, encrypt the agent→satellite hop, point agents at it, revoke.
 - **[upgrading.md](upgrading.md)** — Migration steps between versions.
 - **[troubleshooting.md](troubleshooting.md)** — Common issues and
  diagnostics.

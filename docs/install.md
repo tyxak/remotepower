@@ -15,11 +15,17 @@ That's it. The installer prints the URL and the auto-generated admin password. O
 ### Client (on the host you want to manage)
 
 ```bash
-sudo bash install-client.sh
+sudo bash install-client.sh                                   # Linux
+powershell -ExecutionPolicy Bypass -File client\install-windows.ps1   # Windows
+sudo bash client/install-macos.sh https://your-server 123456  # macOS
 # Paste the server URL and the 6-digit PIN from the dashboard. Done.
 ```
 
 The device shows up in the dashboard within ~60 seconds.
+
+> **Bigger / segmented / HA deployment?** See **[deployment.md](deployment.md)**
+> for the full map (satellites, app nodes, load balancer, PostgreSQL + HA,
+> PgBouncer) and **[scaling.md](scaling.md)** for 1000+ agents.
 
 ### Optional but recommended
 

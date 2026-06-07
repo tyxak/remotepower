@@ -10,6 +10,16 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Encrypt every hop, incl. satellites.** The relay satellite can now serve the
+  **agent→satellite hop over HTTPS** (`RP_TLS_CERT`/`RP_TLS_KEY`; warns when
+  plaintext), and agents can trust an internal CA without weakening verification
+  (`RP_CA_BUNDLE`, keeps `CERT_REQUIRED`). New `docs/satellites.md` walks through
+  adding a satellite + the per-hop TLS posture.
+- **More install scripts + a deployment map.** `client/install-macos.sh`
+  (launchd) joins the Linux/Windows installers; `packaging/satellite-setup.sh`
+  installs the relay as a hardened systemd service (optional `--self-signed`).
+  New `docs/deployment.md` indexes every component → its install script → when
+  you need it (server, agents, satellites, app nodes, LB, Postgres/HA, PgBouncer).
 - **Load-balanced multi-node support made real.** A `trust_proxy` setting takes
   the client IP from `X-Forwarded-For` behind a trusted proxy (so the audit log
   / IP allowlist / brute-force detection see the real client, not the balancer;
@@ -321,6 +331,12 @@ dependencies; most of it surfaces data the agent already reports. See
   update/upgrade, agent uninstall, and container start/stop/restart are also
   parked for a second admin (Confirmations page) instead of executing
   immediately — reusing the existing maker-checker store. Off by default.
+
+### Changed
+- **Home "Fleet roster · 7-day status" is now capped at 15 hosts, worst-first.**
+  Sorts by most-offline (currently-offline first, then most down-days in the
+  7-day stripe) and shows a "+N more" pointer to the Devices page — so the
+  widget surfaces what needs attention instead of an unbounded list.
 
 ### Fixed
 - **No more `utcfromtimestamp` DeprecationWarning in the nginx error log.** The

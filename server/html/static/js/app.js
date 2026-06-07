@@ -12518,21 +12518,35 @@ async function _renderHomeFleet(devs) {
   try {
     const r = await api('GET', '/fleet/uptime7d');
     uptime = (r && r.uptime) || {};
-  } catch (e) { /* fall back to today-only below */ }
+  } catch (e) { /* fallback: today-only stripe below */ }
 
-  target.innerHTML = devs.slice(0, 30).map(d => {
+  // v3.14.0: cap the roster at 15 and surface the WORST hosts first — sort by
+  // "most offline": currently-offline hosts first, then by how many of the last
+  // 7 days were down. Keeps the widget focused on what needs attention.
+  const MAX_ROWS = 15;
+  const rows = devs.map(d => {
     const todayCell = d.online ? 'up' : 'down';
-    // Use the server's 7-day array when present; otherwise show six
-    // 'unknown' cells + today, the honest fallback.
     let history = uptime[d.id];
     if (!Array.isArray(history) || history.length !== 7) {
-      history = ['unknown','unknown','unknown','unknown','unknown','unknown', todayCell];
+      // labelled fallback: no recorded 7-day history yet → 6×'unknown' + today.
+      history = ['unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', todayCell];
     } else {
-      // The server array's last cell is "today by recorded events";
-      // the device's live online flag is fresher — trust it for today.
+      // The server array's last cell is "today by recorded events"; the device's
+      // live online flag is fresher — trust it for today.
       history = history.slice(0, 6).concat([todayCell]);
     }
-    return `<div class="isl-557">
+    const downDays = history.filter(c => c === 'down').length;
+    // currently-offline dominates; then more down-days; stable by name.
+    const offlineScore = (d.online ? 0 : 1000) + downDays;
+    return { d, history, offlineScore, downDays };
+  });
+  rows.sort((a, b) => b.offlineScore - a.offlineScore
+    || (a.d.name || '').toLowerCase().localeCompare((b.d.name || '').toLowerCase()));
+  const shown = rows.slice(0, MAX_ROWS);
+  const moreCount = rows.length - shown.length;
+
+  target.innerHTML = shown.map(({ d, history }) => `
+    <div class="isl-557">
       <div class="isl-558">
         ${getDistroIcon(d.os)}
         <a href="#" data-action="openDeviceDrawer" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-prevent-default class="isl-559">${escHtml(d.name)}</a>
@@ -12542,8 +12556,10 @@ async function _renderHomeFleet(devs) {
       <div class="isl-560">
         ${d.online ? '<span class="c-green">● online</span>' : '<span class="c-red">● offline</span>'}
       </div>
-    </div>`;
-  }).join('');
+    </div>`).join('')
+    + (moreCount > 0
+        ? `<div class="hint mt-12">+${moreCount} more host${moreCount === 1 ? '' : 's'} — sorted by most downtime; open <a href="#" data-action-btn="_showPageBtn" data-page="devices" data-prevent-default class="c-accent">Devices</a> for the full fleet.</div>`
+        : '');
 }
 
 // ─── v2.2.1: AIidentity extension ──────────────────────────────────────

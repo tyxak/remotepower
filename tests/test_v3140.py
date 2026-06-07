@@ -2482,6 +2482,48 @@ class TestTrustProxy(_HandlerBase):
         self.assertEqual(api._get_client_ip(), '9.9.9.9')    # rightmost = real client
 
 
+class TestRosterAndTransport(unittest.TestCase):
+    """v3.14.0 — home roster cap/sort, satellite TLS, agent CA bundle, and the
+    deployment scripts all present."""
+
+    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    SAT = (_ROOT / "client/remotepower-satellite.py").read_text()
+    AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
+    AGENT_X = (_ROOT / "client/remotepower-agent").read_text()
+
+    def test_roster_capped_15_and_sorted_by_offline(self):
+        idx = self.APP.find('async function _renderHomeFleet')
+        chunk = self.APP[idx:idx + 2500]
+        self.assertIn('MAX_ROWS = 15', chunk)
+        self.assertIn('offlineScore', chunk)
+        self.assertNotIn('.slice(0, 30)', chunk)   # old uncapped behaviour gone
+
+    def test_satellite_supports_tls(self):
+        self.assertIn("RP_TLS_CERT", self.SAT)
+        self.assertIn("wrap_socket", self.SAT)
+        self.assertIn("load_cert_chain", self.SAT)
+
+    def test_agent_supports_internal_ca(self):
+        self.assertIn("RP_CA_BUNDLE", self.AGENT)
+        self.assertIn("load_verify_locations", self.AGENT)
+        self.assertIn("CERT_REQUIRED", self.AGENT)        # still strict
+        self.assertEqual(self.AGENT, self.AGENT_X)        # extensionless in sync
+
+    def test_deployment_scripts_present(self):
+        for rel in ('packaging/satellite-setup.sh', 'packaging/postgres-setup.sh',
+                    'packaging/postgres-ha-primary.sh', 'packaging/postgres-ha-standby.sh',
+                    'packaging/pgbouncer-setup.sh', 'packaging/loadbalancer-haproxy.cfg.example',
+                    'client/install-macos.sh'):
+            p = _ROOT / rel
+            self.assertTrue(p.exists(), rel)
+            if rel.endswith('.sh'):
+                self.assertTrue(os.access(p, os.X_OK), f'{rel} not executable')
+
+    def test_deployment_guides_present(self):
+        for rel in ('docs/deployment.md', 'docs/satellites.md', 'docs/scaling.md'):
+            self.assertTrue((_ROOT / rel).exists(), rel)
+
+
 class TestNoDeprecatedDatetime(unittest.TestCase):
     """v3.14.0 fix — no deprecated naive-UTC datetime calls (they spam stderr →
     nginx error log under Python 3.12+ and are scheduled for removal)."""

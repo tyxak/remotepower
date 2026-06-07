@@ -231,10 +231,22 @@ import ssl as _ssl
 
 # ─── SSL context ────────────────────────────────────────────────────────────────
 def _make_ssl_context():
-    """Return a strict SSL context - certificate verification always on."""
+    """Return a strict SSL context - certificate verification always on.
+
+    v3.14.0: RP_CA_BUNDLE (path to a CA cert/bundle) lets the agent trust an
+    internal CA — e.g. a self-hosted server or a TLS satellite with a private
+    cert — WITHOUT weakening verification (CERT_REQUIRED + hostname check stay
+    on). Prefer adding the CA to the OS trust store; this is the no-root-needed
+    alternative."""
     ctx = _ssl.create_default_context()
     ctx.verify_mode = _ssl.CERT_REQUIRED
     ctx.check_hostname = True
+    _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
+    if _ca and os.path.exists(_ca):
+        try:
+            ctx.load_verify_locations(cafile=_ca)
+        except Exception as _e:
+            log.warning(f'RP_CA_BUNDLE load failed ({_ca}): {_e}')
     return ctx
 
 _SSL_CTX = _make_ssl_context()

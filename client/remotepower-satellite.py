@@ -7,7 +7,7 @@ directly. Point them at a satellite instead; it forwards every /api/* request
 to the upstream server, adding its own authentication header so the server
 knows which relay the traffic came through (and can revoke it).
 
-    agent ──http──▶ satellite ──https──▶ RemotePower server
+    agent ──(http|https)──▶ satellite ──https──▶ RemotePower server
 
 The agent's own device token still authenticates the device end-to-end; the
 satellite token is a second, independent layer identifying the relay.
@@ -17,9 +17,15 @@ Configure via environment:
     RP_SATELLITE_TOKEN    token minted at Settings → Integrations → Satellites [required]
     RP_LISTEN             listen address (default 0.0.0.0:8800)
     RP_UPSTREAM_INSECURE  set to 1 to skip TLS verification (self-signed upstream)
+    RP_TLS_CERT           PEM cert chain → the satellite listens over HTTPS
+    RP_TLS_KEY            PEM private key for RP_TLS_CERT
 
-Then on each agent in the segment set the server URL to
-http://<satellite-host>:8800. Standard library only — no dependencies.
+With RP_TLS_CERT + RP_TLS_KEY the agent→satellite hop is encrypted too: point
+the segment's agents at https://<satellite-host>:8800 (use a cert the agents
+trust — an internal CA or Let's Encrypt). Without them the relay listens over
+plain HTTP and warns; only do that on a trusted segment LAN. The upstream hop
+(satellite→server) is HTTPS whenever RP_UPSTREAM is https. Standard library
+only — no dependencies.
 """
 import os
 import ssl
@@ -32,6 +38,8 @@ UPSTREAM = os.environ.get('RP_UPSTREAM', '').rstrip('/')
 TOKEN = os.environ.get('RP_SATELLITE_TOKEN', '')
 LISTEN = os.environ.get('RP_LISTEN', '0.0.0.0:8800')
 INSECURE = os.environ.get('RP_UPSTREAM_INSECURE') == '1'
+TLS_CERT = os.environ.get('RP_TLS_CERT', '')
+TLS_KEY = os.environ.get('RP_TLS_KEY', '')
 
 # Hop-by-hop headers (RFC 7230 §6.1) + length/host that we recompute.
 _HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -102,7 +110,21 @@ def main():
         return 1
     host, _, port = LISTEN.partition(':')
     srv = ThreadingHTTPServer((host or '0.0.0.0', int(port or 8800)), Relay)
-    sys.stderr.write(f'RemotePower satellite: relaying {LISTEN} -> {UPSTREAM}\n')
+    scheme = 'http'
+    # v3.14.0: encrypt the agent→satellite hop when a cert/key is provided.
+    if TLS_CERT and TLS_KEY:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(TLS_CERT, TLS_KEY)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+        scheme = 'https'
+    elif TLS_CERT or TLS_KEY:
+        sys.stderr.write('error: set BOTH RP_TLS_CERT and RP_TLS_KEY for HTTPS\n')
+        return 1
+    else:
+        sys.stderr.write('WARNING: satellite is listening over plain HTTP — set '
+                         'RP_TLS_CERT + RP_TLS_KEY to encrypt the agent→satellite '
+                         'hop (only run plaintext on a trusted segment LAN)\n')
+    sys.stderr.write(f'RemotePower satellite: relaying {scheme}://{LISTEN} -> {UPSTREAM}\n')
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
