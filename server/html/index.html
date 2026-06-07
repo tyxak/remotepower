@@ -4368,6 +4368,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="power-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
+        <!-- v3.14.0 (#41): cost allocation / chargeback -->
+        <div class="dash-card mt-16">
+          <h3>Cost allocation (chargeback)</h3>
+          <p class="hint">Estimated monthly energy cost per group and per tag, from each host's measured draw × your price/kWh above. A rough allocation for showback/chargeback — instantaneous watts projected to a 30-day month.</p>
+          <div id="chargeback-body" class="row-16-wrap"><div class="c-muted fs-13">Loading…</div></div>
+        </div>
       </div>
 
       <!-- ── v3.14.0: predictive disk-failure maintenance ───────────────── -->

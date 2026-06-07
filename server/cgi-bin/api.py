@@ -28805,6 +28805,53 @@ def handle_fleet_power():
                   'total_watts': round(total_w, 1), 'on_battery': on_battery})
 
 
+def _chargeback_breakdown(devices, hw_all):
+    """v3.14.0 (#41): aggregate per-host power draw into per-group and per-tag
+    totals + an estimated monthly kWh (rate-independent — the UI applies the
+    operator's price/kWh). Same watt source as the Power page (UPS load else GPU
+    draw). Pure → unit-testable."""
+    hours_month = 24 * 30.44
+    by_group, by_tag = {}, {}
+    total_w, hosts = 0.0, 0
+    for dev_id, d in (devices or {}).items():
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        hw = (hw_all or {}).get(dev_id) or {}
+        ups_w = sum(u.get('power_w') or 0 for u in (hw.get('ups') or []) if isinstance(u, dict))
+        gpu_w = sum(g.get('power_w') or 0 for g in (hw.get('gpus') or []) if isinstance(g, dict))
+        watts = ups_w or gpu_w
+        if not watts:
+            continue
+        total_w += watts
+        hosts += 1
+        g = by_group.setdefault(d.get('group') or 'ungrouped', {'hosts': 0, 'watts': 0.0})
+        g['hosts'] += 1
+        g['watts'] += watts
+        for t in (d.get('tags') or [])[:20]:
+            tg = by_tag.setdefault(str(t), {'hosts': 0, 'watts': 0.0})
+            tg['hosts'] += 1
+            tg['watts'] += watts
+
+    def _rows(m):
+        out = [{'name': k, 'hosts': v['hosts'], 'watts': round(v['watts'], 1),
+                'kwh_month': round(v['watts'] / 1000.0 * hours_month, 1)}
+               for k, v in m.items()]
+        out.sort(key=lambda r: -r['watts'])
+        return out
+
+    return {'groups': _rows(by_group), 'tags': _rows(by_tag),
+            'total': {'hosts': hosts, 'watts': round(total_w, 1),
+                      'kwh_month': round(total_w / 1000.0 * hours_month, 1)}}
+
+
+def handle_fleet_chargeback():
+    """GET /api/fleet/chargeback — per-group / per-tag power & monthly kWh, for
+    cost allocation. Scope-filtered; the price/kWh is applied client-side."""
+    require_auth()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    respond(200, _chargeback_breakdown(devices, load(HARDWARE_FILE) or {}))
+
+
 # ─── v3.11.0: scheduled posture digest email ─────────────────────────────────
 
 def _build_posture_digest():
@@ -33954,6 +34001,7 @@ def _build_exact_routes():
         ('GET', '/api/ssh-keys'): handle_ssh_keys_fleet,
         # v3.14.0: fleet power / UPS + energy
         ('GET', '/api/fleet/power'): handle_fleet_power,
+        ('GET', '/api/fleet/chargeback'): handle_fleet_chargeback,   # v3.14.0 (#41)
         # v3.14.0: predictive disk-failure maintenance
         ('GET', '/api/fleet/disk-health'): handle_disk_health,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,

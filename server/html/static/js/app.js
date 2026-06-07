@@ -10546,6 +10546,7 @@ async function loadPower() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
+  loadChargeback();   // v3.14.0 (#41): cost allocation card
 }
 function _costKwh() {
   const v = parseFloat(document.getElementById('power-cost-kwh')?.value);
@@ -10554,6 +10555,41 @@ function _costKwh() {
 function renderPowerCost() {
   try { localStorage.setItem('rp_cost_kwh', String(_costKwh())); } catch (_) {}
   _renderPowerSummary();
+  _renderChargeback();
+}
+
+let _chargebackResp = null;
+async function loadChargeback() {
+  try {
+    _chargebackResp = await api('GET', '/fleet/chargeback');
+    _renderChargeback();
+  } catch (_) { /* power page still works without it */ }
+}
+function _chargebackTable(title, rows, rate) {
+  if (!rows || !rows.length) return '';
+  const body = rows.map(r =>
+    `<tr><td>${escHtml(r.name)}</td><td class="mono-12">${r.hosts}</td>`
+    + `<td class="mono-12">${r.watts} W</td><td class="mono-12">${r.kwh_month} kWh</td>`
+    + `<td class="mono-12 fw-500">${(r.kwh_month * rate).toFixed(2)}</td></tr>`).join('');
+  return `<div class="chargeback-col"><div class="isl-356">${title}</div>`
+    + `<div class="table-card"><table class="data-table w-full"><thead><tr>`
+    + `<th>Name</th><th>Hosts</th><th>Power</th><th>kWh/mo</th><th>Cost/mo</th></tr></thead>`
+    + `<tbody>${body}</tbody></table></div></div>`;
+}
+function _renderChargeback() {
+  const el = document.getElementById('chargeback-body');
+  if (!el) return;
+  if (!_chargebackResp) { el.innerHTML = '<div class="c-muted fs-13">Loading…</div>'; return; }
+  const rate = _costKwh();
+  const t = _chargebackResp.total || {};
+  const grp = _chargebackTable('By group', _chargebackResp.groups, rate);
+  const tag = _chargebackTable('By tag', _chargebackResp.tags, rate);
+  if (!grp && !tag) {
+    el.innerHTML = '<div class="c-muted fs-13">No power-reporting hosts yet (needs a UPS via NUT/apcupsd or GPU draw).</div>';
+    return;
+  }
+  el.innerHTML = `<div class="hint mb-8">Fleet: ${t.hosts || 0} host(s) · ${t.watts || 0} W · ~${(t.kwh_month || 0)} kWh/mo · ~${((t.kwh_month || 0) * rate).toFixed(2)}/mo</div>`
+    + `<div class="chargeback-grid">${grp}${tag}</div>`;
 }
 function _renderPowerSummary() {
   const el = document.getElementById('power-summary');

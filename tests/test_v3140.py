@@ -1174,6 +1174,41 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestChargeback(_HandlerBase):
+    """v3.14.0 #41 — per-group/tag power aggregation for cost allocation."""
+
+    def test_breakdown_groups_tags_total(self):
+        devices = {
+            'd1': {'name': 'a', 'group': 'web', 'tags': ['prod']},
+            'd2': {'name': 'b', 'group': 'web', 'tags': ['prod', 'eu']},
+            'd3': {'name': 'c', 'group': 'db', 'tags': ['prod']},
+            'd4': {'name': 'd', 'group': 'web', 'monitored': False},   # excluded
+            'd5': {'name': 'e', 'group': 'idle'},                       # no power → excluded
+        }
+        hw = {
+            'd1': {'ups': [{'power_w': 100}]},
+            'd2': {'gpus': [{'power_w': 200}]},
+            'd3': {'ups': [{'power_w': 50}]},
+            'd4': {'ups': [{'power_w': 999}]},
+            'd5': {},
+        }
+        bd = api._chargeback_breakdown(devices, hw)
+        web = next(r for r in bd['groups'] if r['name'] == 'web')
+        self.assertEqual((web['watts'], web['hosts']), (300.0, 2))
+        prod = next(r for r in bd['tags'] if r['name'] == 'prod')
+        self.assertEqual((prod['watts'], prod['hosts']), (350.0, 3))
+        self.assertEqual((bd['total']['watts'], bd['total']['hosts']), (350.0, 3))
+        self.assertAlmostEqual(web['kwh_month'], 300 / 1000 * 24 * 30.44, places=0)
+
+    def test_handler_shape(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a', 'group': 'g'}})
+        api.save(api.HARDWARE_FILE, {'d1': {'ups': [{'power_w': 120}]}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_fleet_chargeback)
+        self.assertIn('groups', r)
+        self.assertEqual(r['total']['watts'], 120.0)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

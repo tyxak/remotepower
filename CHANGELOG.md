@@ -10,6 +10,10 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Cost allocation / chargeback.** The **Power** page now estimates monthly
+  energy **cost per group and per tag** (each host's measured draw × your
+  price/kWh), for showback/chargeback. Scope-filtered; `GET /api/fleet/chargeback`
+  returns the rate-independent watt/kWh aggregation and the UI applies your rate.
 - **Package hold / pin.** *Patches → Install software* gains **Hold** / **Unhold**
   buttons to pin packages at their current version so a fleet upgrade-all skips
   them — self-detecting across `apt-mark hold`, `dnf`/`yum versionlock`, and
