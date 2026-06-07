@@ -385,8 +385,11 @@ data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
   RTL) gained a real engine: it translates **text nodes** (so inline-markup text,
   labels and dynamically-rendered status/empty-state messages all translate) and
   **page subtitles** with their markup preserved, and a `MutationObserver`
-  re-translates content rendered after load. The catalog grew to ~540 entries —
-  every page title and subtitle plus the common status/empty/toast strings. The
+  re-translates content rendered after load. It now also translates **attributes**
+  (input placeholders, hover tooltips, aria-labels), and never translates the app
+  name (the `RemotePower` brand is excluded). The catalog grew to ~1,450 entries —
+  page titles + subtitles, status/empty/toast strings, and the controls: buttons,
+  section headings, table column headers, field labels and placeholders. The
   in-app Documentation pages and code samples stay in English by design; anything
   uncatalogued still falls back to English gracefully.
 - **"Report an issue" button (Help → Documentation, and About).** Opens a

@@ -109,7 +109,22 @@ class TestI18nCatalog(unittest.TestCase):
 
     def test_catalog_is_large(self):
         _r, keys = self._dict_keys()
-        self.assertGreater(len(keys), 400, f"catalog only {len(keys)}")
+        self.assertGreater(len(keys), 1200, f"catalog only {len(keys)}")
+
+    def test_attributes_translated_and_brand_skipped(self):
+        # v4.3: engine translates placeholder/title/aria-label, and never
+        # translates the app name (the split <span class=logo-text>Remote
+        # <span>Power</span></span> used to become "RemoteEnergía").
+        self.assertIn("function translateAttrs", I18N)
+        self.assertIn("I18N_ATTRS", I18N)
+        self.assertIn("placeholder", I18N)
+        self.assertIn("'logo-text'", I18N)            # brand excluded from text walk
+        self.assertIn("data-no-i18n", I18N)           # opt-out hook
+
+    def test_control_strings_in_catalog(self):
+        region, _ = self._dict_keys()
+        # a button + a table header that should now be translated
+        self.assertIn("Save changes", region)
 
     def test_dict_block_is_valid_object(self):
         # Pull the DICT object literal and confirm it parses as JSON once the
