@@ -10,6 +10,11 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Package hold / pin.** *Patches → Install software* gains **Hold** / **Unhold**
+  buttons to pin packages at their current version so a fleet upgrade-all skips
+  them — self-detecting across `apt-mark hold`, `dnf`/`yum versionlock`, and
+  `zypper` locks. Same target model (device / group / tag / all) and `packages`
+  permission as install/uninstall (`POST /api/packages/hold` · `/unhold`).
 - **Compliance evidence pack.** *Reports → Evidence pack* downloads a single JSON
   document bundling the current fleet posture report (health, patches, CVEs, CIS
   compliance, uptime), the 90-day compliance-baseline trend, and an audit-log

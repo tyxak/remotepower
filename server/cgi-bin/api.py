@@ -9798,6 +9798,31 @@ def _build_uninstall_cmd(packages):
         'else echo "no supported package manager (apt/dnf/yum/zypper/pacman/apk)" >&2; exit 2; fi')
 
 
+def _build_hold_cmd(packages, hold=True):
+    """v3.14.0 (#39): pin/unpin packages so an upgrade-all won't move them
+    (apt-mark hold / dnf-yum versionlock / zypper lock). `packages` are already
+    _INSTALL_PKG_RE-validated. Hosts whose manager has no equivalent exit 2."""
+    pkgs = ' '.join(packages)
+    if hold:
+        apt = 'apt-mark hold ' + pkgs
+        dnf = 'dnf versionlock add ' + pkgs
+        yum = 'yum versionlock add ' + pkgs
+        zyp = 'zypper addlock ' + pkgs
+    else:
+        apt = 'apt-mark unhold ' + pkgs
+        dnf = 'dnf versionlock delete ' + pkgs
+        yum = 'yum versionlock delete ' + pkgs
+        zyp = 'zypper removelock ' + pkgs
+    return (
+        'set -e; '
+        'if command -v apt-mark >/dev/null 2>&1; then ' + apt + '; '
+        'elif command -v dnf >/dev/null 2>&1; then ' + dnf + '; '
+        'elif command -v yum >/dev/null 2>&1; then ' + yum + '; '
+        'elif command -v zypper >/dev/null 2>&1; then ' + zyp + '; '
+        'else echo "package hold/pin not supported here (need apt-mark, '
+        'dnf/yum versionlock, or zypper)" >&2; exit 2; fi')
+
+
 def _handle_pkg_action(kind):
     """Shared core for install / uninstall. `kind` is 'install' or 'uninstall'.
     Body: {device_id|device_ids|tag|group, packages:"nginx htop"}. Auth: 'exec'
@@ -9822,9 +9847,15 @@ def _handle_pkg_action(kind):
     ids = _resolve_targets(body)
     if not ids:
         respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('packages', ids)   # install/uninstall is an exec action
-    verb = 'uninstall' if kind == 'uninstall' else 'install'
-    cmd_body = _build_uninstall_cmd(names) if kind == 'uninstall' else _build_install_cmd(names)
+    actor = require_perm('packages', ids)   # install/uninstall/hold is an exec action
+    _verbs = {'install': 'install', 'uninstall': 'uninstall', 'hold': 'hold', 'unhold': 'unhold'}
+    verb = _verbs.get(kind, 'install')
+    if kind in ('hold', 'unhold'):
+        cmd_body = _build_hold_cmd(names, hold=(kind == 'hold'))
+    elif kind == 'uninstall':
+        cmd_body = _build_uninstall_cmd(names)
+    else:
+        cmd_body = _build_install_cmd(names)
     queued = f'exec:{cmd_body}'
     devices = load(DEVICES_FILE)
     cmds = load(CMDS_FILE)
@@ -9871,6 +9902,16 @@ def handle_uninstall_packages():
     """POST /api/uninstall — remove one or more packages on the target device(s)
     via the host's own package manager (apt/dnf/yum/zypper/pacman/apk)."""
     _handle_pkg_action('uninstall')
+
+
+def handle_hold_packages():
+    """POST /api/packages/hold — pin packages so upgrades won't move them."""
+    _handle_pkg_action('hold')
+
+
+def handle_unhold_packages():
+    """POST /api/packages/unhold — release a package pin/hold."""
+    _handle_pkg_action('unhold')
 
 
 def _send_wol(dev):
@@ -33933,6 +33974,8 @@ def _build_exact_routes():
         (None, '/api/upgrade-device'): handle_upgrade_device,
         ('POST', '/api/install'): handle_install_packages,
         ('POST', '/api/uninstall'): handle_uninstall_packages,
+        ('POST', '/api/packages/hold'): handle_hold_packages,      # v3.14.0 (#39)
+        ('POST', '/api/packages/unhold'): handle_unhold_packages,
         ('GET', '/api/command-queue'): handle_command_queue,
         ('DELETE', '/api/command-queue'): handle_command_queue_clear_all,
         ('GET', '/api/users'): handle_users_list,

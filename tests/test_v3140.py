@@ -1174,6 +1174,34 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestPackageHold(_HandlerBase):
+    """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
+
+    def test_build_hold_cmd(self):
+        h = api._build_hold_cmd(['nginx', 'curl'], hold=True)
+        self.assertIn('apt-mark hold nginx curl', h)
+        self.assertIn('versionlock add nginx curl', h)
+        u = api._build_hold_cmd(['nginx'], hold=False)
+        self.assertIn('apt-mark unhold nginx', u)
+        self.assertIn('versionlock delete nginx', u)
+
+    def test_hold_queues_exec_command(self):
+        api.BATCH_JOBS_FILE = self.d / 'batch.json'
+        api.log_command = lambda *a, **k: None
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'packages': 'nginx'}
+        self.call(api.handle_hold_packages)
+        queued = api.load(api.CMDS_FILE).get('d1', [])
+        self.assertTrue(any('apt-mark hold nginx' in c for c in queued), queued)
+
+    def test_invalid_package_name_rejected(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'packages': 'bad;rm -rf /'}
+        self.call(api.handle_hold_packages)
+        self.assertEqual(self.cap['s'], 400)
+
+
 class TestEvidencePack(_HandlerBase):
     """v3.14.0 #44 — compliance evidence pack (bundles existing read-only data)."""
 

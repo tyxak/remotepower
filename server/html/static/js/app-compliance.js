@@ -256,6 +256,26 @@ async function runUninstall() {
   else toast(r?.error || 'Failed to queue uninstall', 'error');
 }
 
+// v3.14.0 (#39): pin/unpin packages so a fleet upgrade-all skips them.
+async function _runHold(hold) {
+  const pkgs = document.getElementById('install-pkgs').value.trim();
+  if (!pkgs) { toast('Enter one or more package names', 'error'); return; }
+  const type = document.getElementById('install-target-type').value;
+  const value = document.getElementById('install-target-value').value.trim();
+  if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
+  const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
+  const verb = hold ? 'Hold' : 'Unhold';
+  if (!confirm(`${verb} "${pkgs}" on ${scopeLabel}?`)) return;
+  const body = await _fleetTargetBody(type, value);
+  if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
+  body.packages = pkgs;
+  const r = await api('POST', hold ? '/packages/hold' : '/packages/unhold', body).catch(() => null);
+  if (r?.ok) toast(`${verb} queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
+  else toast(r?.error || `Failed to queue ${verb.toLowerCase()}`, 'error');
+}
+function runHold() { _runHold(true); }
+function runUnhold() { _runHold(false); }
+
 // v3.4.2: one-time install from the Rollouts page — target one device or a tag.
 async function openInstallModal() {
   document.getElementById('oti-pkgs').value = '';
