@@ -531,6 +531,12 @@ def metric_prune(data_dir, older_than_ts):
         return cur.rowcount if cur.rowcount is not None else 0
 
 
+def metric_has_any(data_dir, device):
+    conn = _connect(data_dir)
+    return conn.execute('SELECT 1 FROM metric_samples WHERE device=%s LIMIT 1',
+                       (device,)).fetchone() is not None
+
+
 def entity_get(path, key, default=None):
     conn = _connect(_dir(path))
     row = conn.execute('SELECT doc FROM entity WHERE file=%s AND k=%s',

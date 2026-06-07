@@ -47,7 +47,7 @@ _SKIP = not _DSN
 
 def _truncate(S):
     conn = S._connect(None)
-    for t in ('kv', 'devices', 'entity', 'listrow', 'file_meta'):
+    for t in ('kv', 'devices', 'entity', 'listrow', 'file_meta', 'metric_samples'):
         conn.execute(f'TRUNCATE {t}')
 
 
@@ -202,6 +202,22 @@ class TestApiDispatchPostgres(unittest.TestCase):
             one['d1']['cpu'] = 88
         self.api._LOAD_CACHE.clear()
         self.assertEqual(self.api.load(dev)['d1']['cpu'], 88)
+
+    def test_record_metrics_seeds_timeseries_from_recent_window(self):
+        # _record_metrics on a DB backend seeds the time-series from the existing
+        # metrics.json window the first time, so history isn't empty on day one.
+        import time as _t
+        now = int(_t.time())
+        self.api.save(self.api.METRICS_FILE, {'dv': [
+            {'ts': now - 7200, 'cpu': 10, 'mem': 20, 'swap': 1, 'disk': 30},
+            {'ts': now - 3600, 'cpu': 12, 'mem': 22, 'swap': 2, 'disk': 31}]})
+        self.api._LOAD_CACHE.clear()
+        self.assertFalse(self.S.metric_has_any(self.api.DATA_DIR, 'dv'))
+        self.api._record_metrics('dv', {'cpu_percent': 14, 'mem_percent': 24,
+                                        'swap_percent': 3, 'disk_percent': 32})
+        self.assertTrue(self.S.metric_has_any(self.api.DATA_DIR, 'dv'))
+        series = self.S.metric_range(self.api.DATA_DIR, 'dv', now - 86400, max_points=100)
+        self.assertGreaterEqual(len(series), 2)   # seeded history present
 
 
 @unittest.skipIf(_SKIP, "no Postgres DSN")

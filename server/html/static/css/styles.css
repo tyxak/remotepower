@@ -3782,6 +3782,7 @@ td .kev-badge { margin-left: 0; }
 .metric-range-picker { display: flex; gap: 6px; margin-bottom: 12px; }
 .metric-range-btn { padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); font-size: 13px; cursor: pointer; }
 .metric-range-btn.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+.metric-note { margin-bottom: 12px; }
 .isl-358 { font-family: var(--font-mono); font-size: 12px; color: var(--accent) }
 .isl-359 { padding: 16px; color: #666; font-size: 12px; text-align: center }
 .isl-360 { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px }

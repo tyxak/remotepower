@@ -4849,17 +4849,22 @@ async function _loadMetrics() {
     `<button class="metric-range-btn${r.secs === range ? ' sel' : ''}" data-action="setMetricsRange" data-arg="${r.secs}">${r.label}</button>`).join('') + '</div>';
   if (!data || !data.metrics || !data.metrics.length) {
     body.innerHTML = picker +
-      '<div class="empty-state">No samples in this window yet. Metric history is kept on the SQLite/PostgreSQL backend; on JSON only the recent window is available. (Agent needs psutil for CPU/RAM/disk.)</div>';
+      '<div class="empty-state">No metrics recorded for this host yet. CPU/RAM/disk tracking needs <code>psutil</code> on the agent, and a recent heartbeat.</div>';
     return;
   }
   const metrics = data.metrics;
+  // The server fell back to the recent rolling window — long-term history is
+  // only kept on a database backend and accumulates from when it was enabled.
+  const note = data.recent_window
+    ? '<div class="hint metric-note">Showing the recent window. Longer history (up to your retention setting) is kept on the SQLite/PostgreSQL backend and builds up from now — the 30-day view fills in over the coming days.</div>'
+    : '';
   const span = `<div class="sysinfo-row isl-128">
     <div class="sysinfo-pill"><div class="label">Samples</div><div class="value">${metrics.length}</div></div>
     <div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${_fmtTs(metrics[0].ts, range)}</div></div>
     <div class="sysinfo-pill"><div class="label">To</div><div class="value fs-11">${_fmtTs(metrics[metrics.length - 1].ts, range)}</div></div>
   </div>`;
   const charts = _METRIC_SERIES.map(s => _metricSeriesChart(metrics, s.key, s.label, s.color)).join('');
-  body.innerHTML = picker + span +
+  body.innerHTML = picker + note + span +
     `<div class="isl-354">${_metricsOverlayChart(metrics)}${charts}</div>` +
     `<p class="isl-357">Longer windows are downsampled to keep the charts readable. Metric history is stored on the SQLite/PostgreSQL backend.</p>`;
 }

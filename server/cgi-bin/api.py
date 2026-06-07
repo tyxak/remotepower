@@ -9015,7 +9015,16 @@ def _record_metrics(dev_id, sysinfo):
     _m = _dbmod()
     if _m is not None:
         try:
-            _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
+            if not _m.metric_has_any(DATA_DIR, dev_id):
+                # First time we see this device on a DB backend: seed the
+                # time-series from the recent metrics.json window (which already
+                # holds the just-appended sample), so history isn't empty until
+                # 30 days have elapsed.
+                for s in metrics.get(dev_id, []):
+                    _m.metric_append(DATA_DIR, dev_id, int(s.get('ts') or now),
+                                     s.get('cpu'), s.get('mem'), s.get('swap'), s.get('disk'))
+            else:
+                _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
         except Exception:
             pass
 
@@ -9819,12 +9828,17 @@ def handle_metrics(dev_id):
     if rng and _m is not None:
         try:
             secs = max(3600, min(int(rng), 366 * 86400))
-            series = _m.metric_range(DATA_DIR, dev_id, int(time.time()) - secs)
-            respond(200, {'device_id': dev_id, 'metrics': series, 'range': secs})
         except (ValueError, TypeError):
             respond(400, {'error': 'invalid range'})
+        series = _m.metric_range(DATA_DIR, dev_id, int(time.time()) - secs)
+        if series:
+            respond(200, {'device_id': dev_id, 'metrics': series, 'range': secs})
+        # Time-series still empty (just enabled, or this device hasn't reported
+        # since) — fall through to the recent metrics.json window so the chart
+        # shows what we have rather than a dead "no samples".
     metrics = load(METRICS_FILE)
-    respond(200, {'device_id': dev_id, 'metrics': metrics.get(dev_id, [])})
+    respond(200, {'device_id': dev_id, 'metrics': metrics.get(dev_id, []),
+                  'recent_window': True})
 
 
 def _execute_monitor_checks(monitors):
