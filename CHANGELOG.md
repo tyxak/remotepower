@@ -10,6 +10,14 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Tenant isolation (multi-tenancy).** An opt-in *Settings → Security →
+  Multi-tenancy* switch partitions the fleet by tenant: a tenant's admins and
+  operators see only their own devices, while a platform superadmin (an admin in
+  the built-in *default* tenant) still sees everything. Enforced at the same
+  chokepoints as RBAC scoping (device roster, per-device access, and every
+  scope-filtered fleet view), with explicit cross-tenant isolation tests.
+  **Off by default** — enabling it is a deliberate, reversible flip; device
+  reassignment between tenants is superadmin-only.
 - **Browser push notifications (Web Push).** Operators can get a desktop
   notification for high/critical alerts even when RemotePower isn't the active
   tab. *My Account → Browser notifications* subscribes this browser; an admin

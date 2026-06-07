@@ -2699,10 +2699,12 @@ def _scope_filter_devices(devices, scope=None):
     Pass an explicit `scope` to avoid recomputing it; None scope = no filtering
     (admin / viewer / all-scope), returns the dict unchanged."""
     scope = scope if scope is not None else _caller_scope()
-    if scope is None:
-        return devices
-    return {k: v for k, v in (devices or {}).items()
-            if isinstance(v, dict) and _device_in_scope(scope, v)}
+    if scope is not None:
+        devices = {k: v for k, v in (devices or {}).items()
+                   if isinstance(v, dict) and _device_in_scope(scope, v)}
+    # v3.14.0 P2: tenant isolation runs even for admins (a tenant admin has
+    # scope=None but is still confined to their tenant). No-op when off.
+    return _tenant_filter_devices(devices)
 
 
 def _enforce_device_scope():
@@ -2717,11 +2719,15 @@ def _enforce_device_scope():
     seg = pi[len('/api/devices/'):].split('/', 1)[0]
     if not seg or not _validate_id(seg):
         return
-    scope = _caller_scope()
-    if scope is None:
-        return
     dev = (load(DEVICES_FILE) or {}).get(seg)
     if dev is None:
+        return
+    # v3.14.0 P2: tenant isolation — checked before role scope, and applies even
+    # to tenant admins (whose role scope is None).
+    if not _tenant_visible(dev):
+        respond(403, {'error': 'Device belongs to another tenant'})
+    scope = _caller_scope()
+    if scope is None:
         return
     if not _device_in_scope(scope, dev):
         respond(403, {'error': 'Device outside your role scope'})
@@ -2731,11 +2737,13 @@ def _scope_block_device(dev_id):
     """For per-device read endpoints NOT under /api/devices/ (cmdb, acme,
     patch-report/device, …). 403s only if dev_id names a real out-of-scope
     device; otherwise returns (so the handler keeps its own 404 behaviour)."""
-    scope = _caller_scope()
-    if scope is None:
-        return
     dev = (load(DEVICES_FILE) or {}).get(dev_id)
-    if dev is not None and not _device_in_scope(scope, dev):
+    if dev is None:
+        return
+    if not _tenant_visible(dev):     # v3.14.0 P2: tenant isolation
+        respond(403, {'error': 'Device belongs to another tenant'})
+    scope = _caller_scope()
+    if scope is not None and not _device_in_scope(scope, dev):
         respond(403, {'error': 'Device outside your role scope'})
 
 
@@ -6364,6 +6372,7 @@ def _bf_active(dev_bf, cutoff, threshold):
 def handle_devices_list():
     require_auth()
     _scope   = _caller_scope()   # v3.4.2 RBAC: filter roster to role scope
+    _tgate   = _tenant_gate()    # v3.14.0 P2: tenant isolation (None = off / superadmin)
     devices  = load(DEVICES_FILE)
     now      = int(time.time())
     # v3.3.0: ?slim=1 omits the heavy fields (sysinfo, listening_ports,
@@ -6406,6 +6415,8 @@ def handle_devices_list():
     for dev_id, dev in devices.items():
         if _scope is not None and not _device_in_scope(_scope, dev):
             continue   # v3.4.2 RBAC: outside this role's device scope
+        if _tgate is not None and _device_tenant(dev) != _tgate:
+            continue   # v3.14.0 P2: outside this caller's tenant
         last_ping = dev.get('last_seen', 0)
         # v1.11.0: agentless devices don't have a heartbeat. They're "online"
         # if the user marked them so manually; offline_reason is None either way.
@@ -6439,6 +6450,7 @@ def handle_devices_list():
             'poll_interval': dev.get('poll_interval', 60),
             'update_channel': dev.get('update_channel', 'stable'),   # v3.14.0 #38
             'remediation_enabled': bool(dev.get('remediation_enabled')),  # v3.14.0 #31
+            'tenant': _device_tenant(dev),                                 # v3.14.0 #24 P2
 
             'agentless':    agentless,
             'connected_to': dev.get('connected_to', ''),
@@ -6737,6 +6749,14 @@ def handle_device_save_bulk(dev_id):
     # works on a host the operator has explicitly opted in.
     if 'remediation_enabled' in body:
         updates['remediation_enabled'] = bool(body.get('remediation_enabled'))
+
+    # v3.14.0 (#24 P2): assign a device to a tenant. Moving a device across
+    # tenants is a platform-operator action — only a superadmin may do it, and
+    # only to a tenant that exists.
+    if 'tenant' in body and _caller_is_superadmin():
+        _t = _sanitize_str(str(body.get('tenant') or ''), 64)
+        if _t in _load_tenants():
+            updates['tenant'] = _t
 
     # v3.3.4: agentless reachability mode + manual up/down. 'icmp' pings
     # the host each sweep; 'manual' uses manual_status (set by the Up/Down
@@ -7098,6 +7118,54 @@ def _user_tenant(username):
 def _caller_tenant():
     user, _ = verify_token(get_token_from_request())
     return _user_tenant(user) if user else DEFAULT_TENANT
+
+
+# ── v3.14.0 (#24 P2): tenant isolation enforcement ───────────────────────────
+# OFF by default (tenancy_enforced). When off, every function below is a no-op
+# and the product behaves exactly as P1 (one shared 'default' tenant), so
+# enabling isolation is a deliberate, fully reversible flip. When on, a device
+# is visible only to its own tenant — EXCEPT to a "superadmin" (an admin in the
+# built-in default tenant = the platform operator), who sees everything. A
+# tenant's own admin is confined to that tenant. Enforced at the same chokepoints
+# RBAC scoping already uses (_scope_filter_devices / _scope_block_device /
+# _enforce_device_scope) plus the device-roster loop.
+def _tenancy_enforced():
+    return bool((load(CONFIG_FILE) or {}).get('tenancy_enforced'))
+
+
+def _device_tenant(dev):
+    return (dev.get('tenant') if isinstance(dev, dict) else None) or DEFAULT_TENANT
+
+
+def _caller_is_superadmin():
+    """Platform operator: an admin in the built-in default tenant — sees every
+    tenant. Tenant admins are confined to their own tenant."""
+    user, role = verify_token(get_token_from_request())
+    if not user:
+        return False
+    return role == 'admin' and _user_tenant(user) == DEFAULT_TENANT
+
+
+def _tenant_gate():
+    """The caller's tenant id when isolation should apply to them, else None
+    (isolation off, or caller is a superadmin). Computed once per request path
+    so callers don't re-resolve it per device."""
+    if not _tenancy_enforced() or _caller_is_superadmin():
+        return None
+    return _caller_tenant()
+
+
+def _tenant_visible(dev):
+    gate = _tenant_gate()
+    return gate is None or _device_tenant(dev) == gate
+
+
+def _tenant_filter_devices(devices):
+    gate = _tenant_gate()
+    if gate is None:
+        return devices
+    return {k: v for k, v in (devices or {}).items()
+            if isinstance(v, dict) and _device_tenant(v) == gate}
 
 
 def handle_tenants_list():
@@ -10929,6 +10997,7 @@ def handle_config_get():
     safe.setdefault('webpush_enabled', False)
     safe.setdefault('webpush_subject', '')
     safe['vapid_keyed'] = bool(cfg.get('vapid_private_key'))
+    safe.setdefault('tenancy_enforced', False)   # v3.14.0 #24 P2
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
@@ -11553,6 +11622,10 @@ def handle_config_save():
             if ps and ps not in paths:
                 paths.append(ps)
         cfg['secrets_scan_paths'] = paths
+    # v3.14.0 (#24 P2): tenant isolation enforcement (opt-in, default off).
+    if 'tenancy_enforced' in body:
+        cfg['tenancy_enforced'] = bool(body['tenancy_enforced'])
+
     # v3.14.0 #42: browser push notifications (opt-in).
     if 'webpush_enabled' in body:
         cfg['webpush_enabled'] = bool(body['webpush_enabled'])

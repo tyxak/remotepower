@@ -2186,6 +2186,9 @@ async function loadSettings() {
     const sub = document.getElementById('cfg-webpush-subject');
     if (sub) sub.value = data.webpush_subject || '';
   }
+  // v3.14.0 #24 P2: tenant isolation enforcement
+  const _tEn = document.getElementById('cfg-tenancy-enforced');
+  if (_tEn) _tEn.checked = !!data.tenancy_enforced;
   // v3.14.0 #35: secrets-on-disk scanning
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
@@ -2545,6 +2548,9 @@ async function saveSettings(btn) {
     payload.webpush_enabled = _wpSaveEn.checked;
     payload.webpush_subject = (document.getElementById('cfg-webpush-subject')?.value || '').trim();
   }
+  // v3.14.0 #24 P2: tenant isolation enforcement
+  const _tSaveEn = document.getElementById('cfg-tenancy-enforced');
+  if (_tSaveEn) payload.tenancy_enforced = _tSaveEn.checked;
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {

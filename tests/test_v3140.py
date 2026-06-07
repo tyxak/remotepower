@@ -2031,6 +2031,95 @@ class TestWebPushServer(_HandlerBase):
         self.assertNotIn('vapid_private_key', got)
 
 
+class TestTenancyP2(_HandlerBase):
+    """v3.14.0 (#24 P2) — tenant isolation. The load-bearing property: with
+    enforcement ON, a tenant admin sees ONLY their tenant's devices, a superadmin
+    sees all, and it's fully inert when OFF."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.TENANTS_FILE, {'default': {'name': 'Default', 'builtin': True},
+                                    'acme': {'name': 'Acme', 'status': 'active'}})
+        api.save(api.USERS_FILE, {
+            'super':     {'role': 'admin', 'tenant_id': 'default'},
+            'acmeadmin': {'role': 'admin', 'tenant_id': 'acme'},
+        })
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'def-host', 'tenant': 'default'},
+            'd2': {'name': 'acme-host', 'tenant': 'acme'},
+        })
+        self._orig_pathinfo = api.path_info
+        self.addCleanup(setattr, api, 'path_info', self._orig_pathinfo)
+
+    def _as(self, user, role='admin'):
+        api.verify_token = lambda t: (user, role)
+
+    def _enforce(self, on=True):
+        api.save(api.CONFIG_FILE, {'tenancy_enforced': on})
+
+    # ── the core isolation invariants ────────────────────────────────────────
+    def test_inert_when_disabled(self):
+        self._as('acmeadmin')                       # enforcement OFF (no config)
+        out = api._scope_filter_devices(api.load(api.DEVICES_FILE))
+        self.assertEqual(set(out), {'d1', 'd2'})    # sees everything, as P1
+
+    def test_tenant_admin_is_confined(self):
+        self._enforce(); self._as('acmeadmin')
+        out = api._scope_filter_devices(api.load(api.DEVICES_FILE))
+        self.assertEqual(set(out), {'d2'})          # ONLY Acme's device
+
+    def test_superadmin_sees_all_tenants(self):
+        self._enforce(); self._as('super')
+        out = api._scope_filter_devices(api.load(api.DEVICES_FILE))
+        self.assertEqual(set(out), {'d1', 'd2'})
+
+    def test_device_list_endpoint_isolates(self):
+        self._enforce(); self._as('acmeadmin')
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = ''
+        self.addCleanup(os.environ.pop, 'QUERY_STRING', None)
+        rows = self.call(api.handle_devices_list)
+        self.assertEqual({d['id'] for d in rows}, {'d2'})
+
+    def test_cross_tenant_single_device_blocked(self):
+        self._enforce(); self._as('acmeadmin')
+        self.call(api._scope_block_device, 'd1')    # default-tenant device
+        self.assertEqual(self.cap.get('s'), 403)
+
+    def test_own_tenant_device_not_blocked(self):
+        self._enforce(); self._as('acmeadmin')
+        self.cap.clear()
+        self.call(api._scope_block_device, 'd2')    # own tenant
+        self.assertIsNone(self.cap.get('s'))
+
+    def test_enforce_device_scope_blocks_path(self):
+        self._enforce(); self._as('acmeadmin')
+        api.path_info = lambda: '/api/devices/d1/reboot'
+        self.call(api._enforce_device_scope)
+        self.assertEqual(self.cap.get('s'), 403)
+
+    # ── tenant assignment is superadmin-only ─────────────────────────────────
+    def test_tenant_reassign_requires_superadmin(self):
+        self._enforce()
+        api.method = lambda: 'POST'
+        self._as('acmeadmin')                       # tenant admin: must NOT move it
+        api.get_json_body = lambda: {'tenant': 'default'}
+        self.call(api.handle_device_save_bulk, 'd2')
+        self.assertEqual(api.load(api.DEVICES_FILE)['d2'].get('tenant'), 'acme')
+        self._as('super')                           # superadmin: may
+        api.get_json_body = lambda: {'tenant': 'acme'}
+        self.call(api.handle_device_save_bulk, 'd1')
+        self.assertEqual(api.load(api.DEVICES_FILE)['d1']['tenant'], 'acme')
+
+    def test_config_flag_roundtrip(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'tenancy_enforced': True}
+        self.call(api.handle_config_save)
+        self.assertTrue(api.load(api.CONFIG_FILE)['tenancy_enforced'])
+        api.method = lambda: 'GET'
+        self.assertTrue(self.call(api.handle_config_get)['tenancy_enforced'])
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

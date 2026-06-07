@@ -1484,6 +1484,13 @@
               <input type="text" id="cfg-webpush-subject" class="form-input" placeholder="mailto:ops@example.com"></div>
           </div>
 
+          <!-- v3.14.0 #24 P2: tenant isolation -->
+          <div class="settings-section">
+            <h3>Multi-tenancy</h3>
+            <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it deliberately. Tenants, user-to-tenant and device-to-tenant assignment are managed via the API (<code>/api/tenants</code>, a user's <code>tenant_id</code>, and a device's <code>tenant</code>).</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-enforced"> Enforce tenant isolation</label></div>
+          </div>
+
           <div class="settings-section">
             <h3>Session length</h3>
             <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>
