@@ -6763,9 +6763,19 @@ def handle_device_save_bulk(dev_id):
     # control, for hosts that block ping).
     if 'reachability' in body:
         rm = _sanitize_str(body.get('reachability') or '', 16).lower()
-        updates['reachability'] = rm if rm in ('icmp', 'manual') else 'icmp'
+        updates['reachability'] = rm if rm in ('icmp', 'manual', 'ssh') else 'icmp'
     if 'manual_status' in body:
         updates['manual_status'] = bool(body.get('manual_status'))
+    # v3.14.0 #48: agentless SSH connection details.
+    if 'ssh_user' in body:
+        updates['ssh_user'] = _sanitize_str(str(body.get('ssh_user') or ''), 64)
+    if 'ssh_host' in body:
+        updates['ssh_host'] = _sanitize_str(str(body.get('ssh_host') or ''), 255)
+    if 'ssh_port' in body:
+        try:
+            updates['ssh_port'] = max(1, min(65535, int(body.get('ssh_port') or 22)))
+        except (TypeError, ValueError):
+            updates['ssh_port'] = 22
 
     # poll_interval — int, clamp to a reasonable floor
     if 'poll_interval' in body:
@@ -10998,6 +11008,18 @@ def handle_config_get():
     safe.setdefault('webpush_subject', '')
     safe['vapid_keyed'] = bool(cfg.get('vapid_private_key'))
     safe.setdefault('tenancy_enforced', False)   # v3.14.0 #24 P2
+    safe.setdefault('agentless_ssh_enabled', False)   # v3.14.0 #48
+    safe['agentless_ssh_key_set'] = bool(safe.pop('agentless_ssh_key', None))
+    # v3.14.0 #32: cloud accounts — surface provider/region/key-id + a *_set
+    # flag, never the secret key.
+    if isinstance(safe.get('cloud_accounts'), list):
+        safe['cloud_accounts'] = [
+            {'provider': a.get('provider'), 'region': a.get('region'),
+             'access_key_id': a.get('access_key_id'),
+             'secret_key_set': bool(a.get('secret_key'))}
+            for a in safe['cloud_accounts'] if isinstance(a, dict)]
+    else:
+        safe.setdefault('cloud_accounts', [])
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
@@ -11629,6 +11651,45 @@ def handle_config_save():
     # v3.14.0 (#24 P2): tenant isolation enforcement (opt-in, default off).
     if 'tenancy_enforced' in body:
         cfg['tenancy_enforced'] = bool(body['tenancy_enforced'])
+
+    # v3.14.0 (#48): agentless SSH. Opt-in (default off); the private key is a
+    # write-only secret (preserved when omitted, never returned by GET).
+    if 'agentless_ssh_enabled' in body:
+        cfg['agentless_ssh_enabled'] = bool(body['agentless_ssh_enabled'])
+    if 'agentless_ssh_key' in body:
+        k = str(body['agentless_ssh_key'])
+        if k.strip():
+            cfg['agentless_ssh_key'] = k[:8192]
+        else:
+            cfg.pop('agentless_ssh_key', None)
+
+    # v3.14.0 (#32): cloud import accounts. The secret key is preserved across
+    # saves when omitted (mirrors smtp_password) and never returned by GET.
+    if 'cloud_accounts' in body:
+        raw_ca = body['cloud_accounts'] if isinstance(body['cloud_accounts'], list) else []
+        existing = {(a.get('provider'), a.get('region'), a.get('access_key_id')): a
+                    for a in (cfg.get('cloud_accounts') or []) if isinstance(a, dict)}
+        accounts = []
+        for a in raw_ca[:50]:
+            if not isinstance(a, dict):
+                continue
+            prov = str(a.get('provider', '')).strip().lower()
+            if prov != 'aws':                 # v1: AWS only
+                continue
+            region = _sanitize_str(str(a.get('region', '')), 32).strip()
+            akid = _sanitize_str(str(a.get('access_key_id', '')), 128).strip()
+            if not (region and akid):
+                continue
+            entry = {'provider': prov, 'region': region, 'access_key_id': akid}
+            sk = a.get('secret_key')
+            if sk:
+                entry['secret_key'] = str(sk)[:256]
+            else:
+                prev = existing.get((prov, region, akid))
+                if prev and prev.get('secret_key'):
+                    entry['secret_key'] = prev['secret_key']
+            accounts.append(entry)
+        cfg['cloud_accounts'] = accounts
 
     # v3.14.0 #42: browser push notifications (opt-in).
     if 'webpush_enabled' in body:
@@ -14844,6 +14905,118 @@ def handle_proxmox_lifecycle() -> None:
         respond(502, {'error': str(e)})
     audit_log(actor, 'proxmox_lifecycle', label)
     respond(200, {'ok': True, 'task': upid, 'action': label})
+
+
+def handle_cloud_import():
+    """POST /api/cloud/import {provider?, region?} — pull instances from the
+    configured cloud account(s) into the fleet as agentless device records.
+    Admin-only; read-only against the cloud API; idempotent (stable device ids,
+    so re-running updates in place). Returns a per-run summary."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    accounts = cfg.get('cloud_accounts') or []
+    body = get_json_body() or {}
+    want_p = str(body.get('provider', '')).strip().lower()
+    want_r = str(body.get('region', '')).strip()
+    targets = [a for a in accounts if isinstance(a, dict)
+               and (not want_p or a.get('provider') == want_p)
+               and (not want_r or a.get('region') == want_r)]
+    if not targets:
+        respond(400, {'error': 'No matching cloud account is configured.'})
+    import cloud_import
+    new_devs, errors = {}, []
+    for a in targets:
+        if not a.get('secret_key'):
+            errors.append(f"{a.get('provider')}/{a.get('region')}: no secret key set")
+            continue
+        try:
+            insts = cloud_import.import_aws(a['region'], a['access_key_id'], a['secret_key'])
+        except Exception as e:
+            errors.append(f"{a.get('provider')}/{a.get('region')}: {str(e)[:200]}")
+            continue
+        for inst in insts:
+            did, frag = cloud_import.instance_to_device(a['provider'], a['region'], inst)
+            new_devs[did] = frag
+    imported = updated = 0
+    if new_devs:
+        with _LockedUpdate(DEVICES_FILE) as devs:
+            for did, frag in new_devs.items():
+                if did in devs and isinstance(devs[did], dict):
+                    devs[did].update(frag)
+                    updated += 1
+                else:
+                    frag['enrolled'] = int(time.time())
+                    devs[did] = frag
+                    imported += 1
+    audit_log(actor, 'cloud_import',
+              f'imported={imported} updated={updated} errors={len(errors)}')
+    respond(200, {'ok': True, 'imported': imported, 'updated': updated, 'errors': errors})
+
+
+def _ssh_preflight(dev_id):
+    """Shared gate for the agentless-SSH endpoints: admin + global opt-in + a
+    configured key + RBAC/tenant scope + the device's connection details.
+    Returns (cfg, dev, host, user, port, key) or responds and exits."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('agentless_ssh_enabled'):
+        respond(403, {'error': 'Agentless SSH is disabled. Enable it in Settings → Security.'})
+    key = cfg.get('agentless_ssh_key')
+    if not key:
+        respond(400, {'error': 'No SSH private key is configured.'})
+    devs = load(DEVICES_FILE) or {}
+    dev = devs.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    if dev_id not in _scope_filter_devices(devs):
+        respond(403, {'error': 'Out of scope'})
+    host = dev.get('ssh_host') or dev.get('ip') or dev.get('hostname') or ''
+    user = dev.get('ssh_user') or ''
+    if not (host and user):
+        respond(400, {'error': 'Device has no SSH user / host configured.'})
+    return cfg, dev, host, user, int(dev.get('ssh_port') or 22), key
+
+
+def handle_device_ssh_exec(dev_id):
+    """POST /api/devices/<id>/ssh-exec {command} — run a command on an agentless
+    host over SSH. Admin-only; global opt-in; the device's command allowlist is
+    enforced; audited."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg, dev, host, user, port, key = _ssh_preflight(dev_id)
+    command = _sanitize_str(str((get_json_body() or {}).get('command') or ''), 2000)
+    if not command:
+        respond(400, {'error': 'command required'})
+    ok, reason = _check_exec_allowlist(dev_id, command, load(DEVICES_FILE) or {})
+    if not ok:
+        respond(403, {'error': reason})
+    import ssh_agent
+    res = ssh_agent.run(host, user, command, key, port=port)
+    audit_log(actor, 'ssh_exec', f'dev={dev_id} rc={res["rc"]} cmd={command[:120]}')
+    respond(200, {'ok': res['ok'], 'rc': res['rc'], 'output': res['output']})
+
+
+def handle_device_ssh_poll(dev_id):
+    """POST /api/devices/<id>/ssh-poll — collect a basic sysinfo snapshot over
+    SSH and store it on the device, so an agentless-SSH host shows real metrics.
+    Admin-only; global opt-in; audited."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg, dev, host, user, port, key = _ssh_preflight(dev_id)
+    import ssh_agent
+    res = ssh_agent.run(host, user, ssh_agent.SYSINFO_SCRIPT, key, port=port)
+    info = ssh_agent.parse_sysinfo(res['output']) if res['ok'] else {}
+    if info:
+        with _LockedUpdate(DEVICES_FILE) as d:
+            if dev_id in d:
+                d[dev_id].setdefault('sysinfo', {}).update(info)
+                d[dev_id]['last_seen'] = int(time.time())
+    audit_log(actor, 'ssh_poll', f'dev={dev_id} ok={res["ok"]}')
+    respond(200, {'ok': res['ok'], 'sysinfo': info,
+                  'output': '' if info else res['output'][:500]})
 
 
 # ── v2.8.0: Listening port audit ──────────────────────────────────────────────
@@ -35140,6 +35313,7 @@ def _build_exact_routes():
         ('GET', '/api/proxmox/status'): handle_proxmox_status,
         ('POST', '/api/proxmox/test'): handle_proxmox_test,
         ('POST', '/api/proxmox/lifecycle'): handle_proxmox_lifecycle,   # v3.14.0 #33
+        ('POST', '/api/cloud/import'): handle_cloud_import,             # v3.14.0 #32
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,
         ('GET', '/api/schedule'): handle_schedule_list,
@@ -35484,6 +35658,10 @@ def _dispatch(pi, m):
     elif pi == '/api/compliance' and m == 'GET':  handle_compliance()
     elif pi == '/api/compliance/remediate' and m == 'POST':  handle_compliance_remediate()  # v3.14.0 #31
     # v2.1.7: per-device AI-generated runbooks
+    elif pi.startswith('/api/devices/') and pi.endswith('/ssh-exec') and m == 'POST':
+        handle_device_ssh_exec(pi[len('/api/devices/'):-len('/ssh-exec')])   # v3.14.0 #48
+    elif pi.startswith('/api/devices/') and pi.endswith('/ssh-poll') and m == 'POST':
+        handle_device_ssh_poll(pi[len('/api/devices/'):-len('/ssh-poll')])   # v3.14.0 #48
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
         handle_runbook_get(pi[len('/api/devices/'):-len('/runbook')])
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook/generate') and m == 'POST':

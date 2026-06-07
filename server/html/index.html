@@ -1223,6 +1223,23 @@
 
         <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-integrations">
+          <!-- v3.14.0 #32: cloud inventory import (AWS EC2) -->
+          <div class="settings-section">
+            <h3>Cloud import (AWS EC2)</h3>
+            <p class="hint">Pull EC2 instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / <code>aws</code> / region). Read-only — uses an IAM access key with <code>ec2:DescribeInstances</code>. Re-running updates in place. Other providers come later.</p>
+            <div id="cloud-accounts-list" class="mb-12"></div>
+            <div class="settings-row isl-82">
+              <div class="form-group"><label class="form-label">Region</label>
+                <input type="text" id="cloud-region" class="form-input mw-160" placeholder="eu-west-1"></div>
+              <div class="form-group isl-83"><label class="form-label">Access key ID</label>
+                <input type="text" id="cloud-akid" class="form-input" placeholder="AKIA…"></div>
+              <div class="form-group isl-83"><label class="form-label">Secret access key</label>
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="cloud-secret" class="form-input" placeholder="secret" autocomplete="off"></form></div>
+              <button class="btn-secondary" data-action="addCloudAccount">Add</button>
+            </div>
+            <div class="settings-row"><button class="btn-primary" data-action="runCloudImport">Import now</button><span id="cloud-import-status" class="hint ml-8"></span></div>
+          </div>
+
           <!-- v3.14.0: push fleet metrics to a Prometheus Pushgateway / remote target. -->
           <div class="settings-section">
             <h3>Metrics push (Prometheus)</h3>
@@ -1489,6 +1506,16 @@
             <h3>Multi-tenancy</h3>
             <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it deliberately. Tenants, user-to-tenant and device-to-tenant assignment are managed via the API (<code>/api/tenants</code>, a user's <code>tenant_id</code>, and a device's <code>tenant</code>).</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-enforced"> Enforce tenant isolation</label></div>
+          </div>
+
+          <!-- v3.14.0 #48: agentless SSH -->
+          <div class="settings-section">
+            <h3>Agentless SSH</h3>
+            <p class="hint">Run commands and collect basic metrics on hosts with <strong>no agent</strong>, over SSH. <strong>Off by default.</strong> Set an agentless device's <em>reachability</em> to SSH and its SSH user (device drawer), then use Poll/Run there. Connections are non-interactive (<code>BatchMode</code>, key-only, trust-on-first-use); each command is admin-only, allowlist-checked, and audited. The private key is write-only — never returned by the API.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-agentless-ssh-enabled"> Enable agentless SSH</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-agentless-ssh-key">SSH private key (PEM)</label>
+              <textarea id="cfg-agentless-ssh-key" class="form-input ff-mono" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></div>
+            <div class="hint" id="cfg-agentless-ssh-key-status"></div>
           </div>
 
           <div class="settings-section">

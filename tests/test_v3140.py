@@ -2185,6 +2185,179 @@ class TestProxmoxLifecycle(_HandlerBase):
         self.assertTrue(self.cap['b'].get('approval_required'))
 
 
+_EC2_SAMPLE_XML = """<DescribeInstancesResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
+ <reservationSet><item><instancesSet><item>
+   <instanceId>i-0abc123</instanceId><instanceType>t3.micro</instanceType>
+   <privateIpAddress>10.0.0.5</privateIpAddress><ipAddress>1.2.3.4</ipAddress>
+   <instanceState><name>running</name></instanceState>
+   <placement><availabilityZone>eu-west-1a</availabilityZone></placement>
+   <tagSet><item><key>Name</key><value>web-1</value></item></tagSet>
+ </item></instancesSet></item></reservationSet>
+</DescribeInstancesResponse>"""
+
+
+class TestCloudImport(_HandlerBase):
+    """v3.14.0 #32 — AWS EC2 inventory import (SigV4 + parse + device mapping)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
+        cls.ci = importlib.import_module("cloud_import")
+
+    def test_sigv4_get_vanilla_vector(self):
+        auth, _sh, _ph = self.ci.sigv4_authorization(
+            'GET', 'example.amazonaws.com', 'us-east-1', 'service', '/', '', b'',
+            'AKIDEXAMPLE', 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+            '20150830T123600Z', '20150830')
+        self.assertEqual(auth.split('Signature=')[1],
+                         '5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31')
+
+    def test_parse_and_map(self):
+        insts = self.ci.parse_ec2_instances(_EC2_SAMPLE_XML)
+        self.assertEqual(len(insts), 1)
+        i = insts[0]
+        self.assertEqual((i['instance_id'], i['name'], i['state']), ('i-0abc123', 'web-1', 'running'))
+        did, frag = self.ci.instance_to_device('aws', 'eu-west-1', i)
+        self.assertEqual(did, 'aws-i-0abc123')
+        self.assertTrue(frag['agentless'])
+        self.assertEqual(frag['ip'], '10.0.0.5')
+        self.assertIn('cloud', frag['tags'])
+
+    def test_import_aws_uses_mock_opener(self):
+        import io
+        class _Resp(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): self.close()
+        insts = self.ci.import_aws('eu-west-1', 'AKIA', 'sk',
+                                   _opener=lambda req, timeout=15: _Resp(_EC2_SAMPLE_XML.encode()))
+        self.assertEqual(insts[0]['instance_id'], 'i-0abc123')
+
+    def test_config_secret_preserved_and_redacted(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'cloud_accounts': [
+            {'provider': 'aws', 'region': 'eu-west-1', 'access_key_id': 'AKIA', 'secret_key': 'sk1'}]}
+        self.call(api.handle_config_save)
+        # save again WITHOUT the secret → preserved
+        api.get_json_body = lambda: {'cloud_accounts': [
+            {'provider': 'aws', 'region': 'eu-west-1', 'access_key_id': 'AKIA'}]}
+        self.call(api.handle_config_save)
+        self.assertEqual((api.load(api.CONFIG_FILE))['cloud_accounts'][0]['secret_key'], 'sk1')
+        # GET redacts the secret to a flag
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        acc = got['cloud_accounts'][0]
+        self.assertTrue(acc['secret_key_set'])
+        self.assertNotIn('secret_key', acc)
+
+    def test_import_handler_creates_agentless_devices(self):
+        api.save(api.CONFIG_FILE, {'cloud_accounts': [
+            {'provider': 'aws', 'region': 'eu-west-1', 'access_key_id': 'AKIA', 'secret_key': 'sk'}]})
+        orig = self.ci.import_aws
+        self.ci.import_aws = lambda region, ak, sk: self.ci.parse_ec2_instances(_EC2_SAMPLE_XML)
+        try:
+            api.method = lambda: 'POST'
+            api.get_json_body = lambda: {}
+            r = self.call(api.handle_cloud_import)
+        finally:
+            self.ci.import_aws = orig
+        self.assertEqual(r['imported'], 1)
+        dev = (api.load(api.DEVICES_FILE))['aws-i-0abc123']
+        self.assertTrue(dev['agentless'])
+        self.assertEqual(dev['cloud']['region'], 'eu-west-1')
+
+    def test_import_handler_no_account(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        self.call(api.handle_cloud_import)
+        self.assertEqual(self.cap['s'], 400)
+
+
+class TestSshAgent(_HandlerBase):
+    """v3.14.0 #48 — agentless SSH (argv build, sysinfo parse, gated handlers)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib
+        sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
+        cls.sa = importlib.import_module("ssh_agent")
+
+    def test_argv_is_batchmode_keyonly(self):
+        argv = self.sa.build_ssh_argv('h1', 'root', 2222, '/tmp/k', 'uptime')
+        self.assertEqual(argv[0], 'ssh')
+        self.assertIn('BatchMode=yes', argv)
+        self.assertIn('StrictHostKeyChecking=accept-new', argv)
+        self.assertIn('2222', argv)
+        self.assertIn('root@h1', argv)
+        self.assertEqual(argv[-1], 'uptime')
+
+    def test_run_with_injected_runner_and_parse(self):
+        class _R:
+            returncode = 0
+            stdout = ('motd banner\n{"os":"Linux 6.1","hostname":"h1",'
+                      '"uptime":"3 days","mem_percent":"42","disk_percent":"70",'
+                      '"loadavg_1m":"0.5"}\n')
+            stderr = ''
+        res = self.sa.run('h', 'u', 'x', 'KEYDATA', runner=lambda a, timeout=30: _R())
+        self.assertTrue(res['ok'])
+        info = self.sa.parse_sysinfo(res['output'])
+        self.assertEqual(info['platform'], 'Linux 6.1')
+        self.assertEqual(info['mem_percent'], 42.0)
+        self.assertEqual(info['disk_percent'], 70.0)
+
+    def test_exec_handler_gated_on_optin(self):
+        api.save(api.CONFIG_FILE, {})       # agentless SSH disabled
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'ip': '10.0.0.9',
+                                           'ssh_user': 'root', 'agentless': True}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'command': 'uptime'}
+        self.call(api.handle_device_ssh_exec, 'd1')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_exec_handler_runs_with_mock(self):
+        api.save(api.CONFIG_FILE, {'agentless_ssh_enabled': True,
+                                   'agentless_ssh_key': 'KEY'})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'ip': '10.0.0.9',
+                                           'ssh_user': 'root', 'agentless': True}})
+        orig = self.sa.run
+        self.sa.run = lambda *a, **k: {'ok': True, 'rc': 0, 'output': 'hi'}
+        try:
+            api.method = lambda: 'POST'
+            api.get_json_body = lambda: {'command': 'uptime'}
+            r = self.call(api.handle_device_ssh_exec, 'd1')
+        finally:
+            self.sa.run = orig
+        self.assertTrue(r['ok'])
+        self.assertEqual(r['output'], 'hi')
+
+    def test_poll_handler_updates_sysinfo(self):
+        api.save(api.CONFIG_FILE, {'agentless_ssh_enabled': True, 'agentless_ssh_key': 'KEY'})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'ip': '10.0.0.9',
+                                           'ssh_user': 'root', 'agentless': True}})
+        orig = self.sa.run
+        self.sa.run = lambda *a, **k: {'ok': True, 'rc': 0,
+                                       'output': '{"os":"Linux 6.1","disk_percent":"55"}'}
+        try:
+            api.method = lambda: 'POST'
+            api.get_json_body = lambda: {}
+            r = self.call(api.handle_device_ssh_poll, 'd1')
+        finally:
+            self.sa.run = orig
+        self.assertTrue(r['ok'])
+        si = (api.load(api.DEVICES_FILE))['d1']['sysinfo']
+        self.assertEqual(si['platform'], 'Linux 6.1')
+        self.assertEqual(si['disk_percent'], 55.0)
+
+    def test_key_never_leaked(self):
+        api.save(api.CONFIG_FILE, {'agentless_ssh_enabled': True,
+                                   'agentless_ssh_key': '-----BEGIN OPENSSH PRIVATE KEY-----'})
+        api.method = lambda: 'GET'
+        got = self.call(api.handle_config_get)
+        self.assertTrue(got['agentless_ssh_key_set'])
+        self.assertNotIn('agentless_ssh_key', got)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

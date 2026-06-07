@@ -10,6 +10,19 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Agentless SSH.** Hosts with **no agent** can now be polled for basic metrics
+  and run the occasional command over SSH — set a device's *reachability* to SSH
+  and its SSH user (device drawer), then *Poll over SSH*. Non-interactive
+  (`BatchMode`, key-only, trust-on-first-use, timeout-bounded); each command is
+  admin-only, allowlist-checked, and audited. Off by default; the private key
+  (set in *Settings → Security → Agentless SSH*) is write-only. Shells out to the
+  system `ssh` — no extra dependency.
+- **Cloud inventory import (AWS EC2).** *Settings → Integrations → Cloud import*
+  pulls EC2 instances into the fleet as **agentless** device records (tagged
+  `cloud`/`aws`/region), read-only and idempotent (stable ids, re-run updates in
+  place). AWS SigV4 request signing is implemented on stdlib (`hmac`) — verified
+  against AWS's published `get-vanilla` test vector — so no SDK is needed. The
+  IAM secret key is write-only (never returned by the API). Azure/GCP later.
 - **macOS agent.** A minimal `client/remotepower-agent-mac.py` speaks the same
   enroll / heartbeat / command-queue contract as the Linux and Windows agents,
   so a Mac enrolls into the fleet with metrics (via `sysctl`/`system_profiler`

@@ -2189,6 +2189,15 @@ async function loadSettings() {
   // v3.14.0 #24 P2: tenant isolation enforcement
   const _tEn = document.getElementById('cfg-tenancy-enforced');
   if (_tEn) _tEn.checked = !!data.tenancy_enforced;
+  // v3.14.0 #48: agentless SSH
+  const _sshEn = document.getElementById('cfg-agentless-ssh-enabled');
+  if (_sshEn) {
+    _sshEn.checked = !!data.agentless_ssh_enabled;
+    const ks = document.getElementById('cfg-agentless-ssh-key-status');
+    if (ks) ks.textContent = data.agentless_ssh_key_set ? 'A key is set — leave the box blank to keep it.' : 'No key set yet.';
+  }
+  // v3.14.0 #32: cloud import accounts
+  renderCloudAccounts(data.cloud_accounts || []);
   // v3.14.0 #35: secrets-on-disk scanning
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
@@ -2553,6 +2562,13 @@ async function saveSettings(btn) {
   // v3.14.0 #24 P2: tenant isolation enforcement
   const _tSaveEn = document.getElementById('cfg-tenancy-enforced');
   if (_tSaveEn) payload.tenancy_enforced = _tSaveEn.checked;
+  // v3.14.0 #48: agentless SSH
+  const _sshSaveEn = document.getElementById('cfg-agentless-ssh-enabled');
+  if (_sshSaveEn) {
+    payload.agentless_ssh_enabled = _sshSaveEn.checked;
+    const k = document.getElementById('cfg-agentless-ssh-key')?.value || '';
+    if (k.trim()) payload.agentless_ssh_key = k;
+  }
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {
@@ -12961,6 +12977,14 @@ function _renderProxmoxGuest(g, kind) {
   </div>`;
 }
 
+// v3.14.0 #48: poll an agentless host's metrics over SSH (uses the global key).
+async function sshPollDevice(devId) {
+  toast('Polling over SSH…', 'info');
+  const r = await api('POST', `/devices/${devId}/ssh-poll`, {}).catch(() => null);
+  if (r?.ok) { toast('SSH poll OK — metrics updated', 'success'); loadDevices(); }
+  else toast(r?.error || (r?.output ? 'SSH failed: ' + String(r.output).slice(0, 120) : 'SSH poll failed'), 'error');
+}
+
 // v3.14.0 #33: destructive VM/CT lifecycle. reboot is one-shot; migrate/clone
 // collect a target/newid; everything confirms first.
 async function proxmoxLifecycle(guestType, vmid, action, name) {
@@ -14336,6 +14360,67 @@ async function addBackupMonitor() {
   } else toast(r?.error || 'Failed', 'error');
 }
 
+// ─── v3.14.0 #32: cloud import accounts (AWS EC2) ──────────────────────────
+let _cloudAccounts = [];
+function renderCloudAccounts(accounts) {
+  _cloudAccounts = (accounts || []).map(a => ({ ...a }));
+  const el = document.getElementById('cloud-accounts-list');
+  if (!el) return;
+  if (!_cloudAccounts.length) {
+    el.innerHTML = '<div class="isl-616">No cloud accounts configured.</div>';
+    return;
+  }
+  el.innerHTML = _cloudAccounts.map((a, i) => `
+    <div class="isl-617">
+      <span class="cmd-badge">${escHtml(a.provider || 'aws')}</span>
+      <span class="isl-618">${escHtml(a.region || '')}</span>
+      <span class="hint"><code>${escHtml(a.access_key_id || '')}</code></span>
+      <span class="hint">${a.secret_key_set ? 'secret set' : '<span class="c-red">no secret</span>'}</span>
+      <button class="btn-icon c-red" data-action="removeCloudAccount" data-arg="${i}">✕</button>
+    </div>`).join('');
+}
+async function _saveCloudAccounts() {
+  // Send provider/region/access_key_id only; the server preserves existing
+  // secrets (matched by provider+region+key id) and merges any newly typed one.
+  const payload = _cloudAccounts.map(a => ({ provider: a.provider || 'aws',
+    region: a.region, access_key_id: a.access_key_id,
+    ...(a.secret_key ? { secret_key: a.secret_key } : {}) }));
+  return api('POST', '/config', { cloud_accounts: payload });
+}
+async function addCloudAccount() {
+  const region = (document.getElementById('cloud-region')?.value || '').trim();
+  const akid = (document.getElementById('cloud-akid')?.value || '').trim();
+  const secret = document.getElementById('cloud-secret')?.value || '';
+  if (!region || !akid) { toast('Region and access key ID required', 'error'); return; }
+  _cloudAccounts.push({ provider: 'aws', region, access_key_id: akid, secret_key: secret, secret_key_set: !!secret });
+  const r = await _saveCloudAccounts();
+  if (r?.ok) {
+    toast('Cloud account added', 'success');
+    document.getElementById('cloud-region').value = '';
+    document.getElementById('cloud-akid').value = '';
+    document.getElementById('cloud-secret').value = '';
+    loadSettings();
+  } else { _cloudAccounts.pop(); toast(r?.error || 'Failed', 'error'); }
+}
+async function removeCloudAccount(idx) {
+  _cloudAccounts.splice(idx, 1);
+  const r = await _saveCloudAccounts();
+  if (r?.ok) { renderCloudAccounts(_cloudAccounts); toast('Removed', 'info'); }
+  else toast('Failed', 'error');
+}
+async function runCloudImport() {
+  const st = document.getElementById('cloud-import-status');
+  if (st) st.textContent = 'Importing…';
+  const r = await api('POST', '/cloud/import', {}).catch(() => null);
+  if (r?.ok) {
+    const msg = `Imported ${r.imported}, updated ${r.updated}` + (r.errors?.length ? `, ${r.errors.length} error(s)` : '');
+    if (st) st.textContent = msg;
+    toast(msg, r.errors?.length ? 'info' : 'success');
+    if (r.errors?.length) console.warn('cloud import errors:', r.errors);
+    loadDevices();
+  } else { if (st) st.textContent = ''; toast(r?.error || 'Import failed', 'error'); }
+}
+
 async function removeBackupMonitor(idx) {
   _backupMonitors.splice(idx, 1);
   if (_backupEditIdx === idx) _backupEditIdx = -1;
@@ -14638,12 +14723,20 @@ function _renderDrawerSettings() {
       <select class="form-input isl-621" id="ds-reachability" data-change="onReachabilityModeChange">
         <option value="icmp" ${(d.reachability || 'icmp') === 'icmp' ? 'selected' : ''}>ICMP ping</option>
         <option value="manual" ${(d.reachability || 'icmp') === 'manual' ? 'selected' : ''}>Manual (set Up/Down)</option>
+        <option value="ssh" ${(d.reachability || 'icmp') === 'ssh' ? 'selected' : ''}>SSH (agentless)</option>
       </select>
       <label class="click-row-6 ${(d.reachability || 'icmp') === 'manual' ? '' : 'd-none'}" id="ds-manual-status-row">
         <input type="checkbox" id="ds-manual-status" ${d.manual_status !== false ? 'checked' : ''}>
         <span class="fs-12">Device is up</span>
       </label>
-      <span class="hint">ICMP pings the host each sweep; switch to Manual for hosts that block ping.</span>
+      <span class="hint">ICMP pings the host each sweep; Manual for hosts that block ping; SSH polls metrics + runs commands over SSH (agent-free).</span>
+    </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">SSH user / port</span>
+      <input class="form-input isl-619" id="ds-ssh-user" value="${escAttr(d.ssh_user||'')}" placeholder="root">
+      <input class="form-input isl-621" id="ds-ssh-port" type="number" value="${d.ssh_port||22}" min="1" max="65535">
+      <button class="btn-icon" data-action="sshPollDevice" data-arg="${escAttr(d.id)}">Poll over SSH</button>
+      <span class="hint">Uses the global SSH key (Settings → Security → Agentless SSH). Save first, then Poll.</span>
     </div>` : ''}
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Poll interval</span>
@@ -14805,6 +14898,12 @@ async function _drawerSaveSettings() {
   if (reachEl) {
     body.reachability = reachEl.value;
     body.manual_status = !!document.getElementById('ds-manual-status')?.checked;
+  }
+  // v3.14.0 #48: agentless SSH connection details.
+  const sshUserEl = document.getElementById('ds-ssh-user');
+  if (sshUserEl) {
+    body.ssh_user = sshUserEl.value.trim();
+    body.ssh_port = parseInt(document.getElementById('ds-ssh-port')?.value || '22', 10) || 22;
   }
   // v3.14.0 #38: agent release channel (form only shows it for agent devices).
   const chEl = document.getElementById('ds-channel');
