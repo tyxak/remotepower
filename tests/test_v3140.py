@@ -2524,6 +2524,56 @@ class TestRosterAndTransport(unittest.TestCase):
             self.assertTrue((_ROOT / rel).exists(), rel)
 
 
+class TestCodeQLHardening(_HandlerBase):
+    """v4 — closes the CodeQL High alerts: session tokens hashed at rest,
+    anchored webhook-host matching, no token-body in OIDC error logs."""
+
+    def test_session_tokens_hashed_at_rest(self):
+        # The at-rest key must be the SHA-256 of the bearer token, never the
+        # raw token itself — a leaked tokens.json yields no usable session.
+        api.save(api.USERS_FILE, {'erin': {'role': 'admin', 'created': 1}})
+        token = api._mint_session('erin')
+        keys = list(api.load(api.TOKENS_FILE).keys())
+        self.assertEqual(len(keys), 1)
+        self.assertNotIn(token, keys)                       # raw token NOT stored
+        self.assertEqual(keys[0], api._token_hash(token))   # hash IS the key
+        self.assertEqual(len(keys[0]), 64)                  # full sha256 hex
+
+    def test_verify_token_resolves_hashed_session(self):
+        # _HandlerBase stubs verify_token; use the real one to prove resolution.
+        verify = self._orig['verify_token']
+        api.save(api.USERS_FILE, {'frank': {'role': 'viewer', 'created': 1}})
+        token = api._mint_session('frank')
+        self.assertEqual(verify(token), ('frank', 'viewer'))
+        self.assertEqual(verify('not-a-real-token'), (None, None))
+
+    def test_legacy_raw_keyed_session_still_resolves(self):
+        # Backward-compat: a session minted before the hash switch (raw key)
+        # keeps working until it expires, so upgrades don't force a re-login.
+        verify = self._orig['verify_token']
+        api.save(api.USERS_FILE, {'gita': {'role': 'admin', 'created': 1}})
+        raw = 'legacy-raw-token-xyz'
+        api.save(api.TOKENS_FILE, {raw: {'user': 'gita', 'created': int(api.time.time()),
+                                         'ttl': 999999}})
+        self.assertEqual(verify(raw), ('gita', 'admin'))
+
+    def test_webhook_host_match_is_anchored(self):
+        # exact apex + real subdomain match …
+        self.assertEqual(api._auto_detect_format('https://discord.com/api/webhooks/x'), 'discord')
+        self.assertEqual(api._auto_detect_format('https://hooks.slack.com/services/x'), 'slack')
+        # … but a spoofed look-alike host must NOT be classified as trusted.
+        self.assertEqual(api._auto_detect_format('https://discord.com.attacker.tld/x'), 'generic')
+        self.assertEqual(api._auto_detect_format('https://evil-slack.com/x'), 'generic')
+
+    def test_oidc_error_does_not_log_response_body(self):
+        # The clear-text-logging sink is gone: the source must not echo the raw
+        # token-endpoint body into the server log.
+        src = (_ROOT / 'server/cgi-bin/api.py').read_text()
+        i = src.find('OIDC token exchange failed')
+        snippet = src[i - 600:i + 120]
+        self.assertNotIn('{body_text}', snippet)
+
+
 class TestNoDeprecatedDatetime(unittest.TestCase):
     """v3.14.0 fix — no deprecated naive-UTC datetime calls (they spam stderr →
     nginx error log under Python 3.12+ and are scheduled for removal)."""
@@ -2836,7 +2886,8 @@ class TestSSOProvisioning(_HandlerBase):
     def test_mint_session_resolves_via_verify_token(self):
         api.save(api.USERS_FILE, {'dave': {'role': 'admin', 'created': 1}})
         token = api._mint_session('dave', extra={'oidc': True})
-        rec = api.load(api.TOKENS_FILE)[token]
+        # v4: tokens are hashed at rest — look up by the SHA-256 key, not raw.
+        rec = api.load(api.TOKENS_FILE)[api._token_hash(token)]
         self.assertEqual(rec['user'], 'dave')
         self.assertTrue(rec['oidc'])
         self.assertIn('last_seen', rec)

@@ -2100,6 +2100,42 @@ def make_token():
     return secrets.token_urlsafe(32)
 
 
+def _token_hash(token):
+    """At-rest key for a session token. New sessions are stored in tokens.json
+    keyed by the SHA-256 of the bearer token (never the token itself), so a file
+    read can't yield a usable session. Lookups try the hashed key first, then
+    fall back to the raw key so sessions minted before the hash-at-rest switch
+    (and test fixtures that seed raw keys) keep resolving until they expire.
+    `_session_id` returns the first 16 hex of this same digest, so a hashed
+    key's `[:16]` prefix IS the public session id (no double-hashing)."""
+    if not isinstance(token, str):
+        token = str(token or '')
+    return hashlib.sha256(token.encode('utf-8', 'replace')).hexdigest()
+
+
+def _looks_hashed_key(k):
+    """True for a current at-rest key (64-char SHA-256 hex). A raw bearer token
+    (token_urlsafe(32), ~43 url-safe chars) never matches."""
+    return isinstance(k, str) and len(k) == 64 and all(c in '0123456789abcdef' for c in k)
+
+
+def _resolve_token_key(token, tokens):
+    """Return the key under which `token`'s session lives in `tokens` (hashed
+    form preferred, raw form as legacy fallback), or None if absent."""
+    hk = _token_hash(token)
+    if hk in tokens:
+        return hk
+    if token in tokens:
+        return token
+    return None
+
+
+def _key_session_id(k):
+    """Public session id for a stored key — `k[:16]` for a hashed key, or
+    `sha256(k)[:16]` for a legacy raw key. Both equal `_session_id(raw_token)`."""
+    return k[:16] if _looks_hashed_key(k) else _session_id(k)
+
+
 # ── v3.14.0: shared SSO provisioning + session minting ──────────────────────
 # Factored out so every SSO path (OIDC today, SAML next) provisions users and
 # mints sessions by the SAME rules — provisioning logic can't drift between
@@ -2145,7 +2181,7 @@ def _mint_session(username, extra=None, remember_me=False):
     if extra:
         rec.update(extra)
     with _LockedUpdate(TOKENS_FILE) as tokens:
-        tokens[token] = rec
+        tokens[_token_hash(token)] = rec
     return token
 
 def verify_token(token):
@@ -2157,16 +2193,18 @@ def verify_token(token):
     if not token:
         return None, None
 
-    # Session tokens
+    # Session tokens — keyed by SHA-256 of the bearer token (hashed at rest);
+    # legacy raw-keyed sessions still resolve via the fallback.
     tokens = load(TOKENS_FILE)
     now = int(time.time())
-    entry = tokens.get(token)
+    tkey = _resolve_token_key(token, tokens)
+    entry = tokens.get(tkey) if tkey else None
     if entry:
         # v1.8.4: tokens may have their own ttl (per-session — controlled by
         # remember-me at login). Fall back to legacy TOKEN_TTL.
         ttl = entry.get('ttl', TOKEN_TTL)
         if now - entry['created'] > ttl:
-            del tokens[token]
+            del tokens[tkey]
             save(TOKENS_FILE, tokens)
         else:
             username = entry.get('user')
@@ -5114,13 +5152,20 @@ def _auto_detect_format(url):
         host = (urllib.parse.urlparse(url).hostname or '').lower()
     except Exception:
         return 'generic'
-    if 'discord.com' in host or 'discordapp.com' in host:    return 'discord'
-    if 'hooks.slack.com' in host:                             return 'slack'
-    if 'api.pushover.net' in host:                            return 'pushover'
-    if 'outlook.office.com' in host or 'webhook.office.com' in host: return 'teams'
-    if host == 'ntfy.sh' or host.endswith('.ntfy.sh'):        return 'ntfy'
-    if 'events.pagerduty.com' in host:                        return 'pagerduty'
-    if 'opsgenie.com' in host:                                return 'opsgenie'
+
+    def _host_in(*domains):
+        # Anchored host match — exact apex or a real subdomain. Substring
+        # checks (`'discord.com' in host`) are spoofable by
+        # `discord.com.attacker.tld`, so match the apex or a dotted suffix.
+        return any(host == d or host.endswith('.' + d) for d in domains)
+
+    if _host_in('discord.com', 'discordapp.com'):       return 'discord'
+    if _host_in('hooks.slack.com', 'slack.com'):         return 'slack'
+    if _host_in('api.pushover.net', 'pushover.net'):     return 'pushover'
+    if _host_in('outlook.office.com', 'webhook.office.com', 'office.com'): return 'teams'
+    if _host_in('ntfy.sh'):                              return 'ntfy'
+    if _host_in('events.pagerduty.com', 'pagerduty.com'): return 'pagerduty'
+    if _host_in('opsgenie.com'):                         return 'opsgenie'
     return 'generic'
 
 
@@ -6365,7 +6410,7 @@ def handle_login():
     ttl = get_session_ttl(remember_me=remember_me)
     tokens = load(TOKENS_FILE)
     _now_login = int(time.time())
-    tokens[token] = {
+    tokens[_token_hash(token)] = {
         'user':      username,
         'created':   _now_login,
         'ttl':       ttl,
@@ -23604,7 +23649,8 @@ def handle_revoke_sessions():
     else:
         # Revoke all except requester's current session
         current_token = get_token_from_request()
-        pruned = {k: v for k, v in tokens.items() if k == current_token}
+        _cur_keys = {_token_hash(current_token), current_token}
+        pruned = {k: v for k, v in tokens.items() if k in _cur_keys}
         count = len(tokens) - len(pruned)
     save(TOKENS_FILE, pruned)
     audit_log(requester, 'revoke_sessions', f'target={target_user or "all"}, revoked={count}')
@@ -26103,8 +26149,8 @@ def handle_me_sessions():
         if now - int(e.get('created', 0)) > ttl:
             continue  # expired but not yet swept
         out.append({
-            'id':       _session_id(tok),
-            'current':  _session_id(tok) == cur,
+            'id':       _key_session_id(tok),
+            'current':  _key_session_id(tok) == cur,
             'ip':       _sanitize_str(str(e.get('ip', '')), 64),
             'ua':       _sanitize_str(str(e.get('ua', '')), 256),
             'created':  int(e.get('created', 0)),
@@ -26124,7 +26170,7 @@ def handle_me_session_revoke(sid):
     with _LockedUpdate(TOKENS_FILE) as tokens:
         for tok in list(tokens.keys()):
             e = tokens.get(tok)
-            if isinstance(e, dict) and e.get('user') == user and _session_id(tok) == sid:
+            if isinstance(e, dict) and e.get('user') == user and _key_session_id(tok) == sid:
                 del tokens[tok]
                 revoked = True
                 break
@@ -26145,7 +26191,7 @@ def handle_me_sessions_revoke_others():
     with _LockedUpdate(TOKENS_FILE) as tokens:
         for tok in list(tokens.keys()):
             e = tokens.get(tok)
-            if isinstance(e, dict) and e.get('user') == user and _session_id(tok) != cur:
+            if isinstance(e, dict) and e.get('user') == user and _key_session_id(tok) != cur:
                 del tokens[tok]
                 n += 1
     audit_log(user, 'session_revoke_others', f'count={n}')
@@ -27684,14 +27730,21 @@ def handle_oidc_callback():
         with _opener.open(req, timeout=15) as resp:
             token_resp = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
-        body_text = ''
+        # The error body from a token endpoint can echo back the client_secret
+        # or a partial token — never write it to the server log. Log only the
+        # OAuth `error`/`error_description` codes (safe per RFC 6749 §5.2), and
+        # return just the code to the caller.
+        err_code = ''
         try:
-            body_text = e.read().decode('utf-8', errors='replace')[:240]
+            _parsed = json.loads(e.read().decode('utf-8', errors='replace') or '{}')
+            if isinstance(_parsed, dict):
+                err_code = _sanitize_str(str(_parsed.get('error', '')), 64)
         except Exception:
             pass
-        sys.stderr.write(f'[remotepower] OIDC token exchange failed: HTTP {e.code}: {body_text}\n')
+        sys.stderr.write(f'[remotepower] OIDC token exchange failed: HTTP {e.code}'
+                         + (f' ({err_code})' if err_code else '') + '\n')
         respond(502, {'error': f'token exchange failed: HTTP {e.code}',
-                      'detail': body_text})
+                      'detail': err_code or 'see IdP'})
     except Exception as e:
         respond(502, {'error': f'token exchange failed: {e}'})
 
@@ -35217,7 +35270,8 @@ def _enforce_password_change():
     # Only block session tokens (those that map into TOKENS_FILE).
     # API keys live in apikeys.json and are not subject to this gate.
     tokens = load(TOKENS_FILE)
-    entry = tokens.get(token)
+    _tk = _resolve_token_key(token, tokens)
+    entry = tokens.get(_tk) if _tk else None
     if not entry:
         return  # Probably an API key — pass through
 
