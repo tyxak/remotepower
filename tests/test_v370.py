@@ -28,10 +28,10 @@ HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 class TestVersionBumps(unittest.TestCase):
     # v3.8.0: loosened to regex — v3.8.0 holds the strict pin (test_v380.py).
     def test_api_server_version(self):
-        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_version(self):
-        self.assertRegex(AGENT, r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(AGENT, r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -40,17 +40,17 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         self.assertRegex((REPO_ROOT / 'server' / 'html' / 'sw.js').read_text(),
-                         r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'")
+                         r"'remotepower-shell-v\d+\.\d+\.\d+(?:-[a-z0-9]+)?'")
 
     def test_index_cache_bust(self):
-        self.assertRegex(HTML, r'\?v=3\.\d+\.\d+')
+        self.assertRegex(HTML, r'\?v=\d+\.\d+\.\d+')
 
     def test_readme_badge(self):
-        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-\d+\.\d+\.\d+-blue\.svg')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        self.assertRegex(chlog, r'## v3\.\d+\.\d+')
+        self.assertRegex(chlog, r'## v\d+\.\d+\.\d+')
 
     def test_release_notes_doc_present(self):
         # v3.7.0 release notes must stay present forever

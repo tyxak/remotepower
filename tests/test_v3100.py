@@ -44,13 +44,13 @@ class TestVersionBumps(unittest.TestCase):
     def test_versions(self):
         # v3.11.0: loosened from the exact 3.10.0 pin (the live strict pin
         # moved to tests/test_v3110.py) so a later bump doesn't fail this file.
-        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'\d+\.\d+\.\d+'")
         self.assertRegex((REPO_ROOT / 'client' / 'remotepower-agent.py').read_text(),
-                         r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
+                         r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
         self.assertRegex((REPO_ROOT / 'server' / 'html' / 'sw.js').read_text(),
-                         r"remotepower-shell-v3\.\d+\.\d+")
-        self.assertRegex(HTML, r'\?v=3\.\d+\.\d+')
-        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
+                         r"remotepower-shell-v\d+\.\d+\.\d+")
+        self.assertRegex(HTML, r'\?v=\d+\.\d+\.\d+')
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-\d+\.\d+\.\d+-blue\.svg')
 
     def test_agent_extensionless_matches(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -68,7 +68,7 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_whats_new_card_present(self):
         # loosened: any What's-new card for a 3.1x release satisfies this.
-        self.assertRegex(HTML, r"What's new — v3\.\d+\.\d+")
+        self.assertRegex(HTML, r"What's new — v\d+\.\d+\.\d+")
 
 
 # ─── F1: image-registry SSRF ─────────────────────────────────────────────────

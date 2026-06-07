@@ -395,7 +395,7 @@ class TestPwaInstallFix(unittest.TestCase):
         the strict v3.0.3 / v3.0.4 pins to accept a v3.x.x marker with
         an optional suffix (v3.0.4-csp1, etc.)."""
         sw = self.SW_JS.read_text()
-        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
+        self.assertRegex(sw, r"'remotepower-shell-v\d+\.\d+\.\d+(?:-[a-z0-9]+)?'",
             'sw.js CACHE_NAME must carry a v3.x.x marker.')
         self.assertNotIn("'remotepower-shell-v3.0.2'", sw,
             'sw.js still references the v3.0.2 cache name.')
@@ -418,7 +418,7 @@ class TestPwaInstallFix(unittest.TestCase):
 # v3.0.4 took over the top slot in CHANGELOG.md and bumped every
 # version string, those strict pins started failing here even though
 # the v3.0.3 features they protect are still correct. Loosen to a
-# `^3\.\d+\.\d+$` regex; the new strict pin lives in test_v304.py.
+# `^\d+\.\d+\.\d+$` regex; the new strict pin lives in test_v304.py.
 # Same pattern test_v302.py followed when v3.0.3 shipped.
 
 class TestVersionBumps(unittest.TestCase):
@@ -426,14 +426,14 @@ class TestVersionBumps(unittest.TestCase):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
-        self.assertRegex(m.group(1), r'^3\.\d+\.\d+$',
+        self.assertRegex(m.group(1), r'^\d+\.\d+\.\d+$',
             'SERVER_VERSION must still be a 3.x.x string')
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
         m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'VERSION line missing from agent')
-        self.assertRegex(m.group(1), r'^3\.\d+\.\d+$')
+        self.assertRegex(m.group(1), r'^\d+\.\d+\.\d+$')
 
     def test_agent_extensionless_matches_py(self):
         """install-client.sh installs the extensionless file — it must
@@ -446,7 +446,7 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_readme_badge(self):
         text = (REPO_ROOT / 'README.md').read_text()
-        self.assertRegex(text, r'version-3\.\d+\.\d+-blue\.svg',
+        self.assertRegex(text, r'version-\d+\.\d+\.\d+-blue\.svg',
             'README.md version badge missing or not a 3.x.x string')
 
     def test_v303_entry_still_present(self):

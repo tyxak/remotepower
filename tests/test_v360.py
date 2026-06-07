@@ -27,11 +27,11 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.assertRegex(text, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(text, r"SERVER_VERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        self.assertRegex(text, r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(text, r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -40,18 +40,18 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'")
+        self.assertRegex(sw, r"'remotepower-shell-v\d+\.\d+\.\d+(?:-[a-z0-9]+)?'")
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertRegex(html, r'\?v=3\.\d+\.\d+')
+        self.assertRegex(html, r'\?v=\d+\.\d+\.\d+')
 
     def test_readme_badge(self):
-        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-\d+\.\d+\.\d+-blue\.svg')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
+        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
         self.assertIsNotNone(m)
 
     def test_release_notes_doc_present(self):

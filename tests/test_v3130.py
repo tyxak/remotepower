@@ -34,11 +34,11 @@ class TestVersionBumps(unittest.TestCase):
     # v3.14.0: loosened from the exact 3.13.0 pins (the live strict pin moved to
     # tests/test_v3140.py) so a later bump doesn't fail this file.
     def test_server_version(self):
-        self.assertRegex(api.SERVER_VERSION, r'^3\.\d+\.\d+$')
+        self.assertRegex(api.SERVER_VERSION, r'^\d+\.\d+\.\d+$')
 
     def test_agent_version(self):
         txt = (_ROOT / "client/remotepower-agent.py").read_text()
-        self.assertRegex(txt, r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(txt, r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_extensionless_matches_py(self):
         a = (_ROOT / "client/remotepower-agent.py").read_bytes()
@@ -48,27 +48,27 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         txt = (_ROOT / "server/html/sw.js").read_text()
-        self.assertRegex(txt, r"remotepower-shell-v3\.\d+\.\d+")
+        self.assertRegex(txt, r"remotepower-shell-v\d+\.\d+\.\d+")
 
     def test_index_cache_bust(self):
         txt = (_ROOT / "server/html/index.html").read_text()
-        self.assertRegex(txt, r"\?v=3\.\d+\.\d+")
+        self.assertRegex(txt, r"\?v=\d+\.\d+\.\d+")
         self.assertNotIn("?v=3.12.0", txt)
 
     def test_readme_badge(self):
         txt = (_ROOT / "README.md").read_text()
-        self.assertRegex(txt, r"version-3\.\d+\.\d+-blue")
+        self.assertRegex(txt, r"version-\d+\.\d+\.\d+-blue")
 
     def test_changelog_top_entry(self):
         txt = (_ROOT / "CHANGELOG.md").read_text()
-        self.assertRegex(txt[:2000], r"v3\.\d+\.\d+")
+        self.assertRegex(txt[:2000], r"v\d+\.\d+\.\d+")
 
     def test_version_doc_exists(self):
         self.assertTrue(list((_ROOT / "docs").glob("v3.*.md")))
 
     def test_whats_new_card_present(self):
         html = (_ROOT / "server/html/index.html").read_text()
-        self.assertRegex(html, r"What's new — v3\.\d+\.\d+")
+        self.assertRegex(html, r"What's new — v\d+\.\d+\.\d+")
 
 
 class TestDataBindings(unittest.TestCase):

@@ -203,7 +203,7 @@ class TestSelfStatus(_ApiTestBase):
             self.api.respond = orig_respond
         self.assertEqual(captured.get('status'), 200)
         data = captured['data']
-        self.assertRegex(data['server_version'], r'^3\.\d+\.\d+$',
+        self.assertRegex(data['server_version'], r'^\d+\.\d+\.\d+$',
             'self-status server_version should be a 3.x.x string')
         self.assertIn('devices', data)
         self.assertEqual(data['devices']['monitored'], 2)
@@ -309,7 +309,7 @@ class TestVersionConsistencyV302(unittest.TestCase):
         import re
         m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
         self.assertIsNotNone(m)
-        self.assertRegex(m.group(1), r'^3\.\d+\.\d+$')
+        self.assertRegex(m.group(1), r'^\d+\.\d+\.\d+$')
         # And the v3.0.2 entry must still be present somewhere in the file.
         self.assertIn('## v3.0.2', chlog,
             'v3.0.2 entry was removed from CHANGELOG.md')
@@ -319,7 +319,7 @@ class TestVersionConsistencyV302(unittest.TestCase):
         marker — exact match for 3.0.2, loosened to any 3.x.x going
         forward since test_v303+ now hold the strict pin."""
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertRegex(sw, r"remotepower-shell-v3\.\d+\.\d+",
+        self.assertRegex(sw, r"remotepower-shell-v\d+\.\d+\.\d+",
             'sw.js CACHE_NAME must contain a 3.x.x version marker')
 
     def test_api_server_version_is_302(self):
@@ -327,11 +327,11 @@ class TestVersionConsistencyV302(unittest.TestCase):
         # doesn't depend on the api module loading cleanly.
         # Loosened to any 3.x.x after v3.0.3 took over the strict pin.
         src = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.assertRegex(src, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(src, r"SERVER_VERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_version_is_302(self):
         src = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        self.assertRegex(src, r"VERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(src, r"VERSION\s*=\s*'\d+\.\d+\.\d+'")
 
 
 if __name__ == '__main__':

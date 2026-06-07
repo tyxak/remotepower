@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.14.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.0.0">
 
 </head>
 <body>
@@ -2394,9 +2394,9 @@
 
         <div id="docs-container" class="isl-102">
           <details class="doc-card" open data-keywords="release notes changelog v3.14.0 favorites favourite star pin sidebar nav per account per user sync across devices localStorage api me api favorites stale image badge container update available registry digest image updates drawer fleet thermal hottest hosts temperature temps cpu chipset disk smart sensor heat overheat celsius degrees service worker cache f5 refresh reset">
-            <summary><strong>What's new — v3.14.0</strong> — per-account sidebar favorites, per-container stale-image badge, and a fleet thermal "hottest hosts" page</summary>
+            <summary><strong>What's new — v4.0.0</strong> — the big one: scale (PostgreSQL HA, relay satellites, load-balanced nodes), encryption everywhere, deep fleet visibility, and a security-hardening pass</summary>
             <div class="doc-body">
-              <p>Three operator-facing conveniences. No breaking changes, no new dependencies — the thermal page and the stale-image badge both render data the agent already reports. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.14.0</code>).</p>
+              <p>v4.0.0 is a large, polished release that folds together everything since v3.13. It scales out (optional PostgreSQL backend with automatic failover + read replicas, relay satellites for segmented networks, load-balanced multi-node), encrypts every hop (incl. the agent→satellite relay), surfaces far more of what the agent already collects, and ships a focused security-hardening pass. No breaking changes for a single-node JSON install — most of it surfaces data you already have. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.0.0</code>).</p>
               <ul>
                 <li><strong>Per-account sidebar favorites.</strong> Hover any entry in the sidebar groups and click the star to pin a copy under the <strong>“Main”</strong> label, so your most-used pages are always one click away. Favorites are stored on your account and follow you across browsers and devices (the browser keeps only a fast-paint cache). Keyboard accessible; works for real pages and section-jump rows alike.</li>
                 <li><strong>Per-container stale-image badge.</strong> The device drawer's <strong>Containers</strong> table now shows an <em>update</em> badge when a container's running image is older than the latest digest in the registry — the same check the fleet <strong>Image Updates</strong> page makes, so the two never disagree. Locally-built and accepted images aren't flagged.</li>
@@ -2423,8 +2423,14 @@
                 <li><strong>Customizable dashboard.</strong> A <em>Customize</em> button on the Home page shows/hides and reorders the dashboard widgets; the layout is saved to your account and follows you across devices.</li>
                 <li><strong>Interface language.</strong> <em>My Account → Language</em> switches the UI between English, Mandarin, Hindi, Spanish and Arabic (RTL); the choice is saved to your account and follows you across devices.</li>
                 <li><strong>Change approval covers more actions.</strong> The optional second-admin approval now also gates reboot, shutdown, update/upgrade, uninstall and container actions — not just Run command.</li>
+                <li><strong>Scale-out: PostgreSQL + HA.</strong> An optional PostgreSQL backend (alongside flat-JSON and SQLite) with automatic failover across a multi-host DSN and optional read replicas, a PgBouncer pooler, and a load-balanced multi-node mode behind a trusted proxy. For 1000+ agents. See <code>docs/scaling.md</code>.</li>
+                <li><strong>Relay satellites + encryption everywhere.</strong> Run a relay satellite in a segmented network so agents never reach the server directly; the agent→satellite hop can run over HTTPS, and agents can trust an internal CA without weakening verification. See <code>docs/satellites.md</code>.</li>
+                <li><strong>macOS agent &amp; more installers.</strong> A launchd-based macOS agent joins Linux + Windows; new install scripts for satellites, PostgreSQL (incl. HA primary/standby), PgBouncer and an HAProxy example. <code>docs/deployment.md</code> maps every component to its script.</li>
+                <li><strong>Large-fleet UI guards.</strong> No page floods on a huge fleet — the Devices grid and the Thermal / Storage / SSH-key / Power roll-ups cap what they render and scroll, with a "refine your filter" prompt.</li>
+                <li><strong>Report an issue.</strong> A button on this page (and About) opens a prefilled GitHub bug report with app version, browser and recent client errors — no credentials, no fleet data.</li>
+                <li><strong>Security hardening.</strong> Session tokens are hashed at rest, OIDC token-exchange errors never log the response body, webhook-host matching is anchored against look-alike domains, AWS cloud-import region input is validated through the SSRF-safe fetch path, and Ansible runs trust host keys on first use instead of disabling the check. Independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean. See <code>docs/security.md</code>.</li>
               </ul>
-              <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v3.14.0.md</code>.</p>
+              <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v4.0.0.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v3.13.0 bind it together device drawer recent logins source ip access watch who logged in systemd timers scheduled jobs failed cron storage raid pools zfs mdadm btrfs per host listening port bind address scope world lan local firewall fingerprint ruleset brute force lockout badge disk swap pills overflow scrollbar 15 lines max height scroll cap performance immutable cache static assets defer script fleet risk cache hardening scap report sandbox csp oidc id_token exp aud iss expiry audience syslog dns rebinding toctou polish">
@@ -4497,6 +4503,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="storage-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
+          <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="storage-thead"><tr>
               <th data-col="device">Device</th><th data-col="pool">Pool</th><th data-col="kind">Type</th>
@@ -4504,19 +4511,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tr></thead>
             <tbody id="storage-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
+          </div>
         </div>
       </div>
 
       <!-- ── v3.14.0: Fleet thermal roll-up (hottest hosts) ─────────────── -->
       <div id="page-thermal" class="page">
         <div class="page-title">Thermal health</div>
-        <div class="page-subtitle">Hottest hosts across the fleet — CPU, chipset and disk temperatures the agents already report. Each host shows its single hottest sensor; the list is sorted hottest-first and anything ≥75 °C is flagged. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Hottest hosts across the fleet — CPU, chipset and disk temperatures the agents already report. Each host shows its single hottest sensor; the list is sorted hottest-first and anything ≥75 °C is flagged. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadThermal" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / sensor…" data-input="filterRows" data-input-el="1" data-filter-target="#thermal-tbody tr">
           <span id="thermal-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
+          <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="thermal-thead"><tr>
               <th data-col="device">Device</th><th data-col="max_temp">Max temp</th>
@@ -4525,19 +4534,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tr></thead>
             <tbody id="thermal-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
           </table>
+          </div>
         </div>
       </div>
 
       <!-- ── v3.14.0: SSH key audit ─────────────────────────────────────── -->
       <div id="page-ssh-keys" class="page">
         <div class="page-title">SSH key audit</div>
-        <div class="page-subtitle">Every <code>authorized_keys</code> entry across the fleet, with OpenSSH SHA256 fingerprints. Weak key types and keys reused across multiple hosts are listed first. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Every <code>authorized_keys</code> entry across the fleet, with OpenSSH SHA256 fingerprints. Weak key types and keys reused across multiple hosts are listed first. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadSshKeys" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / user / key…" data-input="filterRows" data-input-el="1" data-filter-target="#ssh-keys-tbody tr">
           <span id="ssh-keys-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
+          <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="ssh-keys-thead"><tr>
               <th data-col="device">Device</th><th data-col="user">User</th>
@@ -4546,19 +4557,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tr></thead>
             <tbody id="ssh-keys-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
+          </div>
         </div>
       </div>
 
       <!-- ── v3.14.0: Fleet power / UPS + energy ────────────────────────── -->
       <div id="page-power" class="page">
         <div class="page-title">Power &amp; energy</div>
-        <div class="page-subtitle">UPS status and measured power draw across the fleet. Hosts on battery are listed first. Set your electricity price to estimate energy cost from the live total. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">UPS status and measured power draw across the fleet. Hosts on battery are listed first. Set your electricity price to estimate energy cost from the live total. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadPower" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <label class="hint">Cost <input type="number" id="power-cost-kwh" class="form-input input-cost-kwh" min="0" step="0.01" value="0.30" data-input="renderPowerCost" data-input-value="1"> /kWh</label>
           <span id="power-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
+          <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="power-thead"><tr>
               <th data-col="device">Device</th><th data-col="status">UPS status</th>
@@ -4567,6 +4580,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tr></thead>
             <tbody id="power-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
+          </div>
         </div>
         <!-- v3.14.0 (#41): cost allocation / chargeback -->
         <div class="dash-card mt-16">
@@ -4579,7 +4593,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.14.0: predictive disk-failure maintenance ───────────────── -->
       <div id="page-disk-health" class="page">
         <div class="page-title">Predictive health</div>
-        <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/v3.14.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadDiskHealth" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / disk…" data-input="filterRows" data-input-el="1" data-filter-target="#disk-health-tbody tr">
@@ -6628,19 +6642,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=3.14.0"></script>
-<script defer src="static/js/app.js?v=3.14.0"></script>
+<script defer src="static/js/i18n.js?v=4.0.0"></script>
+<script defer src="static/js/app.js?v=4.0.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=3.14.0"></script>
-<script defer src="static/js/app-cmdb.js?v=3.14.0"></script>
-<script defer src="static/js/app-containers.js?v=3.14.0"></script>
-<script defer src="static/js/app-network.js?v=3.14.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.0.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.0.0"></script>
+<script defer src="static/js/app-containers.js?v=4.0.0"></script>
+<script defer src="static/js/app-network.js?v=4.0.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=3.14.0"></script>
-<script defer src="static/js/app-compliance.js?v=3.14.0"></script>
-<script defer src="static/js/app-integrations.js?v=3.14.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.0.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.0.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.0.0"></script>
 
-<script defer src="static/js/sw-register.js?v=3.14.0"></script>
+<script defer src="static/js/sw-register.js?v=4.0.0"></script>
 </body>
 </html>

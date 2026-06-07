@@ -2,12 +2,18 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v3.14.0 — 2026-06-06
+## v4.0.0 — 2026-06-07
 
-A batch of operator-facing features — favorites, container/CVE/thermal/endurance
-visibility, session management, and power scheduling. No breaking changes, no new
-dependencies; most of it surfaces data the agent already reports. See
-[docs/v3.14.0.md](docs/v3.14.0.md).
+The 4.0 release — a large, polished step that folds together everything since
+v3.13. It scales out (optional **PostgreSQL** backend with automatic failover +
+read replicas, **relay satellites** for segmented networks, **load-balanced
+multi-node**), **encrypts every hop** including the agent→satellite relay,
+surfaces far more of what the agent already collects (thermal, power/UPS, SSH-key
+audit, endurance, predictive health, KEV/EPSS CVE ranking), adds a **macOS agent**
+and a full set of install scripts, and ships a focused **security-hardening** pass
+(independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean).
+No breaking changes for a single-node flat-JSON install; most features surface
+data the agent already reports. See [docs/v4.0.0.md](docs/v4.0.0.md).
 
 ### Added
 - **Encrypt every hop, incl. satellites.** The relay satellite can now serve the
@@ -345,6 +351,15 @@ dependencies; most of it surfaces data the agent already reports. See
   URL's host on the apex or a real dotted subdomain, so `discord.com` no longer
   matches `discord.com.attacker.tld`. Closes CodeQL "incomplete URL substring
   sanitization."
+- **Cloud import (AWS) goes through the SSRF-safe path.** The EC2 region — which
+  is interpolated into the request host — is now validated against the AWS region
+  shape, and the fetch uses the anti-rebinding, no-redirect opener.
+- **Ansible runs trust host keys on first use** (`accept-new` + a per-run
+  known_hosts) instead of disabling host-key checking outright, matching the
+  agentless-SSH posture.
+- **Independent security scan.** This release was scanned with **wapiti**,
+  **nikto**, **nuclei**, **bandit** and **OWASP ZAP** — no findings. Details in
+  [docs/security.md](docs/security.md).
 
 ### Changed
 - **Home "Fleet roster · 7-day status" is now capped at 15 hosts, worst-first.**

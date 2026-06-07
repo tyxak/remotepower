@@ -54,7 +54,7 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v3.14.0.md](v3.14.0.md)** — per-account sidebar favorites; per-container
+- **[v4.0.0.md](v4.0.0.md)** — per-account sidebar favorites; per-container
  stale-image badge; fleet thermal roll-up ("hottest hosts").
 - **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
  at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.

@@ -15,6 +15,7 @@ bearer flows) can slot in later. Credentials are supplied by api.py from config
 import datetime
 import hashlib
 import hmac
+import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -120,10 +121,20 @@ def parse_ec2_instances(xml_text):
     return out
 
 
+# AWS region shape — e.g. eu-west-1, us-east-2, us-gov-east-1 (≥1 middle word).
+_REGION_RE = re.compile(r'^[a-z]{2}(-[a-z]+)+-\d$')
+
+
 def import_aws(region, access_key, secret_key, timeout=15, _opener=None):
     """Fetch running/all EC2 instances for one region. Returns a list of flat
     instance dicts (see parse_ec2_instances). Raises RuntimeError on failure.
-    `_opener` is injected by tests to avoid a real network call."""
+    `_opener` is injected by tests to avoid a real network call (and by the
+    server with an SSRF-safe opener)."""
+    # Region is operator-supplied; it's interpolated into the request host
+    # (`ec2.<region>.amazonaws.com`), so pin it to the AWS region shape before
+    # use — a value with /@#: could otherwise reshape the target host.
+    if not isinstance(region, str) or not _REGION_RE.match(region):
+        raise RuntimeError(f'Invalid AWS region: {region!r}')
     params = {'Action': 'DescribeInstances', 'Version': _EC2_API_VERSION}
     query = _canonical_query(params)
     host, headers = ec2_request_headers(region, access_key, secret_key, query)

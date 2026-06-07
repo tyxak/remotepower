@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.14.0'
+SERVER_VERSION = '4.0.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -8071,7 +8071,13 @@ def handle_ansible_playbook_run(pb_id):
             argv += ['-e', '@' + ev_path]
         if become:
             argv.append('--become')
-        env = dict(os.environ, ANSIBLE_HOST_KEY_CHECKING='False',
+        # Trust-on-first-use rather than blanket-disable host-key checking: the
+        # first connect records the host key (accept-new), and a later key
+        # change is then refused — same posture as the agentless SSH path
+        # (ssh_exec.py). Honours an existing known_hosts in the Ansible env.
+        env = dict(os.environ, ANSIBLE_HOST_KEY_CHECKING='True',
+                   ANSIBLE_SSH_ARGS='-o StrictHostKeyChecking=accept-new '
+                                    '-o UserKnownHostsFile=' + os.path.join(workdir, 'known_hosts'),
                    ANSIBLE_RETRY_FILES_ENABLED='False')
         if ssh_key:
             key_path = os.path.join(workdir, 'id_key')
@@ -15025,7 +15031,11 @@ def handle_cloud_import():
             errors.append(f"{a.get('provider')}/{a.get('region')}: no secret key set")
             continue
         try:
-            insts = cloud_import.import_aws(a['region'], a['access_key_id'], a['secret_key'])
+            # SSRF-safe: block local/meta peers + refuse redirects (the EC2
+            # host is public). cloud_import also pins region to the AWS shape.
+            _aws_opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True).open
+            insts = cloud_import.import_aws(a['region'], a['access_key_id'],
+                                            a['secret_key'], _opener=_aws_opener)
         except Exception as e:
             errors.append(f"{a.get('provider')}/{a.get('region')}: {str(e)[:200]}")
             continue

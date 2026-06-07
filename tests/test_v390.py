@@ -43,13 +43,13 @@ APP = client_js()
 class TestVersionBumps(unittest.TestCase):
     # v3.10.0: loosened to regex — v3.10.0 now holds the strict pin (test_v3100.py).
     def test_versions(self):
-        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'\d+\.\d+\.\d+'")
         self.assertRegex((REPO_ROOT / 'client' / 'remotepower-agent.py').read_text(),
-                         r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
+                         r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
         self.assertRegex((REPO_ROOT / 'server' / 'html' / 'sw.js').read_text(),
-                         r"remotepower-shell-v3\.\d+\.\d+")
-        self.assertRegex(HTML, r'\?v=3\.\d+\.\d+')
-        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
+                         r"remotepower-shell-v\d+\.\d+\.\d+")
+        self.assertRegex(HTML, r'\?v=\d+\.\d+\.\d+')
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-\d+\.\d+\.\d+-blue\.svg')
 
     def test_agent_extensionless_matches(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()

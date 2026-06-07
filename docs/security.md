@@ -11,6 +11,36 @@
 - Viewer role users cannot queue commands, change config, or access API keys
 - `apikeys.json`, `tokens.json`, and `users.json` are owned by the CGI user mode `700` - protect your server
 - Agent state files (`/var/lib/remotepower/` mode `0700`) use `O_NOFOLLOW` on every read/write to defeat symlink attacks from local non-root users
+- **Session tokens are hashed at rest** — `tokens.json` is keyed by the SHA-256 of the bearer token, never the token itself, so a leaked file yields no usable session
+- Agents verify the server's TLS certificate (`CERT_REQUIRED` + hostname check); an internal CA can be trusted via `RP_CA_BUNDLE` *in addition to* the system store, never instead of it. The agent→satellite relay hop can also run over HTTPS
+
+## Independent security testing
+
+Each release is scanned with an external toolchain in addition to the code-level
+review and CI guardrails. **v4.0.0 was scanned with [wapiti](https://wapiti-scanner.github.io/),
+[nikto](https://github.com/sullo/nikto), [nuclei](https://github.com/projectdiscovery/nuclei),
+[bandit](https://github.com/PyCQA/bandit) and [OWASP ZAP](https://www.zaproxy.org/)
+and passed clean** (no actionable findings). The strict Content-Security-Policy
+(`default-src 'self'`, no `unsafe-inline`), full security-header set (HSTS,
+X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
+COOP/CORP), same-origin enforcement on state-changing requests, and the SSRF-safe
+fetch path (peer-IP revalidation + no-redirect) were all verified live.
+
+### v4.0.0 hardening pass
+
+- Session tokens hashed at rest (above).
+- OIDC token-exchange failures log only the HTTP status + OAuth error code, never the IdP response body (which can echo a client secret).
+- Webhook-host classification is anchored to the apex / a real subdomain, so look-alike hosts (`discord.com.attacker.tld`) aren't trusted.
+- AWS cloud-import validates the region against the AWS region shape and fetches through the anti-rebinding, no-redirect opener.
+- Ansible runs trust host keys on first use (`accept-new` + a per-run `known_hosts`) instead of disabling host-key checking.
+
+> **Defense-in-depth note:** agent self-update enforces a signature only when an
+> operator pins a release public key and enables *require-signed-updates*
+> (opt-in). On its own the server-supplied SHA-256 is an integrity check, not an
+> authenticity one — so a server compromise could push a binary. Enable signed
+> updates on internet-exposed or multi-tenant deployments. Devices managed over
+> RouterOS/MikroTik default to the vendor self-signed cert (TLS verification is a
+> per-device opt-in, `routeros.verify`); enable it where the device has a trusted cert.
 
 ---
 
@@ -20,7 +50,7 @@ All data in `/var/lib/remotepower/` (owned by `www-data`, mode `700`):
 |------|----------|
 | `users.json` | Admin accounts + bcrypt hashes + roles |
 | `devices.json` | Enrolled devices, MAC, group, notes, cached sysinfo + journal |
-| `tokens.json` | Active browser sessions (7-day TTL) |
+| `tokens.json` | Active browser sessions (7-day TTL), keyed by SHA-256 of the token |
 | `apikeys.json` | Named API keys (values stored here) |
 | `pins.json` | Pending enrollment PINs |
 | `commands.json` | Pending command queue per device |

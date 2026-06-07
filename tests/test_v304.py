@@ -103,12 +103,12 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        m = re.search(r"^SERVER_VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
+        m = re.search(r"^SERVER_VERSION\s*=\s*'(\d+\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        m = re.search(r"^VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
+        m = re.search(r"^VERSION\s*=\s*'(\d+\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'VERSION line missing from agent')
 
     def test_agent_extensionless_matches_py(self):
@@ -119,22 +119,22 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
+        self.assertRegex(sw, r"'remotepower-shell-v\d+\.\d+\.\d+(?:-[a-z0-9]+)?'",
             'sw.js CACHE_NAME must carry a v3.x.x marker')
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertRegex(html, r'\?v=3\.\d+\.\d+',
+        self.assertRegex(html, r'\?v=\d+\.\d+\.\d+',
             'index.html cache-bust ?v= must be a 3.x.x version')
 
     def test_readme_badge(self):
         text = (REPO_ROOT / 'README.md').read_text()
-        self.assertRegex(text, r'version-3\.\d+\.\d+-blue\.svg',
+        self.assertRegex(text, r'version-\d+\.\d+\.\d+-blue\.svg',
             'README.md version badge missing 3.x.x marker')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
+        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
         self.assertIsNotNone(m, 'CHANGELOG.md has no ## v3.x.x header')
 
     def test_release_notes_doc_present_for_current_version(self):

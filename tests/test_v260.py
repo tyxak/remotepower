@@ -425,7 +425,7 @@ class TestVersionConsistency(unittest.TestCase):
         # for no good reason — the test's actual job is "is this a
         # post-2.6.0 release?", not "is this one of these specific
         # versions?". Same loosening pattern test_v303 followed.
-        self.assertRegex(self.ver, r'^(2\.[6-9]|2\.[1-9][0-9]+|3\.\d+)\.\d+$',
+        self.assertRegex(self.ver, r'^(2\.[6-9]|2\.[1-9][0-9]+|[3-9]\.\d+)\.\d+$',
             f'server version {self.ver!r} is older than 2.6.0')
 
     def test_agent_py(self):
