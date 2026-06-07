@@ -1,0 +1,84 @@
+# loadbalancer-haproxy.cfg.example — front a multi-node RemotePower install.
+#
+#   agents / UI ──> HAProxy (TLS) ──> app node 1 ─┐
+#                                  ──> app node 2 ─┼──> one PostgreSQL (HA)
+#                                  ──> app node N ─┘
+#
+# Each app node is an identical nginx + fcgiwrap + RemotePower install, all
+# pointed at the same Postgres DSN (RP_PG_DSN). The app is stateless (sessions
+# are DB-backed tokens), so plain round-robin works — NO stickiness needed.
+#
+# Prereqs on every app node:
+#   - same code under /var/www/remotepower (incl. the agent/ binary)
+#   - RP_PG_DSN (or the storage marker) → the shared Postgres
+#   - DATA_DIR on shared storage (NFS/EFS) so avatars / SCAP reports /
+#     host-config snapshots / mitigation logs are visible from any node
+#     (see docs/scaling.md → "shared file storage")
+#   - the node's nginx listening on HTTP :80 (TLS is terminated here at the LB)
+#
+# Copy your TLS cert+key (concatenated PEM) to /etc/haproxy/certs/remotepower.pem.
+# Replace the app-node IPs. Then: haproxy -c -f this-file  (check) and reload.
+
+global
+    log /dev/log local0
+    maxconn 20000
+    tune.ssl.default-dh-param 2048
+
+defaults
+    mode    http
+    log     global
+    option  httplog
+    option  forwardfor                      # adds X-Forwarded-For for the audit log
+    timeout connect 5s
+    timeout client  600s                     # long: SCAP/AI endpoints can be slow
+    timeout server  600s
+    retries 2
+
+frontend rp_https
+    bind :443 ssl crt /etc/haproxy/certs/remotepower.pem alpn h2,http/1.1
+    bind :80
+    # force HTTPS
+    http-request redirect scheme https code 301 unless { ssl_fc }
+    # HSTS (the app also sets security headers; this covers the edge)
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    default_backend rp_app
+
+backend rp_app
+    balance roundrobin
+    # Health check: RemotePower's cheap, unauthenticated liveness endpoint.
+    option httpchk
+    http-check send meth GET uri /api/health
+    http-check expect status 200
+    default-server inter 5s fall 3 rise 2 maxconn 2000
+    server app1 10.0.0.11:80 check
+    server app2 10.0.0.12:80 check
+    server app3 10.0.0.13:80 check
+    # add more app nodes as the fleet grows
+
+# ─────────────────────────────────────────────────────────────────────────────
+# nginx equivalent (if you'd rather load-balance with nginx):
+#
+#   upstream rp_app {
+#       zone rp_app 64k;
+#       server 10.0.0.11:80 max_fails=3 fail_timeout=10s;
+#       server 10.0.0.12:80 max_fails=3 fail_timeout=10s;
+#       server 10.0.0.13:80 max_fails=3 fail_timeout=10s;
+#       # no ip_hash / sticky needed — sessions are DB-backed tokens
+#   }
+#   server {
+#       listen 443 ssl http2;
+#       server_name remote.example.com;
+#       ssl_certificate     /etc/nginx/certs/remotepower.crt;
+#       ssl_certificate_key /etc/nginx/certs/remotepower.key;
+#       add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+#       location / {
+#           proxy_pass http://rp_app;
+#           proxy_set_header Host $host;
+#           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#           proxy_set_header X-Forwarded-Proto https;
+#           proxy_read_timeout 600s;
+#       }
+#       # nginx OSS has no active health check; max_fails/fail_timeout above is
+#       # passive. For active checks against /api/health use nginx Plus or HAProxy.
+#   }
+# ─────────────────────────────────────────────────────────────────────────────

@@ -2223,8 +2223,27 @@ def cleanup_tokens():
 
 # ── Brute-force protection ─────────────────────────────────────────────────────
 def _get_client_ip():
-    """Best-effort client IP from CGI env. Nginx should set REMOTE_ADDR."""
-    return os.environ.get('REMOTE_ADDR', '0.0.0.0')
+    """Best-effort client IP from CGI env. Nginx sets REMOTE_ADDR.
+
+    v3.14.0: behind a load balancer / reverse proxy, REMOTE_ADDR is the proxy —
+    so the audit log, IP allowlist and brute-force detection would all see the
+    balancer instead of the real client. When `trust_proxy` is enabled (only set
+    it when a trusted proxy fronts every request), use the X-Forwarded-For hop
+    the proxy appended — the RIGHTMOST entry, which is the peer the trusted proxy
+    actually connected to (a client can prepend spoofed entries, but the proxy
+    appends the real one last, so this can't be forged). Off by default →
+    REMOTE_ADDR, unchanged for single-node installs."""
+    remote = os.environ.get('REMOTE_ADDR', '0.0.0.0')
+    try:
+        if (load(CONFIG_FILE) or {}).get('trust_proxy'):
+            xff = os.environ.get('HTTP_X_FORWARDED_FOR', '').strip()
+            if xff:
+                ip = xff.split(',')[-1].strip()
+                if ip:
+                    return ip
+    except Exception:
+        pass
+    return remote
 
 def _check_login_ratelimit(username: str) -> bool:
     """Return True if this login attempt is allowed, False if locked out."""
@@ -11019,6 +11038,7 @@ def handle_config_get():
     safe.setdefault('webpush_subject', '')
     safe['vapid_keyed'] = bool(cfg.get('vapid_private_key'))
     safe.setdefault('tenancy_enforced', False)   # v3.14.0 #24 P2
+    safe.setdefault('trust_proxy', False)         # v3.14.0: XFF behind a load balancer
     safe.setdefault('agentless_ssh_enabled', False)   # v3.14.0 #48
     safe['agentless_ssh_key_set'] = bool(safe.pop('agentless_ssh_key', None))
     # v3.14.0 #32: cloud accounts — surface provider/region/key-id + a *_set
@@ -11662,6 +11682,11 @@ def handle_config_save():
     # v3.14.0 (#24 P2): tenant isolation enforcement (opt-in, default off).
     if 'tenancy_enforced' in body:
         cfg['tenancy_enforced'] = bool(body['tenancy_enforced'])
+
+    # v3.14.0: trust X-Forwarded-For (only behind a load balancer / reverse
+    # proxy that sets it — otherwise clients could spoof their source IP).
+    if 'trust_proxy' in body:
+        cfg['trust_proxy'] = bool(body['trust_proxy'])
 
     # v3.14.0 (#48): agentless SSH. Opt-in (default off); the private key is a
     # write-only secret (preserved when omitted, never returned by GET).

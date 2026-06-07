@@ -135,15 +135,54 @@ agents / UI ──> Load Balancer (TLS) ──> app node 1 ─┐
 ```
 
 - Each app node is an identical nginx + fcgiwrap + RemotePower install,
-  **all pointed at the same Postgres DSN.** No node holds state.
+  **all pointed at the same Postgres DSN** (`RP_PG_DSN` per node, or the storage
+  marker). No node holds *database* state.
 - **No session stickiness required** — sessions are token-based, validated
   against the shared DB. Round-robin is fine.
 - Health check the LB against **`GET /api/health`** (cheap, no auth).
 - Terminate TLS at the LB or pass through; agents only need a stable hostname.
+- **Enable `trust_proxy`** (Settings, or config) so the real client IP is taken
+  from `X-Forwarded-For` (the hop your LB appended) instead of the balancer's
+  address — otherwise the **audit log, IP allowlist, and brute-force detection**
+  all see the LB. Only turn it on when a trusted proxy fronts *every* request
+  (the HAProxy/nginx examples set `X-Forwarded-For`); off by default so a
+  single-node install can't be spoofed.
 - The per-request background sweeps (SNMP poll, image scan, KEV/EPSS refresh,
   scheduled backup) are **cheap-when-not-due and idempotent** — they self-gate
   on a timestamp in the shared config, so running them across N nodes doesn't
   double-fire.
+- **Load-balancer config:** a ready HAProxy example (TLS, round-robin,
+  `/api/health` check) is in **`packaging/loadbalancer-haproxy.cfg.example`**;
+  an nginx `upstream` equivalent is in the comments there.
+
+> ### One important caveat: shared file storage
+>
+> The Postgres backend holds the *logical* stores (devices, config, sessions,
+> metrics, alerts, …) — those are node-agnostic. But `DATA_DIR` **also** holds a
+> few **file artifacts that are NOT in the database** and would otherwise differ
+> per node:
+>
+> - `avatars/` — user profile pictures
+> - `scap_reports/` — full OpenSCAP HTML reports per device
+> - `host_config_current/` — host-config snapshots
+> - `mitigate_logs/` (and similar per-scope command/script output logs)
+>
+> …plus the **served agent binary** at `/var/www/remotepower/agent/`
+> (`remotepower-agent`, its `.asc` signature, and any beta binary).
+>
+> For a multi-node deployment:
+> 1. **Put `DATA_DIR` on shared storage** (NFS / EFS / a clustered FS) mounted
+>    identically on every app node — simplest and covers all of the above. (The
+>    DB stores are in Postgres regardless; the shared mount is only carrying
+>    these file artifacts + the storage marker.)
+> 2. **Deploy the agent binary to every node** (it ships with the code, so your
+>    normal "deploy code to all nodes" step already handles it — just don't
+>    forget the `agent/` dir).
+>
+> Skip the shared mount and the *core* product still works perfectly across
+> nodes — but those specific features (seeing an avatar, downloading a SCAP
+> report, reading a mitigation log) only succeed when the LB happens to route
+> you to the node that wrote the file. Shared storage removes that surprise.
 
 ### Database HA — automatic failover + read replicas
 
@@ -186,6 +225,50 @@ connections and avoids opening the central server to every segment. Useful
 for multi-site fleets regardless of raw scale.
 
 ---
+
+## Step 5b — Connection pooling (PgBouncer), optional
+
+The CGI model opens a fresh Postgres connection per request. At high request
+rates that connection setup (and Postgres's per-connection memory) becomes the
+ceiling before anything else. **PgBouncer** in front of Postgres pools and
+reuses server connections, so the app's many short-lived connects map onto a
+small, stable set of real Postgres sessions.
+
+- **`packaging/pgbouncer-setup.sh`** installs + configures it (per app node on
+  `127.0.0.1:6432`, or a central pooler). Then point RemotePower's DSN at
+  PgBouncer instead of Postgres directly.
+- **Transaction pooling is safe here.** RemotePower's Postgres driver disables
+  server-side prepared statements (`prepare_threshold=None`) and uses only
+  transaction-scoped advisory locks (`pg_advisory_xact_lock`), both of which
+  are compatible with PgBouncer's transaction-pooling mode.
+- For HA, set PgBouncer's upstream `host=pg-primary,pg-standby` so the pooler
+  follows a failover (or keep RemotePower's own multi-host DSN and point it at a
+  per-node PgBouncer — either layering works).
+
+This is the cheaper alternative to a persistent application server: you keep the
+stateless CGI app and just stop paying per-request connection setup.
+
+## Transport encryption (who's encrypted, who isn't)
+
+By default the **agent/UI → edge** hop is HTTPS (nginx/LB TLS). The *internal*
+hops are only encrypted if you configure them — plan for this on a multi-node
+or multi-host deployment:
+
+| Hop | Encrypted by default? | How to secure |
+|-----|-----------------------|---------------|
+| agent / browser → LB (or single nginx) | **Yes** (TLS) | your cert; HSTS is set |
+| LB → app node | **No** (the examples forward to nginx `:80`) | run the app nodes' nginx with TLS and point the LB at `:443`, **or** keep this hop on a trusted private network/VPC |
+| app node → PostgreSQL | **No** unless you ask | add `?sslmode=require` (or `verify-full` with a CA) to the DSN; set Postgres `ssl=on` |
+| app node → PgBouncer | local socket / loopback by default | keep PgBouncer on `127.0.0.1` (no network exposure), or require TLS if central |
+| PgBouncer → PostgreSQL | **No** unless you ask | set `sslmode` in the pgbouncer `[databases]` line (the setup script takes `PG_SSLMODE`) |
+| primary ↔ standby replication | **No** unless you ask | `sslmode=require` in the standby's `primary_conninfo` + Postgres `ssl=on` |
+
+Rule of thumb: terminate client TLS at the edge, and either **put every internal
+hop on TLS** or **confine them to a trusted private network** — don't send the
+Postgres password or replication stream in clear over an untrusted link. None of
+these internal hops carry agent credentials in the clear regardless (those are
+bearer tokens over the already-TLS edge), but the DB password and your fleet
+data do traverse the app→DB hop, so encrypt it off-LAN.
 
 ## Step 6 — Data retention & DB maintenance
 

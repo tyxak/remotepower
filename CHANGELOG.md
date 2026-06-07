@@ -10,6 +10,14 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Load-balanced multi-node support made real.** A `trust_proxy` setting takes
+  the client IP from `X-Forwarded-For` behind a trusted proxy (so the audit log
+  / IP allowlist / brute-force detection see the real client, not the balancer;
+  off by default, un-spoofable on single-node). Ships an HAProxy LB example
+  (`packaging/loadbalancer-haproxy.cfg.example`, + nginx upstream), a PgBouncer
+  pooler setup (`packaging/pgbouncer-setup.sh`; the Postgres driver disables
+  prepared statements so transaction pooling is safe), and docs/scaling.md now
+  documents the shared-file-storage caveat and a transport-encryption matrix.
 - **Postgres provisioning + HA scripts** under `packaging/`:
   `postgres-setup.sh` (role/DB/marker/DSN), `postgres-ha-primary.sh` (streaming-
   replication primary: wal settings, replication role + slot, scoped pg_hba),

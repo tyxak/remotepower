@@ -2459,6 +2459,29 @@ class TestDeviceComboCoverage(unittest.TestCase):
             self.assertIn('data-combo-placeholder', m.group(0), sid)
 
 
+class TestTrustProxy(_HandlerBase):
+    """v3.14.0 — behind a load balancer, the real client IP comes from
+    X-Forwarded-For only when trust_proxy is on (else REMOTE_ADDR)."""
+
+    def tearDown(self):
+        for k in ('REMOTE_ADDR', 'HTTP_X_FORWARDED_FOR'):
+            os.environ.pop(k, None)
+        super().tearDown()
+
+    def test_default_uses_remote_addr(self):
+        os.environ['REMOTE_ADDR'] = '10.0.0.9'
+        os.environ['HTTP_X_FORWARDED_FOR'] = '1.2.3.4'
+        api.save(api.CONFIG_FILE, {})                       # trust_proxy off
+        self.assertEqual(api._get_client_ip(), '10.0.0.9')   # the (proxy) peer
+
+    def test_trusted_proxy_takes_rightmost_xff(self):
+        os.environ['REMOTE_ADDR'] = '10.0.0.9'               # the LB
+        # client prepended a spoofed hop; the trusted LB appended the real one
+        os.environ['HTTP_X_FORWARDED_FOR'] = '1.1.1.1, 9.9.9.9'
+        api.save(api.CONFIG_FILE, {'trust_proxy': True})
+        self.assertEqual(api._get_client_ip(), '9.9.9.9')    # rightmost = real client
+
+
 class TestNoDeprecatedDatetime(unittest.TestCase):
     """v3.14.0 fix — no deprecated naive-UTC datetime calls (they spam stderr →
     nginx error log under Python 3.12+ and are scheduled for removal)."""

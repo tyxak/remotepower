@@ -140,8 +140,13 @@ def _new_conn(dsn, read_write=True):
     last = None
     for attempt in range(_CONNECT_RETRIES):
         try:
+            # prepare_threshold=None disables server-side prepared statements, so
+            # this works through a PgBouncer in transaction-pooling mode (prepared
+            # statements don't survive across pooled transactions). Negligible cost
+            # for our short-lived per-request connections; a no-op without a pooler.
             return psycopg.connect(_prep_dsn(dsn, read_write), autocommit=True,
-                                   connect_timeout=10, row_factory=psycopg.rows.dict_row)
+                                   connect_timeout=10, prepare_threshold=None,
+                                   row_factory=psycopg.rows.dict_row)
         except psycopg.OperationalError as e:
             last = e
             if attempt < _CONNECT_RETRIES - 1:
