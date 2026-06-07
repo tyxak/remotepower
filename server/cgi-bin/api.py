@@ -13244,6 +13244,23 @@ def _resolve_sla_target(targets, dev_id, dev):
     return _as_pct(targets.get('default'))
 
 
+def _error_budget(target_pct, down_seconds, window_seconds):
+    """v3.14.0 (#40): error budget for an uptime SLO. The budget is the downtime
+    the target *allows* over the window; `used` is what's been spent, `remaining`
+    what's left (negative = breached). Returns None when no target is set. Pure."""
+    if target_pct is None or window_seconds <= 0:
+        return None
+    allowed = (1.0 - min(100.0, max(0.0, float(target_pct))) / 100.0) * window_seconds
+    used = max(0, int(down_seconds or 0))
+    remaining = int(allowed) - used
+    if allowed > 0:
+        used_pct = round((used / allowed) * 100.0, 1)
+    else:
+        used_pct = 0.0 if used == 0 else 100.0
+    return {'budget_seconds': int(allowed), 'used_seconds': used,
+            'remaining_seconds': remaining, 'used_pct': used_pct}
+
+
 def handle_fleet_sla():
     """GET /api/fleet/sla?days=N — per-device + per-group uptime % over a window.
 
@@ -13282,7 +13299,9 @@ def handle_fleet_sla():
         rows.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
                      'group': grp, 'uptime_pct': pct,
                      'downtime_seconds': down, 'covered': covered,
-                     'sla_target': target, 'sla_met': met})
+                     'sla_target': target, 'sla_met': met,
+                     'error_budget': _error_budget(target, down, days * 86400)
+                                     if covered else None})
         if covered and pct is not None:
             covered_pcts.append(pct)
             g = groups.setdefault(grp, [])
@@ -13294,10 +13313,12 @@ def handle_fleet_sla():
     fleet_target = _as_pct(targets.get('default'))
     fleet_met = (fleet_pct >= fleet_target) if (fleet_pct is not None and fleet_target is not None) else None
     rows.sort(key=lambda r: (r['uptime_pct'] if r['uptime_pct'] is not None else 101))
+    fleet_down = int((1.0 - fleet_pct / 100.0) * days * 86400) if fleet_pct is not None else 0
     respond(200, {
         'days': days, 'generated_ts': now,
         'fleet_uptime_pct': fleet_pct,
         'fleet_sla_target': fleet_target, 'fleet_sla_met': fleet_met,
+        'fleet_error_budget': _error_budget(fleet_target, fleet_down, days * 86400),
         'devices': rows, 'groups': group_rows,
     })
 

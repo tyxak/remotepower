@@ -16340,7 +16340,13 @@ async function loadReportsSla() {
   if (fl) {
     if (r.fleet_uptime_pct != null) {
       const tgt = r.fleet_sla_target != null ? ` · target ${r.fleet_sla_target}%${r.fleet_sla_met === false ? ' (breached)' : ''}` : '';
-      fl.textContent = `fleet ${r.fleet_uptime_pct}% over ${r.days}d${tgt}`;
+      let eb = '';
+      const b = r.fleet_error_budget;
+      if (b) {
+        const fd = s => !s ? '0' : Math.abs(s) >= 86400 ? Math.round(s / 86400) + 'd' : Math.abs(s) >= 3600 ? Math.round(s / 3600) + 'h' : Math.round(s / 60) + 'm';
+        eb = ` · error budget ${b.remaining_seconds < 0 ? 'exhausted' : fd(b.remaining_seconds) + ' left'} (${b.used_pct}% used)`;
+      }
+      fl.textContent = `fleet ${r.fleet_uptime_pct}% over ${r.days}d${tgt}${eb}`;
     } else {
       fl.textContent = 'no data yet';
     }
@@ -16357,6 +16363,7 @@ function _renderReportsSla() {
   const sorted = tableCtl.sortRows('sla', _slaRows.slice(), r => ({
     device: r.name, group: r.group, uptime: r.uptime_pct == null ? -1 : r.uptime_pct,
     downtime: r.downtime_seconds, target: r.sla_target == null ? -1 : r.sla_target,
+    budget: r.error_budget ? r.error_budget.used_pct : -1,
   }));
   const rows = sorted.map(r => {
     // Colour uptime against its SLA target when one is set, else the static
@@ -16373,12 +16380,19 @@ function _renderReportsSla() {
                 : r.sla_met === true ? ' <span class="c-green fs-11">met</span>' : '';
       tgt = `${r.sla_target}%${lbl}`;
     }
+    let budget = '<span class="hint">—</span>';
+    if (r.error_budget) {
+      const eb = r.error_budget, rem = eb.remaining_seconds;
+      const bcls = rem < 0 ? 'c-red' : eb.used_pct >= 80 ? 'c-amber' : 'c-green';
+      budget = `<span class="${bcls}">${rem < 0 ? '−' + fmtDown(-rem) + ' over' : fmtDown(rem) + ' left'}</span> <span class="hint fs-11">${eb.used_pct}%</span>`;
+    }
     return `<tr><td>${escHtml(r.name)}</td><td class="hint">${escHtml(r.group || '—')}</td>`
       + `<td class="${cls} fw-500">${r.covered ? fmtPct(r.uptime_pct) : 'unknown'}</td>`
       + `<td class="mono-12">${r.covered ? fmtDown(r.downtime_seconds) : '—'}</td>`
-      + `<td class="mono-12">${tgt}</td></tr>`;
+      + `<td class="mono-12">${tgt}</td>`
+      + `<td>${budget}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th><th data-col="target">SLA target</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th><th data-col="target">SLA target</th><th data-col="budget">Error budget</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('sla-thead', 'sla', _renderReportsSla);
 }
 

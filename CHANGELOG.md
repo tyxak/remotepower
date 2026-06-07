@@ -10,6 +10,11 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **SLO error budgets on the uptime report.** The Reports → *Uptime (SLA)* table
+  now shows each device's **error budget** — the downtime its SLA target allows
+  over the window, how much is **left** (red when exhausted), and **% used** —
+  plus a fleet-wide budget in the summary. Derived from the existing uptime data;
+  no agent or schema change.
 - **Multi-tenancy — foundation (P1).** A tenant registry (`GET/POST /api/tenants`,
   `PUT/DELETE /api/tenants/<id>`), user→tenant assignment
   (`POST /api/tenants/<id>/users`, `tenant_id` on the user record), and the

@@ -1174,6 +1174,42 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestErrorBudget(unittest.TestCase):
+    """v3.14.0 #40 — SLO error budget derived from the existing uptime/SLA data."""
+
+    def test_budget_is_allowed_downtime(self):
+        win = 100 * 86400
+        eb = api._error_budget(99.0, 0, win)        # 99% target → 1% of window
+        self.assertEqual(eb['budget_seconds'], int(0.01 * win))
+        self.assertEqual(eb['used_pct'], 0.0)
+        self.assertEqual(eb['remaining_seconds'], eb['budget_seconds'])
+
+    def test_half_used(self):
+        win = 100 * 86400
+        full = api._error_budget(99.0, 0, win)['budget_seconds']
+        eb = api._error_budget(99.0, full // 2, win)
+        self.assertAlmostEqual(eb['used_pct'], 50.0, delta=0.5)
+        self.assertEqual(eb['remaining_seconds'], full - full // 2)
+
+    def test_breach_negative_remaining(self):
+        win = 30 * 86400
+        eb = api._error_budget(99.9, win, win)      # downtime >> budget
+        self.assertLess(eb['remaining_seconds'], 0)
+        self.assertGreater(eb['used_pct'], 100.0)
+
+    def test_no_target_returns_none(self):
+        self.assertIsNone(api._error_budget(None, 0, 86400))
+
+    def test_100pct_target_zero_budget(self):
+        self.assertEqual(api._error_budget(100.0, 0, 86400)['used_pct'], 0.0)
+        self.assertEqual(api._error_budget(100.0, 60, 86400)['used_pct'], 100.0)
+
+    def test_ui_wired(self):
+        js = client_js()
+        self.assertIn('error_budget', js)
+        self.assertIn('Error budget', js)
+
+
 class TestTenancyP1(_HandlerBase):
     """v3.14.0 #24 — multi-tenancy P1 FOUNDATION (registry + assignment only;
     behaviour-neutral — nothing is filtered by tenant yet)."""
