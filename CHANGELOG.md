@@ -10,6 +10,12 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Network bandwidth (per interface).** The agent now reports per-interface
+  throughput — in/out **bytes/sec** (diffed across heartbeats) plus lifetime
+  totals — surfaced as a "Network bandwidth" card in the device drawer, busiest
+  interface first. Linux and Windows agents both collect it. (Per-process
+  byte accounting isn't portable without root-only tooling, so "top talkers"
+  here is at interface granularity.)
 - **Home Assistant bridge.** A read-only `GET /api/ha?token=…` endpoint (gated
   by the existing status token) returns flat JSON shaped for a Home Assistant
   REST sensor — `state` (ok/warning/critical) plus online/offline and alert

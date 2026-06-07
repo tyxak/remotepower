@@ -4489,6 +4489,8 @@ async function _sftpList(path) {
 }
 function _sftpJoin(base, name) { return (base.endsWith('/') ? base : base + '/') + name; }
 function _fmtBytes(n) { if (n < 1024) return n + ' B'; if (n < 1048576) return (n/1024).toFixed(1) + ' KB'; if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB'; return (n/1073741824).toFixed(1) + ' GB'; }
+// v3.14.0 #37: bytes/sec → human-readable rate for the bandwidth table.
+function _fmtBps(n) { if (n == null) return '—'; if (n < 1024) return Math.round(n) + ' B/s'; if (n < 1048576) return (n/1024).toFixed(1) + ' KB/s'; if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB/s'; return (n/1073741824).toFixed(2) + ' GB/s'; }
 function _sftpCdBtn(btn) { _sftpList(btn.dataset.path); }
 function _sftpUpBtn(btn) { _sftpList(btn.dataset.path); }
 async function _sftpDlBtn(btn) {
@@ -14816,6 +14818,24 @@ async function _loadAuditSection(key) {
                    <td class="ta-center">${p.cpu != null ? escHtml(String(p.cpu)) : '—'}</td>
                    <td class="ta-center">${p.mem != null ? escHtml(String(p.mem)) : '—'}</td></tr>`
             ).join('') + `</tbody></table>`;
+        }
+        // v3.14.0 #37: per-interface bandwidth (bytes/sec, busiest first). The
+        // agent diffs net_io counters between heartbeats; per-process byte
+        // accounting isn't portable, so "top talkers" is at interface grain.
+        if (Array.isArray(si.network_io) && si.network_io.length) {
+          const ifs = si.network_io.slice().sort((a,b)=>
+            ((b.rx_bps||0)+(b.tx_bps||0)) - ((a.rx_bps||0)+(a.tx_bps||0)));
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Network bandwidth</div>
+            <div class="scrollable-table-wrap audit-scroll">
+            <table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Interface</th><th class="ta-center">↓ In</th><th class="ta-center">↑ Out</th><th class="ta-center">Total recv</th><th class="ta-center">Total sent</th></tr></thead>
+            <tbody>` + ifs.map(n=>
+              `<tr><td class="isl-629"><code>${escHtml(n.iface||'—')}</code></td>
+                   <td class="ta-center">${_fmtBps(n.rx_bps)}</td>
+                   <td class="ta-center">${_fmtBps(n.tx_bps)}</td>
+                   <td class="ta-center fs-11 c-muted">${n.rx_total!=null?_fmtBytes(n.rx_total):'—'}</td>
+                   <td class="ta-center fs-11 c-muted">${n.tx_total!=null?_fmtBytes(n.tx_total):'—'}</td></tr>`
+            ).join('') + `</tbody></table></div>`;
         }
         // v3.13.0: systemd timers (scheduled jobs) — failed-first. Data already
         // in sysinfo; the timer_failed event fires off it but the full inventory

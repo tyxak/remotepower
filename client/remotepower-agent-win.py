@@ -379,11 +379,47 @@ def collect_sysinfo():
             pass
         if nets:
             info['network'] = nets[:20]
+        # v3.14.0 #37: per-interface bandwidth (bytes/sec), diffed across polls.
+        try:
+            nio = _collect_net_io(psutil)
+            if nio:
+                info['network_io'] = nio
+        except Exception:
+            pass
     except ImportError:
         info['psutil'] = False  # honest signal that metrics are limited
     except Exception:
         pass
     return info
+
+
+# v3.14.0 #37: net_io_counters are cumulative; diff against the previous poll
+# (this agent is long-running) for a bytes/sec rate. Matches the Linux agent.
+_prev_net_io = {}   # iface -> (bytes_sent, bytes_recv, monotonic_ts)
+
+def _collect_net_io(psutil):
+    out = []
+    try:
+        counters = psutil.net_io_counters(pernic=True)
+    except Exception:
+        return out
+    now = time.monotonic()
+    for iface, c in counters.items():
+        if iface.lower().startswith(('loopback', 'isatap', 'teredo')):
+            continue
+        prev = _prev_net_io.get(iface)
+        _prev_net_io[iface] = (c.bytes_sent, c.bytes_recv, now)
+        if not prev:
+            continue
+        dt = now - prev[2]
+        if dt <= 0:
+            continue
+        rx = max(0, c.bytes_recv - prev[1]) / dt
+        tx = max(0, c.bytes_sent - prev[0]) / dt
+        out.append({'iface': iface, 'rx_bps': round(rx), 'tx_bps': round(tx),
+                    'rx_total': c.bytes_recv, 'tx_total': c.bytes_sent})
+    out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
+    return out[:20]
 
 
 def _fmt_uptime(secs):

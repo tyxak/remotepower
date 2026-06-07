@@ -1520,6 +1520,45 @@ class TestHaBridge(_HandlerBase):
         self.assertIn('/api/ha', api._IP_ALLOWLIST_EXEMPT_PATHS)
 
 
+class TestBandwidth(unittest.TestCase):
+    """v3.14.0 #37 — per-interface bandwidth (agent collector + ingest + UI)."""
+
+    JS = client_js()
+    API = (_ROOT / "server/cgi-bin/api.py").read_text()
+    AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
+    AGENT_X = (_ROOT / "client/remotepower-agent").read_text()
+    WIN = (_ROOT / "client/remotepower-agent-win.py").read_text()
+
+    def test_agent_collects_net_io(self):
+        self.assertIn('def collect_net_io', self.AGENT)
+        self.assertIn('net_io_counters(pernic=True)', self.AGENT)
+        self.assertIn("'network_io': collect_net_io()", self.AGENT)
+        # diff-based rate needs a previous sample retained between heartbeats
+        self.assertIn('_prev_net_io', self.AGENT)
+
+    def test_extensionless_agent_in_sync(self):
+        self.assertEqual(self.AGENT, self.AGENT_X)
+
+    def test_windows_agent_parity(self):
+        self.assertIn('_collect_net_io', self.WIN)
+        self.assertIn("info['network_io']", self.WIN)
+
+    def test_server_sanitizes_network_io(self):
+        # The allowlist block must clamp the rate/total fields and keep iface.
+        self.assertIn("'network_io' in si", self.API)
+        self.assertIn("safe_si['network_io']", self.API)
+        for k in ('rx_bps', 'tx_bps', 'rx_total', 'tx_total'):
+            self.assertIn(k, self.API)
+
+    def test_ui_renders_bandwidth_table(self):
+        self.assertIn('_fmtBps', self.JS)
+        self.assertIn('si.network_io', self.JS)
+        self.assertIn('Network bandwidth', self.JS)
+        # box-overflow rule: variable-row table must be capped/scrollable
+        idx = self.JS.find('Network bandwidth')
+        self.assertIn('scrollable-table-wrap', self.JS[idx:idx + 600])
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

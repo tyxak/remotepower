@@ -439,6 +439,40 @@ def get_network_info():
         pass
     return interfaces
 
+# v3.14.0 #37: per-interface bandwidth. net_io_counters are cumulative, so we
+# diff against the previous heartbeat (this daemon is long-running) to get a
+# bytes/sec rate. Per-process byte accounting isn't portably available without
+# root-only tooling (nethogs/eBPF), so "top talkers" here is at interface
+# granularity — the busiest interface first.
+_prev_net_io = {}   # iface -> (bytes_sent, bytes_recv, monotonic_ts)
+
+def collect_net_io():
+    if not _PSUTIL:
+        return []
+    out = []
+    try:
+        counters = _psutil.net_io_counters(pernic=True)
+    except Exception:
+        return out
+    now = time.monotonic()
+    for iface, c in counters.items():
+        if iface == 'lo' or iface.startswith(('veth', 'docker', 'br-', 'virbr',
+                                              'tap', 'tun', 'cni', 'flannel')):
+            continue
+        prev = _prev_net_io.get(iface)
+        _prev_net_io[iface] = (c.bytes_sent, c.bytes_recv, now)
+        if not prev:
+            continue            # first sample for this iface — need two to rate
+        dt = now - prev[2]
+        if dt <= 0:
+            continue
+        rx = max(0, c.bytes_recv - prev[1]) / dt
+        tx = max(0, c.bytes_sent - prev[0]) / dt
+        out.append({'iface': iface, 'rx_bps': round(rx), 'tx_bps': round(tx),
+                    'rx_total': c.bytes_recv, 'tx_total': c.bytes_sent})
+    out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
+    return out[:20]
+
 def get_uptime():
     try:
         return subprocess.check_output(['uptime', '-p'], text=True).strip()
@@ -5614,6 +5648,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 'cpu':      _cpu_model(),            # v3.13.0: CPU model string
                 'packages': cached_patch,
                 'network':  get_network_info(),
+                'network_io': collect_net_io(),   # v3.14.0 #37: per-iface bandwidth
             }
             # Merge metrics if psutil available
             sysinfo.update(get_metrics())

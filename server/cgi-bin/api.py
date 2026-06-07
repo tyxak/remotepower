@@ -8357,6 +8357,21 @@ def handle_heartbeat():
                             'mac':   _sanitize_mac(iface.get('mac', '')),
                         })
                 safe_si['network'] = safe_net
+            # v3.14.0 #37: per-interface bandwidth (bytes/sec rates + totals).
+            if 'network_io' in si and isinstance(si['network_io'], list):
+                safe_io = []
+                for nio in si['network_io'][:20]:
+                    if not isinstance(nio, dict):
+                        continue
+                    ent = {'iface': _sanitize_str(nio.get('iface', ''), 32)}
+                    if not ent['iface']:
+                        continue
+                    for k in ('rx_bps', 'tx_bps', 'rx_total', 'tx_total'):
+                        v = nio.get(k)
+                        if isinstance(v, (int, float)) and 0 <= v < 1e15:
+                            ent[k] = int(v)
+                    safe_io.append(ent)
+                safe_si['network_io'] = safe_io
             # Metrics — legacy three (root-mount disk, cpu, memory) plus
             # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
             for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent'):
