@@ -10,6 +10,12 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **macOS agent.** A minimal `client/remotepower-agent-mac.py` speaks the same
+  enroll / heartbeat / command-queue contract as the Linux and Windows agents,
+  so a Mac enrolls into the fleet with metrics (via `sysctl`/`system_profiler`
+  + `psutil` when present), runs queued commands, reports per-interface
+  bandwidth, and participates in the opt-in secrets scan — no separate
+  server-side path. Stdlib-only.
 - **Proxmox VM/CT lifecycle.** The Virtualization page can now **reboot, clone,
   and migrate** guests (on top of the existing start/shutdown/snapshots) via the
   Proxmox API. **Destructive, so gated three ways**: admin-only, a per-deployment
