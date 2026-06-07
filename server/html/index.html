@@ -1555,6 +1555,30 @@
 
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-advanced">
+          <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
+          <div class="settings-section">
+            <h3>Branding (white-label)</h3>
+            <p class="hint">Set the in-app product name and default accent colour shown to everyone — for MSPs reselling RemotePower. Users can still pick their own accent in <em>My Account → Appearance</em>; this is the org default. (The login-page logo image is unchanged.)</p>
+            <div class="settings-row">
+              <div class="form-group flex-1">
+                <label class="form-label">Product name <span class="c-muted fs-12">(blank = "RemotePower")</span></label>
+                <input type="text" id="cfg-brand-name" class="form-input" maxlength="40" placeholder="RemotePower" autocomplete="off">
+              </div>
+              <div class="form-group mw-200">
+                <label class="form-label">Default accent</label>
+                <select id="cfg-brand-accent" class="form-input">
+                  <option value="">Blue (default)</option>
+                  <option value="emerald">Emerald</option>
+                  <option value="violet">Violet</option>
+                  <option value="amber">Amber</option>
+                  <option value="rose">Rose</option>
+                  <option value="cyan">Cyan</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn-primary" data-action="saveBranding">Save branding</button>
+            <span id="branding-status" class="fs-12 c-muted"></span>
+          </div>
           <!-- v3.4.2: "Session timeout" (raw seconds) was a duplicate of
                Security → Session length (hours/days), writing the same
                session_ttl_short/long keys. Consolidated into Security. -->

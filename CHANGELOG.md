@@ -10,6 +10,10 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **White-label branding (MSP).** *Settings → Advanced → Branding* lets an admin
+  set the **in-app product name** and a **default accent colour** shown to
+  everyone — for resellers. Applied live from `GET /api/me`; users can still
+  override the accent in My Account. (The login-page logo image is unchanged.)
 - **Themes & accents.** *My Account → Appearance* adds a **theme** choice
   (Dark / Light / **Auto** — follows your OS light/dark setting and switches live)
   and six **accent colours** (blue, emerald, violet, amber, rose, cyan). Per

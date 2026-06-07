@@ -2175,6 +2175,10 @@ async function loadSettings() {
   if (_scimSt) _scimSt.textContent = data.scim_token_set ? 'Token configured.' : (data.scim_enabled ? 'A token will be generated on save.' : '');
   const _scimTok = document.getElementById('cfg-scim-token');
   if (_scimTok) _scimTok.placeholder = data.scim_token_set ? '•••••••• (saved — leave blank to keep)' : 'leave blank to auto-generate on enable';
+  const _bn = document.getElementById('cfg-brand-name');
+  if (_bn) _bn.value = data.brand_name || '';
+  const _bac = document.getElementById('cfg-brand-accent');
+  if (_bac) _bac.value = data.brand_accent || '';
   _renderExposureMutes(data.exposure_mutes);
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
@@ -4640,6 +4644,16 @@ async function loadMe() {
   // v3.14.0 (#26): adopt the account's saved interface language over the local
   // fast-paint guess (best-effort; i18n.js is loaded before app.js).
   if (me.lang && window.RPi18n) window.RPi18n.adopt(me.lang);
+  // v3.14.0 (#45): apply in-app white-label branding (org name + default accent).
+  if (me.brand) {
+    if (me.brand.name) {
+      const lt = document.querySelector('.logo-text');
+      if (lt) lt.textContent = me.brand.name;
+      document.title = me.brand.name + ' — Device Control';
+    }
+    window._brandAccent = me.brand.accent || '';
+    if (typeof applyAccent === 'function') applyAccent();
+  }
   return me;
 }
 
@@ -13324,6 +13338,18 @@ async function saveGitops() {
     loadGitops();
   } else toast((r && r.error) || 'Failed', 'error');
 }
+async function saveBranding() {
+  const payload = {
+    brand_name: document.getElementById('cfg-brand-name').value.trim(),
+    brand_accent: document.getElementById('cfg-brand-accent').value,
+  };
+  const r = await api('POST', '/config', payload).catch(() => null);
+  if (r && r.ok) {
+    toast('Branding saved', 'success');
+    loadMe();   // re-applies the brand name + default accent immediately
+  } else toast((r && r.error) || 'Failed', 'error');
+}
+
 async function saveScim() {
   const payload = { scim_enabled: document.getElementById('cfg-scim-enabled').checked };
   const tok = document.getElementById('cfg-scim-token').value;

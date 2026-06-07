@@ -1174,6 +1174,44 @@ class TestCmdbScope(_HandlerBase):
         self.assertEqual({e['device_id'] for e in out}, {'in1', 'out1'})
 
 
+class TestBranding(_HandlerBase):
+    """v3.14.0 #45 — in-app white-label branding (name + default accent)."""
+
+    def test_me_returns_brand(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'created': 1}})
+        api.save(api.CONFIG_FILE, {'brand_name': 'Acme Cloud', 'brand_accent': 'emerald'})
+        api.method = lambda: 'GET'
+        me = self.call(api.handle_me)
+        self.assertEqual(me['brand']['name'], 'Acme Cloud')
+        self.assertEqual(me['brand']['accent'], 'emerald')
+
+    def test_save_validates_accent(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'brand_name': 'X Corp', 'brand_accent': 'bogus'}
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE) or {}
+        self.assertEqual(cfg.get('brand_name'), 'X Corp')
+        self.assertEqual(cfg.get('brand_accent'), '')          # invalid → cleared
+
+    def test_save_accepts_valid_accent(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'brand_accent': 'violet'}
+        self.call(api.handle_config_save)
+        self.assertEqual((api.load(api.CONFIG_FILE) or {}).get('brand_accent'), 'violet')
+
+    def test_brand_accents_match_js_presets(self):
+        js = client_js()
+        m = re.search(r"ACCENT_PRESETS = \[([^\]]*)\]", js)
+        self.assertIsNotNone(m)
+        js_set = {x.strip().strip("'\"") for x in m.group(1).split(',')}
+        self.assertEqual(js_set, set(api.BRAND_ACCENTS))
+
+    def test_branding_ui_present(self):
+        html = (_ROOT / "server/html/index.html").read_text()
+        self.assertIn('id="cfg-brand-name"', html)
+        self.assertIn('data-action="saveBranding"', html)
+
+
 class TestThemesWiring(unittest.TestCase):
     """v3.14.0 #46 — accent presets + theme (dark/light/auto) picker, CSP-safe."""
 

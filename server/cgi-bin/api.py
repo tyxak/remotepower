@@ -415,6 +415,8 @@ MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
 # for show/hide/reorder. Must mirror DASH_WIDGETS in app.js (a guardrail test
 # pins the two together).
 DASHBOARD_WIDGETS          = ('health', 'heatmap', 'overview', 'roster', 'links')
+# v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
+BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
 UI_DENSITY_DEFAULT         = 'comfortable'
 
@@ -10474,6 +10476,10 @@ def handle_config_get():
     safe['scim_token_set'] = bool(cfg.get('scim_token'))
     safe.pop('scim_token', None)
 
+    # v3.14.0 (#45): in-app white-label branding (non-secret — applied by the UI).
+    safe['brand_name']   = cfg.get('brand_name', '')
+    safe['brand_accent'] = cfg.get('brand_accent', '')
+
     # v3.14.0 (#27): GitOps manifest auth header is a credential (e.g. a Git PAT);
     # expose only whether it's set and strip the raw value.
     if isinstance(safe.get('gitops'), dict):
@@ -11175,6 +11181,12 @@ def handle_config_save():
         _scim_minted_token = cfg['scim_token']
     else:
         _scim_minted_token = None
+    # v3.14.0 (#45): white-label branding (in-app product name + default accent).
+    if 'brand_name' in body:
+        cfg['brand_name'] = _sanitize_str(str(body.get('brand_name') or ''), 40).strip()
+    if 'brand_accent' in body:
+        _ba = str(body.get('brand_accent') or '').strip().lower()
+        cfg['brand_accent'] = _ba if _ba in BRAND_ACCENTS else ''
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
@@ -24646,6 +24658,9 @@ def handle_me():
         # v3.14.0 (#24): tenant the user belongs to (foundation; 'default' for all
         # until per-tenant isolation lands).
         'tenant':               _user_tenant(user),
+        # v3.14.0 (#45): in-app white-label branding, applied early by the UI.
+        'brand':                {'name': (load(CONFIG_FILE) or {}).get('brand_name', ''),
+                                 'accent': (load(CONFIG_FILE) or {}).get('brand_accent', '')},
     })
 
 
