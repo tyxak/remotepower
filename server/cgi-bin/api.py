@@ -30862,7 +30862,7 @@ def _ics_escape(s):
 
 def _ics_dt(ts):
     import datetime as _dt
-    return _dt.datetime.utcfromtimestamp(int(ts)).strftime('%Y%m%dT%H%M%SZ')
+    return _dt.datetime.fromtimestamp(int(ts), _dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 
 
 def _cron_to_ics(cron, now):
@@ -33483,8 +33483,8 @@ def handle_calendar_ics():
                   f'UID:{ev.get("id", secrets.token_hex(8))}@remotepower',
                   f'DTSTAMP:{_ics_dt(ev.get("created_at") or start_ts)}']
         if ev.get('all_day'):
-            lines += [f'DTSTART;VALUE=DATE:{_dt.datetime.utcfromtimestamp(start_ts).strftime("%Y%m%d")}',
-                      f'DTEND;VALUE=DATE:{_dt.datetime.utcfromtimestamp(end_ts).strftime("%Y%m%d")}']
+            lines += [f'DTSTART;VALUE=DATE:{_dt.datetime.fromtimestamp(start_ts, _dt.timezone.utc).strftime("%Y%m%d")}',
+                      f'DTEND;VALUE=DATE:{_dt.datetime.fromtimestamp(end_ts, _dt.timezone.utc).strftime("%Y%m%d")}']
         else:
             lines += [f'DTSTART:{_ics_dt(start_ts)}', f'DTEND:{_ics_dt(end_ts)}']
         lines.append(f'SUMMARY:{_ics_escape(ev.get("title", ""))}')

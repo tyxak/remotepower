@@ -10,6 +10,11 @@ dependencies; most of it surfaces data the agent already reports. See
 [docs/v3.14.0.md](docs/v3.14.0.md).
 
 ### Added
+- **Postgres provisioning + HA scripts** under `packaging/`:
+  `postgres-setup.sh` (role/DB/marker/DSN), `postgres-ha-primary.sh` (streaming-
+  replication primary: wal settings, replication role + slot, scoped pg_hba),
+  and `postgres-ha-standby.sh` (pg_basebackup-bootstrapped standby; guarded with
+  `CONFIRM=yes` since it replaces the node's data dir).
 - **PostgreSQL high availability — automatic failover + read replicas.** Point
   the DSN at multiple Postgres hosts (`…@pg-primary,pg-standby:5432/…`) and
   RemotePower adds `target_session_attrs=read-write` so libpq always lands on
@@ -310,6 +315,11 @@ dependencies; most of it surfaces data the agent already reports. See
   immediately — reusing the existing maker-checker store. Off by default.
 
 ### Fixed
+- **No more `utcfromtimestamp` DeprecationWarning in the nginx error log.** The
+  calendar/ICS export used `datetime.utcfromtimestamp()`, deprecated in Python
+  3.12+, which FastCGI surfaced as a warning on every `/api/calendar.ics` (and
+  scheduled-event) request. Switched to timezone-aware `fromtimestamp(…, UTC)`
+  (identical output); a guardrail test keeps the deprecated calls out.
 - **Every device dropdown is now a searchable `device-combo`.** Five device
   pickers had no type-to-search: *Add agentless device → Connected to (upstream)*,
   the OpenSCAP-scan and one-time-install *Device* targets, and the network-map

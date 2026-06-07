@@ -2459,6 +2459,18 @@ class TestDeviceComboCoverage(unittest.TestCase):
             self.assertIn('data-combo-placeholder', m.group(0), sid)
 
 
+class TestNoDeprecatedDatetime(unittest.TestCase):
+    """v3.14.0 fix — no deprecated naive-UTC datetime calls (they spam stderr →
+    nginx error log under Python 3.12+ and are scheduled for removal)."""
+
+    def test_no_utc_naive_calls(self):
+        for rel in ('server/cgi-bin/api.py', 'client/remotepower-agent.py',
+                    'client/remotepower-agent-win.py', 'client/remotepower-agent-mac.py'):
+            src = (_ROOT / rel).read_text()
+            self.assertNotIn('utcfromtimestamp', src, rel)
+            self.assertNotIn('utcnow(', src, rel)
+
+
 class TestPackageHold(_HandlerBase):
     """v3.14.0 #39 — package hold/pin (apt-mark / versionlock / zypper lock)."""
 

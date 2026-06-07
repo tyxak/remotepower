@@ -56,7 +56,9 @@ single node, but **PostgreSQL is the backend built for this** — concurrent
 writers via `pg_advisory_xact_lock`, real transactions, and it's the *only*
 backend that can be shared across multiple app nodes (Step 4).
 
-1. Stand up Postgres 14+ and a database/user for RemotePower.
+1. Stand up Postgres 14+ and a database/user for RemotePower —
+   **`packaging/postgres-setup.sh`** does this (creates the role + DB, can
+   `--install` Postgres, `--write-marker` the storage config, and prints the DSN).
 2. Point RemotePower at it with **one** of:
    - the marker file `DATA_DIR/storage_backend.json`:
      ```json
@@ -157,7 +159,9 @@ RemotePower has built-in support for a highly-available Postgres:
   new primary — connects are retried across a short promotion window so the blip
   doesn't surface as an error. Works with managed failover, Patroni, repmgr,
   pgpool, etc. (RemotePower just needs a host list that includes whoever is
-  primary).
+  primary). For a plain streaming-replication pair, the helper scripts set it
+  up: **`packaging/postgres-ha-primary.sh`** (on the primary) then
+  **`packaging/postgres-ha-standby.sh`** (on each standby).
 - **Read replicas (optional, off by default).** Set a separate read DSN —
   `RP_PG_READ_DSN` (env, per node) or `dsn_read` in the storage marker — and
   **pure reads (`load()`) are served from the replica**, while every write and
