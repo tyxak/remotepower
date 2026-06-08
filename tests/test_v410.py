@@ -39,7 +39,7 @@ class _HandlerBase(unittest.TestCase):
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
                      'SECRETS_FILE', 'AUDIT_LOG_FILE', 'HISTORY_FILE', 'METRICS_FILE',
-                     'CONTAINERS_FILE'):
+                     'CONTAINERS_FILE', 'HARDWARE_FILE', 'BRUTE_FORCE_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -837,6 +837,13 @@ class TestFleetQueryFilters(_HandlerBase):
             {'name': 'web', 'status': 'exited (1)', 'runtime': 'docker'},
             {'name': 'flap', 'status': 'running', 'restart_count': 9, 'runtime': 'docker'},
         ]}})
+        # d1: failed SMART disk + UPS on battery; d2: healthy.
+        api.save(api.HARDWARE_FILE, {
+            'd1': {'_smart_failed': True, '_ups_on_battery': True},
+            'd2': {'_smart_failed': False, '_ups_on_battery': False}})
+        # d1: active brute-force (lots of recent attempts from one IP).
+        api.save(api.BRUTE_FORCE_FILE, {
+            'd1': {'sshd': {'10.0.0.9': [now - i for i in range(200)]}}})
 
     def tearDown(self):
         api.get_online_ttl = self._gt
@@ -892,6 +899,37 @@ class TestFleetQueryFilters(_HandlerBase):
 
     def test_timer_failed(self):
         self.assertEqual(self._names('timer_failed=1'), ['hot'])
+
+    def test_security_hardware_flags(self):
+        self.assertEqual(self._names('brute_force=1'), ['hot'])
+        self.assertEqual(self._names('smart_failure=1'), ['hot'])
+        self.assertEqual(self._names('ups_on_battery=1'), ['hot'])
+
+    def test_export_csv_bytes(self):
+        rows = self._run('').get('devices')
+        data, ctype, fname = api._fleet_query_bytes(rows, 'csv')
+        self.assertEqual(ctype, 'text/csv')
+        self.assertTrue(fname.endswith('.csv'))
+        text = data.decode()
+        self.assertIn('Device,Group,OS', text)   # header
+        self.assertIn('hot', text)
+        self.assertIn('calm', text)
+
+    def test_export_xml_bytes(self):
+        rows = self._run('').get('devices')
+        data, ctype, fname = api._fleet_query_bytes(rows, 'xml')
+        self.assertEqual(ctype, 'application/xml')
+        text = data.decode()
+        self.assertIn('<FleetQuery', text)
+        self.assertIn('<Name>hot</Name>', text)
+
+    def test_csv_formula_injection_neutralised(self):
+        # A device name starting with '=' must be quoted in CSV output.
+        api.save(api.DEVICES_FILE, {'x': {'name': '=cmd()', 'last_seen': int(api.time.time()),
+                                          'monitored': True, 'sysinfo': {}}})
+        rows = self._run('').get('devices')
+        data, _c, _f = api._fleet_query_bytes(rows, 'csv')
+        self.assertIn("'=cmd()", data.decode())
 
 
 if __name__ == '__main__':

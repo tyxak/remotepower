@@ -24412,8 +24412,11 @@ def handle_fleet_query():
       storage_degraded=1 (a pool/array not in a healthy state),
       uptime_gt=<days>, uptime_lt=<days> (from last_boot),
       cores_gt=<n>, cores_lt=<n> (cpu_count),
-      container_stopped=1, container_restarting=1, timer_failed=1.
-    Auth: require_auth (scoped to the caller's devices)."""
+      container_stopped=1, container_restarting=1, timer_failed=1,
+      brute_force=1 (active brute-force), smart_failure=1 (a disk SMART-failed),
+      ups_on_battery=1.
+      format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
+      view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     def q(k):
@@ -24457,6 +24460,11 @@ def handle_fleet_query():
     crestart_q = q('container_restarting') in ('1', 'true')
     timer_q = q('timer_failed') in ('1', 'true')
     cstore = (load(CONTAINERS_FILE) or {}) if (cstopped_q or crestart_q) else {}
+    # v4.1.0: security/hardware posture (separate stores, loaded only when used).
+    brute_q = q('brute_force') in ('1', 'true')
+    smart_q = q('smart_failure') in ('1', 'true')
+    ups_q = q('ups_on_battery') in ('1', 'true')
+    fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
     now = int(time.time())
     ttl = get_online_ttl()
     devices = load(DEVICES_FILE) or {}
@@ -24469,6 +24477,21 @@ def handle_fleet_query():
         for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
             cve[did] = sum(1 for f in (rec or {}).get('findings') or []
                            if str(f.get('severity', '')).lower() in ('critical', 'high'))
+    # v4.1.0: hardware posture (SMART/UPS flags) + active brute-force set.
+    hw_store = (load(HARDWARE_FILE) or {}) if (smart_q or ups_q) else {}
+    brute_active = set()
+    if brute_q and backend_exists(BRUTE_FORCE_FILE):
+        try:
+            _bf_en, _bf_thresh, _bf_win = _brute_config()
+            if _bf_en:
+                _cut = now - _bf_win
+                for _bdid, _units in (load(BRUTE_FORCE_FILE) or {}).items():
+                    if any(len([t for t in (_ts or []) if t >= _cut]) > _bf_thresh
+                           for _ips in (_units or {}).values()
+                           for _ts in (_ips or {}).values()):
+                        brute_active.add(_bdid)
+        except Exception:
+            pass
     rows = []
     for did, d in devices.items():
         if not isinstance(d, dict):
@@ -24593,6 +24616,13 @@ def handle_fleet_query():
                 continue
             if crestart_q and not (summ.get('restarting') or 0):
                 continue
+        # v4.1.0: security/hardware posture flags.
+        if brute_q and did not in brute_active:
+            continue
+        if smart_q and not (hw_store.get(did) or {}).get('_smart_failed'):
+            continue
+        if ups_q and not (hw_store.get(did) or {}).get('_ups_on_battery'):
+            continue
         matched_pkg = None
         if has_pkg:
             installed = (pkg_store.get(did) or {}).get('packages') or []
@@ -24622,7 +24652,72 @@ def handle_fleet_query():
                      'mem': _mem if isinstance(_mem, (int, float)) else None,
                      'cve_high': cve.get(did, 0) if cve is not None else None})
     rows.sort(key=lambda r: r['name'].lower())
+    # v4.1.0: CSV / XML export of the filtered set (honours every filter above).
+    # PDF is produced client-side via the standalone print page (fleet-query.html),
+    # which fetches this same endpoint as JSON — so the strict CSP isn't broken.
+    if fmt in ('csv', 'xml'):
+        _fleet_query_export(rows, fmt)
     respond(200, {'total': len(rows), 'devices': rows})
+
+
+def _fleet_query_bytes(rows, fmt):
+    """Render fleet-query rows as CSV or XML bytes. Pure (unit-testable);
+    returns (data, content_type, filename)."""
+    cols = [('name', 'Device'), ('group', 'Group'), ('os', 'OS'),
+            ('version', 'Agent'), ('online', 'Online'), ('pending', 'Pending'),
+            ('cpu', 'CPU%'), ('mem', 'Mem%'), ('cve_high', 'CVE'),
+            ('pkg_match', 'Matched package')]
+    ts = time.strftime('%Y%m%d-%H%M%S')
+    if fmt == 'csv':
+        import csv as _csv
+        import io as _io
+        buf = _io.StringIO()
+        w = _csv.writer(buf)
+        w.writerow([label for _k, label in cols])
+        for r in rows:
+            w.writerow([_csv_safe('yes' if r.get('online') else 'no') if k == 'online'
+                        else _csv_safe(r.get(k) if r.get(k) is not None else '')
+                        for k, _label in cols])
+        return buf.getvalue().encode(), 'text/csv', f'fleet-query-{ts}.csv'
+    from xml.etree.ElementTree import Element, SubElement, tostring
+    root = Element('FleetQuery')
+    root.set('generated', time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime()))
+    root.set('serverVersion', SERVER_VERSION)
+    root.set('total', str(len(rows)))
+    devs = SubElement(root, 'Devices')
+    for r in rows:
+        de = SubElement(devs, 'Device')
+        de.set('id', str(r.get('device_id', '')))
+        SubElement(de, 'Name').text = str(r.get('name', ''))
+        SubElement(de, 'Group').text = str(r.get('group', ''))
+        SubElement(de, 'OS').text = str(r.get('os', ''))
+        SubElement(de, 'Agent').text = str(r.get('version', ''))
+        SubElement(de, 'Online').text = 'true' if r.get('online') else 'false'
+        for k in ('pending', 'cpu', 'mem', 'cve_high'):
+            if r.get(k) is not None:
+                SubElement(de, k).text = str(r.get(k))
+        if r.get('pkg_match'):
+            SubElement(de, 'MatchedPackage').text = str(r.get('pkg_match'))
+    data = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            + tostring(root, encoding='unicode')).encode('utf-8')
+    return data, 'application/xml', f'fleet-query-{ts}.xml'
+
+
+def _fleet_query_export(rows, fmt):
+    """Stream the fleet-query result set as CSV or XML (mirrors the patch-report
+    export). Exits via sys.exit after writing — never returns."""
+    data, ctype, fname = _fleet_query_bytes(rows, fmt)
+    print("Status: 200 OK")
+    print(f"Content-Type: {ctype}")
+    print(f"Content-Disposition: attachment; filename={fname}")
+    print(f"Content-Length: {len(data)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
 
 
 def handle_patch_catalog():

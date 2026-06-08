@@ -17534,6 +17534,8 @@ const _FQ_FIELDS = {
   cores_gt: 'fq-cores-gt', cores_lt: 'fq-cores-lt',
   container_stopped: 'fq-cstopped', container_restarting: 'fq-crestart',
   timer_failed: 'fq-timerfail',
+  // v4.1.0: security / hardware posture
+  brute_force: 'fq-brute', smart_failure: 'fq-smart', ups_on_battery: 'fq-ups',
 };
 function _fqFields() {
   const out = {};
@@ -17615,6 +17617,42 @@ async function runFleetQuery() {
     + (hasPkgCol ? `<th>Matched package</th>` : '')
     + `<th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('fq-thead', 'fleet_query', runFleetQuery);
+}
+
+// v4.1.0: export the CURRENT fleet-query result set. CSV/XML download via an
+// authed fetch→blob (honours the strict CSP — no inline anything); PDF via the
+// standalone print page fleet-query.html (external css/js, same pattern as the
+// posture report) so the CSP isn't broken.
+function _fqParamString() {
+  const f = _fqFields();
+  const params = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) params.set(k, v); });
+  return params;
+}
+function _exportFleetQuery(format) {
+  const params = _fqParamString();
+  params.set('format', format);
+  fetch('/api/fleet/query?' + params.toString(), { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(blob => {
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = `fleet-query-${new Date().toISOString().slice(0, 10)}.${format}`;
+      a.click();
+      URL.revokeObjectURL(u);
+      toast(`${format.toUpperCase()} downloaded`, 'success');
+    })
+    .catch(() => toast('Export failed', 'error'));
+}
+function exportFleetQueryCsv() { _exportFleetQuery('csv'); }
+function exportFleetQueryXml() { _exportFleetQuery('xml'); }
+function printFleetQuery() {
+  // Standalone print page (external assets, CSP-clean) — it re-runs the same
+  // query from the params we pass and renders a light, printable document.
+  const w = window.open('fleet-query.html?' + _fqParamString().toString(), '_blank');
+  if (!w) { toast('Allow pop-ups to open the printable report', 'error'); return; }
+  toast('Opened the printable report in a new tab', 'success');
 }
 
 // ── Release signing (v3.4.2) ─────────────────────────────────────────────────
