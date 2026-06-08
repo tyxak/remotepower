@@ -17524,6 +17524,11 @@ const _FQ_FIELDS = {
   monitored: 'fq-monitored', agentless: 'fq-agentless', quarantined: 'fq-quarantined',
   reboot: 'fq-reboot', failed: 'fq-failed', kernel_outdated: 'fq-kernel',
   tp_pending: 'fq-tp', disk_gt: 'fq-disk', mem_gt: 'fq-mem', offline_days: 'fq-offline-days',
+  // v4.1.0: resource + posture + identity filters
+  cpu_gt: 'fq-cpu', swap_gt: 'fq-swap', load_gt: 'fq-load',
+  kernel: 'fq-kernel-c', platform: 'fq-platform',
+  drift: 'fq-drift', mount_issue: 'fq-mount', port_world: 'fq-portworld',
+  storage_degraded: 'fq-storage',
 };
 function _fqFields() {
   const out = {};
@@ -17584,6 +17589,8 @@ async function runFleetQuery() {
     device: d.name, group: d.group || '', os: d.os || '',
     status: d.online ? 1 : 0,
     pending: (d.pending == null ? -1 : d.pending),
+    cpu: (d.cpu == null ? -1 : d.cpu),
+    mem: (d.mem == null ? -1 : d.mem),
     cve: (d.cve_high == null ? -1 : d.cve_high),
   }));
   // v3.13.0: when the query filtered on "has package", show the matched
@@ -17594,10 +17601,12 @@ async function runFleetQuery() {
     + `<td class="hint">${escHtml(d.group || '—')}</td><td class="fs-12">${escHtml((d.os || '').substring(0, 28))}</td>`
     + `<td><span class="mon-status ${d.online ? 'up' : 'down'}">${d.online ? 'Online' : 'Offline'}</span></td>`
     + `<td class="ta-center">${d.pending == null ? '—' : d.pending}</td>`
+    + `<td class="ta-center">${d.cpu == null ? '—' : Math.round(d.cpu) + '%'}</td>`
+    + `<td class="ta-center">${d.mem == null ? '—' : Math.round(d.mem) + '%'}</td>`
     + (hasPkgCol ? `<td class="fs-12 mono-12">${escHtml(d.pkg_match || '—')}</td>` : '')
     + `<td class="ta-center">${d.cve_high == null ? '—' : d.cve_high}</td></tr>`).join('');
   out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} device(s)</div>`
-    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th>`
+    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th><th data-col="cpu" class="ta-center">CPU%</th><th data-col="mem" class="ta-center">Mem%</th>`
     + (hasPkgCol ? `<th>Matched package</th>` : '')
     + `<th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('fq-thead', 'fleet_query', runFleetQuery);

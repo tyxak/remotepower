@@ -24406,6 +24406,10 @@ def handle_fleet_query():
       pending_gt=<n>, cve_min=<n> (critical+high),
       disk_gt=<pct> (busiest mount), mem_gt=<pct>, offline_days=<n>,
       integrity=verified|mismatch|unknown.
+      v4.1.0: cpu_gt=<pct>, swap_gt=<pct>, load_gt=<float> (1-min loadavg),
+      kernel=<substr>, platform=<substr>, drift=1 (config drift present),
+      mount_issue=1, port_world=1 (a world-exposed listening port),
+      storage_degraded=1 (a pool/array not in a healthy state).
     Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
@@ -24419,6 +24423,11 @@ def handle_fleet_query():
     def qbool(k):
         v = q(k).lower()
         return True if v in ('1', 'true') else False if v in ('0', 'false') else None
+    def qf(k):
+        try:
+            return float(q(k)) if q(k) else None
+        except ValueError:
+            return None
     group, tag, os_q = q('group'), q('tag').lower(), q('os').lower()
     version_q, pkgmgr_q, has_pkg = q('version').lower(), q('pkg_manager').lower(), q('has_package').lower()
     online_q, integ = q('online'), q('integrity')
@@ -24429,6 +24438,15 @@ def handle_fleet_query():
     kernel_q = q('kernel_outdated') in ('1', 'true')
     pending_gt, cve_min = qi('pending_gt'), qi('cve_min')
     disk_gt, mem_gt, offline_days = qi('disk_gt'), qi('mem_gt'), qi('offline_days')
+    # v4.1.0: more resource + posture + identity filters.
+    cpu_gt, swap_gt = qi('cpu_gt'), qi('swap_gt')
+    load_gt = qf('load_gt')
+    kernel_sub, platform_sub = q('kernel').lower(), q('platform').lower()
+    drift_q = q('drift') in ('1', 'true')
+    mount_q = q('mount_issue') in ('1', 'true')
+    portworld_q = q('port_world') in ('1', 'true')
+    storage_q = q('storage_degraded') in ('1', 'true')
+    _STORAGE_OK = {'online', 'active', 'clean', 'healthy', 'ok'}
     now = int(time.time())
     ttl = get_online_ttl()
     devices = load(DEVICES_FILE) or {}
@@ -24499,6 +24517,42 @@ def handle_fleet_query():
             ls = d.get('last_seen', 0)
             if not (ls and (now - ls) / 86400 > offline_days):
                 continue
+        # v4.1.0: resource thresholds (cpu/swap percent, 1-min loadavg).
+        if cpu_gt is not None:
+            cp = si.get('cpu_percent')
+            if not (isinstance(cp, (int, float)) and cp > cpu_gt):
+                continue
+        if swap_gt is not None:
+            sp = si.get('swap_percent')
+            if not (isinstance(sp, (int, float)) and sp > swap_gt):
+                continue
+        if load_gt is not None:
+            la = si.get('loadavg_1m')
+            if not (isinstance(la, (int, float)) and la > load_gt):
+                continue
+        # v4.1.0: identity substrings (kernel release, platform/distro).
+        if kernel_sub and kernel_sub not in (si.get('kernel') or '').lower():
+            continue
+        if platform_sub and platform_sub not in (si.get('platform') or '').lower():
+            continue
+        # v4.1.0: posture flags.
+        if drift_q:
+            ds = d.get('drift_state') or {}
+            if not any(isinstance(s, dict) and s.get('status') == 'drifted'
+                       and not s.get('ignored') for s in ds.values()):
+                continue
+        if mount_q and not (si.get('mount_issues') or []):
+            continue
+        if portworld_q:
+            if not any((p or {}).get('scope') == 'world'
+                       for p in (si.get('listening_ports') or [])):
+                continue
+        if storage_q:
+            pools = si.get('storage_health') or []
+            if not any(isinstance(p, dict) and (p.get('state') or '')
+                       and (p.get('state') or '').lower() not in _STORAGE_OK
+                       for p in pools):
+                continue
         matched_pkg = None
         if has_pkg:
             installed = (pkg_store.get(did) or {}).get('packages') or []
@@ -24515,12 +24569,17 @@ def handle_fleet_query():
             continue
         if cve_min is not None and (cve.get(did, 0) < cve_min):
             continue
+        _cpu = si.get('cpu_percent')
+        _mem = si.get('mem_percent')
         rows.append({'device_id': did, 'name': d.get('name', did),
                      'group': d.get('group', ''), 'os': d.get('os', ''),
                      'version': d.get('version', ''),
                      'online': online,
                      'pending': pend if isinstance(pend, int) else None,
                      'pkg_match': matched_pkg,
+                     # v4.1.0: surface the live resource values too.
+                     'cpu': _cpu if isinstance(_cpu, (int, float)) else None,
+                     'mem': _mem if isinstance(_mem, (int, float)) else None,
                      'cve_high': cve.get(did, 0) if cve is not None else None})
     rows.sort(key=lambda r: r['name'].lower())
     respond(200, {'total': len(rows), 'devices': rows})

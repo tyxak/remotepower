@@ -800,5 +800,74 @@ class TestRagPgVector(unittest.TestCase):
                       api._build_exact_routes())
 
 
+class TestFleetQueryFilters(_HandlerBase):
+    """More Fleet Query options: cpu/swap/load thresholds, kernel/platform
+    substrings, and drift / mount-issue / world-port / storage-degraded flags."""
+
+    def setUp(self):
+        super().setUp()
+        self._gt = getattr(api, 'get_online_ttl')
+        api.get_online_ttl = lambda: 300
+        now = int(api.time.time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'hot', 'last_seen': now, 'monitored': True,
+                   'drift_state': {'/etc/hosts': {'status': 'drifted'}},
+                   'sysinfo': {
+                       'cpu_percent': 95, 'mem_percent': 40, 'swap_percent': 80,
+                       'loadavg_1m': 8.0, 'kernel': '6.1.0-amd64',
+                       'platform': 'Debian 12 x86_64',
+                       'mount_issues': [{'path': '/mnt', 'issue': 'stalled'}],
+                       'listening_ports': [{'port': 22, 'scope': 'world'}],
+                       'storage_health': [{'name': 'tank', 'state': 'DEGRADED'}]}},
+            'd2': {'name': 'calm', 'last_seen': now, 'monitored': True,
+                   'sysinfo': {
+                       'cpu_percent': 5, 'mem_percent': 10, 'swap_percent': 0,
+                       'loadavg_1m': 0.1, 'kernel': '5.15.0-arm64',
+                       'platform': 'Ubuntu 22.04 aarch64',
+                       'listening_ports': [{'port': 22, 'scope': 'local'}],
+                       'storage_health': [{'name': 'p', 'state': 'ONLINE'}]}},
+        })
+
+    def tearDown(self):
+        api.get_online_ttl = self._gt
+        super().tearDown()
+
+    def _run(self, qs):
+        import os as _os
+        _os.environ['QUERY_STRING'] = qs
+        return self.call(api.handle_fleet_query)
+
+    def _names(self, qs):
+        return sorted(d['name'] for d in (self._run(qs).get('devices') or []))
+
+    def test_cpu_gt(self):
+        self.assertEqual(self._names('cpu_gt=50'), ['hot'])
+
+    def test_swap_gt(self):
+        self.assertEqual(self._names('swap_gt=50'), ['hot'])
+
+    def test_load_gt_float(self):
+        self.assertEqual(self._names('load_gt=1.5'), ['hot'])
+
+    def test_kernel_and_platform_substr(self):
+        self.assertEqual(self._names('kernel=arm64'), ['calm'])
+        self.assertEqual(self._names('platform=debian'), ['hot'])
+
+    def test_posture_flags(self):
+        self.assertEqual(self._names('drift=1'), ['hot'])
+        self.assertEqual(self._names('mount_issue=1'), ['hot'])
+        self.assertEqual(self._names('port_world=1'), ['hot'])
+        self.assertEqual(self._names('storage_degraded=1'), ['hot'])
+
+    def test_rows_surface_cpu_mem(self):
+        by = {d['name']: d for d in self._run('').get('devices')}
+        self.assertEqual(by['hot']['cpu'], 95)
+        self.assertEqual(by['hot']['mem'], 40)
+
+    def test_anded_no_match(self):
+        # cpu high AND arm64 kernel matches neither host
+        self.assertEqual(self._names('cpu_gt=50&kernel=arm64'), [])
+
+
 if __name__ == '__main__':
     unittest.main()
