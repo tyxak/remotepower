@@ -18004,6 +18004,12 @@ _AI_DEFAULTS = {
             'live_state': True,
             'cmdb':       True,
             'history':    True,
+            # v4.1.0: config drift + compliance are cheap, no-PII, and high-value
+            # for operational Q&A → on by default. Metrics trends read the
+            # long-retention time-series (SQLite/PG) and can be noisy → opt-in.
+            'drift':      True,
+            'compliance': True,
+            'metrics':    False,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -18132,7 +18138,8 @@ def handle_ai_config_set():
                 cur['rag']['reindex_min_interval_sec'] = iv
             if isinstance(rb.get('sources'), dict):
                 cur['rag']['sources'] = dict(cur['rag'].get('sources') or {})
-                for k in ('docs', 'live_state', 'cmdb', 'history'):
+                for k in ('docs', 'live_state', 'cmdb', 'history',
+                          'drift', 'compliance', 'metrics'):   # v4.1.0: + 3 sources
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -18238,6 +18245,14 @@ def _rag_source_files(sources):
         files.append(CMDB_FILE)
     if sources.get('history'):
         files += [CMD_OUTPUT_FILE, ALERTS_FILE, FLEET_EVENTS_FILE]
+    # v4.1.0: drift detail lives on the device record (DEVICES_FILE); compliance
+    # is derived from device + event state; metrics from the time-series window.
+    if sources.get('drift'):
+        files.append(DEVICES_FILE)
+    if sources.get('compliance'):
+        files += [DEVICES_FILE, FLEET_EVENTS_FILE]
+    if sources.get('metrics'):
+        files.append(METRICS_FILE)
     return files
 
 
@@ -18357,7 +18372,89 @@ def _rag_build_corpus(cfg):
         except Exception as e:
             sys.stderr.write(f'rag: history source failed: {e}\n')
 
+    # v4.1.0: config drift detail (per-device + fleet rollup).
+    if sources.get('drift'):
+        try:
+            raw = load(DEVICES_FILE)
+            devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
+            docs += rag_index.build_drift_corpus(devices, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: drift source failed: {e}\n')
+
+    # v4.1.0: compliance posture (per-framework score + failing controls).
+    if sources.get('compliance'):
+        try:
+            report = compliance.build_report(_compliance_facts())
+            docs += rag_index.build_compliance_corpus(report, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: compliance source failed: {e}\n')
+
+    # v4.1.0: resource-usage trends from the SQL time-series (or JSON window).
+    if sources.get('metrics'):
+        try:
+            docs += rag_index.build_metrics_corpus(_rag_metric_summaries(), now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: metrics source failed: {e}\n')
+
     return docs
+
+
+def _summarise_metric_samples(name, samples, window_days):
+    """Turn a list of {ts,cpu,mem,disk,swap} samples into one avg/peak line."""
+    def _stats(key):
+        vals = [s[key] for s in samples
+                if isinstance(s, dict) and isinstance(s.get(key), (int, float))]
+        if not vals:
+            return None
+        return sum(vals) / len(vals), max(vals)
+    parts = []
+    for key, label in (('cpu', 'CPU'), ('mem', 'memory'),
+                       ('disk', 'disk'), ('swap', 'swap')):
+        st = _stats(key)
+        if st:
+            parts.append(f"{label}: avg {st[0]:.0f}%, peak {st[1]:.0f}%")
+    if not parts:
+        return ''
+    return (f"{name} resource usage over the last {window_days} days "
+            f"({len(samples)} samples) — " + '; '.join(parts) + '.')
+
+
+def _rag_metric_summaries(window_days=7, max_devices=1000):
+    """Per-device resource-usage trend text for the RAG `metrics` source.
+
+    Reads the long-retention time-series from the active DB backend
+    (SQLite/Postgres `metric_range`, dispatched via _dbmod()) when present, else
+    the recent JSON metrics window. Numeric samples are summarised to avg/peak
+    text by _summarise_metric_samples so they answer trend questions without
+    churning the embedding cache. Best-effort; a bad device is skipped."""
+    out = []
+    now = int(time.time())
+    since = now - window_days * 86400
+    try:
+        devices = load(DEVICES_FILE) or {}
+    except Exception:
+        return out
+    dbm = _dbmod()
+    json_metrics = (load(METRICS_FILE) or {}) if dbm is None else None
+    for dev_id, dev in list(devices.items())[:max_devices]:
+        if (not isinstance(dev, dict) or dev.get('agentless')
+                or not dev.get('monitored', True)):
+            continue
+        try:
+            if dbm is not None:
+                samples = dbm.metric_range(DATA_DIR, dev_id, since, max_points=400) or []
+            else:
+                samples = [s for s in (json_metrics.get(dev_id) or [])
+                           if isinstance(s, dict) and (s.get('ts') or 0) >= since]
+        except Exception:
+            samples = []
+        if not samples:
+            continue
+        text = _summarise_metric_samples(dev.get('name') or dev_id, samples, window_days)
+        if text:
+            out.append({'device': dev_id, 'name': dev.get('name') or dev_id,
+                        'text': text})
+    return out
 
 
 def _rag_load_index():

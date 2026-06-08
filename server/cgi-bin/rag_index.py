@@ -641,6 +641,114 @@ def build_history_corpus(commands=None, alerts=None, events=None,
     return docs
 
 
+def build_drift_corpus(devices, now=0):
+    """v4.1.0: per-device config-drift detail + a fleet rollup.
+
+    `devices` is a list of device records; each may carry a `drift_state` map
+    (file_path -> {status, ignored, ...}) as stored on the device. Only files
+    currently `drifted` (and not ignored) are emitted — answers "what config has
+    drifted on host X?" and "which hosts have drift?".
+    """
+    docs = []
+    drifted_hosts = []
+    for d in (devices or []):
+        if not isinstance(d, dict):
+            continue
+        dev_id = d.get('id') or d.get('name')
+        if not dev_id:
+            continue
+        name = d.get('name') or dev_id
+        drift = d.get('drift_state') or {}
+        files = sorted(f for f, st in drift.items()
+                       if isinstance(st, dict) and st.get('status') == 'drifted'
+                       and not st.get('ignored'))
+        if not files:
+            continue
+        drifted_hosts.append(name)
+        body = (f"{name} configuration drift — {len(files)} file(s) diverged "
+                f"from baseline:\n" + '\n'.join(f"- {f}" for f in files[:80]))
+        docs.append(make_doc(f"drift/{dev_id}", 'drift', 'device_drift', body,
+                             title=f"Config drift: {name}", device=dev_id, ts=now))
+    if drifted_hosts:
+        docs.append(make_doc(
+            'drift/_fleet', 'drift', 'fleet_drift',
+            f"Fleet config drift — {len(drifted_hosts)} host(s) have drifted "
+            "config files: " + ', '.join(sorted(drifted_hosts)[:200]),
+            title='Fleet config drift', ts=now))
+    return docs
+
+
+def build_compliance_corpus(report, now=0):
+    """v4.1.0: a compliance report → one chunk per framework (score + the
+    FAILING controls with evidence/remediation) plus an overall summary.
+
+    `report` is the dict from compliance.build_report: {frameworks: {fw:
+    {label, pass, fail, na, score, controls: [{id,title,status,evidence,
+    remediation}]}}, summary: {pass,fail,na,total}}.
+    """
+    if not isinstance(report, dict):
+        return []
+    docs = []
+    for fw, fwdata in (report.get('frameworks') or {}).items():
+        if not isinstance(fwdata, dict):
+            continue
+        label = fwdata.get('label', fw)
+        score = fwdata.get('score')
+        head = (f"{label} compliance — score "
+                f"{score if score is not None else 'n/a'}"
+                f"{'%' if score is not None else ''} "
+                f"({fwdata.get('pass', 0)} pass / {fwdata.get('fail', 0)} fail / "
+                f"{fwdata.get('na', 0)} n/a).")
+        fails = [c for c in (fwdata.get('controls') or [])
+                 if isinstance(c, dict) and c.get('status') == 'fail']
+        if fails:
+            lines = []
+            for c in fails[:60]:
+                line = f"- [{c.get('id')}] {c.get('title')}: {c.get('evidence', '')}"
+                if c.get('remediation'):
+                    line += f" → fix: {c.get('remediation')}"
+                lines.append(line)
+            body = head + "\nFailing controls:\n" + '\n'.join(lines)
+        else:
+            body = head + "\nNo failing controls."
+        docs.append(make_doc(f"compliance/{fw}", 'compliance',
+                             'framework_compliance', body,
+                             title=f"{label} compliance", ts=now))
+    summary = report.get('summary') or {}
+    if summary:
+        docs.append(make_doc(
+            'compliance/_summary', 'compliance', 'compliance_summary',
+            f"Overall compliance — {summary.get('pass', 0)} pass / "
+            f"{summary.get('fail', 0)} fail / {summary.get('na', 0)} n/a "
+            f"across {summary.get('total', 0)} controls.",
+            title='Compliance summary', ts=now))
+    return docs
+
+
+def build_metrics_corpus(summaries, now=0):
+    """v4.1.0: per-device resource-usage TREND summaries.
+
+    `summaries` is a list of {device, name, text} dicts already computed by the
+    caller, which owns the time-series read (the SQLite/Postgres `metric_range`
+    long-retention table, or the JSON metrics window). Numeric series are
+    summarised to avg/peak text upstream — deliberately NOT raw samples, which
+    would churn the embedding cache and pollute lexical search — so the index can
+    answer "which hosts trended high CPU last week?".
+    """
+    docs = []
+    for s in (summaries or []):
+        if not isinstance(s, dict):
+            continue
+        dev_id = s.get('device')
+        text = (s.get('text') or '').strip()
+        if not dev_id or not text:
+            continue
+        docs.append(make_doc(f"metrics/{dev_id}", 'metrics', 'device_metrics',
+                             text, title=f"Resource trends: {s.get('name') or dev_id}",
+                             device=dev_id, ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

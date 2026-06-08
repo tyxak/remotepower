@@ -29,6 +29,8 @@ _spec = importlib.util.spec_from_file_location("api_v410", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
+import rag_index   # pure retrieval engine — corpus builders are unit-tested here
+
 
 class _HandlerBase(unittest.TestCase):
     """Drive handlers directly with stubbed auth/request/respond."""
@@ -36,7 +38,7 @@ class _HandlerBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
-                     'SECRETS_FILE', 'AUDIT_LOG_FILE', 'HISTORY_FILE'):
+                     'SECRETS_FILE', 'AUDIT_LOG_FILE', 'HISTORY_FILE', 'METRICS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -440,6 +442,93 @@ class TestModalManager(unittest.TestCase):
         # openModal must remember the prior focus and closeModal restore it.
         self.assertIn('_modalReturnFocus', self.js)
         self.assertIn('document.activeElement', self.js)
+
+
+class TestRagNewSources(unittest.TestCase):
+    """Feed the RAG more data: drift + compliance corpus builders (pure)."""
+
+    def test_drift_corpus(self):
+        devices = [
+            {'id': 'd1', 'name': 'web01', 'drift_state': {
+                '/etc/ssh/sshd_config': {'status': 'drifted'},
+                '/etc/hosts': {'status': 'ok'},
+                '/etc/fstab': {'status': 'drifted', 'ignored': True}}},
+            {'id': 'd2', 'name': 'db01', 'drift_state': {}},
+        ]
+        docs = rag_index.build_drift_corpus(devices, now=100)
+        ids = {d['id'] for d in docs}
+        self.assertIn('drift/d1', ids)
+        self.assertIn('drift/_fleet', ids)
+        self.assertNotIn('drift/d2', ids)            # no drift → no chunk
+        d1 = next(d for d in docs if d['id'] == 'drift/d1')
+        self.assertIn('sshd_config', d1['text'])
+        self.assertNotIn('/etc/hosts', d1['text'])   # not drifted
+        self.assertNotIn('/etc/fstab', d1['text'])   # ignored
+
+    def test_compliance_corpus(self):
+        report = {'frameworks': {'pci': {
+            'label': 'PCI DSS', 'pass': 3, 'fail': 1, 'na': 0, 'score': 75.0,
+            'controls': [
+                {'id': 'pci-1', 'title': 'MFA', 'status': 'fail',
+                 'evidence': 'no TOTP users', 'remediation': 'enable 2FA'},
+                {'id': 'pci-2', 'title': 'Patching', 'status': 'pass',
+                 'evidence': 'ok'}]}},
+            'summary': {'pass': 3, 'fail': 1, 'na': 0, 'total': 4}}
+        docs = rag_index.build_compliance_corpus(report, now=100)
+        ids = {d['id'] for d in docs}
+        self.assertIn('compliance/pci', ids)
+        self.assertIn('compliance/_summary', ids)
+        pci = next(d for d in docs if d['id'] == 'compliance/pci')
+        self.assertIn('PCI DSS', pci['text'])
+        self.assertIn('pci-1', pci['text'])          # failing control surfaced
+        self.assertIn('enable 2FA', pci['text'])     # remediation surfaced
+        self.assertNotIn('pci-2', pci['text'])       # passing control omitted
+
+    def test_metrics_corpus(self):
+        docs = rag_index.build_metrics_corpus(
+            [{'device': 'd1', 'name': 'web01', 'text': 'web01 CPU avg 80%'}], now=5)
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0]['id'], 'metrics/d1')
+        self.assertEqual(docs[0]['source'], 'metrics')
+
+    def test_summarise_metric_samples(self):
+        samples = [{'cpu': 50, 'mem': 40}, {'cpu': 90, 'mem': 60}]
+        txt = api._summarise_metric_samples('web01', samples, 7)
+        self.assertIn('CPU: avg 70%, peak 90%', txt)
+        self.assertIn('memory: avg 50%, peak 60%', txt)
+        # No samples → empty.
+        self.assertEqual(api._summarise_metric_samples('x', [], 7), '')
+
+    def test_default_sources_include_new(self):
+        src = api._AI_DEFAULTS['rag']['sources']
+        self.assertTrue(src['drift'])
+        self.assertTrue(src['compliance'])
+        self.assertIn('metrics', src)   # present (opt-in / default off)
+
+
+class TestRagMetricSummaries(_HandlerBase):
+    """B1: _rag_metric_summaries reads the time-series (JSON window here)."""
+
+    def test_json_window_summaries(self):
+        now = int(api.time.time())
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web01', 'monitored': True}})
+        api.save(api.METRICS_FILE, {'d1': [
+            {'ts': now - 100, 'cpu': 40, 'mem': 30, 'disk': 50, 'swap': 0},
+            {'ts': now - 50,  'cpu': 80, 'mem': 50, 'disk': 55, 'swap': 0},
+        ]})
+        out = api._rag_metric_summaries()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['device'], 'd1')
+        self.assertIn('CPU: avg 60%, peak 80%', out[0]['text'])
+
+    def test_skips_agentless_and_unmonitored(self):
+        now = int(api.time.time())
+        api.save(api.DEVICES_FILE, {
+            'a': {'name': 'a', 'agentless': True},
+            'u': {'name': 'u', 'monitored': False}})
+        api.save(api.METRICS_FILE, {'a': [{'ts': now, 'cpu': 9}],
+                                    'u': [{'ts': now, 'cpu': 9}]})
+        self.assertEqual(api._rag_metric_summaries(), [])
 
 
 if __name__ == '__main__':

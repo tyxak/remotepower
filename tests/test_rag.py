@@ -422,11 +422,20 @@ class TestApiCorpus(unittest.TestCase):
         _enable_rag()
 
     def test_reindex_covers_all_sources(self):
+        # v4.1.0: drift + compliance are default-on sources too (metrics is
+        # opt-in). Give a host config drift so the drift source emits a chunk;
+        # the compliance source always produces framework chunks.
+        devs = api.load(api.DEVICES_FILE)
+        for d in (devs.values() if isinstance(devs, dict) else devs):
+            d['drift_state'] = {'/etc/hosts': {'status': 'drifted'}}
+            break
+        api.save(api.DEVICES_FILE, devs)
         cfg = api._ai_cfg()
         stats = api._rag_reindex(cfg)
         self.assertGreater(stats["docs"], 0)
         self.assertEqual(set(stats["by_source"]),
-                         {"docs", "live_state", "cmdb", "history"})
+                         {"docs", "live_state", "cmdb", "history",
+                          "drift", "compliance"})
 
     def test_vault_secret_never_in_corpus(self):
         api._rag_reindex(api._ai_cfg())

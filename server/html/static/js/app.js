@@ -8973,6 +8973,11 @@ async function loadAISettings() {
   document.getElementById('ai-rag-src-live').checked    = rs.live_state !== false;
   document.getElementById('ai-rag-src-cmdb').checked    = rs.cmdb !== false;
   document.getElementById('ai-rag-src-history').checked = !!rs.history;
+  // v4.1.0: drift + compliance default on; metrics opt-in.
+  const _setSrc = (id, on) => { const e = document.getElementById(id); if (e) e.checked = on; };
+  _setSrc('ai-rag-src-drift',      rs.drift !== false);
+  _setSrc('ai-rag-src-compliance', rs.compliance !== false);
+  _setSrc('ai-rag-src-metrics',    !!rs.metrics);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
@@ -9141,6 +9146,9 @@ async function saveAISettings() {
         live_state: document.getElementById('ai-rag-src-live').checked,
         cmdb:       document.getElementById('ai-rag-src-cmdb').checked,
         history:    document.getElementById('ai-rag-src-history').checked,
+        drift:      !!document.getElementById('ai-rag-src-drift')?.checked,
+        compliance: !!document.getElementById('ai-rag-src-compliance')?.checked,
+        metrics:    !!document.getElementById('ai-rag-src-metrics')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
