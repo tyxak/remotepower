@@ -531,5 +531,153 @@ class TestRagMetricSummaries(_HandlerBase):
         self.assertEqual(api._rag_metric_summaries(), [])
 
 
+class TestRagPgVector(unittest.TestCase):
+    """B2: pgvector index backend + live switch. The actual SQL needs a live
+    Postgres (verified in the test deploy); here we verify the dispatch,
+    row-building, reindex/retrieve orchestration, and migrate flow against a
+    mocked storage_pg layer."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._orig = {n: getattr(api, n) for n in
+                      ('_storage_backend', '_dbmod', '_rag_build_corpus',
+                       '_rag_embeddings_active', 'CONFIG_FILE', 'RAG_INDEX_FILE',
+                       'require_admin_auth', 'respond', 'method', 'get_json_body',
+                       'audit_log', '_rag_newest_mtime', 'DATA_DIR')}
+        api.CONFIG_FILE = self.d / 'config.json'
+        api.RAG_INDEX_FILE = self.d / 'rag_index.json'
+        api.DATA_DIR = self.d
+        # RAG dispatch sees 'postgres' (mocked per test), but file I/O for the
+        # config/json-index must use local JSON, not a real PG connection.
+        api._dbmod = lambda: None
+        api._rag_embeddings_active = lambda cfg: False
+        api._rag_newest_mtime = lambda sources: 0
+        api.audit_log = lambda *a, **k: None
+        # Mock the PG vector store.
+        self.pg = {'replaced': None, 'init': 0, 'count': 0, 'built_at': 0,
+                   'cleared': 0, 'search': []}
+        self._pg_orig = {n: getattr(api.storage_pg, n) for n in
+                         ('rag_init_schema', 'rag_replace_all', 'rag_search',
+                          'rag_count', 'rag_built_at', 'rag_clear')}
+
+        def _replace(dd, rows, built_at=0):
+            self.pg['replaced'] = list(rows); self.pg['count'] = len(rows)
+            return len(rows)
+        api.storage_pg.rag_init_schema = lambda dd: self.pg.__setitem__('init', self.pg['init'] + 1)
+        api.storage_pg.rag_replace_all = _replace
+        api.storage_pg.rag_search = lambda dd, q, v, k=6: list(self.pg['search'])[:k]
+        api.storage_pg.rag_count = lambda dd: self.pg['count']
+        api.storage_pg.rag_built_at = lambda dd: self.pg['built_at']
+        api.storage_pg.rag_clear = lambda dd: self.pg.__setitem__('cleared', self.pg['cleared'] + 1)
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(api, n, v)
+        for n, v in self._pg_orig.items():
+            setattr(api.storage_pg, n, v)
+
+    def _corpus(self):
+        return [rag_index.make_doc('live/web01#cves', 'live_state', 'device_cves',
+                                   'web01 has 2 critical CVEs', device='web01', ts=1),
+                rag_index.make_doc('docs/x#a', 'docs', 'doc_md', 'how to patch', ts=1)]
+
+    def test_index_backend_selection(self):
+        api._storage_backend = lambda: 'json'
+        self.assertEqual(api._rag_index_backend({'rag': {'index_backend': 'postgres'}}), 'json')
+        api._storage_backend = lambda: 'postgres'
+        self.assertEqual(api._rag_index_backend({'rag': {'index_backend': 'postgres'}}), 'postgres')
+        self.assertEqual(api._rag_index_backend({'rag': {'index_backend': 'json'}}), 'json')
+        self.assertEqual(api._rag_index_backend({'rag': {}}), 'json')
+
+    def test_pg_rows_pairs_embeddings(self):
+        idx = rag_index.InfraIndex()
+        idx.build(self._corpus(), built_at=1)
+        idx.emb_cache = {idx.docs[0]['hash']: [0.1, 0.2]}
+        rows = api._rag_pg_rows(idx)
+        self.assertEqual(len(rows), 2)
+        byid = {r['id']: r for r in rows}
+        self.assertEqual(byid['live/web01#cves']['embedding'], [0.1, 0.2])
+        self.assertIsNone(byid['docs/x#a']['embedding'])
+        self.assertEqual(byid['live/web01#cves']['dtype'], 'device_cves')
+
+    def test_reindex_writes_to_pg(self):
+        api._storage_backend = lambda: 'postgres'
+        api._rag_build_corpus = lambda cfg: self._corpus()
+        cfg = {'rag': {'enabled': True, 'index_backend': 'postgres', 'sources': {}}}
+        stats = api._rag_reindex(cfg)
+        self.assertEqual(stats['index_backend'], 'postgres')
+        self.assertEqual(self.pg['init'], 1)
+        self.assertEqual(len(self.pg['replaced']), 2)
+        self.assertFalse(api.RAG_INDEX_FILE.exists())   # PG path doesn't write JSON
+
+    def test_reindex_pg_failure_falls_back_to_json(self):
+        api._storage_backend = lambda: 'postgres'
+        api._rag_build_corpus = lambda cfg: self._corpus()
+        def _boom(dd, rows, built_at=0):
+            raise RuntimeError('no pgvector')
+        api.storage_pg.rag_replace_all = _boom
+        cfg = {'rag': {'enabled': True, 'index_backend': 'postgres', 'sources': {}}}
+        stats = api._rag_reindex(cfg)
+        self.assertEqual(stats['index_backend'], 'json')
+        self.assertIn('pg_error', stats)
+        self.assertTrue(api.RAG_INDEX_FILE.exists())     # fell back to JSON
+
+    def test_retrieve_pg_budget_trim(self):
+        api._storage_backend = lambda: 'postgres'
+        self.pg['count'] = 3
+        self.pg['built_at'] = int(api.time.time())
+        self.pg['search'] = [{'text': 'a' * 3000, 'id': '1'},
+                             {'text': 'b' * 3000, 'id': '2'},
+                             {'text': 'c' * 3000, 'id': '3'}]
+        cfg = {'rag': {'enabled': True, 'index_backend': 'postgres',
+                       'max_chunks': 6, 'max_chars': 4000, 'sources': {}}}
+        out = api._rag_retrieve(cfg, 'cve')
+        self.assertEqual([c['id'] for c in out], ['1'])  # 2nd would blow the 4000 budget
+
+    def test_migrate_requires_pg_storage(self):
+        cap = {}
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'postgres'}
+        api._storage_backend = lambda: 'sqlite'   # not postgres
+
+        def _resp(s, b=None):
+            cap['s'] = s; cap['b'] = b; raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.save(api.CONFIG_FILE, {'ai': {'rag': {'enabled': True}}})
+        try:
+            api.handle_ai_rag_index_migrate()
+        except api.HTTPError:
+            pass
+        self.assertEqual(cap['s'], 400)
+        self.assertIn('Postgres first', cap['b']['error'])
+
+    def test_migrate_flips_config_and_reindexes(self):
+        cap = {}
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'postgres'}
+        api._storage_backend = lambda: 'postgres'
+        api._rag_build_corpus = lambda cfg: self._corpus()
+
+        def _resp(s, b=None):
+            cap['s'] = s; cap['b'] = b; raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.save(api.CONFIG_FILE, {'ai': {'rag': {'enabled': True}}})
+        try:
+            api.handle_ai_rag_index_migrate()
+        except api.HTTPError:
+            pass
+        self.assertEqual(cap['s'], 200)
+        self.assertEqual(cap['b']['target'], 'postgres')
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg['ai']['rag']['index_backend'], 'postgres')
+        self.assertGreaterEqual(self.pg['init'], 1)
+
+    def test_route_registered(self):
+        self.assertIn(('POST', '/api/ai/rag/index-backend/migrate'),
+                      api._build_exact_routes())
+
+
 if __name__ == '__main__':
     unittest.main()

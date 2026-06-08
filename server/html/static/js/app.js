@@ -9038,10 +9038,52 @@ async function loadRAGStatus() {
   const s = await api('GET', '/ai/rag/status');
   if (!s || s.error) { el.textContent = s?.error ? `(${s.error})` : ''; return; }
   const bits = [`${s.docs || 0} chunks indexed`, `built ${_ragFmtAge(s.built_at)}`];
+  if (s.index_backend === 'postgres') bits.push('store: Postgres / pgvector');
   if (s.embedded)  bits.push(`${s.embedded} embedded (${s.emb_model || 'semantic'})`);
   if (s.stale)     bits.push('— sources changed since last build');
   el.textContent = bits.join(' · ');
   el.style.color = s.stale ? 'var(--amber, var(--muted))' : 'var(--muted)';
+  // v4.1.0: offer the pgvector switch only when the storage backend is Postgres.
+  const btn = document.getElementById('ai-rag-backend-btn');
+  const hint = document.getElementById('ai-rag-backend-hint');
+  if (btn) {
+    const onPg = s.index_backend === 'postgres';
+    const canPg = s.storage_backend === 'postgres';
+    if (onPg || canPg) {
+      btn.hidden = false;
+      btn.textContent = onPg ? 'Move index back to JSON' : 'Move index to Postgres (pgvector)';
+      btn.dataset.target = onPg ? 'json' : 'postgres';
+    } else {
+      btn.hidden = true;
+    }
+  }
+  if (hint) {
+    if (s.storage_backend !== 'postgres' && s.index_backend !== 'postgres') {
+      hint.hidden = false;
+      hint.textContent = 'Tip: switch the storage backend to Postgres to enable the pgvector index (native semantic search at fleet scale).';
+    } else {
+      hint.hidden = true;
+    }
+  }
+}
+
+async function switchRagIndexBackend() {
+  const btn = document.getElementById('ai-rag-backend-btn');
+  const target = btn && btn.dataset.target;
+  if (!target) return;
+  if (!confirm(target === 'postgres'
+      ? 'Move the AI retrieval index into Postgres (pgvector) and rebuild it there?'
+      : 'Move the AI retrieval index back to the bundled JSON index and rebuild it?')) return;
+  const el = document.getElementById('ai-rag-status');
+  if (el) { el.textContent = 'Switching index backend…'; el.style.color = 'var(--muted)'; }
+  const r = await api('POST', '/ai/rag/index-backend/migrate', { target });
+  if (r && r.ok) {
+    toast(`Index now on ${target === 'postgres' ? 'Postgres/pgvector' : 'JSON'}: ${r.docs} chunks`, 'success');
+    loadRAGStatus();
+  } else {
+    toast('Switch failed: ' + (r?.error || 'unknown error'), 'error');
+    loadRAGStatus();
+  }
 }
 
 async function aiRagReindex() {

@@ -316,5 +316,65 @@ class TestPgMigration(unittest.TestCase):
         self.assertEqual(self.S.load(d / 'devices.json')['d1']['name'], 'h')
 
 
+@unittest.skipIf(_SKIP, _SKIP_REASON)
+class TestStoragePgRagVector(unittest.TestCase):
+    """v4.1.0: pgvector RAG chunk store. Runs only against a live Postgres; if
+    the `vector` extension can't be created (not installed), the whole class
+    skips rather than failing."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ['RP_PG_DSN'] = _DSN
+        import storage_pg
+        cls.S = storage_pg
+        cls.S.configure_dsn(_DSN)
+        cls.d = Path(tempfile.mkdtemp())
+        try:
+            cls.S.rag_init_schema(cls.d)
+        except Exception as e:
+            raise unittest.SkipTest(f"pgvector not available: {e}")
+
+    def setUp(self):
+        conn = self.S._connect(self.d)
+        conn.execute('TRUNCATE rag_chunks')
+
+    def _rows(self):
+        return [
+            {'id': 'live/web01#cves', 'source': 'live_state', 'dtype': 'device_cves',
+             'device': 'web01', 'title': 'web01 CVEs', 'ts': 10,
+             'text': 'web01 has two critical openssl CVEs needing a patch',
+             'embedding': [1.0, 0.0, 0.0]},
+            {'id': 'docs/patch#a', 'source': 'docs', 'dtype': 'doc_md',
+             'device': None, 'title': 'Patching', 'ts': 5,
+             'text': 'how to apply package updates on debian',
+             'embedding': [0.0, 1.0, 0.0]},
+        ]
+
+    def test_replace_count_built_at(self):
+        n = self.S.rag_replace_all(self.d, self._rows(), built_at=123)
+        self.assertEqual(n, 2)
+        self.assertEqual(self.S.rag_count(self.d), 2)
+        self.assertEqual(self.S.rag_built_at(self.d), 123)
+
+    def test_vector_search(self):
+        self.S.rag_replace_all(self.d, self._rows(), built_at=1)
+        hits = self.S.rag_search(self.d, 'anything', [0.9, 0.1, 0.0], k=1)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]['id'], 'live/web01#cves')   # nearest vector
+        self.assertEqual(hits[0]['type'], 'device_cves')     # shape mirrors JSON
+
+    def test_fulltext_search_when_no_vector(self):
+        self.S.rag_replace_all(self.d, self._rows(), built_at=1)
+        hits = self.S.rag_search(self.d, 'openssl patch', None, k=5)
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]['id'], 'live/web01#cves')
+
+    def test_clear_drops_table(self):
+        self.S.rag_replace_all(self.d, self._rows(), built_at=1)
+        self.S.rag_clear(self.d)
+        self.assertEqual(self.S.rag_count(self.d), 0)   # table gone → 0
+        self.S.rag_init_schema(self.d)                  # restore for other tests
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -654,6 +654,125 @@ def metric_has_any(data_dir, device):
                        (device,)).fetchone() is not None
 
 
+# ─── v4.1.0: pgvector RAG chunk store ────────────────────────────────────────
+# Optional, Postgres-only vector store for the AI retrieval index. Requires the
+# `vector` extension (operator-confirmed available). Vectors are passed as a
+# `'[..]'::vector` literal so we don't need the pgvector psycopg adapter — every
+# row in one reindex uses the same embedding model (same dimension), and the
+# query vector matches, so the `<=>` distance operator is well-defined. The
+# embedding column is intentionally left dimensionless (no HNSW index) for a
+# first cut: exact kNN is correct and fine to tens of thousands of chunks; an
+# HNSW/IVF index can be added once a fixed embedding dimension is settled.
+
+def _vec_literal(vec):
+    """Render a float list as a pgvector text literal: '[1.0,2.0,...]'."""
+    return '[' + ','.join(repr(float(x)) for x in vec) + ']'
+
+
+def rag_init_schema(data_dir):
+    """Ensure the pgvector extension + rag_chunks table exist. Idempotent.
+    Raises if the `vector` extension can't be created (caller surfaces that)."""
+    conn = _connect(data_dir)
+    with _Tx(conn) as c:
+        c.execute('CREATE EXTENSION IF NOT EXISTS vector')
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS rag_chunks (
+                id        TEXT PRIMARY KEY,
+                source    TEXT,
+                dtype     TEXT,
+                device    TEXT,
+                title     TEXT,
+                body      TEXT,
+                ts        BIGINT DEFAULT 0,
+                embedding vector,
+                tsv       tsvector
+            )""")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_rag_chunks_tsv '
+                  'ON rag_chunks USING GIN(tsv)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_rag_chunks_device '
+                  'ON rag_chunks(device)')
+
+
+def rag_replace_all(data_dir, rows, built_at=0):
+    """Replace the whole chunk store in one transaction (a full reindex).
+
+    rows: list of {id, source, dtype, device, title, text, ts, embedding(list|None)}.
+    The full-text vector is derived from `text` server-side; the embedding is
+    stored when present (lexical/FTS rows have embedding NULL). Returns the count.
+    """
+    conn = _connect(data_dir)
+    with _Tx(conn) as c:
+        c.execute('TRUNCATE rag_chunks')
+        for r in rows:
+            if not r.get('id'):
+                continue
+            emb = r.get('embedding')
+            emb_lit = _vec_literal(emb) if emb else None
+            body = r.get('text') or ''
+            c.execute(
+                'INSERT INTO rag_chunks'
+                '(id, source, dtype, device, title, body, ts, embedding, tsv) '
+                "VALUES(%s,%s,%s,%s,%s,%s,%s,%s::vector,to_tsvector('english',%s))",
+                (r.get('id'), r.get('source'), r.get('dtype'), r.get('device'),
+                 r.get('title'), body, int(r.get('ts') or 0), emb_lit, body))
+        c.execute("INSERT INTO schema_meta(key, value) VALUES('rag_built_at', %s) "
+                  "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                  (str(int(built_at)),))
+    return len(rows)
+
+
+def rag_search(data_dir, query_text, query_vec, k=6):
+    """Top-k chunks for a query. Vector ANN (`<=>`) when an embedding is given;
+    otherwise full-text ranking. Returns docs shaped like the JSON index
+    (id, source, type, device, title, text, ts)."""
+    conn = _connect(data_dir)
+    k = max(1, min(50, int(k)))
+    cols = 'id, source, dtype, device, title, body, ts'
+    if query_vec:
+        rows = conn.execute(
+            f'SELECT {cols} FROM rag_chunks WHERE embedding IS NOT NULL '
+            'ORDER BY embedding <=> %s::vector LIMIT %s',
+            (_vec_literal(query_vec), k)).fetchall()
+    else:
+        rows = conn.execute(
+            f"SELECT {cols} FROM rag_chunks "
+            "WHERE tsv @@ plainto_tsquery('english', %s) "
+            "ORDER BY ts_rank(tsv, plainto_tsquery('english', %s)) DESC LIMIT %s",
+            (query_text or '', query_text or '', k)).fetchall()
+    out = []
+    for r in rows:
+        out.append({'id': r['id'], 'source': r['source'], 'type': r['dtype'],
+                    'device': r['device'], 'title': r['title'],
+                    'text': r['body'], 'ts': int(r['ts'] or 0)})
+    return out
+
+
+def rag_count(data_dir):
+    conn = _connect(data_dir)
+    try:
+        return int(conn.execute('SELECT COUNT(*) AS n FROM rag_chunks')
+                   .fetchone()['n'])
+    except Exception:
+        return 0
+
+
+def rag_built_at(data_dir):
+    conn = _connect(data_dir)
+    try:
+        row = conn.execute("SELECT value FROM schema_meta WHERE key='rag_built_at'"
+                           ).fetchone()
+        return int(row['value']) if row else 0
+    except Exception:
+        return 0
+
+
+def rag_clear(data_dir):
+    """Drop the chunk store (used when switching the index backend away from PG)."""
+    conn = _connect(data_dir)
+    with _Tx(conn) as c:
+        c.execute('DROP TABLE IF EXISTS rag_chunks')
+
+
 def entity_get(path, key, default=None):
     conn = _connect(_dir(path))
     row = conn.execute('SELECT doc FROM entity WHERE file=%s AND k=%s',

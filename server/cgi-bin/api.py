@@ -18013,6 +18013,12 @@ _AI_DEFAULTS = {
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
+        # v4.1.0: where the retrieval index lives. 'json' = the bundled lexical
+        # index file (default, works on every storage backend). 'postgres' =
+        # pgvector chunk store (opt-in; only active when the storage backend is
+        # also Postgres, since it reuses that connection). Switch via
+        # POST /api/ai/rag/index-backend/migrate.
+        'index_backend': 'json',
         'max_chunks': 6,
         'max_chars':  4000,
         # Lazy reindex throttle: rebuild at most once per this many seconds,
@@ -18488,16 +18494,61 @@ def _rag_embed_missing(cfg, idx, cap=_RAG_MAX_EMBED_PER_RUN):
     return len(vecs), None
 
 
+def _rag_index_backend(cfg):
+    """Where the retrieval index lives: 'postgres' only when the operator
+    switched it there AND the storage backend is Postgres (the pgvector store
+    reuses that connection); otherwise the default 'json' lexical index."""
+    want = (cfg.get('rag') or {}).get('index_backend') or 'json'
+    if want == 'postgres' and _storage_backend() == 'postgres':
+        return 'postgres'
+    return 'json'
+
+
+def _rag_pg_rows(idx):
+    """Flatten a built InfraIndex into rows for the pgvector store, pairing each
+    chunk with its embedding (if embedded) via the content-hash cache."""
+    rows = []
+    for d in idx.docs:
+        if not isinstance(d, dict):
+            continue
+        rows.append({
+            'id':        d.get('id'),
+            'source':    d.get('source'),
+            'dtype':     d.get('type'),
+            'device':    d.get('device'),
+            'title':     d.get('title'),
+            'text':      d.get('text'),
+            'ts':        d.get('ts') or 0,
+            'embedding': idx.emb_cache.get(d.get('hash')),
+        })
+    return rows
+
+
 def _rag_reindex(cfg):
     """Full reindex: rebuild the corpus + lexical index (preserving the
     embedding cache across rebuilds), then embed new chunks if enabled.
-    Persists and returns the stats dict (with an optional embed_error)."""
+    Persists to the active index backend and returns the stats dict."""
     idx = _rag_load_index()                  # keep existing embedding cache
     idx.build(_rag_build_corpus(cfg), built_at=int(time.time()))
     embedded, err = _rag_embed_missing(cfg, idx)
-    save(RAG_INDEX_FILE, idx.to_dict())
     stats = idx.stats()
     stats['embeddings_active'] = _rag_embeddings_active(cfg)
+    if _rag_index_backend(cfg) == 'postgres':
+        # v4.1.0: mirror the built index into the pgvector store. On any PG
+        # failure, fall back to persisting the JSON index so search still works.
+        try:
+            storage_pg.rag_init_schema(DATA_DIR)
+            storage_pg.rag_replace_all(DATA_DIR, _rag_pg_rows(idx),
+                                       built_at=idx.built_at)
+            stats['index_backend'] = 'postgres'
+            if err:
+                stats['embed_error'] = err
+            return stats
+        except Exception as e:
+            sys.stderr.write(f'rag: pg reindex failed, falling back to json: {e}\n')
+            stats['pg_error'] = str(e)[:200]
+    save(RAG_INDEX_FILE, idx.to_dict())
+    stats['index_backend'] = 'json'
     if err:
         stats['embed_error'] = err
     return stats
@@ -18528,6 +18579,43 @@ def _rag_get_index(cfg):
         return rag_index.InfraIndex()
 
 
+def _rag_budget_trim(chunks, budget):
+    """Keep chunks until the total text length would exceed `budget` (but always
+    return at least one)."""
+    out, used = [], 0
+    for c in chunks:
+        t = c.get('text', '')
+        if used + len(t) > budget and out:
+            break
+        out.append(c)
+        used += len(t)
+    return out
+
+
+def _rag_retrieve_pg(cfg, query):
+    """Retrieval against the pgvector store: vector ANN when embeddings are
+    active, else Postgres full-text. Lazily (re)builds under the same throttle as
+    the JSON path so the PG index stays fresh without rebuilding every chat."""
+    rag = cfg.get('rag') or {}
+    try:
+        now = int(time.time())
+        interval = int(rag.get('reindex_min_interval_sec', 600))
+        built = storage_pg.rag_built_at(DATA_DIR)
+        stale = _rag_newest_mtime(rag.get('sources') or {}) > built
+        if storage_pg.rag_count(DATA_DIR) == 0 or (stale and (now - built) >= interval):
+            _rag_reindex(cfg)
+    except Exception as e:
+        sys.stderr.write(f'rag: pg lazy reindex failed: {e}\n')
+    query_vec = None
+    if _rag_embeddings_active(cfg):
+        res = ai_provider.embed(cfg, [query])
+        if res.get('ok') and res.get('vectors'):
+            query_vec = res['vectors'][0]
+    chunks = storage_pg.rag_search(DATA_DIR, query, query_vec,
+                                   k=int(rag.get('max_chunks', 6)))
+    return _rag_budget_trim(chunks, int(rag.get('max_chars', 4000)))
+
+
 def _rag_retrieve(cfg, query):
     """Retrieve the top chunks for a query. Returns [] on any failure so a
     retrieval problem can never break the chat path."""
@@ -18535,6 +18623,8 @@ def _rag_retrieve(cfg, query):
     if not rag.get('enabled') or not (query or '').strip():
         return []
     try:
+        if _rag_index_backend(cfg) == 'postgres':
+            return _rag_retrieve_pg(cfg, query)
         idx = _rag_get_index(cfg)
         if idx.stats()['docs'] == 0:
             return []
@@ -18564,20 +18654,78 @@ def handle_ai_rag_status():
     """GET /api/ai/rag/status — index freshness + counts (any authed user)."""
     require_auth()
     cfg = _ai_cfg()
-    idx = _rag_load_index()
     sources = (cfg.get('rag') or {}).get('sources') or {}
-    stats = idx.stats()
+    backend = _rag_index_backend(cfg)
     newest = _rag_newest_mtime(sources)
+    if backend == 'postgres':
+        # The chunk store lives in PG; report its counts there. (Still load the
+        # JSON index for the embedding-cache count, which PG rows mirror.)
+        idx = _rag_load_index()
+        stats = idx.stats()
+        try:
+            stats['docs'] = storage_pg.rag_count(DATA_DIR)
+            stats['built_at'] = storage_pg.rag_built_at(DATA_DIR)
+        except Exception as e:
+            stats['pg_error'] = str(e)[:200]
+    else:
+        idx = _rag_load_index()
+        stats = idx.stats()
     respond(200, {
         'enabled':           bool((cfg.get('rag') or {}).get('enabled')),
         'config':            cfg.get('rag'),
         'provider':          cfg.get('provider'),
+        'index_backend':     backend,
+        'storage_backend':   _storage_backend(),
         'supports_embeddings': ai_provider.supports_embeddings(cfg),
         'embeddings_active': _rag_embeddings_active(cfg),
         'stale':             newest > stats['built_at'],
         'newest_source':     newest,
         **stats,
     })
+
+
+def handle_ai_rag_index_migrate():
+    """POST /api/ai/rag/index-backend/migrate {target: 'json'|'postgres'}
+
+    v4.1.0: live-switch the RAG retrieval index between the bundled JSON/lexical
+    index and the pgvector store — mirroring the storage-backend migrate. The
+    pgvector store reuses the storage Postgres connection, so 'postgres' requires
+    the storage backend already be Postgres. Flips the config, rebuilds into the
+    new backend, and (when leaving PG) drops the chunk table. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    target = str(body.get('target', '')).strip()
+    if target not in ('json', 'postgres'):
+        respond(400, {'error': "target must be 'json' or 'postgres'"})
+    cfg = _ai_cfg()
+    if not (cfg.get('rag') or {}).get('enabled'):
+        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+    if target == 'postgres':
+        if _storage_backend() != 'postgres':
+            respond(400, {'error': 'Switch the storage backend to Postgres first '
+                                   '— the RAG vector store reuses that connection.'})
+        try:
+            storage_pg.rag_init_schema(DATA_DIR)   # fail fast if pgvector absent
+        except Exception as e:
+            respond(400, {'error': f'pgvector not available: {str(e)[:200]}'})
+    # Flip the marker (config), then rebuild into the now-active backend.
+    full = load(CONFIG_FILE) or {}
+    full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = target
+    save(CONFIG_FILE, full)
+    t0 = time.monotonic()
+    stats = _rag_reindex(_ai_cfg())
+    if target == 'json':
+        try:
+            storage_pg.rag_clear(DATA_DIR)         # best-effort cleanup
+        except Exception:
+            pass
+    stats['elapsed_ms'] = int((time.monotonic() - t0) * 1000)
+    audit_log(actor, 'ai_rag_index_migrate',
+              detail=f"target={target} docs={stats.get('docs')} "
+                     f"elapsed_ms={stats['elapsed_ms']}")
+    respond(200, {'ok': True, 'target': target, **stats})
 
 
 def handle_ai_rag_reindex():
@@ -35608,6 +35756,7 @@ def _build_exact_routes():
         ('GET', '/api/ai/prompts'): handle_ai_prompts_get,
         ('POST', '/api/ai/prompts'): handle_ai_prompts_save,
         ('POST', '/api/ai/rag/reindex'): handle_ai_rag_reindex,
+        ('POST', '/api/ai/rag/index-backend/migrate'): handle_ai_rag_index_migrate,
         ('GET', '/api/ai/rag/status'): handle_ai_rag_status,
         ('POST', '/api/ai/test'): handle_ai_test,
         ('DELETE', '/api/alerts'): handle_alerts_clear,
