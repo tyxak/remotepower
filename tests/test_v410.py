@@ -542,10 +542,12 @@ class TestRagPgVector(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('_storage_backend', '_dbmod', '_rag_build_corpus',
                        '_rag_embeddings_active', 'CONFIG_FILE', 'RAG_INDEX_FILE',
-                       'require_admin_auth', 'respond', 'method', 'get_json_body',
-                       'audit_log', '_rag_newest_mtime', 'DATA_DIR')}
+                       'RAG_MIGRATE_STATUS_FILE', 'require_admin_auth', 'respond',
+                       'method', 'get_json_body', 'audit_log', '_rag_newest_mtime',
+                       'DATA_DIR')}
         api.CONFIG_FILE = self.d / 'config.json'
         api.RAG_INDEX_FILE = self.d / 'rag_index.json'
+        api.RAG_MIGRATE_STATUS_FILE = self.d / 'rag_migrate_status.json'
         api.DATA_DIR = self.d
         # RAG dispatch sees 'postgres' (mocked per test), but file I/O for the
         # config/json-index must use local JSON, not a real PG connection.
@@ -673,6 +675,54 @@ class TestRagPgVector(unittest.TestCase):
         cfg = api.load(api.CONFIG_FILE)
         self.assertEqual(cfg['ai']['rag']['index_backend'], 'postgres')
         self.assertGreaterEqual(self.pg['init'], 1)
+
+    def test_migrate_records_then_clears_status(self):
+        cap = {}
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'postgres'}
+        api._storage_backend = lambda: 'postgres'
+        api._rag_build_corpus = lambda cfg: self._corpus()
+
+        def _resp(s, b=None):
+            cap['s'] = s; cap['b'] = b; raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.save(api.CONFIG_FILE, {'ai': {'rag': {'enabled': True}}})
+        try:
+            api.handle_ai_rag_index_migrate()
+        except api.HTTPError:
+            pass
+        self.assertEqual(cap['s'], 200)
+        # status file is back to idle after a successful migrate
+        self.assertEqual(api._rag_migration_status().get('state'), 'idle')
+
+    def test_concurrent_migration_rejected(self):
+        cap = {}
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'postgres'}
+        api._storage_backend = lambda: 'postgres'
+
+        def _resp(s, b=None):
+            cap['s'] = s; cap['b'] = b; raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.save(api.CONFIG_FILE, {'ai': {'rag': {'enabled': True}}})
+        # A migration is already running.
+        api.save(api.RAG_MIGRATE_STATUS_FILE,
+                 {'state': 'running', 'target': 'postgres',
+                  'started': int(api.time.time())})
+        try:
+            api.handle_ai_rag_index_migrate()
+        except api.HTTPError:
+            pass
+        self.assertEqual(cap['s'], 409)
+        self.assertIn('already running', cap['b']['error'])
+
+    def test_stale_running_status_ignored(self):
+        api.save(api.RAG_MIGRATE_STATUS_FILE,
+                 {'state': 'running', 'target': 'postgres',
+                  'started': int(api.time.time()) - 7200})   # 2h ago → stale
+        self.assertEqual(api._rag_migration_status(), {})
 
     def test_route_registered(self):
         self.assertIn(('POST', '/api/ai/rag/index-backend/migrate'),

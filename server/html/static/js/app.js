@@ -9065,25 +9065,61 @@ async function loadRAGStatus() {
       hint.hidden = true;
     }
   }
+  // v4.1.0: reflect an in-progress migration (e.g. started from another tab) —
+  // show it and lock the button until it finishes.
+  const mig = s.migration || {};
+  const out = document.getElementById('ai-rag-backend-result');
+  if (mig.state === 'running') {
+    if (out) {
+      out.hidden = false;
+      out.textContent = `Migrating the AI index to ${mig.target === 'postgres' ? 'Postgres / pgvector' : 'JSON'}… `
+        + `(running ${Math.max(0, Math.floor(Date.now() / 1000) - (mig.started || 0))}s) — do not close this tab.`;
+    }
+    if (btn) btn.disabled = true;
+  } else if (btn) {
+    btn.disabled = false;
+  }
 }
 
 async function switchRagIndexBackend() {
   const btn = document.getElementById('ai-rag-backend-btn');
+  const out = document.getElementById('ai-rag-backend-result');
   const target = btn && btn.dataset.target;
   if (!target) return;
-  if (!confirm(target === 'postgres'
-      ? 'Move the AI retrieval index into Postgres (pgvector) and rebuild it there?'
-      : 'Move the AI retrieval index back to the bundled JSON index and rebuild it?')) return;
-  const el = document.getElementById('ai-rag-status');
-  if (el) { el.textContent = 'Switching index backend…'; el.style.color = 'var(--muted)'; }
-  const r = await api('POST', '/ai/rag/index-backend/migrate', { target });
-  if (r && r.ok) {
-    toast(`Index now on ${target === 'postgres' ? 'Postgres/pgvector' : 'JSON'}: ${r.docs} chunks`, 'success');
-    loadRAGStatus();
-  } else {
-    toast('Switch failed: ' + (r?.error || 'unknown error'), 'error');
-    loadRAGStatus();
+  const toPg = target === 'postgres';
+  const where = toPg ? 'Postgres / pgvector' : 'the bundled JSON index';
+  if (!confirm(toPg
+      ? 'Move the AI retrieval index into Postgres (pgvector) and rebuild it there now?\n\n'
+        + 'It rebuilds the whole index; with embeddings enabled this can take a while on '
+        + 'large fleets. Keep this tab open until it finishes.'
+      : 'Move the AI retrieval index back to the bundled JSON index and rebuild it now?')) return;
+  // Persistent in-progress status (a transient toast was too easy to miss), and
+  // disable the button so it can't be double-fired mid-migration.
+  if (btn) { btn.disabled = true; }
+  if (out) {
+    out.hidden = false;
+    out.textContent = `Migrating the AI index to ${where}… do not close this tab.`;
   }
+  let r = null;
+  try {
+    r = await api('POST', '/ai/rag/index-backend/migrate', { target });
+  } catch (e) {
+    r = null;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+  if (r && r.ok) {
+    const dest = r.target === 'postgres' ? 'Postgres / pgvector' : 'JSON';
+    let msg = `✓ AI index now on ${dest} — ${r.docs} chunk(s) rebuilt in ${r.elapsed_ms} ms.`;
+    if (r.pg_error) msg += `\n⚠ Postgres write failed, kept on JSON: ${r.pg_error}`;
+    if (out) out.textContent = msg;
+    toast(`AI index moved to ${dest}`, r.pg_error ? 'error' : 'success');
+  } else {
+    if (out) out.textContent = '✗ Switch failed: '
+      + (r?.error || 'the request failed or timed out — the index was not changed.');
+    toast('AI index switch failed', 'error');
+  }
+  loadRAGStatus();   // refresh the counts/backend line (leaves the result box intact)
 }
 
 async function aiRagReindex() {

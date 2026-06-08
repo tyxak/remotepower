@@ -18494,6 +18494,20 @@ def _rag_embed_missing(cfg, idx, cap=_RAG_MAX_EMBED_PER_RUN):
     return len(vecs), None
 
 
+def _rag_migration_status():
+    """Current index-backend migration state (cross-request). A 'running' record
+    older than an hour is treated as stale (a crashed migration) so the UI never
+    wedges on a phantom in-progress state."""
+    try:
+        st = load(RAG_MIGRATE_STATUS_FILE) or {}
+    except Exception:
+        return {}
+    if (st.get('state') == 'running'
+            and int(time.time()) - int(st.get('started', 0)) > 3600):
+        return {}
+    return st
+
+
 def _rag_index_backend(cfg):
     """Where the retrieval index lives: 'postgres' only when the operator
     switched it there AND the storage backend is Postgres (the pgvector store
@@ -18676,6 +18690,7 @@ def handle_ai_rag_status():
         'provider':          cfg.get('provider'),
         'index_backend':     backend,
         'storage_backend':   _storage_backend(),
+        'migration':         _rag_migration_status(),
         'supports_embeddings': ai_provider.supports_embeddings(cfg),
         'embeddings_active': _rag_embeddings_active(cfg),
         'stale':             newest > stats['built_at'],
@@ -18702,6 +18717,12 @@ def handle_ai_rag_index_migrate():
     cfg = _ai_cfg()
     if not (cfg.get('rag') or {}).get('enabled'):
         respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+    # Reject a second concurrent migration (the rebuild is synchronous + slow).
+    running = _rag_migration_status()
+    if running.get('state') == 'running':
+        respond(409, {'error': f"a RAG index migration to "
+                               f"{running.get('target')} is already running "
+                               f"(started {int(time.time()) - int(running.get('started', 0))}s ago)"})
     if target == 'postgres':
         if _storage_backend() != 'postgres':
             respond(400, {'error': 'Switch the storage backend to Postgres first '
@@ -18710,18 +18731,39 @@ def handle_ai_rag_index_migrate():
             storage_pg.rag_init_schema(DATA_DIR)   # fail fast if pgvector absent
         except Exception as e:
             respond(400, {'error': f'pgvector not available: {str(e)[:200]}'})
-    # Flip the marker (config), then rebuild into the now-active backend.
-    full = load(CONFIG_FILE) or {}
-    full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = target
-    save(CONFIG_FILE, full)
     t0 = time.monotonic()
-    stats = _rag_reindex(_ai_cfg())
-    if target == 'json':
+    # Mark running so the status endpoint / other tabs can see it.
+    try:
+        save(RAG_MIGRATE_STATUS_FILE, {'state': 'running', 'target': target,
+                                       'by': actor, 'started': int(time.time())})
+    except Exception:
+        pass
+    try:
+        # Flip the marker (config), then rebuild into the now-active backend.
+        full = load(CONFIG_FILE) or {}
+        full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = target
+        save(CONFIG_FILE, full)
+        stats = _rag_reindex(_ai_cfg())
+        if target == 'json':
+            try:
+                storage_pg.rag_clear(DATA_DIR)     # best-effort cleanup
+            except Exception:
+                pass
+    except Exception as e:
         try:
-            storage_pg.rag_clear(DATA_DIR)         # best-effort cleanup
+            save(RAG_MIGRATE_STATUS_FILE, {'state': 'idle', 'target': target,
+                                           'error': str(e)[:200],
+                                           'finished': int(time.time())})
         except Exception:
             pass
+        respond(500, {'error': f'migration failed: {str(e)[:200]}'})
     stats['elapsed_ms'] = int((time.monotonic() - t0) * 1000)
+    try:
+        save(RAG_MIGRATE_STATUS_FILE, {'state': 'idle', 'target': target,
+                                       'docs': stats.get('docs'),
+                                       'finished': int(time.time())})
+    except Exception:
+        pass
     audit_log(actor, 'ai_rag_index_migrate',
               detail=f"target={target} docs={stats.get('docs')} "
                      f"elapsed_ms={stats['elapsed_ms']}")
@@ -19538,6 +19580,10 @@ RUNBOOKS_FILE = DATA_DIR / 'runbooks.json'
 # simply skipped — never an error.
 RAG_INDEX_FILE = DATA_DIR / 'rag_index.json'
 RAG_DOCS_DIR   = Path(os.environ.get('RP_DOCS_DIR', str(DATA_DIR / 'docs')))
+# v4.1.0: cross-request status for the (synchronous) index-backend migration, so
+# the UI / other tabs can see "a migration is running" and a second click is
+# rejected instead of corrupting a half-built index.
+RAG_MIGRATE_STATUS_FILE = DATA_DIR / 'rag_migrate_status.json'
 
 
 def _build_runbook_snapshot(dev_id, devices):
