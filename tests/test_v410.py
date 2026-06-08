@@ -505,6 +505,23 @@ class TestRagNewSources(unittest.TestCase):
         self.assertTrue(src['compliance'])
         self.assertIn('metrics', src)   # present (opt-in / default off)
 
+    def test_dedup_id_helper(self):
+        seen = set()
+        self.assertEqual(rag_index._dedup_id('a', seen), 'a')
+        self.assertEqual(rag_index._dedup_id('a', seen), 'a~2')
+        self.assertEqual(rag_index._dedup_id('a', seen), 'a~3')
+        self.assertEqual(rag_index._dedup_id('b', seen), 'b')
+
+    def test_docs_corpus_ids_unique_on_split(self):
+        # One heading with enough paragraphs to split into multiple chunks —
+        # previously all shared docs/README#intro and overwrote each other.
+        body = '# Intro\n\n' + '\n\n'.join('para ' + 'x' * 300 for _ in range(10))
+        docs = rag_index.build_docs_corpus([('README', body)])
+        self.assertGreater(len(docs), 1)                       # actually split
+        ids = [d['id'] for d in docs]
+        self.assertEqual(len(ids), len(set(ids)))              # all unique now
+        self.assertTrue(any('~' in i for i in ids))            # suffix applied
+
 
 class TestRagMetricSummaries(_HandlerBase):
     """B1: _rag_metric_summaries reads the time-series (JSON window here)."""

@@ -216,15 +216,34 @@ def make_doc(doc_id, source, dtype, text, title=None, device=None, ts=0, meta=No
 # knowledge for the live stores; these builders stay defensive about
 # missing/odd shapes so a single malformed record can't sink a reindex.
 
+def _dedup_id(base, seen):
+    """Make `base` unique within `seen` by appending ~2, ~3, … on collision.
+
+    A single heading split into multiple chunks (long section) would otherwise
+    emit the same `docs/<doc>#<slug>` id for each chunk — they'd overwrite each
+    other in the index (`_by_id`) and violate the pgvector PRIMARY KEY, silently
+    losing content. Mutates `seen`."""
+    if base not in seen:
+        seen.add(base)
+        return base
+    i = 2
+    while f"{base}~{i}" in seen:
+        i += 1
+    nid = f"{base}~{i}"
+    seen.add(nid)
+    return nid
+
+
 def build_docs_corpus(files):
     """files: iterable of (name, markdown_text) — product docs + manuals."""
     docs = []
     for name, text in (files or []):
+        seen = set()
         for path, chunk in chunk_markdown(text):
             sec = _slug(path) if path else 'body'
             title = f"{name}" + (f" — {path}" if path else "")
             docs.append(make_doc(
-                f"docs/{name}#{sec}", 'docs', 'doc_md', chunk,
+                _dedup_id(f"docs/{name}#{sec}", seen), 'docs', 'doc_md', chunk,
                 title=title, meta={'doc': name, 'heading': path}))
     return docs
 
@@ -239,10 +258,11 @@ def build_runbooks_corpus(runbooks):
             continue
         content = rec.get('content') or rec.get('markdown') or rec.get('text') or ''
         ts = rec.get('generated_at') or rec.get('updated_at') or 0
+        seen = set()
         for path, chunk in chunk_markdown(content):
             sec = _slug(path) if path else 'body'
             docs.append(make_doc(
-                f"runbook/{dev_id}#{sec}", 'docs', 'runbook', chunk,
+                _dedup_id(f"runbook/{dev_id}#{sec}", seen), 'docs', 'runbook', chunk,
                 title=f"Runbook: {dev_id}" + (f" — {path}" if path else ""),
                 device=dev_id, ts=ts, meta={'heading': path}))
     return docs
@@ -292,11 +312,12 @@ def build_cmdb_corpus(cmdb_store):
                 continue
             body = d.get('body') or ''
             did = d.get('id') or _slug(d.get('title', ''))
+            seen = set()
             for path, chunk in chunk_markdown(body):
                 sec = _slug(path) if path else 'body'
                 title = d.get('title') or 'doc'
                 docs.append(make_doc(
-                    f"cmdb/{dev_id}/doc/{did}#{sec}", 'cmdb', 'cmdb_doc', chunk,
+                    _dedup_id(f"cmdb/{dev_id}/doc/{did}#{sec}", seen), 'cmdb', 'cmdb_doc', chunk,
                     title=f"CMDB doc ({dev_id}): {title}", device=dev_id,
                     ts=d.get('updated_at') or 0, meta={'heading': path}))
     return docs
