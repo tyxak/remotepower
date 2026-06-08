@@ -725,6 +725,9 @@ WEBHOOK_EVENTS = (
     # v4.1.0: hardware temperature crossed its threshold (temp_normal recovers).
     ('temp_high',             'A hardware sensor exceeded its temperature threshold', True),
     ('temp_normal',           'Hardware temperature returned to normal',     True),
+    # v4.1.0: NTP / clock skew (clock_synced recovers).
+    ('clock_skew',            'Host clock is unsynchronised or drifted past threshold', True),
+    ('clock_synced',          'Host clock is back in sync',                  True),
     ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
     ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
     # v3.14.0 #36: a watched process crossed its CPU/memory threshold.
@@ -3783,6 +3786,7 @@ _ALERT_RULES = {
     'disk_predict_fail':          ('high', None),       # v3.14.0
     'ups_on_battery':             ('critical', None),   # v3.14.0
     'temp_high':                  ('high', None),       # v4.1.0
+    'clock_skew':                 ('medium', None),     # v4.1.0
     'cert_file_expiring':         ('medium', None),     # v3.14.0
     'rogue_uid0':                 ('high', None),        # v3.14.0
     'process_alert':              ('medium', None),      # v3.14.0 #36
@@ -3809,6 +3813,7 @@ _ALERT_RECOVER = {
     'storage_recovered':       'storage_degraded',
     'ups_on_line':             'ups_on_battery',          # v3.14.0
     'temp_normal':             'temp_high',               # v4.1.0
+    'clock_synced':            'clock_skew',              # v4.1.0
     'process_recovered':       'process_alert',           # v3.14.0 #36
     'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
     # v3.4.2: a resource dropping back below its warning threshold resolves
@@ -3882,6 +3887,7 @@ CHANNEL_KINDS = [
     ('disk_predict', 'Disk failure prediction', 'operational',   ['disk_predict_fail']),
     ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
     ('thermal',      'Hardware temperature',    'operational',   ['temp_high', 'temp_normal']),
+    ('clock',        'Clock / time sync',       'operational',   ['clock_skew', 'clock_synced']),
     ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
     ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
@@ -4249,6 +4255,13 @@ def _alert_title(event, payload):
                 f'{p.get("temp_c","?")}°C (threshold {p.get("threshold_c","?")}°C)')
     if event == 'temp_normal':
         return f'Temperature back to normal on {name}'
+    if event == 'clock_skew':
+        if p.get('synced') is False:
+            return f'Clock not synchronised on {name} (NTP not in sync)'
+        return (f'Clock drift on {name}: offset {p.get("offset_ms","?")}ms '
+                f'(threshold {p.get("threshold_ms","?")}ms)')
+    if event == 'clock_synced':
+        return f'Clock back in sync on {name}'
     if event == 'cert_file_expiring':
         extra = f' (+{p.get("count")-1} more)' if isinstance(p.get('count'), int) and p['count'] > 1 else ''
         return (f'Certificate expiring on {name}: {p.get("path","?")} in '
@@ -5027,6 +5040,8 @@ def _webhook_title(event):
         'ups_on_battery':            'UPS On Battery',
         'temp_high':                 'High Temperature',
         'temp_normal':               'Temperature Normal',
+        'clock_skew':                'Clock Skew',
+        'clock_synced':              'Clock Synced',
         'ups_on_line':               'UPS Back On Line Power',
         'cert_file_expiring':        'Certificate File Expiring',
         'rogue_uid0':                'Unexpected Root-Equivalent Account',
@@ -5735,6 +5750,12 @@ def _webhook_message(event, payload):
                 f'(threshold {payload.get("threshold_c","?")}°C)')
     elif event == 'temp_normal':
         return f'{name}: temperature back to normal'
+    elif event == 'clock_skew':
+        return (f'{name}: clock skew — '
+                + ('not synchronised' if payload.get('synced') is False
+                   else f'offset {payload.get("offset_ms","?")}ms'))
+    elif event == 'clock_synced':
+        return f'{name}: clock back in sync'
     elif event == 'cert_file_expiring':
         return (f'{name}: certificate {payload.get("path","?")} expires in '
                 f'{payload.get("days","?")} days')
@@ -5812,6 +5833,8 @@ def _webhook_tags(event):
         'ups_on_battery':            'rotating_light,battery',
         'temp_high':                 'fire,thermometer',
         'temp_normal':               'white_check_mark,thermometer',
+        'clock_skew':                'alarm_clock,warning',
+        'clock_synced':              'white_check_mark,alarm_clock',
         'ups_on_line':               'green_circle,electric_plug',
         'cert_file_expiring':        'warning,lock',
         'rogue_uid0':                'rotating_light,bust_in_silhouette',
@@ -8810,6 +8833,7 @@ def handle_heartbeat():
     # lock (device name, poll interval, allowlist, etc.) before exit.
     saved_dev = {}
     _reboot_webhook_pending = False  # set True inside lock if reboot state changes
+    _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
     # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
@@ -9026,6 +9050,31 @@ def handle_heartbeat():
                 _reboot_webhook_pending = new_reboot and not old_reboot
             else:
                 _reboot_webhook_pending = False
+            # v4.1.0: clock skew (NTP). Skewed = unsynchronised OR |offset| over
+            # threshold. Edge-triggered both ways (clock_synced auto-resolves).
+            if isinstance(si.get('clock'), dict):
+                c = si['clock']
+                synced = bool(c.get('synced', True))
+                off = c.get('offset_ms')
+                safe_clk = {'synced': synced}
+                if isinstance(off, (int, float)):
+                    safe_clk['offset_ms'] = round(float(off), 1)
+                try:
+                    _ct = float((load(CONFIG_FILE) or {}).get('clock_skew_threshold_ms', 1000))
+                except (TypeError, ValueError):
+                    _ct = 1000.0
+                skewed = (not synced) or (isinstance(off, (int, float)) and abs(off) > _ct)
+                safe_clk['skewed'] = skewed
+                safe_si['clock'] = safe_clk
+                was_skewed = bool((dev.get('sysinfo') or {}).get('clock', {}).get('skewed'))
+                if skewed and not was_skewed:
+                    _clock_event_pending = ('clock_skew', {
+                        'device_id': dev_id, 'name': dev.get('name', dev_id),
+                        'synced': synced, 'offset_ms': safe_clk.get('offset_ms'),
+                        'threshold_ms': _ct})
+                elif was_skewed and not skewed:
+                    _clock_event_pending = ('clock_synced', {
+                        'device_id': dev_id, 'name': dev.get('name', dev_id)})
             # v2.9.0: persist listening_ports so the device drawer can display them
             if isinstance(si.get('listening_ports'), list):
                 safe_ports = []
@@ -9620,6 +9669,12 @@ def handle_heartbeat():
                 'device_id': dev_id,
                 'name':      saved_dev.get('name', dev_id),
             })
+        except Exception:
+            pass
+    # v4.1.0: fire clock skew / recover webhook (edge-triggered, set in lock above)
+    if _clock_event_pending:
+        try:
+            fire_webhook(_clock_event_pending[0], _clock_event_pending[1])
         except Exception:
             pass
 
@@ -18487,6 +18542,8 @@ def _rag_fleet_rollups():
         if si.get('failed_units'): add('failed systemd units', did)
         if any(isinstance(t, dict) and t.get('failed') for t in (si.get('timers') or [])):
             add('failed systemd timers', did)
+        if (si.get('clock') or {}).get('skewed'):
+            add('clock skew / unsynchronised time', did)
         ls = d.get('last_seen', 0)
         if ls and (now - ls) > ttl: add('offline status', did, f'{(now - ls) // 60} min')
     # Cross-store: SMART / UPS (hardware), containers, brute-force.
@@ -24593,6 +24650,7 @@ def handle_fleet_query():
     mount_q = q('mount_issue') in ('1', 'true')
     portworld_q = q('port_world') in ('1', 'true')
     storage_q = q('storage_degraded') in ('1', 'true')
+    clock_q = q('clock_skew') in ('1', 'true')
     _STORAGE_OK = {'online', 'active', 'clean', 'healthy', 'ok'}
     # v4.1.0: uptime (days, from last_boot), core count, container state, timers.
     uptime_gt, uptime_lt = qf('uptime_gt'), qf('uptime_lt')
@@ -24730,6 +24788,8 @@ def handle_fleet_query():
                        and not s.get('ignored') for s in ds.values()):
                 continue
         if mount_q and not (si.get('mount_issues') or []):
+            continue
+        if clock_q and not (si.get('clock') or {}).get('skewed'):
             continue
         if portworld_q:
             if not any((p or {}).get('scope') == 'world'

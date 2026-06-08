@@ -853,6 +853,7 @@ class TestFleetQueryFilters(_HandlerBase):
                        'mount_issues': [{'path': '/mnt', 'issue': 'stalled'}],
                        'mounts': [{'path': '/', 'percent': 50, 'inode_percent': 97}],
                        'fd_percent': 92, 'conntrack_percent': 88,
+                       'clock': {'synced': False, 'skewed': True},
                        'listening_ports': [{'port': 22, 'scope': 'world'}],
                        'storage_health': [{'name': 'tank', 'state': 'DEGRADED'}]}},
             'd2': {'name': 'calm', 'last_seen': now, 'monitored': True,
@@ -944,6 +945,9 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertEqual(self._names('fd_gt=90'), ['hot'])         # 92%
         self.assertEqual(self._names('conntrack_gt=80'), ['hot'])  # 88%
 
+    def test_clock_skew_filter(self):
+        self.assertEqual(self._names('clock_skew=1'), ['hot'])
+
     def test_export_csv_bytes(self):
         rows = self._run('').get('devices')
         data, ctype, fname = api._fleet_query_bytes(rows, 'csv')
@@ -970,6 +974,7 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertIn('UPS on battery', rolls)
         self.assertTrue(any('SMART' in k for k in rolls))
         self.assertTrue(any('temperature' in k for k in rolls))
+        self.assertTrue(any('clock' in k for k in rolls))
         self.assertTrue(any('brute' in k.lower() for k in rolls))
         self.assertTrue(any('drift' in k for k in rolls))
         flat = ' '.join(' '.join(v) for v in rolls.values())

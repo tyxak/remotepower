@@ -3654,6 +3654,39 @@ def get_local_accounts():
     return accts
 
 
+def get_clock_status():
+    """v4.1.0: NTP / clock-sync state. Returns {synced: bool, offset_ms: float?}.
+
+    `timedatectl` gives the synchronised flag; `chronyc tracking` (when present)
+    gives the last measured offset. Best-effort, read-only; {} if nothing known.
+    """
+    out = {}
+    if _which('timedatectl'):
+        try:
+            r = subprocess.run(['timedatectl', 'show', '-p', 'NTPSynchronized',
+                                '--value'], capture_output=True, text=True, timeout=5)
+            v = (r.stdout or '').strip().lower()
+            if v in ('yes', 'true', '1'):
+                out['synced'] = True
+            elif v in ('no', 'false', '0'):
+                out['synced'] = False
+        except Exception:
+            pass
+    if _which('chronyc'):
+        try:
+            r = subprocess.run(['chronyc', '-n', 'tracking'],
+                               capture_output=True, text=True, timeout=5)
+            for line in (r.stdout or '').splitlines():
+                if line.startswith('Last offset'):
+                    m = re.search(r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*seconds', line)
+                    if m:
+                        out['offset_ms'] = round(float(m.group(1)) * 1000, 3)
+                    break
+        except Exception:
+            pass
+    return out
+
+
 def get_ups_status():
     """v3.14.0: UPS / power status via NUT (`upsc`) or apcupsd (`apcaccess`).
     Best-effort, read-only. Empty list when no UPS tooling is present."""
@@ -4007,6 +4040,14 @@ def get_metrics():
             _cmax = int(_f.read().strip())
         if _cmax > 0:
             out['conntrack_percent'] = round(_ccount / _cmax * 100, 1)
+    except Exception:
+        pass
+    # v4.1.0: NTP / clock-sync state. {synced: bool, offset_ms: float?}. Time
+    # drift silently breaks TLS, auth (Kerberos) and log correlation.
+    try:
+        clk = get_clock_status()
+        if clk:
+            out['clock'] = clk
     except Exception:
         pass
 
