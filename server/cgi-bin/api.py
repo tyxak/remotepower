@@ -18246,7 +18246,9 @@ def _rag_source_files(sources):
             files.extend(RAG_DOCS_DIR.glob('*.md'))
     if sources.get('live_state'):
         files += [DEVICES_FILE, CVE_FINDINGS_FILE, CONTAINERS_FILE,
-                  SNMP_DATA_FILE, TLS_TARGETS_FILE, TLS_RESULTS_FILE]
+                  SNMP_DATA_FILE, TLS_TARGETS_FILE, TLS_RESULTS_FILE,
+                  # v4.1.0: fleet rollups also read hardware (SMART/UPS) + brute-force
+                  HARDWARE_FILE, BRUTE_FORCE_FILE]
     if sources.get('cmdb'):
         files.append(CMDB_FILE)
     if sources.get('history'):
@@ -18358,6 +18360,13 @@ def _rag_build_corpus(cfg):
         except Exception as e:
             sys.stderr.write(f'rag: tls rollup failed: {e}\n')
 
+        # v4.1.0: fleet "which hosts match X" rollups (mirrors Fleet Query) so
+        # the AI can answer those questions in plain English.
+        try:
+            docs += rag_index.build_fleet_rollups_corpus(_rag_fleet_rollups(), now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: fleet rollups failed: {e}\n')
+
     if sources.get('cmdb'):
         try:
             docs += rag_index.build_cmdb_corpus(_cmdb_load())
@@ -18403,6 +18412,82 @@ def _rag_build_corpus(cfg):
             sys.stderr.write(f'rag: metrics source failed: {e}\n')
 
     return docs
+
+
+def _rag_fleet_rollups():
+    """Fleet-wide 'which hosts match X' rollups for the RAG, mirroring the Fleet
+    Query dimensions (so the AI can answer them in plain English). Returns a list
+    of {label, hosts:[str]} for each non-empty dimension. Best-effort; reads the
+    same stores the Fleet Query does."""
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    devices = load(DEVICES_FILE) or {}
+    monitored = {did: d for did, d in devices.items()
+                 if isinstance(d, dict) and not d.get('agentless')
+                 and d.get('monitored', True)}
+    dims = {}
+
+    def add(label, did, detail=''):
+        name = monitored[did].get('name', did)
+        dims.setdefault(label, []).append(name + (f' ({detail})' if detail else ''))
+
+    for did, d in monitored.items():
+        si = d.get('sysinfo') or {}
+        cpu, mem, swap = si.get('cpu_percent'), si.get('mem_percent'), si.get('swap_percent')
+        if isinstance(cpu, (int, float)) and cpu >= 85:  add('high CPU (>=85%)', did, f'{cpu:.0f}%')
+        if isinstance(mem, (int, float)) and mem >= 90:  add('high memory (>=90%)', did, f'{mem:.0f}%')
+        if isinstance(swap, (int, float)) and swap >= 50: add('high swap (>=50%)', did, f'{swap:.0f}%')
+        busiest = max((m.get('percent', 0) for m in (si.get('mounts') or [])), default=None)
+        if isinstance(busiest, (int, float)) and busiest >= 90: add('high disk usage (>=90%)', did, f'{busiest:.0f}%')
+        if si.get('reboot_required'): add('reboot required', did)
+        up = (si.get('packages') or {}).get('upgradable')
+        if isinstance(up, int) and up > 0: add('pending package updates', did, str(up))
+        if any(isinstance(s, dict) and s.get('status') == 'drifted' and not s.get('ignored')
+               for s in (d.get('drift_state') or {}).values()): add('config drift', did)
+        if si.get('mount_issues'): add('mount issues', did)
+        if any((p or {}).get('scope') == 'world' for p in (si.get('listening_ports') or [])):
+            add('a world-exposed listening port', did)
+        if si.get('failed_units'): add('failed systemd units', did)
+        if any(isinstance(t, dict) and t.get('failed') for t in (si.get('timers') or [])):
+            add('failed systemd timers', did)
+        ls = d.get('last_seen', 0)
+        if ls and (now - ls) > ttl: add('offline status', did, f'{(now - ls) // 60} min')
+    # Cross-store: SMART / UPS (hardware), containers, brute-force.
+    try:
+        hw = load(HARDWARE_FILE) or {}
+        for did in monitored:
+            rec = hw.get(did) or {}
+            if rec.get('_smart_failed'):    add('a SMART-failed disk', did)
+            if rec.get('_ups_on_battery'):  add('UPS on battery', did)
+    except Exception:
+        pass
+    try:
+        cstore = load(CONTAINERS_FILE) or {}
+        for did in monitored:
+            ent = cstore.get(did)
+            if isinstance(ent, dict):
+                summ = containers_mod.summarise(ent.get('items') or [])
+                if summ.get('stopped'):    add('stopped containers', did, str(summ['stopped']))
+                if summ.get('restarting'): add('restarting containers', did)
+    except Exception:
+        pass
+    try:
+        if backend_exists(BRUTE_FORCE_FILE):
+            _en, _thr, _win = _brute_config()
+            if _en:
+                _cut = now - _win
+                for did, units in (load(BRUTE_FORCE_FILE) or {}).items():
+                    if did in monitored and any(
+                            len([t for t in (ts or []) if t >= _cut]) > _thr
+                            for ips in (units or {}).values()
+                            for ts in (ips or {}).values()):
+                        add('active brute-force attempts', did)
+    except Exception:
+        pass
+    return [{'label': k, 'hosts': v} for k, v in dims.items() if v]
 
 
 def _summarise_metric_samples(name, samples, window_days):

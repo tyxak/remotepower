@@ -923,6 +923,28 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertIn('<FleetQuery', text)
         self.assertIn('<Name>hot</Name>', text)
 
+    def test_rag_fleet_rollups(self):
+        # The cross-store rollups (mirroring the query) cover d1 ('hot') across
+        # many dimensions, so the AI can answer "which hosts ..." in plain English.
+        rolls = {r['label']: r['hosts'] for r in api._rag_fleet_rollups()}
+        self.assertTrue(any('CPU' in k for k in rolls))
+        self.assertIn('UPS on battery', rolls)
+        self.assertTrue(any('SMART' in k for k in rolls))
+        self.assertTrue(any('brute' in k.lower() for k in rolls))
+        self.assertTrue(any('drift' in k for k in rolls))
+        flat = ' '.join(' '.join(v) for v in rolls.values())
+        self.assertIn('hot', flat)
+        self.assertNotIn('calm', flat)   # healthy host isn't flagged
+
+    def test_rag_fleet_rollups_corpus(self):
+        docs = rag_index.build_fleet_rollups_corpus(
+            [{'label': 'high CPU (>=85%)', 'hosts': ['web01 (95%)']},
+             {'label': 'empty', 'hosts': []}])    # empty dim skipped
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0]['type'], 'fleet_rollup')
+        self.assertEqual(docs[0]['source'], 'live_state')
+        self.assertIn('web01', docs[0]['text'])
+
     def test_csv_formula_injection_neutralised(self):
         # A device name starting with '=' must be quoted in CSV output.
         api.save(api.DEVICES_FILE, {'x': {'name': '=cmd()', 'last_seen': int(api.time.time()),

@@ -746,6 +746,28 @@ def build_compliance_corpus(report, now=0):
     return docs
 
 
+def build_fleet_rollups_corpus(rollups, now=0):
+    """v4.1.0: one chunk per fleet-wide 'which hosts match X' rollup, mirroring
+    the Fleet Query dimensions so the AI can answer those questions in plain
+    English ("which hosts are on UPS battery / have high CPU / SMART-failed?").
+
+    `rollups` is a list of {label, hosts:[str]} computed by the caller (which owns
+    the cross-store reads). Empty dimensions are skipped.
+    """
+    docs = []
+    for r in (rollups or []):
+        if not isinstance(r, dict):
+            continue
+        label = r.get('label')
+        hosts = r.get('hosts') or []
+        if not label or not hosts:
+            continue
+        body = (f"Hosts with {label} ({len(hosts)}): " + ', '.join(str(h) for h in hosts[:200]))
+        docs.append(make_doc(f"fleet/{_slug(label)}", 'live_state', 'fleet_rollup',
+                             body, title=f"Fleet: {label}", ts=now))
+    return docs
+
+
 def build_metrics_corpus(summaries, now=0):
     """v4.1.0: per-device resource-usage TREND summaries.
 
