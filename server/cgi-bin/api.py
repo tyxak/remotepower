@@ -728,6 +728,11 @@ WEBHOOK_EVENTS = (
     # v4.1.0: NTP / clock skew (clock_synced recovers).
     ('clock_skew',            'Host clock is unsynchronised or drifted past threshold', True),
     ('clock_synced',          'Host clock is back in sync',                  True),
+    # v4.1.0: default-gateway reachability (gateway_reachable recovers).
+    ('gateway_unreachable',   'Default gateway is not responding to ping',   True),
+    ('gateway_reachable',     'Default gateway is reachable again',          True),
+    # v4.1.0: kernel OOM-killer fired (point event, no recover).
+    ('oom_detected',          'The kernel OOM-killer terminated a process',  True),
     ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
     ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
     # v3.14.0 #36: a watched process crossed its CPU/memory threshold.
@@ -3787,6 +3792,8 @@ _ALERT_RULES = {
     'ups_on_battery':             ('critical', None),   # v3.14.0
     'temp_high':                  ('high', None),       # v4.1.0
     'clock_skew':                 ('medium', None),     # v4.1.0
+    'gateway_unreachable':        ('high', None),       # v4.1.0
+    'oom_detected':               ('high', None),       # v4.1.0
     'cert_file_expiring':         ('medium', None),     # v3.14.0
     'rogue_uid0':                 ('high', None),        # v3.14.0
     'process_alert':              ('medium', None),      # v3.14.0 #36
@@ -3814,6 +3821,7 @@ _ALERT_RECOVER = {
     'ups_on_line':             'ups_on_battery',          # v3.14.0
     'temp_normal':             'temp_high',               # v4.1.0
     'clock_synced':            'clock_skew',              # v4.1.0
+    'gateway_reachable':       'gateway_unreachable',     # v4.1.0
     'process_recovered':       'process_alert',           # v3.14.0 #36
     'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
     # v3.4.2: a resource dropping back below its warning threshold resolves
@@ -3888,6 +3896,8 @@ CHANNEL_KINDS = [
     ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
     ('thermal',      'Hardware temperature',    'operational',   ['temp_high', 'temp_normal']),
     ('clock',        'Clock / time sync',       'operational',   ['clock_skew', 'clock_synced']),
+    ('network',      'Network reachability',    'operational',   ['gateway_unreachable', 'gateway_reachable']),
+    ('oom',          'Out-of-memory kills',     'operational',   ['oom_detected']),
     ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
     ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
@@ -4262,6 +4272,13 @@ def _alert_title(event, payload):
                 f'(threshold {p.get("threshold_ms","?")}ms)')
     if event == 'clock_synced':
         return f'Clock back in sync on {name}'
+    if event == 'gateway_unreachable':
+        return f'Default gateway unreachable on {name}: {p.get("gateway","?")}'
+    if event == 'gateway_reachable':
+        return f'Default gateway reachable again on {name}'
+    if event == 'oom_detected':
+        proc = p.get('process')
+        return f'OOM-killer fired on {name}' + (f' (killed {proc})' if proc else '')
     if event == 'cert_file_expiring':
         extra = f' (+{p.get("count")-1} more)' if isinstance(p.get('count'), int) and p['count'] > 1 else ''
         return (f'Certificate expiring on {name}: {p.get("path","?")} in '
@@ -5042,6 +5059,9 @@ def _webhook_title(event):
         'temp_normal':               'Temperature Normal',
         'clock_skew':                'Clock Skew',
         'clock_synced':              'Clock Synced',
+        'gateway_unreachable':       'Gateway Unreachable',
+        'gateway_reachable':         'Gateway Reachable',
+        'oom_detected':              'Out Of Memory Kill',
         'ups_on_line':               'UPS Back On Line Power',
         'cert_file_expiring':        'Certificate File Expiring',
         'rogue_uid0':                'Unexpected Root-Equivalent Account',
@@ -5756,6 +5776,13 @@ def _webhook_message(event, payload):
                    else f'offset {payload.get("offset_ms","?")}ms'))
     elif event == 'clock_synced':
         return f'{name}: clock back in sync'
+    elif event == 'gateway_unreachable':
+        return f'{name}: default gateway {payload.get("gateway","?")} not responding'
+    elif event == 'gateway_reachable':
+        return f'{name}: default gateway reachable again'
+    elif event == 'oom_detected':
+        return (f'{name}: kernel OOM-killer fired'
+                + (f' (killed {payload.get("process")})' if payload.get('process') else ''))
     elif event == 'cert_file_expiring':
         return (f'{name}: certificate {payload.get("path","?")} expires in '
                 f'{payload.get("days","?")} days')
@@ -5835,6 +5862,9 @@ def _webhook_tags(event):
         'temp_normal':               'white_check_mark,thermometer',
         'clock_skew':                'alarm_clock,warning',
         'clock_synced':              'white_check_mark,alarm_clock',
+        'gateway_unreachable':       'rotating_light,globe_with_meridians',
+        'gateway_reachable':         'white_check_mark,globe_with_meridians',
+        'oom_detected':              'skull,brain',
         'ups_on_line':               'green_circle,electric_plug',
         'cert_file_expiring':        'warning,lock',
         'rogue_uid0':                'rotating_light,bust_in_silhouette',
@@ -8834,6 +8864,8 @@ def handle_heartbeat():
     saved_dev = {}
     _reboot_webhook_pending = False  # set True inside lock if reboot state changes
     _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
+    _gw_event_pending = None         # v4.1.0: ('gateway_unreachable'|'gateway_reachable', payload)
+    _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
     # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
@@ -9075,6 +9107,30 @@ def handle_heartbeat():
                 elif was_skewed and not skewed:
                     _clock_event_pending = ('clock_synced', {
                         'device_id': dev_id, 'name': dev.get('name', dev_id)})
+            # v4.1.0: default-gateway reachability. Edge-triggered both ways
+            # (gateway_reachable auto-resolves the open gateway_unreachable).
+            if isinstance(si.get('gateway'), dict):
+                g = si['gateway']
+                gw_ip = _sanitize_ip(g.get('ip', ''))
+                reachable = bool(g.get('reachable', True))
+                safe_si['gateway'] = {'ip': gw_ip, 'reachable': reachable}
+                was_reach = (dev.get('sysinfo') or {}).get('gateway', {}).get('reachable', True)
+                if not reachable and was_reach:
+                    _gw_event_pending = ('gateway_unreachable', {
+                        'device_id': dev_id, 'name': dev.get('name', dev_id), 'gateway': gw_ip})
+                elif reachable and not was_reach:
+                    _gw_event_pending = ('gateway_reachable', {
+                        'device_id': dev_id, 'name': dev.get('name', dev_id), 'gateway': gw_ip})
+            # v4.1.0: OOM-killer events. The agent reports the epoch of the most
+            # recent kernel OOM kill; fire once when it advances (point event).
+            lo = si.get('last_oom_ts')
+            if isinstance(lo, (int, float)) and lo > 0:
+                safe_si['last_oom_ts'] = int(lo)
+                prev_oom = (dev.get('sysinfo') or {}).get('last_oom_ts', 0)
+                if int(lo) > int(prev_oom or 0):
+                    _oom_event_pending = ('oom_detected', {
+                        'device_id': dev_id, 'name': dev.get('name', dev_id),
+                        'ts': int(lo), 'process': _sanitize_str(str(si.get('last_oom_proc', '')), 64)})
             # v2.9.0: persist listening_ports so the device drawer can display them
             if isinstance(si.get('listening_ports'), list):
                 safe_ports = []
@@ -9675,6 +9731,17 @@ def handle_heartbeat():
     if _clock_event_pending:
         try:
             fire_webhook(_clock_event_pending[0], _clock_event_pending[1])
+        except Exception:
+            pass
+    # v4.1.0: fire gateway reachability + OOM webhooks (edge-triggered above).
+    if _gw_event_pending:
+        try:
+            fire_webhook(_gw_event_pending[0], _gw_event_pending[1])
+        except Exception:
+            pass
+    if _oom_event_pending:
+        try:
+            fire_webhook(_oom_event_pending[0], _oom_event_pending[1])
         except Exception:
             pass
 
@@ -18544,6 +18611,11 @@ def _rag_fleet_rollups():
             add('failed systemd timers', did)
         if (si.get('clock') or {}).get('skewed'):
             add('clock skew / unsynchronised time', did)
+        if (si.get('gateway') or {}).get('reachable') is False:
+            add('an unreachable default gateway', did)
+        _lt = si.get('last_oom_ts')
+        if isinstance(_lt, (int, float)) and (now - _lt) < 86400:
+            add('a recent OOM kill', did)
         ls = d.get('last_seen', 0)
         if ls and (now - ls) > ttl: add('offline status', did, f'{(now - ls) // 60} min')
     # Cross-store: SMART / UPS (hardware), containers, brute-force.
@@ -24651,6 +24723,8 @@ def handle_fleet_query():
     portworld_q = q('port_world') in ('1', 'true')
     storage_q = q('storage_degraded') in ('1', 'true')
     clock_q = q('clock_skew') in ('1', 'true')
+    gw_q = q('gateway_unreachable') in ('1', 'true')
+    oom_q = q('oom_recent') in ('1', 'true')
     _STORAGE_OK = {'online', 'active', 'clean', 'healthy', 'ok'}
     # v4.1.0: uptime (days, from last_boot), core count, container state, timers.
     uptime_gt, uptime_lt = qf('uptime_gt'), qf('uptime_lt')
@@ -24791,6 +24865,12 @@ def handle_fleet_query():
             continue
         if clock_q and not (si.get('clock') or {}).get('skewed'):
             continue
+        if gw_q and (si.get('gateway') or {}).get('reachable', True):
+            continue   # keep only hosts whose gateway is NOT reachable
+        if oom_q:
+            lt = si.get('last_oom_ts')
+            if not (isinstance(lt, (int, float)) and (now - lt) < 86400):
+                continue
         if portworld_q:
             if not any((p or {}).get('scope') == 'world'
                        for p in (si.get('listening_ports') or [])):

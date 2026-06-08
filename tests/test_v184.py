@@ -297,6 +297,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'mount_recovered',                       # v3.14.0 fix
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew
+            'gateway_unreachable', 'gateway_reachable',  # v4.1.0 gateway
+            'oom_detected',                          # v4.1.0 OOM-killer
         }
         self.assertEqual(names, expected)
 

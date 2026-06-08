@@ -854,6 +854,8 @@ class TestFleetQueryFilters(_HandlerBase):
                        'mounts': [{'path': '/', 'percent': 50, 'inode_percent': 97}],
                        'fd_percent': 92, 'conntrack_percent': 88,
                        'clock': {'synced': False, 'skewed': True},
+                       'gateway': {'ip': '10.0.0.1', 'reachable': False},
+                       'last_oom_ts': now - 600,   # OOM 10 min ago
                        'listening_ports': [{'port': 22, 'scope': 'world'}],
                        'storage_health': [{'name': 'tank', 'state': 'DEGRADED'}]}},
             'd2': {'name': 'calm', 'last_seen': now, 'monitored': True,
@@ -948,6 +950,10 @@ class TestFleetQueryFilters(_HandlerBase):
     def test_clock_skew_filter(self):
         self.assertEqual(self._names('clock_skew=1'), ['hot'])
 
+    def test_gateway_and_oom_filters(self):
+        self.assertEqual(self._names('gateway_unreachable=1'), ['hot'])
+        self.assertEqual(self._names('oom_recent=1'), ['hot'])
+
     def test_export_csv_bytes(self):
         rows = self._run('').get('devices')
         data, ctype, fname = api._fleet_query_bytes(rows, 'csv')
@@ -975,6 +981,8 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertTrue(any('SMART' in k for k in rolls))
         self.assertTrue(any('temperature' in k for k in rolls))
         self.assertTrue(any('clock' in k for k in rolls))
+        self.assertTrue(any('gateway' in k for k in rolls))
+        self.assertTrue(any('OOM' in k for k in rolls))
         self.assertTrue(any('brute' in k.lower() for k in rolls))
         self.assertTrue(any('drift' in k for k in rolls))
         flat = ' '.join(' '.join(v) for v in rolls.values())

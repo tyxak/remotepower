@@ -3687,6 +3687,61 @@ def get_clock_status():
     return out
 
 
+def get_network_gateway():
+    """v4.1.0: default gateway IP + ping reachability. {ip, reachable} or {}.
+
+    Parses /proc/net/route for the default route, then sends one short ping.
+    `reachable` is None if ping couldn't run (server treats that as "unknown",
+    not an outage). Best-effort, Linux-only."""
+    gw = None
+    try:
+        with open('/proc/net/route') as f:
+            for line in f.read().splitlines()[1:]:
+                fields = line.split()
+                if len(fields) >= 3 and fields[1] == '00000000' and fields[2] != '00000000':
+                    import socket as _s, struct as _st
+                    gw = _s.inet_ntoa(_st.pack('<L', int(fields[2], 16)))
+                    break
+    except Exception:
+        return {}
+    if not gw:
+        return {}
+    out = {'ip': gw}
+    try:
+        r = subprocess.run(['ping', '-c', '1', '-W', '2', gw],
+                           capture_output=True, timeout=5)
+        out['reachable'] = (r.returncode == 0)
+    except Exception:
+        out['reachable'] = None
+    return out
+
+
+def get_last_oom():
+    """v4.1.0: (epoch, process_name) of the most recent kernel OOM kill, else
+    (0, ''). Uses journald's own grep (-g) so it's a cheap, bounded query."""
+    if not _which('journalctl'):
+        return 0, ''
+    try:
+        r = subprocess.run(
+            ['journalctl', '-k', '-g', 'Out of memory: Killed process|oom-kill',
+             '-o', 'short-unix', '--no-pager', '-n', '5', '--since', '-7 days'],
+            capture_output=True, text=True, timeout=8)
+        last_ts, last_proc = 0, ''
+        for line in (r.stdout or '').splitlines():
+            parts = line.split(None, 1)
+            try:
+                ts = int(float(parts[0]))
+            except (ValueError, IndexError):
+                continue
+            if ts >= last_ts:
+                last_ts = ts
+                m = re.search(r'Killed process \d+ \(([^)]+)\)', line)
+                last_proc = m.group(1) if m else ''
+        return last_ts, last_proc
+    except Exception:
+        return 0, ''
+
+
 def get_ups_status():
     """v3.14.0: UPS / power status via NUT (`upsc`) or apcupsd (`apcaccess`).
     Best-effort, read-only. Empty list when no UPS tooling is present."""
@@ -4048,6 +4103,22 @@ def get_metrics():
         clk = get_clock_status()
         if clk:
             out['clock'] = clk
+    except Exception:
+        pass
+    # v4.1.0: default-gateway reachability.
+    try:
+        gw = get_network_gateway()
+        if gw:
+            out['gateway'] = gw
+    except Exception:
+        pass
+    # v4.1.0: most recent kernel OOM kill (epoch + process), for edge-trigger.
+    try:
+        _ots, _oproc = get_last_oom()
+        if _ots:
+            out['last_oom_ts'] = _ots
+            if _oproc:
+                out['last_oom_proc'] = _oproc
     except Exception:
         pass
 

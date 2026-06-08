@@ -12627,7 +12627,8 @@ function _renderHomeActivity(fleetEvents) {
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'temp_high', 'temp_normal',
-    'clock_skew', 'clock_synced', 'cert_file_expiring', 'rogue_uid0',
+    'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
+    'oom_detected', 'cert_file_expiring', 'rogue_uid0',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
@@ -12790,6 +12791,7 @@ function _homeActivityAttrs(event, p) {
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
+    case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
     case 'cert_file_expiring': case 'rogue_uid0':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
@@ -17531,6 +17533,7 @@ const _FQ_FIELDS = {
   kernel: 'fq-kernel-c', platform: 'fq-platform',
   drift: 'fq-drift', mount_issue: 'fq-mount', port_world: 'fq-portworld',
   storage_degraded: 'fq-storage', clock_skew: 'fq-clock',
+  gateway_unreachable: 'fq-gw', oom_recent: 'fq-oom',
   // v4.1.0: uptime / cores / container state / timers
   uptime_gt: 'fq-uptime-gt', uptime_lt: 'fq-uptime-lt',
   cores_gt: 'fq-cores-gt', cores_lt: 'fq-cores-lt',
