@@ -21743,7 +21743,7 @@ def _device_contract_status(cmdb_rec):
 
 
 def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
-                 cve_high=None, disk_eta=None):
+                 cve_high=None, disk_eta=None, custom_defs=None):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
     Each entry: {key, name, group, status: ok|warning|critical|unknown, output,
@@ -21891,6 +21891,9 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
                ('online', 'active', 'clean', 'healthy', 'ok')]
         add('storage', 'Storage / RAID', 'storage', 'critical' if bad else 'ok',
             f'{len(bad)} pool(s) degraded' if bad else f'{len(pools)} pool(s) healthy')
+    # v4.1.0: operator-defined custom checks (process/port), scoped to this host.
+    if custom_defs:
+        out.extend(_custom_checks_for(dev_id, dev, custom_defs, disabled))
     return out
 
 
@@ -21981,9 +21984,10 @@ def handle_device_checks(dev_id):
     hw = (load(HARDWARE_FILE) or {}).get(dev_id) if backend_exists(HARDWARE_FILE) else {}
     cve = _cve_high_counts().get(dev_id)
     eta = _disk_fill_eta({dev_id: dev}).get(dev_id)
+    custom_defs = cfg.get('custom_checks') or []
     ttl = get_online_ttl()
     checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl,
-                          cve_high=cve, disk_eta=eta)
+                          cve_high=cve, disk_eta=eta, custom_defs=custom_defs)
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
                   'checks': checks, 'summary': _host_check_summary(checks)})
 
@@ -22001,6 +22005,7 @@ def handle_fleet_checks():
     hw_all = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
     cve_all = _cve_high_counts()
     eta_all = _disk_fill_eta(devices)
+    custom_defs = cfg.get('custom_checks') or []
     now = int(time.time())
     ttl = get_online_ttl()
     hosts = []
@@ -22009,7 +22014,8 @@ def handle_fleet_checks():
             continue
         checks = _host_checks(did, dev, hw_all.get(did) or {},
                               disabled_all.get(did) or [], now, ttl,
-                              cve_high=cve_all.get(did), disk_eta=eta_all.get(did))
+                              cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
+                              custom_defs=custom_defs)
         summ = _host_check_summary(checks)
         if want in ('critical', 'warning') and not summ['counts'].get(want):
             continue
@@ -22045,6 +22051,131 @@ def handle_checks_toggle():
             d.pop(did, None)
     audit_log(actor, 'check_toggle', f'device={did} check={chk} enabled={enabled}')
     respond(200, {'ok': True, 'device_id': did, 'check': chk, 'enabled': enabled})
+
+
+# ── Custom checks (v4.1.0) ──────────────────────────────────────────────────
+# Operator-defined checks evaluated server-side from data the agent already
+# reports, assignable to a single host, a tag, a group, or the whole fleet.
+CUSTOM_CHECK_TYPES = ('process', 'port_open', 'port_closed')
+
+
+def _custom_check_applies(cdef, dev_id, dev):
+    """True if a custom-check definition targets this device."""
+    tk = cdef.get('target_kind', 'all')
+    tv = str(cdef.get('target', ''))
+    if tk == 'all':
+        return True
+    if tk == 'host':
+        return dev_id == tv
+    if tk == 'tag':
+        return tv in [str(t) for t in (dev.get('tags') or [])]
+    if tk == 'group':
+        return str(dev.get('group', '')) == tv
+    return False
+
+
+def _eval_custom_check(cdef, dev):
+    """Evaluate one custom check against a device's reported sysinfo.
+    Returns (status, output). Unknown/missing data → 'unknown'."""
+    si = dev.get('sysinfo') or {}
+    ctype = cdef.get('type')
+    param = str(cdef.get('param', '')).strip()
+    if ctype == 'process':
+        names = si.get('proc_names')
+        if not isinstance(names, list):
+            return 'unknown', 'no process data reported'
+        hit = any(param == n or param.lower() in n.lower() for n in names)
+        return ('ok', f'"{param}" running') if hit else ('critical', f'"{param}" not running')
+    if ctype in ('port_open', 'port_closed'):
+        ports = si.get('listening_ports')
+        if not isinstance(ports, list):
+            return 'unknown', 'no port data reported'
+        try:
+            want = int(param)
+        except (TypeError, ValueError):
+            return 'unknown', f'invalid port "{param}"'
+        listening = any(int(p.get('port', -1)) == want
+                        for p in ports if isinstance(p, dict))
+        if ctype == 'port_open':
+            return ('ok', f'port {want} open') if listening else ('critical', f'port {want} closed')
+        return ('critical', f'port {want} unexpectedly open') if listening else ('ok', f'port {want} closed')
+    return 'unknown', 'unknown check type'
+
+
+def _custom_checks_for(dev_id, dev, defs, disabled):
+    """Per-device list of custom-check entries (same shape as _host_checks)."""
+    out = []
+    for cdef in defs or []:
+        if not isinstance(cdef, dict) or not _custom_check_applies(cdef, dev_id, dev):
+            continue
+        status, output = _eval_custom_check(cdef, dev)
+        key = f"custom:{cdef.get('id', '')}"
+        out.append({'key': key, 'name': cdef.get('name') or cdef.get('id', 'custom'),
+                    'group': 'custom', 'status': status, 'output': str(output)[:200],
+                    'enabled': key not in (disabled or set()), 'custom': True})
+    return out
+
+
+def handle_custom_checks_list():
+    """GET /api/checks/custom — list custom-check definitions."""
+    require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    respond(200, {'checks': cfg.get('custom_checks') or [],
+                  'types': list(CUSTOM_CHECK_TYPES)})
+
+
+def handle_custom_checks_save():
+    """POST /api/checks/custom — add or update a custom-check definition. Admin."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    ctype = body.get('type')
+    if ctype not in CUSTOM_CHECK_TYPES:
+        respond(400, {'error': f'type must be one of {", ".join(CUSTOM_CHECK_TYPES)}'})
+    name = _sanitize_str(str(body.get('name', '')), 128).strip()
+    param = _sanitize_str(str(body.get('param', '')), 128).strip()
+    if not param:
+        respond(400, {'error': 'param is required'})
+    tk = body.get('target_kind', 'all')
+    if tk not in ('all', 'host', 'tag', 'group'):
+        respond(400, {'error': 'invalid target_kind'})
+    tv = _sanitize_str(str(body.get('target', '')), 128).strip()
+    if tk != 'all' and not tv:
+        respond(400, {'error': f'a {tk} target is required'})
+    cid = _sanitize_str(str(body.get('id', '')), 64).strip()
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        checks = cfg.setdefault('custom_checks', [])
+        if not cid:
+            n = 1 + max([0] + [int(re.sub(r'\D', '', c.get('id', '')) or 0)
+                               for c in checks if isinstance(c, dict)])
+            cid = f'ck_{n:05d}'
+        entry = {'id': cid, 'name': name or f'{ctype} {param}', 'type': ctype,
+                 'param': param, 'target_kind': tk, 'target': tv}
+        for i, c in enumerate(checks):
+            if isinstance(c, dict) and c.get('id') == cid:
+                checks[i] = entry
+                break
+        else:
+            checks.append(entry)
+    audit_log(actor, 'custom_check_save', f'id={cid} type={ctype} param={param}')
+    respond(200, {'ok': True, 'check': entry})
+
+
+def handle_custom_checks_delete():
+    """POST /api/checks/custom/delete {id} — remove a custom-check definition. Admin."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cid = _sanitize_str(str((get_json_body() or {}).get('id', '')), 64).strip()
+    if not cid:
+        respond(400, {'error': 'id is required'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        checks = cfg.get('custom_checks') or []
+        cfg['custom_checks'] = [c for c in checks
+                                if not (isinstance(c, dict) and c.get('id') == cid)]
+    audit_log(actor, 'custom_check_delete', f'id={cid}')
+    respond(200, {'ok': True, 'id': cid})
 
 
 def _compute_attention():
@@ -36800,6 +36931,9 @@ def _build_exact_routes():
         ('GET', '/api/alerts'): handle_alerts_list,
         ('GET', '/api/checks'): handle_fleet_checks,                  # v4.1.0 CheckMK view
         ('POST', '/api/checks/toggle'): handle_checks_toggle,         # v4.1.0
+        ('GET', '/api/checks/custom'): handle_custom_checks_list,     # v4.1.0
+        ('POST', '/api/checks/custom'): handle_custom_checks_save,    # v4.1.0
+        ('POST', '/api/checks/custom/delete'): handle_custom_checks_delete,  # v4.1.0
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,

@@ -7977,6 +7977,64 @@ async function toggleHostCheck(arg) {
   } else { toast((r && r.error) || 'Failed', 'error'); }
 }
 
+// ── Custom checks (v4.1.0) ─────────────────────────────────────────────────
+const _CC_PARAM_LABELS = {process: 'Process name', port_open: 'Port', port_closed: 'Port'};
+function ccKindChanged() {
+  const kind = document.getElementById('cc-kind')?.value || 'all';
+  document.getElementById('cc-target-grp')?.classList.toggle('hidden', kind === 'all');
+  const lbl = document.getElementById('cc-target-label');
+  const inp = document.getElementById('cc-target');
+  if (lbl) lbl.textContent = kind === 'host' ? 'Device ID' : kind === 'tag' ? 'Tag' : 'Group';
+  if (inp) inp.placeholder = kind === 'host' ? 'device id' : kind === 'tag' ? 'tag name' : 'group name';
+}
+function ccTypeChanged() {
+  const t = document.getElementById('cc-type')?.value || 'process';
+  const lbl = document.getElementById('cc-param-label');
+  if (lbl) lbl.textContent = _CC_PARAM_LABELS[t] || 'Value';
+  const inp = document.getElementById('cc-param');
+  if (inp) inp.placeholder = t === 'process' ? 'nginx' : '443';
+}
+async function openCustomChecks() {
+  ['cc-name', 'cc-param', 'cc-target'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  const k = document.getElementById('cc-kind'); if (k) k.value = 'all';
+  const t = document.getElementById('cc-type'); if (t) t.value = 'process';
+  ccKindChanged(); ccTypeChanged();
+  openModal('custom-checks-modal');
+  loadCustomCheckList();
+}
+async function loadCustomCheckList() {
+  const el = document.getElementById('cc-list');
+  if (!el) return;
+  const data = await api('GET', '/checks/custom');
+  const checks = (data && data.checks) || [];
+  if (!checks.length) { el.innerHTML = '<div class="empty-state">No custom checks yet.</div>'; return; }
+  const scope = c => c.target_kind === 'all' ? 'whole fleet' : `${c.target_kind}: ${escHtml(c.target)}`;
+  el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
+    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><button class="btn-icon btn-xs c-danger-outline" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">Delete</button></td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+async function saveCustomCheck() {
+  const body = {
+    name: document.getElementById('cc-name')?.value.trim() || '',
+    type: document.getElementById('cc-type')?.value || 'process',
+    param: document.getElementById('cc-param')?.value.trim() || '',
+    target_kind: document.getElementById('cc-kind')?.value || 'all',
+    target: document.getElementById('cc-target')?.value.trim() || '',
+  };
+  if (!body.param) { toast('A value is required', 'error'); return; }
+  const r = await api('POST', '/checks/custom', body);
+  if (r && r.ok) {
+    toast('Custom check added', 'success');
+    document.getElementById('cc-name').value = '';
+    document.getElementById('cc-param').value = '';
+    loadCustomCheckList();
+  } else { toast((r && r.error) || 'Failed', 'error'); }
+}
+async function deleteCustomCheck(id) {
+  const r = await api('POST', '/checks/custom/delete', {id});
+  if (r && r.ok) { loadCustomCheckList(); } else { toast((r && r.error) || 'Failed', 'error'); }
+}
+
 function _renderAlertsSummary(summary) {
   const el = document.getElementById('alerts-summary');
   if (!el) return;

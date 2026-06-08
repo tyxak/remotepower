@@ -4296,6 +4296,10 @@ def get_metrics():
                 seen_pids.add(p['pid'])
                 top.append(p)
         out['top_processes'] = top
+        # v4.1.0: capped, de-duped set of running process names so the server
+        # can evaluate "process X must be running" custom checks without a
+        # per-host agent config push. Sorted + bounded to stay small.
+        out['proc_names'] = sorted({p['name'] for p in procs if p['name']})[:400]
     except Exception:
         pass
 

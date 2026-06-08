@@ -1379,6 +1379,98 @@ class TestChecksView(unittest.TestCase):
         self.assertIn("wireSortOnly('checks-thead'", self.js)
         self.assertIn('chk-pill chk-', self.js)
 
+    def test_custom_checks_ui_wired(self):
+        self.assertIn('id="custom-checks-modal"', self.html)
+        self.assertIn('data-action="openCustomChecks"', self.html)
+        for fn in ('async function openCustomChecks', 'async function saveCustomCheck',
+                   'async function deleteCustomCheck', 'function ccKindChanged'):
+            self.assertIn(fn, self.js)
+
+
+class TestCustomChecks(_HandlerBase):
+    """Phase 4: operator-defined custom checks, evaluated server-side and
+    assignable to host / tag / group / fleet."""
+
+    def _dev(self, **kw):
+        d = {'name': 'web01', 'group': 'prod', 'tags': ['web'],
+             'sysinfo': {'proc_names': ['nginx', 'sshd', 'systemd'],
+                         'listening_ports': [{'port': 443, 'scope': 'world'},
+                                             {'port': 22, 'scope': 'lan'}]}}
+        d.update(kw)
+        return d
+
+    def test_applies_targeting(self):
+        dev = self._dev()
+        ap = api._custom_check_applies
+        self.assertTrue(ap({'target_kind': 'all'}, 'd1', dev))
+        self.assertTrue(ap({'target_kind': 'host', 'target': 'd1'}, 'd1', dev))
+        self.assertFalse(ap({'target_kind': 'host', 'target': 'd2'}, 'd1', dev))
+        self.assertTrue(ap({'target_kind': 'tag', 'target': 'web'}, 'd1', dev))
+        self.assertFalse(ap({'target_kind': 'tag', 'target': 'db'}, 'd1', dev))
+        self.assertTrue(ap({'target_kind': 'group', 'target': 'prod'}, 'd1', dev))
+
+    def test_eval_process(self):
+        dev = self._dev()
+        self.assertEqual(api._eval_custom_check({'type': 'process', 'param': 'nginx'}, dev)[0], 'ok')
+        self.assertEqual(api._eval_custom_check({'type': 'process', 'param': 'mysqld'}, dev)[0], 'critical')
+        # no proc data → unknown
+        self.assertEqual(api._eval_custom_check(
+            {'type': 'process', 'param': 'x'}, {'sysinfo': {}})[0], 'unknown')
+
+    def test_eval_ports(self):
+        dev = self._dev()
+        self.assertEqual(api._eval_custom_check({'type': 'port_open', 'param': '443'}, dev)[0], 'ok')
+        self.assertEqual(api._eval_custom_check({'type': 'port_open', 'param': '8080'}, dev)[0], 'critical')
+        self.assertEqual(api._eval_custom_check({'type': 'port_closed', 'param': '8080'}, dev)[0], 'ok')
+        self.assertEqual(api._eval_custom_check({'type': 'port_closed', 'param': '22'}, dev)[0], 'critical')
+
+    def test_save_validates_and_autoids(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'type': 'bogus', 'param': 'x'}
+        self.assertEqual(self.call(api.handle_custom_checks_save) and self.cap['s'], 400)
+        api.get_json_body = lambda: {'type': 'process', 'param': 'nginx', 'name': 'web'}
+        out = self.call(api.handle_custom_checks_save)
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['check']['id'], 'ck_00001')
+        saved = api.load(api.CONFIG_FILE)['custom_checks']
+        self.assertEqual(len(saved), 1)
+        # tag target requires a value
+        api.get_json_body = lambda: {'type': 'process', 'param': 'x', 'target_kind': 'tag'}
+        self.assertEqual(self.call(api.handle_custom_checks_save) and self.cap['s'], 400)
+
+    def test_save_update_then_delete(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'type': 'port_open', 'param': '443', 'name': 'https'}
+        cid = self.call(api.handle_custom_checks_save)['check']['id']
+        api.get_json_body = lambda: {'id': cid, 'type': 'port_open', 'param': '8443', 'name': 'https-alt'}
+        self.call(api.handle_custom_checks_save)
+        saved = api.load(api.CONFIG_FILE)['custom_checks']
+        self.assertEqual(len(saved), 1)               # updated in place
+        self.assertEqual(saved[0]['param'], '8443')
+        api.get_json_body = lambda: {'id': cid}
+        self.call(api.handle_custom_checks_delete)
+        self.assertEqual(api.load(api.CONFIG_FILE).get('custom_checks'), [])
+
+    def test_merged_into_host_checks(self):
+        dev = self._dev()
+        defs = [{'id': 'ck_1', 'name': 'nginx', 'type': 'process', 'param': 'nginx',
+                 'target_kind': 'all'},
+                {'id': 'ck_2', 'name': 'no-telnet', 'type': 'port_closed', 'param': '23',
+                 'target_kind': 'group', 'target': 'prod'},
+                {'id': 'ck_3', 'name': 'other', 'type': 'process', 'param': 'x',
+                 'target_kind': 'host', 'target': 'OTHER'}]
+        chk = {c['key']: c for c in api._host_checks(
+            'd1', dev, {}, [], int(api.time.time()), 180, custom_defs=defs)}
+        self.assertEqual(chk['custom:ck_1']['status'], 'ok')
+        self.assertEqual(chk['custom:ck_2']['status'], 'ok')   # 23 not open
+        self.assertNotIn('custom:ck_3', chk)                   # targets another host
+
+    def test_routes_registered(self):
+        routes = api._build_exact_routes()
+        self.assertIn(('GET', '/api/checks/custom'), routes)
+        self.assertIn(('POST', '/api/checks/custom'), routes)
+        self.assertIn(('POST', '/api/checks/custom/delete'), routes)
+
 
 if __name__ == '__main__':
     unittest.main()
