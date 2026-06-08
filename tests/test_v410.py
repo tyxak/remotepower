@@ -872,8 +872,8 @@ class TestFleetQueryFilters(_HandlerBase):
         ]}})
         # d1: failed SMART disk + UPS on battery; d2: healthy.
         api.save(api.HARDWARE_FILE, {
-            'd1': {'_smart_failed': True, '_ups_on_battery': True},
-            'd2': {'_smart_failed': False, '_ups_on_battery': False}})
+            'd1': {'_smart_failed': True, '_ups_on_battery': True, '_temp_high': True},
+            'd2': {'_smart_failed': False, '_ups_on_battery': False, '_temp_high': False}})
         # d1: active brute-force (lots of recent attempts from one IP).
         api.save(api.BRUTE_FORCE_FILE, {
             'd1': {'sshd': {'10.0.0.9': [now - i for i in range(200)]}}})
@@ -937,6 +937,7 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertEqual(self._names('brute_force=1'), ['hot'])
         self.assertEqual(self._names('smart_failure=1'), ['hot'])
         self.assertEqual(self._names('ups_on_battery=1'), ['hot'])
+        self.assertEqual(self._names('temp_high=1'), ['hot'])
 
     def test_capacity_exhaustion_filters(self):
         self.assertEqual(self._names('inode_gt=90'), ['hot'])      # 97%
@@ -968,6 +969,7 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertTrue(any('CPU' in k for k in rolls))
         self.assertIn('UPS on battery', rolls)
         self.assertTrue(any('SMART' in k for k in rolls))
+        self.assertTrue(any('temperature' in k for k in rolls))
         self.assertTrue(any('brute' in k.lower() for k in rolls))
         self.assertTrue(any('drift' in k for k in rolls))
         flat = ' '.join(' '.join(v) for v in rolls.values())

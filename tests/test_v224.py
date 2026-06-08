@@ -313,7 +313,7 @@ class TestFrontendChanges(unittest.TestCase):
         # 2.2.4 entries are {ts, event, payload}. Renderer reads from
         # `p.path / p.unit / p.metric` etc — not a top-level `detail`.
         func_start = self.js.find('function _renderHomeActivity')
-        chunk = self.js[func_start:func_start + 4000]
+        chunk = self.js[func_start:func_start + 4500]   # widened as FLEET_EVENTS grew (v4.1.0)
         # Filter & slice ordering (regression: filter before slice)
         filter_pos = chunk.find('.filter(')
         slice_pos  = chunk.find('.slice(', filter_pos)

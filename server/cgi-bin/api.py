@@ -722,6 +722,9 @@ WEBHOOK_EVENTS = (
     ('disk_predict_fail',     'A disk is predicted to fail (SMART trend)',   True),
     ('ups_on_battery',        'UPS switched to battery power',               True),
     ('ups_on_line',           'UPS returned to line power',                  True),
+    # v4.1.0: hardware temperature crossed its threshold (temp_normal recovers).
+    ('temp_high',             'A hardware sensor exceeded its temperature threshold', True),
+    ('temp_normal',           'Hardware temperature returned to normal',     True),
     ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
     ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
     # v3.14.0 #36: a watched process crossed its CPU/memory threshold.
@@ -3779,6 +3782,7 @@ _ALERT_RULES = {
     'mount_issue':                ('high', None),
     'disk_predict_fail':          ('high', None),       # v3.14.0
     'ups_on_battery':             ('critical', None),   # v3.14.0
+    'temp_high':                  ('high', None),       # v4.1.0
     'cert_file_expiring':         ('medium', None),     # v3.14.0
     'rogue_uid0':                 ('high', None),        # v3.14.0
     'process_alert':              ('medium', None),      # v3.14.0 #36
@@ -3804,6 +3808,7 @@ _ALERT_RECOVER = {
     # alert (and scrub_overdue via _ALERT_RECOVER_EXTRA).
     'storage_recovered':       'storage_degraded',
     'ups_on_line':             'ups_on_battery',          # v3.14.0
+    'temp_normal':             'temp_high',               # v4.1.0
     'process_recovered':       'process_alert',           # v3.14.0 #36
     'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
     # v3.4.2: a resource dropping back below its warning threshold resolves
@@ -3876,6 +3881,7 @@ CHANNEL_KINDS = [
     # v3.14.0: predictive / posture alerts
     ('disk_predict', 'Disk failure prediction', 'operational',   ['disk_predict_fail']),
     ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
+    ('thermal',      'Hardware temperature',    'operational',   ['temp_high', 'temp_normal']),
     ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
     ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
@@ -4238,6 +4244,11 @@ def _alert_title(event, payload):
         return f'UPS on battery on {name}: {p.get("ups","?")} (battery {p.get("battery_pct","?")}%)'
     if event == 'ups_on_line':
         return f'UPS back on line power on {name}: {p.get("ups","?")}'
+    if event == 'temp_high':
+        return (f'High temperature on {name}: {p.get("sensor","sensor")} at '
+                f'{p.get("temp_c","?")}°C (threshold {p.get("threshold_c","?")}°C)')
+    if event == 'temp_normal':
+        return f'Temperature back to normal on {name}'
     if event == 'cert_file_expiring':
         extra = f' (+{p.get("count")-1} more)' if isinstance(p.get('count'), int) and p['count'] > 1 else ''
         return (f'Certificate expiring on {name}: {p.get("path","?")} in '
@@ -5014,6 +5025,8 @@ def _webhook_title(event):
         'mount_recovered':           'Mount Point Recovered',
         'disk_predict_fail':         'Disk Predicted To Fail',
         'ups_on_battery':            'UPS On Battery',
+        'temp_high':                 'High Temperature',
+        'temp_normal':               'Temperature Normal',
         'ups_on_line':               'UPS Back On Line Power',
         'cert_file_expiring':        'Certificate File Expiring',
         'rogue_uid0':                'Unexpected Root-Equivalent Account',
@@ -5717,6 +5730,11 @@ def _webhook_message(event, payload):
                 f'(battery {payload.get("battery_pct","?")}%)')
     elif event == 'ups_on_line':
         return f'{name}: UPS {payload.get("ups","?")} back on line power'
+    elif event == 'temp_high':
+        return (f'{name}: {payload.get("sensor","sensor")} at {payload.get("temp_c","?")}°C '
+                f'(threshold {payload.get("threshold_c","?")}°C)')
+    elif event == 'temp_normal':
+        return f'{name}: temperature back to normal'
     elif event == 'cert_file_expiring':
         return (f'{name}: certificate {payload.get("path","?")} expires in '
                 f'{payload.get("days","?")} days')
@@ -5792,6 +5810,8 @@ def _webhook_tags(event):
         'mount_issue':               'warning,floppy_disk',
         'disk_predict_fail':         'warning,floppy_disk',
         'ups_on_battery':            'rotating_light,battery',
+        'temp_high':                 'fire,thermometer',
+        'temp_normal':               'white_check_mark,thermometer',
         'ups_on_line':               'green_circle,electric_plug',
         'cert_file_expiring':        'warning,lock',
         'rogue_uid0':                'rotating_light,bust_in_silhouette',
@@ -18476,6 +18496,7 @@ def _rag_fleet_rollups():
             rec = hw.get(did) or {}
             if rec.get('_smart_failed'):    add('a SMART-failed disk', did)
             if rec.get('_ups_on_battery'):  add('UPS on battery', did)
+            if rec.get('_temp_high'):       add('high temperature', did)
     except Exception:
         pass
     try:
@@ -20506,6 +20527,26 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     for r in raid[:32] if isinstance(r, dict)
                 ]
             rec['hardware'] = safe
+            # v4.1.0: temperature alerting — edge-triggered temp_high → temp_normal
+            # (temp_normal auto-resolves the open temp_high). Threshold is
+            # configurable (default 85 C); fires once when any sensor crosses it.
+            try:
+                _t_thresh = float((load(CONFIG_FILE) or {}).get('temp_alert_threshold_c', 85))
+            except (TypeError, ValueError):
+                _t_thresh = 85.0
+            _hot = [t for t in (safe.get('temps') or [])
+                    if isinstance(t.get('current_c'), (int, float))
+                    and t['current_c'] >= _t_thresh]
+            was_hot = bool(rec.get('_temp_high'))
+            if _hot and not was_hot:
+                _h0 = max(_hot, key=lambda t: t['current_c'])
+                events.append(('temp_high', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'sensor': _h0.get('label', ''), 'temp_c': _h0.get('current_c'),
+                    'threshold_c': _t_thresh}))
+            elif was_hot and not _hot:
+                events.append(('temp_normal', {'device_id': dev_id, 'name': dev_name}))
+            rec['_temp_high'] = bool(_hot)
 
         # ── v3.14.0: GPU telemetry ───────────────────────────────────
         if isinstance(body.get('gpus'), list):
@@ -24564,6 +24605,7 @@ def handle_fleet_query():
     brute_q = q('brute_force') in ('1', 'true')
     smart_q = q('smart_failure') in ('1', 'true')
     ups_q = q('ups_on_battery') in ('1', 'true')
+    temp_q = q('temp_high') in ('1', 'true')
     fmt = q('format').lower()   # '', 'csv', 'xml' — JSON when empty
     now = int(time.time())
     ttl = get_online_ttl()
@@ -24578,7 +24620,7 @@ def handle_fleet_query():
             cve[did] = sum(1 for f in (rec or {}).get('findings') or []
                            if str(f.get('severity', '')).lower() in ('critical', 'high'))
     # v4.1.0: hardware posture (SMART/UPS flags) + active brute-force set.
-    hw_store = (load(HARDWARE_FILE) or {}) if (smart_q or ups_q) else {}
+    hw_store = (load(HARDWARE_FILE) or {}) if (smart_q or ups_q or temp_q) else {}
     brute_active = set()
     if brute_q and backend_exists(BRUTE_FORCE_FILE):
         try:
@@ -24735,6 +24777,8 @@ def handle_fleet_query():
         if smart_q and not (hw_store.get(did) or {}).get('_smart_failed'):
             continue
         if ups_q and not (hw_store.get(did) or {}).get('_ups_on_battery'):
+            continue
+        if temp_q and not (hw_store.get(did) or {}).get('_temp_high'):
             continue
         matched_pkg = None
         if has_pkg:

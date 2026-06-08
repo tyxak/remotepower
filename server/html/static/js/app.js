@@ -12626,7 +12626,8 @@ function _renderHomeActivity(fleetEvents) {
     'login_new_source', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
-    'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'cert_file_expiring', 'rogue_uid0',
+    'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'temp_high', 'temp_normal',
+    'cert_file_expiring', 'rogue_uid0',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
@@ -12788,6 +12789,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0: predictive / posture alerts — open the affected host's drawer.
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':
+    case 'temp_high': case 'temp_normal':
     case 'cert_file_expiring': case 'rogue_uid0':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
@@ -17536,6 +17538,7 @@ const _FQ_FIELDS = {
   timer_failed: 'fq-timerfail',
   // v4.1.0: security / hardware posture
   brute_force: 'fq-brute', smart_failure: 'fq-smart', ups_on_battery: 'fq-ups',
+  temp_high: 'fq-temp',
   // v4.1.0: capacity exhaustion (inode / fd / conntrack)
   inode_gt: 'fq-inode', fd_gt: 'fq-fd', conntrack_gt: 'fq-conntrack',
 };

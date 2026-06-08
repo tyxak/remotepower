@@ -295,6 +295,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'process_alert', 'process_recovered',   # v3.14.0 #36
             'secret_exposed',                        # v3.14.0 #35
             'mount_recovered',                       # v3.14.0 fix
+            'temp_high', 'temp_normal',              # v4.1.0 temperature
         }
         self.assertEqual(names, expected)
 
