@@ -38,7 +38,8 @@ class _HandlerBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
-                     'SECRETS_FILE', 'AUDIT_LOG_FILE', 'HISTORY_FILE', 'METRICS_FILE'):
+                     'SECRETS_FILE', 'AUDIT_LOG_FILE', 'HISTORY_FILE', 'METRICS_FILE',
+                     'CONTAINERS_FILE'):
             self._files[attr] = getattr(api, attr)
             base = Path(getattr(api, attr)).name
             setattr(api, attr, self.d / base)
@@ -815,7 +816,9 @@ class TestFleetQueryFilters(_HandlerBase):
                    'sysinfo': {
                        'cpu_percent': 95, 'mem_percent': 40, 'swap_percent': 80,
                        'loadavg_1m': 8.0, 'kernel': '6.1.0-amd64',
-                       'platform': 'Debian 12 x86_64',
+                       'platform': 'Debian 12 x86_64', 'cpu_count': 2,
+                       'last_boot': now - 100 * 86400,   # ~100 days uptime
+                       'timers': [{'unit': 'backup.timer', 'failed': True}],
                        'mount_issues': [{'path': '/mnt', 'issue': 'stalled'}],
                        'listening_ports': [{'port': 22, 'scope': 'world'}],
                        'storage_health': [{'name': 'tank', 'state': 'DEGRADED'}]}},
@@ -823,10 +826,17 @@ class TestFleetQueryFilters(_HandlerBase):
                    'sysinfo': {
                        'cpu_percent': 5, 'mem_percent': 10, 'swap_percent': 0,
                        'loadavg_1m': 0.1, 'kernel': '5.15.0-arm64',
-                       'platform': 'Ubuntu 22.04 aarch64',
+                       'platform': 'Ubuntu 22.04 aarch64', 'cpu_count': 16,
+                       'last_boot': now - 1 * 86400,      # ~1 day uptime
+                       'timers': [{'unit': 'ok.timer', 'failed': False}],
                        'listening_ports': [{'port': 22, 'scope': 'local'}],
                        'storage_health': [{'name': 'p', 'state': 'ONLINE'}]}},
         })
+        # d1 has a stopped + a restarting container; d2 has none.
+        api.save(api.CONTAINERS_FILE, {'d1': {'items': [
+            {'name': 'web', 'status': 'exited (1)', 'runtime': 'docker'},
+            {'name': 'flap', 'status': 'running', 'restart_count': 9, 'runtime': 'docker'},
+        ]}})
 
     def tearDown(self):
         api.get_online_ttl = self._gt
@@ -867,6 +877,21 @@ class TestFleetQueryFilters(_HandlerBase):
     def test_anded_no_match(self):
         # cpu high AND arm64 kernel matches neither host
         self.assertEqual(self._names('cpu_gt=50&kernel=arm64'), [])
+
+    def test_uptime(self):
+        self.assertEqual(self._names('uptime_gt=30'), ['hot'])    # ~100d up
+        self.assertEqual(self._names('uptime_lt=7'), ['calm'])    # ~1d up
+
+    def test_cores(self):
+        self.assertEqual(self._names('cores_gt=8'), ['calm'])     # 16 cores
+        self.assertEqual(self._names('cores_lt=4'), ['hot'])      # 2 cores
+
+    def test_container_state(self):
+        self.assertEqual(self._names('container_stopped=1'), ['hot'])
+        self.assertEqual(self._names('container_restarting=1'), ['hot'])
+
+    def test_timer_failed(self):
+        self.assertEqual(self._names('timer_failed=1'), ['hot'])
 
 
 if __name__ == '__main__':

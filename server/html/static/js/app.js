@@ -17529,6 +17529,11 @@ const _FQ_FIELDS = {
   kernel: 'fq-kernel-c', platform: 'fq-platform',
   drift: 'fq-drift', mount_issue: 'fq-mount', port_world: 'fq-portworld',
   storage_degraded: 'fq-storage',
+  // v4.1.0: uptime / cores / container state / timers
+  uptime_gt: 'fq-uptime-gt', uptime_lt: 'fq-uptime-lt',
+  cores_gt: 'fq-cores-gt', cores_lt: 'fq-cores-lt',
+  container_stopped: 'fq-cstopped', container_restarting: 'fq-crestart',
+  timer_failed: 'fq-timerfail',
 };
 function _fqFields() {
   const out = {};

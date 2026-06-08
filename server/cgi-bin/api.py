@@ -24409,7 +24409,10 @@ def handle_fleet_query():
       v4.1.0: cpu_gt=<pct>, swap_gt=<pct>, load_gt=<float> (1-min loadavg),
       kernel=<substr>, platform=<substr>, drift=1 (config drift present),
       mount_issue=1, port_world=1 (a world-exposed listening port),
-      storage_degraded=1 (a pool/array not in a healthy state).
+      storage_degraded=1 (a pool/array not in a healthy state),
+      uptime_gt=<days>, uptime_lt=<days> (from last_boot),
+      cores_gt=<n>, cores_lt=<n> (cpu_count),
+      container_stopped=1, container_restarting=1, timer_failed=1.
     Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
@@ -24447,6 +24450,13 @@ def handle_fleet_query():
     portworld_q = q('port_world') in ('1', 'true')
     storage_q = q('storage_degraded') in ('1', 'true')
     _STORAGE_OK = {'online', 'active', 'clean', 'healthy', 'ok'}
+    # v4.1.0: uptime (days, from last_boot), core count, container state, timers.
+    uptime_gt, uptime_lt = qf('uptime_gt'), qf('uptime_lt')
+    cores_gt, cores_lt = qi('cores_gt'), qi('cores_lt')
+    cstopped_q = q('container_stopped') in ('1', 'true')
+    crestart_q = q('container_restarting') in ('1', 'true')
+    timer_q = q('timer_failed') in ('1', 'true')
+    cstore = (load(CONTAINERS_FILE) or {}) if (cstopped_q or crestart_q) else {}
     now = int(time.time())
     ttl = get_online_ttl()
     devices = load(DEVICES_FILE) or {}
@@ -24552,6 +24562,36 @@ def handle_fleet_query():
             if not any(isinstance(p, dict) and (p.get('state') or '')
                        and (p.get('state') or '').lower() not in _STORAGE_OK
                        for p in pools):
+                continue
+        # v4.1.0: core count.
+        if cores_gt is not None:
+            cc = si.get('cpu_count')
+            if not (isinstance(cc, int) and cc > cores_gt):
+                continue
+        if cores_lt is not None:
+            cc = si.get('cpu_count')
+            if not (isinstance(cc, int) and cc < cores_lt):
+                continue
+        # v4.1.0: uptime in days, from last_boot (None if the host never reported it).
+        if uptime_gt is not None or uptime_lt is not None:
+            lb = si.get('last_boot')
+            up_days = ((now - lb) / 86400.0) if isinstance(lb, (int, float)) and lb else None
+            if uptime_gt is not None and not (up_days is not None and up_days > uptime_gt):
+                continue
+            if uptime_lt is not None and not (up_days is not None and up_days < uptime_lt):
+                continue
+        # v4.1.0: a failed systemd timer.
+        if timer_q and not any(isinstance(t, dict) and t.get('failed')
+                               for t in (si.get('timers') or [])):
+            continue
+        # v4.1.0: container state (stopped / restarting), from the containers store.
+        if cstopped_q or crestart_q:
+            entry = cstore.get(did) if isinstance(cstore, dict) else None
+            summ = (containers_mod.summarise((entry or {}).get('items') or [])
+                    if isinstance(entry, dict) else {})
+            if cstopped_q and not (summ.get('stopped') or 0):
+                continue
+            if crestart_q and not (summ.get('restarting') or 0):
                 continue
         matched_pkg = None
         if has_pkg:
