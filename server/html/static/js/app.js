@@ -1868,6 +1868,7 @@ function _monClearFields() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
   set('mon-label', ''); set('mon-type', 'ping'); set('mon-kind', 'host');
   set('mon-target', ''); set('mon-port', ''); set('mon-expect', '');
+  set('mon-dbkind', 'postgres');
   set('mon-status', ''); set('mon-latency', ''); set('mon-loss', '');
   set('mon-body-mode', ''); set('mon-body-value', '');
 }
@@ -1892,6 +1893,7 @@ function editMonitor(idx) {
   set('mon-kind', m.target_kind || 'host');
   set('mon-target', m.target || '');
   set('mon-port', m.port);
+  set('mon-dbkind', m.db_kind || 'postgres');
   set('mon-expect', m.expect);
   set('mon-status', m.expect_status);
   set('mon-latency', m.max_latency_ms);
@@ -1909,6 +1911,7 @@ function monTypeChanged() {
   const tagOk = (type === 'ping' || type === 'icmp' || type === 'tcp');
   show('mon-kind-grp', tagOk);
   show('mon-port-grp', type === 'tcp' && tagOk && kind !== 'host');
+  show('mon-dbkind-grp', type === 'db');
   show('mon-expect-grp', type === 'dns');
   show('mon-status-grp', type === 'http');
   show('mon-latency-grp', type === 'http' || type === 'icmp');
@@ -1931,6 +1934,7 @@ async function addMonitor() {
   if (type === 'http' && bMode && bVal) entry.body_match = {mode: bMode, value: bVal};
   const numOf = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? null : v; };
   if (type === 'tcp' && kind !== 'host') { const p = numOf('mon-port'); if (p !== null) entry.port = p; }
+  if (type === 'db') { entry.db_kind = document.getElementById('mon-dbkind')?.value || 'postgres'; }
   if (type === 'dns') { const e = (document.getElementById('mon-expect')?.value || '').trim(); if (e) entry.expect = e; }
   if (type === 'http') { const s = numOf('mon-status'); if (s !== null) entry.expect_status = Math.round(s); }
   if (type === 'http' || type === 'icmp') { const l = numOf('mon-latency'); if (l !== null) entry.max_latency_ms = Math.round(l); }

@@ -3742,6 +3742,39 @@ def get_last_oom():
         return 0, ''
 
 
+def get_mailq():
+    """v4.1.0: mail queue depth for postfix/sendmail/exim, or None if no MTA.
+
+    Read-only and bounded. Tries `mailq` (postfix/sendmail) first, then
+    `exim -bpc`. Returns an int message count, or None when no mail tooling
+    is present (so the server omits the Mail-queue check on non-MTA hosts)."""
+    try:
+        if _which('exim') and not _which('mailq'):
+            r = subprocess.run(['exim', '-bpc'], capture_output=True,
+                               text=True, timeout=6)
+            s = (r.stdout or '').strip()
+            return int(s) if s.isdigit() else None
+        if not _which('mailq') and not _which('postqueue'):
+            return None
+        cmd = ['postqueue', '-p'] if _which('postqueue') else ['mailq']
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+        out = (r.stdout or '').strip()
+        if not out or 'is empty' in out.lower() or 'no messages' in out.lower():
+            return 0
+        # postfix prints a trailing "-- N Kbytes in M Requests." summary line.
+        m = re.search(r'--\s*[\d.]+\s*\w*bytes\s+in\s+(\d+)\s+Request', out, re.I)
+        if m:
+            return int(m.group(1))
+        # sendmail: "Total requests: N"; else count message-id header lines.
+        m = re.search(r'Total requests:\s*(\d+)', out, re.I)
+        if m:
+            return int(m.group(1))
+        return sum(1 for ln in out.splitlines()
+                   if re.match(r'^[0-9A-F]{8,}\*?\s', ln))
+    except Exception:
+        return None
+
+
 def get_ups_status():
     """v3.14.0: UPS / power status via NUT (`upsc`) or apcupsd (`apcaccess`).
     Best-effort, read-only. Empty list when no UPS tooling is present."""
@@ -4119,6 +4152,13 @@ def get_metrics():
             out['last_oom_ts'] = _ots
             if _oproc:
                 out['last_oom_proc'] = _oproc
+    except Exception:
+        pass
+    # v4.1.0: mail queue depth (None on non-MTA hosts → server omits the check).
+    try:
+        _mq = get_mailq()
+        if _mq is not None:
+            out['mailq'] = _mq
     except Exception:
         pass
 

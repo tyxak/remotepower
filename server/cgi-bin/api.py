@@ -2874,8 +2874,8 @@ def _sanitize_monitor_target(mtype, target):
         if not host or host.startswith('-'):
             return None
         return host
-    elif mtype == 'tcp':
-        # host:port — validate both parts
+    elif mtype in ('tcp', 'db'):
+        # host:port — validate both parts (db = credential-less DB liveness)
         host, _, port_s = target.partition(':')
         host = re.sub(r'[^a-zA-Z0-9.\-]', '', host)
         if not host or host.startswith('-'):
@@ -10898,6 +10898,55 @@ def handle_metrics(dev_id):
                   'recent_window': True})
 
 
+def _db_health_probe(host, port, kind, timeout=3):
+    """Credential-less protocol liveness for a database endpoint. Returns
+    (ok, detail). We speak just enough of each wire protocol to confirm the
+    server process is up and answering — no auth, no stored secrets, so it's
+    safe to configure without handing RemotePower a DB password.
+
+    - postgres: SSLRequest (RFC: int32 len=8, int32 code=80877103). A live
+      server replies a single byte 'S' (TLS offered) or 'N' (declined); an
+      error byte 'E' also proves it's a real Postgres. Anything else = down.
+    - mysql/mariadb: the server sends an initial handshake packet on connect.
+      We read the 4-byte packet header + protocol-version byte; protocol 10
+      (or the legacy 9) means a real MySQL greeting.
+    - redis/valkey: send inline ``PING``. ``+PONG`` = up; ``-NOAUTH``/``-ERR``
+      still proves the server is alive and speaking RESP.
+    """
+    _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            try:
+                peer = s.getpeername()[0]
+            except (OSError, IndexError):
+                peer = None
+            if peer and _ip_class_blocked(peer, allow_loopback=_allow_internal):
+                return False, 'blocked'
+            s.settimeout(timeout)
+            if kind == 'postgres':
+                s.sendall(b'\x00\x00\x00\x08\x04\xd2\x16\x2f')  # len=8, code=80877103
+                resp = s.recv(1)
+                if resp in (b'S', b'N', b'E'):
+                    return True, f'postgres up ({resp.decode("latin1")})'
+                return False, 'not postgres'
+            if kind in ('mysql', 'mariadb'):
+                hdr = s.recv(5)
+                if len(hdr) >= 5 and hdr[4] in (10, 9):
+                    return True, f'mysql up (proto {hdr[4]})'
+                return False, 'no handshake'
+            if kind in ('redis', 'valkey'):
+                s.sendall(b'PING\r\n')
+                resp = s.recv(64)
+                if resp.startswith(b'+PONG'):
+                    return True, 'redis up'
+                if resp.startswith(b'-NOAUTH') or resp.startswith(b'-ERR'):
+                    return True, 'redis up (auth required)'
+                return False, 'no PONG'
+            return False, f'unknown db kind {kind}'
+    except Exception:
+        return False, 'unreachable'
+
+
 def _run_one_monitor_check(mtype, target, label, m):
     """Run a single resolved monitor check (target already sanitised) and return
     a result dict. Shared by host-targeted and tag/group-expanded checks."""
@@ -10942,6 +10991,14 @@ def _run_one_monitor_check(mtype, target, label, m):
                     ok = True; detail = 'open'
         except Exception:
             detail = 'closed'
+    elif mtype == 'db':
+        # v4.1.0: credential-less database liveness (postgres/mysql/redis).
+        host, _, port_s = target.partition(':')
+        try:
+            port = int(port_s)
+            ok, detail = _db_health_probe(host, port, m.get('db_kind', 'postgres'))
+        except Exception:
+            ok = False; detail = 'unreachable'
     elif mtype == 'dns':
         # v4.1.0: DNS resolution check (+ optional expected IP/substring).
         try:
@@ -11817,7 +11874,7 @@ def handle_config_save():
             if not isinstance(m, dict):
                 continue
             mtype = m.get('type', '')
-            if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp'):   # v4.1.0: + dns/icmp
+            if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp', 'db'):  # v4.1.0: + dns/icmp/db
                 continue
             raw_target = str(m.get('target', ''))
             # v4.1.0: tag/group targeting — target is a tag/group NAME (expanded
@@ -11857,6 +11914,12 @@ def handle_config_save():
                     'mode':  'not_contains' if mode == 'not_contains' else 'contains',
                     'value': _sanitize_str(str(bm.get('value', '')), 200),
                 }
+            # v4.1.0: DB liveness kind (credential-less protocol probe).
+            if mtype == 'db':
+                dk = m.get('db_kind', 'postgres')
+                if dk not in ('postgres', 'mysql', 'mariadb', 'redis', 'valkey'):
+                    respond(400, {'error': f'unknown db kind: {dk}'})
+                entry['db_kind'] = dk
             # v4.1.0: per-type assertions (all optional, validated to sane ranges).
             if mtype == 'dns' and m.get('expect'):
                 entry['expect'] = re.sub(r'[^a-zA-Z0-9.:_\-]', '', str(m.get('expect')))[:128]
@@ -21798,6 +21861,15 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180, cve_hi
         recent = (now - lo) < 86400
         add('oom', 'OOM killer', 'core', 'warning' if recent else 'ok',
             'fired in last 24h' if recent else f'last {(now - lo) // 86400}d ago')
+    # v4.1.0: mail queue depth (agent reads postfix/sendmail/exim mailq).
+    mq = si.get('mailq')
+    if isinstance(mq, (int, float)):
+        mqs = (dev.get('mailq_thresholds') or {})
+        warn = mqs.get('warn', 50)
+        crit = mqs.get('crit', 500)
+        add('mailq', 'Mail queue', 'services',
+            'critical' if mq >= crit else 'warning' if mq >= warn else 'ok',
+            f'{int(mq)} message(s) queued')
     pools = si.get('storage_health') or []
     if pools:
         bad = [p for p in pools if isinstance(p, dict)

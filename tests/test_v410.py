@@ -921,6 +921,91 @@ class TestMonitorChecks(unittest.TestCase):
         self.assertEqual(len(res), 2)
         self.assertTrue(all('web hosts ·' in r['label'] for r in res))
 
+    def _fake_db_socket(self, recv_bytes, peer='198.51.100.7'):
+        """A minimal stand-in for socket.create_connection's return value."""
+        captured = {'sent': b''}
+        test = self
+        class _S:  # noqa
+            def __enter__(self_): return self_
+            def __exit__(self_, *a): return False
+            def getpeername(self_): return (peer, 5432)
+            def settimeout(self_, t): pass
+            def sendall(self_, b): captured['sent'] += b
+            def recv(self_, n): return recv_bytes
+        return _S(), captured
+
+    def test_db_postgres_alive(self):
+        sock, cap = self._fake_db_socket(b'S')
+        orig = api.socket.create_connection
+        api.socket.create_connection = lambda *a, **k: sock
+        try:
+            r = api._run_one_monitor_check('db', 'pg.example:5432', 'PG',
+                                           {'db_kind': 'postgres'})
+        finally:
+            api.socket.create_connection = orig
+        self.assertTrue(r['ok'])
+        self.assertIn('postgres up', r['detail'])
+        self.assertEqual(cap['sent'], b'\x00\x00\x00\x08\x04\xd2\x16\x2f')
+
+    def test_db_mysql_handshake(self):
+        sock, _ = self._fake_db_socket(b'\x4a\x00\x00\x00\x0a')  # len + proto 10
+        orig = api.socket.create_connection
+        api.socket.create_connection = lambda *a, **k: sock
+        try:
+            r = api._run_one_monitor_check('db', 'my.example:3306', 'MY',
+                                           {'db_kind': 'mysql'})
+        finally:
+            api.socket.create_connection = orig
+        self.assertTrue(r['ok'])
+        self.assertIn('proto 10', r['detail'])
+
+    def test_db_redis_pong(self):
+        sock, cap = self._fake_db_socket(b'+PONG\r\n')
+        orig = api.socket.create_connection
+        api.socket.create_connection = lambda *a, **k: sock
+        try:
+            r = api._run_one_monitor_check('db', 'r.example:6379', 'R',
+                                           {'db_kind': 'redis'})
+        finally:
+            api.socket.create_connection = orig
+        self.assertTrue(r['ok'])
+        self.assertEqual(cap['sent'], b'PING\r\n')
+
+    def test_db_redis_noauth_still_up(self):
+        sock, _ = self._fake_db_socket(b'-NOAUTH Authentication required.\r\n')
+        orig = api.socket.create_connection
+        api.socket.create_connection = lambda *a, **k: sock
+        try:
+            r = api._run_one_monitor_check('db', 'r.example:6379', 'R',
+                                           {'db_kind': 'redis'})
+        finally:
+            api.socket.create_connection = orig
+        self.assertTrue(r['ok'])
+
+    def test_db_wrong_protocol_down(self):
+        sock, _ = self._fake_db_socket(b'garbage')
+        orig = api.socket.create_connection
+        api.socket.create_connection = lambda *a, **k: sock
+        try:
+            r = api._run_one_monitor_check('db', 'x.example:5432', 'X',
+                                           {'db_kind': 'postgres'})
+        finally:
+            api.socket.create_connection = orig
+        self.assertFalse(r['ok'])
+
+    def test_db_blocked_peer(self):
+        # A loopback peer with allow_internal off → blocked, not probed.
+        sock, _ = self._fake_db_socket(b'S', peer='127.0.0.1')
+        orig = api.socket.create_connection
+        api.socket.create_connection = lambda *a, **k: sock
+        try:
+            r = api._run_one_monitor_check('db', 'localhost:5432', 'L',
+                                           {'db_kind': 'postgres'})
+        finally:
+            api.socket.create_connection = orig
+        self.assertFalse(r['ok'])
+        self.assertEqual(r['detail'], 'blocked')
+
     def test_tag_no_devices_fallback(self):
         orig_load = api.load
         api.load = lambda f, *a, **k: {} if f == api.DEVICES_FILE else orig_load(f, *a, **k)
@@ -1162,6 +1247,22 @@ class TestHostChecks(_HandlerBase):
         dev['last_seen'] = now - 99999
         chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
         self.assertEqual(chk['reachability']['status'], 'critical')
+
+    def test_mailq_check_thresholds(self):
+        now, dev = self._dev()
+        # absent on non-MTA hosts
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertNotIn('mailq', chk)
+        # ok / warning / critical against defaults (50 / 500)
+        for depth, want in ((3, 'ok'), (80, 'warning'), (900, 'critical')):
+            dev['sysinfo']['mailq'] = depth
+            chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+            self.assertEqual(chk['mailq']['status'], want, depth)
+        # per-host override
+        dev['sysinfo']['mailq'] = 12
+        dev['mailq_thresholds'] = {'warn': 10, 'crit': 20}
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertEqual(chk['mailq']['status'], 'warning')
 
     def test_disabled_flag(self):
         now, dev = self._dev()
