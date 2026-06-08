@@ -21742,7 +21742,8 @@ def _device_contract_status(cmdb_rec):
     return out
 
 
-def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180, cve_high=None):
+def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
+                 cve_high=None, disk_eta=None):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
     Each entry: {key, name, group, status: ok|warning|critical|unknown, output,
@@ -21870,6 +21871,19 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180, cve_hi
         add('mailq', 'Mail queue', 'services',
             'critical' if mq >= crit else 'warning' if mq >= warn else 'ok',
             f'{int(mq)} message(s) queued')
+    # v4.1.0: a local filesystem the kernel remounted read-only = silent outage.
+    ro_mounts = [m.get('path') for m in (si.get('mounts') or [])
+                 if isinstance(m, dict) and m.get('ro') and not m.get('network')]
+    if any(isinstance(m, dict) and 'ro' in m for m in (si.get('mounts') or [])):
+        add('readonly_fs', 'Read-only filesystems', 'storage',
+            'warning' if ro_mounts else 'ok',
+            (', '.join(p for p in ro_mounts if p)[:180] + ' read-only')
+            if ro_mounts else 'all read-write')
+    # v4.1.0: disk-fill ETA (linear trend over the time-series; near-full only).
+    if isinstance(disk_eta, (int, float)):
+        add('disk_eta', 'Disk fill ETA', 'storage',
+            'critical' if disk_eta <= 2 else 'warning' if disk_eta <= 7 else 'ok',
+            f'~{disk_eta:.1f} day(s) to full at current trend')
     pools = si.get('storage_health') or []
     if pools:
         bad = [p for p in pools if isinstance(p, dict)
@@ -21903,6 +21917,58 @@ def _cve_high_counts():
     return out
 
 
+def _disk_fill_eta(devices, min_percent=60.0, horizon_days=60):
+    """Predict days-to-full per device from the disk% time-series (linear fit).
+
+    Returns {device_id: days_to_full} only for devices that are (a) already
+    past ``min_percent`` used and (b) trending up fast enough to fill within
+    ``horizon_days`` — so the fleet checks view stays cheap (we only query the
+    DB time-series for near-full hosts) and only flags genuine risks. Reads the
+    same store as _rag_metric_summaries (DB metric_range, else the JSON window).
+    """
+    out = {}
+    dbm = _dbmod()
+    json_metrics = (load(METRICS_FILE) or {}) if dbm is None else None
+    since = int(time.time()) - 14 * 86400
+    for did, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('agentless'):
+            continue
+        # Cheap gate: only bother if the latest reported disk is already high.
+        cur = None
+        for m in (dev.get('sysinfo', {}).get('mounts') or []):
+            if isinstance(m.get('percent'), (int, float)):
+                cur = max(cur or 0, m['percent'])
+        if cur is None or cur < min_percent:
+            continue
+        try:
+            if dbm is not None:
+                samples = dbm.metric_range(DATA_DIR, did, since, max_points=200) or []
+            else:
+                samples = [s for s in (json_metrics.get(did) or [])
+                           if isinstance(s, dict) and (s.get('ts') or 0) >= since]
+        except Exception:
+            samples = []
+        pts = [(s['ts'], s['disk']) for s in samples
+               if isinstance(s.get('ts'), (int, float))
+               and isinstance(s.get('disk'), (int, float))]
+        if len(pts) < 4:
+            continue
+        n = len(pts)
+        mt = sum(t for t, _ in pts) / n
+        md = sum(d for _, d in pts) / n
+        var = sum((t - mt) ** 2 for t, _ in pts)
+        if var <= 0:
+            continue
+        slope = sum((t - mt) * (d - md) for t, d in pts) / var  # %/sec
+        if slope <= 0:
+            continue
+        per_day = slope * 86400.0
+        days = (100.0 - pts[-1][1]) / per_day if per_day > 0 else None
+        if days is not None and 0 <= days <= horizon_days:
+            out[did] = round(days, 1)
+    return out
+
+
 def handle_device_checks(dev_id):
     """GET /api/devices/<id>/checks — the unified check list + summary for one host."""
     require_auth()
@@ -21914,8 +21980,10 @@ def handle_device_checks(dev_id):
     disabled = (cfg.get('host_checks_disabled') or {}).get(dev_id) or []
     hw = (load(HARDWARE_FILE) or {}).get(dev_id) if backend_exists(HARDWARE_FILE) else {}
     cve = _cve_high_counts().get(dev_id)
+    eta = _disk_fill_eta({dev_id: dev}).get(dev_id)
     ttl = get_online_ttl()
-    checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl, cve_high=cve)
+    checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl,
+                          cve_high=cve, disk_eta=eta)
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
                   'checks': checks, 'summary': _host_check_summary(checks)})
 
@@ -21932,6 +22000,7 @@ def handle_fleet_checks():
     disabled_all = cfg.get('host_checks_disabled') or {}
     hw_all = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
     cve_all = _cve_high_counts()
+    eta_all = _disk_fill_eta(devices)
     now = int(time.time())
     ttl = get_online_ttl()
     hosts = []
@@ -21940,7 +22009,7 @@ def handle_fleet_checks():
             continue
         checks = _host_checks(did, dev, hw_all.get(did) or {},
                               disabled_all.get(did) or [], now, ttl,
-                              cve_high=cve_all.get(did))
+                              cve_high=cve_all.get(did), disk_eta=eta_all.get(did))
         summ = _host_check_summary(checks)
         if want in ('critical', 'warning') and not summ['counts'].get(want):
             continue

@@ -1264,6 +1264,55 @@ class TestHostChecks(_HandlerBase):
         chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
         self.assertEqual(chk['mailq']['status'], 'warning')
 
+    def test_readonly_fs_check(self):
+        now, dev = self._dev()
+        # No 'ro' key on any mount → check omitted entirely.
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertNotIn('readonly_fs', chk)
+        # All rw → ok; one ro → warning naming the path.
+        dev['sysinfo']['mounts'][0]['ro'] = False
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertEqual(chk['readonly_fs']['status'], 'ok')
+        dev['sysinfo']['mounts'].append({'path': '/data', 'percent': 10, 'ro': True})
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertEqual(chk['readonly_fs']['status'], 'warning')
+        self.assertIn('/data', chk['readonly_fs']['output'])
+
+    def test_disk_eta_check(self):
+        now, dev = self._dev()
+        # No eta passed → omitted.
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertNotIn('disk_eta', chk)
+        for days, want in ((30, 'ok'), (5, 'warning'), (1, 'critical')):
+            chk = {c['key']: c for c in
+                   api._host_checks('d1', dev, {}, [], now, 180, disk_eta=days)}
+            self.assertEqual(chk['disk_eta']['status'], want, days)
+
+    def test_disk_fill_eta_helper(self):
+        now = int(api.time.time())
+        # Rising disk%: 80→95 over ~10 days → fills soon (warn/crit band).
+        samples = [{'ts': now - 10 * 86400, 'cpu': 1, 'mem': 1, 'swap': 0, 'disk': 80},
+                   {'ts': now - 7 * 86400,  'cpu': 1, 'mem': 1, 'swap': 0, 'disk': 86},
+                   {'ts': now - 3 * 86400,  'cpu': 1, 'mem': 1, 'swap': 0, 'disk': 92},
+                   {'ts': now - 3600,       'cpu': 1, 'mem': 1, 'swap': 0, 'disk': 95}]
+        # Unique device id: under SQLite the metric_samples table is keyed by
+        # DATA_DIR (not reset per test), so a shared id would pollute siblings.
+        did = 'etahost'
+        dbm = api._dbmod()
+        if dbm is not None:
+            for s in samples:
+                dbm.metric_append(api.DATA_DIR, did, s['ts'], s['cpu'], s['mem'],
+                                  s['swap'], s['disk'])
+        else:
+            api.save(api.METRICS_FILE, {did: samples})
+        devs = {did: {'name': 'web01', 'sysinfo': {'mounts': [{'path': '/', 'percent': 95}]}}}
+        eta = api._disk_fill_eta(devs)
+        self.assertIn(did, eta)
+        self.assertGreater(eta[did], 0)
+        # Below the min_percent gate → never queried/predicted.
+        low = {'lowhost': {'name': 'x', 'sysinfo': {'mounts': [{'path': '/', 'percent': 20}]}}}
+        self.assertNotIn('lowhost', api._disk_fill_eta(low))
+
     def test_disabled_flag(self):
         now, dev = self._dev()
         chk = {c['key']: c for c in api._host_checks('d1', dev, {}, ['memory'], now, 180)}

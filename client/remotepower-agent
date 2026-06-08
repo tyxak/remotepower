@@ -4241,6 +4241,11 @@ def get_metrics():
                     if vfs.f_files > 0:
                         entry['inode_percent'] = round(
                             (vfs.f_files - vfs.f_ffree) / vfs.f_files * 100, 1)
+                    # v4.1.0: read-only state per local mount. A writable fs the
+                    # kernel remounted read-only (on I/O error) is a silent
+                    # data-loss outage; emit always so the check shows ok too.
+                    if hasattr(os, 'ST_RDONLY'):
+                        entry['ro'] = bool(vfs.f_flag & os.ST_RDONLY)
                 except (OSError, AttributeError):
                     pass
             mounts.append(entry)
