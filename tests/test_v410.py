@@ -801,6 +801,37 @@ class TestRagPgVector(unittest.TestCase):
                       api._build_exact_routes())
 
 
+class TestThresholdMonitors(unittest.TestCase):
+    """Batch 1 monitors (inode / file-descriptors / conntrack) reuse the existing
+    metric_warning/critical pipeline — no new event types."""
+
+    def test_resolver_defaults(self):
+        self.assertEqual(api._resolve_metric_thresholds({}, 'inode'), (85.0, 95.0))
+        self.assertEqual(api._resolve_metric_thresholds({}, 'fd'), (80.0, 95.0))
+        self.assertEqual(api._resolve_metric_thresholds({}, 'conntrack'), (80.0, 95.0))
+
+    def test_resolver_overrides(self):
+        dev = {'metric_thresholds': {'inode_warn_percent': 50, 'inode_crit_percent': 60}}
+        self.assertEqual(api._resolve_metric_thresholds(dev, 'inode'), (50.0, 60.0))
+
+    def test_threshold_transitions(self):
+        fired = []
+        orig = api._fire_metric_webhook
+        api._fire_metric_webhook = lambda ev, *a, **k: fired.append((ev, a[2]))  # (event, kind)
+        try:
+            dev = {}
+            safe_si = {'fd_percent': 99, 'conntrack_percent': 99,
+                       'mounts': [{'path': '/', 'percent': 10, 'inode_percent': 99}]}
+            api.process_metric_thresholds('d1', dev, safe_si)
+        finally:
+            api._fire_metric_webhook = orig
+        st = dev.get('metric_state') or {}
+        self.assertEqual(st.get('fd:'), 'critical')
+        self.assertEqual(st.get('conntrack:'), 'critical')
+        self.assertEqual(st.get('inode:/'), 'critical')
+        self.assertIn(('metric_critical', 'fd'), fired)
+
+
 class TestFleetQueryFilters(_HandlerBase):
     """More Fleet Query options: cpu/swap/load thresholds, kernel/platform
     substrings, and drift / mount-issue / world-port / storage-degraded flags."""
@@ -820,6 +851,8 @@ class TestFleetQueryFilters(_HandlerBase):
                        'last_boot': now - 100 * 86400,   # ~100 days uptime
                        'timers': [{'unit': 'backup.timer', 'failed': True}],
                        'mount_issues': [{'path': '/mnt', 'issue': 'stalled'}],
+                       'mounts': [{'path': '/', 'percent': 50, 'inode_percent': 97}],
+                       'fd_percent': 92, 'conntrack_percent': 88,
                        'listening_ports': [{'port': 22, 'scope': 'world'}],
                        'storage_health': [{'name': 'tank', 'state': 'DEGRADED'}]}},
             'd2': {'name': 'calm', 'last_seen': now, 'monitored': True,
@@ -904,6 +937,11 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertEqual(self._names('brute_force=1'), ['hot'])
         self.assertEqual(self._names('smart_failure=1'), ['hot'])
         self.assertEqual(self._names('ups_on_battery=1'), ['hot'])
+
+    def test_capacity_exhaustion_filters(self):
+        self.assertEqual(self._names('inode_gt=90'), ['hot'])      # 97%
+        self.assertEqual(self._names('fd_gt=90'), ['hot'])         # 92%
+        self.assertEqual(self._names('conntrack_gt=80'), ['hot'])  # 88%
 
     def test_export_csv_bytes(self):
         rows = self._run('').get('devices')

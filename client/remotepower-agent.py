@@ -3989,6 +3989,27 @@ def get_metrics():
     except Exception:
         out['cpu_count'] = 1
 
+    # v4.1.0: open file descriptors vs the system max (/proc/sys/fs/file-nr:
+    # "allocated  unused  max"). Exhaustion → "too many open files" outages.
+    try:
+        with open('/proc/sys/fs/file-nr') as _f:
+            _alloc, _unused, _fmax = (int(x) for x in _f.read().split()[:3])
+        if _fmax > 0:
+            out['fd_percent'] = round(_alloc / _fmax * 100, 1)
+    except Exception:
+        pass
+    # v4.1.0: netfilter conntrack table fullness. A full table silently drops
+    # new connections — a classic hard-to-diagnose firewall/NAT outage.
+    try:
+        with open('/proc/sys/net/netfilter/nf_conntrack_count') as _f:
+            _ccount = int(_f.read().strip())
+        with open('/proc/sys/net/netfilter/nf_conntrack_max') as _f:
+            _cmax = int(_f.read().strip())
+        if _cmax > 0:
+            out['conntrack_percent'] = round(_ccount / _cmax * 100, 1)
+    except Exception:
+        pass
+
     # v3.13.0: total RAM (MB) for the CMDB Hardware panel.
     try:
         out['mem_total_mb'] = round(_psutil.virtual_memory().total / (1024 ** 2))
@@ -4061,6 +4082,15 @@ def get_metrics():
                 if dev not in seen_dev and u.total > 0:
                     seen_dev.add(dev)
                     local_total_gb += u.total / (1024 ** 3)
+                # v4.1.0: inode usage % — a filesystem can be far from full on
+                # bytes yet refuse writes when out of inodes (many tiny files).
+                try:
+                    vfs = os.statvfs(mp)
+                    if vfs.f_files > 0:
+                        entry['inode_percent'] = round(
+                            (vfs.f_files - vfs.f_ffree) / vfs.f_files * 100, 1)
+                except (OSError, AttributeError):
+                    pass
             mounts.append(entry)
     except Exception:
         pass

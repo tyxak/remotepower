@@ -8905,7 +8905,9 @@ def handle_heartbeat():
                 safe_si['network_io'] = safe_io
             # Metrics — legacy three (root-mount disk, cpu, memory) plus
             # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
-            for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent'):
+            for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent',
+                               # v4.1.0: file-descriptor + conntrack table fullness
+                               'fd_percent', 'conntrack_percent'):
                 val = si.get(metric_key)
                 if isinstance(val, (int, float)) and 0.0 <= val <= 100.0:
                     safe_si[metric_key] = round(float(val), 2)
@@ -8965,6 +8967,11 @@ def handle_heartbeat():
                     # missing percent as "—"/stalled.
                     if has_pct:
                         entry['percent'] = round(float(pct), 1)
+                    # v4.1.0: inode usage % (filesystem can be byte-free yet
+                    # inode-exhausted). Validated 0–100.
+                    ip = m.get('inode_percent')
+                    if isinstance(ip, (int, float)) and 0.0 <= ip <= 100.0:
+                        entry['inode_percent'] = round(float(ip), 1)
                     if is_net:
                         entry['network'] = True
                         entry['server'] = _sanitize_str(m.get('server', ''), 128)
@@ -18442,6 +18449,13 @@ def _rag_fleet_rollups():
         if isinstance(swap, (int, float)) and swap >= 50: add('high swap (>=50%)', did, f'{swap:.0f}%')
         busiest = max((m.get('percent', 0) for m in (si.get('mounts') or [])), default=None)
         if isinstance(busiest, (int, float)) and busiest >= 90: add('high disk usage (>=90%)', did, f'{busiest:.0f}%')
+        busiest_i = max((m.get('inode_percent', 0) for m in (si.get('mounts') or [])
+                         if isinstance(m.get('inode_percent'), (int, float))), default=None)
+        if isinstance(busiest_i, (int, float)) and busiest_i >= 90: add('high inode usage (>=90%)', did, f'{busiest_i:.0f}%')
+        fdp = si.get('fd_percent')
+        if isinstance(fdp, (int, float)) and fdp >= 80: add('high file-descriptor usage (>=80%)', did, f'{fdp:.0f}%')
+        ctp = si.get('conntrack_percent')
+        if isinstance(ctp, (int, float)) and ctp >= 80: add('high conntrack table usage (>=80%)', did, f'{ctp:.0f}%')
         if si.get('reboot_required'): add('reboot required', did)
         up = (si.get('packages') or {}).get('upgradable')
         if isinstance(up, int) and up > 0: add('pending package updates', did, str(up))
@@ -24532,6 +24546,7 @@ def handle_fleet_query():
     # v4.1.0: more resource + posture + identity filters.
     cpu_gt, swap_gt = qi('cpu_gt'), qi('swap_gt')
     load_gt = qf('load_gt')
+    inode_gt, fd_gt, conntrack_gt = qi('inode_gt'), qi('fd_gt'), qi('conntrack_gt')
     kernel_sub, platform_sub = q('kernel').lower(), q('platform').lower()
     drift_q = q('drift') in ('1', 'true')
     mount_q = q('mount_issue') in ('1', 'true')
@@ -24647,6 +24662,19 @@ def handle_fleet_query():
         if load_gt is not None:
             la = si.get('loadavg_1m')
             if not (isinstance(la, (int, float)) and la > load_gt):
+                continue
+        if inode_gt is not None:
+            busiest_i = max((m.get('inode_percent', 0) for m in (si.get('mounts') or [])
+                             if isinstance(m.get('inode_percent'), (int, float))), default=None)
+            if not (isinstance(busiest_i, (int, float)) and busiest_i > inode_gt):
+                continue
+        if fd_gt is not None:
+            v = si.get('fd_percent')
+            if not (isinstance(v, (int, float)) and v > fd_gt):
+                continue
+        if conntrack_gt is not None:
+            v = si.get('conntrack_percent')
+            if not (isinstance(v, (int, float)) and v > conntrack_gt):
                 continue
         # v4.1.0: identity substrings (kernel release, platform/distro).
         if kernel_sub and kernel_sub not in (si.get('kernel') or '').lower():
@@ -32871,6 +32899,17 @@ def _resolve_metric_thresholds(dev, kind, target=''):
     if kind == 'cpu':
         return (float(overrides.get('cpu_warn_load_ratio', DEFAULT_METRIC_THRESHOLDS['cpu_warn_load_ratio'])),
                 float(overrides.get('cpu_crit_load_ratio', DEFAULT_METRIC_THRESHOLDS['cpu_crit_load_ratio'])))
+    # v4.1.0: inode / file-descriptor / conntrack fullness — all percentages,
+    # so they reuse the metric_warning/critical pipeline (no new event type).
+    if kind == 'inode':
+        return (float(overrides.get('inode_warn_percent', 85)),
+                float(overrides.get('inode_crit_percent', 95)))
+    if kind == 'fd':
+        return (float(overrides.get('fd_warn_percent', 80)),
+                float(overrides.get('fd_crit_percent', 95)))
+    if kind == 'conntrack':
+        return (float(overrides.get('conntrack_warn_percent', 80)),
+                float(overrides.get('conntrack_crit_percent', 95)))
     return (None, None)
 
 
@@ -33043,17 +33082,26 @@ def process_metric_thresholds(dev_id, dev, safe_si):
         for m in mounts:
             path = m.get('path')
             pct = m.get('percent')
-            if not path or pct is None:
-                continue
-            seen_disk_keys.add(f'disk:{path}')
-            _check('disk', path, pct)
+            if path and pct is not None:
+                seen_disk_keys.add(f'disk:{path}')
+                _check('disk', path, pct)
+            # v4.1.0: inode exhaustion per mount (own kind, own thresholds).
+            ip = m.get('inode_percent')
+            if path and ip is not None:
+                seen_disk_keys.add(f'inode:{path}')
+                _check('inode', path, ip)
         # Clean orphans
         for key in list(state.keys()):
-            if key.startswith('disk:') and key not in seen_disk_keys:
+            if (key.startswith('disk:') or key.startswith('inode:')) \
+                    and key not in seen_disk_keys:
                 state.pop(key, None)
     elif safe_si.get('disk_percent') is not None:
         # Pre-v1.11.10 agent: only legacy root-disk metric. Treat as '/'.
         _check('disk', '/', safe_si['disk_percent'])
+
+    # v4.1.0: file-descriptor + conntrack table fullness (host-wide, no target).
+    _check('fd', '', safe_si.get('fd_percent'))
+    _check('conntrack', '', safe_si.get('conntrack_percent'))
 
     dev['metric_state'] = state
 

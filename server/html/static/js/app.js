@@ -17536,6 +17536,8 @@ const _FQ_FIELDS = {
   timer_failed: 'fq-timerfail',
   // v4.1.0: security / hardware posture
   brute_force: 'fq-brute', smart_failure: 'fq-smart', ups_on_battery: 'fq-ups',
+  // v4.1.0: capacity exhaustion (inode / fd / conntrack)
+  inode_gt: 'fq-inode', fd_gt: 'fq-fd', conntrack_gt: 'fq-conntrack',
 };
 function _fqFields() {
   const out = {};
