@@ -2623,8 +2623,19 @@ class TestLargeFleetCapsAndUX(unittest.TestCase):
         self.assertNotIn('/devices', chunk)
 
     def test_roadmap_files_removed(self):
+        # The PUBLIC roadmap stays deleted (per "Remove the ROADMAP*").
         self.assertFalse((_ROOT / 'docs/ROADMAP.md').exists())
-        self.assertFalse((_ROOT / 'docs/ROADMAP-internal.md').exists())
+        # v4.1.0: the INTERNAL planning roadmap was reinstated by request. If it
+        # exists it must be gitignored (never tracked / shipped). It's allowed to
+        # be absent on a fresh checkout since it's untracked.
+        internal = _ROOT / 'docs/ROADMAP-internal.md'
+        if internal.exists():
+            import subprocess
+            tracked = subprocess.run(
+                ['git', 'ls-files', '--error-unmatch', str(internal)],
+                cwd=str(_ROOT), capture_output=True)
+            self.assertNotEqual(tracked.returncode, 0,
+                                'docs/ROADMAP-internal.md must stay gitignored')
 
 
 class TestDemoSeedCoversNewFeatures(unittest.TestCase):

@@ -3250,10 +3250,10 @@ def _otlp_fleet_gauges():
             offline += 1
         else:
             online += 1
-    items = _compute_attention()
-    counts = {'critical': 0, 'warning': 0, 'info': 0}
-    for i in items:
-        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    # v4.1.0 (#18): reuse the cached Needs-Attention digest instead of
+    # recomputing the full aggregation on every metrics scrape.
+    _att = _attention_payload()
+    items, counts = _att['items'], _att['counts']
     try:
         score = _fleet_health().get('score')
     except Exception:
@@ -4259,6 +4259,20 @@ def _alert_title(event, payload):
     return f'{event}: {name}'
 
 
+def _assign_alertid(store, alert):
+    """v4.1.0 (#54): stamp a stable, monotonic, zero-padded id ('alertid_00001')
+    on `alert` from a persisted counter in the open ALERTS_FILE `store`. The
+    caller MUST already hold the ALERTS_FILE lock (both creation sites do), so
+    the read-increment-write is atomic. The counter only ever grows — ids are
+    never reused even after the ledger trims to MAX_ALERTS — so external systems
+    (ITSM tickets opened via the on_ack webhook) keep a stable reference. This
+    is distinct from the random internal `id`, which stays the lookup key."""
+    seq = int(store.get('alert_seq') or 0) + 1
+    store['alert_seq'] = seq
+    alert['alertid'] = f'alertid_{seq:05d}'
+    return alert['alertid']
+
+
 def _record_alert(event, payload):
     """Create an alert row if this event is actionable.
 
@@ -4318,6 +4332,8 @@ def _record_alert(event, payload):
                 summary[key] = v
     alert = {
         'id':              'a-' + os.urandom(6).hex(),
+        # v4.1.0 (#54): stable operator-facing id, stamped under the lock below.
+        'alertid':         None,
         'ts':              int(time.time()),
         'event':           str(event)[:64],
         'severity':        sev,
@@ -4334,6 +4350,7 @@ def _record_alert(event, payload):
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             alerts = store.setdefault('alerts', [])
+            _assign_alertid(store, alert)
             alerts.append(alert)
             if len(alerts) > MAX_ALERTS:
                 del alerts[:-MAX_ALERTS]
@@ -9138,9 +9155,10 @@ def handle_heartbeat():
             # audit (new_port_detected alerts) had been silently dead, and
             # the metrics history never accumulated. (Bug fix, v3.4.0.)
             saved_dev['sysinfo'] = safe_si
-            # _record_metrics writes to METRICS_FILE (different lock — no
-            # deadlock with the DEVICES_FILE lock we currently hold)
-            _record_metrics(dev_id, safe_si)
+            # v4.1.0 (#16): _record_metrics (a METRICS_FILE read+write under its
+            # own flock) moved OUT of the DEVICES lock — see post-lock section.
+            # process_metric_thresholds stays here because it mutates
+            # dev['metric_state'] and doesn't depend on _record_metrics.
             # v1.11.10: check thresholds and fire metric_warning / metric_critical /
             # metric_recovered webhooks. Wrapped in try so a logic bug here never
             # breaks the heartbeat path. process_metric_thresholds touches
@@ -9163,17 +9181,13 @@ def handle_heartbeat():
             lines = body['journal'][:MAX_JOURNAL_LINES]
             dev['journal'] = [str(l)[:MAX_JOURNAL_LINE] for l in lines]
 
-        # v2.2.0: drift hashes from the agent. Optional — only newer agents
-        # send these. Hash-only payload; we never receive file content here.
-        # Format: {file_path: {hash, size, mtime, exists}}.  The server
-        # function _ingest_drift_report handles comparison against the stored
-        # baseline, history rotation, and firing the drift_detected webhook.
-        # Wrapped in try so a logic bug here never breaks the heartbeat path.
-        if 'drift' in body and isinstance(body['drift'], dict):
-            try:
-                _ingest_drift_report(dev_id, body['drift'])
-            except Exception:
-                pass
+        # v4.1.0 (#16): drift ingestion happens ONCE, post-lock (search
+        # "ingest drift report" below). It was previously also called here,
+        # inside the DEVICES lock — a redundant nested DRIFT_STATE_FILE locked
+        # write on every heartbeat. _ingest_drift_report is idempotent on a
+        # repeated identical report (test_v220.test_repeated_same_change_doesnt_re_fire),
+        # so the in-lock call only ever did duplicate work and lengthened the
+        # hold. The post-lock call is the canonical one.
 
         # v2.1.0 compose_projects update. Moved INSIDE the locked block
         # in v2.1.2 so it's part of the same atomic devices.json update —
@@ -9288,6 +9302,14 @@ def handle_heartbeat():
             f"[remotepower] heartbeat dev={dev_id} name={saved_dev['name']!r} "
             f"last_seen={saved_dev['last_seen']} pid={os.getpid()}\n")
     _record_uptime(dev_id, saved_dev['name'], True)
+    # v4.1.0 (#16): record the metrics sample OUT of the DEVICES lock. It writes
+    # METRICS_FILE under its own flock; doing it here (not inside the lock)
+    # shortens the device-lock hold under fleet-wide poll bursts. `saved_dev`
+    # carries the sanitised sysinfo only when the heartbeat included one, so this
+    # runs in exactly the same cases as before; _record_metrics no-ops when there
+    # are no cpu/mem/disk/swap values.
+    if 'sysinfo' in saved_dev:
+        _record_metrics(dev_id, saved_dev['sysinfo'])
 
     # v1.8.0: process service report
     if 'services' in body and isinstance(body['services'], list):
@@ -11084,6 +11106,7 @@ def handle_config_get():
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
+    safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
     # v3.14.0 #42: web push — surface enabled + subject + a keyed flag, never the key.
     safe.setdefault('webpush_enabled', False)
     safe.setdefault('webpush_subject', '')
@@ -12079,6 +12102,11 @@ def handle_config_save():
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
+    # v4.1.0 (#56): when False, the UI hides the optional "comment" prompt on
+    # ack. The backend always accepts an `ack_note` either way (this only
+    # governs whether operators are prompted for one).
+    if 'ack_comment_enabled' in body:
+        cfg['ack_comment_enabled'] = bool(body['ack_comment_enabled'])
 
     # v3.3.0: Healthchecks.io / generic watchdog ping
     if 'healthchecks_url' in body:
@@ -12221,10 +12249,30 @@ def handle_config_save():
     respond(200, _resp)
 
 
+def _paginate_list(items):
+    """v4.1.0 (#23): opt-in server-side paging for the unbounded list endpoints
+    (audit log, command history). Reads `limit`/`offset` from the query string.
+    With no `limit` the full list is returned unchanged — existing callers and
+    the in-app UI (which page client-side) are unaffected. The response stays a
+    plain JSON list either way, so it's a pure superset of the old contract."""
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    if 'limit' not in qs:
+        return items
+    try:
+        limit = max(0, min(100000, int(qs.get('limit', ['0'])[0])))
+    except (ValueError, TypeError):
+        return items
+    try:
+        offset = max(0, int(qs.get('offset', ['0'])[0]))
+    except (ValueError, TypeError):
+        offset = 0
+    return items[offset:offset + limit] if limit else items[offset:]
+
+
 def handle_history():
     require_auth()
     history = load(HISTORY_FILE)
-    respond(200, list(reversed(history.get('entries', []))))
+    respond(200, _paginate_list(list(reversed(history.get('entries', [])))))
 
 
 def handle_history_clear():
@@ -15288,6 +15336,7 @@ def _ingest_secret_findings(dev_id, dev_name, findings):
         return
     cfg = load(CONFIG_FILE) or {}
     muted = set(cfg.get('secrets_mutes') or [])
+    host_muted = dev_id in set(cfg.get('secrets_host_mutes') or [])  # v4.1.0 (#55)
     clean = []
     for f in findings[:200]:
         if not isinstance(f, dict):
@@ -15320,9 +15369,11 @@ def _ingest_secret_findings(dev_id, dev_name, findings):
         merged_seen = sorted(prev_seen | cur_fps)[-2000:]
         store[dev_id] = {'findings': clean, 'ts': int(time.time()),
                          '_seen': merged_seen}
-    if new_fps:
+    if new_fps and not host_muted:
         # One summary event per ingest (first finding + count) — avoids a webhook
         # storm the first time scanning is enabled on a host with many findings.
+        # v4.1.0 (#55): a whole-host mute suppresses the alert entirely (the
+        # findings are still stored and shown, just flagged muted).
         first = new_fps[0]
         try:
             fire_webhook('secret_exposed', {
@@ -21246,8 +21297,11 @@ def _compute_attention():
                     'device': monitored[dev_id].get('name', dev_id),
                     'summary': f'{restarting} container{"s" if restarting != 1 else ""} restarting',
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        # v4.1.0 (#33): stay resilient (a bad containers file must not break the
+        # whole digest) but don't fail silently — the v3.0.4 lesson.
+        sys.stderr.write(f'[remotepower] _compute_attention containers: '
+                         f'{type(_e).__name__}: {_e}\n')
 
     # v3.0.2: ACME certificate renewal failures. tls_expiry above surfaces
     # any cert nearing expiry regardless of whether RemotePower is managing
@@ -21270,8 +21324,10 @@ def _compute_attention():
                         'device': monitored[dev_id].get('name', dev_id),
                         'summary': f'{cert.get("domain", "?")}: {status}',
                     })
-    except Exception:
-        pass
+    except Exception as _e:
+        # v4.1.0 (#33): resilient but not silent (see v3.0.4 note above).
+        sys.stderr.write(f'[remotepower] _compute_attention acme: '
+                         f'{type(_e).__name__}: {_e}\n')
 
     # v2.8.0: active brute-force state.
     if backend_exists(BRUTE_FORCE_FILE):
@@ -22638,10 +22694,10 @@ def handle_status():
         else:
             online += 1
 
-    items = _compute_attention()
-    counts = {'critical': 0, 'warning': 0, 'info': 0}
-    for i in items:
-        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    # v4.1.0 (#18): serve the cached Needs-Attention digest (status endpoints
+    # are polled often; this avoids recomputing the full aggregation each time).
+    _att = _attention_payload()
+    items, counts = _att['items'], _att['counts']
 
     # A single rolled-up health word, so a dashboard can show one dot.
     if counts['critical']:
@@ -22715,10 +22771,10 @@ def handle_ha_bridge():
         else:
             online += 1
 
-    items = _compute_attention()
-    counts = {'critical': 0, 'warning': 0, 'info': 0}
-    for i in items:
-        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    # v4.1.0 (#18): serve the cached Needs-Attention digest (HA polls this
+    # endpoint regularly; reuse the cache instead of recomputing each scrape).
+    _att = _attention_payload()
+    items, counts = _att['items'], _att['counts']
     if counts['critical']:
         state = 'critical'
     elif counts['warning']:
@@ -25889,7 +25945,7 @@ def _maybe_send_report_definitions():
 def handle_audit_log():
     require_admin_auth()
     al = load(AUDIT_LOG_FILE)
-    respond(200, list(reversed(al.get('entries', []))))
+    respond(200, _paginate_list(list(reversed(al.get('entries', [])))))
 
 
 def handle_audit_log_clear():
@@ -25965,6 +26021,9 @@ def handle_alerts_list():
         'alerts': filtered[:limit],
         'total':  len(filtered),
         'summary': _alerts_summary(all_alerts),
+        # v4.1.0 (#56): tells the UI whether to prompt for an optional comment
+        # when acking. Default on.
+        'ack_comment_enabled': bool((load(CONFIG_FILE) or {}).get('ack_comment_enabled', True)),
     })
 
 
@@ -26006,6 +26065,10 @@ def _fire_ack_webhooks(alert, user):
     p = alert.get('payload') or {}
     payload = {
         'alert_id':        alert.get('id'),
+        # v4.1.0 (#54): stable, human-readable id ('alertid_00001') so ITSM /
+        # ticket systems can correlate the ack back to a durable reference.
+        # `alert_id` (random internal key) is kept for backward compatibility.
+        'alertid':         alert.get('alertid'),
         'event':           alert.get('event'),
         'severity':        alert.get('severity'),
         'title':           alert.get('title'),
@@ -26356,6 +26419,48 @@ def handle_alerts_bulk_resolve():
     respond(200, {'ok': True, 'resolved': resolved})
 
 
+def handle_alerts_bulk_ack():
+    """POST /api/alerts/bulk-ack — v4.1.0 (#53): acknowledge several alerts at
+    once from the Alerts page "Ack selected" button.
+
+    Body: {ids: [...], note: optional comment applied to all}
+
+    Same permission gate as single ack (`viewers_can_ack_alerts`), unlike
+    bulk-resolve which is admin-only — acking is the lower-privilege action.
+    Each newly-acked alert fires the on_ack webhook (so #54's `alertid` and
+    the #56 note flow through identically to a single ack)."""
+    user = _check_alert_mutation_perm()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    ids = body.get('ids') or []
+    if not isinstance(ids, list) or not ids:
+        respond(400, {'error': 'ids list required'})
+    note = _sanitize_str(body.get('note', ''), 256)
+    ids_set = {str(i) for i in ids}
+    acked_alerts = []
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                # Only ack rows that are open (not resolved, not already acked),
+                # so re-running over a mixed selection is idempotent.
+                if (a.get('id') in ids_set and not a.get('resolved_at')
+                        and not a.get('acknowledged_at')):
+                    a['acknowledged_by'] = user
+                    a['acknowledged_at'] = now
+                    if note:
+                        a['ack_note'] = note
+                    acked_alerts.append(dict(a))   # snapshot for the webhook
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    audit_log(user, 'alert_bulk_ack', f'count={len(acked_alerts)}'
+              + (f' note={note[:80]}' if note else ''))
+    # Fire ack webhooks AFTER releasing the lock (HTTP POSTs are slow).
+    for a in acked_alerts:
+        _fire_ack_webhooks(a, user)
+    respond(200, {'ok': True, 'acked': len(acked_alerts)})
+
+
 def handle_alerts_summary():
     """GET /api/alerts/summary — small counts payload for sidebar badge."""
     require_auth()
@@ -26679,6 +26784,8 @@ def handle_inbound_webhook(token_str):
 
     alert = {
         'id':              'a-' + os.urandom(6).hex(),
+        # v4.1.0 (#54): stable operator-facing id, stamped under the lock below.
+        'alertid':         None,
         'ts':              int(time.time()),
         'event':           'inbound',
         'severity':        severity,
@@ -26695,6 +26802,7 @@ def handle_inbound_webhook(token_str):
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             arr = store.setdefault('alerts', [])
+            _assign_alertid(store, alert)
             arr.append(alert)
             if len(arr) > MAX_ALERTS:
                 del arr[:-MAX_ALERTS]
@@ -30312,17 +30420,20 @@ def handle_fleet_secrets():
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     cfg = load(CONFIG_FILE) or {}
     muted = set(cfg.get('secrets_mutes') or [])
+    host_mutes = set(cfg.get('secrets_host_mutes') or [])   # v4.1.0 (#55)
     out, total_active = [], 0
     for did, rec in store.items():
         if did not in devices:
             continue
-        findings = [{**f, 'muted': f.get('fingerprint', '') in muted}
+        hmuted = did in host_mutes
+        findings = [{**f, 'muted': hmuted or (f.get('fingerprint', '') in muted)}
                     for f in (rec.get('findings') or []) if isinstance(f, dict)]
-        active = sum(1 for f in findings if not f['muted'])
+        # A host-muted device contributes 0 to the active total.
+        active = 0 if hmuted else sum(1 for f in findings if not f['muted'])
         total_active += active
         if findings:
             out.append({'device_id': did, 'name': (devices.get(did) or {}).get('name', did),
-                        'ts': rec.get('ts'), 'active': active,
+                        'ts': rec.get('ts'), 'active': active, 'host_muted': hmuted,
                         'findings': findings[:200]})
     out.sort(key=lambda r: r['active'], reverse=True)
     respond(200, {'devices': out, 'total_active': total_active,
@@ -30349,6 +30460,47 @@ def handle_secrets_mute():
             mutes.append(fp)
         cfg['secrets_mutes'] = mutes[:2000]
     audit_log(actor, 'secret_unmute' if unmute else 'secret_mute', f'fingerprint={fp}')
+    respond(200, {'ok': True, 'muted': not unmute})
+
+
+def handle_secrets_host_mute():
+    """POST /api/secrets/host-mute {device_id, unmute?} — v4.1.0 (#55): mute an
+    ENTIRE host under "Exposed secrets on disk" so none of its findings alert or
+    count toward the total. Complements the per-fingerprint /api/secrets/mute.
+    Admin-only; audit-logged. Findings are still stored and shown (flagged
+    muted) — this only silences the noise for a host you've accepted."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
+    if not did:
+        respond(400, {'error': 'device_id required'})
+    unmute = bool(body.get('unmute'))
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        mutes = list(cfg.get('secrets_host_mutes') or [])
+        if unmute:
+            mutes = [m for m in mutes if m != did]
+        elif did not in mutes:
+            mutes.append(did)
+        cfg['secrets_host_mutes'] = mutes[:1000]
+    # When muting, resolve this host's open secret_exposed alerts so the inbox
+    # clears immediately (targeted to this device — the generic resolver can't
+    # filter by host).
+    if not unmute:
+        try:
+            with _LockedUpdate(ALERTS_FILE) as store:
+                now = int(time.time())
+                for a in store.get('alerts', []):
+                    if (a.get('event') == 'secret_exposed'
+                            and a.get('device_id') == did
+                            and not a.get('resolved_at')):
+                        a['resolved_at'] = now
+                        a['resolved_by'] = 'secrets-host-mute'
+        except Exception:
+            pass
+    audit_log(actor, 'secret_host_unmute' if unmute else 'secret_host_mute',
+              f'device_id={did}')
     respond(200, {'ok': True, 'muted': not unmute})
 
 
@@ -35364,6 +35516,7 @@ def _build_exact_routes():
         ('DELETE', '/api/alerts'): handle_alerts_clear,
         ('GET', '/api/alerts'): handle_alerts_list,
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
+        ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/oncall'): handle_oncall,
         ('GET', '/api/setup-status'): handle_setup_status,
@@ -35559,6 +35712,7 @@ def _build_exact_routes():
         ('GET', '/api/fleet/chargeback'): handle_fleet_chargeback,   # v3.14.0 (#41)
         ('GET', '/api/fleet/secrets'): handle_fleet_secrets,         # v3.14.0 (#35)
         ('POST', '/api/secrets/mute'): handle_secrets_mute,          # v3.14.0 (#35)
+        ('POST', '/api/secrets/host-mute'): handle_secrets_host_mute,  # v4.1.0 (#55)
         # v3.14.0: predictive disk-failure maintenance
         ('GET', '/api/fleet/disk-health'): handle_disk_health,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,

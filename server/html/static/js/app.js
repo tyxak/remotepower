@@ -170,7 +170,12 @@ const tableCtl = (() => {
     thead.querySelectorAll('th[data-col]').forEach(th => {
       th.style.cursor = 'pointer';
       th.style.userSelect = 'none';
-      th.addEventListener('click', (ev) => {
+      // v4.1.0 (#35): keyboard-operable sort. tabindex makes the header
+      // focusable; we keep the native columnheader role (and aria-sort from
+      // _renderSortIndicators) rather than role="button", so screen readers
+      // still announce the sorted state.
+      th.setAttribute('tabindex', '0');
+      const doSort = (ev) => {
         const col = th.getAttribute('data-col');
         const prefs = getTablePrefs(opts.name);
         if (!Array.isArray(prefs.sort)) prefs.sort = [];
@@ -206,6 +211,14 @@ const tableCtl = (() => {
         } else if (opts._lastRows) {
           render(opts.name, opts._lastRows);
         }
+      };
+      th.addEventListener('click', doSort);
+      // Enter / Space activate; Shift+Enter adds a secondary sort column.
+      th.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+          ev.preventDefault();
+          doSort(ev);
+        }
       });
     });
     _renderSortIndicators(opts);
@@ -221,13 +234,18 @@ const tableCtl = (() => {
       // Strip any old indicator
       const baseLabel = th.getAttribute('data-label') || th.textContent.replace(/[▲▼²³⁴⁵\s]+$/g,'').trim();
       th.setAttribute('data-label', baseLabel);
+      // v4.1.0 (#36): aria-sort conveys the sorted state to screen readers; the
+      // glyphs themselves are decorative, so hide them from the a11y tree.
       if (idx === -1) {
-        th.innerHTML = baseLabel + ' <span class="isl-304">↕</span>';
+        th.setAttribute('aria-sort', 'none');
+        th.innerHTML = baseLabel + ' <span class="isl-304" aria-hidden="true">↕</span>';
       } else {
-        const arrow = sort[idx].dir === 'asc' ? '▲' : '▼';
+        const dir = sort[idx].dir;
+        const arrow = dir === 'asc' ? '▲' : '▼';
+        th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
         // Multi-column: show the priority order as a small superscript
-        const prio = sort.length > 1 ? `<sup class="isl-305">${idx+1}</sup>` : '';
-        th.innerHTML = baseLabel + ` <span class="isl-306">${arrow}${prio}</span>`;
+        const prio = sort.length > 1 ? `<sup class="isl-305" aria-hidden="true">${idx+1}</sup>` : '';
+        th.innerHTML = baseLabel + ` <span class="isl-306" aria-hidden="true">${arrow}${prio}</span>`;
       }
     });
   }
@@ -2186,6 +2204,10 @@ async function loadSettings() {
   loadMetricsPush();   // v3.14.0: metrics-push config (separate endpoint)
   loadGitops();        // v3.14.0 (#27): GitOps sync config (separate endpoint)
 
+  // v4.1.0 (#56): prompt for optional ack comment (default on)
+  const _ace = document.getElementById('cfg-ack-comment-enabled');
+  if (_ace) _ace.checked = data.ack_comment_enabled !== false;
+
   // v3.11.0: scheduled posture digest
   const _pde = document.getElementById('cfg-posture-digest-enabled');
   if (_pde) _pde.checked = !!data.posture_digest_enabled;
@@ -2544,6 +2566,9 @@ async function saveSettings(btn) {
     smtp_helo_name:  document.getElementById('cfg-smtp-helo').value.trim(),
     smtp_recipients: document.getElementById('cfg-smtp-recipients').value.trim(),
 
+    // v4.1.0 (#56): prompt for optional ack comment (default on)
+    ack_comment_enabled:       (document.getElementById('cfg-ack-comment-enabled') || {}).checked ?? true,
+
     // v3.11.0: scheduled posture digest
     posture_digest_enabled:    (document.getElementById('cfg-posture-digest-enabled') || {}).checked || false,
     posture_digest_cadence:    (document.getElementById('cfg-posture-digest-cadence') || {}).value || 'weekly',
@@ -2878,12 +2903,62 @@ function startRefreshCycle() {
 // under the modal. closeModal releases the lock only when no other
 // modal is still open (nested modals — e.g. drift diff over drift
 // detail — must keep the lock until the last one closes).
+// v4.1.0 (#4/#34): lightweight modal stack — Escape-to-close (topmost first),
+// focus trap (Tab cycles within the modal), and focus restore (return focus to
+// whatever was focused before the modal opened). Additive: openModal/closeModal
+// stay the single integration point, so all 133 call sites + backdrop-click get
+// this for free. The AI modal (built ad-hoc) is the one exception and is
+// unaffected.
+const _MODAL_FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),' +
+  'select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+const _modalStack = [];
+const _modalReturnFocus = new WeakMap();
+
+function _modalFocusable(el) {
+  return Array.from(el.querySelectorAll(_MODAL_FOCUSABLE))
+    .filter(n => n.offsetParent !== null);   // visible only
+}
+function _modalStackTop() {
+  // Self-heal: drop entries whose modal is no longer active (closed via a path
+  // other than closeModal).
+  while (_modalStack.length) {
+    const el = document.getElementById(_modalStack[_modalStack.length - 1]);
+    if (el && el.classList.contains('active')) return el;
+    _modalStack.pop();
+  }
+  return null;
+}
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' && e.key !== 'Tab') return;
+  const el = _modalStackTop();
+  if (!el) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeModal(el.id);
+    return;
+  }
+  // Tab: keep focus inside the topmost modal.
+  const f = _modalFocusable(el);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 function openModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
   document.body.classList.remove('mobile-nav-open');
+  // Remember what to restore focus to, and track open order for Escape/trap.
+  _modalReturnFocus.set(el, document.activeElement);
+  if (!_modalStack.includes(id)) _modalStack.push(id);
   el.classList.add('active');
   document.body.classList.add('modal-open');
+  // Move focus into the modal (first focusable element) for keyboard + SR users.
+  requestAnimationFrame(() => {
+    const f = _modalFocusable(el);
+    if (f.length) { try { f[0].focus(); } catch (_) {} }
+  });
   // v3.12.0: searchable long dropdowns. Run now (sync-populated selects), next
   // frame, and once more after typical fetch latency (async-populated selects).
   enhanceDeviceCombos(el); enhanceLongSelects(el);
@@ -2893,9 +2968,17 @@ function openModal(id) {
 function closeModal(id) {
   const el = document.getElementById(id);
   if (el) el.classList.remove('active');
+  const idx = _modalStack.indexOf(id);
+  if (idx !== -1) _modalStack.splice(idx, 1);
   // Only release the scroll lock if no modal-overlay is still active
   const anyOpen = document.querySelector('.modal-overlay.active');
   if (!anyOpen) document.body.classList.remove('modal-open');
+  // Restore focus to whatever was focused before this modal opened.
+  if (el) {
+    const ret = _modalReturnFocus.get(el);
+    _modalReturnFocus.delete(el);
+    if (ret && ret.focus && document.contains(ret)) { try { ret.focus(); } catch (_) {} }
+  }
 }
 
 // ── Reusable async prompt (replaces native window.prompt) ──────────────────
@@ -7759,6 +7842,7 @@ async function clearAuditLog() { if (!confirm('Clear the entire audit log? This 
 // ─── v3.2.0 (B1): Alerts inbox ──────────────────────────────────────────────
 
 let _alertsCache = [];
+let _alertsAckCommentEnabled = true;   // v4.1.0 (#56): prompt for ack comment
 
 async function loadAlerts() {
   const statusEl = document.getElementById('alerts-filter-status');
@@ -7766,6 +7850,8 @@ async function loadAlerts() {
   try {
     const data = await api('GET', `/alerts?status=${encodeURIComponent(status)}&limit=500`);
     _alertsCache = (data && data.alerts) || [];
+    // v4.1.0 (#56): whether to prompt for an optional comment on ack.
+    _alertsAckCommentEnabled = !data || data.ack_comment_enabled !== false;
     _renderAlertsSummary(data && data.summary);
     renderAlerts();
   } catch (e) {
@@ -7840,7 +7926,7 @@ function renderAlerts() {
       <td>${cb}</td>
       <td>${sevPill}</td>
       <td class="nowrap">${ts}</td>
-      <td>${_escapeHtml(a.title || a.event || '')}</td>
+      <td>${_escapeHtml(a.title || a.event || '')}${a.alertid ? `<div class="hint">${_escapeHtml(a.alertid)}</div>` : ''}</td>
       <td>${_escapeHtml(dev)}</td>
       <td>${ackBy}</td>
       <td class="nowrap">${actions}</td>
@@ -7862,8 +7948,31 @@ function _escapeHtml(s) {
 }
 
 async function ackAlert(id) {
-  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ack`, {});
+  const body = {};
+  // v4.1.0 (#56): optional comment on ack (can be turned off in Settings).
+  if (_alertsAckCommentEnabled) {
+    const note = prompt('Add a comment to this acknowledgement (optional):', '');
+    if (note === null) return;   // cancelled
+    if (note.trim()) body.note = note.trim();
+  }
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ack`, body);
   if (r && r.ok) { toast('Alert acknowledged', 'success'); loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+// v4.1.0 (#53): acknowledge every selected open alert in one call.
+async function bulkAckAlerts() {
+  const ids = Array.from(document.querySelectorAll('.alerts-row-cb:checked'))
+    .map(cb => cb.dataset.id);
+  if (!ids.length) return;
+  const body = { ids };
+  if (_alertsAckCommentEnabled) {
+    const note = prompt(`Add a comment to ${ids.length} acknowledgement(s) (optional):`, '');
+    if (note === null) return;   // cancelled
+    if (note.trim()) body.note = note.trim();
+  }
+  const r = await api('POST', '/alerts/bulk-ack', body);
+  if (r && r.ok) { toast(`Acknowledged ${r.acked}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -7913,9 +8022,17 @@ function updateBulkResolveBtn() { _updateBulkResolveBtn(); }
 function _updateBulkResolveBtn() {
   const cbs = document.querySelectorAll('.alerts-row-cb:checked');
   const btn = document.getElementById('alerts-bulk-resolve-btn');
-  if (!btn) return;
-  if (cbs.length > 0) btn.classList.remove('d-none');
-  else btn.classList.add('d-none');
+  if (btn) btn.classList.toggle('d-none', cbs.length === 0);
+  // v4.1.0 (#53): "Ack selected" shows only when a selected row is still
+  // un-acked (acking an already-acked alert is a no-op).
+  const ackBtn = document.getElementById('alerts-bulk-ack-btn');
+  if (ackBtn) {
+    const anyUnacked = Array.from(cbs).some(cb => {
+      const a = (_alertsCache || []).find(x => x.id === cb.dataset.id);
+      return a && !a.acknowledged_at;
+    });
+    ackBtn.classList.toggle('d-none', !anyUnacked);
+  }
 }
 
 async function bulkResolveAlerts() {
@@ -10603,7 +10720,8 @@ function _renderSecrets() {
   if (!tbody || !_secretsResp) return;
   let rows = [];
   for (const d of (_secretsResp.devices || [])) {
-    for (const f of (d.findings || [])) rows.push({ device: d.name, ...f });
+    // v4.1.0 (#55): carry host id + host-mute state onto each finding row.
+    for (const f of (d.findings || [])) rows.push({ device: d.name, device_id: d.device_id, host_muted: !!d.host_muted, ...f });
   }
   if (summary) {
     summary.textContent = !_secretsResp.enabled
@@ -10620,14 +10738,17 @@ function _renderSecrets() {
   }
   tbody.innerHTML = rows.map((r) => `
     <tr>
-      <td>${escHtml(r.device || '—')}</td>
+      <td>${escHtml(r.device || '—')}${r.host_muted ? ' <span class="hint">host muted</span>' : ''}</td>
       <td><span class="cmd-badge">${escHtml(r.rule || '?')}</span>${r.muted ? ' <span class="hint">muted</span>' : ''}</td>
       <td class="fs-12"><code>${escHtml(r.path || '—')}</code></td>
       <td class="fs-12"><code>${escHtml(r.preview || '—')}</code></td>
       <td class="ta-center">${r.line || '—'}</td>
-      <td>${r.muted
-        ? `<button class="btn-icon" data-action="unmuteSecret" data-arg="${escAttr(r.fingerprint || '')}">Unmute</button>`
-        : `<button class="btn-icon" data-action="muteSecret" data-arg="${escAttr(r.fingerprint || '')}">Mute</button>`}</td>
+      <td class="nowrap">${r.host_muted
+        ? `<button class="btn-icon btn-xs" data-action="unmuteSecretHost" data-arg="${escAttr(r.device_id || '')}">Unmute host</button>`
+        : `${r.muted
+            ? `<button class="btn-icon btn-xs" data-action="unmuteSecret" data-arg="${escAttr(r.fingerprint || '')}">Unmute</button>`
+            : `<button class="btn-icon btn-xs" data-action="muteSecret" data-arg="${escAttr(r.fingerprint || '')}">Mute</button>`}
+           <button class="btn-icon btn-xs" data-action="muteSecretHost" data-arg="${escAttr(r.device_id || '')}" title="Mute every finding on this host">Mute host</button>`}</td>
     </tr>`).join('');
 }
 async function muteSecret(fp) {
@@ -10637,6 +10758,18 @@ async function muteSecret(fp) {
 async function unmuteSecret(fp) {
   const r = await api('POST', '/secrets/mute', { fingerprint: fp, unmute: true });
   if (r?.ok) { toast('Finding unmuted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+}
+// v4.1.0 (#55): mute / unmute every secret finding on a whole host.
+async function muteSecretHost(devId) {
+  if (!devId) return;
+  if (!confirm('Mute every secret finding on this host? It stops alerting and counting until you unmute.')) return;
+  const r = await api('POST', '/secrets/host-mute', { device_id: devId });
+  if (r?.ok) { toast('Host muted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
+}
+async function unmuteSecretHost(devId) {
+  if (!devId) return;
+  const r = await api('POST', '/secrets/host-mute', { device_id: devId, unmute: true });
+  if (r?.ok) { toast('Host unmuted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
 }
 function _renderExposure() {
   const tbody = document.getElementById('exposure-tbody');
@@ -20287,15 +20420,27 @@ document.addEventListener('change', e => {
 });
 
 // Delegated input handler for data-input attributes
+// v4.1.0 (#47): inputs that re-render a large table on every keystroke can opt
+// into debouncing with data-input-debounce="<ms>" — behaviour is unchanged for
+// every other input (no attribute → fires immediately as before).
+const _inputDebounceTimers = new WeakMap();
 document.addEventListener('input', e => {
   const el = e.target;
-  if (el.dataset.input) {
-    const fn = window[el.dataset.input];
-    if (!fn) return;
+  if (!el.dataset.input) return;
+  const fn = window[el.dataset.input];
+  if (!fn) return;
+  const run = () => {
     if (el.dataset.inputEl !== undefined) fn(el, el.dataset.inputArg);
     else if (el.dataset.inputArg !== undefined) fn(el.dataset.inputArg);
     else if (el.dataset.inputValue) fn(el.value);
     else fn();
+  };
+  const ms = parseInt(el.dataset.inputDebounce || '', 10);
+  if (ms > 0) {
+    clearTimeout(_inputDebounceTimers.get(el));
+    _inputDebounceTimers.set(el, setTimeout(run, ms));
+  } else {
+    run();
   }
 });
 

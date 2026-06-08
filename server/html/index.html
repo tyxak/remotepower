@@ -619,7 +619,7 @@
         <div class="isl-10">
           <div class="isl-11">
             <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="device-search-input" class="form-input input-search" placeholder="Search devices…" data-input="filterDevices">
+            <input type="text" id="device-search-input" class="form-input input-search" placeholder="Search devices…" data-input="filterDevices" data-input-debounce="180">
           </div>
           <select id="device-status-filter" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All status</option>
@@ -749,7 +749,7 @@
             <div class="section-title">Listening Ports</div>
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="ports-filter" class="form-input isl-15" placeholder="Filter port, process, device…" data-input="_renderPortsFiltered">
+              <input type="text" id="ports-filter" class="form-input isl-15" placeholder="Filter port, process, device…" data-input="_renderPortsFiltered" data-input-debounce="180">
             </div>
           </div>
           <button class="btn-icon" data-action="loadListeningPorts" >
@@ -816,7 +816,7 @@
             <div class="section-title">Top Processes</div>
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="processes-filter" class="form-input isl-15" placeholder="Filter by name, device…" data-input="_renderProcessesFiltered">
+              <input type="text" id="processes-filter" class="form-input isl-15" placeholder="Filter by name, device…" data-input="_renderProcessesFiltered" data-input-debounce="180">
             </div>
           </div>
           <button class="btn-icon" data-action="loadProcesses">
@@ -1073,6 +1073,13 @@
             </div>
             <button class="btn-primary" data-action="saveHealthchecks">Save watchdog settings</button>
             <button class="btn-secondary" data-action="testHealthchecks">Send test ping</button>
+          </div>
+
+          <!-- v4.1.0 (#56): alerts inbox behaviour -->
+          <div class="settings-section">
+            <h3>Alerts inbox</h3>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ack-comment-enabled" checked> Prompt for an optional comment when acknowledging an alert</label></div>
+            <p class="hint">When on, acknowledging an alert (single or "Ack selected") asks for an optional comment. The comment is stored on the alert and included in the acknowledgement webhook. Turn this off to acknowledge in one click.</p>
           </div>
 
           <!-- v3.0.2: multi-webhook destinations -->
@@ -4762,8 +4769,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <option value="resolved">Resolved</option>
             <option value="all">All</option>
           </select>
-          <input type="text" id="alerts-filter-text" class="form-input isl-170" placeholder="Filter by device, event, or title…" data-input="renderAlerts">
+          <input type="text" id="alerts-filter-text" class="form-input isl-170" placeholder="Filter by device, event, or title…" data-input="renderAlerts" data-input-debounce="180">
           <button class="btn-icon" data-action="loadAlerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon d-none" id="alerts-bulk-ack-btn" data-action="bulkAckAlerts">Ack selected</button>
           <button class="btn-icon c-danger-outline d-none" id="alerts-bulk-resolve-btn" data-action="bulkResolveAlerts">Resolve selected</button>
           <button class="btn-icon" data-action="clearResolvedAlerts" title="Remove every alert with status resolved. Open + acknowledged rows stay.">Clear resolved</button>
           <button class="btn-icon c-danger-outline" data-action="clearAllAlerts" title="Remove EVERY alert regardless of status. Cannot be undone.">Clear all</button>
