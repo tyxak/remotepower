@@ -1007,5 +1007,101 @@ class TestFleetQueryFilters(_HandlerBase):
         self.assertIn("'=cmd()", data.decode())
 
 
+class TestHostChecks(_HandlerBase):
+    """CheckMK-style per-host checks model: aggregator, summary, enable/disable,
+    endpoints."""
+
+    def setUp(self):
+        super().setUp()
+        self._gt = api.get_online_ttl
+        api.get_online_ttl = lambda: 180
+
+    def tearDown(self):
+        api.get_online_ttl = self._gt
+        super().tearDown()
+
+    def _dev(self):
+        now = int(api.time.time())
+        return now, {
+            'name': 'web01', 'last_seen': now, 'group': 'prod',
+            'metric_state': {'memory:': 'critical', 'disk:/': 'warning'},
+            'drift_state': {'/etc/hosts': {'status': 'drifted'}},
+            'sysinfo': {
+                'loadavg_1m': 2.0, 'cpu_count': 4, 'mem_percent': 96,
+                'swap_percent': 10, 'fd_percent': 30, 'conntrack_percent': 20,
+                'mounts': [{'path': '/', 'percent': 85, 'inode_percent': 40}],
+                'failed_units': ['nginx.service'],
+                'listening_ports': [{'port': 22, 'scope': 'world'}],
+                'reboot_required': True, 'packages': {'upgradable': 12},
+                'clock': {'synced': True, 'skewed': False},
+                'gateway': {'ip': '10.0.0.1', 'reachable': True},
+                'storage_health': [{'name': 'tank', 'state': 'ONLINE'}]}}
+
+    def test_aggregator_status(self):
+        now, dev = self._dev()
+        hw = {'_smart_failed': True, '_ups_on_battery': False, '_temp_high': False}
+        chk = {c['key']: c for c in api._host_checks('d1', dev, hw, [], now, 180, cve_high=3)}
+        self.assertEqual(chk['reachability']['status'], 'ok')
+        self.assertEqual(chk['memory']['status'], 'critical')
+        self.assertEqual(chk['disk:/']['status'], 'warning')
+        self.assertEqual(chk['services']['status'], 'critical')
+        self.assertEqual(chk['drift']['status'], 'warning')
+        self.assertEqual(chk['exposure']['status'], 'warning')
+        self.assertEqual(chk['reboot']['status'], 'warning')
+        self.assertEqual(chk['patches']['status'], 'warning')
+        self.assertEqual(chk['smart']['status'], 'critical')
+        self.assertEqual(chk['cve']['status'], 'critical')
+        self.assertEqual(chk['cpu']['status'], 'ok')           # no metric_state entry
+        self.assertEqual(chk['storage']['status'], 'ok')       # ONLINE pool
+
+    def test_offline_is_critical(self):
+        now, dev = self._dev()
+        dev['last_seen'] = now - 99999
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertEqual(chk['reachability']['status'], 'critical')
+
+    def test_disabled_flag(self):
+        now, dev = self._dev()
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, ['memory'], now, 180)}
+        self.assertFalse(chk['memory']['enabled'])
+        self.assertTrue(chk['cpu']['enabled'])
+
+    def test_summary_worst_and_excludes_disabled(self):
+        now, dev = self._dev()
+        hw = {'_smart_failed': True}
+        full = api._host_check_summary(api._host_checks('d1', dev, hw, [], now, 180, cve_high=2))
+        self.assertEqual(full['worst'], 'critical')
+        # disable every critical → worst drops below critical
+        crit_keys = [c['key'] for c in api._host_checks('d1', dev, hw, [], now, 180, cve_high=2)
+                     if c['status'] == 'critical']
+        less = api._host_check_summary(
+            api._host_checks('d1', dev, hw, crit_keys, now, 180, cve_high=2))
+        self.assertNotEqual(less['worst'], 'critical')
+
+    def test_device_checks_endpoint(self):
+        now, dev = self._dev()
+        api.save(api.DEVICES_FILE, {'d1': dev})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_device_checks, 'd1')
+        self.assertEqual(r['device_id'], 'd1')
+        self.assertIn('summary', r)
+        self.assertTrue(any(c['key'] == 'memory' for c in r['checks']))
+
+    def test_toggle_persists_and_clears(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check': 'cpu', 'enabled': False}
+        r = self.call(api.handle_checks_toggle)
+        self.assertTrue(r['ok'])
+        self.assertIn('cpu', api.load(api.CONFIG_FILE)['host_checks_disabled']['d1'])
+        api.get_json_body = lambda: {'device_id': 'd1', 'check': 'cpu', 'enabled': True}
+        self.call(api.handle_checks_toggle)
+        self.assertNotIn('d1', api.load(api.CONFIG_FILE).get('host_checks_disabled', {}))
+
+    def test_routes_registered(self):
+        routes = api._build_exact_routes()
+        self.assertIn(('GET', '/api/checks'), routes)
+        self.assertIn(('POST', '/api/checks/toggle'), routes)
+
+
 if __name__ == '__main__':
     unittest.main()

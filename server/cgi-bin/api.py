@@ -11256,6 +11256,7 @@ def handle_config_get():
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
+    safe.setdefault('host_checks_disabled', {})  # v4.1.0: per-host disabled checks
     # v3.14.0 #42: web push — surface enabled + subject + a keyed flag, never the key.
     safe.setdefault('webpush_enabled', False)
     safe.setdefault('webpush_subject', '')
@@ -21577,6 +21578,233 @@ def _device_contract_status(cmdb_rec):
             out.append({'kind': _lkind, 'date': raw, 'days': days, 'status': status,
                         'label': (f'{_llabel}: {nm}' if nm else _llabel)[:80]})
     return out
+
+
+def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180, cve_high=None):
+    """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
+
+    Each entry: {key, name, group, status: ok|warning|critical|unknown, output,
+    enabled}. Derived entirely from data RemotePower already collects (sysinfo,
+    metric_state, hardware flags, drift) — no new probing. `disabled` is the set
+    of check keys the operator turned off for this host.
+    """
+    hw_rec = hw_rec or {}
+    disabled = set(disabled or [])
+    si = dev.get('sysinfo') or {}
+    ms = dev.get('metric_state') or {}
+    now = now or int(time.time())
+    out = []
+
+    def add(key, name, group, status, output):
+        out.append({'key': key, 'name': name, 'group': group, 'status': status,
+                    'output': str(output)[:200], 'enabled': key not in disabled})
+
+    def lvl(state_key):
+        v = ms.get(state_key)
+        return v if v in ('warning', 'critical') else 'ok'
+
+    # ── core reachability ──────────────────────────────────────────────
+    last = dev.get('last_seen', 0)
+    if last:
+        age = now - last
+        add('reachability', 'Reachability', 'core',
+            'critical' if age > ttl else 'ok',
+            f'offline {age // 60} min' if age > ttl else f'online, {age}s ago')
+    else:
+        add('reachability', 'Reachability', 'core', 'unknown', 'never reported')
+
+    # ── resource thresholds (reuse metric_state; show current value) ───
+    if isinstance(si.get('loadavg_1m'), (int, float)):
+        cc = si.get('cpu_count') or 1
+        la = si['loadavg_1m']
+        add('cpu', 'CPU load', 'resources', lvl('cpu:'),
+            f'load {la:.2f} (ratio {la / (cc or 1):.2f}, {cc} cores)')
+    for key, name, field in (('memory', 'Memory', 'mem_percent'),
+                             ('swap', 'Swap', 'swap_percent'),
+                             ('fd', 'File descriptors', 'fd_percent'),
+                             ('conntrack', 'Conntrack table', 'conntrack_percent')):
+        v = si.get(field)
+        if isinstance(v, (int, float)):
+            add(key, name, 'resources', lvl(f'{key}:'), f'{v:.0f}%')
+    for m in (si.get('mounts') or []):
+        p = m.get('path')
+        if not p:
+            continue
+        if isinstance(m.get('percent'), (int, float)):
+            add(f'disk:{p}', f'Disk {p}', 'storage', lvl(f'disk:{p}'),
+                f"{m['percent']:.0f}% used")
+        if isinstance(m.get('inode_percent'), (int, float)):
+            add(f'inode:{p}', f'Inodes {p}', 'storage', lvl(f'inode:{p}'),
+                f"{m['inode_percent']:.0f}% used")
+
+    # ── boolean / state checks ─────────────────────────────────────────
+    fu = si.get('failed_units') or []
+    add('services', 'Systemd units', 'services', 'critical' if fu else 'ok',
+        f'{len(fu)} failed: ' + ', '.join(fu[:5]) if fu else 'all active')
+    ti = [t for t in (si.get('timers') or []) if isinstance(t, dict) and t.get('failed')]
+    if si.get('timers') is not None:
+        add('timers', 'Scheduled timers', 'services', 'warning' if ti else 'ok',
+            f'{len(ti)} failed' if ti else 'all ok')
+    drifted = [f for f, s in (dev.get('drift_state') or {}).items()
+               if isinstance(s, dict) and s.get('status') == 'drifted' and not s.get('ignored')]
+    if dev.get('drift_state'):
+        add('drift', 'Config drift', 'posture', 'warning' if drifted else 'ok',
+            f'{len(drifted)} file(s) drifted' if drifted else 'baseline matches')
+    mi = si.get('mount_issues') or []
+    if mi:
+        add('mounts', 'Mount points', 'storage', 'critical', f'{len(mi)} issue(s)')
+    wp = [p for p in (si.get('listening_ports') or []) if (p or {}).get('scope') == 'world']
+    if si.get('listening_ports') is not None:
+        add('exposure', 'World-exposed ports', 'posture', 'warning' if wp else 'ok',
+            f'{len(wp)} world-reachable' if wp else 'none')
+    if si.get('reboot_required'):
+        add('reboot', 'Reboot required', 'patch', 'warning',
+            si.get('reboot_reason') or 'pending')
+    up = (si.get('packages') or {}).get('upgradable')
+    if isinstance(up, int):
+        add('patches', 'Pending updates', 'patch', 'warning' if up > 0 else 'ok',
+            f'{up} update(s)')
+    if cve_high is not None:
+        add('cve', 'CVEs (crit+high)', 'security', 'critical' if cve_high else 'ok',
+            f'{cve_high} finding(s)')
+
+    # ── hardware / posture flags (from the hardware record + sysinfo) ──
+    if hw_rec.get('_smart_failed') is not None or hw_rec.get('smart'):
+        add('smart', 'Disk SMART', 'hardware',
+            'critical' if hw_rec.get('_smart_failed') else 'ok',
+            'a disk FAILED' if hw_rec.get('_smart_failed') else 'all passing')
+    if hw_rec.get('_ups_on_battery') is not None or hw_rec.get('ups'):
+        add('ups', 'UPS power', 'hardware',
+            'critical' if hw_rec.get('_ups_on_battery') else 'ok',
+            'on battery' if hw_rec.get('_ups_on_battery') else 'on line')
+    if hw_rec.get('_temp_high') is not None or hw_rec.get('hardware', {}).get('temps'):
+        add('temperature', 'Temperature', 'hardware',
+            'critical' if hw_rec.get('_temp_high') else 'ok',
+            'over threshold' if hw_rec.get('_temp_high') else 'normal')
+    clk = si.get('clock')
+    if isinstance(clk, dict):
+        sk = clk.get('skewed')
+        add('clock', 'Clock / NTP', 'core', 'warning' if sk else 'ok',
+            ('unsynchronised' if clk.get('synced') is False else 'drifted') if sk
+            else 'in sync')
+    gw = si.get('gateway')
+    if isinstance(gw, dict):
+        reach = gw.get('reachable')
+        add('gateway', 'Default gateway', 'network',
+            'critical' if reach is False else ('unknown' if reach is None else 'ok'),
+            f"{gw.get('ip','?')}: " + ('unreachable' if reach is False
+                                       else 'unknown' if reach is None else 'reachable'))
+    lo = si.get('last_oom_ts')
+    if isinstance(lo, (int, float)) and lo > 0:
+        recent = (now - lo) < 86400
+        add('oom', 'OOM killer', 'core', 'warning' if recent else 'ok',
+            'fired in last 24h' if recent else f'last {(now - lo) // 86400}d ago')
+    pools = si.get('storage_health') or []
+    if pools:
+        bad = [p for p in pools if isinstance(p, dict)
+               and (p.get('state') or '').lower() not in
+               ('online', 'active', 'clean', 'healthy', 'ok')]
+        add('storage', 'Storage / RAID', 'storage', 'critical' if bad else 'ok',
+            f'{len(bad)} pool(s) degraded' if bad else f'{len(pools)} pool(s) healthy')
+    return out
+
+
+def _host_check_summary(checks):
+    """Roll a check list up to per-status counts + a worst-status word."""
+    counts = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
+    for c in checks:
+        if c.get('enabled', True):
+            counts[c['status']] = counts.get(c['status'], 0) + 1
+    worst = ('critical' if counts['critical'] else 'warning' if counts['warning']
+             else 'unknown' if counts['unknown'] else 'ok')
+    return {'counts': counts, 'worst': worst, 'total': len(checks)}
+
+
+def _cve_high_counts():
+    """Per-device count of critical+high CVE findings (for the checks view)."""
+    out = {}
+    try:
+        for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+            out[did] = sum(1 for f in (rec or {}).get('findings') or []
+                           if str(f.get('severity', '')).lower() in ('critical', 'high'))
+    except Exception:
+        pass
+    return out
+
+
+def handle_device_checks(dev_id):
+    """GET /api/devices/<id>/checks — the unified check list + summary for one host."""
+    require_auth()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    cfg = load(CONFIG_FILE) or {}
+    disabled = (cfg.get('host_checks_disabled') or {}).get(dev_id) or []
+    hw = (load(HARDWARE_FILE) or {}).get(dev_id) if backend_exists(HARDWARE_FILE) else {}
+    cve = _cve_high_counts().get(dev_id)
+    ttl = get_online_ttl()
+    checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl, cve_high=cve)
+    respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
+                  'checks': checks, 'summary': _host_check_summary(checks)})
+
+
+def handle_fleet_checks():
+    """GET /api/checks — CheckMK-style fleet matrix: every host with its check
+    list + roll-up summary. Scope-filtered. Optional ?status=critical|warning to
+    pre-filter hosts to those with a check at that level."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    want = (qs.get('status', [''])[0] or '').strip().lower()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    cfg = load(CONFIG_FILE) or {}
+    disabled_all = cfg.get('host_checks_disabled') or {}
+    hw_all = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
+    cve_all = _cve_high_counts()
+    now = int(time.time())
+    ttl = get_online_ttl()
+    hosts = []
+    for did, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        checks = _host_checks(did, dev, hw_all.get(did) or {},
+                              disabled_all.get(did) or [], now, ttl,
+                              cve_high=cve_all.get(did))
+        summ = _host_check_summary(checks)
+        if want in ('critical', 'warning') and not summ['counts'].get(want):
+            continue
+        hosts.append({'device_id': did, 'name': dev.get('name', did),
+                      'group': dev.get('group', ''),
+                      'summary': summ, 'checks': checks})
+    hosts.sort(key=lambda h: h['name'].lower())
+    return respond(200, {'hosts': hosts, 'total': len(hosts)})
+
+
+def handle_checks_toggle():
+    """POST /api/checks/toggle {device_id, check, enabled} — enable/disable a
+    single check on a host (persisted to config.host_checks_disabled). Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
+    chk = _sanitize_str(str(body.get('check', '')), 128).strip()
+    enabled = bool(body.get('enabled'))
+    if not did or not chk:
+        respond(400, {'error': 'device_id and check are required'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        d = cfg.setdefault('host_checks_disabled', {})
+        cur = set(d.get(did) or [])
+        if enabled:
+            cur.discard(chk)
+        else:
+            cur.add(chk)
+        if cur:
+            d[did] = sorted(cur)
+        else:
+            d.pop(did, None)
+    audit_log(actor, 'check_toggle', f'device={did} check={chk} enabled={enabled}')
+    respond(200, {'ok': True, 'device_id': did, 'check': chk, 'enabled': enabled})
 
 
 def _compute_attention():
@@ -36330,6 +36558,8 @@ def _build_exact_routes():
         ('POST', '/api/ai/test'): handle_ai_test,
         ('DELETE', '/api/alerts'): handle_alerts_clear,
         ('GET', '/api/alerts'): handle_alerts_list,
+        ('GET', '/api/checks'): handle_fleet_checks,                  # v4.1.0 CheckMK view
+        ('POST', '/api/checks/toggle'): handle_checks_toggle,         # v4.1.0
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
@@ -36583,6 +36813,8 @@ def _dispatch(pi, m):
     # check so a POST to /api/devices/agentless doesn't get misrouted.
     elif pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE':
         handle_command_queue_clear(pi[len('/api/devices/'):-len('/command-queue')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/checks') and m == 'GET':
+        handle_device_checks(pi[len('/api/devices/'):-len('/checks')])
     elif pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET':
         handle_scap_report_download(pi[len('/api/scap/'):-len('/report')])
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
