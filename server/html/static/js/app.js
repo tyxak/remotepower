@@ -9109,11 +9109,10 @@ async function switchRagIndexBackend() {
     if (btn) btn.disabled = false;
   }
   if (r && r.ok) {
+    // r.target reflects where the index ACTUALLY landed (server-confirmed).
     const dest = r.target === 'postgres' ? 'Postgres / pgvector' : 'JSON';
-    let msg = `✓ AI index now on ${dest} — ${r.docs} chunk(s) rebuilt in ${r.elapsed_ms} ms.`;
-    if (r.pg_error) msg += `\n⚠ Postgres write failed, kept on JSON: ${r.pg_error}`;
-    if (out) out.textContent = msg;
-    toast(`AI index moved to ${dest}`, r.pg_error ? 'error' : 'success');
+    if (out) out.textContent = `✓ AI index now on ${dest} — ${r.docs} chunk(s) rebuilt in ${r.elapsed_ms} ms.`;
+    toast(`AI index moved to ${dest}`, 'success');
   } else {
     if (out) out.textContent = '✗ Switch failed: '
       + (r?.error || 'the request failed or timed out — the index was not changed.');

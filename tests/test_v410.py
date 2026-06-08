@@ -541,10 +541,10 @@ class TestRagPgVector(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._orig = {n: getattr(api, n) for n in
                       ('_storage_backend', '_dbmod', '_rag_build_corpus',
-                       '_rag_embeddings_active', 'CONFIG_FILE', 'RAG_INDEX_FILE',
-                       'RAG_MIGRATE_STATUS_FILE', 'require_admin_auth', 'respond',
-                       'method', 'get_json_body', 'audit_log', '_rag_newest_mtime',
-                       'DATA_DIR')}
+                       '_rag_embeddings_active', '_rag_reindex', 'CONFIG_FILE',
+                       'RAG_INDEX_FILE', 'RAG_MIGRATE_STATUS_FILE',
+                       'require_admin_auth', 'respond', 'method', 'get_json_body',
+                       'audit_log', '_rag_newest_mtime', 'DATA_DIR')}
         api.CONFIG_FILE = self.d / 'config.json'
         api.RAG_INDEX_FILE = self.d / 'rag_index.json'
         api.RAG_MIGRATE_STATUS_FILE = self.d / 'rag_migrate_status.json'
@@ -750,6 +750,33 @@ class TestRagPgVector(unittest.TestCase):
         cfg = api.load(api.CONFIG_FILE)
         self.assertNotEqual(cfg.get('ai', {}).get('rag', {}).get('index_backend'),
                             'postgres')
+
+    def test_migrate_pg_write_fallback_reports_failure(self):
+        # If the PG write fails, _rag_reindex falls back to JSON. The handler
+        # must report ok:False, leave config on 'json' (not a broken 'postgres'),
+        # and clean up the PG store.
+        cap = {}
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'postgres'}
+        api._storage_backend = lambda: 'postgres'
+        api._rag_reindex = lambda cfg: {'docs': 5, 'index_backend': 'json',
+                                        'pg_error': 'duplicate key ...'}
+
+        def _resp(s, b=None):
+            cap['s'] = s; cap['b'] = b; raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.save(api.CONFIG_FILE, {'ai': {'rag': {'enabled': True}}})
+        try:
+            api.handle_ai_rag_index_migrate()
+        except api.HTTPError:
+            pass
+        self.assertEqual(cap['s'], 200)
+        self.assertFalse(cap['b']['ok'])
+        self.assertIn('kept on JSON', cap['b']['error'])
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg['ai']['rag']['index_backend'], 'json')  # not left on pg
+        self.assertGreaterEqual(self.pg['cleared'], 1)               # PG store dropped
 
     def test_route_registered(self):
         self.assertIn(('POST', '/api/ai/rag/index-backend/migrate'),

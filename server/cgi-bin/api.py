@@ -18732,42 +18732,54 @@ def handle_ai_rag_index_migrate():
         except Exception as e:
             respond(400, {'error': str(e)[:400]})
     t0 = time.monotonic()
-    # Mark running so the status endpoint / other tabs can see it.
-    try:
-        save(RAG_MIGRATE_STATUS_FILE, {'state': 'running', 'target': target,
-                                       'by': actor, 'started': int(time.time())})
-    except Exception:
-        pass
-    try:
-        # Flip the marker (config), then rebuild into the now-active backend.
+    prev = (cfg.get('rag') or {}).get('index_backend', 'json')
+
+    def _set_backend(b):
         full = load(CONFIG_FILE) or {}
-        full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = target
+        full.setdefault('ai', {}).setdefault('rag', {})['index_backend'] = b
         save(CONFIG_FILE, full)
-        stats = _rag_reindex(_ai_cfg())
-        if target == 'json':
-            try:
-                storage_pg.rag_clear(DATA_DIR)     # best-effort cleanup
-            except Exception:
-                pass
-    except Exception as e:
+
+    def _set_status(**kw):
         try:
-            save(RAG_MIGRATE_STATUS_FILE, {'state': 'idle', 'target': target,
-                                           'error': str(e)[:200],
-                                           'finished': int(time.time())})
+            save(RAG_MIGRATE_STATUS_FILE, kw)
         except Exception:
             pass
-        respond(500, {'error': f'migration failed: {str(e)[:200]}'})
-    stats['elapsed_ms'] = int((time.monotonic() - t0) * 1000)
+
+    _set_status(state='running', target=target, by=actor, started=int(time.time()))
     try:
-        save(RAG_MIGRATE_STATUS_FILE, {'state': 'idle', 'target': target,
-                                       'docs': stats.get('docs'),
-                                       'finished': int(time.time())})
-    except Exception:
-        pass
+        # Flip to the target so _rag_reindex writes there, then rebuild.
+        _set_backend(target)
+        stats = _rag_reindex(_ai_cfg())
+    except Exception as e:
+        _set_backend(prev)                      # revert — nothing landed
+        _set_status(state='idle', target=target, error=str(e)[:200],
+                    finished=int(time.time()))
+        respond(500, {'error': f'migration failed: {str(e)[:200]}'})
+    # _rag_reindex falls back to the JSON file if the PG write fails, so trust
+    # where it ACTUALLY landed — never leave the config on 'postgres' pointing at
+    # an empty/partial store.
+    landed = stats.get('index_backend', target)
+    _set_backend(landed)
+    if landed == 'postgres' and target == 'json':
+        pass                                    # (can't happen; json never lands as pg)
+    if landed == 'json':
+        try:
+            storage_pg.rag_clear(DATA_DIR)      # best-effort: drop the PG store
+        except Exception:
+            pass
+    stats['elapsed_ms'] = int((time.monotonic() - t0) * 1000)
+    _set_status(state='idle', target=target, landed=landed,
+                docs=stats.get('docs'), finished=int(time.time()))
     audit_log(actor, 'ai_rag_index_migrate',
-              detail=f"target={target} docs={stats.get('docs')} "
+              detail=f"target={target} landed={landed} docs={stats.get('docs')} "
                      f"elapsed_ms={stats['elapsed_ms']}")
-    respond(200, {'ok': True, 'target': target, **stats})
+    if landed != target:
+        # Asked for PG but the PG write failed → we're safely on JSON. Report it
+        # as a failure so the UI doesn't show a green "now on Postgres".
+        respond(200, {'ok': False, 'target': target, **stats,
+                      'error': 'Postgres write failed — index kept on JSON: '
+                               + str(stats.get('pg_error', 'unknown'))[:200]})
+    respond(200, {'ok': True, 'target': landed, **stats})
 
 
 def handle_ai_rag_reindex():

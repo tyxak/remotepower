@@ -369,6 +369,21 @@ class TestStoragePgRagVector(unittest.TestCase):
         self.assertTrue(hits)
         self.assertEqual(hits[0]['id'], 'live/web01#cves')
 
+    def test_duplicate_ids_deduped_last_wins(self):
+        # A long doc section split into chunks can share one heading-path id;
+        # the PK must not abort the reindex — dedup keeps the last.
+        rows = [
+            {'id': 'docs/x#a', 'source': 'docs', 'dtype': 'doc_md',
+             'device': None, 'title': 'X', 'ts': 1, 'text': 'first copy', 'embedding': None},
+            {'id': 'docs/x#a', 'source': 'docs', 'dtype': 'doc_md',
+             'device': None, 'title': 'X', 'ts': 2, 'text': 'second copy wins', 'embedding': None},
+        ]
+        n = self.S.rag_replace_all(self.d, rows, built_at=1)
+        self.assertEqual(n, 1)
+        self.assertEqual(self.S.rag_count(self.d), 1)
+        hits = self.S.rag_search(self.d, 'copy', None, k=5)
+        self.assertEqual(hits[0]['text'], 'second copy wins')
+
     def test_clear_drops_table(self):
         self.S.rag_replace_all(self.d, self._rows(), built_at=1)
         self.S.rag_clear(self.d)

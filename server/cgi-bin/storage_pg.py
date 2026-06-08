@@ -719,13 +719,19 @@ def rag_replace_all(data_dir, rows, built_at=0):
     rows: list of {id, source, dtype, device, title, text, ts, embedding(list|None)}.
     The full-text vector is derived from `text` server-side; the embedding is
     stored when present (lexical/FTS rows have embedding NULL). Returns the count.
+
+    Dedups by id (last wins): the JSON index dedups via its `_by_id` dict, and a
+    long doc section split into several chunks can share one heading-path id —
+    the PRIMARY KEY would otherwise reject the duplicate and abort the reindex.
     """
+    seen = {}
+    for r in rows:
+        if r.get('id'):
+            seen[r['id']] = r
     conn = _connect(data_dir)
     with _Tx(conn) as c:
         c.execute('TRUNCATE rag_chunks')
-        for r in rows:
-            if not r.get('id'):
-                continue
+        for r in seen.values():
             emb = r.get('embedding')
             emb_lit = _vec_literal(emb) if emb else None
             body = r.get('text') or ''
@@ -738,7 +744,7 @@ def rag_replace_all(data_dir, rows, built_at=0):
         c.execute("INSERT INTO schema_meta(key, value) VALUES('rag_built_at', %s) "
                   "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
                   (str(int(built_at)),))
-    return len(rows)
+    return len(seen)
 
 
 def rag_search(data_dir, query_text, query_vec, k=6):
