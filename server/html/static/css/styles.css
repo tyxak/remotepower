@@ -4455,6 +4455,14 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
 .sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
 .alerts-row.resolved   { opacity: 0.55; }
+/* v4.1.0: CheckMK-style check status pills */
+.chk-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+            font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+.chk-pill.chk-ok       { background: rgba(34,197,94,0.15);  color: var(--green); border: 1px solid var(--green); }
+.chk-pill.chk-warning  { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid var(--amber); }
+.chk-pill.chk-critical { background: rgba(239,68,68,0.15);  color: var(--red);   border: 1px solid var(--red); }
+.chk-pill.chk-unknown  { background: rgba(100,116,139,0.15); color: var(--muted); border: 1px solid var(--muted); }
+.chk-row.disabled td   { opacity: 0.5; }
 .alerts-summary-pill   { display: inline-block; padding: 4px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-right: 8px; font-size: 13px; }
 
 /* ════════════════════════════════════════════════════════════════════

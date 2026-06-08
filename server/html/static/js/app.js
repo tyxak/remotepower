@@ -1262,6 +1262,7 @@ function showPage(name, btn) {
   if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
   if (name === 'alerts')   loadAlerts();
+  if (name === 'checks')   loadChecks();
   if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
   if (name === 'forecast') loadForecast();
@@ -7857,6 +7858,83 @@ async function loadAlerts() {
   } catch (e) {
     toast('Failed to load alerts', 'error');
   }
+}
+
+// ── v4.1.0: Checks page (CheckMK-style per-host service status) ──────────────
+let _checksRows = [];
+async function loadChecks() {
+  const tbody = document.getElementById('checks-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('checks-thead', 'checks', renderChecks);
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/checks');
+    // Flatten the host matrix into one row per (host, check).
+    _checksRows = [];
+    for (const h of ((data && data.hosts) || [])) {
+      for (const c of (h.checks || [])) {
+        _checksRows.push({ device_id: h.device_id, host: h.name, group: h.group || '',
+          key: c.key, check: c.name, cgroup: c.group || '', status: c.status,
+          output: c.output || '', enabled: c.enabled !== false });
+      }
+    }
+    renderChecks();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" class="c-red">Failed to load checks.</td></tr>';
+  }
+}
+const _CHK_RANK = { critical: 0, warning: 1, unknown: 2, ok: 3 };
+function renderChecks() {
+  const tbody = document.getElementById('checks-tbody');
+  if (!tbody) return;
+  const statusSel = (document.getElementById('checks-filter-status') || {}).value || '';
+  const q = ((document.getElementById('checks-filter-text') || {}).value || '').trim().toLowerCase();
+  const hideDisabled = !!(document.getElementById('checks-hide-disabled') || {}).checked;
+  let rows = _checksRows.filter(r => {
+    if (hideDisabled && !r.enabled) return false;
+    if (statusSel === 'notok') { if (r.status === 'ok') return false; }
+    else if (statusSel && r.status !== statusSel) return false;
+    if (q && !(`${r.host} ${r.group} ${r.check} ${r.cgroup} ${r.output}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  // Summary counts over the (unfiltered) enabled checks.
+  const sum = { ok: 0, warning: 0, critical: 0, unknown: 0 };
+  _checksRows.forEach(r => { if (r.enabled) sum[r.status] = (sum[r.status] || 0) + 1; });
+  const se = document.getElementById('checks-summary');
+  if (se) se.innerHTML =
+    `<span class="chk-pill chk-critical">CRIT ${sum.critical}</span> ` +
+    `<span class="chk-pill chk-warning">WARN ${sum.warning}</span> ` +
+    `<span class="chk-pill chk-unknown">UNK ${sum.unknown}</span> ` +
+    `<span class="chk-pill chk-ok">OK ${sum.ok}</span>`;
+  rows = tableCtl.sortRows('checks', rows, r => ({
+    host: r.host.toLowerCase(), group: r.group.toLowerCase(),
+    check: r.check.toLowerCase(), status: _CHK_RANK[r.status] ?? 9,
+    output: r.output.toLowerCase(),
+  }));
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="hint">No checks match.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => {
+    const arg = `${r.device_id}|${r.key}`;
+    const toggle = r.enabled
+      ? `<button class="btn-icon btn-xs" data-action="toggleHostCheck" data-arg="${escAttr(arg)}|0" title="Disable this check on ${escAttr(r.host)}">Disable</button>`
+      : `<button class="btn-icon btn-xs" data-action="toggleHostCheck" data-arg="${escAttr(arg)}|1">Enable</button>`;
+    return `<tr class="chk-row${r.enabled ? '' : ' disabled'}">
+      <td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(r.device_id)}">${escHtml(r.host)}</button></td>
+      <td class="hint">${escHtml(r.group || '—')}</td>
+      <td>${escHtml(r.check)}<div class="hint">${escHtml(r.cgroup)}</div></td>
+      <td><span class="chk-pill chk-${r.status}">${r.status}</span></td>
+      <td class="fs-12">${escHtml(r.output)}</td>
+      <td class="nowrap">${toggle}</td></tr>`;
+  }).join('');
+}
+async function toggleHostCheck(arg) {
+  const [device_id, key, en] = String(arg).split('|');
+  const enabled = en === '1';
+  const r = await api('POST', '/checks/toggle', { device_id, check: key, enabled });
+  if (r && r.ok) {
+    const row = _checksRows.find(x => x.device_id === device_id && x.key === key);
+    if (row) row.enabled = enabled;
+    renderChecks();
+  } else { toast((r && r.error) || 'Failed', 'error'); }
 }
 
 function _renderAlertsSummary(summary) {

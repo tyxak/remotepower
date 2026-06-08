@@ -1103,5 +1103,29 @@ class TestHostChecks(_HandlerBase):
         self.assertIn(('POST', '/api/checks/toggle'), routes)
 
 
+class TestChecksView(unittest.TestCase):
+    """Phase 2: the CheckMK-style Checks page exists and is wired."""
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).parent))
+        from clientjs import client_js
+        self.js = client_js()
+        self.html = (_CGI_BIN.parent / 'html' / 'index.html').read_text()
+
+    def test_page_and_nav_present(self):
+        self.assertIn('id="page-checks"', self.html)
+        self.assertIn('data-page="checks"', self.html)
+        self.assertIn('id="checks-thead"', self.html)
+
+    def test_loader_and_dispatch_wired(self):
+        self.assertIn("if (name === 'checks')   loadChecks()", self.js)
+        self.assertIn('async function loadChecks', self.js)
+        self.assertIn('function renderChecks', self.js)
+        self.assertIn('async function toggleHostCheck', self.js)
+        # sortable + status pills
+        self.assertIn("wireSortOnly('checks-thead'", self.js)
+        self.assertIn('chk-pill chk-', self.js)
+
+
 if __name__ == '__main__':
     unittest.main()

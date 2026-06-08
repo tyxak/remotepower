@@ -150,6 +150,10 @@
       <span>Alerts</span>
       <span id="alerts-badge" class="nav-badge nav-badge-ok" title="No open alerts">0</span>
     </button>
+    <button class="nav-btn" data-page="checks" title="Per-host service checks (CheckMK-style)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Checks</span>
+    </button>
     <button class="nav-btn" data-page="links" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
       <span>Links</span>
@@ -3769,6 +3773,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <select id="trend-device" class="form-input input-auto device-combo" data-change="loadTrendDevice"><option value="">Pick a device…</option></select>
           </div>
           <div id="trend-resources" class="trend-chart"><div class="c-muted">Pick a device to see its memory / swap / disk history.</div></div>
+        </div>
+      </div>
+
+      <!-- ── Checks page (v4.1.0) — CheckMK-style per-host service status ──── -->
+      <div id="page-checks" class="page">
+        <div class="page-title">Checks</div>
+        <div class="page-subtitle">Every monitored signal on every host as OK / WARN / CRIT / UNKNOWN, with output. Sort and filter; toggle a check off to silence it on a host.</div>
+        <div class="isl-186">
+          <select id="checks-filter-status" class="form-input isl-68" data-change="renderChecks">
+            <option value="notok" selected>Not OK (warn + crit)</option>
+            <option value="">All statuses</option>
+            <option value="critical">Critical only</option>
+            <option value="warning">Warning only</option>
+            <option value="unknown">Unknown only</option>
+            <option value="ok">OK only</option>
+          </select>
+          <input type="text" id="checks-filter-text" class="form-input isl-170" placeholder="Filter by host, check, group, or output…" data-input="renderChecks" data-input-debounce="180">
+          <label class="click-row"><input type="checkbox" id="checks-hide-disabled" data-change="renderChecks"> Hide disabled</label>
+          <button class="btn-icon" data-action="loadChecks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div id="checks-summary" class="isl-186 mb-16"></div>
+        <div class="table-card">
+          <table>
+            <thead id="checks-thead"><tr>
+              <th data-col="host">Host</th>
+              <th data-col="group">Group</th>
+              <th data-col="check">Check</th>
+              <th data-col="status">Status</th>
+              <th data-col="output">Output</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="checks-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
+          </table>
         </div>
       </div>
 
