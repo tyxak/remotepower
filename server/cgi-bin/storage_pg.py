@@ -671,10 +671,30 @@ def _vec_literal(vec):
 
 def rag_init_schema(data_dir):
     """Ensure the pgvector extension + rag_chunks table exist. Idempotent.
-    Raises if the `vector` extension can't be created (caller surfaces that)."""
+
+    The `vector` extension is usually NOT creatable by an ordinary application
+    role — `CREATE EXTENSION` needs a superuser (or, with a recent pgvector
+    marked `trusted`, the database owner). So we don't hard-depend on creating
+    it: if it's already installed (a DBA ran it once) we just proceed; if it's
+    missing and we can't create it, we raise a clear, actionable error instead of
+    leaking a raw "permission denied" — table/index DDL itself needs no special
+    privilege. Run in autocommit so a failed CREATE EXTENSION doesn't poison the
+    table-creation transaction below.
+    """
     conn = _connect(data_dir)
+    have = conn.execute(
+        "SELECT 1 FROM pg_extension WHERE extname = 'vector'").fetchone()
+    if not have:
+        try:
+            conn.execute('CREATE EXTENSION IF NOT EXISTS vector')
+        except Exception as e:
+            raise RuntimeError(
+                "the pgvector 'vector' extension is not installed in this "
+                "database and the application role cannot create it (it needs a "
+                "Postgres superuser, or the database owner with pgvector >= 0.6). "
+                "Ask a DBA to run once, in this database:  CREATE EXTENSION vector;"
+            ) from e
     with _Tx(conn) as c:
-        c.execute('CREATE EXTENSION IF NOT EXISTS vector')
         c.execute("""
             CREATE TABLE IF NOT EXISTS rag_chunks (
                 id        TEXT PRIMARY KEY,

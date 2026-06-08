@@ -724,6 +724,33 @@ class TestRagPgVector(unittest.TestCase):
                   'started': int(api.time.time()) - 7200})   # 2h ago → stale
         self.assertEqual(api._rag_migration_status(), {})
 
+    def test_migrate_pgvector_unavailable_returns_400(self):
+        cap = {}
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'postgres'}
+        api._storage_backend = lambda: 'postgres'
+
+        def _boom(dd):
+            raise RuntimeError("the pgvector 'vector' extension is not installed "
+                               "... Ask a DBA to run once: CREATE EXTENSION vector;")
+        api.storage_pg.rag_init_schema = _boom
+
+        def _resp(s, b=None):
+            cap['s'] = s; cap['b'] = b; raise api.HTTPError(s, b)
+        api.respond = _resp
+        api.save(api.CONFIG_FILE, {'ai': {'rag': {'enabled': True}}})
+        try:
+            api.handle_ai_rag_index_migrate()
+        except api.HTTPError:
+            pass
+        self.assertEqual(cap['s'], 400)
+        self.assertIn('CREATE EXTENSION vector', cap['b']['error'])
+        # config must NOT have been flipped to postgres on failure
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertNotEqual(cfg.get('ai', {}).get('rag', {}).get('index_backend'),
+                            'postgres')
+
     def test_route_registered(self):
         self.assertIn(('POST', '/api/ai/rag/index-backend/migrate'),
                       api._build_exact_routes())

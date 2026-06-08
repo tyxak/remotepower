@@ -18730,7 +18730,7 @@ def handle_ai_rag_index_migrate():
         try:
             storage_pg.rag_init_schema(DATA_DIR)   # fail fast if pgvector absent
         except Exception as e:
-            respond(400, {'error': f'pgvector not available: {str(e)[:200]}'})
+            respond(400, {'error': str(e)[:400]})
     t0 = time.monotonic()
     # Mark running so the status endpoint / other tabs can see it.
     try:
