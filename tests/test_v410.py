@@ -530,10 +530,20 @@ class TestRagMetricSummaries(_HandlerBase):
     def test_json_window_summaries(self):
         now = int(api.time.time())
         api.save(api.DEVICES_FILE, {'d1': {'name': 'web01', 'monitored': True}})
-        api.save(api.METRICS_FILE, {'d1': [
-            {'ts': now - 100, 'cpu': 40, 'mem': 30, 'disk': 50, 'swap': 0},
-            {'ts': now - 50,  'cpu': 80, 'mem': 50, 'disk': 55, 'swap': 0},
-        ]})
+        # Space the two samples > one downsample bucket apart (7d/400 ≈ 1512s)
+        # so the DB backend's metric_range keeps both (peak stays 80, not the avg).
+        samples = [
+            {'ts': now - 180000, 'cpu': 40, 'mem': 30, 'disk': 50, 'swap': 0},
+            {'ts': now - 50,     'cpu': 80, 'mem': 50, 'disk': 55, 'swap': 0},
+        ]
+        # Seed via the active backend: JSON blob for json, metric_append for DB.
+        dbm = api._dbmod()
+        if dbm is not None:
+            for s in samples:
+                dbm.metric_append(api.DATA_DIR, 'd1', s['ts'],
+                                  s['cpu'], s['mem'], s['swap'], s['disk'])
+        else:
+            api.save(api.METRICS_FILE, {'d1': samples})
         out = api._rag_metric_summaries()
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]['device'], 'd1')
@@ -830,6 +840,99 @@ class TestThresholdMonitors(unittest.TestCase):
         self.assertEqual(st.get('conntrack:'), 'critical')
         self.assertEqual(st.get('inode:/'), 'critical')
         self.assertIn(('metric_critical', 'fd'), fired)
+
+
+class TestMonitorChecks(unittest.TestCase):
+    """v4.1.0 remote/active checks: DNS, ICMP latency+loss, HTTP assertions,
+    and tag/group target expansion in the monitor runner."""
+
+    def test_dns_check_resolves(self):
+        # localhost always resolves; no expect → up.
+        r = api._run_one_monitor_check('dns', 'localhost', 'L', {})
+        self.assertEqual(r['type'], 'dns')
+        self.assertTrue(r['ok'])
+
+    def test_dns_check_expect_mismatch(self):
+        r = api._run_one_monitor_check('dns', 'localhost', 'L',
+                                       {'expect': '203.0.113.99'})
+        self.assertFalse(r['ok'])
+        self.assertIn('expected', r['detail'])
+
+    def test_dns_check_nxdomain(self):
+        r = api._run_one_monitor_check(
+            'dns', 'no-such-host.invalid.example', 'L', {})
+        self.assertFalse(r['ok'])
+
+    def test_icmp_loss_threshold_fields(self):
+        # Drive the parser with a fake ping subprocess (high loss → down).
+        import subprocess as _sp
+        orig = api.subprocess.run
+        class _R:  # noqa
+            returncode = 1
+            stdout = '5 packets transmitted, 0 received, 100% packet loss\n'
+            stderr = ''
+        api.subprocess.run = lambda *a, **k: _R()
+        try:
+            r = api._run_one_monitor_check('icmp', '192.0.2.1', 'L',
+                                           {'max_loss_pct': 50})
+            self.assertFalse(r['ok'])
+            self.assertIn('loss', r['detail'])
+        finally:
+            api.subprocess.run = orig
+
+    def test_icmp_latency_sla(self):
+        orig = api.subprocess.run
+        class _R:  # noqa
+            returncode = 0
+            stdout = ('5 packets transmitted, 5 received, 0% packet loss\n'
+                      'rtt min/avg/max/mdev = 1.0/900.0/1500.0/1.0 ms\n')
+            stderr = ''
+        api.subprocess.run = lambda *a, **k: _R()
+        try:
+            ok = api._run_one_monitor_check('icmp', '192.0.2.1', 'L',
+                                            {'max_latency_ms': 100})
+            self.assertFalse(ok['ok'])           # 900ms avg > 100ms SLA
+            relaxed = api._run_one_monitor_check('icmp', '192.0.2.1', 'L',
+                                                 {'max_latency_ms': 2000})
+            self.assertTrue(relaxed['ok'])
+        finally:
+            api.subprocess.run = orig
+
+    def test_tag_group_expansion(self):
+        # Two devices tagged 'web' → two ping results; runner uses load(DEVICES_FILE).
+        devs = {
+            'd1': {'name': 'a', 'ip': '10.0.0.1', 'tags': ['web']},
+            'd2': {'name': 'b', 'ip': '10.0.0.2', 'tags': ['web']},
+            'd3': {'name': 'c', 'ip': '10.0.0.3', 'tags': ['db']},
+        }
+        orig_load = api.load
+        orig_run = api._run_one_monitor_check
+        api.load = lambda f, *a, **k: devs if f == api.DEVICES_FILE else orig_load(f, *a, **k)
+        api._run_one_monitor_check = lambda mt, t, lbl, m: {
+            'label': lbl, 'type': mt, 'target': t, 'ok': True, 'detail': 'up',
+            'checked': 0}
+        try:
+            res = api._execute_monitor_checks(
+                [{'type': 'ping', 'target': 'web', 'target_kind': 'tag',
+                  'label': 'web hosts'}])
+        finally:
+            api.load = orig_load
+            api._run_one_monitor_check = orig_run
+        self.assertEqual(len(res), 2)
+        self.assertTrue(all('web hosts ·' in r['label'] for r in res))
+
+    def test_tag_no_devices_fallback(self):
+        orig_load = api.load
+        api.load = lambda f, *a, **k: {} if f == api.DEVICES_FILE else orig_load(f, *a, **k)
+        try:
+            res = api._execute_monitor_checks(
+                [{'type': 'ping', 'target': 'ghost', 'target_kind': 'group',
+                  'label': 'ghosts'}])
+        finally:
+            api.load = orig_load
+        self.assertEqual(len(res), 1)
+        self.assertTrue(res[0]['ok'])
+        self.assertIn('no devices', res[0]['detail'])
 
 
 class TestFleetQueryFilters(_HandlerBase):

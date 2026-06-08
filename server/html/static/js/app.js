@@ -1863,15 +1863,20 @@ async function runMonitor() {
 // v3.3.0: Monitor add/edit share a single modal. _monitorEditIdx is the
 // array index of the monitor being edited, or -1 for "add new".
 let _monitorEditIdx = -1;
+// v4.1.0: reset every monitor-modal field to defaults (incl. the new ones).
+function _monClearFields() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('mon-label', ''); set('mon-type', 'ping'); set('mon-kind', 'host');
+  set('mon-target', ''); set('mon-port', ''); set('mon-expect', '');
+  set('mon-status', ''); set('mon-latency', ''); set('mon-loss', '');
+  set('mon-body-mode', ''); set('mon-body-value', '');
+}
 function openMonitorAdd() {
   _monitorEditIdx = -1;
   const t = document.querySelector('#monitor-add-modal .modal-title');
   if (t) t.textContent = 'Add monitor target';
-  document.getElementById('mon-label').value = '';
-  document.getElementById('mon-type').value = 'ping';
-  document.getElementById('mon-target').value = '';
-  document.getElementById('mon-body-mode').value = '';
-  document.getElementById('mon-body-value').value = '';
+  _monClearFields();
+  monTypeChanged();
   openModal('monitor-add-modal');
 }
 function editMonitor(idx) {
@@ -1880,25 +1885,56 @@ function editMonitor(idx) {
   _monitorEditIdx = idx;
   const t = document.querySelector('#monitor-add-modal .modal-title');
   if (t) t.textContent = 'Edit monitor target';
-  document.getElementById('mon-label').value  = m.label  || '';
-  document.getElementById('mon-type').value   = m.type   || 'ping';
-  document.getElementById('mon-target').value = m.target || '';
-  document.getElementById('mon-body-mode').value  = (m.body_match && m.body_match.mode) || '';
-  document.getElementById('mon-body-value').value = (m.body_match && m.body_match.value) || '';
+  _monClearFields();
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+  set('mon-label', m.label || '');
+  set('mon-type', m.type || 'ping');
+  set('mon-kind', m.target_kind || 'host');
+  set('mon-target', m.target || '');
+  set('mon-port', m.port);
+  set('mon-expect', m.expect);
+  set('mon-status', m.expect_status);
+  set('mon-latency', m.max_latency_ms);
+  set('mon-loss', m.max_loss_pct);
+  set('mon-body-mode', (m.body_match && m.body_match.mode) || '');
+  set('mon-body-value', (m.body_match && m.body_match.value) || '');
+  monTypeChanged();
   openModal('monitor-add-modal');
+}
+// v4.1.0: show only the inputs relevant to the selected monitor type / target kind.
+function monTypeChanged() {
+  const type = document.getElementById('mon-type')?.value || 'ping';
+  const kind = document.getElementById('mon-kind')?.value || 'host';
+  const show = (id, on) => document.getElementById(id)?.classList.toggle('hidden', !on);
+  const tagOk = (type === 'ping' || type === 'icmp' || type === 'tcp');
+  show('mon-kind-grp', tagOk);
+  show('mon-port-grp', type === 'tcp' && tagOk && kind !== 'host');
+  show('mon-expect-grp', type === 'dns');
+  show('mon-status-grp', type === 'http');
+  show('mon-latency-grp', type === 'http' || type === 'icmp');
+  show('mon-loss-grp', type === 'icmp');
+  show('mon-body-grp', type === 'http');
 }
 async function addMonitor() {
   const label  = document.getElementById('mon-label').value.trim();
   const type   = document.getElementById('mon-type').value;
   const target = document.getElementById('mon-target').value.trim();
   if (!target) { toast('Target is required', 'error'); return; }
+  const tagOk = (type === 'ping' || type === 'icmp' || type === 'tcp');
+  const kind  = tagOk ? (document.getElementById('mon-kind')?.value || 'host') : 'host';
   const cfg = await api('GET', '/config');
   if (!cfg) return;
   const monitors = [...(cfg.monitors || [])];
-  const entry = {label: label || target, type, target};
+  const entry = {label: label || target, type, target, target_kind: kind};
   const bMode = document.getElementById('mon-body-mode')?.value || '';
   const bVal  = (document.getElementById('mon-body-value')?.value || '').trim();
   if (type === 'http' && bMode && bVal) entry.body_match = {mode: bMode, value: bVal};
+  const numOf = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? null : v; };
+  if (type === 'tcp' && kind !== 'host') { const p = numOf('mon-port'); if (p !== null) entry.port = p; }
+  if (type === 'dns') { const e = (document.getElementById('mon-expect')?.value || '').trim(); if (e) entry.expect = e; }
+  if (type === 'http') { const s = numOf('mon-status'); if (s !== null) entry.expect_status = Math.round(s); }
+  if (type === 'http' || type === 'icmp') { const l = numOf('mon-latency'); if (l !== null) entry.max_latency_ms = Math.round(l); }
+  if (type === 'icmp') { const lp = numOf('mon-loss'); if (lp !== null) entry.max_loss_pct = lp; }
   if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) {
     monitors[_monitorEditIdx] = entry;
   } else {

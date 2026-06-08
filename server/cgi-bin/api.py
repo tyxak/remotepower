@@ -2867,8 +2867,9 @@ def current_username():
 def _sanitize_monitor_target(mtype, target):
     """Validate monitor targets to prevent SSRF and flag injection."""
     target = str(target).strip()[:512]
-    if mtype == 'ping':
-        # Only allow valid hostname/IP — no flags (dashes at start)
+    if mtype in ('ping', 'icmp', 'dns'):
+        # hostname / IP only — no flags (leading dash). icmp = multi-ping;
+        # dns = name to resolve. Same character class as ping.
         host = re.sub(r'[^a-zA-Z0-9.\-]', '', target)
         if not host or host.startswith('-'):
             return None
@@ -10897,6 +10898,108 @@ def handle_metrics(dev_id):
                   'recent_window': True})
 
 
+def _run_one_monitor_check(mtype, target, label, m):
+    """Run a single resolved monitor check (target already sanitised) and return
+    a result dict. Shared by host-targeted and tag/group-expanded checks."""
+    ok = False
+    detail = ''
+    if mtype in ('ping', 'icmp'):
+        # ping = single up/down; icmp = multi-ping latency + packet-loss.
+        count = 5 if mtype == 'icmp' else 1
+        try:
+            r = subprocess.run(['ping', '-c', str(count), '-W', '2', '--', target],
+                               capture_output=True, text=True, timeout=5 + 2 * count)
+            if mtype == 'ping':
+                ok = r.returncode == 0
+                detail = 'up' if ok else 'no reply'
+            else:
+                out = r.stdout or ''
+                ml = re.search(r'(\d+(?:\.\d+)?)% packet loss', out)
+                loss = float(ml.group(1)) if ml else (0.0 if r.returncode == 0 else 100.0)
+                mr = re.search(r'=\s*[\d.]+/([\d.]+)/', out)   # min/avg/max/…
+                avg = float(mr.group(1)) if mr else None
+                max_loss = float(m.get('max_loss_pct', 50))
+                max_lat = m.get('max_latency_ms')
+                ok = loss <= max_loss
+                if ok and isinstance(max_lat, (int, float)) and avg is not None and avg > max_lat:
+                    ok = False
+                detail = f'{loss:.0f}% loss' + (f', {avg:.0f}ms avg' if avg is not None else '')
+        except Exception:
+            detail = 'error'
+    elif mtype == 'tcp':
+        host, _, port_s = target.partition(':')
+        try:
+            port = int(port_s)
+            _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+            with socket.create_connection((host, port), timeout=3) as _s:
+                try:
+                    _peer = _s.getpeername()[0]
+                except (OSError, IndexError):
+                    _peer = None
+                if _peer and _ip_class_blocked(_peer, allow_loopback=_allow_internal):
+                    ok = False; detail = 'blocked'
+                else:
+                    ok = True; detail = 'open'
+        except Exception:
+            detail = 'closed'
+    elif mtype == 'dns':
+        # v4.1.0: DNS resolution check (+ optional expected IP/substring).
+        try:
+            t0 = time.monotonic()
+            infos = socket.getaddrinfo(target, None)
+            lat = int((time.monotonic() - t0) * 1000)
+            addrs = sorted({i[4][0] for i in infos})
+            ok = bool(addrs)
+            exp = str(m.get('expect', '')).strip()
+            if ok and exp and not any(exp == a or exp in a for a in addrs):
+                ok = False
+                detail = f'{", ".join(addrs[:3])} (expected {exp})'
+            else:
+                detail = f'{", ".join(addrs[:3])} · {lat}ms' if ok else 'no records'
+        except Exception:
+            detail = 'resolution failed'
+    elif mtype == 'http':
+        bm = m.get('body_match') if isinstance(m.get('body_match'), dict) else None
+        want_status = m.get('expect_status')
+        max_lat = m.get('max_latency_ms')
+        # GET when we need the body (content match), else HEAD.
+        try:
+            req = urllib.request.Request(target, method='GET' if bm else 'HEAD')
+            ctx = _get_ssl_context()
+            _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+            _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
+                                        ssl_ctx=ctx, no_redirect=True)
+            t0 = time.monotonic()
+            with _opener.open(req, timeout=5) as resp:
+                lat = int((time.monotonic() - t0) * 1000)
+                status = resp.status
+                ok = status < 400
+                detail = f'{status} · {lat}ms'
+                if ok and bm:
+                    val = bm.get('value', '')
+                    body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
+                    if bm.get('mode') == 'not_contains':
+                        if val and val in body_txt:
+                            ok = False; detail = f'{status} · matched "{val[:40]}"'
+                    else:
+                        if val and val not in body_txt:
+                            ok = False; detail = f'{status} · "{val[:40]}" not found'
+                # v4.1.0: explicit status + latency-SLA assertions.
+                if ok and isinstance(want_status, int) and status != want_status:
+                    ok = False; detail = f'{status} (expected {want_status})'
+                if ok and isinstance(max_lat, (int, float)) and lat > max_lat:
+                    ok = False; detail = f'{status} · {lat}ms > {int(max_lat)}ms SLA'
+        except urllib.error.HTTPError as e:
+            ok = e.code < 400
+            if ok and isinstance(want_status, int) and e.code != want_status:
+                ok = False
+            detail = str(e.code)
+        except Exception:
+            detail = 'error'
+    return {'label': label, 'type': mtype, 'target': target,
+            'ok': ok, 'detail': detail, 'checked': int(time.time())}
+
+
 def _execute_monitor_checks(monitors):
     """Run every configured monitor and return the result list.
 
@@ -10918,91 +11021,52 @@ def _execute_monitor_checks(monitors):
     interval.
     """
     results = []
+    _devs = None
     for m in monitors:
         mtype = m.get('type', 'ping')
-        raw_target = m.get('target', '')
-        label = _sanitize_str(m.get('label', raw_target), 128)
-
-        target = _sanitize_monitor_target(mtype, raw_target)
+        label = _sanitize_str(m.get('label', m.get('target', '')), 128)
+        tkind = m.get('target_kind', 'host')
+        # v4.1.0: tag/group targeting — expand to every matching device's address
+        # and run the host check per device (ping/icmp/tcp only).
+        if tkind in ('tag', 'group') and mtype in ('ping', 'icmp', 'tcp'):
+            if _devs is None:
+                _devs = load(DEVICES_FILE) or {}
+            tval = str(m.get('target', '')).strip()
+            port = m.get('port')
+            matched = 0
+            for did, d in _devs.items():
+                if not isinstance(d, dict):
+                    continue
+                if tkind == 'tag' and tval not in [str(t) for t in (d.get('tags') or [])]:
+                    continue
+                if tkind == 'group' and str(d.get('group', '')) != tval:
+                    continue
+                ip = d.get('ip')
+                if not ip:
+                    continue
+                addr = f"{ip}:{port}" if mtype == 'tcp' else str(ip)
+                st = _sanitize_monitor_target(mtype, addr)
+                if st is None:
+                    continue
+                matched += 1
+                results.append(_run_one_monitor_check(
+                    mtype, st, f"{label} · {d.get('name', did)}", m))
+            if matched == 0:
+                results.append({'label': label, 'type': mtype,
+                                'target': f'{tkind}:{tval}', 'ok': True,
+                                'detail': f'no devices in {tkind} "{tval}"',
+                                'checked': int(time.time())})
+            continue
+        # Host-targeted (default).
+        target = _sanitize_monitor_target(mtype, m.get('target', ''))
         if target is None:
             results.append({
-                'label': label, 'type': mtype, 'target': raw_target,
+                'label': label, 'type': mtype, 'target': m.get('target', ''),
                 'ok': False, 'detail': 'blocked: invalid target',
                 'checked': int(time.time()),
             })
             continue
-
-        ok = False; detail = ''
-        if mtype == 'ping':
-            try:
-                r = subprocess.run(
-                    ['ping', '-c', '1', '-W', '2', '--', target],
-                    capture_output=True, timeout=5)
-                ok = r.returncode == 0; detail = 'up' if ok else 'no reply'
-            except Exception:
-                detail = 'error'
-        elif mtype == 'tcp':
-            host, _, port_s = target.partition(':')
-            try:
-                port = int(port_s)
-                _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
-                with socket.create_connection((host, port), timeout=3) as _s:
-                    # Connect-time peer recheck — the pre-flight resolved the
-                    # name, but DNS could rebind to a blocked address between
-                    # then and now. Treat a blocked peer as a failed check.
-                    try:
-                        _peer = _s.getpeername()[0]
-                    except (OSError, IndexError):
-                        _peer = None
-                    if _peer and _ip_class_blocked(_peer, allow_loopback=_allow_internal):
-                        ok = False; detail = 'blocked'
-                    else:
-                        ok = True; detail = 'open'
-            except Exception:
-                detail = 'closed'
-        elif mtype == 'http':
-            # v3.12.0: optional body content match. When set, do a GET (not
-            # HEAD) and require the response body to contain / not contain a
-            # string — catches "200 OK but the app is showing an error page".
-            bm = m.get('body_match') if isinstance(m.get('body_match'), dict) else None
-            try:
-                req = urllib.request.Request(target, method='GET' if bm else 'HEAD')
-                ctx = _get_ssl_context()
-                # Route through the SSRF-safe opener so the *connected* peer IP
-                # is re-validated (anti-rebinding) and 3xx redirects can't bounce
-                # to a metadata/loopback address. allow_loopback mirrors the
-                # config opt-in; metadata/link-local stays blocked regardless.
-                _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
-                _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
-                                            ssl_ctx=ctx, no_redirect=True)
-                with _opener.open(req, timeout=5) as resp:
-                    ok = resp.status < 400; detail = str(resp.status)
-                    if ok and bm:
-                        val = bm.get('value', '')
-                        body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
-                        if bm.get('mode') == 'not_contains':
-                            if val and val in body_txt:
-                                ok = False; detail = f'{resp.status} · matched "{val[:40]}"'
-                            else:
-                                detail = f'{resp.status} · text absent'
-                        else:  # contains
-                            if val and val not in body_txt:
-                                ok = False; detail = f'{resp.status} · "{val[:40]}" not found'
-                            else:
-                                detail = f'{resp.status} · text present'
-            except urllib.error.HTTPError as e:
-                # A 3xx is the endpoint answering — the no-redirect opener
-                # (SSRF guard) declines to *follow* it, which surfaces here as
-                # an HTTPError. Treat <400 as up, matching the pre-v3.9.0
-                # behaviour where urlopen followed the redirect to a 2xx; a
-                # genuine 4xx/5xx stays down.
-                ok = e.code < 400; detail = str(e.code)
-            except Exception:
-                detail = 'error'
-        results.append({
-            'label': label, 'type': mtype, 'target': target,
-            'ok': ok, 'detail': detail, 'checked': int(time.time()),
-        })
+        results.append(_run_one_monitor_check(mtype, target, label, m))
     return results
 
 
@@ -11753,17 +11817,38 @@ def handle_config_save():
             if not isinstance(m, dict):
                 continue
             mtype = m.get('type', '')
-            if mtype not in ('ping', 'tcp', 'http'):
+            if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp'):   # v4.1.0: + dns/icmp
                 continue
             raw_target = str(m.get('target', ''))
-            target = _sanitize_monitor_target(mtype, raw_target)
-            if target is None:
-                respond(400, {'error': f'Invalid monitor target: {raw_target[:80]}'})
+            # v4.1.0: tag/group targeting — target is a tag/group NAME (expanded
+            # to device addresses at run time), valid for ping/icmp/tcp only.
+            tkind = m.get('target_kind', 'host')
+            if tkind in ('tag', 'group'):
+                if mtype not in ('ping', 'icmp', 'tcp'):
+                    respond(400, {'error': f'{mtype} cannot target a {tkind}; use ping/icmp/tcp'})
+                target = re.sub(r'[^a-zA-Z0-9_\-/. ]', '', raw_target)[:128].strip()
+                if not target:
+                    respond(400, {'error': f'a {tkind} name is required'})
+            else:
+                tkind = 'host'
+                target = _sanitize_monitor_target(mtype, raw_target)
+                if target is None:
+                    respond(400, {'error': f'Invalid monitor target: {raw_target[:80]}'})
             entry = {
                 'label':  _sanitize_str(m.get('label', target), 128),
                 'type':   mtype,
                 'target': target,
+                'target_kind': tkind,
             }
+            # tcp tag/group needs a port (the name carries no port).
+            if mtype == 'tcp' and tkind in ('tag', 'group'):
+                try:
+                    p = int(m.get('port'))
+                    if not (1 <= p <= 65535):
+                        raise ValueError
+                    entry['port'] = p
+                except (TypeError, ValueError):
+                    respond(400, {'error': 'tcp tag/group monitor needs a valid port'})
             # v3.12.0: optional HTTP body content match.
             bm = m.get('body_match')
             if mtype == 'http' and isinstance(bm, dict) and bm.get('value'):
@@ -11772,6 +11857,20 @@ def handle_config_save():
                     'mode':  'not_contains' if mode == 'not_contains' else 'contains',
                     'value': _sanitize_str(str(bm.get('value', '')), 200),
                 }
+            # v4.1.0: per-type assertions (all optional, validated to sane ranges).
+            if mtype == 'dns' and m.get('expect'):
+                entry['expect'] = re.sub(r'[^a-zA-Z0-9.:_\-]', '', str(m.get('expect')))[:128]
+            if mtype == 'http' and isinstance(m.get('expect_status'), int) \
+                    and 100 <= m['expect_status'] <= 599:
+                entry['expect_status'] = m['expect_status']
+            if mtype in ('http', 'icmp'):
+                ml = m.get('max_latency_ms')
+                if isinstance(ml, (int, float)) and 0 < ml <= 600000:
+                    entry['max_latency_ms'] = int(ml)
+            if mtype == 'icmp':
+                lp = m.get('max_loss_pct')
+                if isinstance(lp, (int, float)) and 0 <= lp <= 100:
+                    entry['max_loss_pct'] = float(lp)
             validated.append(entry)
         cfg['monitors'] = validated
 
