@@ -1208,6 +1208,8 @@ function _renderFavorites() {
     if (star) { star.classList.add('faved'); star.title = 'Unpin from favorites'; star.setAttribute('aria-pressed', 'true'); }
     wrap.appendChild(clone);
   });
+  // Re-sync problem tints onto the freshly-built clones (red/amber icons).
+  if (typeof _applyNavTints === 'function') _applyNavTints();
 }
 function _initFavorites() {
   // Attach a hover-reveal star to every grouped nav entry (the buried ones
@@ -8806,19 +8808,27 @@ async function refreshNavCounts() {
         }
         b.textContent = n > 99 ? '99+' : String(n);
       });
-    // v4.1.0: also point at WHERE the problem is — tint the specific child nav
-    // item's icon (red = critical, amber = warning) so the group count is
-    // actionable. Offline hosts are recoverable → amber; CVEs/monitors → red.
-    const _tint = (sel, level) => {
-      const el = document.querySelector(sel);
-      if (!el) return;
+    _navTintState = { security: c.security, fleet: c.fleet, monitoring: c.monitoring };
+    _applyNavTints();
+  } catch (_) { /* non-fatal */ }
+}
+
+// v4.1.0: point at WHERE a group's count lives — tint the responsible child
+// nav item's icon (red = critical, amber = warning). querySelectorAll so the
+// pinned *favorite clones* tint too, not just the in-group original. Re-run
+// from _renderFavorites since clones are rebuilt on every star toggle.
+let _navTintState = { security: 0, fleet: 0, monitoring: 0 };
+function _applyNavTints() {
+  const c = _navTintState || {};
+  const tint = (sel, level) => {
+    document.querySelectorAll(sel).forEach(el => {
       el.classList.toggle('nav-alert', level === 'alert');
       el.classList.toggle('nav-warn', level === 'warn');
-    };
-    _tint('.nav-btn[data-page="cve"]', c.security ? 'alert' : '');
-    _tint('.nav-btn[data-page="devices"]', c.fleet ? 'warn' : '');
-    _tint('.nav-btn[data-arg="section-targets"]', c.monitoring ? 'alert' : '');
-  } catch (_) { /* non-fatal */ }
+    });
+  };
+  tint('.nav-btn[data-page="cve"]', c.security ? 'alert' : '');
+  tint('.nav-btn[data-page="devices"]', c.fleet ? 'warn' : '');
+  tint('.nav-btn[data-arg="section-targets"]', c.monitoring ? 'alert' : '');
 }
 
 // Refresh alert + confirmation badges on load and every 60s after
