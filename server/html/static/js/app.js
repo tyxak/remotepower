@@ -12708,6 +12708,61 @@ function _renderHomeWidgets(home) {
     ? _miniRows(df.map(r => ({ l: escHtml(r.name), r: `${r.days}d`,
       cls: r.days <= 2 ? 'c-red' : 'c-amber' })))
     : '<div class="hint">No hosts filling up soon.</div>');
+
+  // ── v4.1.0 catalog expansion wave 2 ───────────────────────────────────────
+  // Devices by /24 subnet
+  bk('home-w-subnet-body', breakdown(counted.filter(d => d.ip),
+    d => (String(d.ip).match(/^(\d+\.\d+\.\d+)\./) || [])[1] + '.0/24'),
+    'No IP addresses reported.');
+  // Patch compliance %
+  const compliant = counted.filter(d => _dashUpg(d) === 0).length;
+  const pct = counted.length ? Math.round(compliant / counted.length * 100) : 100;
+  bigStat('home-w-patchpct-body', pct + '%', `${compliant}/${counted.length} fully patched`,
+          pct >= 90 ? 'c-green' : pct >= 70 ? 'c-amber' : 'c-red');
+  // Agent vs agentless
+  const agentlessN = counted.filter(d => d.agentless).length;
+  _setWidget('home-w-agentless-body', _miniRows([
+    { l: 'Agent', r: String(counted.length - agentlessN), cls: 'c-green' },
+    { l: 'Agentless', r: String(agentlessN), cls: 'c-muted' },
+  ]));
+  // Never checked in
+  const never = counted.filter(d => !d.agentless && !d.last_seen);
+  _setWidget('home-w-neverseen-body', never.length
+    ? _miniRows(never.slice(0, 8).map(d => ({ l: escHtml(d.name), r: 'never', cls: 'c-amber' })))
+    : '<div class="hint">Every agent has reported in.</div>');
+  // Lowest health hosts + grade spread (from home.health.devices)
+  const hdevs = (home.health && home.health.devices) || [];
+  const worst = hdevs.filter(d => typeof d.score === 'number')
+    .sort((a, b) => a.score - b.score).slice(0, 6);
+  _setWidget('home-w-worsthealth-body', worst.length
+    ? _miniRows(worst.map(d => ({ l: escHtml(d.device_name || d.device_id || ''),
+      r: String(d.score), cls: d.score >= 90 ? 'c-green' : d.score >= 70 ? 'c-amber' : 'c-red' })))
+    : '<div class="hint">No health data yet.</div>');
+  const gradeOf = s => s >= 90 ? 'good' : s >= 70 ? 'fair' : s >= 40 ? 'poor' : 'critical';
+  const gd = breakdown(hdevs.filter(d => typeof d.score === 'number'), d => gradeOf(d.score));
+  _setWidget('home-w-gradedist-body', gd.length
+    ? _miniRows(gd.map(([g, n]) => ({ l: g, r: String(n),
+      cls: g === 'good' ? 'c-green' : g === 'fair' ? 'c-amber' : 'c-red' })))
+    : '<div class="hint">No health data yet.</div>');
+  // Agent version skew (anything not on the most common version)
+  const verPairs = breakdown(counted.filter(d => !d.agentless && d.version), d => d.version);
+  const commonVer = verPairs.length ? verPairs[0][0] : '';
+  const skew = counted.filter(d => !d.agentless && d.version && d.version !== commonVer);
+  _setWidget('home-w-versionskew-body', verPairs.length
+    ? `<div class="dash-mini-head">common: ${escHtml(commonVer)}</div>`
+      + (skew.length ? _miniRows(skew.slice(0, 6).map(d => ({
+        l: escHtml(d.name), r: escHtml(d.version), cls: 'c-amber' })))
+        : '<div class="hint">All agents on the common version.</div>')
+    : '<div class="hint">No agent versions reported.</div>');
+  // Offline by group
+  const offGroups = {};
+  counted.filter(d => !d.online).forEach(d => {
+    const g = d.group || '(ungrouped)'; offGroups[g] = (offGroups[g] || 0) + 1;
+  });
+  const offg = Object.entries(offGroups).sort((a, b) => b[1] - a[1]);
+  _setWidget('home-w-offlinegroups-body', offg.length
+    ? _miniRows(offg.map(([g, n]) => ({ l: escHtml(g), r: String(n), cls: 'c-red' })))
+    : '<div class="hint">No offline hosts.</div>');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12750,6 +12805,15 @@ const DASH_WIDGETS = [
   { key: 'monitors',    label: 'Monitor status',       opt: true, size: 'sm' },
   { key: 'containers',  label: 'Container issues',     opt: true, size: 'sm' },
   { key: 'diskfill',    label: 'Disk fill ETA',        opt: true, size: 'sm' },
+  // v4.1.0 catalog expansion wave 2
+  { key: 'subnet',      label: 'Devices by subnet',    opt: true, size: 'sm' },
+  { key: 'patchpct',    label: 'Patch compliance',     opt: true, size: 'sm' },
+  { key: 'agentless',   label: 'Agent vs agentless',   opt: true, size: 'sm' },
+  { key: 'neverseen',   label: 'Never checked in',     opt: true, size: 'sm' },
+  { key: 'worsthealth', label: 'Lowest health hosts',  opt: true, size: 'sm' },
+  { key: 'gradedist',   label: 'Health grade spread',  opt: true, size: 'sm' },
+  { key: 'versionskew', label: 'Agent version skew',   opt: true, size: 'sm' },
+  { key: 'offlinegroups', label: 'Offline by group',   opt: true, size: 'sm' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },

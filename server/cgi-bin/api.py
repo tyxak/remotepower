@@ -427,6 +427,9 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v4.1.0 catalog expansion (server-backed):
                               'alertsev', 'maintenance', 'monitors', 'containers',
                               'diskfill',
+                              # v4.1.0 catalog expansion wave 2 (client-side):
+                              'subnet', 'patchpct', 'agentless', 'neverseen',
+                              'worsthealth', 'gradedist', 'versionskew', 'offlinegroups',
                               'health', 'heatmap', 'overview', 'roster', 'links')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.

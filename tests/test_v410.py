@@ -1713,7 +1713,9 @@ class TestDashboardWidgetGrid(unittest.TestCase):
                  'devtypes', 'tags', 'ungrouped', 'activity', 'attseverity',
                  'atttop', 'healthscore', 'fleettotal', 'crittotal', 'updatestotal',
                  'drifttotal', 'recentonline', 'alertsev', 'maintenance',
-                 'monitors', 'containers', 'diskfill')
+                 'monitors', 'containers', 'diskfill',
+                 'subnet', 'patchpct', 'agentless', 'neverseen', 'worsthealth',
+                 'gradedist', 'versionskew', 'offlinegroups')
 
     def test_widget_registry_has_addons(self):
         for k in self._EXPANDED:
