@@ -1606,5 +1606,90 @@ class TestAlertCorrelation(unittest.TestCase):
             self.assertIn(fn, js)
 
 
+class TestDashboardCards(_HandlerBase):
+    """v4.1.0 dashboard cards: upcoming calendar/scheduler events + tickets
+    (open quick-ack list + recently acknowledged)."""
+
+    def setUp(self):
+        super().setUp()
+        for attr in ('CALENDAR_FILE', 'SCHEDULE_FILE', 'MAINT_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+
+    def test_tickets_open_and_acked(self):
+        now = int(api.time.time())
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'id': 'a1', 'event': 'service_down', 'severity': 'high',
+             'title': 'svc', 'device_name': 'web', 'ts': now - 10},
+            {'id': 'a2', 'event': 'metric_critical', 'severity': 'critical',
+             'title': 'cpu', 'ts': now - 5},
+            {'id': 'a3', 'event': 'x', 'severity': 'low', 'title': 'old',
+             'ts': now - 100, 'acknowledged_at': now - 50, 'acknowledged_by': 'jakob'},
+            {'id': 'a4', 'event': 'y', 'severity': 'medium', 'title': 'done',
+             'ts': now - 200, 'acknowledged_at': now - 20, 'acknowledged_by': 'sam',
+             'resolved_at': now - 10, 'resolved_by': 'sam'},
+        ]})
+        t = api._dashboard_tickets()
+        self.assertEqual(t['open_total'], 2)
+        self.assertEqual([a['id'] for a in t['open']], ['a2', 'a1'])  # critical first
+        self.assertEqual([a['id'] for a in t['acked']], ['a4', 'a3'])  # newest ack first
+        self.assertTrue(t['acked'][0]['resolved'])
+        self.assertFalse(t['acked'][1]['resolved'])
+        self.assertEqual(t['acked'][1]['acknowledged_by'], 'jakob')
+
+    def test_upcoming_merges_and_orders(self):
+        import datetime as dt
+        now = int(api.time.time())
+        iso = lambda ts: dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).isoformat()
+        api.save(api.CALENDAR_FILE, {'events': [
+            {'title': 'past', 'start': iso(now - 7200), 'end': iso(now - 3600)},
+            {'title': 'ongoing', 'start': iso(now - 600), 'end': iso(now + 600)},
+            {'title': 'future', 'start': iso(now + 3600), 'end': iso(now + 7200)},
+        ]})
+        api.save(api.SCHEDULE_FILE, [
+            {'id': 's1', 'command': 'reboot', 'device_name': 'db', 'run_at': now + 1800},
+        ])
+        api.save(api.MAINT_FILE, {'windows': []})
+        items = api._dashboard_upcoming(limit=5)
+        titles = [i['title'] for i in items]
+        self.assertNotIn('past', titles)               # finished events drop off
+        self.assertEqual(items[0]['title'], 'ongoing')  # ongoing sorts first
+        self.assertTrue(items[0]['ongoing'])
+        self.assertIn('future', titles)
+        self.assertTrue(any('reboot' in t for t in titles))
+
+    def test_upcoming_limit(self):
+        import datetime as dt
+        now = int(api.time.time())
+        iso = lambda ts: dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).isoformat()
+        api.save(api.CALENDAR_FILE, {'events': [
+            {'title': f'e{i}', 'start': iso(now + i * 3600)} for i in range(1, 8)]})
+        api.save(api.SCHEDULE_FILE, [])
+        api.save(api.MAINT_FILE, {'windows': []})
+        self.assertEqual(len(api._dashboard_upcoming(limit=3)), 3)
+
+
+class TestDashboardCardsUI(unittest.TestCase):
+    """The two new cards are wired, and Ask-AI + Customize moved to the footer."""
+
+    def test_wiring(self):
+        sys.path.insert(0, str(Path(__file__).parent))
+        from clientjs import client_js
+        js = client_js()
+        html = (_CGI_BIN.parent / 'html' / 'index.html').read_text()
+        self.assertIn('data-widget="upcoming"', html)
+        self.assertIn('data-widget="tickets"', html)
+        self.assertIn('id="home-footer-controls"', html)
+        # Ask-AI + Customize now live inside the footer (moved to the bottom).
+        fi = html.index('id="home-footer-controls"')
+        self.assertGreater(html.index('home-ai-q'), fi)
+        self.assertGreater(html.index('data-action="toggleDashEdit"'), fi)
+        for fn in ('function _renderHomeUpcoming', 'function _renderHomeTickets',
+                   'async function quickAckAlert'):
+            self.assertIn(fn, js)
+        self.assertIn('home.appendChild(footer)', js)   # footer pinned last
+        self.assertIn('out.unshift(', js)               # new widgets surface on top
+
+
 if __name__ == '__main__':
     unittest.main()

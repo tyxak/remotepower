@@ -478,22 +478,6 @@
         <div class="page-title">Fleet at a glance</div>
         <div class="page-subtitle">Everything that needs your attention, in one screen.</div>
 
-        <!-- v3.14.0 (#22): per-account dashboard customization — show/hide &
-             reorder the widget cards below. Stored in ui_prefs.dashboard. -->
-        <div class="dash-toolbar">
-          <button class="btn-icon" data-action="toggleDashEdit" title="Show, hide and reorder dashboard widgets">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-            Customize
-          </button>
-        </div>
-        <div id="dash-edit-panel" class="dash-edit-panel hidden"></div>
-
-        <!-- v3.13.0: ask-the-fleet AI omnibox (uses RAG over fleet state) -->
-        <div class="home-ai-ask mb-16">
-          <input type="text" id="home-ai-q" class="form-input" placeholder="Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?" data-enter="aiAskFleet">
-          <button class="btn-primary" data-action="aiAskFleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg> Ask</button>
-        </div>
-
         <!-- Big number summary tiles -->
         <div id="home-tiles" class="tile-grid">
           <!-- Populated by loadHome() -->
@@ -501,6 +485,26 @@
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
+        </div>
+
+        <!-- v4.1.0: upcoming calendar/scheduler events -->
+        <div class="dash-card mt-16 mb-16" id="home-upcoming" data-widget="upcoming">
+          <div class="row-8-center mb-6"><h3 class="m-0">Upcoming</h3><span class="fs-12 c-muted">next events from the calendar &amp; scheduler</span></div>
+          <div id="home-upcoming-body"><div class="skeleton skeleton-line med mb-6"></div><div class="skeleton skeleton-line long"></div></div>
+        </div>
+
+        <!-- v4.1.0: tickets — open (quick-ack) + recently acknowledged -->
+        <div class="dash-card mb-16" id="home-tickets" data-widget="tickets">
+          <div class="dash-cols">
+            <div>
+              <div class="row-8-center mb-6"><h3 class="m-0">Open tickets</h3><span class="fs-12 c-muted" id="home-tickets-open-count"></span></div>
+              <div id="home-tickets-open"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
+            </div>
+            <div>
+              <h3>Recently acknowledged</h3>
+              <div id="home-tickets-acked"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
+            </div>
+          </div>
         </div>
 
         <!-- Fleet health score (v3.4.1) -->
@@ -553,6 +557,24 @@
         <div class="dash-card mt-16 d-none" id="home-links" data-widget="links">
           <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
           <div id="home-links-body" class="isl-762"></div>
+        </div>
+
+        <!-- v4.1.0: Ask-AI omnibox + dashboard customize, moved to the bottom.
+             applyDashboardLayout() pins this footer last (after all widgets). -->
+        <div id="home-footer-controls" class="mt-16">
+          <!-- v3.13.0: ask-the-fleet AI omnibox (uses RAG over fleet state) -->
+          <div class="home-ai-ask mb-16">
+            <input type="text" id="home-ai-q" class="form-input" placeholder="Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?" data-enter="aiAskFleet">
+            <button class="btn-primary" data-action="aiAskFleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg> Ask</button>
+          </div>
+          <!-- v3.14.0 (#22): per-account dashboard customization -->
+          <div class="dash-toolbar">
+            <button class="btn-icon" data-action="toggleDashEdit" title="Show, hide and reorder dashboard widgets">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              Customize
+            </button>
+          </div>
+          <div id="dash-edit-panel" class="dash-edit-panel hidden"></div>
         </div>
       </div>
 

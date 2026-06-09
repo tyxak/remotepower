@@ -416,7 +416,7 @@ MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
 # v3.14.0 (#22): customizable dashboard — the widget keys the Home page exposes
 # for show/hide/reorder. Must mirror DASH_WIDGETS in app.js (a guardrail test
 # pins the two together).
-DASHBOARD_WIDGETS          = ('health', 'heatmap', 'overview', 'roster', 'links')
+DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'health', 'heatmap', 'overview', 'roster', 'links')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
 BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
@@ -23590,6 +23590,113 @@ def _check_health_webhooks():
         save(HEALTH_ALERT_STATE_FILE, state)
 
 
+def _dashboard_upcoming(limit=3, horizon_days=45):
+    """Next upcoming-or-ongoing events for the dashboard, merged across the
+    calendar, scheduled power/script jobs, and maintenance windows. Each item:
+    {title, when (epoch), ongoing (bool), kind}. Sorted by start, capped."""
+    now = int(time.time())
+    horizon = now + horizon_days * 86400
+    items = []
+    # Calendar events (recurrence-aware via _expand_event). Include those that
+    # started recently and are still running (ongoing) plus future ones.
+    try:
+        for ev in (load(CALENDAR_FILE) or {}).get('events') or []:
+            for occ in _expand_event(ev, now - 86400, horizon):
+                try:
+                    s = _parse_iso(occ['start'])
+                except (ValueError, KeyError):
+                    continue
+                e = s
+                if occ.get('end'):
+                    try:
+                        e = _parse_iso(occ['end'])
+                    except ValueError:
+                        e = s
+                if e < now:
+                    continue   # already finished
+                items.append({'title': (occ.get('title') or 'Event')[:120],
+                              'when': s, 'ongoing': s <= now <= e, 'kind': 'calendar'})
+    except Exception:
+        pass
+    # Scheduled power actions / scripts (one-shot run_at, or recurring cron).
+    try:
+        for j in (load(SCHEDULE_FILE) or []):
+            if not isinstance(j, dict):
+                continue
+            ts = None
+            if j.get('run_at'):
+                ts = int(j['run_at'])
+            elif j.get('cron'):
+                ts = _cron_next(j['cron'], now, horizon_days)
+            if not ts or ts < now or ts > horizon:
+                continue
+            cmd = str(j.get('command', 'job'))
+            label = cmd.replace('_', ' ')
+            if j.get('device_name'):
+                label = f"{label} · {j['device_name']}"
+            items.append({'title': label[:120], 'when': ts, 'ongoing': False,
+                          'kind': 'job'})
+    except Exception:
+        pass
+    # Maintenance windows — currently active (ongoing) or upcoming one-shot/cron.
+    try:
+        for w in (load(MAINT_FILE) or {}).get('windows') or []:
+            if not isinstance(w, dict):
+                continue
+            title = ('Maintenance: ' + (w.get('reason') or 'window'))[:120]
+            if _window_active(w, now):
+                items.append({'title': title, 'when': now, 'ongoing': True,
+                              'kind': 'maintenance'})
+                continue
+            ts = None
+            if w.get('start'):
+                try:
+                    ts = _parse_iso(w['start'])
+                except ValueError:
+                    ts = None
+            elif w.get('cron'):
+                ts = _cron_next(w['cron'], now, horizon_days)
+            if ts and now <= ts <= horizon:
+                items.append({'title': title, 'when': ts, 'ongoing': False,
+                              'kind': 'maintenance'})
+    except Exception:
+        pass
+    items.sort(key=lambda x: (not x['ongoing'], x['when']))
+    return items[:limit]
+
+
+def _dashboard_tickets(open_limit=5, acked_limit=5):
+    """Open alerts (for quick-ack) + the most recently acknowledged alerts
+    (with state + who) for the dashboard Tickets card. Scope-filtered."""
+    al = load(ALERTS_FILE) or {}
+    alerts = al.get('alerts') or []
+    scope = _caller_scope()
+    if scope is not None:
+        devs = load(DEVICES_FILE) or {}
+        alerts = [a for a in alerts if not a.get('device_id')
+                  or _device_in_scope(scope, devs.get(a.get('device_id'), {}))]
+
+    def slim(a):
+        return {'id': a.get('id'), 'alertid': a.get('alertid'),
+                'title': a.get('title') or a.get('event') or '',
+                'severity': a.get('severity') or 'medium',
+                'device_name': a.get('device_name') or a.get('device_id') or '',
+                'ts': a.get('ts'), 'acknowledged_by': a.get('acknowledged_by'),
+                'acknowledged_at': a.get('acknowledged_at'),
+                'resolved': bool(a.get('resolved_at'))}
+
+    open_alerts = [a for a in alerts
+                   if not a.get('acknowledged_at') and not a.get('resolved_at')]
+    open_alerts.sort(key=lambda a: ({'critical': 0, 'high': 1, 'medium': 2,
+                                     'low': 3}.get(a.get('severity'), 9),
+                                    -(a.get('ts') or 0)))
+    acked = [a for a in alerts if a.get('acknowledged_at')]
+    acked.sort(key=lambda a: a.get('acknowledged_at') or 0, reverse=True)
+    return {'open': [slim(a) for a in open_alerts[:open_limit]],
+            'open_total': len(open_alerts),
+            'acked': [slim(a) for a in acked[:acked_limit]]}
+
+
 def handle_home():
     """GET /api/home — single round-trip for the Home dashboard.
 
@@ -23746,6 +23853,9 @@ def handle_home():
         'mailwatch':    mailwatch,
         'links':        links,
         'attention':    _attention_payload(),
+        # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
+        'upcoming':     _dashboard_upcoming(),
+        'tickets':      _dashboard_tickets(),
         # v3.4.1: fleet health score. Reuses the cached attention payload above
         # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
         'health':       _fleet_health(),

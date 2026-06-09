@@ -4466,6 +4466,17 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .alert-rc-badge.rc-root { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
 .alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
 .alerts-row.alert-symptom .alert-symptom-cell { padding-left: 22px; border-left: 2px solid var(--border); }
+/* v4.1.0: Upcoming + Tickets dashboard cards */
+.up-row, .tk-row { display: flex; align-items: center; gap: 8px; padding: 6px 0;
+                   border-bottom: 1px solid var(--border); }
+.up-row:last-child, .tk-row:last-child { border-bottom: none; }
+.up-title, .tk-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                       white-space: nowrap; font-size: 13px; }
+.up-kind { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 10px;
+           font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+           border: 1px solid var(--border); color: var(--muted); }
+.up-kind.up-maintenance { color: #d4a017; border-color: #d4a017; }
+.up-kind.up-job { color: #4a9eff; border-color: #4a9eff; }
 /* v4.1.0: CheckMK-style check status pills */
 .chk-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
             font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }

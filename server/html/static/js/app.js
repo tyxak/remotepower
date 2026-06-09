@@ -12442,7 +12442,66 @@ async function loadHome() {
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs);
   _renderHomeLinks(linksResp.links);
+  _renderHomeUpcoming(home.upcoming || []);     // v4.1.0
+  _renderHomeTickets(home.tickets || {});       // v4.1.0
   applyDashboardLayout();   // v3.14.0 (#22): honour the user's widget layout
+}
+
+// ── v4.1.0: Upcoming events + Tickets dashboard cards ───────────────────────
+function _fmtWhen(ts) {
+  try {
+    return new Date(ts * 1000).toLocaleString([],
+      { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { return ''; }
+}
+function _renderHomeUpcoming(items) {
+  const el = document.getElementById('home-upcoming-body');
+  if (!el) return;
+  if (!items.length) {
+    el.innerHTML = '<div class="hint">Nothing scheduled in the next 45 days.</div>';
+    return;
+  }
+  el.innerHTML = items.map(it => {
+    const when = it.ongoing
+      ? '<span class="patch-badge warn fs-11">ongoing</span>'
+      : `<span class="hint nowrap">${_fmtWhen(it.when)}</span>`;
+    return `<div class="up-row"><span class="up-kind up-${escAttr(it.kind)}">${escHtml(it.kind)}</span>`
+      + `<span class="up-title">${escHtml(it.title)}</span>${when}</div>`;
+  }).join('');
+}
+function _renderHomeTickets(t) {
+  const open = (t && t.open) || [];
+  const acked = (t && t.acked) || [];
+  const cnt = document.getElementById('home-tickets-open-count');
+  if (cnt) cnt.textContent = (t && t.open_total) ? `${t.open_total} open` : '';
+  const openEl = document.getElementById('home-tickets-open');
+  if (openEl) {
+    openEl.innerHTML = open.length ? open.map(a => {
+      const sev = a.severity || 'medium';
+      const dev = a.device_name ? ` <span class="hint">· ${escHtml(a.device_name)}</span>` : '';
+      return `<div class="tk-row"><span class="sev-pill sev-${sev}">${sev}</span>`
+        + `<span class="tk-title">${escHtml(a.title)}${dev}</span>`
+        + `<button class="btn-icon btn-xs" data-action="quickAckAlert" data-arg="${escAttr(a.id)}" title="Acknowledge now (no comment)">Ack</button></div>`;
+    }).join('') : '<div class="hint">No open tickets — all clear.</div>';
+  }
+  const ackedEl = document.getElementById('home-tickets-acked');
+  if (ackedEl) {
+    ackedEl.innerHTML = acked.length ? acked.map(a => {
+      const state = a.resolved
+        ? '<span class="patch-badge ok fs-11">resolved</span>'
+        : '<span class="patch-badge warn fs-11">acked</span>';
+      const who = a.acknowledged_by ? escHtml(a.acknowledged_by) : '—';
+      const when = a.acknowledged_at ? ` · ${timeAgo(a.acknowledged_at)}` : '';
+      return `<div class="tk-row">${state}<span class="tk-title">${escHtml(a.title)}</span>`
+        + `<span class="hint nowrap">${who}${when}</span></div>`;
+    }).join('') : '<div class="hint">Nothing acknowledged recently.</div>';
+  }
+}
+async function quickAckAlert(id) {
+  // "Quick" = one click, no comment prompt (unlike the inbox's ackAlert).
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ack`, {});
+  if (r && r.ok) { toast('Acknowledged', 'success'); loadHome(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12451,6 +12510,8 @@ async function loadHome() {
 // flush. Widgets map onto the existing home cards by their data-widget
 // attribute — no new data path, we only toggle visibility and reorder nodes.
 const DASH_WIDGETS = [
+  { key: 'upcoming', label: 'Upcoming events' },
+  { key: 'tickets',  label: 'Tickets (open + acknowledged)' },
   { key: 'health',   label: 'Fleet health' },
   { key: 'heatmap',  label: 'Fleet heat map' },
   { key: 'overview', label: 'Needs attention + Recent activity' },
@@ -12473,9 +12534,10 @@ function _dashLayout() {
     seen.add(e.key);
     out.push({ key: e.key, on: e.on !== false });
   }
-  for (const k of _DASH_KEYS) {
-    if (!seen.has(k)) out.push({ key: k, on: true });
-  }
+  // v4.1.0: surface newly-shipped widgets at the TOP (in DASH_WIDGETS order) so
+  // they're noticed, rather than buried at the bottom of a saved layout.
+  const missing = _DASH_KEYS.filter(k => !seen.has(k));
+  out.unshift(...missing.map(k => ({ key: k, on: true })));
   return out;
 }
 
@@ -12488,6 +12550,9 @@ function applyDashboardLayout() {
     node.classList.toggle('dash-off', !on);   // .dash-off hides via CSS; this
     home.appendChild(node);                    // is independent of .d-none so
   }                                            // the links card's own logic wins
+  // v4.1.0: keep the Ask-AI + Customize footer pinned below every widget.
+  const footer = document.getElementById('home-footer-controls');
+  if (footer) home.appendChild(footer);
 }
 
 function toggleDashEdit() {
