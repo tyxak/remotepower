@@ -487,6 +487,10 @@
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
         </div>
 
+        <!-- v4.1.0: resizable/reorderable widget grid. applyDashboardLayout()
+             reorders the data-widget cards into this grid and sets size spans. -->
+        <div id="dash-grid" class="dash-grid">
+
         <!-- v4.1.0: upcoming calendar/scheduler events -->
         <div class="dash-card mt-16 mb-16" id="home-upcoming" data-widget="upcoming">
           <div class="row-8-center mb-6"><h3 class="m-0">Upcoming</h3><span class="fs-12 c-muted">next events from the calendar &amp; scheduler</span></div>
@@ -558,6 +562,19 @@
           <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
           <div id="home-links-body" class="isl-762"></div>
         </div>
+
+        <!-- v4.1.0: add-on widgets (off by default; added from Customize → Add). -->
+        <div class="dash-card dash-off" id="home-w-offline" data-widget="offline"><h3>Offline hosts</h3><div id="home-w-offline-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-updates" data-widget="updates"><h3>Pending updates</h3><div id="home-w-updates-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-cves" data-widget="cves"><h3>CVE exposure</h3><div id="home-w-cves-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-drift" data-widget="drift"><h3>Config drift</h3><div id="home-w-drift-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-capacity" data-widget="capacity"><h3>Resource pressure</h3><div id="home-w-capacity-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-groups" data-widget="groups"><h3>Fleet by group</h3><div id="home-w-groups-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-monitored" data-widget="monitored"><h3>Monitoring coverage</h3><div id="home-w-monitored-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-stale" data-widget="stale"><h3>Stale agents</h3><div id="home-w-stale-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-mailwatch" data-widget="mailwatch"><h3>Mailbox watch</h3><div id="home-w-mailwatch-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-oncall" data-widget="oncall"><h3>On-call now</h3><div id="home-w-oncall-body" class="dash-mini"></div></div>
+        </div><!-- /dash-grid -->
 
         <!-- v4.1.0: Ask-AI omnibox + dashboard customize, moved to the bottom.
              applyDashboardLayout() pins this footer last (after all widgets). -->

@@ -1691,5 +1691,52 @@ class TestDashboardCardsUI(unittest.TestCase):
         self.assertIn('out.unshift(', js)               # new widgets surface on top
 
 
+class TestDashboardWidgetGrid(unittest.TestCase):
+    """v4.1.0 dashboard builder: per-widget size persistence, the 10 add-on
+    widgets, and the reset/align/share + add-catalog UI."""
+
+    def test_size_persisted_and_validated(self):
+        clean = api._sanitise_ui_prefs({'dashboard': [
+            {'key': 'health', 'on': True, 'size': 'lg'},
+            {'key': 'offline', 'on': True, 'size': 'sm'},
+            {'key': 'cves', 'on': False, 'size': 'bogus'},   # bad size → md
+            {'key': 'not_a_widget', 'on': True, 'size': 'sm'},  # dropped
+        ]})
+        dash = {e['key']: e for e in clean['dashboard']}
+        self.assertEqual(dash['health']['size'], 'lg')
+        self.assertEqual(dash['offline']['size'], 'sm')
+        self.assertEqual(dash['cves']['size'], 'md')      # invalid coerced
+        self.assertNotIn('not_a_widget', dash)            # unknown dropped
+
+    def test_widget_registry_has_addons(self):
+        for k in ('offline', 'updates', 'cves', 'drift', 'capacity', 'groups',
+                  'monitored', 'stale', 'mailwatch', 'oncall'):
+            self.assertIn(k, api.DASHBOARD_WIDGETS)
+        self.assertEqual(api.DASHBOARD_WIDGET_SIZES, ('sm', 'md', 'lg'))
+
+    def test_home_includes_oncall(self):
+        # handle_home embeds the on-call widget datum (cheap, cfg-derived).
+        src = (_CGI_BIN / 'api.py').read_text()
+        self.assertIn("'oncall':", src)
+        self.assertIn('_oncall_now(cfg', src)
+
+    def test_ui_wired(self):
+        sys.path.insert(0, str(Path(__file__).parent))
+        from clientjs import client_js
+        js = client_js()
+        html = (_CGI_BIN.parent / 'html' / 'index.html').read_text()
+        self.assertIn('id="dash-grid"', html)
+        for k in ('offline', 'updates', 'cves', 'drift', 'capacity', 'groups',
+                  'monitored', 'stale', 'mailwatch', 'oncall'):
+            self.assertIn(f'data-widget="{k}"', html)
+        for fn in ('function dashSize', 'function dashReset', 'function dashAlign',
+                   'function dashShareExport', 'function dashShareImport',
+                   'function _renderHomeWidgets'):
+            self.assertIn(fn, js)
+        # size span classes applied by the layout engine
+        self.assertIn("'dash-w-'", js)
+        self.assertIn('dash-w-sm', (_CGI_BIN.parent / 'html' / 'static' / 'css' / 'styles.css').read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

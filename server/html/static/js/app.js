@@ -12444,6 +12444,7 @@ async function loadHome() {
   _renderHomeLinks(linksResp.links);
   _renderHomeUpcoming(home.upcoming || []);     // v4.1.0
   _renderHomeTickets(home.tickets || {});       // v4.1.0
+  _renderHomeWidgets(home);                      // v4.1.0 add-on widgets
   applyDashboardLayout();   // v3.14.0 (#22): honour the user's widget layout
 }
 
@@ -12504,21 +12505,146 @@ async function quickAckAlert(id) {
   else toast((r && r.error) || 'Failed', 'error');
 }
 
+// ── v4.1.0: add-on dashboard widgets (rendered from the /api/home payload) ───
+function _miniRows(rows) {
+  if (!rows.length) return '<div class="hint">Nothing to show.</div>';
+  return rows.map(r =>
+    `<div class="dash-mini-row"><span class="dm-l">${r.l}</span>`
+    + `<span class="dm-r ${r.cls || ''}">${r.r}</span></div>`).join('');
+}
+function _setWidget(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+function _dashUpg(d) {
+  return (d.sysinfo && d.sysinfo.packages && d.sysinfo.packages.upgradable) || 0;
+}
+function _msWorst(d) {
+  const v = Object.values(d.metric_state || {});
+  return v.includes('critical') ? 'critical' : v.includes('warning') ? 'warning' : null;
+}
+function _renderHomeWidgets(home) {
+  const devs = home.devices || [];
+  const counted = devs.filter(d => d.monitored !== false);
+  // Offline hosts
+  const off = counted.filter(d => !d.online);
+  _setWidget('home-w-offline-body', off.length
+    ? _miniRows(off.slice(0, 8).map(d => ({ l: escHtml(d.name), r: 'offline', cls: 'c-red' })))
+      + (off.length > 8 ? `<div class="hint">+${off.length - 8} more</div>` : '')
+    : '<div class="hint">All hosts reporting in.</div>');
+  // Pending updates
+  const upd = counted.filter(d => _dashUpg(d) > 0).sort((a, b) => _dashUpg(b) - _dashUpg(a));
+  const totUpd = counted.reduce((s, d) => s + _dashUpg(d), 0);
+  _setWidget('home-w-updates-body', upd.length
+    ? `<div class="dash-mini-head">${totUpd} updates across ${upd.length} host(s)</div>`
+      + _miniRows(upd.slice(0, 6).map(d => ({
+        l: escHtml(d.name), r: String(_dashUpg(d)), cls: _dashUpg(d) >= 20 ? 'c-amber' : '' })))
+    : '<div class="hint">Everything up to date.</div>');
+  // CVE exposure
+  const ids = new Set(counted.map(d => d.id));
+  const cveDevs = ((home.cves && home.cves.devices) || []).filter(d => ids.has(d.device_id))
+    .map(d => ({ id: d.device_id, c: (d.counts || {}).critical || 0, h: (d.counts || {}).high || 0 }))
+    .filter(d => d.c || d.h).sort((a, b) => (b.c - a.c) || (b.h - a.h));
+  const nameOf = id => { const d = devs.find(x => x.id === id); return d ? d.name : id; };
+  const totC = cveDevs.reduce((s, d) => s + d.c, 0), totH = cveDevs.reduce((s, d) => s + d.h, 0);
+  _setWidget('home-w-cves-body', cveDevs.length
+    ? `<div class="dash-mini-head"><span class="c-red">${totC} critical</span> · ${totH} high</div>`
+      + _miniRows(cveDevs.slice(0, 6).map(d => ({
+        l: escHtml(nameOf(d.id)), r: `${d.c}C / ${d.h}H`, cls: d.c ? 'c-red' : 'c-amber' })))
+    : '<div class="hint">No critical or high CVEs.</div>');
+  // Config drift
+  const driftDevs = ((home.drift && home.drift.devices) || [])
+    .filter(d => ids.has(d.device_id) && (d.drifted || 0) > 0);
+  _setWidget('home-w-drift-body', driftDevs.length
+    ? _miniRows(driftDevs.slice(0, 8).map(d => ({
+      l: escHtml(nameOf(d.device_id)), r: `${d.drifted} file(s)`, cls: 'c-amber' })))
+    : '<div class="hint">No configuration drift.</div>');
+  // Resource pressure
+  const press = counted.map(d => ({ d, w: _msWorst(d) })).filter(x => x.w);
+  const crit = press.filter(x => x.w === 'critical').length;
+  _setWidget('home-w-capacity-body', press.length
+    ? `<div class="dash-mini-head">${crit} critical · ${press.length - crit} warning</div>`
+      + _miniRows(press.sort((a, b) => (a.w === 'critical' ? 0 : 1) - (b.w === 'critical' ? 0 : 1))
+        .slice(0, 6).map(x => ({ l: escHtml(x.d.name), r: x.w,
+          cls: x.w === 'critical' ? 'c-red' : 'c-amber' })))
+    : '<div class="hint">CPU / memory / disk all nominal.</div>');
+  // Fleet by group
+  const groups = {};
+  counted.forEach(d => {
+    const g = d.group || '(ungrouped)';
+    groups[g] = groups[g] || { t: 0, on: 0 };
+    groups[g].t++; if (d.online) groups[g].on++;
+  });
+  const grp = Object.entries(groups).sort((a, b) => b[1].t - a[1].t);
+  _setWidget('home-w-groups-body', grp.length
+    ? _miniRows(grp.slice(0, 8).map(([g, v]) => ({
+      l: escHtml(g), r: `${v.on}/${v.t} up`, cls: v.on < v.t ? 'c-amber' : 'c-green' })))
+    : '<div class="hint">No devices.</div>');
+  // Monitoring coverage
+  const mon = devs.filter(d => d.monitored !== false).length;
+  const unmon = devs.length - mon;
+  _setWidget('home-w-monitored-body', _miniRows([
+    { l: 'Monitored', r: String(mon), cls: 'c-green' },
+    { l: 'Unmonitored', r: String(unmon), cls: unmon ? 'c-muted' : '' },
+    { l: 'Total devices', r: String(devs.length) },
+  ]));
+  // Stale agents (oldest check-ins among monitored, non-agentless)
+  const now = Date.now() / 1000;
+  const stale = counted.filter(d => !d.agentless && d.last_seen)
+    .sort((a, b) => a.last_seen - b.last_seen).slice(0, 6);
+  _setWidget('home-w-stale-body', stale.length
+    ? _miniRows(stale.map(d => ({
+      l: escHtml(d.name), r: timeAgo(d.last_seen),
+      cls: (now - d.last_seen) > 86400 ? 'c-amber' : '' })))
+    : '<div class="hint">No agents reporting.</div>');
+  // Mailbox watch
+  const mw = ((home.mailwatch && home.mailwatch.devices) || []).filter(d => d.dashboard);
+  let unread = 0;
+  mw.forEach(d => Object.values(d.counts || {}).forEach(c => {
+    if (c && typeof c.count === 'number') unread += c.count;
+  }));
+  _setWidget('home-w-mailwatch-body', mw.length
+    ? `<div class="dash-mini-head">${unread} unread across ${mw.length} host(s)</div>`
+      + _miniRows(mw.slice(0, 6).map(d => ({ l: escHtml(d.name || d.device_id || ''),
+        r: String(Object.values(d.counts || {}).reduce((s, c) => s + ((c && c.count) || 0), 0)) })))
+    : '<div class="hint">No mailbox watch on the dashboard.</div>');
+  // On-call now
+  const oc = home.oncall || {};
+  _setWidget('home-w-oncall-body', oc.enabled
+    ? _miniRows([{ l: 'On call', r: escHtml(oc.current || '—'), cls: 'c-green' }])
+    : '<div class="hint">On-call rotation not configured.</div>');
+}
+
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
 // Per-account choice of which Home widgets show and in what order, stored in
 // _uiPrefs.dashboard as [{key, on}] and persisted via the existing ui-prefs
 // flush. Widgets map onto the existing home cards by their data-widget
 // attribute — no new data path, we only toggle visibility and reorder nodes.
+// key, label, opt (add-on → off by default), size (default column span sm|md|lg).
 const DASH_WIDGETS = [
-  { key: 'upcoming', label: 'Upcoming events' },
-  { key: 'tickets',  label: 'Tickets (open + acknowledged)' },
-  { key: 'health',   label: 'Fleet health' },
-  { key: 'heatmap',  label: 'Fleet heat map' },
-  { key: 'overview', label: 'Needs attention + Recent activity' },
-  { key: 'roster',   label: 'Fleet roster' },
-  { key: 'links',    label: 'Quick links' },
+  { key: 'upcoming', label: 'Upcoming events',                  size: 'lg' },
+  { key: 'tickets',  label: 'Tickets (open + acknowledged)',    size: 'lg' },
+  { key: 'offline',  label: 'Offline hosts',          opt: true, size: 'sm' },
+  { key: 'updates',  label: 'Pending updates',         opt: true, size: 'sm' },
+  { key: 'cves',     label: 'CVE exposure',            opt: true, size: 'sm' },
+  { key: 'drift',    label: 'Config drift',            opt: true, size: 'sm' },
+  { key: 'capacity', label: 'Resource pressure',       opt: true, size: 'sm' },
+  { key: 'groups',   label: 'Fleet by group',          opt: true, size: 'sm' },
+  { key: 'monitored',label: 'Monitoring coverage',     opt: true, size: 'sm' },
+  { key: 'stale',    label: 'Stale agents',            opt: true, size: 'sm' },
+  { key: 'mailwatch',label: 'Mailbox watch',           opt: true, size: 'sm' },
+  { key: 'oncall',   label: 'On-call now',             opt: true, size: 'sm' },
+  { key: 'health',   label: 'Fleet health',                     size: 'lg' },
+  { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
+  { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },
+  { key: 'roster',   label: 'Fleet roster',                     size: 'lg' },
+  { key: 'links',    label: 'Quick links',                      size: 'lg' },
 ];
 const _DASH_KEYS = DASH_WIDGETS.map(w => w.key);
+const _DASH_META = Object.fromEntries(DASH_WIDGETS.map(w => [w.key, w]));
+const _DASH_SIZES = ['sm', 'md', 'lg'];
+function _dashDefaultSize(key) { return (_DASH_META[key] || {}).size || 'md'; }
+function _dashIsOpt(key) { return !!(_DASH_META[key] || {}).opt; }
 const _SVG_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>';
 const _SVG_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
@@ -12532,25 +12658,31 @@ function _dashLayout() {
   for (const e of saved) {
     if (!e || !_DASH_KEYS.includes(e.key) || seen.has(e.key)) continue;
     seen.add(e.key);
-    out.push({ key: e.key, on: e.on !== false });
+    out.push({ key: e.key, on: e.on !== false,
+               size: _DASH_SIZES.includes(e.size) ? e.size : _dashDefaultSize(e.key) });
   }
-  // v4.1.0: surface newly-shipped widgets at the TOP (in DASH_WIDGETS order) so
-  // they're noticed, rather than buried at the bottom of a saved layout.
+  // v4.1.0: not-yet-seen widgets. Core widgets surface at the TOP and on; add-on
+  // widgets (opt) wait off at the end until the user adds them from the catalog.
   const missing = _DASH_KEYS.filter(k => !seen.has(k));
-  out.unshift(...missing.map(k => ({ key: k, on: true })));
+  const mk = k => ({ key: k, on: !_dashIsOpt(k), size: _dashDefaultSize(k) });
+  out.unshift(...missing.filter(k => !_dashIsOpt(k)).map(mk));
+  out.push(...missing.filter(_dashIsOpt).map(mk));
   return out;
 }
 
 function applyDashboardLayout() {
   const home = document.getElementById('page-home');
   if (!home) return;
-  for (const { key, on } of _dashLayout()) {
+  const grid = document.getElementById('dash-grid') || home;
+  for (const { key, on, size } of _dashLayout()) {
     const node = home.querySelector('[data-widget="' + key + '"]');
     if (!node) continue;
-    node.classList.toggle('dash-off', !on);   // .dash-off hides via CSS; this
-    home.appendChild(node);                    // is independent of .d-none so
-  }                                            // the links card's own logic wins
-  // v4.1.0: keep the Ask-AI + Customize footer pinned below every widget.
+    node.classList.toggle('dash-off', !on);   // .dash-off hides via CSS
+    node.classList.remove('dash-w-sm', 'dash-w-md', 'dash-w-lg');
+    node.classList.add('dash-w-' + (_DASH_SIZES.includes(size) ? size : 'md'));
+    grid.appendChild(node);                    // reorder within the grid
+  }
+  // v4.1.0: keep the Ask-AI + Customize footer pinned below the grid.
   const footer = document.getElementById('home-footer-controls');
   if (footer) home.appendChild(footer);
 }
@@ -12567,41 +12699,122 @@ function _renderDashEditPanel() {
   const panel = document.getElementById('dash-edit-panel');
   if (!panel) return;
   const layout = _dashLayout();
-  panel.innerHTML =
-    '<div class="dash-edit-hint hint">Show, hide and reorder your dashboard. Saved to your account.</div>'
-    + layout.map((e, i) => {
-      const w = DASH_WIDGETS.find(x => x.key === e.key);
-      return '<div class="dash-edit-row">'
-        + '<label class="form-label dash-edit-name">'
-        + '<input type="checkbox" data-action="dashToggle" data-arg="' + escAttr(e.key) + '"' + (e.on ? ' checked' : '') + '> '
-        + escHtml(w ? w.label : e.key) + '</label>'
-        + '<span class="dash-edit-moves">'
-        + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="-1"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">' + _SVG_UP + '</button>'
-        + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="1"' + (i === layout.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">' + _SVG_DOWN + '</button>'
-        + '</span></div>';
-    }).join('');
+  const active = layout.filter(e => e.on);
+  const off = layout.filter(e => !e.on);
+  const lbl = k => { const w = _DASH_META[k]; return escHtml(w ? w.label : k); };
+  const sizeBtn = (e, s) =>
+    '<button class="btn-icon btn-xs dash-size' + (e.size === s ? ' on' : '') + '"'
+    + ' data-action="dashSize" data-arg="' + escAttr(e.key) + '" data-arg2="' + s + '"'
+    + ' title="' + ({ sm: 'Small', md: 'Medium', lg: 'Large' }[s]) + '">' + s.toUpperCase() + '</button>';
+  let html =
+    '<div class="dash-edit-hint hint">Resize, reorder, show/hide your dashboard. Saved to your account.</div>'
+    + '<div class="dash-edit-actions">'
+    + '<button class="btn-icon" data-action="dashReset" title="Restore the default layout">Reset</button>'
+    + '<button class="btn-icon" data-action="dashAlign" title="Make every widget the same width">Align</button>'
+    + '<button class="btn-icon" data-action="dashShareExport" title="Copy a code that recreates this layout">Share</button>'
+    + '<button class="btn-icon" data-action="dashShareImport" title="Apply a layout code from a teammate">Import</button>'
+    + '</div>';
+  html += active.map((e, i) =>
+    '<div class="dash-edit-row">'
+    + '<span class="dash-edit-name">' + lbl(e.key) + '</span>'
+    + '<span class="dash-edit-sizes">' + _DASH_SIZES.map(s => sizeBtn(e, s)).join('') + '</span>'
+    + '<span class="dash-edit-moves">'
+    + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="-1"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">' + _SVG_UP + '</button>'
+    + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="1"' + (i === active.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">' + _SVG_DOWN + '</button>'
+    + '<button class="btn-icon c-danger-outline" data-action="dashToggle" data-arg="' + escAttr(e.key) + '" title="Remove from dashboard" aria-label="Remove">✕</button>'
+    + '</span></div>').join('');
+  if (off.length) {
+    html += '<div class="dash-edit-hint hint mt-16">Add a widget</div><div class="dash-add-grid">'
+      + off.map(e => '<button class="btn-icon dash-add-btn" data-action="dashToggle" data-arg="'
+        + escAttr(e.key) + '">+ ' + lbl(e.key) + '</button>').join('')
+      + '</div>';
+  }
+  panel.innerHTML = html;
+}
+
+function _dashSave(layout) {
+  _uiPrefs.dashboard = layout;
+  applyDashboardLayout();
+  _renderDashEditPanel();
+  _scheduleFlushUiPrefs();
 }
 
 function dashToggle(key) {
   const layout = _dashLayout();
   const e = layout.find(x => x.key === key);
   if (e) e.on = !e.on;
-  _uiPrefs.dashboard = layout;
-  applyDashboardLayout();
-  _renderDashEditPanel();
-  _scheduleFlushUiPrefs();
+  _dashSave(layout);
 }
 
 function dashMove(key, dir) {
+  // Reorder among the VISIBLE widgets (the panel only moves active ones), then
+  // splice the result back so hidden widgets keep their relative slots.
   const layout = _dashLayout();
-  const i = layout.findIndex(x => x.key === key);
+  const active = layout.filter(e => e.on);
+  const i = active.findIndex(x => x.key === key);
   const j = i + dir;
-  if (i < 0 || j < 0 || j >= layout.length) return;
-  const t = layout[i]; layout[i] = layout[j]; layout[j] = t;
-  _uiPrefs.dashboard = layout;
+  if (i < 0 || j < 0 || j >= active.length) return;
+  const t = active[i]; active[i] = active[j]; active[j] = t;
+  const off = layout.filter(e => !e.on);
+  _dashSave(active.concat(off));
+}
+
+function dashSize(key, size) {
+  if (!_DASH_SIZES.includes(size)) return;
+  const layout = _dashLayout();
+  const e = layout.find(x => x.key === key);
+  if (e) e.size = size;
+  _dashSave(layout);
+}
+
+function dashReset() {
+  if (!confirm('Reset the dashboard to its default layout?')) return;
+  _uiPrefs.dashboard = [];          // empty → _dashLayout() rebuilds defaults
   applyDashboardLayout();
   _renderDashEditPanel();
   _scheduleFlushUiPrefs();
+  toast('Dashboard reset', 'info');
+}
+
+function dashAlign() {
+  // Tidy: make every visible widget the same (medium) width so they line up.
+  const layout = _dashLayout();
+  layout.forEach(e => { if (e.on) e.size = 'md'; });
+  _dashSave(layout);
+  toast('Widgets aligned', 'info');
+}
+
+function dashShareExport() {
+  const compact = _dashLayout().map(e => ({ key: e.key, on: e.on, size: e.size }));
+  let code = '';
+  try { code = btoa(JSON.stringify(compact)); } catch (e) { code = ''; }
+  if (!code) { toast('Could not build share code', 'error'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code)
+      .then(() => toast('Layout code copied to clipboard', 'success'))
+      .catch(() => prompt('Copy this dashboard layout code:', code));
+  } else {
+    prompt('Copy this dashboard layout code:', code);
+  }
+}
+
+function dashShareImport() {
+  const code = prompt('Paste a dashboard layout code to apply:', '');
+  if (!code) return;
+  let parsed;
+  try { parsed = JSON.parse(atob(code.trim())); } catch (e) { parsed = null; }
+  if (!Array.isArray(parsed)) { toast('Invalid layout code', 'error'); return; }
+  const clean = [];
+  const seen = new Set();
+  for (const e of parsed) {
+    if (!e || !_DASH_KEYS.includes(e.key) || seen.has(e.key)) continue;
+    seen.add(e.key);
+    clean.push({ key: e.key, on: e.on !== false,
+                 size: _DASH_SIZES.includes(e.size) ? e.size : _dashDefaultSize(e.key) });
+  }
+  if (!clean.length) { toast('Layout code had no known widgets', 'error'); return; }
+  _dashSave(clean);
+  toast('Dashboard layout applied', 'success');
 }
 
 function _renderHomeLinks(links) {

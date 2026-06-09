@@ -4466,6 +4466,39 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .alert-rc-badge.rc-root { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
 .alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
 .alerts-row.alert-symptom .alert-symptom-cell { padding-left: 22px; border-left: 2px solid var(--border); }
+/* v4.1.0: resizable dashboard grid (size = column span on a 6-col grid) */
+.dash-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
+             align-items: start; }
+.dash-grid > .dash-card { margin: 0; }            /* grid gap owns the spacing */
+.dash-w-sm { grid-column: span 2; }
+.dash-w-md { grid-column: span 3; }
+.dash-w-lg { grid-column: span 6; }
+@media (max-width: 1100px) {
+  .dash-w-sm { grid-column: span 3; }
+  .dash-w-md { grid-column: span 6; }
+}
+@media (max-width: 700px) {
+  .dash-grid { grid-template-columns: 1fr; }
+  .dash-w-sm, .dash-w-md, .dash-w-lg { grid-column: span 1; }
+}
+.dash-mini { font-size: 13px; }
+.dash-mini-head { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.dash-mini-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0;
+                 border-bottom: 1px solid var(--border); }
+.dash-mini-row:last-child { border-bottom: none; }
+.dash-mini-row .dm-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-mini-row .dm-r { flex: none; font-variant-numeric: tabular-nums; }
+/* customize panel: size buttons + add-widget catalog */
+.dash-edit-actions { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
+.dash-edit-row { display: flex; align-items: center; gap: 8px; }
+.dash-edit-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+.dash-edit-sizes { display: inline-flex; gap: 2px; }
+.btn-icon.dash-size { padding: 1px 6px; font-size: 10px; font-weight: 700; opacity: 0.55; }
+.btn-icon.dash-size.on { opacity: 1; border-color: var(--accent, #4a9eff);
+                         color: var(--accent, #4a9eff); }
+.dash-add-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash-add-btn { font-size: 12px; }
 /* v4.1.0: Upcoming + Tickets dashboard cards */
 .up-row, .tk-row { display: flex; align-items: center; gap: 8px; padding: 6px 0;
                    border-bottom: 1px solid var(--border); }

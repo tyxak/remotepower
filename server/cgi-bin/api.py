@@ -416,7 +416,11 @@ MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
 # v3.14.0 (#22): customizable dashboard — the widget keys the Home page exposes
 # for show/hide/reorder. Must mirror DASH_WIDGETS in app.js (a guardrail test
 # pins the two together).
-DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'health', 'heatmap', 'overview', 'roster', 'links')
+DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves',
+                              'drift', 'capacity', 'groups', 'monitored', 'stale',
+                              'mailwatch', 'oncall', 'health', 'heatmap', 'overview',
+                              'roster', 'links')
+DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
 BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
@@ -13065,7 +13069,11 @@ def _sanitise_ui_prefs(raw):
             if k not in DASHBOARD_WIDGETS or k in seen:
                 continue
             seen.add(k)
-            dash.append({'key': k, 'on': bool(e.get('on', True))})
+            entry = {'key': k, 'on': bool(e.get('on', True))}
+            # v4.1.0: per-widget size (column span). Validated; default md.
+            sz = e.get('size')
+            entry['size'] = sz if sz in DASHBOARD_WIDGET_SIZES else 'md'
+            dash.append(entry)
         if dash:
             out['dashboard'] = dash
 
@@ -23856,6 +23864,10 @@ def handle_home():
         # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
         'upcoming':     _dashboard_upcoming(),
         'tickets':      _dashboard_tickets(),
+        # v4.1.0: on-call widget (cheap — cfg already loaded). Other add-on
+        # widgets render client-side from the devices/drift/cves payload above.
+        'oncall':       {'current': _oncall_now(cfg, now),
+                         'enabled': bool((cfg.get('oncall') or {}).get('enabled'))},
         # v3.4.1: fleet health score. Reuses the cached attention payload above
         # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
         'health':       _fleet_health(),

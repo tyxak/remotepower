@@ -1070,13 +1070,14 @@ class TestDashboardCustomization(unittest.TestCase):
             {'key': 'roster', 'on': True},     # dup → dropped
             'not-a-dict',                       # junk → dropped
         ]})
+        # v4.1.0: each entry now also carries a validated size (default md).
         self.assertEqual(clean['dashboard'],
-                         [{'key': 'roster', 'on': False},
-                          {'key': 'health', 'on': True}])
+                         [{'key': 'roster', 'on': False, 'size': 'md'},
+                          {'key': 'health', 'on': True, 'size': 'md'}])
 
     def test_sanitiser_defaults_on_true(self):
         clean = api._sanitise_ui_prefs({'dashboard': [{'key': 'links'}]})
-        self.assertEqual(clean['dashboard'], [{'key': 'links', 'on': True}])
+        self.assertEqual(clean['dashboard'], [{'key': 'links', 'on': True, 'size': 'md'}])
 
     def test_sanitiser_ignores_non_list_dashboard(self):
         clean = api._sanitise_ui_prefs({'dashboard': 'nope'})
