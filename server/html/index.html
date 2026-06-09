@@ -3877,6 +3877,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </select>
           <input type="text" id="checks-filter-text" class="form-input isl-170" placeholder="Filter by host, check, group, or output…" data-input="renderChecks" data-input-debounce="180">
           <label class="click-row"><input type="checkbox" id="checks-hide-disabled" data-change="renderChecks"> Hide disabled</label>
+          <label class="click-row"><input type="checkbox" id="checks-hide-unmon" data-change="renderChecks" checked> Hide unmonitored</label>
           <button class="btn-icon" data-action="openCustomChecks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Custom checks</button>
           <button class="btn-icon" data-action="loadChecks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>

@@ -2083,7 +2083,9 @@ input.form-input[type="text"][data-token],
 /* Two-column dashboard layout for activity + attention */
 .dash-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0,…) lets columns shrink below their content so nowrap rows
+     (e.g. open-ticket titles) clip with an ellipsis instead of overflowing. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 18px;
   margin-bottom: 18px;
 }

@@ -7914,6 +7914,7 @@ async function loadChecks() {
     for (const h of ((data && data.hosts) || [])) {
       for (const c of (h.checks || [])) {
         _checksRows.push({ device_id: h.device_id, host: h.name, group: h.group || '',
+          monitored: h.monitored !== false,
           key: c.key, check: c.name, cgroup: c.group || '', status: c.status,
           output: c.output || '', enabled: c.enabled !== false });
       }
@@ -7930,7 +7931,10 @@ function renderChecks() {
   const statusSel = (document.getElementById('checks-filter-status') || {}).value || '';
   const q = ((document.getElementById('checks-filter-text') || {}).value || '').trim().toLowerCase();
   const hideDisabled = !!(document.getElementById('checks-hide-disabled') || {}).checked;
+  const hideUnmonEl = document.getElementById('checks-hide-unmon');
+  const hideUnmon = hideUnmonEl ? hideUnmonEl.checked : true;   // hidden by default
   let rows = _checksRows.filter(r => {
+    if (hideUnmon && r.monitored === false) return false;
     if (hideDisabled && !r.enabled) return false;
     if (statusSel === 'notok') { if (r.status === 'ok') return false; }
     else if (statusSel && r.status !== statusSel) return false;
@@ -7939,7 +7943,10 @@ function renderChecks() {
   });
   // Summary counts over the (unfiltered) enabled checks.
   const sum = { ok: 0, warning: 0, critical: 0, unknown: 0 };
-  _checksRows.forEach(r => { if (r.enabled) sum[r.status] = (sum[r.status] || 0) + 1; });
+  _checksRows.forEach(r => {
+    if (hideUnmon && r.monitored === false) return;
+    if (r.enabled) sum[r.status] = (sum[r.status] || 0) + 1;
+  });
   const se = document.getElementById('checks-summary');
   if (se) se.innerHTML =
     `<span class="chk-pill chk-critical">CRIT ${sum.critical}</span> ` +

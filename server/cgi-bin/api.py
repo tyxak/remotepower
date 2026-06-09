@@ -22059,6 +22059,7 @@ def handle_fleet_checks():
             continue
         hosts.append({'device_id': did, 'name': dev.get('name', did),
                       'group': dev.get('group', ''),
+                      'monitored': dev.get('monitored', True),
                       'summary': summ, 'checks': checks})
     hosts.sort(key=lambda h: h['name'].lower())
     return respond(200, {'hosts': hosts, 'total': len(hosts)})

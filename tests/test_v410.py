@@ -12,6 +12,7 @@ Coverage so far:
         forwarded in the on_ack webhook payload.
 """
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -1369,6 +1370,14 @@ class TestChecksView(unittest.TestCase):
         self.assertIn('id="page-checks"', self.html)
         self.assertIn('data-page="checks"', self.html)
         self.assertIn('id="checks-thead"', self.html)
+
+    def test_hide_unmonitored_toggle(self):
+        # Checked by default → unmonitored hosts hidden until the operator opts in.
+        self.assertIn('id="checks-hide-unmon"', self.html)
+        m = re.search(r'id="checks-hide-unmon"[^>]*', self.html)
+        self.assertIn('checked', m.group(0))
+        self.assertIn('checks-hide-unmon', self.js)
+        self.assertIn("r.monitored === false", self.js)
 
     def test_loader_and_dispatch_wired(self):
         self.assertIn("if (name === 'checks')   loadChecks()", self.js)
