@@ -384,8 +384,11 @@
      * minimal devices table + Home tile grid + drift fleet table; 1100
      * forced too much horizontal cramping on standard 1920-wide
      * monitors. 1300 fits 4 dashboard tiles comfortably and still
-     * leaves margin on FHD. */
-    max-width: 1300px;
+     * leaves margin on FHD.
+     * v4.1.0: 1300 → 1400 — reclaim ~100px of the wide right-hand gutter
+     * so boxes/tables breathe across the whole UI; still leaves margin on
+     * 1920 and the responsive caps below handle narrower viewports. */
+    max-width: 1400px;
     margin: 0 auto;
     padding: 0 24px;
     position: relative;
