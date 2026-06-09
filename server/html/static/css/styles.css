@@ -622,11 +622,16 @@
     border-left-color: transparent;
   }
   /* Group items sit relative to the rail (no extra left indent — the rail +
-     this padding give the hierarchy); denser than the top-level Main rows. */
-  .sidebar-group .nav-btn { padding: 6px 12px 6px 12px; }
+     this padding give the hierarchy); compact: -1 size + tight rows. */
+  .sidebar-group .nav-btn { padding: 4px 12px; font-size: 12px; }
+  .sidebar-group .nav-btn svg { width: 14px; height: 14px; }
   /* The active branch lights its segment of the rail in the accent colour. */
   .sidebar-group .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); margin-left: -1px; }
 
+  /* v4.1.0: dashboard title row with a small inline Customize button. */
+  .page-title-row { display: flex; align-items: center; gap: 12px; }
+  .page-title-row .page-title { margin: 0; }
+  .dash-customize-btn { margin-left: auto; flex: none; font-size: 12px; padding: 4px 10px; }
   /* ── sidebar eyecandy ─────────────────────────────────────────────────── */
   /* Active item: tint the icon with the accent, not just the bar. */
   .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); }

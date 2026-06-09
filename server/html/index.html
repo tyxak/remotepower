@@ -466,8 +466,15 @@
 
       <!-- ── v2.2.1: Home dashboard ───────────────────────────────────────── -->
       <div id="page-home" class="page active">
-        <div class="page-title">Fleet at a glance</div>
+        <div class="page-title-row">
+          <div class="page-title">Fleet at a glance</div>
+          <button class="btn-icon dash-customize-btn" data-action="toggleDashEdit" title="Show, hide, resize and reorder dashboard widgets">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Customize
+          </button>
+        </div>
         <div class="page-subtitle">Everything that needs your attention, in one screen.</div>
+        <div id="dash-edit-panel" class="dash-edit-panel hidden"></div>
 
         <!-- Big number summary tiles -->
         <div id="home-tiles" class="tile-grid">
@@ -625,14 +632,6 @@
             <input type="text" id="home-ai-q" class="form-input" placeholder="Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?" data-enter="aiAskFleet">
             <button class="btn-primary" data-action="aiAskFleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg> Ask</button>
           </div>
-          <!-- v3.14.0 (#22): per-account dashboard customization -->
-          <div class="dash-toolbar">
-            <button class="btn-icon" data-action="toggleDashEdit" title="Show, hide and reorder dashboard widgets">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-              Customize
-            </button>
-          </div>
-          <div id="dash-edit-panel" class="dash-edit-panel hidden"></div>
         </div>
       </div>
 
