@@ -23774,6 +23774,11 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     def _g(k):
         return want is None or k in want
     out = {}
+    # Load the hardware record once and share it across the smart/ups/temp, tls
+    # and checks-roll-up widgets — avoids re-deep-copying hardware.json per
+    # consumer. Only read it at all when one of those widgets is enabled.
+    hw_all = (load(HARDWARE_FILE) or {}) \
+        if any(_g(k) for k in ('smart', 'ups', 'temp', 'tls', 'checksrollup')) else {}
     # Open alerts by severity
     try:
         sev = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
@@ -23824,19 +23829,21 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             out['monitors'] = {'total': n, 'up': n, 'down': 0}
     except Exception:
         out['monitors'] = {}
-    # Container issues (not-running across all reported hosts)
-    try:
-        stopped = 0
-        store = load(CONTAINERS_FILE) or {}
-        for dev_id, entry in store.items():
-            if dev_id not in devices_raw or not isinstance(entry, dict):
-                continue
-            for it in (entry.get('items') or []):
-                if isinstance(it, dict) and not _container_is_running(it.get('status')):
-                    stopped += 1
-        out['containers'] = {'stopped': stopped}
-    except Exception:
-        out['containers'] = {}
+    # Container issues (not-running across all reported hosts). Gated — reads
+    # CONTAINERS_FILE and walks every container, so skip it when not displayed.
+    if _g('containers'):
+        try:
+            stopped = 0
+            store = load(CONTAINERS_FILE) or {}
+            for dev_id, entry in store.items():
+                if dev_id not in devices_raw or not isinstance(entry, dict):
+                    continue
+                for it in (entry.get('items') or []):
+                    if isinstance(it, dict) and not _container_is_running(it.get('status')):
+                        stopped += 1
+            out['containers'] = {'stopped': stopped}
+        except Exception:
+            out['containers'] = {}
     # Disk-fill ETA (near-full hosts only — bounded). Computed once and shared
     # with the checks roll-up; only when one of those widgets is displayed.
     eta_shared = {}
@@ -23898,16 +23905,16 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         out['failedunits'] = out['timers'] = {}
         out['mounts'] = out['clockskew'] = out['gateway'] = {}
         out['oom'] = out['storagedeg'] = {}
-    # Hardware flags (one file read)
-    try:
-        hw = load(HARDWARE_FILE) or {}
-        cnt = lambda flag: sum(1 for r in hw.values()
-                               if isinstance(r, dict) and r.get(flag))
-        out['smart'] = {'count': cnt('_smart_failed')}
-        out['ups'] = {'count': cnt('_ups_on_battery')}
-        out['temp'] = {'count': cnt('_temp_high')}
-    except Exception:
-        out['smart'] = out['ups'] = out['temp'] = {}
+    # Hardware flags (shared hw_all)
+    if any(_g(k) for k in ('smart', 'ups', 'temp')):
+        try:
+            cnt = lambda flag: sum(1 for r in hw_all.values()
+                                   if isinstance(r, dict) and r.get(flag))
+            out['smart'] = {'count': cnt('_smart_failed')}
+            out['ups'] = {'count': cnt('_ups_on_battery')}
+            out['temp'] = {'count': cnt('_temp_high')}
+        except Exception:
+            out['smart'] = out['ups'] = out['temp'] = {}
     # Backups: scheduled jobs (total + ran in 24h) AND backup-file-age monitors
     # (configured + currently stale, from the edge-trigger state file). So the
     # widget reflects "are backups healthy", not just "are jobs scheduled".
@@ -23928,38 +23935,39 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         out['backups'] = {}
     # ── wave 5: data-backed widgets ───────────────────────────────────────────
     # TLS / cert expiry (from the hardware record's cert_files inventory; non-CA)
-    try:
-        hw = load(HARDWARE_FILE) or {}
-        soon = now + 30 * 86400
-        _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
-               '/usr/share/ca-certificates', '/etc/ca-certificates')
-        rows = []
-        for did, rec in hw.items():
-            if not isinstance(rec, dict):
-                continue
-            nm = (devices_raw.get(did) or {}).get('name', did)
-            for c in (rec.get('cert_files') or []):
-                na = c.get('not_after') or 0
-                if 0 < na <= soon and not str(c.get('path', '')).startswith(_ca):
-                    rows.append({'name': nm, 'days': max(0, int((na - now) / 86400))})
-        rows.sort(key=lambda r: r['days'])
-        out['tls'] = rows[:6]
-    except Exception:
-        out['tls'] = []
-    # Active brute-force sources (BRUTE_FORCE_FILE + configured window/threshold)
-    try:
-        _, thr, win = _brute_config()
-        cut = now - win
-        bf = load(BRUTE_FORCE_FILE) or {}
-        hosts = []
-        for did, d in devices_raw.items():
-            if not isinstance(d, dict):
-                continue
-            if _bf_active(bf.get(did, {}) or {}, cut, thr):
-                hosts.append(d.get('name', did))
-        out['bruteforce'] = {'count': len(hosts), 'hosts': hosts[:8]}
-    except Exception:
-        out['bruteforce'] = {}
+    if _g('tls'):
+        try:
+            soon = now + 30 * 86400
+            _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
+                   '/usr/share/ca-certificates', '/etc/ca-certificates')
+            rows = []
+            for did, rec in hw_all.items():
+                if not isinstance(rec, dict):
+                    continue
+                nm = (devices_raw.get(did) or {}).get('name', did)
+                for c in (rec.get('cert_files') or []):
+                    na = c.get('not_after') or 0
+                    if 0 < na <= soon and not str(c.get('path', '')).startswith(_ca):
+                        rows.append({'name': nm, 'days': max(0, int((na - now) / 86400))})
+            rows.sort(key=lambda r: r['days'])
+            out['tls'] = rows[:6]
+        except Exception:
+            out['tls'] = []
+    # Active brute-force sources (BRUTE_FORCE_FILE + per-host _bf_active). Gated.
+    if _g('bruteforce'):
+        try:
+            _, thr, win = _brute_config()
+            cut = now - win
+            bf = load(BRUTE_FORCE_FILE) or {}
+            hosts = []
+            for did, d in devices_raw.items():
+                if not isinstance(d, dict):
+                    continue
+                if _bf_active(bf.get(did, {}) or {}, cut, thr):
+                    hosts.append(d.get('name', did))
+            out['bruteforce'] = {'count': len(hosts), 'hosts': hosts[:8]}
+        except Exception:
+            out['bruteforce'] = {}
     # Top bandwidth (sum of per-iface rx+tx bps from the device sysinfo)
     try:
         rows = []
@@ -23980,7 +23988,6 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     if _g('checksrollup'):
         try:
             cve_all = _cve_high_counts()
-            hw_all = load(HARDWARE_FILE) or {}
             cfg_custom = cfg.get('custom_checks') or []
             scripts_all = _load_custom_scripts()
             disabled_all = cfg.get('host_checks_disabled') or {}
