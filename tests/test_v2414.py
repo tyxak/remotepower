@@ -161,9 +161,12 @@ class TestFeaturesMdCompleteness(unittest.TestCase):
         self.assertIn('MCP server', self.md,
                       'MCP server section missing from features.md')
 
-    def test_mcp_read_only_policy_documented(self):
-        self.assertIn('No write tools', self.md,
-                      'MCP no-write-tools policy not documented')
+    def test_mcp_write_tool_policy_documented(self):
+        # v4.1.0: write tools exist (since v3.2.0) but are guarded by a
+        # per-token allow-list — the docs must describe that, not the old
+        # "no write tools" claim.
+        self.assertIn('allow-list', self.md,
+                      'MCP write-tool allow-list policy not documented')
 
     def test_pending_reboot_indicator_documented(self):
         self.assertIn('Pending Reboot', self.md,
