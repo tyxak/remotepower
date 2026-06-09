@@ -47,12 +47,13 @@ class _AssetTests(unittest.TestCase):
 class TestContainerWidth(_AssetTests):
 
     def test_container_max_width_1300(self):
-        # The first .container block (desktop layout)
+        # The first .container block (desktop layout). v4.1.0 widened it
+        # 1300 → 1400px to reclaim the right-hand gutter.
         idx = self.css.find('.container {')
         self.assertGreater(idx, 0)
-        block = self.css[idx:idx + 400]
-        self.assertIn('max-width: 1300px', block,
-                      "container should be 1300px in v2.2.5")
+        block = self.css[idx:idx + 800]
+        self.assertIn('max-width: 1400px', block,
+                      "container should be 1400px as of v4.1.0")
         self.assertNotIn('max-width: 1100px', block,
                          "old 1100px width should be gone")
 

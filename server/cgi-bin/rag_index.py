@@ -234,6 +234,26 @@ def _dedup_id(base, seen):
     return nid
 
 
+def device_focus_tokens(dev_id):
+    """The query tokens that should 'focus' a search on this device: the full
+    id plus its first hostname label (shared domain labels excluded). Same rule
+    the JSON index uses internally — exposed so the Postgres path can match
+    identically."""
+    low = str(dev_id).lower()
+    return {t for t in (low, low.split('.')[0]) if len(t) >= 2}
+
+
+def focus_devices_for_query(query, device_ids):
+    """Device ids a query explicitly names (by id or short hostname). Shared by
+    the JSON/SQLite index and the Postgres path so single-host focus behaves
+    identically on every backend."""
+    qset = set(tokenize(query or ''))
+    if not qset:
+        return set()
+    return {dev for dev in (device_ids or [])
+            if device_focus_tokens(dev) & qset}
+
+
 def build_docs_corpus(files):
     """files: iterable of (name, markdown_text) — product docs + manuals."""
     docs = []
@@ -984,6 +1004,10 @@ class InfraIndex:
     # device's own chunks always sort above generic matches, while their
     # relative order (by underlying relevance) is preserved.
     _FOCUS_BONUS = 1.0
+    # Upper bound on chunks returned when the query is about a single host, so
+    # one busy host (hundreds of containers/ports chunks) can't blow the budget;
+    # the per-host chunk count is small in practice (~6-12 facets).
+    _FOCUS_MAX_CHUNKS = 16
 
     def search(self, query, top_n=6, query_vec=None, prefilter_n=50):
         """Return up to top_n doc dicts most relevant to `query`.
@@ -1025,6 +1049,14 @@ class InfraIndex:
             for doc in self.docs:
                 if doc.get('device') in focus and doc['id'] not in score:
                     score[doc['id']] = self._FOCUS_BONUS
+            # Single-host question ("tell me everything about web01", "summarise
+            # its docs", "what's its purpose") → return that host's WHOLE
+            # picture, not just top_n general hits. Without this the per-host
+            # summary/services/containers/cmdb/docs/runbook chunks compete for a
+            # handful of slots and the answer reads as "no docs / no services".
+            if len(focus) == 1:
+                dev_chunks = sum(1 for d in self.docs if d.get('device') in focus)
+                top_n = min(self._FOCUS_MAX_CHUNKS, max(top_n, dev_chunks))
 
         ranked_ids = sorted(score, key=lambda i: score[i], reverse=True)[:top_n]
         return [self._by_id[i] for i in ranked_ids if i in self._by_id]

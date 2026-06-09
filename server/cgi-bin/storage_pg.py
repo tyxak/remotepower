@@ -773,6 +773,33 @@ def rag_search(data_dir, query_text, query_vec, k=6):
     return out
 
 
+def rag_devices(data_dir):
+    """Distinct device ids present in the chunk store — for single-host focus
+    detection on the Postgres retrieval path (mirrors the JSON index)."""
+    conn = _connect(data_dir)
+    rows = conn.execute(
+        'SELECT DISTINCT device FROM rag_chunks WHERE device IS NOT NULL'
+    ).fetchall()
+    return [r['device'] for r in rows]
+
+
+def rag_device_chunks(data_dir, devices, limit=16):
+    """All chunks for the given device(s), newest first, capped at `limit`.
+    Surfaces a named host's whole picture (summary + services + containers +
+    cmdb + docs + runbook) when the query is about exactly one host."""
+    if not devices:
+        return []
+    conn = _connect(data_dir)
+    k = max(1, min(50, int(limit)))
+    cols = 'id, source, dtype, device, title, body, ts'
+    rows = conn.execute(
+        f'SELECT {cols} FROM rag_chunks WHERE device = ANY(%s) '
+        'ORDER BY ts DESC LIMIT %s', (list(devices), k)).fetchall()
+    return [{'id': r['id'], 'source': r['source'], 'type': r['dtype'],
+             'device': r['device'], 'title': r['title'],
+             'text': r['body'], 'ts': int(r['ts'] or 0)} for r in rows]
+
+
 def rag_count(data_dir):
     conn = _connect(data_dir)
     try:

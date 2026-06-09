@@ -561,6 +561,62 @@ class TestRagConversationQuery(unittest.TestCase):
         self.assertTrue(any("web01" in h["id"] for h in hits))
 
 
+class TestRagFocusHelper(unittest.TestCase):
+    """v4.1.0: shared single-host focus matching (used by JSON/SQLite + PG)."""
+
+    def test_matches_id_and_short_hostname(self):
+        devs = ["pmg01.tvipper.com", "web01"]
+        self.assertEqual(
+            rag_index.focus_devices_for_query("status of pmg01.tvipper.com?", devs),
+            {"pmg01.tvipper.com"})
+        # short label alone still focuses
+        self.assertEqual(
+            rag_index.focus_devices_for_query("how is pmg01 doing", devs),
+            {"pmg01.tvipper.com"})
+
+    def test_shared_domain_label_does_not_focus(self):
+        devs = ["pmg01.tvipper.com", "mail.tvipper.com"]
+        # "com"/"tvipper" are shared → must NOT focus every host
+        self.assertEqual(
+            rag_index.focus_devices_for_query("anything on com servers", devs),
+            set())
+
+    def test_empty_query(self):
+        self.assertEqual(rag_index.focus_devices_for_query("", ["web01"]), set())
+
+
+class TestRagFocusDepth(unittest.TestCase):
+    """A single-host question returns that host's whole picture, not just the
+    default top_n general hits."""
+
+    def setUp(self):
+        _patch_respond()
+        _seed_fleet()
+        _enable_rag()
+
+    def test_single_host_returns_full_picture(self):
+        cfg = api._ai_cfg()
+        api._rag_reindex(cfg)
+        idx = api._rag_load_index()
+        total_web01 = sum(1 for d in idx.docs if d.get("device") == "web01")
+        self.assertGreater(total_web01, 6)  # summary+services+cve+container+cmdb+doc+runbook
+        # Default top_n is 8, but focus expansion returns up to the host's
+        # full chunk count (capped at _FOCUS_MAX_CHUNKS).
+        hits = idx.search("tell me everything about web01", top_n=8)
+        web01_hits = [h for h in hits if h.get("device") == "web01"]
+        self.assertGreaterEqual(len(web01_hits), min(total_web01,
+                                rag_index.InfraIndex._FOCUS_MAX_CHUNKS))
+        # The per-asset CMDB doc + runbook should be present so "summarise its
+        # docs" has material to work with.
+        ids = " ".join(h["id"] for h in hits)
+        self.assertIn("runbook/web01", ids)
+        self.assertTrue(any("cmdb/web01/doc" in h["id"] for h in hits))
+
+    def test_default_chunk_count_is_eight(self):
+        self.assertEqual(api._AI_DEFAULTS["rag"]["max_chunks"], 8)
+        self.assertEqual(api._AI_DEFAULTS["rag"]["max_chars"], 6000)
+
+
 class TestApiEndpoints(unittest.TestCase):
     def setUp(self):
         _patch_respond()

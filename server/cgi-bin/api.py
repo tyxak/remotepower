@@ -18379,8 +18379,13 @@ _AI_DEFAULTS = {
         # also Postgres, since it reuses that connection). Switch via
         # POST /api/ai/rag/index-backend/migrate.
         'index_backend': 'json',
-        'max_chunks': 6,
-        'max_chars':  4000,
+        # v4.1.0: 6→8 chunks / 4000→6000 chars. Six chunks couldn't hold a
+        # single host's full picture (summary + services + containers + cmdb
+        # meta + per-asset docs + runbook), so "summarise its docs" / "list
+        # everything about that asset" came back thin. Eight + a larger char
+        # budget fit a focused host's chunks together; cheap for a local model.
+        'max_chunks': 8,
+        'max_chars':  6000,
         # Lazy reindex throttle: rebuild at most once per this many seconds,
         # even though devices.json changes every heartbeat. Bounds both the
         # (cheap) lexical rebuild frequency and — when embeddings are on — the
@@ -19086,8 +19091,27 @@ def _rag_retrieve_pg(cfg, query):
         if res.get('ok') and res.get('vectors'):
             query_vec = res['vectors'][0]
     chunks = storage_pg.rag_search(DATA_DIR, query, query_vec,
-                                   k=int(rag.get('max_chunks', 6)))
-    return _rag_budget_trim(chunks, int(rag.get('max_chars', 4000)))
+                                   k=int(rag.get('max_chunks', 8)))
+    # Single-host focus parity with the JSON/SQLite index: if the query names
+    # exactly one host, prepend that host's full chunk set (deduped) so
+    # "summarise its docs" / "everything about that asset" works on PG too.
+    try:
+        focus = rag_index.focus_devices_for_query(
+            query, storage_pg.rag_devices(DATA_DIR))
+        if len(focus) == 1:
+            dev_chunks = storage_pg.rag_device_chunks(
+                DATA_DIR, list(focus),
+                limit=rag_index.InfraIndex._FOCUS_MAX_CHUNKS)
+            seen, merged = set(), []
+            for c in dev_chunks + chunks:
+                if c['id'] in seen:
+                    continue
+                seen.add(c['id'])
+                merged.append(c)
+            chunks = merged
+    except Exception as e:
+        sys.stderr.write(f'rag: pg device-focus failed: {e}\n')
+    return _rag_budget_trim(chunks, int(rag.get('max_chars', 6000)))
 
 
 def _rag_query_from_messages(messages, max_user=4, max_assistant_chars=600,
@@ -19149,10 +19173,10 @@ def _rag_retrieve(cfg, query):
             res = ai_provider.embed(cfg, [query])
             if res.get('ok') and res.get('vectors'):
                 query_vec = res['vectors'][0]
-        top_n = int(rag.get('max_chunks', 6))
+        top_n = int(rag.get('max_chunks', 8))
         chunks = idx.search(query, top_n=top_n, query_vec=query_vec)
         # Trim total size to the operator's char budget.
-        budget = int(rag.get('max_chars', 4000))
+        budget = int(rag.get('max_chars', 6000))
         out, used = [], 0
         for c in chunks:
             t = c.get('text', '')
@@ -19319,7 +19343,7 @@ def handle_ai_rag_search():
     top_n = body.get('top_n')
     rag = cfg.get('rag') or {}
     if not (isinstance(top_n, int) and 1 <= top_n <= 30):
-        top_n = int(rag.get('max_chunks', 6))
+        top_n = int(rag.get('max_chunks', 8))
     idx = _rag_get_index(cfg)
     query_vec = None
     if _rag_embeddings_active(cfg) and idx.has_embeddings():
