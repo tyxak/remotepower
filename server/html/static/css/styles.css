@@ -486,6 +486,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    transition: padding-top .2s ease;
   }
   .sidebar-label {
     font-size: 11px;
@@ -639,6 +640,10 @@
 
   /* ── v4.1.0: collapse/hide the top bar ────────────────────────────────── */
   body.banner-collapsed header { display: none; }
+  /* With the banner gone, the sidebar's 72px header-clearance gap looks
+     stranded — pull its contents up to match the risen main column (and
+     animate it both ways). */
+  body.banner-collapsed .sidebar { padding-top: 16px; }
   #banner-restore {
     position: fixed; top: 8px; right: 12px; z-index: 200;
     width: 30px; height: 30px; display: none; align-items: center;
