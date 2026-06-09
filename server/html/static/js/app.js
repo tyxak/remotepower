@@ -8069,6 +8069,51 @@ function _renderAlertsSummary(summary) {
     (bs.high ? `<span class="alerts-summary-pill sev-pill sev-high">High: ${bs.high}</span>` : '');
 }
 
+const _ALERT_SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+const _ALERT_SEV_NAME = ['critical', 'high', 'medium', 'low'];
+// v4.1.0: per-host grouping state. Default grouped; collapsed set persists
+// across re-renders within the session.
+const _alertGroupsCollapsed = new Set();
+function _alertHostKey(a) {
+  return a.device_id || (a.device_name ? 'name:' + a.device_name : '__fleet__');
+}
+// One alert <tr>. role: '' | 'root' | 'symptom' (controls the badge + indent).
+function _alertRowHtml(a, role) {
+  const isResolved = !!a.resolved_at;
+  const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
+  const sev = (a.severity || 'medium');
+  const sevPill = `<span class="sev-pill sev-${sev}">${sev}</span>`;
+  const dev = a.device_name || a.device_id || '—';
+  const ts = _formatTs(a.ts);
+  let actions = '';
+  if (!isResolved) {
+    actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
+    if (!a.acknowledged_at) {
+      actions += `<button class="btn-icon btn-xs" data-action="ackAlert" data-arg="${a.id}">Ack</button> `;
+    } else {
+      actions += `<button class="btn-icon btn-xs" data-action="unackAlert" data-arg="${a.id}">Un-ack</button> `;
+    }
+    actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
+  } else {
+    const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
+    actions = `<span class="c-muted">resolved by ${byWho}</span>`;
+  }
+  const cb = isResolved ? '' :
+    `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;
+  const badge = role === 'root'
+    ? ' <span class="alert-rc-badge rc-root">root cause</span>'
+    : role === 'symptom' ? ' <span class="alert-rc-badge rc-symptom">symptom</span>' : '';
+  const titleCls = role === 'symptom' ? ' class="alert-symptom-cell"' : '';
+  return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}">
+    <td>${cb}</td>
+    <td>${sevPill}</td>
+    <td class="nowrap">${ts}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${a.alertid ? `<div class="hint">${_escapeHtml(a.alertid)}</div>` : ''}</td>
+    <td>${_escapeHtml(dev)}</td>
+    <td>${ackBy}</td>
+    <td class="nowrap">${actions}</td>
+  </tr>`;
+}
 function renderAlerts() {
   const filterEl = document.getElementById('alerts-filter-text');
   const q = ((filterEl && filterEl.value) || '').trim().toLowerCase();
@@ -8079,17 +8124,7 @@ function renderAlerts() {
       (a.device_name || '').toLowerCase().includes(q) ||
       (a.event || '').toLowerCase().includes(q));
   }
-  // v3.2.1: sortable. Default = ts desc (newest first), handled by inbox
-  // ordering server-side, but operator can override.
   tableCtl.wireSortOnly('alerts-thead', 'alerts', renderAlerts);
-  const _sevRank = { critical: 0, high: 1, medium: 2, low: 3 };
-  rows = tableCtl.sortRows('alerts', rows, (a) => ({
-    severity:        _sevRank[a.severity] ?? 99,
-    ts:              a.ts || 0,
-    title:           (a.title || '').toLowerCase(),
-    device_name:     (a.device_name || '').toLowerCase(),
-    acknowledged_by: a.acknowledged_by || '',
-  }));
   const tbody = document.getElementById('alerts-tbody');
   if (!tbody) return;
   if (!rows.length) {
@@ -8097,39 +8132,99 @@ function renderAlerts() {
     _updateBulkResolveBtn();
     return;
   }
-  tbody.innerHTML = rows.map(a => {
-    const isResolved = !!a.resolved_at;
-    const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
-    const sev = (a.severity || 'medium');
-    const sevPill = `<span class="sev-pill sev-${sev}">${sev}</span>`;
-    const dev = a.device_name || a.device_id || '—';
-    const ts = _formatTs(a.ts);
-    let actions = '';
-    if (!isResolved) {
-      actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
-      if (!a.acknowledged_at) {
-        actions += `<button class="btn-icon btn-xs" data-action="ackAlert" data-arg="${a.id}">Ack</button> `;
-      } else {
-        actions += `<button class="btn-icon btn-xs" data-action="unackAlert" data-arg="${a.id}">Un-ack</button> `;
-      }
-      actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
-    } else {
-      const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
-      actions = `<span class="c-muted">resolved by ${byWho}</span>`;
-    }
-    const cb = isResolved ? '' :
-      `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;
-    return `<tr class="alerts-row${isResolved ? ' resolved' : ''}">
-      <td>${cb}</td>
-      <td>${sevPill}</td>
-      <td class="nowrap">${ts}</td>
-      <td>${_escapeHtml(a.title || a.event || '')}${a.alertid ? `<div class="hint">${_escapeHtml(a.alertid)}</div>` : ''}</td>
-      <td>${_escapeHtml(dev)}</td>
-      <td>${ackBy}</td>
-      <td class="nowrap">${actions}</td>
-    </tr>`;
-  }).join('');
+  const groupEl = document.getElementById('alerts-group-host');
+  const grouped = groupEl ? groupEl.checked : true;
+  if (grouped) { _renderAlertsGrouped(rows); }
+  else { _renderAlertsFlat(rows); }
   _updateBulkResolveBtn();
+}
+function _renderAlertsFlat(rows) {
+  // v3.2.1: sortable. Default = ts desc (newest first); operator can override.
+  rows = tableCtl.sortRows('alerts', rows, (a) => ({
+    severity:        _ALERT_SEV_RANK[a.severity] ?? 99,
+    ts:              a.ts || 0,
+    title:           (a.title || '').toLowerCase(),
+    device_name:     (a.device_name || '').toLowerCase(),
+    acknowledged_by: a.acknowledged_by || '',
+  }));
+  document.getElementById('alerts-tbody').innerHTML =
+    rows.map(a => _alertRowHtml(a, '')).join('');
+}
+function _renderAlertsGrouped(rows) {
+  // Bucket by host, then order groups worst-severity → most-open → name.
+  const groups = new Map();
+  for (const a of rows) {
+    const k = _alertHostKey(a);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(a);
+  }
+  const arr = [...groups.entries()].map(([key, items]) => {
+    const worst = Math.min(99, ...items.map(a => _ALERT_SEV_RANK[a.severity] ?? 99));
+    const openCount = items.filter(a => !a.resolved_at).length;
+    return {
+      key, items,
+      name: items[0].device_name || items[0].device_id || 'Fleet / no host',
+      worst, openCount, hasRoot: items.some(a => a._root_cause),
+    };
+  });
+  arr.sort((x, y) => x.worst - y.worst || y.openCount - x.openCount
+    || x.name.localeCompare(y.name));
+  const order = a => a._root_cause ? 0 : a._symptom_of ? 1 : 2;
+  let html = '';
+  for (const g of arr) {
+    if (g.items.length === 1) { html += _alertRowHtml(g.items[0], ''); continue; }
+    const items = g.items.slice().sort((a, b) =>
+      order(a) - order(b)
+      || (_ALERT_SEV_RANK[a.severity] ?? 9) - (_ALERT_SEV_RANK[b.severity] ?? 9)
+      || (b.ts || 0) - (a.ts || 0));
+    const collapsed = _alertGroupsCollapsed.has(g.key);
+    const worstName = _ALERT_SEV_NAME[g.worst] || 'low';
+    const caret = collapsed ? '▸' : '▾';
+    const rootNote = g.hasRoot ? ' · host offline — symptoms folded' : '';
+    let groupActions = '';
+    if (g.openCount) {
+      groupActions =
+        `<button class="btn-icon btn-xs" data-action="ackGroup" data-arg="${escAttr(g.key)}">Ack all</button> ` +
+        `<button class="btn-icon btn-xs c-success" data-action="resolveGroup" data-arg="${escAttr(g.key)}">Resolve all</button>`;
+    }
+    html += `<tr class="alerts-group-row">
+      <td colspan="6"><button class="alerts-group-toggle" data-action="toggleAlertGroup" data-arg="${escAttr(g.key)}">${caret} <strong>${_escapeHtml(g.name)}</strong></button> <span class="sev-pill sev-${worstName}">${worstName}</span> <span class="hint">${g.openCount} open / ${g.items.length} total${rootNote}</span></td>
+      <td class="nowrap">${groupActions}</td></tr>`;
+    if (!collapsed) {
+      for (const a of items) {
+        html += _alertRowHtml(a, a._root_cause ? 'root' : a._symptom_of ? 'symptom' : '');
+      }
+    }
+  }
+  document.getElementById('alerts-tbody').innerHTML = html;
+}
+function toggleAlertGroup(key) {
+  if (_alertGroupsCollapsed.has(key)) _alertGroupsCollapsed.delete(key);
+  else _alertGroupsCollapsed.add(key);
+  renderAlerts();
+}
+async function ackGroup(key) {
+  const ids = (_alertsCache || []).filter(a =>
+    _alertHostKey(a) === key && !a.resolved_at && !a.acknowledged_at).map(a => a.id);
+  if (!ids.length) { toast('Nothing to acknowledge on this host', 'info'); return; }
+  const body = { ids };
+  if (_alertsAckCommentEnabled) {
+    const note = prompt(`Add a comment to ${ids.length} acknowledgement(s) (optional):`, '');
+    if (note === null) return;
+    if (note.trim()) body.note = note.trim();
+  }
+  const r = await api('POST', '/alerts/bulk-ack', body);
+  if (r && r.ok) { toast(`Acknowledged ${r.acked}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+async function resolveGroup(key) {
+  const ids = (_alertsCache || []).filter(a =>
+    _alertHostKey(a) === key && !a.resolved_at).map(a => a.id);
+  if (!ids.length) return;
+  if (!confirm(`Resolve ${ids.length} alert(s) on this host?`)) return;
+  const r = await api('POST', '/alerts/bulk-resolve', { ids });
+  if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 function _formatTs(ts) {

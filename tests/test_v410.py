@@ -1560,5 +1560,51 @@ class TestAgentSideChecks(unittest.TestCase):
         self.assertEqual(len(out), 1)
 
 
+class TestAlertCorrelation(unittest.TestCase):
+    """v4.1.0: host-level root-cause folding — a host's symptom alerts link to
+    its open device_offline alert so the grouped inbox reads as one incident."""
+
+    def _alerts(self):
+        return [
+            {'id': 'o1', 'event': 'device_offline', 'device_id': 'd1'},
+            {'id': 's1', 'event': 'service_down', 'device_id': 'd1'},
+            {'id': 's2', 'event': 'metric_critical', 'device_id': 'd1'},
+            {'id': 'x1', 'event': 'cve_found', 'device_id': 'd1'},     # not a symptom type
+            {'id': 'o2', 'event': 'service_down', 'device_id': 'd2'},  # d2 has no offline
+        ]
+
+    def test_root_and_symptoms_tagged(self):
+        out = {a['id']: a for a in api._annotate_alert_correlation(self._alerts())}
+        self.assertTrue(out['o1'].get('_root_cause'))
+        self.assertEqual(out['s1'].get('_symptom_of'), 'o1')
+        self.assertEqual(out['s2'].get('_symptom_of'), 'o1')
+        self.assertIsNone(out['x1'].get('_symptom_of'))      # cve isn't a symptom
+        self.assertIsNone(out['o2'].get('_symptom_of'))      # d2 has no root
+
+    def test_acked_offline_is_not_root(self):
+        al = self._alerts()
+        al[0]['acknowledged_at'] = 123          # offline already acked → not open
+        out = {a['id']: a for a in api._annotate_alert_correlation(al)}
+        self.assertFalse(out['o1'].get('_root_cause'))
+        self.assertIsNone(out['s1'].get('_symptom_of'))
+
+    def test_symptom_set_membership(self):
+        self.assertIn('service_down', api.ALERT_SYMPTOM_EVENTS)
+        self.assertIn('monitor_down', api.ALERT_SYMPTOM_EVENTS)
+        self.assertNotIn('device_offline', api.ALERT_SYMPTOM_EVENTS)
+        self.assertNotIn('cve_found', api.ALERT_SYMPTOM_EVENTS)
+
+    def test_ui_wired(self):
+        sys.path.insert(0, str(Path(__file__).parent))
+        from clientjs import client_js
+        js = client_js()
+        html = (_CGI_BIN.parent / 'html' / 'index.html').read_text()
+        self.assertIn('id="alerts-group-host"', html)
+        for fn in ('function _renderAlertsGrouped', 'function toggleAlertGroup',
+                   'async function ackGroup', 'async function resolveGroup',
+                   'function _alertHostKey'):
+            self.assertIn(fn, js)
+
+
 if __name__ == '__main__':
     unittest.main()

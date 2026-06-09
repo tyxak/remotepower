@@ -27412,6 +27412,46 @@ def _alerts_summary(alerts):
     return out
 
 
+# v4.1.0: events that are plausibly downstream of a host being offline /
+# unreachable — when a device_offline alert is open for a host, these fold
+# under it as symptoms in the grouped inbox instead of reading as a storm.
+ALERT_SYMPTOM_EVENTS = frozenset({
+    'service_down', 'monitor_down', 'metric_warning', 'metric_critical',
+    'container_stopped', 'container_restarting', 'containers_stale',
+    'snmp_unreachable', 'snmp_dead', 'health_degraded', 'log_alert',
+    'gateway_unreachable', 'mount_issue',
+})
+
+
+def _annotate_alert_correlation(alerts):
+    """Tag each alert with host-level root-cause correlation, in place.
+
+    For every host that has an OPEN ``device_offline`` alert, that alert is
+    flagged ``_root_cause`` and the host's open symptom alerts (see
+    ALERT_SYMPTOM_EVENTS) get ``_symptom_of`` = the offline alert's id, so the
+    grouped inbox can fold a storm into one incident. Pure annotation — adds
+    only ``_root_cause`` / ``_symptom_of`` keys; never changes alert state.
+    Returns the same list. Open = no ack/resolve at the time of listing.
+    """
+    def _is_open(a):
+        return not a.get('acknowledged_at') and not a.get('resolved_at')
+    roots = {}   # device_id -> offline alert id
+    for a in alerts:
+        if (a.get('event') == 'device_offline' and a.get('device_id')
+                and _is_open(a)):
+            # earliest open offline per host wins as the root
+            roots.setdefault(a['device_id'], a.get('id'))
+    for a in alerts:
+        did = a.get('device_id')
+        if not did or did not in roots:
+            continue
+        if a.get('id') == roots[did]:
+            a['_root_cause'] = True
+        elif a.get('event') in ALERT_SYMPTOM_EVENTS and _is_open(a):
+            a['_symptom_of'] = roots[did]
+    return alerts
+
+
 def handle_alerts_list():
     """GET /api/alerts?status=open|ack|resolved|all&limit=N
 
@@ -27452,8 +27492,10 @@ def handle_alerts_list():
     if (qs.get('mine', [''])[0] or '').lower() in ('1', 'true', 'yes'):
         filtered = [a for a in filtered if a.get('acknowledged_by') == user]
     filtered.reverse()  # newest first
+    page = filtered[:limit]
+    _annotate_alert_correlation(page)   # v4.1.0: host root-cause folding
     respond(200, {
-        'alerts': filtered[:limit],
+        'alerts': page,
         'total':  len(filtered),
         'summary': _alerts_summary(all_alerts),
         # v4.1.0 (#56): tells the UI whether to prompt for an optional comment

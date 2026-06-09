@@ -4455,6 +4455,17 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
 .sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
 .alerts-row.resolved   { opacity: 0.55; }
+/* v4.1.0: per-host alert grouping + root-cause folding */
+.alerts-group-row { background: var(--panel-2, rgba(127,127,127,0.06)); }
+.alerts-group-row td { border-top: 2px solid var(--border); }
+.alerts-group-toggle { background: none; border: none; color: var(--text); cursor: pointer;
+                       font-size: 14px; padding: 2px 4px; }
+.alerts-group-toggle:hover { color: var(--accent, #4a9eff); }
+.alert-rc-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+                  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+.alert-rc-badge.rc-root { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
+.alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
+.alerts-row.alert-symptom .alert-symptom-cell { padding-left: 22px; border-left: 2px solid var(--border); }
 /* v4.1.0: CheckMK-style check status pills */
 .chk-pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
             font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }

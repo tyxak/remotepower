@@ -4843,6 +4843,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <option value="all">All</option>
           </select>
           <input type="text" id="alerts-filter-text" class="form-input isl-170" placeholder="Filter by device, event, or title…" data-input="renderAlerts" data-input-debounce="180">
+          <label class="click-row" title="Stack alerts under a per-host header; when a host is offline its symptom alerts fold under the root cause."><input type="checkbox" id="alerts-group-host" data-change="renderAlerts" checked> Group by host</label>
           <button class="btn-icon" data-action="loadAlerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <button class="btn-icon d-none" id="alerts-bulk-ack-btn" data-action="bulkAckAlerts">Ack selected</button>
           <button class="btn-icon c-danger-outline d-none" id="alerts-bulk-resolve-btn" data-action="bulkResolveAlerts">Resolve selected</button>
