@@ -661,6 +661,10 @@
   /* ── v4.1.0: decorative backgrounds (body[data-bg]); subtle, theme-aware,
      pure-CSS so they're CSP-safe. They sit behind the surface cards. ────── */
   body[data-bg] { background-attachment: fixed; }
+  /* When a custom background is chosen, suppress the always-on default
+     grid (body::before) and ambient top glow (body::after) so the chosen
+     pattern stands alone instead of layering over a second grid. */
+  body[data-bg]::before, body[data-bg]::after { background: none; }
   body[data-bg="grid"] {
     background-image:
       linear-gradient(var(--border) 1px, transparent 1px),
@@ -721,9 +725,11 @@
     background-size: 30px 30px; background-position: -1px -1px;
   }
   body[data-bg="glow"] {
+    /* A single stage spotlight from top-centre + a darkening edge vignette —
+       deliberately unlike Mesh's scattered multi-colour blobs. */
     background-image:
-      radial-gradient(1100px 760px at 50% -12%, rgba(74,158,255,0.12), transparent 60%),
-      radial-gradient(760px 620px at 92% 100%, rgba(168,85,247,0.08), transparent 60%);
+      radial-gradient(900px 600px at 50% 0%, rgba(74,158,255,0.18), transparent 55%),
+      radial-gradient(140% 125% at 50% 32%, transparent 52%, rgba(0,0,0,0.30));
   }
   /* background picker swatches reuse .theme-card; give each a mini preview */
   .bg-card { min-height: 46px; }
@@ -738,7 +744,7 @@
   .bg-prev-crosshatch{ background-image: repeating-linear-gradient(45deg,var(--border) 0 1px,transparent 1px 8px),repeating-linear-gradient(-45deg,var(--border) 0 1px,transparent 1px 8px); }
   .bg-prev-circuit   { background-image: linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px),radial-gradient(rgba(74,158,255,0.6) 1.4px,transparent 1.8px); background-size: 12px 12px; }
   .bg-prev-blueprint { background-image: linear-gradient(rgba(74,158,255,0.5) 1px,transparent 1px),linear-gradient(90deg,rgba(74,158,255,0.5) 1px,transparent 1px); background-size: 9px 9px; }
-  .bg-prev-glow      { background-image: radial-gradient(30px 24px at 30% 0,rgba(74,158,255,0.7),transparent),radial-gradient(28px 22px at 90% 100%,rgba(168,85,247,0.5),transparent); }
+  .bg-prev-glow      { background-image: radial-gradient(36px 26px at 50% 0,rgba(74,158,255,0.85),transparent 70%),radial-gradient(130% 120% at 50% 40%,transparent 45%,rgba(0,0,0,0.45)); }
   /* ── sidebar eyecandy ─────────────────────────────────────────────────── */
   /* Active item: tint the icon with the accent, not just the bar. */
   .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); }
