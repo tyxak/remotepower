@@ -12429,7 +12429,14 @@ async function loadHome() {
   // /api/home bundles devices (slim), drift summary, CVE counts, fleet
   // events, mailwatch, links, attention digest, and the handful of
   // config flags Home actually reads, into one round-trip.
-  const home = await api('GET', '/home').catch(() => null);
+  // v4.1.0: tell the server which widgets are actually enabled so it can skip
+  // computing expensive server-backed widgets (checks roll-up, disk-fill ETA)
+  // nobody is displaying.
+  let _wq = '';
+  try {
+    _wq = '?w=' + encodeURIComponent(_dashLayout().filter(e => e.on).map(e => e.key).join(','));
+  } catch (e) { _wq = ''; }
+  const home = await api('GET', '/home' + _wq).catch(() => null);
   if (!home) {
     _renderHomeTiles([], {}, {}, {});
     return;
@@ -12717,10 +12724,11 @@ function _renderHomeWidgets(home) {
     : '<div class="hint">No hosts filling up soon.</div>');
 
   // ── v4.1.0 catalog expansion wave 2 ───────────────────────────────────────
-  // Devices by /24 subnet
-  bk('home-w-subnet-body', breakdown(counted.filter(d => d.ip),
-    d => (String(d.ip).match(/^(\d+\.\d+\.\d+)\./) || [])[1] + '.0/24'),
-    'No IP addresses reported.');
+  // Devices by /24 subnet (non-IPv4 addresses bucket as "other")
+  bk('home-w-subnet-body', breakdown(counted.filter(d => d.ip), d => {
+    const m = String(d.ip).match(/^(\d+\.\d+\.\d+)\./);
+    return m ? m[1] + '.0/24' : 'other';
+  }), 'No IP addresses reported.');
   // Patch compliance %
   const compliant = counted.filter(d => _dashUpg(d) === 0).length;
   const pct = counted.length ? Math.round(compliant / counted.length * 100) : 100;
@@ -13043,12 +13051,22 @@ function _renderDashEditPanel() {
       + '</span></div>';
   }).join('');
   if (off.length) {
-    html += '<div class="dash-edit-hint hint mt-16">Add a widget</div><div class="dash-add-grid">'
-      + off.map(e => '<button class="btn-icon dash-add-btn" data-action="dashToggle" data-arg="'
-        + escAttr(e.key) + '">+ ' + lbl(e.key) + '</button>').join('')
-      + '</div>';
+    // Alphabetical dropdown rather than a wall of buttons (the catalog is large).
+    const offSorted = off.slice().sort((a, b) =>
+      (_DASH_META[a.key] ? _DASH_META[a.key].label : a.key)
+        .localeCompare(_DASH_META[b.key] ? _DASH_META[b.key].label : b.key));
+    html += '<div class="dash-edit-hint hint mt-16">Add a widget</div>'
+      + '<select id="dash-add-select" class="form-input" data-change="dashAddSelected" aria-label="Add a widget">'
+      + '<option value="">Add a widget…</option>'
+      + offSorted.map(e => '<option value="' + escAttr(e.key) + '">' + lbl(e.key) + '</option>').join('')
+      + '</select>';
   }
   panel.innerHTML = html;
+}
+
+function dashAddSelected() {
+  const sel = document.getElementById('dash-add-select');
+  if (sel && sel.value) dashToggle(sel.value);   // toggles the picked widget on
 }
 
 function _dashSave(layout) {

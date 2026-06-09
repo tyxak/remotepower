@@ -23746,12 +23746,18 @@ def _dashboard_tickets(open_limit=5, acked_limit=5):
             'acked': [slim(a) for a in acked[:acked_limit]]}
 
 
-def _dashboard_extra_widgets(devices_raw, cfg, now):
+def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     """Cheap server-side summaries for the server-backed catalog widgets:
     open-alerts-by-severity, maintenance windows, monitor up/down, container
     issues, disk-fill ETA. All best-effort; a bad source yields an empty datum
     so the dashboard never breaks. Most catalog widgets render client-side from
-    the devices/drift/cves payload and need nothing here."""
+    the devices/drift/cves payload and need nothing here.
+
+    `want` (a set of enabled widget keys, or None for "all") gates the two
+    genuinely expensive widgets — disk-fill ETA and the fleet checks roll-up —
+    so they're only computed when an operator actually displays them."""
+    def _g(k):
+        return want is None or k in want
     out = {}
     # Open alerts by severity
     try:
@@ -23806,14 +23812,22 @@ def _dashboard_extra_widgets(devices_raw, cfg, now):
         out['containers'] = {'stopped': stopped}
     except Exception:
         out['containers'] = {}
-    # Disk-fill ETA (near-full hosts only — bounded)
-    try:
-        eta = _disk_fill_eta(devices_raw)
-        rows = sorted(({'name': (devices_raw.get(d) or {}).get('name', d),
-                        'days': v} for d, v in eta.items()), key=lambda r: r['days'])
-        out['diskfill'] = rows[:6]
-    except Exception:
-        out['diskfill'] = []
+    # Disk-fill ETA (near-full hosts only — bounded). Computed once and shared
+    # with the checks roll-up; only when one of those widgets is displayed.
+    eta_shared = {}
+    if _g('diskfill') or _g('checksrollup'):
+        try:
+            eta_shared = _disk_fill_eta(devices_raw)
+        except Exception:
+            eta_shared = {}
+    if _g('diskfill'):
+        try:
+            rows = sorted(({'name': (devices_raw.get(d) or {}).get('name', d),
+                            'days': v} for d, v in eta_shared.items()),
+                          key=lambda r: r['days'])
+            out['diskfill'] = rows[:6]
+        except Exception:
+            out['diskfill'] = []
     # Posture from the full device records (devices_raw already in hand)
     try:
         reboot, worldp, failedu, timersf = [], 0, 0, 0
@@ -23928,29 +23942,30 @@ def _dashboard_extra_widgets(devices_raw, cfg, now):
         out['bandwidth'] = rows[:6]
     except Exception:
         out['bandwidth'] = []
-    # Host-checks roll-up (OK/WARN/CRIT/UNKNOWN across the fleet). Pure CPU —
-    # reuses the same precomputed CVE/disk-eta/hardware inputs as the Checks view.
-    try:
-        cve_all = _cve_high_counts()
-        eta_all = _disk_fill_eta(devices_raw)
-        hw_all = load(HARDWARE_FILE) or {}
-        cfg_custom = cfg.get('custom_checks') or []
-        disabled_all = cfg.get('host_checks_disabled') or {}
-        ttl = get_online_ttl()
-        roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
-        for did, d in devices_raw.items():
-            if not isinstance(d, dict) or d.get('monitored') is False:
-                continue
-            chk = _host_checks(did, d, hw_all.get(did) or {},
-                               disabled_all.get(did) or [], now, ttl,
-                               cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
-                               custom_defs=cfg_custom)
-            counts = _host_check_summary(chk)['counts']
-            for k in roll:
-                roll[k] += counts.get(k, 0)
-        out['checksrollup'] = roll
-    except Exception:
-        out['checksrollup'] = {}
+    # Host-checks roll-up (OK/WARN/CRIT/UNKNOWN across the fleet). The one
+    # genuinely heavy widget — only run it when it's actually on a dashboard.
+    if _g('checksrollup'):
+        try:
+            cve_all = _cve_high_counts()
+            hw_all = load(HARDWARE_FILE) or {}
+            cfg_custom = cfg.get('custom_checks') or []
+            scripts_all = _load_custom_scripts()
+            disabled_all = cfg.get('host_checks_disabled') or {}
+            ttl = get_online_ttl()
+            roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
+            for did, d in devices_raw.items():
+                if not isinstance(d, dict) or d.get('monitored') is False:
+                    continue
+                chk = _host_checks(did, d, hw_all.get(did) or {},
+                                   disabled_all.get(did) or [], now, ttl,
+                                   cve_high=cve_all.get(did), disk_eta=eta_shared.get(did),
+                                   custom_defs=cfg_custom, scripts=scripts_all)
+                counts = _host_check_summary(chk)['counts']
+                for k in roll:
+                    roll[k] += counts.get(k, 0)
+            out['checksrollup'] = roll
+        except Exception:
+            out['checksrollup'] = {}
     return out
 
 
@@ -24102,6 +24117,13 @@ def handle_home():
     # Links — operator-curated bookmarks
     links = (cfg.get('links') or [])
 
+    # v4.1.0: which widgets the operator actually has enabled (?w=key1,key2),
+    # so _dashboard_extra_widgets can skip the heavy ones. Absent param → all.
+    _qs = os.environ.get('QUERY_STRING', '') or ''
+    _want = None
+    if 'w=' in _qs:
+        _want = set(filter(None, urllib.parse.parse_qs(_qs).get('w', [''])[0].split(',')))
+
     respond(200, {
         'devices':      devices,
         'drift':        drift,
@@ -24118,7 +24140,9 @@ def handle_home():
         'oncall':       {'current': _oncall_now(cfg, now),
                          'enabled': bool((cfg.get('oncall') or {}).get('enabled'))},
         # v4.1.0: server-backed catalog widgets (cheap summaries, best-effort).
-        'widgets':      _dashboard_extra_widgets(devices_raw, cfg, now),
+        # The heavy ones (checks roll-up, disk-fill ETA) are skipped unless _want
+        # lists them — see ?w= above.
+        'widgets':      _dashboard_extra_widgets(devices_raw, cfg, now, want=_want),
         # v3.4.1: fleet health score. Reuses the cached attention payload above
         # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
         'health':       _fleet_health(),

@@ -1765,7 +1765,7 @@ class TestDashboardWidgetGrid(unittest.TestCase):
         self.assertGreaterEqual(len(api.DASHBOARD_WIDGETS), 30)
 
     def test_extra_widgets_payload(self):
-        # _dashboard_extra_widgets is best-effort and always returns the keys.
+        # With no `want` filter, best-effort and always returns every key.
         w = api._dashboard_extra_widgets({}, {}, int(api.time.time()))
         for k in ('alertsev', 'maintenance', 'monitors', 'containers', 'diskfill',
                   'rebootreq', 'worldports', 'failedunits', 'timers',
@@ -1773,6 +1773,18 @@ class TestDashboardWidgetGrid(unittest.TestCase):
                   'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg',
                   'tls', 'bruteforce', 'bandwidth', 'checksrollup'):
             self.assertIn(k, w)
+
+    def test_extra_widgets_gating(self):
+        # The two heavy widgets are skipped unless `want` lists them; the cheap
+        # ones are always present.
+        now = int(api.time.time())
+        none = api._dashboard_extra_widgets({}, {}, now, want=set())
+        self.assertNotIn('checksrollup', none)
+        self.assertNotIn('diskfill', none)
+        self.assertIn('alertsev', none)        # cheap → always computed
+        some = api._dashboard_extra_widgets({}, {}, now, want={'checksrollup'})
+        self.assertIn('checksrollup', some)
+        self.assertNotIn('diskfill', some)
 
     def test_askai_is_toggleable_widget(self):
         # Ask-AI is a registered widget (so Customize can disable it) but pinned
