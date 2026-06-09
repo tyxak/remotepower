@@ -1736,6 +1736,41 @@ class TestDashboardCards(_HandlerBase):
         self.assertEqual(len(api._dashboard_upcoming(limit=3)), 3)
 
 
+class TestNavCounts(_HandlerBase):
+    """v4.1.0: /api/nav-counts feeds the per-sidebar-group attention badges."""
+
+    def setUp(self):
+        super().setUp()
+        for attr in ('MON_HIST_FILE', 'CVE_FINDINGS_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        self._ttl = api.get_online_ttl
+        api.get_online_ttl = lambda: 180
+
+    def tearDown(self):
+        api.get_online_ttl = self._ttl
+        super().tearDown()
+
+    def test_counts(self):
+        now = int(api.time.time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'a', 'last_seen': now, 'monitored': True},          # online
+            'd2': {'name': 'b', 'last_seen': now - 99999, 'monitored': True},  # offline
+            'd3': {'name': 'c', 'last_seen': now - 99999, 'monitored': False}, # unmonitored
+        })
+        api.save(api.MON_HIST_FILE, {'m1': [{'ts': now, 'ok': False}],
+                                     'm2': [{'ts': now, 'ok': True}]})
+        api.save(api.CVE_FINDINGS_FILE, {'d1': {'findings': [
+            {'severity': 'critical'}, {'severity': 'high'}]}})
+        out = self.call(api.handle_nav_counts)
+        self.assertEqual(out['fleet'], 1)        # only the monitored offline host
+        self.assertEqual(out['monitoring'], 1)   # one monitor down
+        self.assertEqual(out['security'], 1)     # one critical CVE
+
+    def test_route_registered(self):
+        self.assertIn(('GET', '/api/nav-counts'), api._build_exact_routes())
+
+
 class TestCveRealert(_HandlerBase):
     """v4.1.0: POST /api/cve/realert re-fires cve_found for the current backlog
     (since the normal alert is edge-triggered and won't re-fire cleared ones)."""

@@ -28383,6 +28383,55 @@ def handle_alerts_summary():
     respond(200, _alerts_summary(al.get('alerts', [])))
 
 
+def handle_nav_counts():
+    """GET /api/nav-counts — tiny per-sidebar-group "needs attention" counts for
+    the group-header badges. Scope-filtered, best-effort, cheap (three small
+    reads on a 60s cadence). Each is shown only when > 0.
+
+      fleet      → offline monitored devices
+      monitoring → monitors currently down (latest result per target)
+      security   → critical CVE findings on monitored hosts
+    """
+    require_auth()
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    offline = 0
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        if d.get('agentless'):
+            if not _agentless_online(d):
+                offline += 1
+        else:
+            ls = d.get('last_seen', 0)
+            if not ls or (now - ls) >= ttl:
+                offline += 1
+    down = 0
+    try:
+        cut = now - 3600
+        for v in (load(MON_HIST_FILE) or {}).values():
+            if (isinstance(v, list) and v and isinstance(v[-1], dict)
+                    and (v[-1].get('ts') or 0) >= cut and not v[-1].get('ok')):
+                down += 1
+    except Exception:
+        pass
+    crit = 0
+    try:
+        ids = set(devices)
+        for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+            if did not in ids:
+                continue
+            crit += sum(1 for f in (rec or {}).get('findings') or []
+                        if str(f.get('severity', '')).lower() == 'critical')
+    except Exception:
+        pass
+    respond(200, {'fleet': offline, 'monitoring': down, 'security': crit})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # v3.4.2: on-call schedule + escalation policy
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37504,6 +37553,7 @@ def _build_exact_routes():
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
+        ('GET', '/api/nav-counts'): handle_nav_counts,
         ('GET', '/api/oncall'): handle_oncall,
         ('GET', '/api/setup-status'): handle_setup_status,
         ('GET', '/api/apikeys'): handle_apikeys_list,

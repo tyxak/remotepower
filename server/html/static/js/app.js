@@ -8745,10 +8745,34 @@ async function saveOidcConfig() {
   }
 }
 
+// v4.1.0: per-sidebar-group "needs attention" count badges.
+async function refreshNavCounts() {
+  try {
+    const c = await api('GET', '/nav-counts');
+    if (!c) return;
+    [['fleet', c.fleet], ['monitoring', c.monitoring], ['security', c.security]]
+      .forEach(([group, n]) => {
+        const toggle = document.querySelector(
+          '.sidebar-group[data-group="' + group + '"] .sidebar-group-toggle');
+        if (!toggle) return;
+        let b = toggle.querySelector('.nav-group-badge');
+        if (!n) { if (b) b.remove(); return; }
+        if (!b) {
+          b = document.createElement('span');
+          b.className = 'nav-group-badge';
+          const chev = toggle.querySelector('.chevron');
+          toggle.insertBefore(b, chev || null);
+        }
+        b.textContent = n > 99 ? '99+' : String(n);
+      });
+  } catch (_) { /* non-fatal */ }
+}
+
 // Refresh alert + confirmation badges on load and every 60s after
 function _refreshTopBadges() {
   refreshAlertsBadge();
   refreshConfirmationsBadge();
+  refreshNavCounts();
 }
 // v3.13.0: guard against a stacked interval if app.js is ever evaluated
 // twice (HMR / duplicate <script> / bfcache) — keep a single poller.

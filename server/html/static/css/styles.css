@@ -592,6 +592,18 @@
   }
   .sidebar-group-toggle:hover .chevron { opacity: 1; }
   .sidebar-group.collapsed .chevron { transform: rotate(-90deg); }
+  /* Per-group "needs attention" count badge (offline / monitors-down / CVEs).
+     margin-left:auto pushes it right; the chevron's own auto-margin then sits
+     just after it. Shown only when the count is > 0. */
+  .sidebar-group-toggle .nav-group-badge {
+    margin-left: auto;
+    margin-right: 6px;
+    min-width: 16px; height: 16px; line-height: 15px;
+    padding: 0 5px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; text-align: center;
+    background: rgba(220, 53, 69, 0.15); color: var(--red);
+    border: 1px solid var(--red);
+  }
   .sidebar-group-items {
     display: flex;
     flex-direction: column;
