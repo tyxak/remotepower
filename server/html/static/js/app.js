@@ -12613,6 +12613,101 @@ function _renderHomeWidgets(home) {
   _setWidget('home-w-oncall-body', oc.enabled
     ? _miniRows([{ l: 'On call', r: escHtml(oc.current || '—'), cls: 'c-green' }])
     : '<div class="hint">On-call rotation not configured.</div>');
+
+  // ── v4.1.0 catalog expansion ──────────────────────────────────────────────
+  const W = home.widgets || {};
+  const breakdown = (arr, keyFn) => {
+    const m = {};
+    arr.forEach(x => { const k = (keyFn(x) || '').trim() || '(unknown)'; m[k] = (m[k] || 0) + 1; });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  };
+  const bk = (id, pairs, empty) => _setWidget(id, pairs.length
+    ? _miniRows(pairs.slice(0, 8).map(([k, n]) => ({ l: escHtml(k), r: String(n) })))
+    : `<div class="hint">${empty}</div>`);
+  const bigStat = (id, val, sub, cls) => _setWidget(id,
+    `<div class="dash-big ${cls || ''}">${escHtml(String(val))}</div>`
+    + (sub ? `<div class="hint">${escHtml(sub)}</div>` : ''));
+  const sevCls = s => s === 'critical' ? 'c-red'
+    : (s === 'high' || s === 'medium' || s === 'warning') ? 'c-amber' : 'c-muted';
+
+  bk('home-w-os-body', breakdown(counted, d => d.os), 'No devices.');
+  bk('home-w-agentver-body', breakdown(counted.filter(d => !d.agentless), d => d.version),
+     'No agent versions reported.');
+  bk('home-w-devtypes-body',
+     breakdown(counted, d => d.device_type || (d.agentless ? 'agentless' : 'agent')),
+     'No devices.');
+  // Top tags
+  const tagCounts = {};
+  counted.forEach(d => (d.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+  bk('home-w-tags-body', Object.entries(tagCounts).sort((a, b) => b[1] - a[1]), 'No tags in use.');
+  // Ungrouped
+  const ung = counted.filter(d => !d.group);
+  _setWidget('home-w-ungrouped-body', ung.length
+    ? `<div class="dash-mini-head">${ung.length} ungrouped</div>`
+      + _miniRows(ung.slice(0, 8).map(d => ({ l: escHtml(d.name), r: d.online ? 'up' : 'down',
+        cls: d.online ? 'c-green' : 'c-red' })))
+    : '<div class="hint">Every device is in a group.</div>');
+  // Recent activity (compact)
+  const evs = home.fleet_events || [];
+  _setWidget('home-w-activity-body', evs.length
+    ? _miniRows(evs.slice(0, 6).map(e => ({
+      l: escHtml(((e.payload || {}).device_name || (e.payload || {}).name || '') + ' ' + (e.event || '')).trim(),
+      r: e.ts ? timeAgo(e.ts) : '' })))
+    : '<div class="hint">No recent activity.</div>');
+  // Attention by severity + top items
+  const att = (home.attention && home.attention.items) || [];
+  const attBy = breakdown(att, x => x.severity);
+  _setWidget('home-w-attseverity-body', att.length
+    ? _miniRows(attBy.map(([s, n]) => ({ l: escHtml(s), r: String(n), cls: sevCls(s) })))
+    : '<div class="hint">All clear.</div>');
+  _setWidget('home-w-atttop-body', att.length
+    ? _miniRows(att.slice(0, 6).map(x => ({ l: escHtml(x.summary || x.kind || ''),
+      r: escHtml(x.severity || ''), cls: sevCls(x.severity) })))
+    : '<div class="hint">Nothing needs attention.</div>');
+  // Big-number stats
+  const h = home.health || {};
+  bigStat('home-w-healthscore-body', typeof h.score === 'number' ? h.score : '—',
+          h.grade ? `grade: ${h.grade}` : 'fleet health',
+          h.score >= 90 ? 'c-green' : h.score >= 70 ? 'c-amber' : 'c-red');
+  const onlineN = counted.filter(d => d.online).length;
+  bigStat('home-w-fleettotal-body', counted.length,
+          `${onlineN} up · ${counted.length - onlineN} down`);
+  bigStat('home-w-crittotal-body', `${totC} / ${totH}`, 'critical / high', totC ? 'c-red' : 'c-amber');
+  bigStat('home-w-updatestotal-body', totUpd, `across ${upd.length} host(s)`,
+          totUpd ? 'c-amber' : 'c-green');
+  const totDrift = driftDevs.reduce((s, d) => s + (d.drifted || 0), 0);
+  bigStat('home-w-drifttotal-body', totDrift, `on ${driftDevs.length} host(s)`,
+          totDrift ? 'c-amber' : 'c-green');
+  // Recent check-ins
+  const recent = counted.filter(d => !d.agentless && d.last_seen)
+    .sort((a, b) => b.last_seen - a.last_seen).slice(0, 6);
+  _setWidget('home-w-recentonline-body', recent.length
+    ? _miniRows(recent.map(d => ({ l: escHtml(d.name), r: timeAgo(d.last_seen) })))
+    : '<div class="hint">No check-ins yet.</div>');
+  // Server-backed
+  const asev = W.alertsev || {};
+  const asevRows = ['critical', 'high', 'medium', 'low'].filter(s => asev[s])
+    .map(s => ({ l: s, r: String(asev[s]), cls: sevCls(s) }));
+  _setWidget('home-w-alertsev-body', asevRows.length
+    ? _miniRows(asevRows) : '<div class="hint">No open alerts.</div>');
+  const mnt = W.maintenance || {};
+  _setWidget('home-w-maintenance-body', _miniRows([
+    { l: 'Active now', r: String(mnt.active || 0), cls: mnt.active ? 'c-amber' : '' },
+    { l: 'Upcoming', r: String(mnt.upcoming || 0) },
+  ]));
+  const mons = W.monitors || {};
+  _setWidget('home-w-monitors-body', (mons.total)
+    ? _miniRows([{ l: 'Up', r: String(mons.up || 0), cls: 'c-green' },
+                 { l: 'Down', r: String(mons.down || 0), cls: mons.down ? 'c-red' : '' }])
+    : '<div class="hint">No monitors configured.</div>');
+  const ctn = W.containers || {};
+  bigStat('home-w-containers-body', ctn.stopped || 0, 'not running',
+          ctn.stopped ? 'c-red' : 'c-green');
+  const df = W.diskfill || [];
+  _setWidget('home-w-diskfill-body', df.length
+    ? _miniRows(df.map(r => ({ l: escHtml(r.name), r: `${r.days}d`,
+      cls: r.days <= 2 ? 'c-red' : 'c-amber' })))
+    : '<div class="hint">No hosts filling up soon.</div>');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12634,6 +12729,27 @@ const DASH_WIDGETS = [
   { key: 'stale',    label: 'Stale agents',            opt: true, size: 'sm' },
   { key: 'mailwatch',label: 'Mailbox watch',           opt: true, size: 'sm' },
   { key: 'oncall',   label: 'On-call now',             opt: true, size: 'sm' },
+  // v4.1.0 catalog expansion — client-side breakdowns + stats
+  { key: 'os',          label: 'Devices by OS',        opt: true, size: 'sm' },
+  { key: 'agentver',    label: 'Agent versions',       opt: true, size: 'sm' },
+  { key: 'devtypes',    label: 'Device types',         opt: true, size: 'sm' },
+  { key: 'tags',        label: 'Top tags',             opt: true, size: 'sm' },
+  { key: 'ungrouped',   label: 'Ungrouped devices',    opt: true, size: 'sm' },
+  { key: 'activity',    label: 'Recent activity (compact)', opt: true, size: 'sm' },
+  { key: 'attseverity', label: 'Attention by severity', opt: true, size: 'sm' },
+  { key: 'atttop',      label: 'Top attention items',  opt: true, size: 'md' },
+  { key: 'healthscore', label: 'Health score',         opt: true, size: 'sm' },
+  { key: 'fleettotal',  label: 'Fleet size',           opt: true, size: 'sm' },
+  { key: 'crittotal',   label: 'Critical/high CVEs',   opt: true, size: 'sm' },
+  { key: 'updatestotal',label: 'Updates pending (total)', opt: true, size: 'sm' },
+  { key: 'drifttotal',  label: 'Drifted files (total)', opt: true, size: 'sm' },
+  { key: 'recentonline',label: 'Recent check-ins',     opt: true, size: 'sm' },
+  // v4.1.0 catalog expansion — server-backed
+  { key: 'alertsev',    label: 'Open alerts by severity', opt: true, size: 'sm' },
+  { key: 'maintenance', label: 'Maintenance windows',  opt: true, size: 'sm' },
+  { key: 'monitors',    label: 'Monitor status',       opt: true, size: 'sm' },
+  { key: 'containers',  label: 'Container issues',     opt: true, size: 'sm' },
+  { key: 'diskfill',    label: 'Disk fill ETA',        opt: true, size: 'sm' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },

@@ -418,8 +418,16 @@ MAX_UI_PREFS_VIEWS         = 30            # v3.14.0: saved named views per user
 # pins the two together).
 DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves',
                               'drift', 'capacity', 'groups', 'monitored', 'stale',
-                              'mailwatch', 'oncall', 'health', 'heatmap', 'overview',
-                              'roster', 'links')
+                              'mailwatch', 'oncall',
+                              # v4.1.0 catalog expansion (client-side):
+                              'os', 'agentver', 'devtypes', 'tags', 'ungrouped',
+                              'activity', 'attseverity', 'atttop', 'healthscore',
+                              'fleettotal', 'crittotal', 'updatestotal',
+                              'drifttotal', 'recentonline',
+                              # v4.1.0 catalog expansion (server-backed):
+                              'alertsev', 'maintenance', 'monitors', 'containers',
+                              'diskfill',
+                              'health', 'heatmap', 'overview', 'roster', 'links')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
 BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
@@ -23705,6 +23713,77 @@ def _dashboard_tickets(open_limit=5, acked_limit=5):
             'acked': [slim(a) for a in acked[:acked_limit]]}
 
 
+def _dashboard_extra_widgets(devices_raw, cfg, now):
+    """Cheap server-side summaries for the server-backed catalog widgets:
+    open-alerts-by-severity, maintenance windows, monitor up/down, container
+    issues, disk-fill ETA. All best-effort; a bad source yields an empty datum
+    so the dashboard never breaks. Most catalog widgets render client-side from
+    the devices/drift/cves payload and need nothing here."""
+    out = {}
+    # Open alerts by severity
+    try:
+        sev = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+        for a in (load(ALERTS_FILE) or {}).get('alerts') or []:
+            if a.get('acknowledged_at') or a.get('resolved_at'):
+                continue
+            s = a.get('severity')
+            if s in sev:
+                sev[s] += 1
+        out['alertsev'] = sev
+    except Exception:
+        out['alertsev'] = {}
+    # Maintenance windows: active now + upcoming
+    try:
+        active = upcoming = 0
+        for w in (load(MAINT_FILE) or {}).get('windows') or []:
+            if not isinstance(w, dict):
+                continue
+            if _window_active(w, now):
+                active += 1
+            elif w.get('start'):
+                try:
+                    if _parse_iso(w['start']) > now:
+                        upcoming += 1
+                except ValueError:
+                    pass
+            elif w.get('cron'):
+                upcoming += 1
+        out['maintenance'] = {'active': active, 'upcoming': upcoming}
+    except Exception:
+        out['maintenance'] = {}
+    # Monitor up/down (cfg.monitor_notified maps label -> is-down)
+    try:
+        mon = cfg.get('monitors') or []
+        notified = cfg.get('monitor_notified') or {}
+        down = sum(1 for v in notified.values() if v)
+        out['monitors'] = {'total': len(mon), 'down': down,
+                           'up': max(0, len(mon) - down)}
+    except Exception:
+        out['monitors'] = {}
+    # Container issues (not-running across all reported hosts)
+    try:
+        stopped = 0
+        store = load(CONTAINERS_FILE) or {}
+        for dev_id, entry in store.items():
+            if dev_id not in devices_raw or not isinstance(entry, dict):
+                continue
+            for it in (entry.get('items') or []):
+                if isinstance(it, dict) and not _container_is_running(it.get('status')):
+                    stopped += 1
+        out['containers'] = {'stopped': stopped}
+    except Exception:
+        out['containers'] = {}
+    # Disk-fill ETA (near-full hosts only — bounded)
+    try:
+        eta = _disk_fill_eta(devices_raw)
+        rows = sorted(({'name': (devices_raw.get(d) or {}).get('name', d),
+                        'days': v} for d, v in eta.items()), key=lambda r: r['days'])
+        out['diskfill'] = rows[:6]
+    except Exception:
+        out['diskfill'] = []
+    return out
+
+
 def handle_home():
     """GET /api/home — single round-trip for the Home dashboard.
 
@@ -23868,6 +23947,8 @@ def handle_home():
         # widgets render client-side from the devices/drift/cves payload above.
         'oncall':       {'current': _oncall_now(cfg, now),
                          'enabled': bool((cfg.get('oncall') or {}).get('enabled'))},
+        # v4.1.0: server-backed catalog widgets (cheap summaries, best-effort).
+        'widgets':      _dashboard_extra_widgets(devices_raw, cfg, now),
         # v3.4.1: fleet health score. Reuses the cached attention payload above
         # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
         'health':       _fleet_health(),

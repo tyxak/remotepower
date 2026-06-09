@@ -4482,6 +4482,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   .dash-w-sm, .dash-w-md, .dash-w-lg { grid-column: span 1; }
 }
 .dash-mini { font-size: 13px; }
+.dash-big { font-size: 28px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .dash-mini-head { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .dash-mini-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0;
                  border-bottom: 1px solid var(--border); }

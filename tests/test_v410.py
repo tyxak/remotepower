@@ -1708,11 +1708,25 @@ class TestDashboardWidgetGrid(unittest.TestCase):
         self.assertEqual(dash['cves']['size'], 'md')      # invalid coerced
         self.assertNotIn('not_a_widget', dash)            # unknown dropped
 
+    _EXPANDED = ('offline', 'updates', 'cves', 'drift', 'capacity', 'groups',
+                 'monitored', 'stale', 'mailwatch', 'oncall', 'os', 'agentver',
+                 'devtypes', 'tags', 'ungrouped', 'activity', 'attseverity',
+                 'atttop', 'healthscore', 'fleettotal', 'crittotal', 'updatestotal',
+                 'drifttotal', 'recentonline', 'alertsev', 'maintenance',
+                 'monitors', 'containers', 'diskfill')
+
     def test_widget_registry_has_addons(self):
-        for k in ('offline', 'updates', 'cves', 'drift', 'capacity', 'groups',
-                  'monitored', 'stale', 'mailwatch', 'oncall'):
+        for k in self._EXPANDED:
             self.assertIn(k, api.DASHBOARD_WIDGETS)
         self.assertEqual(api.DASHBOARD_WIDGET_SIZES, ('sm', 'md', 'lg'))
+        # ≥30 widgets total now (7 core + 29 add-on).
+        self.assertGreaterEqual(len(api.DASHBOARD_WIDGETS), 30)
+
+    def test_extra_widgets_payload(self):
+        # _dashboard_extra_widgets is best-effort and always returns the keys.
+        w = api._dashboard_extra_widgets({}, {}, int(api.time.time()))
+        for k in ('alertsev', 'maintenance', 'monitors', 'containers', 'diskfill'):
+            self.assertIn(k, w)
 
     def test_home_includes_oncall(self):
         # handle_home embeds the on-call widget datum (cheap, cfg-derived).
@@ -1726,8 +1740,7 @@ class TestDashboardWidgetGrid(unittest.TestCase):
         js = client_js()
         html = (_CGI_BIN.parent / 'html' / 'index.html').read_text()
         self.assertIn('id="dash-grid"', html)
-        for k in ('offline', 'updates', 'cves', 'drift', 'capacity', 'groups',
-                  'monitored', 'stale', 'mailwatch', 'oncall'):
+        for k in self._EXPANDED:
             self.assertIn(f'data-widget="{k}"', html)
         for fn in ('function dashSize', 'function dashReset', 'function dashAlign',
                    'function dashShareExport', 'function dashShareImport',
