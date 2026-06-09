@@ -599,15 +599,32 @@
     overflow: hidden;
     max-height: 1000px;
     transition: max-height 0.18s ease-out;
+    /* Thin rail: a 1px grey line runs down the left of the children, joining a
+       parent group to its items (a little tree connector). The children indent
+       past it; collapsing hides it with the rest. */
+    margin-left: 16px;
+    border-left: 1px solid var(--border);
   }
   .sidebar-group.collapsed .sidebar-group-items {
     max-height: 0;
+    border-left-color: transparent;
   }
-  /* Indent the group's items so the hierarchy is visible; denser than the
-     top-level Main rows so a group reads as one tight block. */
-  .sidebar-group .nav-btn { padding: 6px 12px 6px 18px; }
-  /* Eyecandy: a subtle accent bar on the active nav item (no layout shift). */
+  /* Group items sit relative to the rail (no extra left indent — the rail +
+     this padding give the hierarchy); denser than the top-level Main rows. */
+  .sidebar-group .nav-btn { padding: 6px 12px 6px 12px; }
+  /* The active branch lights its segment of the rail in the accent colour. */
+  .sidebar-group .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); margin-left: -1px; }
+
+  /* ── sidebar eyecandy ─────────────────────────────────────────────────── */
+  /* Active item: tint the icon with the accent, not just the bar. */
   .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); }
+  .nav-btn.active svg { color: var(--accent, #4a9eff); }
+  /* Faint divider above each group header so groups read as distinct blocks. */
+  .sidebar-group { border-top: 1px solid var(--border); }
+  .sidebar-group:first-of-type { border-top: none; }
+  /* Subtle hover slide on nav rows. */
+  .nav-btn { transition: color .15s, background .15s, transform .12s; }
+  .nav-btn:hover { transform: translateX(2px); }
 
   /* v2.0: documentation page card styling. <details> elements give us
      free expand/collapse without any JS, and they're right-click /
