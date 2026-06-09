@@ -1082,7 +1082,7 @@ via CISA **KEV** + **EPSS**. **Customizable dashboard**, **interface language**
 views**. A security-hardening pass (session tokens hashed at rest, anchored
 webhook-host matching, SSRF-safe cloud import).
 
-## v4.1.0 additions — "VisibilityMatters"
+## v4.1.0 additions — "VisualMatters"
 
 ### Per-host Checks (CheckMK-style)
 A **Checks** page (under Monitoring) renders every monitored signal on every

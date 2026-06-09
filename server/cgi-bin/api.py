@@ -9158,6 +9158,10 @@ def handle_heartbeat():
             lo = si.get('last_oom_ts')
             if isinstance(lo, (int, float)) and lo > 0:
                 safe_si['last_oom_ts'] = int(lo)
+                # v4.1.0: keep the killed-process name too, so the UI can show
+                # *what* was OOM-killed (was only carried in the event payload).
+                if si.get('last_oom_proc'):
+                    safe_si['last_oom_proc'] = _sanitize_str(str(si['last_oom_proc']), 64)
                 prev_oom = (dev.get('sysinfo') or {}).get('last_oom_ts', 0)
                 if int(lo) > int(prev_oom or 0):
                     _oom_event_pending = ('oom_detected', {
@@ -9201,6 +9205,21 @@ def handle_heartbeat():
                         'mem':  round(float(p.get('mem') or 0), 2),
                     })
                 safe_si['top_processes'] = safe_procs
+            # v4.1.0: persist the running-process name set so the server-side
+            # 'process' custom check (_eval_custom_check reads si['proc_names'])
+            # actually has data — without this it always returned 'unknown'.
+            # Bounded + sanitized to keep the stored sysinfo small.
+            if isinstance(si.get('proc_names'), list):
+                seen_pn = set()
+                safe_pn = []
+                for n in si['proc_names']:
+                    nm = _sanitize_str(n, 64)
+                    if nm and nm not in seen_pn:
+                        seen_pn.add(nm)
+                        safe_pn.append(nm)
+                    if len(safe_pn) >= 400:
+                        break
+                safe_si['proc_names'] = safe_pn
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])

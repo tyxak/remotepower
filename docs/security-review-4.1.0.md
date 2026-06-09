@@ -1,4 +1,4 @@
-# RemotePower — Security Review (v4.1.0 "VisibilityMatters")
+# RemotePower — Security Review (v4.1.0 "VisualMatters")
 
 Date: 2026-06-09. Scope: a focused re-review on top of the v3.8.0 → v4.0.0
 passes, covering the v4.1.0 feature work — the per-host Checks engine, custom

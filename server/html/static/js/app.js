@@ -11673,6 +11673,7 @@ async function loadDiskHealth() {
   const summary = document.getElementById('disk-health-summary');
   if (!tbody) return;
   tableCtl.wireSortOnly('disk-health-thead', 'diskhealth', () => _renderDiskHealth());
+  tableCtl.wireSortOnly('unstable-thead', 'unstablehosts', () => _renderUnstableHosts());
   tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
@@ -11692,7 +11693,12 @@ function _renderUnstableHosts() {
     tbody.innerHTML = '<tr><td colspan="3" class="c-green ta-center">No hosts restarting unusually often.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  const sorted = tableCtl.sortRows('unstablehosts', rows, r => ({
+    device: r.device,
+    restarts: r.restarts,
+    reason: r.last_boot_reason || '',
+  }));
+  tbody.innerHTML = sorted.map(r => {
     const reason = r.last_boot_reason
       ? `${escHtml(r.last_boot_reason)}${r.last_boot_reason_at ? ` <span class="hint">· ${escHtml(new Date(r.last_boot_reason_at * 1000).toLocaleString())}</span>` : ''}`
       : '<span class="hint">—</span>';
@@ -16448,6 +16454,17 @@ async function _loadAuditSection(key) {
           ['Boot reason', data?.last_boot_reason || null],
           // v3.8.0: who is logged in right now (active login sessions)
           ['Logged in', (si.logged_in||[]).length ? si.logged_in.join(', ') : null],
+          // v4.1.0 "VisualMatters": bind the remaining agent signals the Checks
+          // page already used but the drawer never showed — at-a-glance per host.
+          ['FD usage',  si.fd_percent != null ? Number(si.fd_percent).toFixed(0) + '%' : null],
+          ['Conntrack', si.conntrack_percent != null ? Number(si.conntrack_percent).toFixed(0) + '%' : null],
+          ['Clock',     si.clock ? (si.clock.synced === false ? 'NOT synced' : 'synced')
+                          + (si.clock.offset_ms != null ? ` (${si.clock.offset_ms}ms)` : '') : null],
+          ['Gateway',   si.gateway ? (si.gateway.reachable === false ? 'unreachable' : 'reachable')
+                          + (si.gateway.ip ? ` · ${si.gateway.ip}` : '') : null],
+          ['Mail queue', si.mailq != null ? `${si.mailq} queued` : null],
+          ['Last OOM',  si.last_oom_ts ? new Date(si.last_oom_ts*1000).toLocaleString()
+                          + (si.last_oom_proc ? ` (${si.last_oom_proc})` : '') : null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>
@@ -16489,23 +16506,28 @@ async function _loadAuditSection(key) {
           // v3.13.0: network shares (NFS/SMB/CIFS) get a badge + their server,
           // and a stalled share (no usable usage) shows "stalled" not "null%".
           h += `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
-            <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>FS</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
+            <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>FS</th><th>Used</th><th>Total</th><th>%</th><th class="ta-center">Inode%</th></tr></thead>
             <tbody>` + si.mounts.map(m=>{
               const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)">net</span>` : '';
+              // v4.1.0: a silently remounted read-only filesystem is a data-loss
+              // outage — surface it as a badge (the agent already reports `ro`).
+              const roBadge = m.ro ? ` <span class="pill" data-color="var(--red)">RO</span>` : '';
               // Show the share server inline (not just a tooltip) so an SMB/NFS
               // mount is unmistakable: e.g. "cifs · //192.168.2.100/data".
               const fsCell = escHtml(m.fstype || '—') + (m.network && m.server ? ` · <code>${escHtml(m.server)}</code>` : '');
               if (m.stalled) {
-                return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}</td>
+                return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}${roBadge}</td>
                    <td class="fs-11 c-muted">${fsCell}</td>
-                   <td class="ta-center c-muted" colspan="3"><span class="pill" data-color="var(--red)">stalled</span></td></tr>`;
+                   <td class="ta-center c-muted" colspan="4"><span class="pill" data-color="var(--red)">stalled</span></td></tr>`;
               }
               const pct = (m.percent != null) ? m.percent : null;
-              return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}</td>
+              const ino = (m.inode_percent != null) ? m.inode_percent : null;
+              return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}${roBadge}</td>
                    <td class="fs-11 c-muted">${fsCell}</td>
                    <td class="ta-center">${m.used_gb}GB</td>
                    <td class="ta-center">${m.total_gb}GB</td>
-                   <td class="isl-630 ${pct>85?'c-red': pct>70?'c-amber': ''}">${pct!=null?pct+'%':'—'}</td></tr>`;
+                   <td class="isl-630 ${pct>85?'c-red': pct>70?'c-amber': ''}">${pct!=null?pct+'%':'—'}</td>
+                   <td class="ta-center ${ino>90?'c-red': ino>80?'c-amber': 'c-muted'}">${ino!=null?ino+'%':'—'}</td></tr>`;
             }).join('') + `</tbody></table></div>`;
         }
         // v3.13.0: per-host storage / RAID health (ZFS / mdadm / btrfs).

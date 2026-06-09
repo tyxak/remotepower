@@ -56,7 +56,7 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v4.1.0.md](v4.1.0.md)** — "VisibilityMatters": CheckMK-style per-host
+- **[v4.1.0.md](v4.1.0.md)** — "VisualMatters": CheckMK-style per-host
  Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
 - **[v4.0.0.md](v4.0.0.md)** — per-account sidebar favorites; per-container
  stale-image badge; fleet thermal roll-up ("hottest hosts").

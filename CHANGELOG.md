@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v4.1.0 — "VisibilityMatters" — 2026-06-09
+## v4.1.0 — "VisualMatters" — 2026-06-09
 
 Surfaces what the fleet already knows and lets you shape how you see it. A new
 **CheckMK-style per-host Checks** matrix (OK/WARN/CRIT/UNKNOWN from data already

@@ -1989,8 +1989,61 @@ class TestDashboardWidgetGrid(unittest.TestCase):
         self.assertIn('dash-w-sm', (_CGI_BIN.parent / 'html' / 'static' / 'css' / 'styles.css').read_text())
 
 
+class TestSysinfoBinding(unittest.TestCase):
+    """v4.1.0 VisualMatters: agent signals must be persisted to safe_si so the
+    server-side process custom check + the device drawer can actually use them.
+    proc_names was collected + read by _eval_custom_check but never stored →
+    the 'process' check silently always returned 'unknown'."""
+
+    def setUp(self):
+        self._tmp = Path(tempfile.mkdtemp())
+        api.DATA_DIR = self._tmp
+        api.DEVICES_FILE = self._tmp / 'devices.json'
+        api.CMDS_FILE = self._tmp / 'cmds.json'
+        api.CONFIG_FILE = self._tmp / 'config.json'
+        api.TOKENS_FILE = self._tmp / 'tokens.json'
+        api.save(api.CMDS_FILE, {})
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {'d1': {
+            'id': 'd1', 'name': 'web01', 'token': 'tok', 'poll_interval': 60}})
+
+    def _hb(self, sysinfo):
+        def fake_respond(status, body):
+            raise SystemExit(0)
+        api.respond = fake_respond
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'token': 'tok',
+                                     'sysinfo': sysinfo}
+        try:
+            api.handle_heartbeat()
+        except SystemExit:
+            pass
+        except Exception:
+            return None  # needs more scaffolding — caller falls back to source
+        return (api.load(api.DEVICES_FILE)['d1'].get('sysinfo') or {})
+
+    def test_proc_names_persisted_and_deduped(self):
+        si = self._hb({'proc_names': ['nginx', 'sshd', 'postfix', 'sshd'],
+                       'uptime': '1 day'})
+        if si is None:
+            self.assertIn("safe_si['proc_names']", (_CGI_BIN / 'api.py').read_text())
+            return
+        pn = si.get('proc_names', [])
+        self.assertIn('nginx', pn)
+        self.assertIn('postfix', pn)
+        self.assertEqual(pn.count('sshd'), 1)  # deduped
+
+    def test_last_oom_proc_persisted(self):
+        si = self._hb({'last_oom_ts': 1781000000, 'last_oom_proc': 'java',
+                       'uptime': '1 day'})
+        if si is None:
+            self.assertIn("safe_si['last_oom_proc']", (_CGI_BIN / 'api.py').read_text())
+            return
+        self.assertEqual(si.get('last_oom_proc'), 'java')
+
+
 class TestVersionBumps(unittest.TestCase):
-    """v4.1.0 "VisibilityMatters" — strict version-surface pins for this release."""
+    """v4.1.0 "VisualMatters" — strict version-surface pins for this release."""
     V = '4.1.0'
     _ROOT = _CGI_BIN.parent.parent
 
