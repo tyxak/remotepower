@@ -4,7 +4,9 @@
 
 <img src="docs/screenshots/RP.png" alt="RemotePower" width="760">
 
-**Self-hosted remote management for your Linux fleet — and your homelab.**
+**The all-in-one, Swiss-army-knife control plane for your Linux fleet — and your homelab.**
+Monitoring with alerting, a CMDB, documentation with RAG search, CVE scanning, patching
+and remote management in one self-hosted place — with AI woven through all of it (optional).
 Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -68,6 +70,15 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 ---
 
 ## What is it?
+
+**One tool instead of six.** Most teams stitch together a monitor, a CMDB, a wiki,
+a vulnerability scanner, a patch tool and an SSH jump box. RemotePower is the
+Swiss-army-knife that does all of it from a single host you control — **monitoring
+&amp; alerting**, an asset **CMDB**, **documentation with RAG search** over your own
+fleet, **CVE scanning**, **patching**, and **remote management** — and it's **heavily
+bound to AI as an option**: bring your own model (local Ollama/LocalAI or a cloud
+provider) and ask questions answered from *your* infrastructure, or leave it off
+entirely. Everything stays self-hosted.
 
 A web dashboard that manages your Linux machines (and Windows, kind of) without
 opening firewall ports on them. Each host runs a small Python agent that **polls**
