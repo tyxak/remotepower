@@ -12809,11 +12809,22 @@ function _renderHomeWidgets(home) {
   bigStat('home-w-temp-body', tp.count || 0, 'hosts over temperature',
           tp.count ? 'c-red' : 'c-green');
   const bj = W.backups || {};
-  _setWidget('home-w-backups-body', (bj.total)
-    ? _miniRows([{ l: 'Jobs', r: String(bj.total) },
-                 { l: 'Ran (24h)', r: String(bj.ran24h || 0),
-                   cls: (bj.total && !bj.ran24h) ? 'c-amber' : 'c-green' }])
-    : '<div class="hint">No backup jobs configured.</div>');
+  if (bj.total || bj.monitors) {
+    const rows = [];
+    if (bj.total) {
+      rows.push({ l: 'Jobs', r: String(bj.total) });
+      rows.push({ l: 'Ran (24h)', r: String(bj.ran24h || 0),
+                  cls: (bj.total && !bj.ran24h) ? 'c-amber' : 'c-green' });
+    }
+    if (bj.monitors) {
+      const st = bj.monitors_stale || 0;
+      rows.push({ l: 'Backup files', r: `${st} stale / ${bj.monitors}`,
+                  cls: st ? 'c-red' : 'c-green' });
+    }
+    _setWidget('home-w-backups-body', _miniRows(rows));
+  } else {
+    _setWidget('home-w-backups-body', '<div class="hint">No backup jobs or file monitors configured.</div>');
+  }
 
   // ── v4.1.0 catalog expansion wave 4 ───────────────────────────────────────
   const cntStat = (id, datum, subZero, subN, badCls) => {
@@ -21296,6 +21307,16 @@ const _drawerActMap = new Map();
 // ── CSP L1: wrapper functions for this-passing and complex onclick= patterns ─
 function _cveScanBtn(btn) {
   triggerCVEScan(btn.dataset.devId || undefined, btn);
+}
+async function cveRealert() {
+  if (!confirm('Re-raise alerts for the current CVE backlog? This fires cve_found '
+    + 'now for every host with critical/high findings (already-known CVEs don\'t '
+    + 're-alert on their own).')) return;
+  const r = await api('POST', '/cve/realert', {});
+  if (r && r.ok) {
+    toast(`Re-alerted ${r.devices} device(s)`, 'success');
+    refreshAlertsBadge();
+  } else toast((r && r.error) || 'Failed', 'error');
 }
 function _forcePackageScanBtn(btn) {
   forcePackageScan(btn.dataset.devId, btn.dataset.devName || '', btn);

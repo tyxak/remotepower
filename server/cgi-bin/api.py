@@ -23908,14 +23908,22 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         out['temp'] = {'count': cnt('_temp_high')}
     except Exception:
         out['smart'] = out['ups'] = out['temp'] = {}
-    # Backup jobs (one file read): total + ran in the last 24h
+    # Backups: scheduled jobs (total + ran in 24h) AND backup-file-age monitors
+    # (configured + currently stale, from the edge-trigger state file). So the
+    # widget reflects "are backups healthy", not just "are jobs scheduled".
     try:
         store = load(BACKUP_JOBS_FILE) or {}
         jobs = store.get('jobs') if isinstance(store, dict) else store
         jobs = jobs or []
         ran = sum(1 for j in jobs if isinstance(j, dict)
                   and (now - (j.get('last_run') or 0)) < 86400)
-        out['backups'] = {'total': len(jobs), 'ran24h': ran}
+        mons = cfg.get('backup_monitors') or []
+        bstate = (load(DATA_DIR / 'backup_state.json') or {}) \
+            if backend_exists(DATA_DIR / 'backup_state.json') else {}
+        stale = sum(1 for v in bstate.values()
+                    if isinstance(v, dict) and v.get('ok') is False)
+        out['backups'] = {'total': len(jobs), 'ran24h': ran,
+                          'monitors': len(mons), 'monitors_stale': stale}
     except Exception:
         out['backups'] = {}
     # ── wave 5: data-backed widgets ───────────────────────────────────────────
@@ -32566,6 +32574,51 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
     })
 
 
+def handle_cve_realert():
+    """POST /api/cve/realert — re-raise cve_found for the CURRENT backlog.
+
+    The normal cve_found alert is edge-triggered (fires only for findings new
+    since the last scan), so once you clear/resolve those alerts the existing
+    CVEs won't re-alert. This admin action fires cve_found now for every device
+    whose current findings (in the configured severity filter, not ignored)
+    are non-empty — useful after clearing the inbox or onboarding alerting on a
+    fleet that already had findings."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not is_webhook_event_enabled('cve_found'):
+        respond(400, {'error': 'cve_found alerting is disabled (Settings → Notifications)'})
+    findings_all = load(CVE_FINDINGS_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    ignore_data = load(CVE_IGNORE_FILE) or {}
+    sev_filter = set(get_cve_severity_filter())
+    fired = 0
+    for dev_id, rec in findings_all.items():
+        alerted = []
+        for f in (rec or {}).get('findings') or []:
+            vid = f.get('vuln_id')
+            if not vid or f.get('severity') not in sev_filter:
+                continue
+            ig = ignore_data.get(vid)
+            if ig and ig.get('scope') in ('global', dev_id):
+                continue
+            alerted.append(f)
+        if not alerted:
+            continue
+        dev = devices.get(dev_id, {})
+        fire_webhook('cve_found', {
+            'device_id': dev_id, 'name': dev.get('name', dev_id),
+            'count':     len(alerted),
+            'critical':  sum(1 for f in alerted if f['severity'] == 'critical'),
+            'high':      sum(1 for f in alerted if f['severity'] == 'high'),
+            'sample':    [{'id': f['vuln_id'], 'pkg': f.get('package'), 'sev': f['severity']}
+                          for f in alerted[:5]],
+        })
+        fired += 1
+    audit_log(actor, 'cve_realert', f'{fired} device(s) re-alerted')
+    respond(200, {'ok': True, 'devices': fired})
+
+
 def handle_cve_scan():
     """POST /api/cve/scan — admin triggers scan for one or all devices."""
     actor = require_admin_auth()
@@ -37487,6 +37540,7 @@ def _build_exact_routes():
         ('GET', '/api/cve/ignore'): handle_cve_ignore_list,
         ('POST', '/api/cve/ignore'): handle_cve_ignore_add,
         ('POST', '/api/cve/scan'): handle_cve_scan,
+        ('POST', '/api/cve/realert'): handle_cve_realert,
         ('GET', '/api/dashboard/kinds'): handle_dashboard_kinds,
         ('POST', '/api/dashboard/kinds'): handle_dashboard_kinds_set,
         ('GET', '/api/backup/download'): handle_backup_download,

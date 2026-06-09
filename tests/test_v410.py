@@ -1736,6 +1736,58 @@ class TestDashboardCards(_HandlerBase):
         self.assertEqual(len(api._dashboard_upcoming(limit=3)), 3)
 
 
+class TestCveRealert(_HandlerBase):
+    """v4.1.0: POST /api/cve/realert re-fires cve_found for the current backlog
+    (since the normal alert is edge-triggered and won't re-fire cleared ones)."""
+
+    def setUp(self):
+        super().setUp()
+        for attr in ('CVE_FINDINGS_FILE', 'CVE_IGNORE_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        self._fw, self._en, self._sf = (api.fire_webhook, api.is_webhook_event_enabled,
+                                        api.get_cve_severity_filter)
+        self.fired = []
+        api.fire_webhook = lambda ev, p=None: self.fired.append((ev, p))
+        api.is_webhook_event_enabled = lambda e: True
+        api.get_cve_severity_filter = lambda: ['critical', 'high']
+        api.method = lambda: 'POST'
+
+    def tearDown(self):
+        api.fire_webhook, api.is_webhook_event_enabled, api.get_cve_severity_filter = (
+            self._fw, self._en, self._sf)
+        super().tearDown()
+
+    def test_realert_fires_for_backlog(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}, 'd2': {'name': 'db'}})
+        api.save(api.CVE_FINDINGS_FILE, {
+            'd1': {'findings': [
+                {'vuln_id': 'CVE-1', 'package': 'a', 'severity': 'critical'},
+                {'vuln_id': 'CVE-2', 'package': 'b', 'severity': 'low'}]},   # low filtered
+            'd2': {'findings': []}})                                          # empty skipped
+        api.save(api.CVE_IGNORE_FILE, {})
+        out = self.call(api.handle_cve_realert)
+        self.assertTrue(out['ok'])
+        self.assertEqual(out['devices'], 1)
+        evs = [p for (e, p) in self.fired if e == 'cve_found']
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]['critical'], 1)
+        self.assertEqual(evs[0]['count'], 1)   # the low-severity one excluded
+
+    def test_realert_respects_ignore(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}})
+        api.save(api.CVE_FINDINGS_FILE, {'d1': {'findings': [
+            {'vuln_id': 'CVE-9', 'package': 'a', 'severity': 'critical'}]}})
+        api.save(api.CVE_IGNORE_FILE, {'CVE-9': {'scope': 'global'}})
+        self.call(api.handle_cve_realert)
+        self.assertEqual([e for e, _ in self.fired if e == 'cve_found'], [])
+
+    def test_realert_blocked_when_disabled(self):
+        api.is_webhook_event_enabled = lambda e: False
+        self.call(api.handle_cve_realert)
+        self.assertEqual(self.cap['s'], 400)
+
+
 class TestDashboardCardsUI(unittest.TestCase):
     """The two new cards are wired, and Ask-AI + Customize moved to the footer."""
 
@@ -1799,6 +1851,7 @@ class TestDashboardWidgetGrid(unittest.TestCase):
     def test_extra_widgets_payload(self):
         # With no `want` filter, best-effort and always returns every key.
         w = api._dashboard_extra_widgets({}, {}, int(api.time.time()))
+        self.assertIn('monitors', w['backups'])          # v4.1.0: file-age monitors too
         for k in ('alertsev', 'maintenance', 'monitors', 'containers', 'diskfill',
                   'rebootreq', 'worldports', 'failedunits', 'timers',
                   'smart', 'ups', 'temp', 'backups',
