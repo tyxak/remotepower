@@ -2,6 +2,11 @@
 
 All notable changes to RemotePower. Newest first.
 
+## Coming next — v4.2.0 "5ecur1tyM4tter5"
+
+The next release focuses on **security and integrations** — deeper hardening
+and tighter connections to the tools you already run. Codename **5ecur1tyM4tter5**.
+
 ## v4.1.0 — "VisualMatters" — 2026-06-09
 
 Surfaces what the fleet already knows and lets you shape how you see it. A new
@@ -49,6 +54,16 @@ most features surface data the agent already reports. See
 - Independently scanned with **wapiti, nikto, nuclei, bandit and OWASP ZAP** —
   clean. See [docs/security.md](docs/security.md) and
   [docs/security-review-4.1.0.md](docs/security-review-4.1.0.md).
+
+### Finalize sweep (bind it together + polish)
+- **Bound more agent signals into the UI**: the server-side *process* custom
+  check now works (the running-process list is persisted); the device drawer
+  surfaces FD/conntrack pressure, clock sync, gateway reachability, mail-queue
+  depth, the last OOM-killed process, and per-mount inode% + a read-only badge.
+- **UI consistency**: every page table caps at ~15 rows then scrolls; uncapped
+  rule/pattern lists now scroll; body/code text folded onto one type scale and a
+  broken AI-markdown CSS block (a CSP-migration artifact) repaired.
+- Doc accuracy pass (event/tool/widget/line counts corrected).
 
 ## v4.0.0 — 2026-06-07
 

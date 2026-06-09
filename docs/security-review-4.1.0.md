@@ -65,6 +65,12 @@ application or the source.
   back-off when the MTA is broken (no shell, no flood).
 - **Dashboard widgets / `/api/home`** add only read-only aggregation; the
   `?w=` enabled-widget hint is validated against the known widget set.
+- **Finalize "bind-it-together" sweep (re-reviewed clean):** the newly
+  persisted `proc_names` / `last_oom_proc` heartbeat fields are passed through
+  `_sanitize_str` and bounded (≤400 deduped names) before storage, and the new
+  device-drawer signals (FD/conntrack/clock/gateway/mail-queue, per-mount
+  inode% + read-only flag) are read-only and HTML-escaped on render — no new
+  sink, no new authz surface.
 
 ## Standing posture (verified intact)
 

@@ -243,7 +243,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every few releases
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-3.13.0.md](security-review-3.13.0.md)).
+  [security-review-4.1.0.md](security-review-4.1.0.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
   Python codebase.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

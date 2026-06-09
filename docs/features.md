@@ -13,13 +13,13 @@ Day-to-day fleet operations, without leaving the browser:
 | **Auth that scales** | Local users with bcrypt + TOTP 2FA. Optional LDAP/AD integration. Named API keys for automation. Enrolment tokens for cloud-init / Ansible / golden-image stamping. |
 | **Time-series, the homelab way** | Every device's CPU/RAM/disk recorded; sparkline for the dashboard, full-size chart on click. Prometheus `/api/metrics` endpoint for Grafana. |
 | **AI assistant** | Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain command output, triage CVEs and TLS expiry, prioritise patches, diagnose failed services, generate and audit shell scripts, free-form chat. Disabled by default; no external calls unless you choose a cloud provider. Regex-based secret redaction before any bytes leave the process. |
-| **MCP server** | Bundled Model Context Protocol server — lets any MCP-capable AI client (Claude Desktop, etc.) query fleet state through 12 read-only tools. No write tools in this release. |
+| **MCP server** | Bundled Model Context Protocol server — lets any MCP-capable AI client (Claude Desktop, etc.) query fleet state through 18 tools: 14 read tools plus 4 guarded write tools (reboot, run saved script, force package/ACME scan), gated by a per-token allow-list. |
 | **Custom monitoring scripts** | Define bash health checks server-side, assign to devices, run every 5 minutes. Exit 0 = OK, anything else = FAIL. Fleet-wide results table, edge-triggered webhooks (`custom_script_fail` / `custom_script_recover`). AI-assisted script generation built into the create modal. |
 | **Host configuration** | Declare desired state per device: repos, netplan, nmcli, resolv.conf, /etc/hosts, enabled services, users + SSH keys, groups, sudoers, MOTD. Agent applies on heartbeat (~60 s), reports current state every 15 min. Drift detected and `config_drift` webhook fires edge-triggered. Audit-only — never auto-remediates. |
 
 ---
 
-**It's small.** ~42,000 lines of Python on the server. ~5,500 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
+**It's small.** ~42,000 lines of Python on the server. ~6,900 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
 
 **It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
 
@@ -146,7 +146,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
 | **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
-| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 17 event types, per-event toggles, test-event button |
+| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 65 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
 | **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
 | **Patch alerts** | Webhook when pending updates exceed configurable threshold |
@@ -221,7 +221,7 @@ Full reference: **[ai.md](ai.md)**.
 | Feature | Notes |
 |---|---|
 | **MCP server** | Read-only Model Context Protocol server. 12 tools: `list_devices`, `get_device`, `get_journal`, `get_services`, `get_containers`, `get_cves`, `get_drift`, `get_recent_commands`, `get_runbook`, `get_patches`, `get_tls`, `search_devices` |
-| **No write tools** | `run_command`, `reboot_device`, etc. are intentionally absent. Write tools require server-side allow-list + per-token roles, deferred to a future release |
+| **Guarded write tools** | The 4 write tools (`reboot_device`, `run_saved_script`, `force_package_scan`, `force_acme_rescan`) require a server-side allow-list and per-token roles; arbitrary `run_command` is intentionally absent — scripts must be pre-saved in the library. |
 
 
 ---
@@ -1108,7 +1108,7 @@ credential-less **database-liveness** probe (PostgreSQL / MySQL / Redis), and
 **tag/group** target fan-out for ping/ICMP/TCP monitors.
 
 ### Composable dashboard
-A resizable widget grid with a **65-widget catalog** (alphabetical add-dropdown):
+A resizable widget grid with a **66-widget catalog** (alphabetical add-dropdown):
 per-widget **size** (S/M/L), **reorder**, **show/hide**, **reset**, **align**,
 and a shareable **import/export layout code**, saved per account. New
 **Upcoming** (calendar + scheduler), **Tickets** (open quick-ack + recently
