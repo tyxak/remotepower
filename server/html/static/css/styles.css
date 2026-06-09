@@ -567,8 +567,8 @@
     border: none;
     color: var(--muted);
     padding: 12px 10px 4px;
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
     cursor: pointer;
@@ -582,16 +582,20 @@
   }
   .sidebar-group-toggle:hover { color: var(--text); }
   .sidebar-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
+  /* Grey fold-out (disclosure) chevron between a parent group and its items. */
   .sidebar-group-toggle .chevron {
     margin-left: auto;
-    transition: transform 0.15s;
+    transition: transform 0.18s ease;
     width: 14px; height: 14px;
+    color: var(--muted);
+    opacity: 0.7;
   }
+  .sidebar-group-toggle:hover .chevron { opacity: 1; }
   .sidebar-group.collapsed .chevron { transform: rotate(-90deg); }
   .sidebar-group-items {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;                 /* tighter — subcategories sit closer together */
     overflow: hidden;
     max-height: 1000px;
     transition: max-height 0.18s ease-out;
@@ -599,8 +603,11 @@
   .sidebar-group.collapsed .sidebar-group-items {
     max-height: 0;
   }
-  /* Indent the group's items slightly so the hierarchy is visible */
-  .sidebar-group .nav-btn { padding-left: 18px; }
+  /* Indent the group's items so the hierarchy is visible; denser than the
+     top-level Main rows so a group reads as one tight block. */
+  .sidebar-group .nav-btn { padding: 6px 12px 6px 18px; }
+  /* Eyecandy: a subtle accent bar on the active nav item (no layout shift). */
+  .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); }
 
   /* v2.0: documentation page card styling. <details> elements give us
      free expand/collapse without any JS, and they're right-click /

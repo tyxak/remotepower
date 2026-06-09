@@ -46,6 +46,12 @@
     'Proxmox LXC': { zh: 'Proxmox LXC', hi: 'Proxmox LXC', es: 'Proxmox LXC', ar: 'Proxmox LXC' },
     'Query':       { zh: '查询', hi: 'क्वेरी', es: 'Consulta', ar: 'استعلام' },
     // ── monitoring ──
+    'Checks':      { zh: '检查', hi: 'जाँच', es: 'Comprobaciones', ar: 'الفحوصات' },
+    'Every monitored signal on every host as OK / WARN / CRIT / UNKNOWN, with output. Sort and filter; toggle a check off to silence it on a host.':
+        { zh: '每台主机的每个受监控信号，以 OK / WARN / CRIT / UNKNOWN 显示并附带输出。可排序和筛选；关闭某项检查即可在该主机上将其静音。',
+          hi: 'हर host पर हर निगरानी किए गए signal को OK / WARN / CRIT / UNKNOWN के रूप में, output सहित। क्रमबद्ध करें और filter करें; किसी check को बंद करके उसे उस host पर म्यूट करें।',
+          es: 'Cada señal monitorizada de cada host como OK / WARN / CRIT / UNKNOWN, con su salida. Ordena y filtra; desactiva una comprobación para silenciarla en un host.',
+          ar: 'كل إشارة مراقَبة على كل مضيف بصيغة OK / WARN / CRIT / UNKNOWN مع المُخرَج. الترتيب والتصفية؛ عطِّل فحصًا لكتمه على مضيف.' },
     'Targets':     { zh: '目标', hi: 'लक्ष्य', es: 'Objetivos', ar: 'الأهداف' },
     'Device Metrics': { zh: '设备指标', hi: 'डिवाइस मेट्रिक्स', es: 'Métricas del dispositivo', ar: 'مقاييس الجهاز' },
     'Forecast':    { zh: '预测', hi: 'पूर्वानुमान', es: 'Pronóstico', ar: 'التنبؤ' },
