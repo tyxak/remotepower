@@ -12602,16 +12602,20 @@ function _renderHomeWidgets(home) {
     { l: 'Unmonitored', r: String(unmon), cls: unmon ? 'c-muted' : '' },
     { l: 'Total devices', r: String(devs.length) },
   ]));
-  // Stale agents (oldest check-ins among monitored, non-agentless)
+  // Stale agents — only genuinely overdue check-ins (> 10 min), not just the
+  // oldest of a healthy fleet. Otherwise this duplicates "Recent check-ins".
   const now = Date.now() / 1000;
-  const stale = counted.filter(d => !d.agentless && d.last_seen)
-    .sort((a, b) => a.last_seen - b.last_seen).slice(0, 6);
+  const STALE_AFTER = 600;   // seconds
+  const stale = counted.filter(d => !d.agentless && d.last_seen
+    && (now - d.last_seen) > STALE_AFTER)
+    .sort((a, b) => a.last_seen - b.last_seen).slice(0, 8);
   _setWidget('home-w-stale-body', stale.length
     ? _miniRows(stale.map(d => ({
       l: escHtml(d.name), r: timeAgo(d.last_seen),
-      cls: (now - d.last_seen) > 86400 ? 'c-amber' : '' })))
-    : '<div class="hint">No agents reporting.</div>');
-  // Mailbox watch
+      cls: (now - d.last_seen) > 86400 ? 'c-red' : 'c-amber' })))
+    : '<div class="hint">All agents reporting on time.</div>');
+  // Mailbox watch — resolve the device id to a hostname (the mailwatch payload
+  // may carry only an id, which would otherwise show as a raw key).
   const mw = ((home.mailwatch && home.mailwatch.devices) || []).filter(d => d.dashboard);
   let unread = 0;
   mw.forEach(d => Object.values(d.counts || {}).forEach(c => {
@@ -12619,7 +12623,8 @@ function _renderHomeWidgets(home) {
   }));
   _setWidget('home-w-mailwatch-body', mw.length
     ? `<div class="dash-mini-head">${unread} unread across ${mw.length} host(s)</div>`
-      + _miniRows(mw.slice(0, 6).map(d => ({ l: escHtml(d.name || d.device_id || ''),
+      + _miniRows(mw.slice(0, 6).map(d => ({
+        l: escHtml(d.name || nameOf(d.device_id || d.id) || d.device_id || d.id || ''),
         r: String(Object.values(d.counts || {}).reduce((s, c) => s + ((c && c.count) || 0), 0)) })))
     : '<div class="hint">No mailbox watch on the dashboard.</div>');
   // On-call now
