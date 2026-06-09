@@ -12809,8 +12809,8 @@ function _renderHomeWidgets(home) {
   bigStat('home-w-temp-body', tp.count || 0, 'hosts over temperature',
           tp.count ? 'c-red' : 'c-green');
   const bj = W.backups || {};
-  _setWidget('home-w-backups-body', (bj.total != null)
-    ? _miniRows([{ l: 'Jobs', r: String(bj.total || 0) },
+  _setWidget('home-w-backups-body', (bj.total)
+    ? _miniRows([{ l: 'Jobs', r: String(bj.total) },
                  { l: 'Ran (24h)', r: String(bj.ran24h || 0),
                    cls: (bj.total && !bj.ran24h) ? 'c-amber' : 'c-green' }])
     : '<div class="hint">No backup jobs configured.</div>');
