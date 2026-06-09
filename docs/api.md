@@ -45,8 +45,19 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 ### Monitor
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/monitor` | | Run ping/TCP/HTTP checks |
+| `GET` | `/api/monitor` | | Run ping/TCP/HTTP/DNS/ICMP/DB checks |
 | `GET` | `/api/monitor/history?label=X` | | Check history for a target |
+
+### Checks (CheckMK-style per-host health) — v4.1.0
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/checks` | | Fleet check matrix (OK/WARN/CRIT/UNKNOWN per host; `?status=critical\|warning`) |
+| `GET` | `/api/devices/:id/checks` | | Check list + summary for one host |
+| `POST` | `/api/checks/toggle` | admin | Mute/unmute a check on a host (`{device_id, check, enabled}`) |
+| `GET` | `/api/checks/custom` | | List custom-check definitions |
+| `POST` | `/api/checks/custom` | admin | Add/update a custom check (process/port/file/job/log; host/tag/group target) |
+| `POST` | `/api/checks/custom/delete` | admin | Remove a custom check (`{id}`) |
+| `GET` | `/api/nav-counts` | | Per-sidebar-group attention counts (offline / monitors-down / critical CVEs) |
 
 ### Users & Auth
 | Method | Endpoint | Auth | Description |
