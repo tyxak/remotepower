@@ -10,33 +10,45 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       ├─ /agent/        → Agent binary (static, for self-update)
                       ├─ /swagger.html  → Interactive OpenAPI UI
                       ├─ /Manual.html   → Reference manual
-                      └─ /var/lib/remotepower/   (state — flat JSON, hardened with flock + .bak fallback in v1.12.1)
+                      └─ /var/lib/remotepower/   (state — flat JSON by default, hardened with flock + .bak fallback)
                               ├── Identity:        users.json, tokens.json, apikeys.json, pins.json,
                               │                    enrollment_tokens.json
                               ├── Fleet state:     devices.json, metrics.json, packages.json,
-                              │                    services.json, containers.json
+                              │                    services.json, containers.json, hardware.json,
+                              │                    drift_state.json, fleet_events.json
                               ├── CMDB:            cmdb.json, cmdb_vault.json
                               ├── Operations:      commands.json, history.json, schedule.json,
                               │                    cmd_output.json, cmd_library.json, longpoll.json,
-                              │                    update_logs.json, tasks.json, calendar.json
+                              │                    update_logs.json, tasks.json, calendar.json,
+                              │                    backup_jobs.json, backup_state.json
                               ├── Monitoring:      monitor_history.json, uptime.json, log_watch.json,
                               │                    log_rules_global.json, service_history.json
+                              ├── Alerts / posture: alerts.json, brute_force.json, secret_findings.json
                               ├── Security:        cve_findings.json, cve_ignore.json,
                               │                    cve_details_cache.json
                               ├── TLS / DNS:       tls_targets.json, tls_results.json
                               ├── Webterm:         webterm_tickets.json, webterm-sessions/<id>.cast
-                              ├── Other:           config.json, links.json, tunnels.json,
-                              │                    maintenance.json, maint_suppressed.json,
+                              ├── Other:           config.json (holds monitors, custom_checks,
+                              │                    exposure_mutes, backup_monitors, oncall, …),
+                              │                    links.json, tunnels.json, maintenance.json,
                               │                    audit_log.json, webhook_log.json, ratelimit.json
                               └── (each .json gets a rolling .json.bak sibling on every save)
 
-  Optional storage backend (v3.12.0+): the whole flat-JSON store above can be
-  switched in place to an embedded SQLite database (remotepower.db, WAL mode,
-  stdlib sqlite3 — no external DB server). Hot, high-cardinality data is stored
-  row-per-entity so a heartbeat updates one row instead of rewriting a file.
-  The storage helpers are backend-agnostic; flat JSON stays the default.
-  Switch under Settings → Advanced → Storage backend (reversible). See
-  docs/v3.12.0.md.
+  Storage backends (one shared, backend-agnostic helper layer):
+    • flat JSON  — the zero-dependency default (above).
+    • SQLite     — embedded, WAL mode, stdlib sqlite3 (v3.12.0+); hot data is
+                   stored row-per-entity so a heartbeat updates one row instead
+                   of rewriting a file. In-place, reversible migration.
+    • PostgreSQL — for large fleets (v4.0.0+): automatic failover across a
+                   multi-host DSN, optional read replicas, and a PgBouncer pooler.
+  Switch under Settings → Advanced → Storage backend. See docs/scaling.md.
+
+  Scale-out (optional, v4.0.0+):
+    • Relay satellites — agents in a segmented network reach a satellite that
+      forwards to the server; the agent→satellite hop can run over HTTPS, and
+      every hop refuses TLS below 1.2. See docs/satellites.md.
+    • Load-balanced multi-node — several stateless app nodes behind a trusted
+      proxy, all pointed at the shared PostgreSQL backend.
 
 Optional sibling daemon (only if you install the web terminal):
   systemd: remotepower-webterm.service
@@ -58,12 +70,16 @@ Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
 
 Windows client (Windows 10/11, Server 2019+)
   └─ NSSM service: RemotePowerAgent
-       └─ Python script (remotepower-agent.py)
+       └─ Python script (remotepower-agent-win.py)
             └─ Same heartbeat protocol as Linux agent
                  ├─ shutdown/reboot via shutdown.exe /s /r
                  ├─ patch info via Windows Update COM API
                  ├─ journal via wevtutil (System event log)
                  └─ metrics via psutil (optional)
+
+macOS client (macOS 12+)
+  └─ launchd: com.remotepower.agent (remotepower-agent-mac.py)
+       └─ Same heartbeat protocol (TLS 1.2+ to the server/satellite)
 ```
 
 ---
