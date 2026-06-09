@@ -20218,10 +20218,21 @@ async function forceAgentUpgrade(deviceId, name) {
 
 // v3.0.1: collapsible sidebar — toggle and persist preference in localStorage
 function toggleSidebarCollapse() {
+  // Collapsing the sidebar changes the content area's width, so every
+  // percentage/flex-sized card with `transition: all` would animate its
+  // width — the text "floats and blinks" as it reflows mid-animation.
+  // Suppress all transitions for the duration of the layout shift so the
+  // collapse just snaps cleanly, then restore them next frame.
+  document.body.classList.add('no-anim');
   const collapsed = document.body.classList.toggle('sidebar-collapsed');
   localStorage.setItem('rp_sidebar_collapsed', collapsed ? '1' : '0');
   const ico = document.getElementById('sidebar-collapse-icon');
   if (ico) ico.textContent = collapsed ? '▶' : '◀';
+  // Force a reflow so the collapsed layout is committed while transitions are
+  // off, then drop the guard on the next frame.
+  void document.body.offsetWidth;
+  requestAnimationFrame(() => requestAnimationFrame(
+    () => document.body.classList.remove('no-anim')));
 }
 // Restore preference on load. Use DOMContentLoaded so the class is applied
 // before the first paint — avoids a flash of the expanded sidebar.

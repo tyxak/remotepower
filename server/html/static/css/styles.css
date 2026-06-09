@@ -3467,6 +3467,12 @@ td .kev-badge { margin-left: 0; }
   }
   body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
 }
+/* While the sidebar collapse/expand is committing, kill every transition so
+   content cards don't animate their width and reflow text ("floating/blinking"
+   bug). Added by toggleSidebarCollapse for ~2 frames, then removed. */
+body.no-anim,
+body.no-anim * { transition: none !important; }
+
 .sidebar-collapse-btn {
   width: 100%;
   padding: 6px 10px;
