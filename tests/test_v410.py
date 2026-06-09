@@ -1774,6 +1774,17 @@ class TestDashboardWidgetGrid(unittest.TestCase):
                   'tls', 'bruteforce', 'bandwidth', 'checksrollup'):
             self.assertIn(k, w)
 
+    def test_askai_is_toggleable_widget(self):
+        # Ask-AI is a registered widget (so Customize can disable it) but pinned
+        # in the footer (layout engine skips moving it into the grid).
+        self.assertIn('askai', api.DASHBOARD_WIDGETS)
+        sys.path.insert(0, str(Path(__file__).parent))
+        from clientjs import client_js
+        js = client_js()
+        html = (_CGI_BIN.parent / 'html' / 'index.html').read_text()
+        self.assertIn('data-widget="askai"', html)
+        self.assertIn("if (key === 'askai') continue", js)
+
     def test_home_includes_oncall(self):
         # handle_home embeds the on-call widget datum (cheap, cfg-derived).
         src = (_CGI_BIN / 'api.py').read_text()

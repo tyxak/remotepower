@@ -12949,6 +12949,9 @@ const DASH_WIDGETS = [
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },
   { key: 'roster',   label: 'Fleet roster',                     size: 'lg' },
   { key: 'links',    label: 'Quick links',                      size: 'lg' },
+  // Ask-AI omnibox — toggleable like any widget, but stays pinned in the footer
+  // (not moved into the grid). size is irrelevant; default on.
+  { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },
 ];
 const _DASH_KEYS = DASH_WIDGETS.map(w => w.key);
 const _DASH_META = Object.fromEntries(DASH_WIDGETS.map(w => [w.key, w]));
@@ -12988,6 +12991,8 @@ function applyDashboardLayout() {
     const node = home.querySelector('[data-widget="' + key + '"]');
     if (!node) continue;
     node.classList.toggle('dash-off', !on);   // .dash-off hides via CSS
+    // 'askai' is toggleable but pinned in the footer — never move it to the grid.
+    if (key === 'askai') continue;
     node.classList.remove('dash-w-sm', 'dash-w-md', 'dash-w-lg');
     node.classList.add('dash-w-' + (_DASH_SIZES.includes(size) ? size : 'md'));
     grid.appendChild(node);                    // reorder within the grid
@@ -13024,15 +13029,19 @@ function _renderDashEditPanel() {
     + '<button class="btn-icon" data-action="dashShareExport" title="Copy a code that recreates this layout">Share</button>'
     + '<button class="btn-icon" data-action="dashShareImport" title="Apply a layout code from a teammate">Import</button>'
     + '</div>';
-  html += active.map((e, i) =>
-    '<div class="dash-edit-row">'
-    + '<span class="dash-edit-name">' + lbl(e.key) + '</span>'
-    + '<span class="dash-edit-sizes">' + _DASH_SIZES.map(s => sizeBtn(e, s)).join('') + '</span>'
-    + '<span class="dash-edit-moves">'
-    + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="-1"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">' + _SVG_UP + '</button>'
-    + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="1"' + (i === active.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">' + _SVG_DOWN + '</button>'
-    + '<button class="btn-icon c-danger-outline" data-action="dashToggle" data-arg="' + escAttr(e.key) + '" title="Remove from dashboard" aria-label="Remove">✕</button>'
-    + '</span></div>').join('');
+  // 'askai' is pinned in the footer — only a remove/restore toggle, no size/move.
+  html += active.map((e, i) => {
+    const pinned = e.key === 'askai';
+    return '<div class="dash-edit-row">'
+      + '<span class="dash-edit-name">' + lbl(e.key) + (pinned ? ' <span class="hint">(footer)</span>' : '') + '</span>'
+      + '<span class="dash-edit-sizes">' + (pinned ? '' : _DASH_SIZES.map(s => sizeBtn(e, s)).join('')) + '</span>'
+      + '<span class="dash-edit-moves">'
+      + (pinned ? '' :
+         '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="-1"' + (i === 0 ? ' disabled' : '') + ' title="Move up" aria-label="Move up">' + _SVG_UP + '</button>'
+         + '<button class="btn-icon" data-action="dashMove" data-arg="' + escAttr(e.key) + '" data-arg2="1"' + (i === active.length - 1 ? ' disabled' : '') + ' title="Move down" aria-label="Move down">' + _SVG_DOWN + '</button>')
+      + '<button class="btn-icon c-danger-outline" data-action="dashToggle" data-arg="' + escAttr(e.key) + '" title="Remove from dashboard" aria-label="Remove">✕</button>'
+      + '</span></div>';
+  }).join('');
   if (off.length) {
     html += '<div class="dash-edit-hint hint mt-16">Add a widget</div><div class="dash-add-grid">'
       + off.map(e => '<button class="btn-icon dash-add-btn" data-action="dashToggle" data-arg="'

@@ -627,8 +627,10 @@
         <!-- v4.1.0: Ask-AI omnibox + dashboard customize, moved to the bottom.
              applyDashboardLayout() pins this footer last (after all widgets). -->
         <div id="home-footer-controls" class="mt-16">
-          <!-- v3.13.0: ask-the-fleet AI omnibox (uses RAG over fleet state) -->
-          <div class="home-ai-ask mb-16">
+          <!-- v3.13.0: ask-the-fleet AI omnibox (uses RAG over fleet state).
+               v4.1.0: data-widget="askai" so Customize can hide it; it stays
+               pinned here in the footer (applyDashboardLayout skips moving it). -->
+          <div class="home-ai-ask mb-16" data-widget="askai">
             <input type="text" id="home-ai-q" class="form-input" placeholder="Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?" data-enter="aiAskFleet">
             <button class="btn-primary" data-action="aiAskFleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg> Ask</button>
           </div>

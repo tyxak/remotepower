@@ -440,7 +440,9 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'tls', 'bruteforce', 'bandwidth', 'checksrollup',
                               # v4.1.0: actionable alerts feed (ack/resolve inline)
                               'alertsfeed',
-                              'health', 'heatmap', 'overview', 'roster', 'links')
+                              'health', 'heatmap', 'overview', 'roster', 'links',
+                              # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
+                              'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
 BRAND_ACCENTS              = ('blue', 'emerald', 'violet', 'amber', 'rose', 'cyan')
