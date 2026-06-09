@@ -433,6 +433,9 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v4.1.0 catalog expansion wave 3 (posture/hardware):
                               'rebootreq', 'worldports', 'failedunits', 'timers',
                               'smart', 'ups', 'temp', 'backups',
+                              # v4.1.0 catalog expansion wave 4:
+                              'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg',
+                              'newports', 'fwchanges', 'sshkeys',
                               'health', 'heatmap', 'overview', 'roster', 'links')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
@@ -23790,6 +23793,7 @@ def _dashboard_extra_widgets(devices_raw, cfg, now):
     # Posture from the full device records (devices_raw already in hand)
     try:
         reboot, worldp, failedu, timersf = [], 0, 0, 0
+        mounts = clockskew = gw_unreach = oom_recent = storagedeg = 0
         for did, d in devices_raw.items():
             if not isinstance(d, dict) or d.get('monitored') is False:
                 continue
@@ -23801,13 +23805,36 @@ def _dashboard_extra_widgets(devices_raw, cfg, now):
             failedu += len(si.get('failed_units') or [])
             timersf += sum(1 for t in (si.get('timers') or [])
                            if isinstance(t, dict) and t.get('failed'))
+            if si.get('mount_issues'):
+                mounts += 1
+            clk = si.get('clock')
+            if isinstance(clk, dict) and clk.get('skewed'):
+                clockskew += 1
+            gwd = si.get('gateway')
+            if isinstance(gwd, dict) and gwd.get('reachable') is False:
+                gw_unreach += 1
+            lo = si.get('last_oom_ts')
+            if isinstance(lo, (int, float)) and lo > 0 and (now - lo) < 86400:
+                oom_recent += 1
+            for pool in (si.get('storage_health') or []):
+                if isinstance(pool, dict) and (pool.get('state') or '').lower() not in (
+                        'online', 'active', 'clean', 'healthy', 'ok'):
+                    storagedeg += 1
+                    break
         out['rebootreq'] = {'count': len(reboot), 'hosts': reboot[:8]}
         out['worldports'] = {'count': worldp}
         out['failedunits'] = {'count': failedu}
         out['timers'] = {'count': timersf}
+        out['mounts'] = {'count': mounts}
+        out['clockskew'] = {'count': clockskew}
+        out['gateway'] = {'count': gw_unreach}
+        out['oom'] = {'count': oom_recent}
+        out['storagedeg'] = {'count': storagedeg}
     except Exception:
         out['rebootreq'] = out['worldports'] = {}
         out['failedunits'] = out['timers'] = {}
+        out['mounts'] = out['clockskew'] = out['gateway'] = {}
+        out['oom'] = out['storagedeg'] = {}
     # Hardware flags (one file read)
     try:
         hw = load(HARDWARE_FILE) or {}

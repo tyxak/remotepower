@@ -12794,6 +12794,25 @@ function _renderHomeWidgets(home) {
                  { l: 'Ran (24h)', r: String(bj.ran24h || 0),
                    cls: (bj.total && !bj.ran24h) ? 'c-amber' : 'c-green' }])
     : '<div class="hint">No backup jobs configured.</div>');
+
+  // ── v4.1.0 catalog expansion wave 4 ───────────────────────────────────────
+  const cntStat = (id, datum, subZero, subN, badCls) => {
+    const n = (datum || {}).count || 0;
+    bigStat(id, n, n ? subN : subZero, n ? (badCls || 'c-red') : 'c-green');
+  };
+  cntStat('home-w-mounts-body', W.mounts, 'all mounts healthy', 'hosts with mount issues');
+  cntStat('home-w-clockskew-body', W.clockskew, 'clocks in sync', 'hosts with clock skew', 'c-amber');
+  cntStat('home-w-gateway-body', W.gateway, 'gateways reachable', 'gateways unreachable');
+  cntStat('home-w-oom-body', W.oom, 'no recent OOM', 'hosts OOM-killed (24h)');
+  cntStat('home-w-storagedeg-body', W.storagedeg, 'storage healthy', 'hosts with degraded storage');
+  // Event-derived (count recent fleet events of a type)
+  const evCount = t => evs.filter(e => e.event === t).length;
+  bigStat('home-w-newports-body', evCount('new_port_detected'), 'recent new-port events',
+          evCount('new_port_detected') ? 'c-amber' : 'c-green');
+  bigStat('home-w-fwchanges-body', evCount('firewall_changed'), 'recent firewall changes',
+          evCount('firewall_changed') ? 'c-amber' : 'c-green');
+  bigStat('home-w-sshkeys-body', evCount('ssh_key_added'), 'recent SSH keys added',
+          evCount('ssh_key_added') ? 'c-amber' : 'c-green');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12854,6 +12873,15 @@ const DASH_WIDGETS = [
   { key: 'ups',         label: 'UPS on battery',       opt: true, size: 'sm' },
   { key: 'temp',        label: 'Over temperature',     opt: true, size: 'sm' },
   { key: 'backups',     label: 'Backup jobs',          opt: true, size: 'sm' },
+  // v4.1.0 catalog expansion wave 4
+  { key: 'mounts',      label: 'Mount issues',         opt: true, size: 'sm' },
+  { key: 'clockskew',   label: 'Clock skew',           opt: true, size: 'sm' },
+  { key: 'gateway',     label: 'Gateway unreachable',  opt: true, size: 'sm' },
+  { key: 'oom',         label: 'Recent OOM kills',     opt: true, size: 'sm' },
+  { key: 'storagedeg',  label: 'Storage degraded',     opt: true, size: 'sm' },
+  { key: 'newports',    label: 'New ports (recent)',   opt: true, size: 'sm' },
+  { key: 'fwchanges',   label: 'Firewall changes',     opt: true, size: 'sm' },
+  { key: 'sshkeys',     label: 'SSH keys added',       opt: true, size: 'sm' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },
