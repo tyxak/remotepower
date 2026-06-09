@@ -819,12 +819,18 @@ function setThemeUI(id) {
 // v4.1.0: optional decorative background applied via body[data-bg]. Pure CSS
 // (gradients/patterns), CSP-safe — no external images. Per-browser like theme.
 const BACKGROUNDS = [
-  { id: 'none',     label: 'None' },
-  { id: 'grid',     label: 'Tech grid' },
-  { id: 'dots',     label: 'Dot matrix' },
-  { id: 'gradient', label: 'Aurora' },
-  { id: 'mesh',     label: 'Mesh' },
-  { id: 'topo',     label: 'Topographic' },
+  { id: 'none',       label: 'None' },
+  { id: 'grid',       label: 'Tech grid' },
+  { id: 'dots',       label: 'Dot matrix' },
+  { id: 'gradient',   label: 'Aurora' },
+  { id: 'mesh',       label: 'Mesh' },
+  { id: 'topo',       label: 'Topographic' },
+  { id: 'graph',      label: 'Graph paper' },
+  { id: 'diagonal',   label: 'Diagonal' },
+  { id: 'crosshatch', label: 'Crosshatch' },
+  { id: 'circuit',    label: 'Circuit' },
+  { id: 'blueprint',  label: 'Blueprint' },
+  { id: 'glow',       label: 'Spotlight' },
 ];
 function applyBackground() {
   let bg = 'none';
