@@ -268,23 +268,34 @@ def build_docs_corpus(files):
     return docs
 
 
-def build_runbooks_corpus(runbooks):
-    """runbooks: dict device_id -> {'content': markdown, 'generated_at': ts}."""
+def build_runbooks_corpus(runbooks, resolve_device=None):
+    """runbooks: dict device_id -> {'content': markdown, 'generated_at': ts}.
+
+    resolve_device: optional callable mapping the runbook store key to the
+    SAME canonical device id the live-state corpus uses. The runbook/CMDB
+    stores are keyed by the internal device id, but live_state keys by the
+    device's name/hostname when the record carries no embedded id (the shape a
+    storage migration produced). Without this remap the runbook's `device`
+    won't match the host's live chunks, so naming the host never surfaces its
+    runbook — the "no documentation for X" bug.
+    """
+    resolve = resolve_device or (lambda k: k)
     docs = []
     if not isinstance(runbooks, dict):
         return docs
     for dev_id, rec in runbooks.items():
         if not isinstance(rec, dict):
             continue
+        dev = resolve(dev_id) or dev_id
         content = rec.get('content') or rec.get('markdown') or rec.get('text') or ''
         ts = rec.get('generated_at') or rec.get('updated_at') or 0
         seen = set()
         for path, chunk in chunk_markdown(content):
             sec = _slug(path) if path else 'body'
             docs.append(make_doc(
-                _dedup_id(f"runbook/{dev_id}#{sec}", seen), 'docs', 'runbook', chunk,
-                title=f"Runbook: {dev_id}" + (f" — {path}" if path else ""),
-                device=dev_id, ts=ts, meta={'heading': path}))
+                _dedup_id(f"runbook/{dev}#{sec}", seen), 'docs', 'runbook', chunk,
+                title=f"Runbook: {dev}" + (f" — {path}" if path else ""),
+                device=dev, ts=ts, meta={'heading': path}))
     return docs
 
 
@@ -297,15 +308,21 @@ _CMDB_SECRET_KEYS = frozenset({'credentials', 'secrets', 'vault', 'password',
                                'passwords', 'fields'})
 
 
-def build_cmdb_corpus(cmdb_store):
+def build_cmdb_corpus(cmdb_store, resolve_device=None):
     """cmdb_store: dict device_id -> record. Indexes asset metadata and
-    per-asset Markdown docs. The credentials vault is excluded by key."""
+    per-asset Markdown docs. The credentials vault is excluded by key.
+
+    resolve_device: see build_runbooks_corpus — maps the CMDB store key to the
+    canonical device id live_state uses, so CMDB metadata/docs associate with
+    the right host when queried by name."""
+    resolve = resolve_device or (lambda k: k)
     docs = []
     if not isinstance(cmdb_store, dict):
         return docs
-    for dev_id, rec in cmdb_store.items():
+    for store_key, rec in cmdb_store.items():
         if not isinstance(rec, dict):
             continue
+        dev_id = resolve(store_key) or store_key
         # Asset metadata: everything except secret subtrees and the docs
         # list (handled separately below).
         meta_lines = []

@@ -18642,6 +18642,34 @@ def _rag_newest_mtime(sources):
     return newest
 
 
+def _rag_device_resolver():
+    """Return a callable mapping any device identifier (devices-store key,
+    embedded id, name, hostname, fqdn) to the canonical id the live-state
+    corpus uses — i.e. `record.get('id') or record.get('name')`, exactly as
+    build_live_state_corpus computes it over devices.values(). The runbook and
+    CMDB stores are keyed by the internal device id; this lets their chunks
+    carry the same `device` value as the host's live chunks so a query naming
+    the host surfaces them. Falls back to identity on any read failure."""
+    alias = {}
+    try:
+        raw = load(DEVICES_FILE)
+        items = raw.items() if isinstance(raw, dict) else [
+            (None, d) for d in (raw or [])]
+        for key, rec in items:
+            if not isinstance(rec, dict):
+                continue
+            canonical = rec.get('id') or rec.get('name') or key
+            if not canonical:
+                continue
+            for a in (key, rec.get('id'), rec.get('name'),
+                      rec.get('hostname'), rec.get('fqdn')):
+                if a:
+                    alias[str(a)] = str(canonical)
+    except Exception as e:
+        sys.stderr.write(f'rag: device resolver build failed: {e}\n')
+    return lambda k: alias.get(str(k), k)
+
+
 def _rag_build_corpus(cfg):
     """Gather all enabled sources into one list of corpus documents.
 
@@ -18654,10 +18682,19 @@ def _rag_build_corpus(cfg):
     now = int(time.time())
     docs = []
 
+    # Map every device identifier (store key, embedded id, name, hostname,
+    # fqdn) to the SAME canonical id the live-state corpus keys on, so the
+    # runbook + CMDB stores (keyed by internal device id) associate with the
+    # host's live chunks. Without this, "summarise docs on <hostname>" can't
+    # find the host's runbook (regressed when the migration dropped the
+    # embedded id and live_state fell back to the hostname).
+    resolve_dev = _rag_device_resolver()
+
     if sources.get('docs'):
         try:
             docs += rag_index.build_docs_corpus(_rag_read_docs())
-            docs += rag_index.build_runbooks_corpus(load(RUNBOOKS_FILE))
+            docs += rag_index.build_runbooks_corpus(load(RUNBOOKS_FILE),
+                                                    resolve_device=resolve_dev)
         except Exception as e:
             sys.stderr.write(f'rag: docs source failed: {e}\n')
 
@@ -18734,7 +18771,8 @@ def _rag_build_corpus(cfg):
 
     if sources.get('cmdb'):
         try:
-            docs += rag_index.build_cmdb_corpus(_cmdb_load())
+            docs += rag_index.build_cmdb_corpus(_cmdb_load(),
+                                                resolve_device=resolve_dev)
         except Exception as e:
             sys.stderr.write(f'rag: cmdb source failed: {e}\n')
 

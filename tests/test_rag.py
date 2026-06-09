@@ -144,6 +144,28 @@ class TestCorpusBuilders(unittest.TestCase):
         self.assertIn("prod web", blob)
         self.assertIn("Promote db02", blob)
 
+    def test_runbook_resolve_device_remaps_to_canonical(self):
+        # Runbook keyed by internal id; resolver maps it to the hostname the
+        # live chunks use, so the chunk's device + id align.
+        runbooks = {"VeG8Y9": {"content": "# Purpose\nMail server.",
+                               "generated_at": 1}}
+        resolve = lambda k: {"VeG8Y9": "pmg01.tvipper.com"}.get(k, k)
+        docs = rag_index.build_runbooks_corpus(runbooks, resolve_device=resolve)
+        self.assertTrue(docs)
+        self.assertEqual(docs[0]["device"], "pmg01.tvipper.com")
+        self.assertTrue(docs[0]["id"].startswith("runbook/pmg01.tvipper.com#"))
+
+    def test_cmdb_resolve_device_remaps_to_canonical(self):
+        store = {"VeG8Y9": {"name": "pmg01", "role": "mail",
+                            "docs": [{"id": "d1", "title": "Ops",
+                                      "body": "# Ops\nrestart postfix"}]}}
+        resolve = lambda k: {"VeG8Y9": "pmg01.tvipper.com"}.get(k, k)
+        docs = rag_index.build_cmdb_corpus(store, resolve_device=resolve)
+        self.assertTrue(docs)
+        self.assertTrue(all(d["device"] == "pmg01.tvipper.com" for d in docs))
+        self.assertTrue(any(d["id"].startswith("cmdb/pmg01.tvipper.com")
+                            for d in docs))
+
     def test_live_state_facets(self):
         devs = [{"id": "web01", "name": "web01", "os": "Debian 13",
                  "sysinfo": {"kernel": "6.1.0", "disks": [{"mount": "/", "percent": 91}]},
@@ -615,6 +637,56 @@ class TestRagFocusDepth(unittest.TestCase):
     def test_default_chunk_count_is_eight(self):
         self.assertEqual(api._AI_DEFAULTS["rag"]["max_chunks"], 8)
         self.assertEqual(api._AI_DEFAULTS["rag"]["max_chars"], 6000)
+
+
+class TestRagDeviceIdentity(unittest.TestCase):
+    """Regression: runbook/CMDB stores keyed by internal device id must still
+    be retrievable by hostname (the 'no documentation for pmg01' bug). Mirrors
+    the live shape: devices keyed by internal id, record.name = the hostname,
+    no embedded record.id — so live_state keys on the hostname while runbook/
+    CMDB key on the internal id."""
+
+    def setUp(self):
+        _patch_respond()
+        import time as _t
+        now = int(_t.time())
+        # devices store: {internal_id: record}; record has name (hostname) but
+        # no embedded 'id' → live_state falls back to the hostname.
+        api.save(api.DEVICES_FILE, {"VeG8Y9IKIf2q77fq": {
+            "name": "pmg01.tvipper.com", "os": "Debian 13",
+            "sysinfo": {"kernel": "7.0.6", "disks": [{"mount": "/", "percent": 56}]},
+            "services": [{"name": "postfix", "state": "running"}],
+            "last_seen": now}})
+        # runbook + CMDB keyed by the INTERNAL id, not the hostname.
+        api.save(api.RUNBOOKS_FILE, {"VeG8Y9IKIf2q77fq": {
+            "content": "# Purpose\npmg01 is a Postfix mail server / SMTP relay.\n"
+                       "# Operating notes\nRestart with systemctl restart postfix.",
+            "generated_at": now}})
+        api.save(api.CMDB_FILE, {"VeG8Y9IKIf2q77fq": {
+            "name": "pmg01.tvipper.com", "role": "mail relay",
+            "docs": [{"id": "d1", "title": "Runbook",
+                      "body": "# Mail\nSpamhaus DNSBL filtering via pmg-smtp-filter."}]}})
+        _enable_rag()
+
+    def test_runbook_chunks_keyed_by_hostname(self):
+        api._rag_reindex(api._ai_cfg())
+        idx = api._rag_load_index()
+        ids = {d["id"] for d in idx.docs}
+        # The runbook + cmdb chunks now carry the hostname, matching live chunks.
+        self.assertTrue(any(i.startswith("runbook/pmg01.tvipper.com") for i in ids),
+                        f"runbook not keyed by hostname; got {sorted(ids)}")
+        self.assertTrue(any(i.startswith("cmdb/pmg01.tvipper.com") for i in ids))
+        self.assertTrue(any(i.startswith("live/pmg01.tvipper.com") for i in ids))
+
+    def test_summarise_documentation_finds_runbook(self):
+        cfg = api._ai_cfg()
+        api._rag_reindex(cfg)
+        hits = api._rag_retrieve(cfg, "Summarize documentation on pmg01.tvipper.com")
+        ids = " ".join(h["id"] for h in hits)
+        self.assertIn("runbook/pmg01.tvipper.com", ids,
+                      f"runbook should be retrieved; got {ids}")
+        blob = " ".join(h["text"] for h in hits)
+        self.assertIn("Postfix", blob)  # actual documentation content present
 
 
 class TestApiEndpoints(unittest.TestCase):
