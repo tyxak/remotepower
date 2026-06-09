@@ -23805,13 +23805,23 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         out['maintenance'] = {'active': active, 'upcoming': upcoming}
     except Exception:
         out['maintenance'] = {}
-    # Monitor up/down (cfg.monitor_notified maps label -> is-down)
+    # Monitor up/down — from the latest result per target (monitor_history),
+    # not len(cfg.monitors) vs monitor_notified, which double-counted tag/group
+    # fan-out and stale flags (could report down > total). Recency-filtered so
+    # deleted monitors' lingering history drops off.
     try:
-        mon = cfg.get('monitors') or []
-        notified = cfg.get('monitor_notified') or {}
-        down = sum(1 for v in notified.values() if v)
-        out['monitors'] = {'total': len(mon), 'down': down,
-                           'up': max(0, len(mon) - down)}
+        mh = load(MON_HIST_FILE) or {}
+        cut = now - 3600
+        latest = [v[-1] for v in mh.values()
+                  if isinstance(v, list) and v and isinstance(v[-1], dict)
+                  and (v[-1].get('ts') or 0) >= cut]
+        if latest:
+            up = sum(1 for e in latest if e.get('ok'))
+            out['monitors'] = {'total': len(latest), 'up': up,
+                               'down': len(latest) - up}
+        else:
+            n = len(cfg.get('monitors') or [])
+            out['monitors'] = {'total': n, 'up': n, 'down': 0}
     except Exception:
         out['monitors'] = {}
     # Container issues (not-running across all reported hosts)

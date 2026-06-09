@@ -1666,7 +1666,7 @@ class TestDashboardCards(_HandlerBase):
 
     def setUp(self):
         super().setUp()
-        for attr in ('CALENDAR_FILE', 'SCHEDULE_FILE', 'MAINT_FILE'):
+        for attr in ('CALENDAR_FILE', 'SCHEDULE_FILE', 'MAINT_FILE', 'MON_HIST_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
 
@@ -1711,6 +1711,19 @@ class TestDashboardCards(_HandlerBase):
         self.assertTrue(items[0]['ongoing'])
         self.assertIn('future', titles)
         self.assertTrue(any('reboot' in t for t in titles))
+
+    def test_monitors_widget_from_history(self):
+        # Coherent up/down from the latest result per target — never down>total
+        # (the old code mixed len(cfg.monitors) with stale monitor_notified flags).
+        now = int(api.time.time())
+        api.save(api.MON_HIST_FILE, {
+            'Jellyfin':       [{'ts': now - 30, 'ok': True}],
+            'web · a':        [{'ts': now - 30, 'ok': False}],
+            'web · b':        [{'ts': now - 30, 'ok': False}],
+            'old-deleted':    [{'ts': now - 99999, 'ok': False}],   # stale → dropped
+        })
+        w = api._dashboard_extra_widgets({}, {}, now, want={'monitors'})
+        self.assertEqual(w['monitors'], {'total': 3, 'up': 1, 'down': 2})
 
     def test_upcoming_limit(self):
         import datetime as dt
