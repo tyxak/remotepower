@@ -4500,8 +4500,6 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .btn-icon.dash-size { padding: 1px 6px; font-size: 10px; font-weight: 700; opacity: 0.55; }
 .btn-icon.dash-size.on { opacity: 1; border-color: var(--accent, #4a9eff);
                          color: var(--accent, #4a9eff); }
-.dash-add-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.dash-add-btn { font-size: 12px; }
 /* v4.1.0: Upcoming + Tickets dashboard cards */
 .up-row, .tk-row { display: flex; align-items: center; gap: 8px; padding: 6px 0;
                    border-bottom: 1px solid var(--border); }
