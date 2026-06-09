@@ -1715,7 +1715,9 @@ class TestDashboardWidgetGrid(unittest.TestCase):
                  'drifttotal', 'recentonline', 'alertsev', 'maintenance',
                  'monitors', 'containers', 'diskfill',
                  'subnet', 'patchpct', 'agentless', 'neverseen', 'worsthealth',
-                 'gradedist', 'versionskew', 'offlinegroups')
+                 'gradedist', 'versionskew', 'offlinegroups',
+                 'rebootreq', 'worldports', 'failedunits', 'timers',
+                 'smart', 'ups', 'temp', 'backups')
 
     def test_widget_registry_has_addons(self):
         for k in self._EXPANDED:
@@ -1727,7 +1729,9 @@ class TestDashboardWidgetGrid(unittest.TestCase):
     def test_extra_widgets_payload(self):
         # _dashboard_extra_widgets is best-effort and always returns the keys.
         w = api._dashboard_extra_widgets({}, {}, int(api.time.time()))
-        for k in ('alertsev', 'maintenance', 'monitors', 'containers', 'diskfill'):
+        for k in ('alertsev', 'maintenance', 'monitors', 'containers', 'diskfill',
+                  'rebootreq', 'worldports', 'failedunits', 'timers',
+                  'smart', 'ups', 'temp', 'backups'):
             self.assertIn(k, w)
 
     def test_home_includes_oncall(self):

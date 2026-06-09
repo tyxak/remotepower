@@ -12763,6 +12763,37 @@ function _renderHomeWidgets(home) {
   _setWidget('home-w-offlinegroups-body', offg.length
     ? _miniRows(offg.map(([g, n]) => ({ l: escHtml(g), r: String(n), cls: 'c-red' })))
     : '<div class="hint">No offline hosts.</div>');
+
+  // ── v4.1.0 catalog expansion wave 3 (posture / hardware, server-backed) ────
+  const rr = W.rebootreq || {};
+  _setWidget('home-w-rebootreq-body', (rr.count)
+    ? `<div class="dash-mini-head">${rr.count} host(s)</div>`
+      + _miniRows((rr.hosts || []).map(n => ({ l: escHtml(n), r: 'reboot', cls: 'c-amber' })))
+    : '<div class="hint">No pending reboots.</div>');
+  const wp = W.worldports || {};
+  bigStat('home-w-worldports-body', wp.count || 0, 'host(s) with world-reachable ports',
+          wp.count ? 'c-amber' : 'c-green');
+  const fu = W.failedunits || {};
+  bigStat('home-w-failedunits-body', fu.count || 0, 'failed systemd units',
+          fu.count ? 'c-red' : 'c-green');
+  const tm = W.timers || {};
+  bigStat('home-w-timers-body', tm.count || 0, 'failed scheduled timers',
+          tm.count ? 'c-amber' : 'c-green');
+  const sm = W.smart || {};
+  bigStat('home-w-smart-body', sm.count || 0, 'disks failing SMART',
+          sm.count ? 'c-red' : 'c-green');
+  const up = W.ups || {};
+  bigStat('home-w-ups-body', up.count || 0, 'UPS on battery',
+          up.count ? 'c-red' : 'c-green');
+  const tp = W.temp || {};
+  bigStat('home-w-temp-body', tp.count || 0, 'hosts over temperature',
+          tp.count ? 'c-red' : 'c-green');
+  const bj = W.backups || {};
+  _setWidget('home-w-backups-body', (bj.total != null)
+    ? _miniRows([{ l: 'Jobs', r: String(bj.total || 0) },
+                 { l: 'Ran (24h)', r: String(bj.ran24h || 0),
+                   cls: (bj.total && !bj.ran24h) ? 'c-amber' : 'c-green' }])
+    : '<div class="hint">No backup jobs configured.</div>');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12814,6 +12845,15 @@ const DASH_WIDGETS = [
   { key: 'gradedist',   label: 'Health grade spread',  opt: true, size: 'sm' },
   { key: 'versionskew', label: 'Agent version skew',   opt: true, size: 'sm' },
   { key: 'offlinegroups', label: 'Offline by group',   opt: true, size: 'sm' },
+  // v4.1.0 catalog expansion wave 3 (posture / hardware)
+  { key: 'rebootreq',   label: 'Reboot required',      opt: true, size: 'sm' },
+  { key: 'worldports',  label: 'World-exposed ports',  opt: true, size: 'sm' },
+  { key: 'failedunits', label: 'Failed services',      opt: true, size: 'sm' },
+  { key: 'timers',      label: 'Failed timers',        opt: true, size: 'sm' },
+  { key: 'smart',       label: 'Disk SMART failures',  opt: true, size: 'sm' },
+  { key: 'ups',         label: 'UPS on battery',       opt: true, size: 'sm' },
+  { key: 'temp',        label: 'Over temperature',     opt: true, size: 'sm' },
+  { key: 'backups',     label: 'Backup jobs',          opt: true, size: 'sm' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },

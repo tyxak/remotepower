@@ -430,6 +430,9 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v4.1.0 catalog expansion wave 2 (client-side):
                               'subnet', 'patchpct', 'agentless', 'neverseen',
                               'worsthealth', 'gradedist', 'versionskew', 'offlinegroups',
+                              # v4.1.0 catalog expansion wave 3 (posture/hardware):
+                              'rebootreq', 'worldports', 'failedunits', 'timers',
+                              'smart', 'ups', 'temp', 'backups',
                               'health', 'heatmap', 'overview', 'roster', 'links')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
@@ -23784,6 +23787,47 @@ def _dashboard_extra_widgets(devices_raw, cfg, now):
         out['diskfill'] = rows[:6]
     except Exception:
         out['diskfill'] = []
+    # Posture from the full device records (devices_raw already in hand)
+    try:
+        reboot, worldp, failedu, timersf = [], 0, 0, 0
+        for did, d in devices_raw.items():
+            if not isinstance(d, dict) or d.get('monitored') is False:
+                continue
+            si = d.get('sysinfo') or {}
+            if si.get('reboot_required'):
+                reboot.append(d.get('name', did))
+            if any((p or {}).get('scope') == 'world' for p in (si.get('listening_ports') or [])):
+                worldp += 1
+            failedu += len(si.get('failed_units') or [])
+            timersf += sum(1 for t in (si.get('timers') or [])
+                           if isinstance(t, dict) and t.get('failed'))
+        out['rebootreq'] = {'count': len(reboot), 'hosts': reboot[:8]}
+        out['worldports'] = {'count': worldp}
+        out['failedunits'] = {'count': failedu}
+        out['timers'] = {'count': timersf}
+    except Exception:
+        out['rebootreq'] = out['worldports'] = {}
+        out['failedunits'] = out['timers'] = {}
+    # Hardware flags (one file read)
+    try:
+        hw = load(HARDWARE_FILE) or {}
+        cnt = lambda flag: sum(1 for r in hw.values()
+                               if isinstance(r, dict) and r.get(flag))
+        out['smart'] = {'count': cnt('_smart_failed')}
+        out['ups'] = {'count': cnt('_ups_on_battery')}
+        out['temp'] = {'count': cnt('_temp_high')}
+    except Exception:
+        out['smart'] = out['ups'] = out['temp'] = {}
+    # Backup jobs (one file read): total + ran in the last 24h
+    try:
+        store = load(BACKUP_JOBS_FILE) or {}
+        jobs = store.get('jobs') if isinstance(store, dict) else store
+        jobs = jobs or []
+        ran = sum(1 for j in jobs if isinstance(j, dict)
+                  and (now - (j.get('last_run') or 0)) < 86400)
+        out['backups'] = {'total': len(jobs), 'ran24h': ran}
+    except Exception:
+        out['backups'] = {}
     return out
 
 
