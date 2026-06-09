@@ -62,7 +62,6 @@ class TestVersionBumps(unittest.TestCase):
         # pruned in v3.14.0, so the CHANGELOG entry is now the durable record.
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
         self.assertIn('3.9.0', chlog)
-        self.assertTrue((REPO_ROOT / 'docs' / 'security-review-3.9.0.md').exists())
 
 
 # ─── functional base (temp data dir, fresh api import) ───────────────────────

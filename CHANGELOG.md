@@ -2,6 +2,54 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.1.0 — "VisibilityMatters" — 2026-06-09
+
+Surfaces what the fleet already knows and lets you shape how you see it. A new
+**CheckMK-style per-host Checks** matrix (OK/WARN/CRIT/UNKNOWN from data already
+collected), **custom checks** (process/port + agent-side file/job/log) assignable
+to host/tag/group, more **active monitors** (DNS, ICMP latency/loss, HTTP
+assertions, credential-less DB liveness, tag/group targeting), a **composable
+65-widget dashboard** (resize/reorder/show-hide/reset/align/share), and a
+**host-grouped alert inbox** that folds a host-down storm under its root cause.
+Plus a TLS-1.2 floor across the satellite/agent/server hops. No breaking changes;
+most features surface data the agent already reports. See
+[docs/v4.1.0.md](docs/v4.1.0.md).
+
+### Added
+- **Checks page (CheckMK-style)** under Monitoring — every monitored signal on
+  every host as OK/WARN/CRIT/UNKNOWN with output; sortable/filterable; per-check
+  mute; **Hide muted** and **Hide unmonitored** on by default. Custom checks and
+  custom-script results appear as rows.
+- **Custom checks** assignable to host/tag/group/fleet: server-evaluated
+  *process / port-open / port-closed*, and agent-evaluated *file-present /
+  file-absent / job-freshness / log-error-rate* (read-only on-host evaluation,
+  pushed in the heartbeat).
+- **Monitors**: DNS resolution (+expected address), ICMP latency + packet-loss,
+  HTTP status + latency-SLA assertions, credential-less DB liveness
+  (PostgreSQL/MySQL/Redis), and tag/group target fan-out for ping/ICMP/TCP.
+- **Composable dashboard**: a resizable widget grid with a 65-widget catalog
+  (alphabetical add-dropdown), per-widget size, reorder, show/hide, reset, align,
+  and shareable layout codes. New Upcoming, Tickets (open quick-ack + recently
+  acknowledged), and actionable Alerts widgets; Ask-AI is now a toggleable widget.
+- **Host-grouped alert inbox** with root-cause folding — symptom alerts fold
+  under an open `device_offline`; group-level Ack-all / Resolve-all.
+
+### Changed / Fixed
+- World-exposed-port checks now respect Exposed-page mutes.
+- The read-only-filesystem signal is now carried through sanitization (the check
+  was previously inert).
+- Agent mail-queue probe backs off 1h on a broken MTA to stop journal flooding.
+- Dashboard computes its heavy widgets (checks roll-up, disk-fill ETA) only when
+  displayed.
+
+### Security
+- **TLS 1.2 minimum** enforced on the satellite (both hops), the agent, and the
+  server's outbound HTTPS.
+- SSH command builder rejects host/user beginning with `-` (defense-in-depth).
+- Independently scanned with **wapiti, nikto, nuclei, bandit and OWASP ZAP** —
+  clean. See [docs/security.md](docs/security.md) and
+  [docs/security-review-4.1.0.md](docs/security-review-4.1.0.md).
+
 ## v4.0.0 — 2026-06-07
 
 The 4.0 release — a large, polished step that folds together everything since

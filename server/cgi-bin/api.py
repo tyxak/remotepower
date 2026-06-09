@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.0.0'
+SERVER_VERSION = '4.1.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -9076,6 +9076,10 @@ def handle_heartbeat():
                     ip = m.get('inode_percent')
                     if isinstance(ip, (int, float)) and 0.0 <= ip <= 100.0:
                         entry['inode_percent'] = round(float(ip), 1)
+                    # v4.1.0: carry the read-only flag so the readonly_fs check
+                    # (and the mounts table RO badge) actually see it.
+                    if 'ro' in m:
+                        entry['ro'] = bool(m.get('ro'))
                     if is_net:
                         entry['network'] = True
                         entry['server'] = _sanitize_str(m.get('server', ''), 128)
@@ -11328,6 +11332,8 @@ def _get_ssl_context():
     ctx = ssl.create_default_context()
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.check_hostname = True
+    # v4.1.0: never negotiate obsolete TLS 1.0/1.1 on outbound HTTPS.
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return ctx
 
 
@@ -21785,7 +21791,8 @@ def _device_contract_status(cmdb_rec):
 
 
 def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
-                 cve_high=None, disk_eta=None, custom_defs=None, scripts=None):
+                 cve_high=None, disk_eta=None, custom_defs=None, scripts=None,
+                 exposure_mutes=None):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
     Each entry: {key, name, group, status: ok|warning|critical|unknown, output,
@@ -21858,7 +21865,12 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
     mi = si.get('mount_issues') or []
     if mi:
         add('mounts', 'Mount points', 'storage', 'critical', f'{len(mi)} issue(s)')
-    wp = [p for p in (si.get('listening_ports') or []) if (p or {}).get('scope') == 'world']
+    # v4.1.0: respect exposure mutes (set on the Exposed page) — a world port the
+    # operator has muted there must not re-appear as a warning check here.
+    wp = [p for p in (si.get('listening_ports') or [])
+          if (p or {}).get('scope') == 'world'
+          and not _exposure_muted(p.get('process'), p.get('proto'), p.get('port'),
+                                  exposure_mutes or [], dev_id)]
     if si.get('listening_ports') is not None:
         add('exposure', 'World-exposed ports', 'posture', 'warning' if wp else 'ok',
             f'{len(wp)} world-reachable' if wp else 'none')
@@ -22042,10 +22054,11 @@ def handle_device_checks(dev_id):
     eta = _disk_fill_eta({dev_id: dev}).get(dev_id)
     custom_defs = cfg.get('custom_checks') or []
     scripts = _load_custom_scripts()
+    exposure_mutes = cfg.get('exposure_mutes') or []
     ttl = get_online_ttl()
     checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl,
                           cve_high=cve, disk_eta=eta, custom_defs=custom_defs,
-                          scripts=scripts)
+                          scripts=scripts, exposure_mutes=exposure_mutes)
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
                   'checks': checks, 'summary': _host_check_summary(checks)})
 
@@ -22065,6 +22078,7 @@ def handle_fleet_checks():
     eta_all = _disk_fill_eta(devices)
     custom_defs = cfg.get('custom_checks') or []
     scripts = _load_custom_scripts()
+    exposure_mutes = cfg.get('exposure_mutes') or []
     now = int(time.time())
     ttl = get_online_ttl()
     hosts = []
@@ -22074,7 +22088,8 @@ def handle_fleet_checks():
         checks = _host_checks(did, dev, hw_all.get(did) or {},
                               disabled_all.get(did) or [], now, ttl,
                               cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
-                              custom_defs=custom_defs, scripts=scripts)
+                              custom_defs=custom_defs, scripts=scripts,
+                              exposure_mutes=exposure_mutes)
         summ = _host_check_summary(checks)
         if want in ('critical', 'warning') and not summ['counts'].get(want):
             continue
@@ -23959,7 +23974,8 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
                 chk = _host_checks(did, d, hw_all.get(did) or {},
                                    disabled_all.get(did) or [], now, ttl,
                                    cve_high=cve_all.get(did), disk_eta=eta_shared.get(did),
-                                   custom_defs=cfg_custom, scripts=scripts_all)
+                                   custom_defs=cfg_custom, scripts=scripts_all,
+                                   exposure_mutes=cfg.get('exposure_mutes') or [])
                 counts = _host_check_summary(chk)['counts']
                 for k in roll:
                     roll[k] += counts.get(k, 0)

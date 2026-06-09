@@ -40,6 +40,11 @@ printf '{"os":"%s","hostname":"%s","uptime":"%s","mem_percent":"%s","disk_percen
 
 def build_ssh_argv(host, user, port, key_path, command, connect_timeout=10):
     """Build the ssh argv for a single non-interactive command. Pure."""
+    # v4.1.0 defense-in-depth: reject a host/user that begins with '-' so it can
+    # never be smuggled as an ssh option (e.g. -oProxyCommand=…). Mirrors the
+    # guard in ssh_exec; _sanitize_str doesn't strip a leading dash.
+    if str(host).startswith('-') or str(user).startswith('-'):
+        raise ValueError('ssh host/user may not begin with "-"')
     return [
         'ssh',
         '-i', key_path,

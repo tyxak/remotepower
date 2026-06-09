@@ -50,6 +50,8 @@ def _ssl_ctx():
     if not UPSTREAM.startswith('https'):
         return None
     ctx = ssl.create_default_context()
+    # v4.1.0: never negotiate down to legacy TLS on the satellite→server hop.
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     if INSECURE:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -114,6 +116,9 @@ def main():
     # v3.14.0: encrypt the agent→satellite hop when a cert/key is provided.
     if TLS_CERT and TLS_KEY:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # v4.1.0: require TLS 1.2+ on the agent→satellite hop — refuse the
+        # obsolete TLS 1.0/1.1 protocols even if the platform still offers them.
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.load_cert_chain(TLS_CERT, TLS_KEY)
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
         scheme = 'https'

@@ -1249,6 +1249,25 @@ class TestHostChecks(_HandlerBase):
         chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
         self.assertEqual(chk['reachability']['status'], 'critical')
 
+    def test_exposure_check_respects_mutes(self):
+        now, dev = self._dev()
+        dev['sysinfo']['listening_ports'] = [
+            {'port': 22, 'scope': 'world', 'proto': 'tcp', 'process': 'sshd'},
+            {'port': 443, 'scope': 'world', 'proto': 'tcp', 'process': 'nginx'},
+        ]
+        chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertEqual(chk['exposure']['status'], 'warning')   # 2 world ports
+        # Mute the nginx:443 socket on this host → only sshd:22 remains.
+        mutes = [{'device_id': 'd1', 'port': 443, 'proto': 'tcp', 'process': 'nginx'}]
+        chk = {c['key']: c for c in api._host_checks(
+            'd1', dev, {}, [], now, 180, exposure_mutes=mutes)}
+        self.assertEqual(chk['exposure']['status'], 'warning')
+        self.assertIn('1 world-reachable', chk['exposure']['output'])
+        # Mute the whole host → check goes OK.
+        chk = {c['key']: c for c in api._host_checks(
+            'd1', dev, {}, [], now, 180, exposure_mutes=[{'device_id': 'd1'}])}
+        self.assertEqual(chk['exposure']['status'], 'ok')
+
     def test_custom_script_results_as_checks(self):
         now, dev = self._dev()
         dev['custom_script_results'] = {
@@ -1818,6 +1837,41 @@ class TestDashboardWidgetGrid(unittest.TestCase):
         # size span classes applied by the layout engine
         self.assertIn("'dash-w-'", js)
         self.assertIn('dash-w-sm', (_CGI_BIN.parent / 'html' / 'static' / 'css' / 'styles.css').read_text())
+
+
+class TestVersionBumps(unittest.TestCase):
+    """v4.1.0 "VisibilityMatters" — strict version-surface pins for this release."""
+    V = '4.1.0'
+    _ROOT = _CGI_BIN.parent.parent
+
+    def test_server_version(self):
+        self.assertEqual(api.SERVER_VERSION, self.V)
+
+    def test_agent_versions(self):
+        self.assertIn(f"VERSION      = '{self.V}'",
+                      (self._ROOT / 'client/remotepower-agent.py').read_text())
+        for rel in ('client/remotepower-agent-win.py', 'client/remotepower-agent-mac.py'):
+            self.assertIn(f"VERSION = '{self.V}'", (self._ROOT / rel).read_text(), rel)
+
+    def test_agent_extensionless_in_sync(self):
+        self.assertEqual((self._ROOT / 'client/remotepower-agent.py').read_bytes(),
+                         (self._ROOT / 'client/remotepower-agent').read_bytes())
+
+    def test_sw_and_cachebust(self):
+        self.assertIn(f'remotepower-shell-v{self.V}',
+                      (self._ROOT / 'server/html/sw.js').read_text())
+        self.assertIn(f'?v={self.V}', (self._ROOT / 'server/html/index.html').read_text())
+
+    def test_readme_and_changelog(self):
+        self.assertIn(f'version-{self.V}-blue', (self._ROOT / 'README.md').read_text())
+        self.assertIn(f'v{self.V}', (self._ROOT / 'CHANGELOG.md').read_text()[:2000])
+
+    def test_version_doc_exists(self):
+        self.assertTrue((self._ROOT / f'docs/v{self.V}.md').exists())
+
+    def test_old_version_doc_pruned(self):
+        # Keep only the last 5 version docs — v3.10.0 drops off on this bump.
+        self.assertFalse((self._ROOT / 'docs/v3.10.0.md').exists())
 
 
 if __name__ == '__main__':

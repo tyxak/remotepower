@@ -1040,4 +1040,93 @@ Notifications; "Send test now" delivers immediately
 
 ---
 
+## v3.12.0 additions
+
+### Pluggable storage backend
+**Optional SQLite backend** alongside flat-JSON (Settings → Advanced → Storage
+backend; WAL mode, stdlib only, no new dependencies). Hot, high-cardinality data
+is stored row-per-entity so a heartbeat writes one row instead of rewriting a
+file. In-place, reversible migration (snapshot → migrate → verify → flip) with a
+`tools/migrate_storage.py` CLI; flat JSON stays the default.
+
+### My Account + ack→ticket webhook
+A top-right account menu and **My Account** page (avatar, role/permissions, 2FA,
+default SSH user, your acknowledged alerts). Each webhook destination gains an
+"also fire on ACK" option that POSTs the full alert to a ticket system on
+acknowledgement.
+
+## v3.13.0 additions
+
+### Bind it together (round four)
+Surfaces host signals already collected but never shown: per-device **recent
+logins & source IPs**, a failed-first **systemd timer** inventory, this host's
+own **ZFS/mdadm/btrfs storage health**, **bind address + world/LAN/local scope**
+on the listening-ports card, the **firewall fingerprint**, an active
+**brute-force lockout** badge, and Disk/Swap pressure pills. Every panel caps at
+~15 rows and scrolls; static assets cache immutably; sandboxed SCAP reports;
+OIDC id_token expiry/issuer/audience checks; syslog-forward DNS-rebinding fix.
+
+## v4.0.0 additions
+
+### Scale, encryption & deep visibility
+Optional **PostgreSQL** backend with automatic failover + read replicas, **relay
+satellites** for segmented networks, and **load-balanced multi-node**; the
+agent→satellite hop can run over **HTTPS** and agents can trust an internal CA.
+A **macOS agent** joins Linux + Windows. Surfaces much more agent data:
+**Thermal** (hottest hosts), **Power/UPS** + energy cost, **SSH-key audit**,
+SSD/NVMe **endurance**, **predictive disk health**, **GPU monitoring**, local
+**certificate-file** inventory, **local account audit**. **CVE prioritization**
+via CISA **KEV** + **EPSS**. **Customizable dashboard**, **interface language**
+(5 languages), **GitOps** config-from-Git, **custom report builder**,
+**Prometheus metrics push**, **active session management**, and **saved Devices
+views**. A security-hardening pass (session tokens hashed at rest, anchored
+webhook-host matching, SSRF-safe cloud import).
+
+## v4.1.0 additions — "VisibilityMatters"
+
+### Per-host Checks (CheckMK-style)
+A **Checks** page (under Monitoring) renders every monitored signal on every
+host as **OK / WARN / CRIT / UNKNOWN** with output — reachability, CPU/mem/swap
+load, per-mount disk **and inode**, file-descriptor & conntrack pressure, failed
+units, timers, drift, world-exposed ports (respecting Exposed-page mutes),
+pending updates, CVEs, SMART/UPS/temperature, clock sync, gateway, OOM kills,
+mail-queue depth, read-only filesystems, disk-fill ETA, storage/RAID health.
+Sortable, filterable, per-check muteable; *Hide muted* / *Hide unmonitored* on by
+default. `GET /api/checks`, `/api/devices/<id>/checks`, `POST /api/checks/toggle`.
+
+### Custom checks
+Operator-defined checks assignable to a host, tag, group or the whole fleet:
+server-evaluated **process running / port open / port closed**, and
+host-evaluated **file present/absent**, **job freshness** and **log error rate**
+(read-only on-host evaluation, pushed in the heartbeat). Custom monitoring
+scripts also surface as check rows. `/api/checks/custom`.
+
+### More active monitors
+**DNS** resolution (with an expected-address assertion), **ICMP** latency +
+packet-loss thresholds, **HTTP** status + latency-SLA assertions, a
+credential-less **database-liveness** probe (PostgreSQL / MySQL / Redis), and
+**tag/group** target fan-out for ping/ICMP/TCP monitors.
+
+### Composable dashboard
+A resizable widget grid with a **65-widget catalog** (alphabetical add-dropdown):
+per-widget **size** (S/M/L), **reorder**, **show/hide**, **reset**, **align**,
+and a shareable **import/export layout code**, saved per account. New
+**Upcoming** (calendar + scheduler), **Tickets** (open quick-ack + recently
+acknowledged) and actionable **Alerts** (ack/resolve/investigate) widgets; the
+Ask-AI box is a toggleable widget.
+
+### Host-grouped alert inbox
+The inbox stacks open alerts under a per-host header (worst first) with
+group-level **Ack-all / Resolve-all**, and folds a host's symptom alerts under
+its `device_offline` **root cause** so a storm reads as one incident.
+
+### Security & reliability
+A **TLS 1.2 floor** on every hop (satellite both ways, agent, server outbound);
+the SSH command builder rejects option-smuggling host/user values; the agent's
+mail-queue probe backs off on a broken MTA; heavy dashboard widgets compute only
+when displayed. Independently scanned with wapiti, nikto, nuclei, bandit and
+OWASP ZAP — clean.
+
+---
+
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

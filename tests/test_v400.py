@@ -8,6 +8,7 @@ Holds the STRICT version-surface pins for this release. On the next bump these
 become regex (see how tests/test_v3140.py was loosened to TestVersionBumpsLoosened).
 """
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -26,21 +27,23 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 VERSION = "4.0.0"
+# v4.1.0: loosened to a 4.x regex — these are history checks now; the current
+# release's exact pins live in the newest test_vXYZ (test_v410).
 
 
 class TestVersionBumps(unittest.TestCase):
-    """Every spot the version string must be bumped — pinned exactly to VERSION."""
+    """Every spot the version string must be bumped — loosened to a 4.x regex."""
 
     def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, VERSION)
+        self.assertRegex(api.SERVER_VERSION, r"4\.\d+\.\d+")
 
     def test_agent_version(self):
         txt = (_ROOT / "client/remotepower-agent.py").read_text()
-        self.assertIn(f"VERSION      = '{VERSION}'", txt)
+        self.assertRegex(txt, r"VERSION\s+=\s+'4\.\d+\.\d+'")
 
     def test_win_mac_agent_version(self):
         for rel in ("client/remotepower-agent-win.py", "client/remotepower-agent-mac.py"):
-            self.assertIn(f"VERSION = '{VERSION}'", (_ROOT / rel).read_text(), rel)
+            self.assertRegex((_ROOT / rel).read_text(), r"VERSION = '4\.\d+\.\d+'", rel)
 
     def test_agent_extensionless_matches_py(self):
         a = (_ROOT / "client/remotepower-agent.py").read_bytes()
@@ -50,21 +53,21 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         txt = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn(f"remotepower-shell-v{VERSION}", txt)
+        self.assertRegex(txt, r"remotepower-shell-v4\.\d+\.\d+")
 
     def test_index_cache_bust(self):
         txt = (_ROOT / "server/html/index.html").read_text()
-        self.assertIn(f"?v={VERSION}", txt)
+        self.assertRegex(txt, r"\?v=4\.\d+\.\d+")
         self.assertNotIn("?v=3.14.0", txt)
         self.assertNotIn("?v=3.13.0", txt)
 
     def test_readme_badge(self):
         txt = (_ROOT / "README.md").read_text()
-        self.assertIn(f"version-{VERSION}-blue", txt)
+        self.assertRegex(txt, r"version-4\.\d+\.\d+-blue")
 
     def test_changelog_top_entry(self):
         txt = (_ROOT / "CHANGELOG.md").read_text()
-        self.assertIn(f"v{VERSION}", txt[:2000])
+        self.assertRegex(txt[:2000], r"v4\.\d+\.\d+")
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{VERSION}.md").exists())

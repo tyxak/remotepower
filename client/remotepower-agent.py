@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '4.0.0'
+VERSION      = '4.1.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
@@ -241,6 +241,8 @@ def _make_ssl_context():
     ctx = _ssl.create_default_context()
     ctx.verify_mode = _ssl.CERT_REQUIRED
     ctx.check_hostname = True
+    # v4.1.0: refuse obsolete TLS 1.0/1.1 on the agent→server/satellite hop.
+    ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
     _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
     if _ca and os.path.exists(_ca):
         try:

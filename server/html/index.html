@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.0.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.1.0">
 
 </head>
 <body>
@@ -2492,7 +2492,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.14.0 favorites favourite star pin sidebar nav per account per user sync across devices localStorage api me api favorites stale image badge container update available registry digest image updates drawer fleet thermal hottest hosts temperature temps cpu chipset disk smart sensor heat overheat celsius degrees service worker cache f5 refresh reset">
+          <details class="doc-card" open data-keywords="release notes changelog v4.1.0 visibilitymatters checks checkmk per host matrix ok warn crit unknown custom checks process port file log job dns icmp http db liveness monitor tag group dashboard widget resize reorder share catalog alert inbox group root cause fold tls 1.2 satellite mailq mute exposed">
+            <summary><strong>What's new — v4.1.0 "VisibilityMatters"</strong> — a CheckMK-style per-host Checks matrix, custom checks, more monitors, a composable 65-widget dashboard, and a host-grouped alert inbox</summary>
+            <div class="doc-body">
+              <p>v4.1.0 surfaces what the fleet already knows and lets you shape how you see it. No breaking changes — most of it surfaces data the agent already reports. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.1.0</code>).</p>
+              <ul>
+                <li><strong>Per-host Checks (CheckMK-style).</strong> A new <strong>Checks</strong> page under Monitoring shows every monitored signal on every host as <strong>OK / WARN / CRIT / UNKNOWN</strong> with output — sortable, filterable, per-check muteable. <em>Hide muted</em> and <em>Hide unmonitored</em> are on by default. World-exposed-port checks now respect the mutes you set on the Exposed page.</li>
+                <li><strong>Custom checks.</strong> Define checks assignable to a host, tag, group or the whole fleet: server-evaluated <em>process running / port open / port closed</em>, and host-evaluated <em>file present/absent</em>, <em>job freshness</em> and <em>log error rate</em> (read-only, pushed to the agent). Your custom monitoring scripts also show up as check rows.</li>
+                <li><strong>More monitors.</strong> DNS resolution (with an expected-address assertion), ICMP latency + packet-loss thresholds, HTTP status + latency-SLA assertions, and a credential-less <strong>database-liveness</strong> probe (PostgreSQL / MySQL / Redis). Ping / ICMP / TCP monitors can target a <strong>tag or group</strong> and fan out to every matching host.</li>
+                <li><strong>A dashboard you compose.</strong> The Home dashboard is a resizable grid of widgets you choose from a <strong>65-widget catalog</strong> — resize (S/M/L), reorder, show/hide, reset, align, and share your layout with a teammate via an import/export code. New <em>Upcoming</em>, <em>Tickets</em> (open quick-ack + recently acknowledged) and actionable <em>Alerts</em> widgets; even the Ask-AI box is now a toggleable widget.</li>
+                <li><strong>Smarter alerts.</strong> The inbox stacks open alerts under a per-host header (worst first) with group-level Ack-all / Resolve-all; when a host is offline its symptom alerts fold under the <code>device_offline</code> root cause, so a storm reads as one incident. A flat view is one toggle away.</li>
+                <li><strong>Security &amp; reliability.</strong> A <strong>TLS 1.2 floor</strong> on every hop (satellite both ways, agent, server outbound); the SSH command builder rejects option-smuggling host/user values; and the agent's mail-queue probe backs off for an hour on a broken MTA so it can't flood the journal. Independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean.</li>
+              </ul>
+              <p class="hint">See <code>docs/v4.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.14.0 v4.0.0 favorites favourite star pin sidebar nav per account per user sync across devices localStorage api me api favorites stale image badge container update available registry digest image updates drawer fleet thermal hottest hosts temperature temps cpu chipset disk smart sensor heat overheat celsius degrees service worker cache f5 refresh reset">
             <summary><strong>What's new — v4.0.0</strong> — the big one: scale (PostgreSQL HA, relay satellites, load-balanced nodes), encryption everywhere, deep fleet visibility, and a security-hardening pass</summary>
             <div class="doc-body">
               <p>v4.0.0 is a large, polished release that folds together everything since v3.13. It scales out (optional PostgreSQL backend with automatic failover + read replicas, relay satellites for segmented networks, load-balanced multi-node), encrypts every hop (incl. the agent→satellite relay), surfaces far more of what the agent already collects, and ships a focused security-hardening pass. No breaking changes for a single-node JSON install — most of it surfaces data you already have. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.0.0</code>).</p>
@@ -2600,28 +2615,6 @@
                 <li><strong>Scheduled posture digest.</strong> An opt-in daily/weekly email summarising offline hosts, pending updates, critical CVEs, policy violations and degraded storage, over the existing SMTP path. "Send test now" in Settings.</li>
               </ul>
               <p class="hint">All detections are edge-triggered with per-device state, so a steady-state condition doesn't re-alert each heartbeat. See <code>docs/v3.11.0.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v3.10.0 bind it together hardening security audit ssrf image registry container image update manifest bearer token realm credential exfiltration dns rebinding redirect config secret leak api_key registry credentials viewer mcp recursive scrub tcp uptime monitor port scan healthchecks ping docker podman restart count restart_count started_at uptime age container_restarting alert clamav last scan last_scan_ts per interface mac address network drawer config drift alert title files sections devices table hostname sort">
-            <summary><strong>What's new — v3.10.0</strong> — fleet-wide container restart tracking, registry-SSRF &amp; config-leak fixes, more bound signals</summary>
-            <div class="doc-body">
-              <p>A bind-it-together and security sweep on top of v3.9.0 — agent data that was collected but stuck at zero now flows through, two real SSRF / secret-disclosure gaps are closed, and a couple of alert-label bugs are fixed. No new headline features. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.10.0</code>).</p>
-              <h4>Security</h4>
-              <ul>
-                <li><strong>Container image-registry SSRF closed.</strong> The image-update check was the one outbound path that didn't use the connect-time SSRF guard: it followed redirects, re-resolved DNS between the pre-flight and the fetch, and fetched the registry-controlled bearer-token <em>realm</em> URL with no check at all (which could exfiltrate configured registry credentials). Every fetch — manifest <em>and</em> token realm — now routes through the SSRF-safe opener (peer-IP re-validation, redirects refused) and the realm is pre-flighted and forced to HTTPS.</li>
-                <li><strong><code>GET /api/config</code> secret-scrub backstop.</strong> The endpoint redacted known secrets by name, which meant the AI provider <code>api_key</code> and the per-registry credentials map leaked to any viewer or read-only MCP key. A recursive pass now strips any secret-named field at any depth (keeping every <code>*_set</code> / <code>*_from_env</code> indicator), so a newly-added config secret can't leak before someone remembers to redact it.</li>
-                <li>The <strong>TCP uptime monitor</strong> and the <strong>Healthchecks.io ping</strong> picked up the same IP-class SSRF checks (and connect-time peer recheck) the HTTP paths already had — a TCP monitor can no longer be used as a blind internal port scanner. See <code>docs/security-review-3.10.0.md</code>.</li>
-              </ul>
-              <h4>Bind it together</h4>
-              <ul>
-                <li><strong>Container restart tracking now works fleet-wide.</strong> Docker/Podman containers reported <code>restart_count</code>, <code>started_at</code> and <code>uptime_seconds</code> hardcoded to zero — so the <em>container restarting</em> alert only ever fired for Kubernetes pods and the drawer's container age was blank. The agent now fills them from a single batched <code>docker inspect</code> per heartbeat, so the alert fires everywhere and container age renders.</li>
-                <li><strong>ClamAV last-scan time</strong> (parsed from the scan summary) and <strong>per-interface MAC addresses</strong> now show in the device drawer — both were collected/stored but never displayed.</li>
-              </ul>
-              <h4>Fixes</h4>
-              <ul>
-                <li>The <strong>config-drift alert title</strong> read a field the drift events never send, so every one said &ldquo;<code>? file(s)</code>&rdquo;. It now names the file that changed (file-integrity drift) or the number of sections that drifted (host-config drift).</li>
-                <li>The Devices <strong>table view</strong> showed a sort arrow on the <em>Hostname</em> column but never reordered (the sort key was missing); it sorts correctly now.</li>
-              </ul>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -6809,19 +6802,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.0.0"></script>
-<script defer src="static/js/app.js?v=4.0.0"></script>
+<script defer src="static/js/i18n.js?v=4.1.0"></script>
+<script defer src="static/js/app.js?v=4.1.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.0.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.0.0"></script>
-<script defer src="static/js/app-containers.js?v=4.0.0"></script>
-<script defer src="static/js/app-network.js?v=4.0.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.1.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.1.0"></script>
+<script defer src="static/js/app-containers.js?v=4.1.0"></script>
+<script defer src="static/js/app-network.js?v=4.1.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.0.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.0.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.0.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.1.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.1.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.1.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.0.0"></script>
+<script defer src="static/js/sw-register.js?v=4.1.0"></script>
 </body>
 </html>

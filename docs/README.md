@@ -41,10 +41,12 @@ holds long-form docs that don't fit there.
 - **[security-review-3.13.0.md](security-review-3.13.0.md)** — Latest security
  review (sandboxed SCAP reports, OIDC id_token claim checks, syslog-forward
  DNS-rebinding fix) plus the external-scan summary.
+- **[security-review-4.1.0.md](security-review-4.1.0.md)** — TLS-1.2 floor on
+ every hop, SSH argv hardening, and the external-scan summary for v4.1.0.
+- **[security-review-3.13.0.md](security-review-3.13.0.md)** — sandboxed SCAP,
+ OIDC claim checks, syslog-forward DNS-rebinding fix.
 - **[security-review-3.10.0.md](security-review-3.10.0.md)** — Image-registry
  SSRF / credential-exfiltration fix and the `/api/config` secret-scrub backstop.
-- **[security-review-3.9.0.md](security-review-3.9.0.md)** — HTTP / TCP uptime
- monitor SSRF closure.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes
@@ -54,6 +56,8 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.1.0.md](v4.1.0.md)** — "VisibilityMatters": CheckMK-style per-host
+ Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
 - **[v4.0.0.md](v4.0.0.md)** — per-account sidebar favorites; per-container
  stale-image badge; fleet thermal roll-up ("hottest hosts").
 - **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
@@ -62,8 +66,6 @@ The five most recent per-release notes are kept here:
  in-place, reversible migration.
 - **[v3.11.0.md](v3.11.0.md)** — fleet posture batch (exposure map, software
  policy, storage/RAID health, access watch, firewall drift).
-- **[v3.10.0.md](v3.10.0.md)** — fleet-wide container restart tracking;
- image-registry SSRF hardening.
 
 ## Feature guides
 

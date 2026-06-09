@@ -17,10 +17,11 @@
 ## Independent security testing
 
 Each release is scanned with an external toolchain in addition to the code-level
-review and CI guardrails. **v4.0.0 was scanned with [wapiti](https://wapiti-scanner.github.io/),
+review and CI guardrails. **v4.1.0 was scanned with [wapiti](https://wapiti-scanner.github.io/),
 [nikto](https://github.com/sullo/nikto), [nuclei](https://github.com/projectdiscovery/nuclei),
 [bandit](https://github.com/PyCQA/bandit) and [OWASP ZAP](https://www.zaproxy.org/)
-and passed clean** (no actionable findings). The strict Content-Security-Policy
+and passed clean** (no actionable findings) — see
+[security-review-4.1.0.md](security-review-4.1.0.md). The strict Content-Security-Policy
 (`default-src 'self'`, no `unsafe-inline`), full security-header set (HSTS,
 X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
 COOP/CORP), same-origin enforcement on state-changing requests, and the SSRF-safe
@@ -79,8 +80,8 @@ RemotePower has been audited end-to-end across multiple releases — the server
 the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
-`docs/security-review-*.md` (v2.3.2 → v3.13.0); each release-over-release pass is
-summarised in the latest, [security-review-3.13.0.md](security-review-3.13.0.md).
+`docs/security-review-*.md`; each release-over-release pass is
+summarised in the latest, [security-review-4.1.0.md](security-review-4.1.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
 OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -158,7 +159,7 @@ defences in place (kept current):
   IPv4, and DNS rebinding) and fetches through the connect-time SSRF guard above.
   Cloud-metadata / link-local is always blocked; loopback only when
   `allow_internal_monitors` is set; RFC1918 LAN stays allowed by design. See
-  `docs/security-review-3.9.0.md`.
+  the latest `docs/security-review-*.md`.
 
 ### CMDB vault
 

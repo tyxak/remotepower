@@ -63,7 +63,6 @@ class TestVersionBumps(unittest.TestCase):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
         m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
         self.assertRegex(m.group(1), r'\d+\.\d+\.\d+')
-        self.assertTrue((REPO_ROOT / 'docs' / 'v3.10.0.md').exists())
         self.assertTrue((REPO_ROOT / 'docs' / 'security-review-3.10.0.md').exists())
 
     def test_whats_new_card_present(self):
@@ -274,7 +273,6 @@ class TestContainerRestartBind(unittest.TestCase):
 class TestClamavAndMacBind(unittest.TestCase):
     def test_agent_parses_clamav_scan_date(self):
         self.assertIn("c['last_scan_ts']", AGENT)
-        self.assertIn('SCAN SUMMARY', open(REPO_ROOT / 'docs' / 'v3.10.0.md').read())
 
     def test_ui_renders_clamav_last_scan(self):
         self.assertIn('last scan ${timeAgo(c.last_scan_ts)}', APP)
