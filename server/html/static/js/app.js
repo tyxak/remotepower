@@ -1672,7 +1672,7 @@ function _registerDevicesMinimalTable() {
       // visual noise, fewer fiddly edge cases.
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
-        <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'} isl-318"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
+        <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
         <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
@@ -6506,46 +6506,40 @@ async function refreshCveFeeds() {
   } else toast(r?.error || 'Feed refresh failed', 'error');
 }
 async function triggerCVEScan(devId, btn) {
-  const label = devId ? 'device' : 'all devices';
+  // v4.1.0: the scan now runs in a detached background process and returns
+  // immediately ("Queued"), so the page never blocks. We poll scan-status for
+  // progress and refresh the report when it finishes.
   const origText = btn?.textContent || '';
-  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
-  // A fleet-wide scan does OSV.dev lookups for every device's packages and can
-  // take minutes — long enough that nginx may 504 and the page looks frozen.
-  // Use an AbortController with a generous client timeout so the request can't
-  // hang the UI indefinitely, and make clear the scan continues server-side.
-  toast(devId ? 'Scanning device… may take a minute'
-              : 'Scanning all devices… this can take several minutes; results update as they finish',
-        'info');
-  const body = devId ? { device_id: devId } : {};
-  const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => { try { controller.abort(); } catch (_) {} },
-                                        devId ? 120000 : 600000) : null;
-  let result, timedOut = false;
-  try {
-    result = await api('POST', '/cve/scan', body,
-                       controller ? { signal: controller.signal } : undefined);
-  } catch (e) {
-    timedOut = true;
-    result = null;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-  if (btn) {
-    const ok = result && !result.errors?.length;
-    btn.textContent = ok ? 'Done' : (timedOut ? 'running…' : 'Error');
-    btn.style.color = ok ? 'var(--green)' : 'var(--red)';
-    btn.disabled = false;
-    setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
-  }
-  if (!result) {
-    toast(timedOut
-      ? 'Scan is taking a while — it continues on the server. Refresh CVE findings in a few minutes.'
-      : 'CVE scan failed (see server log).', timedOut ? 'info' : 'error');
+  if (btn) { btn.disabled = true; btn.textContent = 'Queued…'; }
+  const r = await api('POST', '/cve/scan', devId ? { device_id: devId } : {});
+  if (!r || !(r.queued || r.ok)) {
+    const msg = (r && r.error) || 'Could not queue the scan';
+    toast(r && r.status && r.status.running ? 'A scan is already running' : msg, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
     return;
   }
-  const s = result.scanned?.length || 0, k = result.skipped?.length || 0, e = result.errors?.length || 0;
-  toast(`Scan complete: ${s} scanned, ${k} skipped, ${e} errors`, e > 0 ? 'error' : 'success');
-  loadCVEReport();
+  toast(`Scan queued${r.total ? ` (${r.total} device${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
+  // Poll progress; refresh the report when done. Bounded so a stuck scan can't
+  // poll forever.
+  let ticks = 0;
+  const poll = setInterval(async () => {
+    ticks++;
+    const st = await api('GET', '/cve/scan-status').catch(() => null);
+    if (st && btn && st.total) btn.textContent = st.running ? `Scanning ${st.done}/${st.total}…` : 'Done';
+    if (!st || !st.running || ticks > 600) {
+      clearInterval(poll);
+      if (btn) {
+        btn.disabled = false;
+        btn.style.color = (st && st.errors) ? 'var(--red)' : 'var(--green)';
+        setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
+      }
+      if (st && !st.running) {
+        toast(`Scan complete: ${st.scanned || 0} scanned, ${st.skipped || 0} skipped, ${st.errors || 0} errors`,
+              st.errors ? 'error' : 'success');
+        loadCVEReport();
+      }
+    }
+  }, 2000);
 }
 async function openDeviceCVE(devId, devName) {
   document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
@@ -11649,7 +11643,29 @@ function _renderDiskHealth() {
     reasons: (r.reasons || []).join(' '),
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="c-green ta-center">No disks predicted at risk. Trends need a few days of SMART samples to build up.</td></tr>';
+    // No at-risk disks — show the disks we ARE tracking (healthy), so the page
+    // isn't blank. Distinguishes "all healthy" from "no SMART data reported".
+    const tracked = _diskHealthResp.tracked || [];
+    if (!tracked.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="hint ta-center">No SMART data reported yet — no disk exposes SMART attributes (common on virtual/cloud disks), or the agent can\'t read smartctl. Physical disks build a trend over a few days.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '<tr><td colspan="6" class="c-green ta-center">'
+      + `No disks at risk — tracking ${tracked.length} disk${tracked.length === 1 ? '' : 's'}.</td></tr>`
+      + tracked.map(t => {
+          const det = [];
+          if (t.reallocated != null) det.push(`realloc ${t.reallocated}`);
+          if (t.pending != null) det.push(`pending ${t.pending}`);
+          if (t.temperature_c != null) det.push(`${t.temperature_c}°C`);
+          det.push(`${t.samples} sample${t.samples === 1 ? '' : 's'}`);
+          return `<tr>
+            <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
+            <td class="fw-500">${escHtml(t.device)}</td>
+            <td><code>${escHtml(t.disk)}</code>${t.model ? `<div class="fs-11 c-muted">${escHtml(t.model)}</div>` : ''}</td>
+            <td class="ta-center ${(t.wear_pct >= 90) ? 'c-red' : (t.wear_pct >= 80) ? 'c-amber' : ''}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
+            <td class="ta-center">—</td>
+            <td class="hint">${escHtml(det.join(' · '))}</td></tr>`;
+        }).join('');
     return;
   }
   const riskPill = (risk) => {

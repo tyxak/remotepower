@@ -914,6 +914,58 @@ def _path_auth_misc() -> dict[str, Any]:
                 "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
             }
         },
+        # ── v4.1.0: per-host Checks + background CVE scan ──
+        "/checks": {
+            "get": {
+                "tags": ["Checks"],
+                "summary": "Fleet check matrix (OK/WARN/CRIT/UNKNOWN per host)",
+                "operationId": "fleetChecks",
+                "parameters": [{"name": "status", "in": "query", "required": False,
+                                "schema": {"type": "string", "enum": ["critical", "warning"]}}],
+                "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
+            }
+        },
+        "/checks/toggle": {
+            "post": {
+                "tags": ["Checks"],
+                "summary": "Mute/unmute a check on a host (admin)",
+                "operationId": "toggleCheck",
+                "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
+            }
+        },
+        "/checks/custom": {
+            "get": {
+                "tags": ["Checks"], "summary": "List custom-check definitions",
+                "operationId": "listCustomChecks",
+                "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
+            },
+            "post": {
+                "tags": ["Checks"],
+                "summary": "Add/update a custom check (process/port/file/job/log) — admin",
+                "operationId": "saveCustomCheck",
+                "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
+            },
+        },
+        "/cve/scan": {
+            "post": {
+                "tags": ["CVE"],
+                "summary": "Queue a background CVE scan (one device or the whole fleet)",
+                "description": "Returns 202 immediately; the scan runs in a detached "
+                               "process. Poll /api/cve/scan-status for progress.",
+                "operationId": "cveScan",
+                "responses": {"202": {"description": "Scan queued",
+                                       "content": {"application/json": {}}},
+                              "409": {"description": "A scan is already running"}},
+            }
+        },
+        "/cve/scan-status": {
+            "get": {
+                "tags": ["CVE"],
+                "summary": "Progress of the background CVE scan",
+                "operationId": "cveScanStatus",
+                "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
+            }
+        },
     }
 
 

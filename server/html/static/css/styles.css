@@ -1184,6 +1184,12 @@
   .status-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
   .online  .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
   .offline .status-badge-dot { background: var(--red); }
+  /* v4.1.0: Devices table online/offline as a bare dot (no text) — sortable via
+     the existing status column key. Green pulses (from the base .status-dot),
+     red is static. */
+  .status-dot.online  { background: var(--green); }
+  .status-dot.offline { background: var(--red); animation: none; }
+  .dev-status-cell .status-dot { width: 9px; height: 9px; }
   .device-meta {
     display: grid;
     grid-template-columns: 1fr 1fr;

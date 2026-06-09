@@ -21289,6 +21289,36 @@ def _disk_health_view():
     return rows
 
 
+def _disk_tracked_view():
+    """Every monitored disk with its current SMART snapshot — so the page can
+    show healthy disks (wear %, sector counts, samples accumulating) instead of
+    an empty 'nothing at risk' screen. Best-effort, scope-filtered."""
+    hist = load(SMART_HIST_FILE) or {}
+    hw_all = load(HARDWARE_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    rows = []
+    for dev_id, dev in devices.items():
+        if dev.get('monitored') is False:
+            continue
+        disks = (hw_all.get(dev_id) or {}).get('smart') or []
+        dhist = hist.get(dev_id) or {}
+        for d in disks:
+            if not isinstance(d, dict):
+                continue
+            key = _disk_key(d)
+            rows.append({
+                'device_id': dev_id, 'device': dev.get('name', dev_id),
+                'disk': d.get('device', key), 'model': d.get('model', ''),
+                'serial': d.get('serial', ''), 'failed': bool(d.get('failed')),
+                'reallocated': d.get('reallocated_sectors'),
+                'pending': d.get('pending_sectors'),
+                'wear_pct': d.get('wear_pct'), 'temperature_c': d.get('temperature_c'),
+                'samples': len((dhist.get(key) or {}).get('samples') or []),
+            })
+    rows.sort(key=lambda r: (r['device'].lower(), str(r['disk'])))
+    return rows
+
+
 def _unstable_hosts_view(days=7, threshold=3):
     """v3.14.0: hosts that returned-to-online unusually often in the window —
     a reboot/flap-trend proxy from the uptime transition events."""
@@ -21329,9 +21359,11 @@ def handle_disk_health():
     for r in rows:
         by[r['risk']] = by.get(r['risk'], 0) + 1
     unstable = _unstable_hosts_view()
+    tracked = _disk_tracked_view()
     respond(200, {'disks': rows, 'count': len(rows),
                   'critical': by.get('critical', 0), 'high': by.get('high', 0),
                   'medium': by.get('medium', 0),
+                  'tracked': tracked, 'tracked_count': len(tracked),
                   'unstable': unstable, 'unstable_count': len(unstable)})
 
 
@@ -32675,60 +32707,125 @@ def handle_cve_realert():
     respond(200, {'ok': True, 'devices': fired})
 
 
+CVE_SCAN_STATUS_FILE = DATA_DIR / 'cve_scan_status.json'
+
+
+def _run_detached(fn):
+    """Run fn() in a fully-detached background process (double-fork + setsid),
+    so a long job (e.g. a fleet-wide CVE scan) doesn't block the CGI worker.
+    Falls back to running inline if fork isn't available. The grandchild drops
+    the response socket and the inherited per-request load cache + DB connection
+    (sharing an inherited SQLite fd across a fork corrupts the DB)."""
+    try:
+        pid = os.fork()
+    except (OSError, AttributeError):
+        fn()                      # no fork support → run inline
+        return
+    if pid > 0:
+        try:
+            os.waitpid(pid, 0)    # reap the intermediate child (no zombie)
+        except OSError:
+            pass
+        return                    # parent continues and responds
+    # intermediate child
+    try:
+        os.setsid()
+        if os.fork() > 0:
+            os._exit(0)           # exit so the grandchild reparents to init
+    except OSError:
+        os._exit(1)
+    # grandchild — the detached worker
+    try:
+        dn = os.open(os.devnull, os.O_RDWR)
+        os.dup2(dn, 0); os.dup2(dn, 1); os.dup2(dn, 2)
+    except OSError:
+        pass
+    try:
+        _LOAD_CACHE.clear()       # don't trust the parent's per-request cache
+        _m = _dbmod()
+        if _m is not None and hasattr(_m, '_CONNS'):
+            _m._CONNS.clear()     # force a fresh DB connection in this process
+    except Exception:
+        pass
+    try:
+        fn()
+    except Exception:
+        pass
+    os._exit(0)
+
+
+def _cve_scan_worker(actor, target):
+    """The fleet-wide CVE scan body — runs in the detached worker. Writes
+    progress to CVE_SCAN_STATUS_FILE and the findings to CVE_FINDINGS_FILE."""
+    store = load(PACKAGES_FILE) or {}
+    findings_all = load(CVE_FINDINGS_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    targets = [target] if target else list(store.keys())
+    scanned = skipped = errors = 0
+    total = len(targets)
+    for i, dev_id in enumerate(targets):
+        entry = store.get(dev_id)
+        if not entry or not entry.get('ecosystem'):
+            skipped += 1
+        else:
+            result = cve_scanner.scan_device(dev_id, entry.get('packages') or [],
+                                             entry['ecosystem'], DATA_DIR,
+                                             cache_ttl=get_cve_cache_seconds())
+            if result.get('error') and not result.get('findings'):
+                errors += 1
+            else:
+                previous = findings_all.get(dev_id, {}).get('findings') or []
+                findings_all[dev_id] = result
+                _detect_new_cve_and_fire_webhook(dev_id, devices, previous,
+                                                 result.get('findings') or [])
+                scanned += 1
+        # checkpoint progress every few devices so the UI can show a bar
+        if i % 3 == 0 or i == total - 1:
+            save(CVE_SCAN_STATUS_FILE, {'running': i < total - 1, 'total': total,
+                                            'done': i + 1, 'scanned': scanned,
+                                            'skipped': skipped, 'errors': errors,
+                                            'updated': int(time.time())}, non_blocking=True)
+    save(CVE_FINDINGS_FILE, findings_all)
+    save(CVE_SCAN_STATUS_FILE, {'running': False, 'total': total, 'done': total,
+                                    'scanned': scanned, 'skipped': skipped,
+                                    'errors': errors, 'updated': int(time.time()),
+                                    'finished_at': int(time.time())}, non_blocking=True)
+    audit_log(actor, 'cve_scan',
+              detail=f'scanned={scanned} skipped={skipped} errors={errors} (background)')
+
+
 def handle_cve_scan():
-    """POST /api/cve/scan — admin triggers scan for one or all devices."""
+    """POST /api/cve/scan — queue a background scan for one or all devices.
+
+    The scan runs in a detached process so the UI stays responsive; it returns
+    202 immediately. Poll GET /api/cve/scan-status for progress."""
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-
     body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
     target = body.get('device_id')
     if target is not None:
         target = str(target).strip()
         if not _validate_id(target):
             respond(400, {'error': 'Invalid device_id'})
+    # Refuse to stack a second concurrent scan (stale >30 min markers ignored).
+    st = load(CVE_SCAN_STATUS_FILE) or {}
+    if st.get('running') and (int(time.time()) - (st.get('updated') or 0)) < 1800:
+        respond(409, {'error': 'A scan is already running', 'status': st})
+    total = 1 if target else len(load(PACKAGES_FILE) or {})
+    save(CVE_SCAN_STATUS_FILE, {'running': True, 'total': total, 'done': 0,
+                                    'scanned': 0, 'skipped': 0, 'errors': 0,
+                                    'updated': int(time.time()),
+                                    'started_at': int(time.time())}, non_blocking=True)
+    _run_detached(lambda: _cve_scan_worker(actor, target))
+    respond(202, {'queued': True, 'total': total,
+                  'message': 'Scan queued — running in the background.'})
 
-    store = load(PACKAGES_FILE)
-    findings_all = load(CVE_FINDINGS_FILE)
-    devices = load(DEVICES_FILE)
 
-    scanned = []
-    skipped = []
-    errors  = []
-
-    targets = [target] if target else list(store.keys())
-
-    for dev_id in targets:
-        entry = store.get(dev_id)
-        if not entry:
-            skipped.append({'device_id': dev_id, 'reason': 'no package list submitted yet'})
-            continue
-        ecosystem = entry.get('ecosystem') or ''
-        if not ecosystem:
-            skipped.append({'device_id': dev_id, 'reason': 'unsupported ecosystem'})
-            continue
-
-        result = cve_scanner.scan_device(
-            dev_id,
-            entry.get('packages') or [],
-            ecosystem,
-            DATA_DIR,
-            cache_ttl=get_cve_cache_seconds(),
-        )
-
-        if result.get('error') and not result.get('findings'):
-            errors.append({'device_id': dev_id, 'error': result['error']})
-            continue
-
-        previous = findings_all.get(dev_id, {}).get('findings') or []
-        findings_all[dev_id] = result
-        _detect_new_cve_and_fire_webhook(dev_id, devices, previous, result.get('findings') or [])
-        scanned.append({'device_id': dev_id, 'findings': len(result.get('findings') or [])})
-
-    save(CVE_FINDINGS_FILE, findings_all)
-    audit_log(actor, 'cve_scan',
-              detail=f'scanned={len(scanned)} skipped={len(skipped)} errors={len(errors)}')
-    respond(200, {'scanned': scanned, 'skipped': skipped, 'errors': errors})
+def handle_cve_scan_status():
+    """GET /api/cve/scan-status — progress of the background CVE scan."""
+    require_auth()
+    respond(200, load(CVE_SCAN_STATUS_FILE) or {'running': False})
 
 
 # ─── v3.14.0: CVE prioritization (CISA KEV + FIRST EPSS) ─────────────────────
@@ -37597,6 +37694,7 @@ def _build_exact_routes():
         ('GET', '/api/cve/ignore'): handle_cve_ignore_list,
         ('POST', '/api/cve/ignore'): handle_cve_ignore_add,
         ('POST', '/api/cve/scan'): handle_cve_scan,
+        ('GET', '/api/cve/scan-status'): handle_cve_scan_status,
         ('POST', '/api/cve/realert'): handle_cve_realert,
         ('GET', '/api/dashboard/kinds'): handle_dashboard_kinds,
         ('POST', '/api/dashboard/kinds'): handle_dashboard_kinds_set,

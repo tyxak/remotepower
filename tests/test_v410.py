@@ -1823,6 +1823,53 @@ class TestCveRealert(_HandlerBase):
         self.assertEqual(self.cap['s'], 400)
 
 
+class TestCveScanAsync(_HandlerBase):
+    """v4.1.0: CVE scan runs detached (returns 202 'queued') with a status file."""
+
+    def setUp(self):
+        super().setUp()
+        for attr in ('PACKAGES_FILE', 'CVE_FINDINGS_FILE', 'CVE_SCAN_STATUS_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        self._det = api._run_detached
+        api._run_detached = lambda fn: fn()            # run inline for the test
+        self._scan = api.cve_scanner.scan_device
+        api.cve_scanner.scan_device = lambda dev, pkgs, eco, dd, cache_ttl=0: {
+            'findings': [{'vuln_id': 'CVE-1', 'package': 'p', 'severity': 'high'}]}
+        self._ccs = api.get_cve_cache_seconds
+        api.get_cve_cache_seconds = lambda: 0
+        self._fire = api._detect_new_cve_and_fire_webhook
+        api._detect_new_cve_and_fire_webhook = lambda *a, **k: None
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+
+    def tearDown(self):
+        api._run_detached = self._det
+        api.cve_scanner.scan_device = self._scan
+        api.get_cve_cache_seconds = self._ccs
+        api._detect_new_cve_and_fire_webhook = self._fire
+        super().tearDown()
+
+    def test_queues_and_scans(self):
+        api.save(api.PACKAGES_FILE, {'d1': {'ecosystem': 'Debian', 'packages': [{'name': 'p'}]}})
+        out = self.call(api.handle_cve_scan)
+        self.assertEqual(self.cap['s'], 202)
+        self.assertTrue(out['queued'])
+        self.assertIn('d1', api.load(api.CVE_FINDINGS_FILE))     # worker wrote findings
+        st = api.load(api.CVE_SCAN_STATUS_FILE)
+        self.assertFalse(st['running'])
+        self.assertEqual(st['scanned'], 1)
+
+    def test_concurrent_scan_409(self):
+        api.save(api.CVE_SCAN_STATUS_FILE, {'running': True, 'updated': int(api.time.time())})
+        api.save(api.PACKAGES_FILE, {})
+        self.call(api.handle_cve_scan)
+        self.assertEqual(self.cap['s'], 409)
+
+    def test_status_route_registered(self):
+        self.assertIn(('GET', '/api/cve/scan-status'), api._build_exact_routes())
+
+
 class TestDashboardCardsUI(unittest.TestCase):
     """The two new cards are wired, and Ask-AI + Customize moved to the footer."""
 
