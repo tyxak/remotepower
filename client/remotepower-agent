@@ -3742,22 +3742,48 @@ def get_last_oom():
         return 0, ''
 
 
+# v4.1.0: back-off so a broken MTA (e.g. postfix showq setuid failure) can't
+# make us re-invoke postqueue every cycle — each call makes postfix log a fatal
+# to the journal, which the agent then ships, flooding the activity feed.
+_mailq_skip_until = 0
+_MAILQ_FAIL_COOLDOWN = 3600     # 1h pause after a broken-MTA result
+
+
 def get_mailq():
     """v4.1.0: mail queue depth for postfix/sendmail/exim, or None if no MTA.
 
     Read-only and bounded. Tries `mailq` (postfix/sendmail) first, then
-    `exim -bpc`. Returns an int message count, or None when no mail tooling
-    is present (so the server omits the Mail-queue check on non-MTA hosts)."""
+    `exim -bpc`. Returns an int message count, or None when no mail tooling is
+    present OR the MTA is broken (in which case we back off for an hour so we
+    don't keep poking a misconfigured postfix and flooding its logs)."""
+    global _mailq_skip_until
+    if time.time() < _mailq_skip_until:
+        return None
+    # Signs the local mail system is broken rather than just empty — invoking it
+    # again only spams the journal, so cool down instead.
+    _broken = ('mail system is down', 'malformed', 'fatal:', 'operation not permitted',
+               'connection refused')
+
+    def _down(text):
+        t = (text or '').lower()
+        return any(s in t for s in _broken)
     try:
         if _which('exim') and not _which('mailq'):
             r = subprocess.run(['exim', '-bpc'], capture_output=True,
                                text=True, timeout=6)
+            if r.returncode != 0 or _down(r.stderr) or _down(r.stdout):
+                _mailq_skip_until = time.time() + _MAILQ_FAIL_COOLDOWN
+                return None
             s = (r.stdout or '').strip()
             return int(s) if s.isdigit() else None
         if not _which('mailq') and not _which('postqueue'):
             return None
         cmd = ['postqueue', '-p'] if _which('postqueue') else ['mailq']
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+        # Broken MTA → back off (don't keep triggering postfix fatal logs).
+        if r.returncode != 0 or _down(r.stderr) or _down(r.stdout):
+            _mailq_skip_until = time.time() + _MAILQ_FAIL_COOLDOWN
+            return None
         out = (r.stdout or '').strip()
         if not out or 'is empty' in out.lower() or 'no messages' in out.lower():
             return 0
@@ -3772,6 +3798,7 @@ def get_mailq():
         return sum(1 for ln in out.splitlines()
                    if re.match(r'^[0-9A-F]{8,}\*?\s', ln))
     except Exception:
+        _mailq_skip_until = time.time() + _MAILQ_FAIL_COOLDOWN
         return None
 
 

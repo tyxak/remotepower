@@ -1249,6 +1249,23 @@ class TestHostChecks(_HandlerBase):
         chk = {c['key']: c for c in api._host_checks('d1', dev, {}, [], now, 180)}
         self.assertEqual(chk['reachability']['status'], 'critical')
 
+    def test_custom_script_results_as_checks(self):
+        now, dev = self._dev()
+        dev['custom_script_results'] = {
+            's1': {'ok': True, 'output': 'all good'},
+            's2': {'ok': False, 'output': 'line1\nFAILED: disk'},
+        }
+        scripts = {'s1': {'name': 'heartbeat'}, 's2': {'name': 'disk audit'}}
+        chk = {c['key']: c for c in api._host_checks(
+            'd1', dev, {}, [], now, 180, scripts=scripts)}
+        self.assertEqual(chk['script:s1']['status'], 'ok')
+        self.assertEqual(chk['script:s1']['name'], 'Script: heartbeat')
+        self.assertEqual(chk['script:s2']['status'], 'critical')
+        self.assertIn('FAILED: disk', chk['script:s2']['output'])   # last line
+        # Without the scripts map, no script rows are added.
+        plain = {c['key'] for c in api._host_checks('d1', dev, {}, [], now, 180)}
+        self.assertNotIn('script:s1', plain)
+
     def test_mailq_check_thresholds(self):
         now, dev = self._dev()
         # absent on non-MTA hosts
@@ -1559,6 +1576,15 @@ class TestAgentSideChecks(unittest.TestCase):
         self.assertEqual(self.agent._eval_one_agent_check(
             {'type': 'job_fresh', 'param': '/no/such/file', 'max_age_hours': 1})[0], 'critical')
 
+    def test_mailq_backoff_when_skip_set(self):
+        # When the broken-MTA cooldown is in the future, get_mailq returns None
+        # without invoking postqueue (so it can't re-trigger postfix log spam).
+        self.agent._mailq_skip_until = self.agent.time.time() + 3600
+        try:
+            self.assertIsNone(self.agent.get_mailq())
+        finally:
+            self.agent._mailq_skip_until = 0
+
     def test_eval_agent_checks_keys_by_id(self):
         out = self.agent.eval_agent_checks([
             {'id': 'a', 'type': 'file_present', 'param': '/no/such'},
@@ -1729,7 +1755,7 @@ class TestDashboardWidgetGrid(unittest.TestCase):
                  'smart', 'ups', 'temp', 'backups',
                  'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg',
                  'newports', 'fwchanges', 'sshkeys',
-                 'tls', 'bruteforce', 'bandwidth', 'checksrollup')
+                 'tls', 'bruteforce', 'bandwidth', 'checksrollup', 'alertsfeed')
 
     def test_widget_registry_has_addons(self):
         for k in self._EXPANDED:

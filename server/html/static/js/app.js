@@ -12848,6 +12848,27 @@ function _renderHomeWidgets(home) {
         { l: 'OK', r: String(cr.ok || 0), cls: 'c-green' },
       ])
     : '<div class="hint">No checks yet.</div>');
+  // Actionable alerts feed — open alerts with inline ack / resolve / investigate.
+  const af = (home.tickets && home.tickets.open) || [];
+  _setWidget('home-w-alertsfeed-body', af.length
+    ? af.map(a => {
+        const sev = a.severity || 'medium';
+        const dev = a.device_name ? ` <span class="hint">· ${escHtml(a.device_name)}</span>` : '';
+        return `<div class="tk-row"><span class="sev-pill sev-${sev}">${sev}</span>`
+          + `<span class="tk-title">${escHtml(a.title)}${dev}</span>`
+          + `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${escAttr(a.id)}" title="Investigate">${_icon('sparkles', 13)}</button>`
+          + `<button class="btn-icon btn-xs" data-action="quickAckAlert" data-arg="${escAttr(a.id)}" title="Acknowledge">Ack</button>`
+          + `<button class="btn-icon btn-xs c-success" data-action="quickResolveAlert" data-arg="${escAttr(a.id)}" title="Resolve">Resolve</button></div>`;
+      }).join('')
+      + ((home.tickets && home.tickets.open_total > af.length)
+          ? `<div class="hint">+${home.tickets.open_total - af.length} more — open Alerts</div>` : '')
+    : '<div class="hint">No open alerts.</div>');
+}
+async function quickResolveAlert(id) {
+  if (!confirm('Mark this alert resolved?')) return;
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
+  if (r && r.ok) { toast('Alert resolved', 'success'); loadHome(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12922,6 +12943,7 @@ const DASH_WIDGETS = [
   { key: 'bruteforce',  label: 'Active brute-force',    opt: true, size: 'sm' },
   { key: 'bandwidth',   label: 'Top bandwidth',         opt: true, size: 'sm' },
   { key: 'checksrollup', label: 'Checks roll-up',       opt: true, size: 'sm' },
+  { key: 'alertsfeed',  label: 'Alerts (ack / resolve)', opt: true, size: 'md' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },

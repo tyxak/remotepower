@@ -150,10 +150,6 @@
       <span>Alerts</span>
       <span id="alerts-badge" class="nav-badge nav-badge-ok" title="No open alerts">0</span>
     </button>
-    <button class="nav-btn" data-page="checks" title="Per-host service checks (CheckMK-style)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      <span>Checks</span>
-    </button>
     <button class="nav-btn" data-page="links" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
       <span>Links</span>
@@ -206,6 +202,10 @@
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="sidebar-group-items">
+        <button class="nav-btn" data-page="checks" title="Per-host service checks (CheckMK-style)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>Checks</span>
+        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-targets" data-pass-btn="1" data-section-page="monitor" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12h3m14 0h3M12 2v3m0 14v3"/></svg>
           <span>Targets</span>
@@ -621,6 +621,7 @@
         <div class="dash-card dash-off" id="home-w-bruteforce" data-widget="bruteforce"><h3>Active brute-force</h3><div id="home-w-bruteforce-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-bandwidth" data-widget="bandwidth"><h3>Top bandwidth</h3><div id="home-w-bandwidth-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-checksrollup" data-widget="checksrollup"><h3>Checks roll-up</h3><div id="home-w-checksrollup-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-alertsfeed" data-widget="alertsfeed"><h3>Alerts</h3><div id="home-w-alertsfeed-body" class="dash-mini"></div></div>
         </div><!-- /dash-grid -->
 
         <!-- v4.1.0: Ask-AI omnibox + dashboard customize, moved to the bottom.
@@ -3876,9 +3877,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <option value="ok">OK only</option>
           </select>
           <input type="text" id="checks-filter-text" class="form-input isl-170" placeholder="Filter by host, check, group, or output…" data-input="renderChecks" data-input-debounce="180">
-          <label class="click-row"><input type="checkbox" id="checks-hide-disabled" data-change="renderChecks"> Hide disabled</label>
+          <label class="click-row"><input type="checkbox" id="checks-hide-disabled" data-change="renderChecks" checked> Hide muted / ignored</label>
           <label class="click-row"><input type="checkbox" id="checks-hide-unmon" data-change="renderChecks" checked> Hide unmonitored</label>
           <button class="btn-icon" data-action="openCustomChecks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Custom checks</button>
+          <button class="btn-icon" data-action="showMonitorSection" data-arg="section-scripts" title="Custom monitoring scripts run on each host; their pass/fail shows here as a check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Custom scripts</button>
           <button class="btn-icon" data-action="loadChecks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
         <div id="checks-summary" class="isl-186 mb-16"></div>

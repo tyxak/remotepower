@@ -438,6 +438,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'newports', 'fwchanges', 'sshkeys',
                               # v4.1.0 catalog expansion wave 5 (data-backed):
                               'tls', 'bruteforce', 'bandwidth', 'checksrollup',
+                              # v4.1.0: actionable alerts feed (ack/resolve inline)
+                              'alertsfeed',
                               'health', 'heatmap', 'overview', 'roster', 'links')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
@@ -21781,7 +21783,7 @@ def _device_contract_status(cmdb_rec):
 
 
 def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
-                 cve_high=None, disk_eta=None, custom_defs=None):
+                 cve_high=None, disk_eta=None, custom_defs=None, scripts=None):
     """v4.1.0: unified per-host check list for the CheckMK-style Checks view.
 
     Each entry: {key, name, group, status: ok|warning|critical|unknown, output,
@@ -21932,6 +21934,20 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
     # v4.1.0: operator-defined custom checks (process/port), scoped to this host.
     if custom_defs:
         out.extend(_custom_checks_for(dev_id, dev, custom_defs, disabled))
+    # v4.1.0: custom monitoring-script results surfaced as checks (pass/fail).
+    if scripts:
+        for sid, res in (dev.get('custom_script_results') or {}).items():
+            if not isinstance(res, dict):
+                continue
+            name = (scripts.get(sid) or {}).get('name') or sid
+            okv = res.get('ok')
+            status = 'unknown' if okv is None else ('ok' if okv else 'critical')
+            last = ''
+            if res.get('output'):
+                parts = str(res['output']).strip().splitlines()
+                last = parts[-1] if parts else ''
+            add(f'script:{sid}', f'Script: {name}', 'script', status,
+                last or ('passed' if okv else 'failed'))
     return out
 
 
@@ -22023,9 +22039,11 @@ def handle_device_checks(dev_id):
     cve = _cve_high_counts().get(dev_id)
     eta = _disk_fill_eta({dev_id: dev}).get(dev_id)
     custom_defs = cfg.get('custom_checks') or []
+    scripts = _load_custom_scripts()
     ttl = get_online_ttl()
     checks = _host_checks(dev_id, dev, hw, disabled, int(time.time()), ttl,
-                          cve_high=cve, disk_eta=eta, custom_defs=custom_defs)
+                          cve_high=cve, disk_eta=eta, custom_defs=custom_defs,
+                          scripts=scripts)
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id),
                   'checks': checks, 'summary': _host_check_summary(checks)})
 
@@ -22044,6 +22062,7 @@ def handle_fleet_checks():
     cve_all = _cve_high_counts()
     eta_all = _disk_fill_eta(devices)
     custom_defs = cfg.get('custom_checks') or []
+    scripts = _load_custom_scripts()
     now = int(time.time())
     ttl = get_online_ttl()
     hosts = []
@@ -22053,7 +22072,7 @@ def handle_fleet_checks():
         checks = _host_checks(did, dev, hw_all.get(did) or {},
                               disabled_all.get(did) or [], now, ttl,
                               cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
-                              custom_defs=custom_defs)
+                              custom_defs=custom_defs, scripts=scripts)
         summ = _host_check_summary(checks)
         if want in ('critical', 'warning') and not summ['counts'].get(want):
             continue
