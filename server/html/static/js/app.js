@@ -12813,6 +12813,34 @@ function _renderHomeWidgets(home) {
           evCount('firewall_changed') ? 'c-amber' : 'c-green');
   bigStat('home-w-sshkeys-body', evCount('ssh_key_added'), 'recent SSH keys added',
           evCount('ssh_key_added') ? 'c-amber' : 'c-green');
+
+  // ── v4.1.0 catalog expansion wave 5 (data-backed) ─────────────────────────
+  const tls = W.tls || [];
+  _setWidget('home-w-tls-body', tls.length
+    ? _miniRows(tls.map(r => ({ l: escHtml(r.name), r: `${r.days}d`,
+      cls: r.days <= 7 ? 'c-red' : 'c-amber' })))
+    : '<div class="hint">No certificates expiring within 30 days.</div>');
+  const bf = W.bruteforce || {};
+  _setWidget('home-w-bruteforce-body', (bf.count)
+    ? `<div class="dash-mini-head">${bf.count} host(s)</div>`
+      + _miniRows((bf.hosts || []).map(n => ({ l: escHtml(n), r: 'active', cls: 'c-red' })))
+    : '<div class="hint">No active brute-force.</div>');
+  const bwHuman = b => b >= 1e6 ? (b / 1e6).toFixed(1) + ' Mbps'
+    : b >= 1e3 ? (b / 1e3).toFixed(0) + ' kbps' : b + ' bps';
+  const bw = W.bandwidth || [];
+  _setWidget('home-w-bandwidth-body', bw.length
+    ? _miniRows(bw.map(r => ({ l: escHtml(r.name), r: bwHuman(r.bps) })))
+    : '<div class="hint">No bandwidth data.</div>');
+  const cr = W.checksrollup || {};
+  const crTotal = (cr.ok || 0) + (cr.warning || 0) + (cr.critical || 0) + (cr.unknown || 0);
+  _setWidget('home-w-checksrollup-body', crTotal
+    ? _miniRows([
+        { l: 'Critical', r: String(cr.critical || 0), cls: 'c-red' },
+        { l: 'Warning', r: String(cr.warning || 0), cls: 'c-amber' },
+        { l: 'Unknown', r: String(cr.unknown || 0), cls: 'c-muted' },
+        { l: 'OK', r: String(cr.ok || 0), cls: 'c-green' },
+      ])
+    : '<div class="hint">No checks yet.</div>');
 }
 
 // ── v3.14.0 (#22): customizable dashboard ───────────────────────────────────
@@ -12882,6 +12910,11 @@ const DASH_WIDGETS = [
   { key: 'newports',    label: 'New ports (recent)',   opt: true, size: 'sm' },
   { key: 'fwchanges',   label: 'Firewall changes',     opt: true, size: 'sm' },
   { key: 'sshkeys',     label: 'SSH keys added',       opt: true, size: 'sm' },
+  // v4.1.0 catalog expansion wave 5 (data-backed)
+  { key: 'tls',         label: 'Expiring certificates', opt: true, size: 'sm' },
+  { key: 'bruteforce',  label: 'Active brute-force',    opt: true, size: 'sm' },
+  { key: 'bandwidth',   label: 'Top bandwidth',         opt: true, size: 'sm' },
+  { key: 'checksrollup', label: 'Checks roll-up',       opt: true, size: 'sm' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },

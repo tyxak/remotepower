@@ -1719,7 +1719,8 @@ class TestDashboardWidgetGrid(unittest.TestCase):
                  'rebootreq', 'worldports', 'failedunits', 'timers',
                  'smart', 'ups', 'temp', 'backups',
                  'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg',
-                 'newports', 'fwchanges', 'sshkeys')
+                 'newports', 'fwchanges', 'sshkeys',
+                 'tls', 'bruteforce', 'bandwidth', 'checksrollup')
 
     def test_widget_registry_has_addons(self):
         for k in self._EXPANDED:
@@ -1734,7 +1735,8 @@ class TestDashboardWidgetGrid(unittest.TestCase):
         for k in ('alertsev', 'maintenance', 'monitors', 'containers', 'diskfill',
                   'rebootreq', 'worldports', 'failedunits', 'timers',
                   'smart', 'ups', 'temp', 'backups',
-                  'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg'):
+                  'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg',
+                  'tls', 'bruteforce', 'bandwidth', 'checksrollup'):
             self.assertIn(k, w)
 
     def test_home_includes_oncall(self):

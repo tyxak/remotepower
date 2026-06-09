@@ -436,6 +436,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               # v4.1.0 catalog expansion wave 4:
                               'mounts', 'clockskew', 'gateway', 'oom', 'storagedeg',
                               'newports', 'fwchanges', 'sshkeys',
+                              # v4.1.0 catalog expansion wave 5 (data-backed):
+                              'tls', 'bruteforce', 'bandwidth', 'checksrollup',
                               'health', 'heatmap', 'overview', 'roster', 'links')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
 # v3.14.0 (#45): white-label accent presets — must mirror ACCENT_PRESETS in app.js.
@@ -23855,6 +23857,78 @@ def _dashboard_extra_widgets(devices_raw, cfg, now):
         out['backups'] = {'total': len(jobs), 'ran24h': ran}
     except Exception:
         out['backups'] = {}
+    # ── wave 5: data-backed widgets ───────────────────────────────────────────
+    # TLS / cert expiry (from the hardware record's cert_files inventory; non-CA)
+    try:
+        hw = load(HARDWARE_FILE) or {}
+        soon = now + 30 * 86400
+        _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
+               '/usr/share/ca-certificates', '/etc/ca-certificates')
+        rows = []
+        for did, rec in hw.items():
+            if not isinstance(rec, dict):
+                continue
+            nm = (devices_raw.get(did) or {}).get('name', did)
+            for c in (rec.get('cert_files') or []):
+                na = c.get('not_after') or 0
+                if 0 < na <= soon and not str(c.get('path', '')).startswith(_ca):
+                    rows.append({'name': nm, 'days': max(0, int((na - now) / 86400))})
+        rows.sort(key=lambda r: r['days'])
+        out['tls'] = rows[:6]
+    except Exception:
+        out['tls'] = []
+    # Active brute-force sources (BRUTE_FORCE_FILE + configured window/threshold)
+    try:
+        _, thr, win = _brute_config()
+        cut = now - win
+        bf = load(BRUTE_FORCE_FILE) or {}
+        hosts = []
+        for did, d in devices_raw.items():
+            if not isinstance(d, dict):
+                continue
+            if _bf_active(bf.get(did, {}) or {}, cut, thr):
+                hosts.append(d.get('name', did))
+        out['bruteforce'] = {'count': len(hosts), 'hosts': hosts[:8]}
+    except Exception:
+        out['bruteforce'] = {}
+    # Top bandwidth (sum of per-iface rx+tx bps from the device sysinfo)
+    try:
+        rows = []
+        for did, d in devices_raw.items():
+            if not isinstance(d, dict):
+                continue
+            nio = (d.get('sysinfo') or {}).get('network_io') or []
+            bps = sum((n.get('rx_bps', 0) or 0) + (n.get('tx_bps', 0) or 0)
+                      for n in nio if isinstance(n, dict))
+            if bps > 0:
+                rows.append({'name': d.get('name', did), 'bps': int(bps)})
+        rows.sort(key=lambda r: -r['bps'])
+        out['bandwidth'] = rows[:6]
+    except Exception:
+        out['bandwidth'] = []
+    # Host-checks roll-up (OK/WARN/CRIT/UNKNOWN across the fleet). Pure CPU —
+    # reuses the same precomputed CVE/disk-eta/hardware inputs as the Checks view.
+    try:
+        cve_all = _cve_high_counts()
+        eta_all = _disk_fill_eta(devices_raw)
+        hw_all = load(HARDWARE_FILE) or {}
+        cfg_custom = cfg.get('custom_checks') or []
+        disabled_all = cfg.get('host_checks_disabled') or {}
+        ttl = get_online_ttl()
+        roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
+        for did, d in devices_raw.items():
+            if not isinstance(d, dict) or d.get('monitored') is False:
+                continue
+            chk = _host_checks(did, d, hw_all.get(did) or {},
+                               disabled_all.get(did) or [], now, ttl,
+                               cve_high=cve_all.get(did), disk_eta=eta_all.get(did),
+                               custom_defs=cfg_custom)
+            counts = _host_check_summary(chk)['counts']
+            for k in roll:
+                roll[k] += counts.get(k, 0)
+        out['checksrollup'] = roll
+    except Exception:
+        out['checksrollup'] = {}
     return out
 
 
