@@ -213,13 +213,64 @@ async function _buildCsDevicePicker(scriptId) {
   container.innerHTML = agentDevs.map(d => {
     const devId  = d.device_id || d.id;
     const checked = assigned.includes(devId) ? 'checked' : '';
-    return `<label class="isl-605">
+    const grp = d.group || '';
+    // data-search carries name+group lowercased so the filter is one cheap
+    // substring test per row (no re-reading the DOM text each keystroke).
+    const hay = ((d.name || devId) + ' ' + grp).toLowerCase();
+    return `<label class="isl-605 cs-device-row" data-search="${escAttr(hay)}">
       <input type="checkbox" class="cs-device-cb isl-606" value="${escAttr(devId)}" ${checked}>
       ${escHtml(d.name || devId)}
-      ${d.group ? `<span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}
+      ${grp ? `<span class="group-badge fs-10">${escHtml(grp)}</span>` : ''}
     </label>`;
   }).join('');
+
+  // Wire the search box + live count (idempotent — reset value, (re)bind).
+  const search = document.getElementById('cs-device-search');
+  if (search) {
+    search.value = '';
+    search.oninput = _filterCsDevices;
+  }
+  container.onchange = _updateCsDeviceCount; // keep count live on box toggles
+  _updateCsDeviceCount();
 }
+
+// Filter the assign-devices list by name/group as the operator types, and
+// keep the "N of M selected" count live. Hidden rows stay checked — filtering
+// is a view, not a deselect.
+function _filterCsDevices() {
+  const search = document.getElementById('cs-device-search');
+  const q = (search ? search.value : '').trim().toLowerCase();
+  document.querySelectorAll('#cs-device-picker .cs-device-row').forEach(row => {
+    const hit = !q || (row.dataset.search || '').includes(q);
+    row.classList.toggle('d-none', !hit);
+  });
+  _updateCsDeviceCount();
+}
+
+function _updateCsDeviceCount() {
+  const el = document.getElementById('cs-device-count');
+  if (!el) return;
+  const all = document.querySelectorAll('#cs-device-picker .cs-device-cb');
+  const sel = document.querySelectorAll('#cs-device-picker .cs-device-cb:checked').length;
+  const vis = document.querySelectorAll('#cs-device-picker .cs-device-row:not(.d-none)').length;
+  const filtered = vis !== all.length;
+  el.textContent = `${sel} of ${all.length} selected` + (filtered ? ` · ${vis} shown` : '');
+}
+
+// Select-all / Clear act on the *visible* (filtered) rows only — so you can
+// search "web", Select all, search "db", Select all, etc.
+function csDeviceSelectAll() {
+  document.querySelectorAll('#cs-device-picker .cs-device-row:not(.d-none) .cs-device-cb')
+    .forEach(cb => { cb.checked = true; });
+  _updateCsDeviceCount();
+}
+function csDeviceClear() {
+  document.querySelectorAll('#cs-device-picker .cs-device-row:not(.d-none) .cs-device-cb')
+    .forEach(cb => { cb.checked = false; });
+  _updateCsDeviceCount();
+}
+window.csDeviceSelectAll = csDeviceSelectAll;
+window.csDeviceClear = csDeviceClear;
 
 async function saveCustomScript() {
   const sid   = document.getElementById('cs-modal-id').value;

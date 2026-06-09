@@ -6642,6 +6642,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
     <div class="form-group">
       <label class="form-label">Assign to devices</label>
+      <input type="text" id="cs-device-search" class="form-input mb-6" placeholder="Search devices by name or group…" autocomplete="off">
+      <div class="cs-device-tools">
+        <span id="cs-device-count" class="hint"></span>
+        <span class="cs-device-tools-spacer"></span>
+        <button type="button" class="btn-icon fs-12" data-action="csDeviceSelectAll">Select all</button>
+        <button type="button" class="btn-icon fs-12" data-action="csDeviceClear">Clear</button>
+      </div>
       <div id="cs-device-picker" class="isl-291">
         <span class="isl-292">Loading devices…</span>
       </div>
