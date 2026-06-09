@@ -1881,10 +1881,12 @@ class TestDashboardCardsUI(unittest.TestCase):
         self.assertIn('data-widget="upcoming"', html)
         self.assertIn('data-widget="tickets"', html)
         self.assertIn('id="home-footer-controls"', html)
-        # Ask-AI + Customize now live inside the footer (moved to the bottom).
+        # Ask-AI stays in the footer; Customize moved up to the title row
+        # (v4.1.0) and now sits BEFORE the footer.
         fi = html.index('id="home-footer-controls"')
         self.assertGreater(html.index('home-ai-q'), fi)
-        self.assertGreater(html.index('data-action="toggleDashEdit"'), fi)
+        self.assertIn('dash-customize-btn', html)
+        self.assertLess(html.index('data-action="toggleDashEdit"'), fi)
         for fn in ('function _renderHomeUpcoming', 'function _renderHomeTickets',
                    'async function quickAckAlert'):
             self.assertIn(fn, js)

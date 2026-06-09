@@ -98,6 +98,7 @@
           Install app
         </button>
         <button class="theme-btn" title="Toggle dark/light mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+        <button class="btn-icon banner-toggle" data-action="toggleBanner" title="Hide the top bar (reclaim space)" aria-label="Hide top bar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></button>
         <!-- v3.12.0: account menu (avatar → My Account / Sign out) -->
         <div class="acct-menu">
           <button class="acct-btn" data-action="toggleAcctMenu" title="My account" aria-haspopup="true">
@@ -113,6 +114,8 @@
       </div>
     </div>
   </header>
+  <!-- v4.1.0: floating restore button — only visible when the top bar is hidden. -->
+  <button id="banner-restore" data-action="toggleBanner" title="Show the top bar" aria-label="Show top bar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
 
   <nav class="sidebar">
     <!-- v3.0.4 (iter 2): mobile-only close button. With the drawer open
@@ -977,9 +980,13 @@
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
-          <div>
+          <div class="mb-16">
             <div class="form-label mb-6">Accent</div>
             <div id="acct-accent" class="row-8-center"></div>
+          </div>
+          <div>
+            <div class="form-label mb-6">Background</div>
+            <div id="acct-bg-grid" class="theme-grid"></div>
           </div>
         </div>
 

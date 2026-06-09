@@ -592,6 +592,10 @@
   }
   .sidebar-group-toggle:hover .chevron { opacity: 1; }
   .sidebar-group.collapsed .chevron { transform: rotate(-90deg); }
+  /* v4.1.0: tint a child nav item's icon to show WHERE a group's count lives —
+     red = critical (CVEs, monitors down), amber = warning (offline hosts). */
+  .nav-btn.nav-alert > svg { color: var(--red); }
+  .nav-btn.nav-warn  > svg { color: var(--amber); }
   /* Per-group "needs attention" count badge (offline / monitors-down / CVEs).
      margin-left:auto pushes it right; the chevron's own auto-margin then sits
      just after it. Shown only when the count is > 0. */
@@ -632,6 +636,58 @@
   .page-title-row { display: flex; align-items: center; gap: 12px; }
   .page-title-row .page-title { margin: 0; }
   .dash-customize-btn { margin-left: auto; flex: none; font-size: 12px; padding: 4px 10px; }
+
+  /* ── v4.1.0: collapse/hide the top bar ────────────────────────────────── */
+  body.banner-collapsed header { display: none; }
+  #banner-restore {
+    position: fixed; top: 8px; right: 12px; z-index: 200;
+    width: 30px; height: 30px; display: none; align-items: center;
+    justify-content: center; border-radius: 8px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+  #banner-restore:hover { color: var(--text); }
+  body.banner-collapsed #banner-restore { display: inline-flex; }
+
+  /* ── v4.1.0: decorative backgrounds (body[data-bg]); subtle, theme-aware,
+     pure-CSS so they're CSP-safe. They sit behind the surface cards. ────── */
+  body[data-bg] { background-attachment: fixed; }
+  body[data-bg="grid"] {
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 34px 34px; background-position: -1px -1px;
+  }
+  body[data-bg="dots"] {
+    background-image: radial-gradient(var(--border) 1.2px, transparent 1.4px);
+    background-size: 22px 22px;
+  }
+  body[data-bg="gradient"] {
+    background-image:
+      radial-gradient(900px 520px at 12% -8%, rgba(99,102,241,0.16), transparent 60%),
+      radial-gradient(820px 520px at 100% 8%, rgba(16,185,129,0.12), transparent 60%),
+      radial-gradient(700px 600px at 60% 100%, rgba(236,72,153,0.10), transparent 60%);
+  }
+  body[data-bg="mesh"] {
+    background-image:
+      radial-gradient(380px 380px at 18% 22%, rgba(74,158,255,0.12), transparent 70%),
+      radial-gradient(420px 420px at 82% 30%, rgba(168,85,247,0.10), transparent 70%),
+      radial-gradient(360px 360px at 50% 88%, rgba(34,197,94,0.10), transparent 70%);
+  }
+  body[data-bg="topo"] {
+    background-image:
+      repeating-radial-gradient(circle at 30% 18%, transparent 0 26px, var(--border) 26px 27px);
+    opacity: 1;
+  }
+  body[data-bg="topo"]::before { content: none; }
+  /* background picker swatches reuse .theme-card; give each a mini preview */
+  .bg-card { min-height: 46px; }
+  .bg-prev-none     { background: var(--surface2); }
+  .bg-prev-grid     { background-image: linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px); background-size: 10px 10px; }
+  .bg-prev-dots     { background-image: radial-gradient(var(--border) 1px,transparent 1.3px); background-size: 8px 8px; }
+  .bg-prev-gradient { background-image: radial-gradient(40px 30px at 20% 0,rgba(99,102,241,0.5),transparent),radial-gradient(40px 30px at 100% 30%,rgba(16,185,129,0.4),transparent); }
+  .bg-prev-mesh     { background-image: radial-gradient(20px 20px at 25% 30%,rgba(74,158,255,0.6),transparent),radial-gradient(22px 22px at 80% 60%,rgba(168,85,247,0.5),transparent); }
+  .bg-prev-topo     { background-image: repeating-radial-gradient(circle at 40% 30%,transparent 0 7px,var(--border) 7px 8px); }
   /* ── sidebar eyecandy ─────────────────────────────────────────────────── */
   /* Active item: tint the icon with the accent, not just the bar. */
   .nav-btn.active { box-shadow: inset 2px 0 0 var(--accent, #4a9eff); }
@@ -1574,7 +1630,7 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 24px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;   /* v4.1.0: align with the 16px card rhythm */
   }
   .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
   .settings-section .hint { font-size: 12px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
@@ -2144,6 +2200,7 @@ input.form-input[type="text"][data-token],
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px 18px;
+  margin-bottom: 16px;   /* v4.1.0: consistent 16px inter-box rhythm */
 }
 .dash-card h3 {
   font-size: 13px;

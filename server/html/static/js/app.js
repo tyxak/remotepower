@@ -627,6 +627,8 @@ async function showApp() {
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
+  applyBackground();
+  applyBannerState();
   requestNotifications();
   // v2.3.0: show/hide the Virtualization nav entry based on whether
   // Proxmox is configured.
@@ -792,6 +794,7 @@ function _buildThemeGrid() {
 }
 function _buildAppearancePicker() {
   _buildThemeGrid();
+  _buildBgGrid();
   const wrap = document.getElementById('acct-accent');
   if (!wrap) return;
   let cur = 'blue'; try { cur = localStorage.getItem('rp_accent') || 'blue'; } catch (_) {}
@@ -813,6 +816,50 @@ function setThemeUI(id) {
   applyTheme();
   _buildThemeGrid();
 }
+// v4.1.0: optional decorative background applied via body[data-bg]. Pure CSS
+// (gradients/patterns), CSP-safe — no external images. Per-browser like theme.
+const BACKGROUNDS = [
+  { id: 'none',     label: 'None' },
+  { id: 'grid',     label: 'Tech grid' },
+  { id: 'dots',     label: 'Dot matrix' },
+  { id: 'gradient', label: 'Aurora' },
+  { id: 'mesh',     label: 'Mesh' },
+  { id: 'topo',     label: 'Topographic' },
+];
+function applyBackground() {
+  let bg = 'none';
+  try { bg = localStorage.getItem('rp_bg') || 'none'; } catch (_) {}
+  if (bg && bg !== 'none') document.body.dataset.bg = bg;
+  else delete document.body.dataset.bg;
+}
+function _buildBgGrid() {
+  const grid = document.getElementById('acct-bg-grid');
+  if (!grid) return;
+  let cur = 'none';
+  try { cur = localStorage.getItem('rp_bg') || 'none'; } catch (_) {}
+  grid.innerHTML = BACKGROUNDS.map(b =>
+    `<button class="theme-card bg-card bg-prev-${b.id}${b.id === cur ? ' active' : ''}" `
+    + `data-action="setBgUI" data-arg="${b.id}" title="${escHtml(b.label)}">`
+    + `<span class="theme-card-name">${escHtml(b.label)}</span></button>`).join('');
+}
+function setBgUI(id) {
+  try { localStorage.setItem('rp_bg', id); } catch (_) {}
+  applyBackground();
+  _buildBgGrid();
+}
+window.setBgUI = setBgUI;
+// v4.1.0: collapse/hide the top bar to reclaim vertical space (per-browser).
+function applyBannerState() {
+  let hidden = false;
+  try { hidden = localStorage.getItem('rp_banner') === 'hidden'; } catch (_) {}
+  document.body.classList.toggle('banner-collapsed', hidden);
+}
+function toggleBanner() {
+  const hidden = !document.body.classList.contains('banner-collapsed');
+  document.body.classList.toggle('banner-collapsed', hidden);
+  try { localStorage.setItem('rp_banner', hidden ? 'hidden' : 'shown'); } catch (_) {}
+}
+window.toggleBanner = toggleBanner;
 function setAccentUI(name) {
   setAccent(name);
   _buildAppearancePicker();
@@ -8759,6 +8806,18 @@ async function refreshNavCounts() {
         }
         b.textContent = n > 99 ? '99+' : String(n);
       });
+    // v4.1.0: also point at WHERE the problem is — tint the specific child nav
+    // item's icon (red = critical, amber = warning) so the group count is
+    // actionable. Offline hosts are recoverable → amber; CVEs/monitors → red.
+    const _tint = (sel, level) => {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      el.classList.toggle('nav-alert', level === 'alert');
+      el.classList.toggle('nav-warn', level === 'warn');
+    };
+    _tint('.nav-btn[data-page="cve"]', c.security ? 'alert' : '');
+    _tint('.nav-btn[data-page="devices"]', c.fleet ? 'warn' : '');
+    _tint('.nav-btn[data-arg="section-targets"]', c.monitoring ? 'alert' : '');
   } catch (_) { /* non-fatal */ }
 }
 
