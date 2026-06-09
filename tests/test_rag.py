@@ -513,6 +513,54 @@ class TestApiEmbeddings(unittest.TestCase):
         self.assertTrue(hits)
 
 
+class TestRagConversationQuery(unittest.TestCase):
+    """v4.1.0: RAG retrieval must use the recent conversation, not just the
+    latest turn, so pronoun follow-ups still resolve to the entity's chunks."""
+
+    def setUp(self):
+        _patch_respond()
+        _seed_fleet()
+        _enable_rag()
+
+    def test_followup_carries_entity_from_history(self):
+        msgs = [
+            {"role": "user", "content": "What is the status of web01?"},
+            {"role": "assistant", "content": "web01 is online and uses apt."},
+            {"role": "user", "content": "What is the purpose of it?"},
+        ]
+        q = api._rag_query_from_messages(msgs)
+        self.assertIn("web01", q)                       # entity carried forward
+        self.assertTrue(q.strip().endswith("purpose of it?"))  # question last
+
+    def test_empty_and_malformed(self):
+        self.assertEqual(api._rag_query_from_messages([]), "")
+        self.assertEqual(api._rag_query_from_messages(None), "")
+        self.assertEqual(api._rag_query_from_messages(
+            [{"role": "user", "content": ""}]), "")
+
+    def test_assistant_slice_bounded(self):
+        big = "x" * 5000
+        msgs = [{"role": "assistant", "content": big},
+                {"role": "user", "content": "and the purpose?"}]
+        q = api._rag_query_from_messages(msgs)
+        self.assertLessEqual(len(q), 1600)
+
+    def test_followup_retrieves_device_chunk(self):
+        # The bare follow-up has no entity → can't find web01; the
+        # conversation-composed query does.
+        cfg = api._ai_cfg()
+        api._rag_reindex(cfg)
+        bare = api._rag_retrieve(cfg, "what is its purpose?")
+        self.assertFalse(any("web01" in h["id"] for h in bare))
+        convo_q = api._rag_query_from_messages([
+            {"role": "user", "content": "tell me about web01"},
+            {"role": "assistant", "content": "web01 runs nginx."},
+            {"role": "user", "content": "what is its purpose?"},
+        ])
+        hits = api._rag_retrieve(cfg, convo_q)
+        self.assertTrue(any("web01" in h["id"] for h in hits))
+
+
 class TestApiEndpoints(unittest.TestCase):
     def setUp(self):
         _patch_respond()

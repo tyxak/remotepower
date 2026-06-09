@@ -19090,6 +19090,48 @@ def _rag_retrieve_pg(cfg, query):
     return _rag_budget_trim(chunks, int(rag.get('max_chars', 4000)))
 
 
+def _rag_query_from_messages(messages, max_user=4, max_assistant_chars=600,
+                             max_chars=1600):
+    """Compose the RAG retrieval query from the recent conversation, not just
+    the latest user turn.
+
+    Lexical (BM25) retrieval matches on the literal query tokens. A follow-up
+    like "what is its purpose?" or "list the knowledge of that asset" carries
+    no entity — so retrieving on that turn alone can't find the host's chunks,
+    and the model answers from nothing (the bug operators hit: the first,
+    hostname-bearing question works; every pronoun follow-up degrades).
+
+    We fold in up to `max_user` recent user turns (questions are short and
+    carry the entity that "it"/"that" refers back to) plus a bounded slice of
+    the latest assistant reply (which usually names the resolved entity, e.g.
+    the hostname). The latest user turn is kept last so its terms still weigh
+    in BM25's bag-of-words ranking."""
+    if not isinstance(messages, list):
+        return ''
+    users, last_assistant = [], ''
+    for m in reversed(messages):
+        if not (isinstance(m, dict) and isinstance(m.get('content'), str)):
+            continue
+        role, content = m.get('role'), m['content'].strip()
+        if not content:
+            continue
+        if role == 'user' and len(users) < max_user:
+            users.append(content)
+        elif role == 'assistant' and not last_assistant:
+            last_assistant = content
+        if len(users) >= max_user and last_assistant:
+            break
+    if not users and not last_assistant:
+        return ''
+    users.reverse()  # chronological — the latest question ends up last
+    parts = list(users)
+    if last_assistant:
+        # Prepend (not append) so the current question keeps the last word.
+        parts.insert(0, last_assistant[:max_assistant_chars])
+    q = '\n'.join(parts)
+    return q[-max_chars:] if len(q) > max_chars else q
+
+
 def _rag_retrieve(cfg, query):
     """Retrieve the top chunks for a query. Returns [] on any failure so a
     retrieval problem can never break the chat path."""
@@ -19376,11 +19418,12 @@ def handle_ai_chat():
     # per-device, so only full-access (admin) callers get RAG retrieval —
     # scoped roles would otherwise see out-of-scope infra in the answer.
     if include_rag and _ai_scope is None and (cfg.get('rag') or {}).get('enabled'):
-        last_user = next((m.get('content') for m in reversed(messages)
-                          if isinstance(m, dict) and m.get('role') == 'user'
-                          and isinstance(m.get('content'), str)), '')
-        if last_user:
-            retrieved = _rag_retrieve(cfg, last_user)
+        # Retrieve over the recent conversation, not just the last turn, so
+        # pronoun follow-ups ("its purpose?", "that asset") still pull the
+        # entity's chunks instead of retrieving on a hostname-less question.
+        rag_query = _rag_query_from_messages(messages)
+        if rag_query:
+            retrieved = _rag_retrieve(cfg, rag_query)
 
     if include_project or fleet_devices or retrieved:
         system_prompt = ai_context.build_combined_system_prompt(
