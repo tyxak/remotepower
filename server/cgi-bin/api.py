@@ -9944,6 +9944,17 @@ def handle_heartbeat():
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
+    # v4.1.0: push agent-side custom checks scoped to this device. The agent
+    # evaluates them on-host and reports results in sysinfo.custom_check_results.
+    _agent_checks = [
+        {k: c[k] for k in ('id', 'type', 'param', 'window_min', 'warn', 'crit',
+                           'unit', 'max_age_hours') if k in c}
+        for c in (_sec_cfg.get('custom_checks') or [])
+        if isinstance(c, dict) and c.get('type') in AGENT_CHECK_TYPES
+        and _custom_check_applies(c, dev_id, saved_dev)
+    ]
+    if _agent_checks:
+        common_resp['agent_checks'] = _agent_checks
 
     # v2.4.5: one-shot package-scan request. Only present (and true)
     # on the single heartbeat after the operator clicked "scan now".
@@ -22054,9 +22065,13 @@ def handle_checks_toggle():
 
 
 # ── Custom checks (v4.1.0) ──────────────────────────────────────────────────
-# Operator-defined checks evaluated server-side from data the agent already
-# reports, assignable to a single host, a tag, a group, or the whole fleet.
-CUSTOM_CHECK_TYPES = ('process', 'port_open', 'port_closed')
+# Operator-defined checks assignable to a single host, a tag, a group, or the
+# whole fleet. SERVER_CHECK_TYPES are evaluated here from data the agent already
+# reports; AGENT_CHECK_TYPES are pushed to the agent (in the heartbeat response),
+# evaluated on-host, and reported back in sysinfo['custom_check_results'].
+SERVER_CHECK_TYPES = ('process', 'port_open', 'port_closed')
+AGENT_CHECK_TYPES = ('file_present', 'file_absent', 'log_errors', 'job_fresh')
+CUSTOM_CHECK_TYPES = SERVER_CHECK_TYPES + AGENT_CHECK_TYPES
 
 
 def _custom_check_applies(cdef, dev_id, dev):
@@ -22099,6 +22114,13 @@ def _eval_custom_check(cdef, dev):
         if ctype == 'port_open':
             return ('ok', f'port {want} open') if listening else ('critical', f'port {want} closed')
         return ('critical', f'port {want} unexpectedly open') if listening else ('ok', f'port {want} closed')
+    if ctype in AGENT_CHECK_TYPES:
+        # Evaluated on-host; the agent reports {status, output} keyed by id.
+        res = (si.get('custom_check_results') or {}).get(cdef.get('id'))
+        if not isinstance(res, dict) or res.get('status') not in (
+                'ok', 'warning', 'critical', 'unknown'):
+            return 'unknown', 'not yet reported by agent'
+        return res['status'], str(res.get('output', ''))[:200]
     return 'unknown', 'unknown check type'
 
 
@@ -22134,15 +22156,35 @@ def handle_custom_checks_save():
     if ctype not in CUSTOM_CHECK_TYPES:
         respond(400, {'error': f'type must be one of {", ".join(CUSTOM_CHECK_TYPES)}'})
     name = _sanitize_str(str(body.get('name', '')), 128).strip()
-    param = _sanitize_str(str(body.get('param', '')), 128).strip()
+    # Param semantics vary by type: a path (file/job), a regex (log), a process
+    # name or port (server-side). Keep control chars out but don't mangle paths.
+    param = re.sub(r'[\x00-\x1f\x7f]', '', str(body.get('param', '')))[:256].strip()
     if not param:
         respond(400, {'error': 'param is required'})
+    if ctype in ('file_present', 'file_absent', 'job_fresh') and not param.startswith('/'):
+        respond(400, {'error': 'an absolute path is required'})
     tk = body.get('target_kind', 'all')
     if tk not in ('all', 'host', 'tag', 'group'):
         respond(400, {'error': 'invalid target_kind'})
     tv = _sanitize_str(str(body.get('target', '')), 128).strip()
     if tk != 'all' and not tv:
         respond(400, {'error': f'a {tk} target is required'})
+    # Per-type optional extras (validated to sane ranges).
+    def _iarg(key, default, lo, hi):
+        try:
+            return max(lo, min(int(body.get(key) or default), hi))
+        except (TypeError, ValueError):
+            respond(400, {'error': f'{key} must be a number'})
+    extras = {}
+    if ctype == 'log_errors':
+        extras['window_min'] = _iarg('window_min', 15, 1, 1440)
+        extras['warn'] = _iarg('warn', 1, 1, 100000)
+        extras['crit'] = max(extras['warn'], _iarg('crit', 10, 1, 100000))
+        unit = re.sub(r'[^a-zA-Z0-9_.@\-]', '', str(body.get('unit', '')))[:128]
+        if unit:
+            extras['unit'] = unit
+    if ctype == 'job_fresh':
+        extras['max_age_hours'] = _iarg('max_age_hours', 24, 1, 8760)
     cid = _sanitize_str(str(body.get('id', '')), 64).strip()
     with _LockedUpdate(CONFIG_FILE) as cfg:
         checks = cfg.setdefault('custom_checks', [])
@@ -22151,7 +22193,7 @@ def handle_custom_checks_save():
                                for c in checks if isinstance(c, dict)])
             cid = f'ck_{n:05d}'
         entry = {'id': cid, 'name': name or f'{ctype} {param}', 'type': ctype,
-                 'param': param, 'target_kind': tk, 'target': tv}
+                 'param': param, 'target_kind': tk, 'target': tv, **extras}
         for i, c in enumerate(checks):
             if isinstance(c, dict) and c.get('id') == cid:
                 checks[i] = entry

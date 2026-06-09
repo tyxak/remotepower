@@ -3775,6 +3775,69 @@ def get_mailq():
         return None
 
 
+def _eval_one_agent_check(c):
+    """Evaluate a single server-pushed agent-side check. Returns (status, output).
+
+    Read-only and bounded: file/job checks only stat paths (never read content
+    or execute), the log check shells out to journalctl with the pattern as a
+    single -g regex argument (list form, no shell) over a bounded window.
+    """
+    ctype = c.get('type')
+    param = str(c.get('param', ''))
+    if ctype in ('file_present', 'file_absent'):
+        try:
+            exists = os.path.exists(param)
+        except Exception:
+            return 'unknown', 'stat failed'
+        if ctype == 'file_present':
+            return ('ok', 'present') if exists else ('critical', 'missing')
+        return ('critical', 'present (should be absent)') if exists else ('ok', 'absent')
+    if ctype == 'job_fresh':
+        max_age = int(c.get('max_age_hours', 24)) * 3600
+        try:
+            age = time.time() - os.stat(param).st_mtime
+        except FileNotFoundError:
+            return 'critical', 'file missing'
+        except Exception:
+            return 'unknown', 'stat failed'
+        hrs = age / 3600.0
+        return ('ok', f'updated {hrs:.1f}h ago') if age <= max_age \
+            else ('critical', f'stale: {hrs:.1f}h old (max {max_age // 3600}h)')
+    if ctype == 'log_errors':
+        if not _which('journalctl') or not param:
+            return 'unknown', 'no journalctl' if not _which('journalctl') else 'no pattern'
+        window = int(c.get('window_min', 15))
+        warn = int(c.get('warn', 1))
+        crit = int(c.get('crit', 10))
+        cmd = ['journalctl', '--no-pager', '-q', '-g', param,
+               '--since', f'-{window}min', '-n', '5000']
+        unit = re.sub(r'[^a-zA-Z0-9_.@\-]', '', str(c.get('unit', '')))
+        if unit:
+            cmd += ['-u', unit]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            n = sum(1 for ln in (r.stdout or '').splitlines() if ln.strip())
+        except Exception:
+            return 'unknown', 'journalctl failed'
+        status = 'critical' if n >= crit else 'warning' if n >= warn else 'ok'
+        return status, f'{n} match(es) in {window}min'
+    return 'unknown', 'unknown check type'
+
+
+def eval_agent_checks(checks):
+    """Evaluate every server-pushed agent-side check → {id: {status, output}}."""
+    out = {}
+    for c in checks or []:
+        if not isinstance(c, dict) or not c.get('id'):
+            continue
+        try:
+            status, output = _eval_one_agent_check(c)
+        except Exception:
+            status, output = 'unknown', 'error'
+        out[c['id']] = {'status': status, 'output': str(output)[:200]}
+    return out
+
+
 def get_ups_status():
     """v3.14.0: UPS / power status via NUT (`upsc`) or apcupsd (`apcaccess`).
     Best-effort, read-only. Empty list when no UPS tooling is present."""
@@ -5678,6 +5741,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v2.6.0: desired host config pushed by server; current state collected locally
     host_config_desired = None
     pending_script_results = {}
+    # v4.1.0: agent-side custom checks pushed by the server (file/log/job checks).
+    # Evaluated on-host each cycle; results reported in sysinfo.custom_check_results.
+    agent_checks = []
 
     # Detect if this is a fresh boot (first heartbeat after restart).
     # v3.0.2: read via O_NOFOLLOW helper from STATE_DIR (or /tmp fallback)
@@ -6049,6 +6115,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 sysinfo.update(get_host_health())
             except Exception as e:
                 log.debug(f'host health probe error: {e}')
+            # v4.1.0: evaluate server-pushed agent-side custom checks on-host.
+            if agent_checks:
+                try:
+                    sysinfo['custom_check_results'] = eval_agent_checks(agent_checks)
+                except Exception as e:
+                    log.debug(f'agent checks error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
@@ -6180,6 +6252,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                        [s['id'] for s in new_cs] != [s['id'] for s in custom_scripts]:
                         log.info(f'Config updated: custom_scripts = {len(new_cs)} script(s)')
                     custom_scripts = new_cs
+            # v4.1.0: receive agent-side custom check definitions from server.
+            if 'agent_checks' in resp:
+                new_ac = resp.get('agent_checks') or []
+                if isinstance(new_ac, list):
+                    if [c.get('id') for c in new_ac] != [c.get('id') for c in agent_checks]:
+                        log.info(f'Config updated: agent_checks = {len(new_ac)} check(s)')
+                    agent_checks = new_ac
             # v2.6.0: receive desired host config from server
             if 'backup_monitors' in resp:
                 _backup_monitors = resp['backup_monitors'] or []

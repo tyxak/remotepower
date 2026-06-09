@@ -1471,6 +1471,94 @@ class TestCustomChecks(_HandlerBase):
         self.assertIn(('POST', '/api/checks/custom'), routes)
         self.assertIn(('POST', '/api/checks/custom/delete'), routes)
 
+    def test_agent_type_eval_reads_reported(self):
+        # Agent-side types are not evaluated server-side; the agent's reported
+        # result in sysinfo.custom_check_results is surfaced verbatim.
+        dev = {'sysinfo': {'custom_check_results': {
+            'ck_1': {'status': 'critical', 'output': 'missing'}}}}
+        self.assertEqual(api._eval_custom_check(
+            {'id': 'ck_1', 'type': 'file_present', 'param': '/x'}, dev),
+            ('critical', 'missing'))
+        # Not yet reported → unknown.
+        self.assertEqual(api._eval_custom_check(
+            {'id': 'ck_2', 'type': 'job_fresh', 'param': '/x'}, dev)[0], 'unknown')
+
+    def test_agent_type_save_validation_and_extras(self):
+        api.method = lambda: 'POST'
+        # file/job require an absolute path
+        api.get_json_body = lambda: {'type': 'file_present', 'param': 'relative'}
+        self.assertEqual(self.call(api.handle_custom_checks_save) and self.cap['s'], 400)
+        # log_errors stores window/warn/crit (crit floored to warn)
+        api.get_json_body = lambda: {'type': 'log_errors', 'param': 'oops',
+                                     'window_min': 30, 'warn': 5, 'crit': 2, 'unit': 'nginx.service'}
+        out = self.call(api.handle_custom_checks_save)['check']
+        self.assertEqual(out['window_min'], 30)
+        self.assertEqual(out['warn'], 5)
+        self.assertEqual(out['crit'], 5)            # crit clamped up to warn
+        self.assertEqual(out['unit'], 'nginx.service')
+        # job_fresh stores max_age_hours
+        api.get_json_body = lambda: {'type': 'job_fresh', 'param': '/var/run/x.stamp',
+                                     'max_age_hours': 6}
+        out = self.call(api.handle_custom_checks_save)['check']
+        self.assertEqual(out['max_age_hours'], 6)
+
+    def test_heartbeat_push_wiring_present(self):
+        src = (_CGI_BIN / 'api.py').read_text()
+        self.assertIn("common_resp['agent_checks']", src)
+        self.assertIn("c.get('type') in AGENT_CHECK_TYPES", src)
+        self.assertIn('_custom_check_applies(c, dev_id, saved_dev)', src)
+
+
+class TestAgentSideChecks(unittest.TestCase):
+    """The agent evaluates server-pushed file/job/log checks on-host."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'rp_agent_cc', _CGI_BIN.parent.parent / 'client' / 'remotepower-agent.py')
+        cls.agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.agent)
+
+    def test_file_present_absent(self):
+        import tempfile, os
+        f = tempfile.NamedTemporaryFile(delete=False)
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'file_present', 'param': f.name})[0], 'ok')
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'file_present', 'param': '/no/such/path'})[0], 'critical')
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'file_absent', 'param': f.name})[0], 'critical')
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'file_absent', 'param': '/no/such/path'})[0], 'ok')
+
+    def test_job_fresh(self):
+        import tempfile, os
+        f = tempfile.NamedTemporaryFile(delete=False)
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        # fresh file → ok
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'job_fresh', 'param': f.name, 'max_age_hours': 24})[0], 'ok')
+        # backdate the mtime well past the window → critical
+        old = self.agent.time.time() - 100 * 3600
+        os.utime(f.name, (old, old))
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'job_fresh', 'param': f.name, 'max_age_hours': 1})[0], 'critical')
+        self.assertEqual(self.agent._eval_one_agent_check(
+            {'type': 'job_fresh', 'param': '/no/such/file', 'max_age_hours': 1})[0], 'critical')
+
+    def test_eval_agent_checks_keys_by_id(self):
+        out = self.agent.eval_agent_checks([
+            {'id': 'a', 'type': 'file_present', 'param': '/no/such'},
+            {'type': 'file_present', 'param': '/x'},   # no id → skipped
+        ])
+        self.assertIn('a', out)
+        self.assertEqual(out['a']['status'], 'critical')
+        self.assertEqual(len(out), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

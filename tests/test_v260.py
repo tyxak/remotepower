@@ -303,14 +303,14 @@ class TestAgent(unittest.TestCase):
 
     def test_heartbeat_loop_applies_desired(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 16000]
+        block = self.agent[idx: idx + 18000]
         self.assertIn('apply_host_config', block)
         self.assertIn('host_config_desired', block)
 
     def test_heartbeat_loop_does_not_send_current_in_payload(self):
         """Current state is on-demand only — not sent in every heartbeat poll."""
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 16000]
+        block = self.agent[idx: idx + 18000]
         # host_config_current should NOT be added to payload in the regular poll loop
         # (it's only sent via send_current_configs subcommand)
         self.assertNotIn("payload['host_config_current']", block)

@@ -7978,7 +7978,16 @@ async function toggleHostCheck(arg) {
 }
 
 // ── Custom checks (v4.1.0) ─────────────────────────────────────────────────
-const _CC_PARAM_LABELS = {process: 'Process name', port_open: 'Port', port_closed: 'Port'};
+const _CC_PARAM_LABELS = {
+  process: 'Process name', port_open: 'Port', port_closed: 'Port',
+  file_present: 'File path', file_absent: 'File path', job_fresh: 'File path',
+  log_errors: 'Pattern (regex)',
+};
+const _CC_PARAM_PH = {
+  process: 'nginx', port_open: '443', port_closed: '23',
+  file_present: '/etc/myapp.conf', file_absent: '/etc/nologin',
+  job_fresh: '/var/backups/last-run.stamp', log_errors: 'error|fail|panic',
+};
 function ccKindChanged() {
   const kind = document.getElementById('cc-kind')?.value || 'all';
   document.getElementById('cc-target-grp')?.classList.toggle('hidden', kind === 'all');
@@ -7992,10 +8001,13 @@ function ccTypeChanged() {
   const lbl = document.getElementById('cc-param-label');
   if (lbl) lbl.textContent = _CC_PARAM_LABELS[t] || 'Value';
   const inp = document.getElementById('cc-param');
-  if (inp) inp.placeholder = t === 'process' ? 'nginx' : '443';
+  if (inp) inp.placeholder = _CC_PARAM_PH[t] || '';
+  document.getElementById('cc-log-grp')?.classList.toggle('hidden', t !== 'log_errors');
+  document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
 }
 async function openCustomChecks() {
-  ['cc-name', 'cc-param', 'cc-target'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  ['cc-name', 'cc-param', 'cc-target', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   const k = document.getElementById('cc-kind'); if (k) k.value = 'all';
   const t = document.getElementById('cc-type'); if (t) t.value = 'process';
   ccKindChanged(); ccTypeChanged();
@@ -8022,6 +8034,15 @@ async function saveCustomCheck() {
     target: document.getElementById('cc-target')?.value.trim() || '',
   };
   if (!body.param) { toast('A value is required', 'error'); return; }
+  const numOf = id => { const v = parseInt(document.getElementById(id)?.value, 10); return isNaN(v) ? undefined : v; };
+  if (body.type === 'log_errors') {
+    body.window_min = numOf('cc-window');
+    body.warn = numOf('cc-warn');
+    body.crit = numOf('cc-crit');
+    body.unit = document.getElementById('cc-unit')?.value.trim() || '';
+  } else if (body.type === 'job_fresh') {
+    body.max_age_hours = numOf('cc-maxage');
+  }
   const r = await api('POST', '/checks/custom', body);
   if (r && r.ok) {
     toast('Custom check added', 'success');
