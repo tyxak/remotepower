@@ -8817,7 +8817,7 @@ async function refreshNavCounts() {
 // nav item's icon (red = critical, amber = warning). querySelectorAll so the
 // pinned *favorite clones* tint too, not just the in-group original. Re-run
 // from _renderFavorites since clones are rebuilt on every star toggle.
-let _navTintState = { security: 0, fleet: 0, monitoring: 0 };
+var _navTintState = { security: 0, fleet: 0, monitoring: 0 };
 function _applyNavTints() {
   const c = _navTintState || {};
   const tint = (sel, level) => {
