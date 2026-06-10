@@ -2542,7 +2542,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.1.0 visibilitymatters checks checkmk per host matrix ok warn crit unknown custom checks process port file log job dns icmp http db liveness monitor tag group dashboard widget resize reorder share catalog alert inbox group root cause fold tls 1.2 satellite mailq mute exposed">
+          <details class="doc-card" open data-keywords="release notes changelog v4.2.0 5ecur1tym4tter5 security integrations pentest scan vulnerability nuclei nikto nmap zap wapiti lynis scanner satellite passive active attestation maintenance window domain verification dns txt well-known passkey webauthn passwordless security key biometrics saml sso okta entra azure ad onelogin ping adfs idp audit hash chain tamper evident verify integrity mfa enforcement totp session cap api key expiry posture self check">
+            <summary><strong>What's new — v4.2.0 "5ecur1tyM4tter5"</strong> — authorized vulnerability scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log, and account guardrails</summary>
+            <div class="doc-body">
+              <p>v4.2.0 makes the fleet <strong>defensible</strong>, not just visible. Security and integrations — every new control is off until you turn it on. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.2.0</code>).</p>
+              <ul>
+                <li><strong>Authorized vulnerability scanning.</strong> A new <strong>Pentest</strong> page (under Monitoring) scans the hosts and websites you own with industry tools — white-hat only. Targets are authorization-gated: enrolled hosts (target IP derived server-side), or domains you prove you own via an <strong>ACME-style DNS-TXT / <code>.well-known</code></strong> check. A <strong>passive</strong> profile (nuclei / nikto / nmap) is safe any time; an <strong>active</strong> profile (OWASP ZAP / wapiti) is gated behind an authorization attestation + a maintenance window; an on-host <strong>lynis</strong> audit runs through the agent. The toolchain runs on a hardened <strong>scanner satellite</strong> (no footprint on scanned hosts; pin one per segment), with quick/full intensity, a vhost field, and cron <strong>scheduled scans</strong>.</li>
+                <li><strong>Passkeys (WebAuthn).</strong> Phishing-resistant, passwordless sign-in with a security key, phone or biometrics — add one under <em>My Account → Passkeys</em> and use <em>Sign in with a passkey</em>. Refuses a cloned authenticator and <strong>satisfies the MFA-required policy</strong>.</li>
+                <li><strong>SAML 2.0 SSO.</strong> Sign in through an enterprise IdP (Okta, Entra, OneLogin, Ping, ADFS) — configure under <em>Settings → Authentication → SAML</em>. Signed-assertion verification with replay protection, attribute → username / group → role mapping, first-login provisioning, alongside OIDC / LDAP / local.</li>
+                <li><strong>Tamper-evident audit log.</strong> Entries are hash-chained; a <strong>Verify integrity</strong> button reports the first break, if any. Clearing requires an admin password re-prompt and writes an immutable pre-wipe archive first.</li>
+                <li><strong>Account guardrails.</strong> Enforce MFA (TOTP <em>or</em> a passkey) per role, cap concurrent sessions per user, set a default API-key expiry, and read a graded <strong>security-posture self-check</strong> on the Audit page.</li>
+              </ul>
+              <p class="hint">Passkeys need the optional <code>webauthn</code> library; SAML needs <code>pysaml2</code> + the <code>xmlsec1</code> binary — each degrades to "unavailable" when absent. See <code>docs/v4.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.1.0 visibilitymatters checks checkmk per host matrix ok warn crit unknown custom checks process port file log job dns icmp http db liveness monitor tag group dashboard widget resize reorder share catalog alert inbox group root cause fold tls 1.2 satellite mailq mute exposed">
             <summary><strong>What's new — v4.1.0 "VisualMatters"</strong> — a CheckMK-style per-host Checks matrix, custom checks, more monitors, a composable 66-widget dashboard, and a host-grouped alert inbox</summary>
             <div class="doc-body">
               <p>v4.1.0 surfaces what the fleet already knows and lets you shape how you see it. No breaking changes — most of it surfaces data the agent already reports. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.1.0</code>).</p>
@@ -2554,7 +2568,7 @@
                 <li><strong>Smarter alerts.</strong> The inbox stacks open alerts under a per-host header (worst first) with group-level Ack-all / Resolve-all; when a host is offline its symptom alerts fold under the <code>device_offline</code> root cause, so a storm reads as one incident. A flat view is one toggle away.</li>
                 <li><strong>Security &amp; reliability.</strong> A <strong>TLS 1.2 floor</strong> on every hop (satellite both ways, agent, server outbound); the SSH command builder rejects option-smuggling host/user values; and the agent's mail-queue probe backs off for an hour on a broken MTA so it can't flood the journal. Independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean.</li>
               </ul>
-              <p class="hint"><strong>Coming next — v4.2.0 "5ecur1tyM4tter5":</strong> the next release focuses on <strong>security and integrations</strong>. See <code>docs/v4.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+              <p class="hint">See <code>docs/v4.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v3.14.0 v4.0.0 favorites favourite star pin sidebar nav per account per user sync across devices localStorage api me api favorites stale image badge container update available registry digest image updates drawer fleet thermal hottest hosts temperature temps cpu chipset disk smart sensor heat overheat celsius degrees service worker cache f5 refresh reset">
@@ -2650,24 +2664,7 @@
               <p class="hint">CLI: <code>tools/migrate_storage.py --to sqlite</code> (and <code>--to json</code> to revert; <code>--dry-run</code> / <code>--verify-only</code> supported). On a network filesystem (NFS/CIFS) WAL is unsafe, so a rollback journal is used automatically — a local disk is strongly recommended. See <code>docs/v3.12.0.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v3.11.0 fleet posture exposure attack surface listening ports bind address scope world lan local socket software policy banned required min version package compliance fail2ban telnet storage zfs zpool mdadm mdraid btrfs raid degraded faulted scrub overdue pool health access watch login new source ip brute force firewall ufw nftables iptables ruleset drift fingerprint timer systemd scheduled job failed cron posture digest email weekly daily report">
-            <summary><strong>What's new — v3.11.0</strong> — fleet posture batch: exposure map, software policy, storage health, access watch, firewall drift, timer failures, posture digest</summary>
-            <div class="doc-body">
-              <p>Seven features that turn already-collected (or cheaply-collectable) agent data into first-class security and operational signals. No new daemons, no new dependencies. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.11.0</code>).</p>
-              <h4>New views &amp; signals</h4>
-              <ul>
-                <li><strong>Exposure (attack surface).</strong> The agent kept each listening socket's port but discarded its <em>bind address</em> — the one attribute that says whether a service is reachable from the world. It now classifies a scope (<code>local</code> / <code>lan</code> / <code>world</code>); a service first binding to a world-reachable address raises <code>port_exposed_world</code>. New <strong>Exposure</strong> page with a World/LAN/Local filter.</li>
-                <li><strong>Fleet Software Policy.</strong> Rules — <em>banned</em> / <em>required</em> / <em>min&nbsp;version</em>, optionally tag-scoped — evaluated against the installed-package inventory every host already pushes. Violations are tracked and <code>software_policy_violation</code> fires edge-triggered. New policy editor + violations table.</li>
-                <li><strong>Storage / RAID health.</strong> New agent probe for ZFS / mdadm / btrfs pool state, capacity and last-scrub. <code>storage_degraded</code> / <code>storage_recovered</code> (auto-resolving) and <code>scrub_overdue</code>. New <strong>Storage</strong> page, degraded-first.</li>
-                <li><strong>Access watch.</strong> Successful logins and their source IPs are collected; <code>login_new_source</code> fires on a first-seen source address.</li>
-                <li><strong>Host firewall drift.</strong> A stable fingerprint of the active ufw/nftables/iptables ruleset rides the heartbeat; <code>firewall_changed</code> fires when it diverges from baseline.</li>
-                <li><strong>Scheduled-job failures.</strong> Systemd timers are inventoried; <code>timer_failed</code> fires when a timer's backing job fails — catching the silent dead-backup case.</li>
-                <li><strong>Scheduled posture digest.</strong> An opt-in daily/weekly email summarising offline hosts, pending updates, critical CVEs, policy violations and degraded storage, over the existing SMTP path. "Send test now" in Settings.</li>
-              </ul>
-              <p class="hint">All detections are edge-triggered with per-device state, so a steady-state condition doesn't re-alert each heartbeat. See <code>docs/v3.11.0.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v3.8.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -4689,7 +4686,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.11.0: Attack-surface / Exposure monitor ─────────────────── -->
       <div id="page-exposure" class="page">
         <div class="page-title">Exposure</div>
-        <div class="page-subtitle">Every listening socket across the fleet, classified by where it can be reached from. <span class="fw-600">World</span> = bound to a public/wildcard address; <span class="fw-600">LAN</span> = private network; <span class="fw-600">Local</span> = loopback only. A service first becoming world-reachable raises an alert. <a href="docs/v3.11.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Every listening socket across the fleet, classified by where it can be reached from. <span class="fw-600">World</span> = bound to a public/wildcard address; <span class="fw-600">LAN</span> = private network; <span class="fw-600">Local</span> = loopback only. A service first becoming world-reachable raises an alert. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadExposure" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <select id="exposure-scope" class="form-input isl-177">
@@ -4754,7 +4751,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.11.0: Storage / RAID health ─────────────────────────────── -->
       <div id="page-storage" class="page">
         <div class="page-title">Storage health</div>
-        <div class="page-subtitle">ZFS, mdadm and btrfs pool/array state across the fleet. Degraded or faulted arrays are listed first and raise an alert; ZFS scrub freshness is tracked. <a href="docs/v3.11.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">ZFS, mdadm and btrfs pool/array state across the fleet. Degraded or faulted arrays are listed first and raise an alert; ZFS scrub freshness is tracked. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadStorage" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / pool…" data-input="filterRows" data-input-el="1" data-filter-target="#storage-tbody tr">
@@ -4883,7 +4880,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.11.0: Fleet Software Policy ─────────────────────────────── -->
       <div id="page-software-policy" class="page">
         <div class="page-title">Software policy</div>
-        <div class="page-subtitle">Rules evaluated against every host's installed-package inventory: <span class="fw-600">banned</span> (must not be installed), <span class="fw-600">required</span> (must be installed), <span class="fw-600">min&nbsp;version</span>. Optionally scope a rule to device tags. <a href="docs/v3.11.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Rules evaluated against every host's installed-package inventory: <span class="fw-600">banned</span> (must not be installed), <span class="fw-600">required</span> (must be installed), <span class="fw-600">min&nbsp;version</span>. Optionally scope a rule to device tags. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadSoftwarePolicy" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <span id="swpol-summary" class="isl-100"></span>

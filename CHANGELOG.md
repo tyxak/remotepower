@@ -2,10 +2,38 @@
 
 All notable changes to RemotePower. Newest first.
 
-## Coming next — v4.2.0 "5ecur1tyM4tter5"
+## Unreleased — v4.2.0 "5ecur1tyM4tter5"
 
-The next release focuses on **security and integrations** — deeper hardening
-and tighter connections to the tools you already run. Codename **5ecur1tyM4tter5**.
+Security and integrations. Where v4.1.0 made the fleet *visible*, v4.2.0 makes it
+**defensible** — harder sign-in, evidence you can trust, account-model guardrails,
+and authorized vulnerability scanning of the hosts and sites you own. No breaking
+changes; every new control is off until you turn it on.
+
+- **Authorized vulnerability scanning (the "Pentest" page)** — scan the hosts and
+  websites you own with industry tools, orchestrated and scheduled in one place.
+  Targets are **authorization-gated**: enrolled hosts (target IP derived
+  server-side), or domains you prove you own via an **ACME-style DNS-TXT /
+  `.well-known`** check. A **passive** profile (nuclei / nikto / nmap) is safe any
+  time; an **active** profile (OWASP ZAP / wapiti) is gated behind an explicit
+  authorization attestation and a maintenance window; an on-host **lynis** audit
+  runs through the agent. The toolchain runs on a hardened **scanner satellite**
+  (no footprint on scanned hosts; pin one per network segment), with quick/full
+  intensity, a vhost field, and cron **scheduled scans**.
+- **Passkeys (WebAuthn)** — phishing-resistant, passwordless sign-in with a
+  security key, phone or biometrics; refuses a cloned authenticator and **satisfies
+  the MFA-required policy**. Optional `webauthn` dependency; hidden when absent.
+- **SAML 2.0 SSO** — sign in through an enterprise IdP (Okta, Entra, OneLogin,
+  Ping, ADFS); signed-assertion verification with replay protection, attribute →
+  username / group → role mapping, first-login provisioning, alongside OIDC / LDAP
+  / local. Optional `pysaml2` + `xmlsec1`; disabled when absent.
+- **Tamper-evident audit log** — entries are hash-chained; a **Verify integrity**
+  button reports the first break; clearing requires an admin re-prompt and writes
+  an immutable pre-wipe archive.
+- **Account guardrails** — enforce MFA (TOTP or passkey) per role, cap concurrent
+  sessions per user, set a default API-key expiry, and a graded
+  **security-posture self-check** on the Audit page.
+
+See [docs/v4.2.0.md](docs/v4.2.0.md).
 
 ## v4.1.0 — "VisualMatters" — 2026-06-09
 

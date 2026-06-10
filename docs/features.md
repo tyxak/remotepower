@@ -10,7 +10,8 @@ Day-to-day fleet operations, without leaving the browser:
 | **Alert on what matters** | Disk %, memory %, swap %, CPU load — per-device and per-mount thresholds. Service down. Container stopped/restarting. Patches piling up. CVEs found. TLS expiring. Webhooks to Discord, ntfy, Slack, or anything that takes a JSON POST. |
 | **CMDB built in** | Asset metadata, server function, hypervisor URL. Encrypted credentials vault (AES-GCM, shared admin passphrase, audit-logged reveals). Multiple Markdown documents per asset. SSH-link buttons. Network topology map. Agentless devices for switches / APs / printers. |
 | **CVE scanning** | Installed packages cross-checked against [OSV.dev](https://osv.dev) on a schedule. Severity-ranked findings per device with fixed-version hints. Per-CVE ignore list for accepted risk — reversible from Settings → Ignored items. Ubuntu derivatives (Zorin, Mint, Pop!_OS, elementary) map to the Ubuntu ecosystem. |
-| **Auth that scales** | Local users with bcrypt + TOTP 2FA. Optional LDAP/AD integration. Named API keys for automation. Enrolment tokens for cloud-init / Ansible / golden-image stamping. |
+| **Auth that scales** | Local users with bcrypt + TOTP 2FA. **Passkeys** (WebAuthn) for phishing-resistant passwordless sign-in. SSO via **OIDC** or **SAML 2.0** (Okta / Entra / OneLogin / Ping / ADFS), plus LDAP/AD and SCIM. Enforce MFA per role, cap sessions, expire keys. Named API keys for automation. Enrolment tokens for cloud-init / Ansible / golden-image stamping. |
+| **Find your holes** | Authorized vulnerability scanning of the hosts and websites you own (the *Pentest* page) — nuclei / nikto / nmap / OWASP ZAP / wapiti / lynis, run from a hardened scanner satellite, with domain-ownership verification and scheduling. |
 | **Time-series, the homelab way** | Every device's CPU/RAM/disk recorded; sparkline for the dashboard, full-size chart on click. Prometheus `/api/metrics` endpoint for Grafana. |
 | **AI assistant** | Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain command output, triage CVEs and TLS expiry, prioritise patches, diagnose failed services, generate and audit shell scripts, free-form chat. Disabled by default; no external calls unless you choose a cloud provider. Regex-based secret redaction before any bytes leave the process. |
 | **MCP server** | Bundled Model Context Protocol server — lets any MCP-capable AI client (Claude Desktop, etc.) query fleet state through 18 tools: 14 read tools plus 4 guarded write tools (reboot, run saved script, force package/ACME scan), gated by a per-token allow-list. |
@@ -168,13 +169,33 @@ The complete list. Items marked with a version number indicate when they were ad
 |---|---|
 | **bcrypt** | Password hashing with transparent SHA-256 upgrade on login |
 | **TOTP 2FA** | Per-user, scan-QR setup; required to disable |
+| **Passkeys / WebAuthn** *(v4.2)* | Phishing-resistant, passwordless sign-in with a security key, phone or biometrics; refuses a cloned authenticator (sign-count regression); satisfies the MFA-required policy. Add under *My Account → Passkeys*. Optional `webauthn` dependency |
+| **OIDC SSO** | Sign in via an external OpenID Connect IdP; group → role mapping; first-login provisioning |
+| **SAML 2.0 SSO** *(v4.2)* | Enterprise IdP login (Okta / Entra / OneLogin / Ping / ADFS); SP metadata published, signed-assertion verification with replay protection, attribute → username + group → role mapping. Optional `pysaml2` + `xmlsec1` |
 | **LDAP / AD** | Optional bind-mode auth; auto-creates local user record |
+| **SCIM 2.0** | IdP-driven user create/deactivate so offboarding revokes access + live sessions |
+| **MFA enforcement** *(v4.2)* | Require MFA (TOTP **or** a passkey) for chosen roles; enrolment is forced before any other action |
 | **Roles** | Admin (full access) and Viewer (read-only) per user |
 | **PIN enrolment** | 6-digit, single-use, 10-minute expiry |
 | **API enrolment tokens** | One-time-use tokens for Ansible / cloud-init / golden images. Default group + tags applied at enrolment (v1.11.10) |
-| **API keys** | Named non-expiring keys for scripts and CI |
+| **API keys** | Named keys for scripts and CI; **default expiry window** for new keys (v4.2) |
+| **Session caps** *(v4.2)* | Limit concurrent sessions per user; oldest evicted past the cap |
+| **Tamper-evident audit log** *(v4.2)* | Hash-chained entries; one-click *Verify integrity*; clearing requires an admin re-prompt + writes an immutable pre-wipe archive |
+| **Security-posture self-check** *(v4.2)* | Graded hardening checklist on the Audit page (MFA enforced, admins with MFA, session cap, key expiry, …) |
 | **Rate limiting** | Per-IP login throttle, prevents brute force |
 | **Read-only demo mode** | Config flag rejects all mutations with a friendly error. For public sandboxes (v2.0) |
+
+### Security scanning *(v4.2)*
+
+| Feature | Notes |
+|---|---|
+| **Authorized vulnerability scanning** | The *Pentest* page (under Monitoring) scans the hosts and websites you own with industry tools, orchestrated, scheduled and collected in one place — white-hat only |
+| **Authorization-gated targets** | Enrolled hosts (target IP derived server-side from the device record), or non-enrolled **domains you prove you own** via an ACME-style **DNS TXT** record or **`.well-known`** file; private/loopback ranges refused |
+| **Passive profile** | Safe to run any time: **nuclei**, **nikto**, **nmap** |
+| **Active profile** | Intrusive: **OWASP ZAP**, **wapiti** — gated behind an explicit authorization **attestation** and, for enrolled hosts, a maintenance window (or recorded override); both audited |
+| **On-host audit** | **lynis** system-hardening audit run through the agent (read-only) |
+| **Scanner satellites** | The toolchain runs on a hardened relay node, not on scanned hosts — no production footprint, realistic external vantage; pin a scan to a specific satellite (e.g. one per segment) |
+| **Scheduled scans** | Cron-style cadence; recurring findings can notify a channel. Per-scan quick/full **intensity** and a **vhost** field for name-based virtual hosts |
 
 ### Operational quality
 

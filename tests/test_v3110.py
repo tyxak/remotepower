@@ -74,7 +74,10 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex(txt[:2000], r"v\d+\.\d+\.\d+")
 
     def test_version_doc_exists(self):
-        self.assertTrue((_ROOT / f"docs/v{VERSION}.md").exists())
+        # per-version docs pruned to the last 5 (CLAUDE.md housekeeping); v3.11.0.md
+        # was dropped when v4.2.0.md landed. The release is still recorded in
+        # CHANGELOG.md, which is the durable history.
+        self.assertIn('3.11.0', (_ROOT / 'CHANGELOG.md').read_text())
 
 
 class TestEventWiring(unittest.TestCase):

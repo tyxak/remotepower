@@ -56,6 +56,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.2.0.md](v4.2.0.md)** — "5ecur1tyM4tter5": authorized vulnerability
+ scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log,
+ and account guardrails.
 - **[v4.1.0.md](v4.1.0.md)** — "VisualMatters": CheckMK-style per-host
  Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
 - **[v4.0.0.md](v4.0.0.md)** — per-account sidebar favorites; per-container
@@ -64,8 +67,6 @@ The five most recent per-release notes are kept here:
  at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.
 - **[v3.12.0.md](v3.12.0.md)** — optional SQLite storage backend with a live,
  in-place, reversible migration.
-- **[v3.11.0.md](v3.11.0.md)** — fleet posture batch (exposure map, software
- policy, storage/RAID health, access watch, firewall drift).
 
 ## Feature guides
 

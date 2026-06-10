@@ -3584,6 +3584,15 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "The Pentest page (under Monitoring) scans the hosts and websites you own for vulnerabilities — nuclei, nikto and nmap on the safe passive profile; OWASP ZAP and wapiti on the gated active one; and a lynis hardening audit on-host.",
+  "To scan a website you don't have an agent on, add it as a target and prove you own it with a DNS TXT record or a .well-known file — ACME-style, just like issuing a TLS certificate. RemotePower refuses anything you haven't verified.",
+  "Vulnerability scans run on a scanner satellite — a hardened relay node — not on your production hosts, so there's no footprint on the machine being scanned. Pin a scan to a specific satellite, e.g. one per network segment.",
+  "Schedule a recurring scan on the Pentest page and wire its findings to a notification channel — a cron-style web/host vulnerability sweep that pages you only when something new turns up.",
+  "Add a passkey under My Account → Passkeys for phishing-resistant, passwordless sign-in with a security key, your phone or biometrics — and it counts as MFA, so you can drop the password entirely.",
+  "Settings → Authentication → SAML adds enterprise single sign-on (Okta, Entra, OneLogin, Ping, ADFS) — paste the IdP metadata, map a group to the admin role, and users arrive provisioned on first login.",
+  "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
+  "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive.",
+  "The Audit page grades your security posture as a checklist — MFA enforced, admins with MFA, session caps, API-key expiry — so you can see at a glance what hardening is left to switch on.",
   "Hover any sidebar entry and click the star to pin it under 'Main' — your favorites are saved to your account, so they follow you to any browser or device you log in from.",
   "The CVEs page now flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
   "My Account → Active sessions lists every browser and device signed in as you. See one you don't recognise? Revoke it — or sign out all other sessions — in a click.",
