@@ -6573,7 +6573,7 @@ function _registerScansTable() {
       const cell = (n, cls) => n > 0 ? `<td class="ta-center ${cls}">${n}</td>` : '<td class="ta-center c-muted">0</td>';
       const when = s.created ? new Date(s.created * 1000).toLocaleString() : '—';
       const removeBtn = ` <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">Remove</button>`;
-      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
+      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity || 'quick')}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
     },
     emptyMsg: 'No scans yet. Select an enrolled device and queue one.',
     emptyMsgFiltered: 'No scans match the filter.',
@@ -6676,6 +6676,8 @@ function _selectedScanTool() {
 function _scanOptions() {
   const profile = (document.getElementById('scan-profile') || {}).value || 'passive';
   const opts = { tool: _selectedScanTool(), profile };
+  const intensity = (document.getElementById('scan-intensity') || {}).value;
+  if (intensity) opts.intensity = intensity;
   const sat = document.getElementById('scan-satellite');
   if (sat && sat.value) opts.satellite_id = sat.value;
   if (profile === 'active') {
@@ -6695,10 +6697,13 @@ async function queueScan() {
   if (!_scanSelectedDevice) { toast('Search and pick a device to scan first.', 'info'); return; }
   const opts = _scanOptions();
   if (!opts) return;
+  const vhost = (document.getElementById('scan-vhost') || {}).value;
+  if (vhost && vhost.trim()) opts.vhost = vhost.trim();
   const res = await api('POST', '/scans', { device_id: _scanSelectedDevice.id, ...opts });
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
-  toast('Scan queued — runs on the next scanner-satellite poll.', 'success');
+  toast(res.count ? `Queued ${res.count} scans (one per tool).`
+                  : 'Scan queued — runs on the next scanner-satellite poll.', 'success');
   loadScans();
 }
 
@@ -6800,7 +6805,7 @@ async function scanTarget(id) {
   const res = await api('POST', '/scans', { scan_target_id: id, ...opts });
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
-  toast('Scan queued for the target.', 'success');
+  toast(res.count ? `Queued ${res.count} scans (one per tool).` : 'Scan queued for the target.', 'success');
   loadScans();
 }
 

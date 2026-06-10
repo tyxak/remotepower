@@ -248,12 +248,18 @@ def _parse_wapiti(text):
     return out
 
 
-def _nuclei_argv(target, profile):
+def _quick(intensity):
+    return intensity != 'full'
+
+
+def _nuclei_argv(target, profile, intensity):
     # NB: do NOT pass -disable-update-check — the nuclei image ships WITHOUT
     # templates, and -duc also blocks the template download, so nuclei runs with
     # zero templates and finds nothing. Letting it manage templates (cached in a
     # named volume so it's downloaded once) is what makes it actually scan.
-    args = ['-u', target, '-severity', _SEVERITIES, '-jsonl', '-silent',
+    # quick = medium+ severities (fast, low-noise); full = every severity.
+    sev = 'medium,high,critical' if _quick(intensity) else _SEVERITIES
+    args = ['-u', target, '-severity', sev, '-jsonl', '-silent',
             '-rate-limit', RATELIMIT]
     if profile != 'active':   # passive excludes intrusive/dos/fuzz templates
         args += ['-exclude-tags', _EXCLUDE_TAGS]
@@ -261,40 +267,44 @@ def _nuclei_argv(target, profile):
                     volumes=['rp-nuclei-templates:/root/nuclei-templates'])
 
 
-def _nikto_argv(target, profile):
+def _nikto_argv(target, profile, intensity):
     tuning = [] if profile == 'active' else ['-Tuning', 'x6']  # x6 drops the DoS plugin
+    maxtime = '180' if _quick(intensity) else str(SCAN_TIMEOUT)
     # Don't force -ssl (it pins HTTPS/443 and finds nothing on a plain-HTTP or
     # non-443 target). nikto auto-detects from the host/URL.
     return _sandbox(_TOOL_IMAGE['nikto'], [
         '-host', target, '-Format', 'json', '-output', '/dev/stdout',
-        '-nointeractive', '-maxtime', str(SCAN_TIMEOUT)] + tuning)
+        '-nointeractive', '-maxtime', maxtime] + tuning)
 
 
-def _nmap_argv(target, profile):
+def _nmap_argv(target, profile, intensity):
     scripts = 'safe,vuln' if profile == 'active' else 'safe'   # vuln NSE = active
-    return _sandbox(_TOOL_IMAGE['nmap'], [
-        '-sV', '-Pn', '-T3', '--script', scripts, '-oX', '-', target])
+    # quick = top 100 ports (-F); full = every port (-p-).
+    ports = ['-F'] if _quick(intensity) else ['-p-']
+    return _sandbox(_TOOL_IMAGE['nmap'],
+                    ['-sV', '-Pn', '-T3'] + ports + ['--script', scripts, '-oX', '-', target])
 
 
-def _zap_argv(target, profile, workdir, report):
-    # ACTIVE-only. zap-full-scan writes its JSON report into the work dir
-    # (/zap/wrk); mount the host workdir there and read it back. -I = don't fail
-    # the container on warnings.
+def _zap_argv(target, profile, intensity, workdir, report):
+    # quick = zap-baseline (fast, passive spider); full = zap-full-scan (active).
+    # Both write a JSON report into the work dir (/zap/wrk); mount + read it back.
+    # -I = don't fail the container on warnings.
+    script = 'zap-baseline.py' if _quick(intensity) else 'zap-full-scan.py'
     return _sandbox(_TOOL_IMAGE['zap'], [
-        'zap-full-scan.py', '-t', _target_url(target), '-J', report, '-I'],
+        script, '-t', _target_url(target), '-J', report, '-I'],
         volumes=[f'{workdir}:/zap/wrk:rw'])
 
 
-def _wapiti_argv(target, profile, workdir, report):
-    # ACTIVE-only. wapiti fuzzes and writes a JSON report to -o; mount the host
-    # workdir at /output and read it back.
+def _wapiti_argv(target, profile, intensity, workdir, report):
+    # wapiti fuzzes and writes a JSON report to -o; mount /output and read back.
+    maxtime = '180' if _quick(intensity) else str(SCAN_TIMEOUT)
     return _sandbox(_TOOL_IMAGE['wapiti'], [
         '-u', _target_url(target), '--flush-session', '-f', 'json',
-        '-o', f'/output/{report}', '--max-scan-time', str(SCAN_TIMEOUT)],
+        '-o', f'/output/{report}', '--max-scan-time', maxtime],
         volumes=[f'{workdir}:/output:rw'])
 
 
-# Tools that stream their report to stdout (argv_fn(target, profile)).
+# Tools that stream their report to stdout (argv_fn(target, profile, intensity)).
 STDOUT_TOOLS = {
     'nuclei': (_nuclei_argv, _parse_nuclei),
     'nikto':  (_nikto_argv,  _parse_nikto),
@@ -323,7 +333,7 @@ def _run_stdout_tool(argv, parse_fn):
     return findings, ''
 
 
-def _run_report_tool(argv_fn, parse_fn, target, profile):
+def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
     """For tools that write a JSON report FILE (zap, wapiti): mount a fresh host
     temp dir as the container work dir, run, read the report back, parse, clean
     up. The dir is world-writable so a tool running as a non-root container uid
@@ -336,7 +346,7 @@ def _run_report_tool(argv_fn, parse_fn, target, profile):
             os.chmod(workdir, 0o777)
         except OSError:
             pass
-        _, stderr, err = _run(argv_fn(target, profile, workdir, _REPORT_NAME))
+        _, stderr, err = _run(argv_fn(target, profile, intensity, workdir, _REPORT_NAME))
         if err:
             return [], err
         try:
@@ -350,14 +360,14 @@ def _run_report_tool(argv_fn, parse_fn, target, profile):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _run_tool(tool, target, profile='passive'):
+def _run_tool(tool, target, profile='passive', intensity='quick'):
     """Dispatch to a tool runner. Returns (findings, error)."""
     if tool in STDOUT_TOOLS:
         argv_fn, parse_fn = STDOUT_TOOLS[tool]
-        return _run_stdout_tool(argv_fn(target, profile), parse_fn)
+        return _run_stdout_tool(argv_fn(target, profile, intensity), parse_fn)
     if tool in REPORT_TOOLS:
         argv_fn, parse_fn = REPORT_TOOLS[tool]
-        return _run_report_tool(argv_fn, parse_fn, target, profile)
+        return _run_report_tool(argv_fn, parse_fn, target, profile, intensity)
     return [], f'unsupported tool {tool}'
 
 
@@ -376,7 +386,8 @@ def _process_one():
         _api('POST', f'/api/scans/{sid}/results',
              {'status': 'failed', 'error': f'unsupported tool {tool}', 'findings': []})
         return True
-    findings, err = _run_tool(tool, target, job.get('profile', 'passive'))
+    findings, err = _run_tool(tool, target, job.get('profile', 'passive'),
+                              job.get('intensity', 'quick'))
     status = 'failed' if err else 'done'
     _api('POST', f'/api/scans/{sid}/results',
          {'status': status, 'error': err, 'findings': findings})

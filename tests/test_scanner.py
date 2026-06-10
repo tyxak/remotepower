@@ -94,20 +94,30 @@ class TestWapitiParser(unittest.TestCase):
 
 class TestProfileFlags(unittest.TestCase):
     def test_nmap_active_adds_vuln_scripts(self):
-        self.assertIn('safe', sc._nmap_argv('h', 'passive'))
-        self.assertIn('safe,vuln', sc._nmap_argv('h', 'active'))
+        self.assertIn('safe', sc._nmap_argv('h', 'passive', 'quick'))
+        self.assertIn('safe,vuln', sc._nmap_argv('h', 'active', 'quick'))
 
     def test_nuclei_passive_excludes_intrusive(self):
-        self.assertIn('-exclude-tags', sc._nuclei_argv('h', 'passive'))
-        self.assertNotIn('-exclude-tags', sc._nuclei_argv('h', 'active'))
+        self.assertIn('-exclude-tags', sc._nuclei_argv('h', 'passive', 'quick'))
+        self.assertNotIn('-exclude-tags', sc._nuclei_argv('h', 'active', 'quick'))
 
     def test_nuclei_fetches_templates(self):
         # -disable-update-check would leave nuclei with ZERO templates (image
         # ships none) → 0 findings. Must be absent; templates cached in a volume.
-        argv = sc._nuclei_argv('h', 'passive')
+        argv = sc._nuclei_argv('h', 'passive', 'quick')
         self.assertNotIn('-disable-update-check', argv)
         if sc.RUNNER in ('docker', 'podman'):
             self.assertIn('rp-nuclei-templates:/root/nuclei-templates', argv)
+
+    def test_intensity_tunes_depth(self):
+        # nmap: quick = fast (top ports), full = every port
+        self.assertIn('-F', sc._nmap_argv('h', 'passive', 'quick'))
+        self.assertIn('-p-', sc._nmap_argv('h', 'passive', 'full'))
+        # nuclei: quick limits severities, full = all
+        self.assertIn('medium,high,critical', sc._nuclei_argv('h', 'passive', 'quick'))
+        # zap: quick = baseline, full = full-scan
+        self.assertIn('zap-baseline.py', sc._zap_argv('h', 'active', 'quick', '/w', 'r.json'))
+        self.assertIn('zap-full-scan.py', sc._zap_argv('h', 'active', 'full', '/w', 'r.json'))
 
 
 class TestAgentSide(unittest.TestCase):
@@ -164,8 +174,8 @@ class TestDispatch(unittest.TestCase):
     def test_sandbox_is_locked_down(self):
         # NB: deliberately NOT --read-only (it blocks the tools' scratch writes →
         # 0 findings). The other hardening flags must still be present.
-        for tool_argv in (sc._nmap_argv('10.0.0.5', 'active'),
-                          sc._zap_argv('example.com', 'active', '/tmp/wd', 'report.json')):
+        for tool_argv in (sc._nmap_argv('10.0.0.5', 'active', 'quick'),
+                          sc._zap_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')):
             if sc.RUNNER in ('docker', 'podman'):
                 for flag in ('--rm', '--cap-drop', 'ALL', '--pids-limit',
                              '--security-opt', 'no-new-privileges'):
@@ -176,14 +186,14 @@ class TestDispatch(unittest.TestCase):
         # zap/wapiti write a report FILE; the runner mounts a host workdir and
         # passes a report path the worker reads back.
         if sc.RUNNER in ('docker', 'podman'):
-            zap = sc._zap_argv('example.com', 'active', '/tmp/wd', 'report.json')
+            zap = sc._zap_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')
             self.assertIn('/tmp/wd:/zap/wrk:rw', zap)
             self.assertIn('report.json', zap)
-            wap = sc._wapiti_argv('example.com', 'active', '/tmp/wd', 'report.json')
+            wap = sc._wapiti_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')
             self.assertIn('/tmp/wd:/output:rw', wap)
 
     def test_nikto_does_not_force_ssl(self):
-        self.assertNotIn('-ssl', sc._nikto_argv('example.com', 'passive'))
+        self.assertNotIn('-ssl', sc._nikto_argv('example.com', 'passive', 'quick'))
 
 
 if __name__ == '__main__':

@@ -1241,6 +1241,7 @@ SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap')                   # passive-capa
 SCAN_ACTIVE_TOOLS = ('nuclei', 'nikto', 'nmap', 'zap', 'wapiti')  # v4.2.0 P3: active profile only
 HOST_SCAN_TOOLS   = ('lynis',)                                    # v4.2.0 P3: run ON the host by its agent
 SCAN_PROFILES     = ('passive', 'active')                         # active (P3) is attestation+window gated
+SCAN_INTENSITIES  = ('quick', 'full')                            # v4.2.0 (#6): depth knob, tuned per tool by the worker
 _BACKEND_CACHE = None
 
 
@@ -25751,6 +25752,7 @@ def _scan_public(s):
         'target': s.get('target'), 'target_device_id': s.get('target_device_id'),
         'target_name': s.get('target_name', ''),
         'tool': s.get('tool'), 'profile': s.get('profile'),
+        'intensity': s.get('intensity', 'quick'),
         'runner': s.get('runner', 'satellite'),
         'satellite_id': s.get('satellite_id', ''),
         'actor': s.get('actor'), 'created': s.get('created'),
@@ -25806,7 +25808,9 @@ def handle_scans_list():
             for sid, s in (load(SATELLITES_FILE) or {}).items()
             if isinstance(s, dict) and s.get('scanner')]
     respond(200, {'scans': out, 'tools': list(SCAN_TOOLS),
-                  'profiles': list(SCAN_PROFILES), 'satellites': sats})
+                  'active_tools': list(SCAN_ACTIVE_TOOLS),
+                  'profiles': list(SCAN_PROFILES),
+                  'intensities': list(SCAN_INTENSITIES), 'satellites': sats})
 
 
 def handle_scan_detail(scan_id):
@@ -25840,7 +25844,8 @@ def handle_scans_create():
     st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
     # Profile + tool first — the allowed tool set is profile-dependent.
     tool = _sanitize_str(str(body.get('tool', 'nuclei')), 32) or 'nuclei'
-    is_host = tool in HOST_SCAN_TOOLS
+    is_all = (tool == 'all')   # v4.2.0 (#6): fan out to every network tool
+    is_host = (not is_all) and tool in HOST_SCAN_TOOLS
     if is_host:
         # On-host audit (lynis) — run by the device's own agent, read-only; the
         # passive/active profile axis (network intensity) doesn't apply.
@@ -25850,9 +25855,14 @@ def handle_scans_create():
         if profile not in SCAN_PROFILES:
             respond(400, {'error': f'unsupported profile (supported: {", ".join(SCAN_PROFILES)})'})
         allowed_tools = SCAN_ACTIVE_TOOLS if profile == 'active' else SCAN_TOOLS
-        if tool not in allowed_tools:
+        if not is_all and tool not in allowed_tools:
             respond(400, {'error': f'tool {tool!r} not available in the {profile} '
-                                   f'profile (supported: {", ".join(allowed_tools)})'})
+                                   f'profile (supported: {", ".join(allowed_tools)}, or "all")'})
+    # v4.2.0 (#6): depth knob. quick = fast/shallow, full = thorough (worker tunes
+    # per-tool flags). Host audits ignore it.
+    intensity = _sanitize_str(str(body.get('intensity', 'quick')), 16) or 'quick'
+    if intensity not in SCAN_INTENSITIES:
+        respond(400, {'error': f'unsupported intensity (supported: {", ".join(SCAN_INTENSITIES)})'})
     dev = None
     if dev_id:
         # RBAC: 'scan' permission AND the target must be inside the caller's scope.
@@ -25865,6 +25875,19 @@ def handle_scans_create():
         if terr:
             respond(400, {'error': terr})
         target_device_id, target_name = dev_id, dev.get('name', dev_id)
+        # v4.2.0 (#1): optional vhost — scan a hostname (the right Host header /
+        # vhost on this device) instead of its bare IP. Gated by ownership: the
+        # vhost must be an already-VERIFIED scan target, so this can't be abused
+        # to scan an arbitrary third-party host via a device you happen to own.
+        vhost = _sanitize_str(str(body.get('vhost', '')), 253).lower()
+        if vhost and not is_host:
+            vt = next((t for t in (load(SCAN_TARGETS_FILE) or {}).values()
+                       if isinstance(t, dict) and t.get('verified') and t.get('target') == vhost), None)
+            if not vt:
+                respond(400, {'error': f'vhost {vhost!r} must be an ownership-verified web target first'})
+            target, target_name = vhost, f'{vhost} (on {dev.get("name", dev_id)})'
+        elif vhost and is_host:
+            respond(400, {'error': 'vhost does not apply to on-host audits'})
     elif st_id:
         if is_host:
             respond(400, {'error': 'host-audit tools (lynis) run on an enrolled host — use device_id'})
@@ -25912,33 +25935,44 @@ def handle_scans_create():
         _sats = load(SATELLITES_FILE) or {}
         if sat_id not in _sats or not _sats[sat_id].get('scanner'):
             respond(400, {'error': 'unknown or non-scanner satellite'})
-    sid = secrets.token_hex(8)
+    # v4.2.0 (#6): tool="all" fans out to one scan per network tool in the profile.
+    tools_to_run = list(allowed_tools) if is_all else [tool]
     now = int(time.time())
-    rec = {
-        'id': sid, 'target_device_id': target_device_id,
-        'target_name': target_name, 'target': target,
-        'tool': tool, 'profile': profile, 'status': 'queued',
-        'runner': 'agent' if is_host else 'satellite', 'satellite_id': sat_id,
-        'created': now, 'actor': actor, 'claimed_by': None,
-        'claimed_at': None, 'finished_at': None, 'findings': [], 'error': '',
-        **attest_meta,
-    }
+    created = []
     with _LockedUpdate(SCANS_FILE) as scans:
-        # ring-buffer: drop oldest terminal scans once over the cap
-        if len(scans) >= MAX_SCANS:
+        # ring-buffer: make room for the whole batch
+        need = len(tools_to_run)
+        if len(scans) + need > MAX_SCANS:
             terminal = sorted(
                 [k for k, v in scans.items()
                  if isinstance(v, dict) and v.get('status') in ('done', 'failed', 'cancelled')],
                 key=lambda k: scans[k].get('created') or 0)
-            for k in terminal[:max(1, len(scans) - MAX_SCANS + 1)]:
+            for k in terminal[:max(0, len(scans) + need - MAX_SCANS)]:
                 del scans[k]
-        scans[sid] = rec
-    audit_log(actor, 'scan_create',
-              f'id={sid} device={target_device_id or "-"} tool={tool} '
-              f'profile={profile} target={target}'
-              + (f' attested window_overridden={attest_meta.get("window_overridden")}'
-                 if profile == 'active' else ''))
-    respond(201, {'ok': True, 'id': sid, 'scan': _scan_public(rec)})
+        for tl in tools_to_run:
+            sid = secrets.token_hex(8)
+            rec = {
+                'id': sid, 'target_device_id': target_device_id,
+                'target_name': target_name, 'target': target,
+                'tool': tl, 'profile': profile, 'intensity': intensity, 'status': 'queued',
+                'runner': 'agent' if is_host else 'satellite', 'satellite_id': sat_id,
+                'created': now, 'actor': actor, 'claimed_by': None,
+                'claimed_at': None, 'finished_at': None, 'findings': [], 'error': '',
+                **attest_meta,
+            }
+            scans[sid] = rec
+            created.append(rec)
+    for rec in created:
+        audit_log(actor, 'scan_create',
+                  f'id={rec["id"]} device={target_device_id or "-"} tool={rec["tool"]} '
+                  f'profile={profile} intensity={intensity} target={target}'
+                  + (f' attested window_overridden={attest_meta.get("window_overridden")}'
+                     if profile == 'active' else ''))
+    if is_all:
+        respond(201, {'ok': True, 'count': len(created),
+                      'ids': [r['id'] for r in created],
+                      'scans': [_scan_public(r) for r in created]})
+    respond(201, {'ok': True, 'id': created[0]['id'], 'scan': _scan_public(created[0])})
 
 
 def handle_scan_delete(scan_id):
@@ -26008,7 +26042,8 @@ def handle_scan_claim():
             job['claimed_by'] = sid_sat
             job['claimed_at'] = int(time.time())
             claimed = {'id': job['id'], 'target': job['target'],
-                       'tool': job['tool'], 'profile': job['profile']}
+                       'tool': job['tool'], 'profile': job['profile'],
+                       'intensity': job.get('intensity', 'quick')}
     if claimed:
         audit_log(f'satellite:{sid_sat}', 'scan_claim',
                   f"id={claimed['id']} target={claimed['target']}")

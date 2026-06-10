@@ -587,6 +587,49 @@ class TestHostScans(_ScanBase):
         self.assertEqual(len(rec['findings']), 1)
 
 
+class TestScanOptionsAndVhost(_ScanBase):
+    """B5 #6 (intensity + run-all-tools) and #1 (vhost)."""
+
+    def test_intensity_stored(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'intensity': 'full'}
+        created = self.call(api.handle_scans_create)
+        self.assertEqual(created['scan']['intensity'], 'full')
+
+    def test_bad_intensity_400(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'intensity': 'ludicrous'}
+        self.call(api.handle_scans_create)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_all_tools_fans_out(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'tool': 'all', 'profile': 'passive'}
+        created = self.call(api.handle_scans_create)
+        self.assertEqual(created['count'], len(api.SCAN_TOOLS))
+        tools = sorted(v['tool'] for v in api.load(api.SCANS_FILE).values())
+        self.assertEqual(tools, sorted(api.SCAN_TOOLS))
+
+    def test_vhost_requires_verified_target(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'vhost': 'remote.example.com'}
+        self.call(api.handle_scans_create)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_vhost_uses_verified_target(self):
+        self._device('dev1')
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'target': 'remote.example.com'}
+        r = self.call(api.handle_scan_targets_create)
+        api._verify_scan_target_dns = lambda t, tok: (True, '')
+        self.call(api.handle_scan_target_verify, r['id'])
+        self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'vhost': 'remote.example.com'}
+        created = self.call(api.handle_scans_create)
+        self.assertEqual(created['scan']['target'], 'remote.example.com')
+        self.assertEqual(created['scan']['target_device_id'], 'dev1')
+
+
 class TestScanDeleteClear(_ScanBase):
     """B5: remove a scan record (+findings); clear all finished scans."""
 
