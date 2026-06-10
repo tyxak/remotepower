@@ -8,7 +8,7 @@ LABEL version="2.0.0"
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         nginx fcgiwrap spawn-fcgi procps && \
-    pip install --no-cache-dir bcrypt reportlab cryptography dnspython && \
+    pip install --no-cache-dir bcrypt reportlab cryptography dnspython webauthn && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Directories

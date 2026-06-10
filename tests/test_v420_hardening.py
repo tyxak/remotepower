@@ -177,10 +177,69 @@ class TestSecurityPosture(_Base):
         by = {c['key']: c for c in r['checks']}
         self.assertEqual(by['mfa_enforced']['status'], 'ok')
         self.assertEqual(by['session_cap']['status'], 'ok')
-        self.assertEqual(by['admin_totp']['status'], 'ok')
+        self.assertEqual(by['admin_mfa']['status'], 'ok')
         self.assertEqual(by['apikey_expiry']['status'], 'warn')   # not configured
         self.assertGreater(r['total'], 5)
         self.assertLessEqual(r['score'], r['total'])
+
+
+class TestWebAuthn(_Base):
+    def setUp(self):
+        super().setUp()
+        self._wf = api.WEBAUTHN_CHALLENGES_FILE
+        api.WEBAUTHN_CHALLENGES_FILE = self.d / 'wa_chal.json'
+        self._ra = api.require_auth
+        api.require_auth = lambda require_admin=False: 'alice'
+        os.environ['HTTP_HOST'] = 'rp.example.com'
+
+    def tearDown(self):
+        api.require_auth = self._ra
+        api.WEBAUTHN_CHALLENGES_FILE = self._wf
+        os.environ.pop('HTTP_HOST', None)
+        super().tearDown()
+
+    def test_available(self):
+        api.save(api.CONFIG_FILE, {})
+        r = self.call(api.handle_webauthn_available)
+        self.assertIn('available', r)
+
+    def test_passkey_satisfies_mfa(self):
+        api.save(api.CONFIG_FILE, {'mfa_required_roles': ['admin']})
+        self.assertFalse(api._mfa_enrollment_required(
+            {'role': 'admin', 'webauthn_credentials': [{'id': 'x'}]}))
+
+    def test_register_begin_returns_options(self):
+        if not (api._webauthn() and api._webauthn().available()):
+            self.skipTest('py_webauthn not installed')
+        api.save(api.USERS_FILE, {'alice': {'role': 'admin'}})
+        api.method = lambda: 'POST'
+        r = self.call(api.handle_webauthn_register_begin)
+        self.assertIn('challenge', r)
+        self.assertIn('rp', r)
+        self.assertTrue(any(k.startswith('reg:')
+                            for k in api.load(api.WEBAUTHN_CHALLENGES_FILE)))
+
+    def test_credentials_list_hides_key_and_delete(self):
+        api.save(api.USERS_FILE, {'alice': {'role': 'admin', 'webauthn_credentials': [
+            {'id': 'cred1', 'name': 'key', 'public_key': 'pk', 'sign_count': 0}]}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_webauthn_credentials_list)
+        self.assertEqual(len(r['credentials']), 1)
+        self.assertNotIn('public_key', r['credentials'][0])   # never expose the key
+        api.method = lambda: 'DELETE'
+        d = self.call(api.handle_webauthn_credential_delete, 'cred1')
+        self.assertTrue(d['removed'])
+        self.assertEqual(api.load(api.USERS_FILE)['alice'].get('webauthn_credentials'), [])
+
+    def test_unavailable_returns_503(self):
+        orig = api._webauthn
+        api._WEBAUTHN_MOD = False   # simulate lib absent
+        try:
+            api.method = lambda: 'POST'
+            self.call(api.handle_webauthn_login_begin)
+            self.assertEqual(self.cap['s'], 503)
+        finally:
+            api._WEBAUTHN_MOD = None
 
 
 if __name__ == '__main__':

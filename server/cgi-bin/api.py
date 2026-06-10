@@ -1236,6 +1236,7 @@ SATELLITES_FILE = DATA_DIR / 'satellites.json'       # v3.12.0: relay satellites
 SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized scan jobs + findings
 SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
 SCAN_SCHEDULES_FILE = DATA_DIR / 'scan_schedules.json'  # v4.2.0 (#4): recurring scan schedules (cron)
+WEBAUTHN_CHALLENGES_FILE = DATA_DIR / 'webauthn_challenges.json'  # v4.2.0 (A1): transient, 5-min TTL
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
 MAX_SCAN_FINDINGS = 1000                              # per-scan finding cap
 SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap')                   # passive-capable (satellite-run)
@@ -29009,9 +29010,11 @@ def handle_security_posture():
         f'required roles: {", ".join(roles) or "none"}',
         'Set mfa_required_roles to ["admin"].')
     admins = [u for u, d in users.items() if isinstance(d, dict) and d.get('role') == 'admin']
-    no_totp = [u for u in admins if not users[u].get('totp_secret')]
-    add('admin_totp', 'All admins have TOTP enrolled', admins and not no_totp,
-        f'{len(admins) - len(no_totp)}/{len(admins)} enrolled', 'Enrol TOTP for every admin.')
+    no_mfa = [u for u in admins
+              if not (users[u].get('totp_secret') or users[u].get('webauthn_credentials'))]
+    add('admin_mfa', 'All admins have MFA (TOTP or passkey)', admins and not no_mfa,
+        f'{len(admins) - len(no_mfa)}/{len(admins)} have MFA',
+        'Enrol TOTP or a passkey for every admin.')
     add('apikey_expiry', 'API keys expire by default', int(cfg.get('apikey_default_expiry_days') or 0) > 0,
         f'default: {cfg.get("apikey_default_expiry_days") or "never"}',
         'Set apikey_default_expiry_days (e.g. 90).')
@@ -29034,6 +29037,196 @@ def handle_security_posture():
         f'{cfg.get("audit_log_retention_days") or 90}d', 'Keep audit retention at 30+ days.')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
+
+
+# ── v4.2.0 (A1): WebAuthn / passkeys ─────────────────────────────────────────
+# Phishing-resistant MFA + passwordless login via py_webauthn (optional dep —
+# the feature is simply unavailable when the library isn't installed).
+
+_WEBAUTHN_MOD = None
+
+
+def _webauthn():
+    global _WEBAUTHN_MOD
+    if _WEBAUTHN_MOD is None:
+        try:
+            import webauthn_auth as _wam
+            _WEBAUTHN_MOD = _wam
+        except Exception:
+            _WEBAUTHN_MOD = False
+    return _WEBAUTHN_MOD or None
+
+
+def _webauthn_rp():
+    """(rp_id, origin) for the ceremony — derived from the request host, or the
+    config overrides (webauthn_rp_id / webauthn_origin) behind a proxy."""
+    cfg = load(CONFIG_FILE) or {}
+    host_full = os.environ.get('HTTP_HOST', '')
+    host = host_full.split(':')[0]
+    rp_id = cfg.get('webauthn_rp_id') or host
+    proto = (os.environ.get('HTTP_X_FORWARDED_PROTO')
+             or ('https' if os.environ.get('HTTPS') in ('on', '1') else 'http'))
+    origin = cfg.get('webauthn_origin') or f'{proto}://{host_full}'
+    return rp_id, origin
+
+
+def _webauthn_put_challenge(username, challenge, kind):
+    now = int(time.time())
+    with _LockedUpdate(WEBAUTHN_CHALLENGES_FILE) as st:
+        for k in list(st.keys()):   # prune expired
+            if not isinstance(st[k], dict) or now - st[k].get('ts', 0) > 300:
+                del st[k]
+        st[f'{kind}:{username}'] = {'challenge': challenge, 'ts': now}
+
+
+def _webauthn_take_challenge(username, kind):
+    rec = None
+    with _LockedUpdate(WEBAUTHN_CHALLENGES_FILE) as st:
+        rec = st.pop(f'{kind}:{username}', None)
+    if not isinstance(rec, dict) or int(time.time()) - rec.get('ts', 0) > 300:
+        return None
+    return rec.get('challenge')
+
+
+def _webauthn_guard():
+    wa = _webauthn()
+    if not wa or not wa.available():
+        respond(503, {'error': 'WebAuthn is not available on this server '
+                               '(py_webauthn not installed)'})
+    return wa
+
+
+def handle_webauthn_available():
+    """GET /api/webauthn/available — is the library present + feature enabled?"""
+    require_auth()
+    wa = _webauthn()
+    cfg = load(CONFIG_FILE) or {}
+    respond(200, {'available': bool(wa and wa.available()),
+                  'enabled': bool(cfg.get('webauthn_enabled'))})
+
+
+def handle_webauthn_register_begin():
+    user = require_auth()
+    wa = _webauthn_guard()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    rp_id, _ = _webauthn_rp()
+    creds = ((load(USERS_FILE) or {}).get(user) or {}).get('webauthn_credentials') or []
+    opts_json, challenge = wa.registration_options(
+        rp_id, 'RemotePower', user, user, [c['id'] for c in creds])
+    _webauthn_put_challenge(user, challenge, 'reg')
+    respond(200, json.loads(opts_json))
+
+
+def handle_webauthn_register_complete():
+    user = require_auth()
+    wa = _webauthn_guard()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    name = _sanitize_str(str(body.get('name', 'passkey')), 64) or 'passkey'
+    challenge = _webauthn_take_challenge(user, 'reg')
+    if not challenge:
+        respond(400, {'error': 'no pending registration (expired — try again)'})
+    rp_id, origin = _webauthn_rp()
+    try:
+        res = wa.registration_verify(body.get('credential'), challenge, origin, rp_id)
+    except Exception as e:
+        respond(400, {'error': f'registration verification failed: {str(e)[:140]}'})
+    with _LockedUpdate(USERS_FILE) as users:
+        u = users.get(user) or {}
+        creds = u.get('webauthn_credentials') or []
+        if any(c.get('id') == res['credential_id'] for c in creds):
+            respond(409, {'error': 'credential already registered'})
+        creds.append({'id': res['credential_id'], 'public_key': res['public_key'],
+                      'sign_count': res['sign_count'], 'name': name,
+                      'created': int(time.time())})
+        u['webauthn_credentials'] = creds
+        users[user] = u
+    audit_log(user, 'webauthn_register', f'name={name}')
+    respond(200, {'ok': True})
+
+
+def handle_webauthn_credentials_list():
+    user = require_auth()
+    creds = ((load(USERS_FILE) or {}).get(user) or {}).get('webauthn_credentials') or []
+    respond(200, {'credentials': [{'id': c['id'], 'name': c.get('name', 'passkey'),
+                                   'created': c.get('created', 0)} for c in creds]})
+
+
+def handle_webauthn_credential_delete(cid):
+    user = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    cid = _sanitize_str(str(cid), 512)
+    removed = False
+    with _LockedUpdate(USERS_FILE) as users:
+        u = users.get(user) or {}
+        creds = u.get('webauthn_credentials') or []
+        new = [c for c in creds if c.get('id') != cid]
+        if len(new) != len(creds):
+            u['webauthn_credentials'] = new
+            users[user] = u
+            removed = True
+    if removed:
+        audit_log(user, 'webauthn_credential_delete', f'id={cid[:16]}…')
+    respond(200, {'ok': True, 'removed': removed})
+
+
+def handle_webauthn_login_begin():
+    wa = _webauthn_guard()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    username = _sanitize_str(str((get_json_body() or {}).get('username', '')), 64)
+    creds = ((load(USERS_FILE) or {}).get(username) or {}).get('webauthn_credentials') or []
+    if not creds:
+        respond(404, {'error': 'no passkeys registered for this user'})
+    rp_id, _ = _webauthn_rp()
+    opts_json, challenge = wa.authentication_options(rp_id, [c['id'] for c in creds])
+    _webauthn_put_challenge(username, challenge, 'auth')
+    respond(200, json.loads(opts_json))
+
+
+def handle_webauthn_login_complete():
+    wa = _webauthn_guard()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    username = _sanitize_str(str(body.get('username', '')), 64)
+    cred = body.get('credential') or {}
+    challenge = _webauthn_take_challenge(username, 'auth')
+    if not challenge:
+        respond(400, {'error': 'no pending authentication (expired — try again)'})
+    u = (load(USERS_FILE) or {}).get(username) or {}
+    if u.get('disabled'):
+        respond(403, {'error': 'account disabled'})
+    cred_id = cred.get('id') if isinstance(cred, dict) else None
+    match = next((c for c in (u.get('webauthn_credentials') or []) if c.get('id') == cred_id), None)
+    if not match:
+        respond(400, {'error': 'unknown credential'})
+    rp_id, origin = _webauthn_rp()
+    try:
+        res = wa.authentication_verify(cred, challenge, origin, rp_id,
+                                       match['public_key'], match.get('sign_count', 0))
+    except Exception as e:
+        respond(400, {'error': f'authentication failed: {str(e)[:140]}'})
+    # sign-count regression → a cloned authenticator; refuse the login.
+    prev = int(match.get('sign_count', 0) or 0)
+    if res['new_sign_count'] and prev and res['new_sign_count'] <= prev:
+        audit_log(username, 'webauthn_signcount_regression', 'possible cloned authenticator')
+        respond(403, {'error': 'authenticator sign-count regression — refused'})
+    with _LockedUpdate(USERS_FILE) as users:
+        uu = users.get(username) or {}
+        for c in uu.get('webauthn_credentials') or []:
+            if c.get('id') == cred_id:
+                c['sign_count'] = res['new_sign_count']
+        users[username] = uu
+    token = _mint_session(username)
+    audit_log(username, 'login_webauthn', 'passkey login')
+    respond(200, {'ok': True, 'token': token, 'role': u.get('role', 'admin'),
+                  'username': username,
+                  'must_change_password': bool(u.get('must_change_password')),
+                  'must_enroll_mfa': _mfa_enrollment_required(u)})
 
 
 def handle_audit_log_clear():
@@ -38825,6 +39018,10 @@ def _enforce_password_change():
 # setup flow itself, plus the minimal shell (public info / health / me / logout).
 _MFA_ENROLL_ALLOWED_PATHS = frozenset({
     '/api/totp/setup', '/api/totp/confirm', '/api/totp/status',
+    # v4.2.0 (A1): a passkey also satisfies the MFA requirement, so enrollment
+    # must be reachable while the gate is up.
+    '/api/webauthn/available', '/api/webauthn/register/begin',
+    '/api/webauthn/register/complete', '/api/webauthn/credentials',
     '/api/public-info', '/api/health', '/api/csp-report',
     '/api/me', '/api/logout', '/api/users/passwd',
 })
@@ -38836,7 +39033,10 @@ def _mfa_enrollment_required(user):
         roles = (load(CONFIG_FILE) or {}).get('mfa_required_roles') or []
     except Exception:
         roles = []
-    return bool(roles) and (user or {}).get('role') in roles and not (user or {}).get('totp_secret')
+    u = user or {}
+    # v4.2.0 (A1): a registered passkey satisfies the MFA requirement too.
+    has_mfa = bool(u.get('totp_secret') or u.get('webauthn_credentials'))
+    return bool(roles) and u.get('role') in roles and not has_mfa
 
 
 def _enforce_mfa_enrollment():
@@ -38922,6 +39122,13 @@ def _build_exact_routes():
         ('GET', '/api/audit-log'): handle_audit_log,
         ('GET', '/api/audit-log/verify'): handle_audit_log_verify,
         ('GET', '/api/security-posture'): handle_security_posture,
+        # v4.2.0 (A1): WebAuthn / passkeys
+        ('GET', '/api/webauthn/available'): handle_webauthn_available,
+        ('POST', '/api/webauthn/register/begin'): handle_webauthn_register_begin,
+        ('POST', '/api/webauthn/register/complete'): handle_webauthn_register_complete,
+        ('GET', '/api/webauthn/credentials'): handle_webauthn_credentials_list,
+        ('POST', '/api/webauthn/login/begin'): handle_webauthn_login_begin,
+        ('POST', '/api/webauthn/login/complete'): handle_webauthn_login_complete,
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
         ('POST', '/api/otlp/test'): handle_otlp_test,
@@ -39471,6 +39678,9 @@ def _dispatch(pi, m):
         handle_satellites_delete(pi[len('/api/satellites/'):])
     elif pi.startswith('/api/satellites/') and m == 'PATCH':
         handle_satellites_update(pi[len('/api/satellites/'):])
+    # v4.2.0 (A1): delete a registered passkey (exact webauthn routes above)
+    elif pi.startswith('/api/webauthn/credentials/') and m == 'DELETE':
+        handle_webauthn_credential_delete(pi[len('/api/webauthn/credentials/'):])
     # v4.2.0 (B5): scan detail / cancel / results-ingest (prefix-matched;
     # exact GET|POST /api/scans + POST /api/scans/claim handled above).
     elif pi.startswith('/api/scans/') and pi.endswith('/results') and m == 'POST':

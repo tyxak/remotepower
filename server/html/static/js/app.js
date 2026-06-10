@@ -5125,6 +5125,7 @@ async function loadAccount() {
   const ssh = document.getElementById('cfg-ssh-username');
   if (ssh) ssh.value = me.default_ssh_username || '';
   loadTotpStatus();
+  loadPasskeys();   // v4.2.0 (A1): passkey management (shows only if WebAuthn available)
   loadMyAckedAlerts();
   loadSessions();
 }
@@ -8301,6 +8302,84 @@ async function loadSecurityPosture() {
     const dot = c.status === 'ok' ? '<span class="c-green fw-500">●</span>' : '<span class="c-amber fw-500">●</span>';
     return `<div class="mb-8">${dot} <strong>${escHtml(c.label)}</strong> <span class="hint">${escHtml(c.detail)}</span>${c.status === 'ok' ? '' : `<div class="hint">${escHtml(c.hint)}</div>`}</div>`;
   }).join('');
+}
+
+// ── v4.2.0 (A1): WebAuthn / passkeys (browser ceremony) ─────────────────────
+function _b64uToBuf(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  const pad = '='.repeat((4 - s.length % 4) % 4);
+  const bin = atob(s + pad); const b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return b.buffer;
+}
+function _bufToB64u(buf) {
+  const b = new Uint8Array(buf); let s = '';
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function loadPasskeys() {
+  const sec = document.getElementById('acct-passkey-section');
+  const box = document.getElementById('passkeys-list');
+  if (!sec || !box) return;
+  const avail = await api('GET', '/webauthn/available');
+  if (!avail || !avail.available) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const d = await api('GET', '/webauthn/credentials');
+  const creds = (d && d.credentials) || [];
+  box.innerHTML = creds.length
+    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? new Date(c.created * 1000).toLocaleDateString() : '—'}</span> <button class="btn-icon cell-sm" data-action="deletePasskey" data-arg="${escAttr(c.id)}">Remove</button></div>`).join('')
+    : '<div class="hint">No passkeys yet.</div>';
+}
+
+async function addPasskey() {
+  if (!window.PublicKeyCredential) { toast('This browser does not support passkeys.', 'error'); return; }
+  const opts = await api('POST', '/webauthn/register/begin');
+  if (!opts || opts.error) { toast(opts?.error || 'Passkeys unavailable', 'error'); return; }
+  opts.challenge = _b64uToBuf(opts.challenge);
+  opts.user.id = _b64uToBuf(opts.user.id);
+  (opts.excludeCredentials || []).forEach(c => c.id = _b64uToBuf(c.id));
+  let cred;
+  try { cred = await navigator.credentials.create({ publicKey: opts }); }
+  catch (e) { toast('Passkey registration cancelled.', 'info'); return; }
+  const name = (prompt('Name this passkey (e.g. "YubiKey", "Phone"):') || 'passkey').slice(0, 64);
+  const payload = { id: cred.id, rawId: _bufToB64u(cred.rawId), type: cred.type,
+    response: { attestationObject: _bufToB64u(cred.response.attestationObject),
+                clientDataJSON: _bufToB64u(cred.response.clientDataJSON) } };
+  const res = await api('POST', '/webauthn/register/complete', { credential: payload, name });
+  if (res?.ok) { toast('Passkey registered.', 'success'); loadPasskeys(); }
+  else toast(res?.error || 'Failed', 'error');
+}
+
+async function deletePasskey(id) {
+  const res = await api('DELETE', '/webauthn/credentials/' + encodeURIComponent(id));
+  if (res?.ok) { toast('Passkey removed.', 'success'); loadPasskeys(); }
+  else toast(res?.error || 'Failed', 'error');
+}
+
+async function loginWithPasskey() {
+  if (!window.PublicKeyCredential) { toast('This browser does not support passkeys.', 'error'); return; }
+  const username = (document.getElementById('login-user') || {}).value;
+  if (!username) { toast('Enter your username first.', 'info'); return; }
+  const opts = await api('POST', '/webauthn/login/begin', { username });
+  if (!opts || opts.error) { toast(opts?.error || 'No passkey registered for this user', 'error'); return; }
+  opts.challenge = _b64uToBuf(opts.challenge);
+  (opts.allowCredentials || []).forEach(c => c.id = _b64uToBuf(c.id));
+  let a;
+  try { a = await navigator.credentials.get({ publicKey: opts }); }
+  catch (e) { toast('Passkey sign-in cancelled.', 'info'); return; }
+  const payload = { id: a.id, rawId: _bufToB64u(a.rawId), type: a.type, response: {
+    authenticatorData: _bufToB64u(a.response.authenticatorData),
+    clientDataJSON: _bufToB64u(a.response.clientDataJSON),
+    signature: _bufToB64u(a.response.signature),
+    userHandle: a.response.userHandle ? _bufToB64u(a.response.userHandle) : null } };
+  const res = await api('POST', '/webauthn/login/complete', { username, credential: payload });
+  if (res?.ok && res.token) {
+    localStorage.setItem('rp_token', res.token);
+    localStorage.setItem('rp_me', res.username || username);
+    window._mustChangePassword = !!res.must_change_password;
+    showApp();
+  } else toast(res?.error || 'Passkey sign-in failed', 'error');
 }
 
 async function verifyAuditLog() {

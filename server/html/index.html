@@ -55,6 +55,7 @@
     <button type="submit" class="login-btn" >Sign in</button>
     <!-- v3.2.0 (B3): OIDC SSO button — shown only if oidc_enabled returns from /api/public-info -->
     <a href="/api/auth/oidc/start" id="login-oidc-btn" class="login-btn login-btn-oidc d-none">Sign in with SSO</a>
+    <button type="button" id="login-passkey-btn" class="login-btn login-btn-oidc" data-action="loginWithPasskey">Sign in with a passkey</button>
     <div id="login-oidc-error" class="login-error d-none">SSO sign-in failed. Try local credentials.</div>
     <div id="login-error" class="login-error">Invalid username or password</div>
   </form>
@@ -1017,6 +1018,12 @@
           <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
           <div id="totp-status" class="mb-12"></div>
           <div id="totp-setup-area"></div>
+        </div>
+        <div class="settings-section" id="acct-passkey-section" hidden>
+          <h3>Passkeys (WebAuthn)</h3>
+          <p class="hint">Phishing-resistant sign-in with a security key, your phone, or this device's biometrics. A passkey also satisfies any MFA-required policy.</p>
+          <div id="passkeys-list" class="mb-12"></div>
+          <button class="btn-icon" data-action="addPasskey"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="5"/><path d="M2 21v-2a7 7 0 0 1 11-5.7"/><circle cx="18" cy="17" r="3"/><path d="M18 14v-1M18 21v-1"/></svg> Add a passkey</button>
         </div>
 
         <div class="settings-section">

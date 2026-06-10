@@ -73,6 +73,22 @@ else
       || warn "reportlab unavailable — install later with: pip3 install reportlab"
 fi
 
+# ── webauthn / py_webauthn (v4.2.0 A1: passkeys; optional) ───────────────────
+info "Installing webauthn for passkey / WebAuthn support..."
+if python3 -c "import webauthn" 2>/dev/null; then
+    success "webauthn already available"
+else
+    case $PKG_MGR in
+      apt)    pip3 install webauthn --break-system-packages 2>/dev/null \
+                || pip3 install webauthn || warn "webauthn install failed — passkeys will be unavailable" ;;
+      dnf)    pip3 install webauthn || warn "webauthn install failed — passkeys will be unavailable" ;;
+      pacman) pip install webauthn  || warn "webauthn install failed — passkeys will be unavailable" ;;
+    esac
+    python3 -c "import webauthn" 2>/dev/null \
+      && success "webauthn installed" \
+      || warn "webauthn unavailable — passkeys disabled; install later with: pip3 install webauthn"
+fi
+
 # ── cryptography (for v1.9.0 CMDB credential vault) ──────────────────────────
 info "Installing cryptography for the CMDB credential vault..."
 if python3 -c "import cryptography" 2>/dev/null; then
