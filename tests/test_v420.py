@@ -344,24 +344,12 @@ class TestScanFindingEvent(_ScanBase):
         self.assertIn('scan_finding', api._ALERT_RULES)
         self.assertEqual(api.EVENT_KIND_MAP.get('scan_finding'), 'scan')
 
-    def test_fires_on_high(self):
-        fired = self._complete_scan([{'severity': 'high', 'title': 'x'}])
-        self.assertEqual(len(fired), 1)
-        ev, p = fired[0]
-        self.assertEqual(ev, 'scan_finding')
-        self.assertEqual(p['high'], 1)
-        self.assertEqual(api._alert_severity('scan_finding', p), 'high')
+    def test_ondemand_high_does_not_fire(self):
+        # v4.2.0 #7: on-demand scans never alert, even on high/critical.
+        self.assertEqual(self._complete_scan([{'severity': 'high', 'title': 'x'}]), [])
 
-    def test_critical_severity(self):
-        fired = self._complete_scan(
-            [{'severity': 'critical', 'title': 'x'}, {'severity': 'low'}])
-        ev, p = fired[0]
-        self.assertEqual(api._alert_severity('scan_finding', p), 'critical')
-
-    def test_silent_on_low_only(self):
-        fired = self._complete_scan(
-            [{'severity': 'low'}, {'severity': 'info'}, {'severity': 'medium'}])
-        self.assertEqual(fired, [])
+    def test_scan_finding_severity_is_info(self):
+        self.assertEqual(api._alert_severity('scan_finding', {'critical': 5}), 'info')
 
     def test_silent_on_clean(self):
         self.assertEqual(self._complete_scan([]), [])
@@ -770,6 +758,56 @@ class TestScanSchedules(_ScanBase):
         api.run_scheduled_scans_if_due()
         self.assertGreaterEqual(len(api.load(api.SCANS_FILE)), 1)
         self.assertGreater(api.load(api.SCAN_SCHEDULES_FILE)['s1']['next_run'], now)
+
+
+class TestScanFindingInfoOnly(_ScanBase):
+    """#7: on-demand scans never alert; scheduled scans fire a quiet INFO notice."""
+
+    def setUp(self):
+        super().setUp()
+        self._fired = []
+        self._orig_fw = api.fire_webhook
+        api.fire_webhook = lambda ev, p: self._fired.append((ev, p))
+
+    def tearDown(self):
+        api.fire_webhook = self._orig_fw
+        super().tearDown()
+
+    def _running(self, actor):
+        api.save(api.SCANS_FILE, {'sc1': {
+            'id': 'sc1', 'status': 'running', 'target_device_id': 'dev1',
+            'target_name': 'web1', 'target': '10.0.0.5', 'actor': actor,
+            'claimed_by': 'sat1'}})
+        return 'sc1'
+
+    def test_ondemand_does_not_fire(self):
+        api._apply_scan_results(self._running('jakob'), 'done',
+                                [{'severity': 'critical', 'title': 'x'}], '', by='sat1')
+        self.assertEqual(self._fired, [])
+
+    def test_scheduled_fires_info_on_any_findings(self):
+        api._apply_scan_results(self._running('schedule:abc'), 'done',
+                                [{'severity': 'low', 'title': 'x'}], '', by='sat1')
+        self.assertEqual(len(self._fired), 1)
+        ev, p = self._fired[0]
+        self.assertEqual(ev, 'scan_finding')
+        self.assertEqual(api._alert_severity('scan_finding', p), 'info')
+
+    def test_scheduled_clean_does_not_fire(self):
+        api._apply_scan_results(self._running('schedule:abc'), 'done', [], '', by='sat1')
+        self.assertEqual(self._fired, [])
+
+
+class TestContainerAlertExclude(_ScanBase):
+    """#4: scan containers (rp-scan-*) and operator name-excludes skip alerts."""
+
+    def test_rp_scan_excluded(self):
+        self.assertTrue(api._container_alert_excluded('rp-scan-abc123'))
+
+    def test_config_substring_excluded(self):
+        api.save(api.CONFIG_FILE, {'container_alert_excludes': ['ephemeral-']})
+        self.assertTrue(api._container_alert_excluded('ephemeral-worker-7'))
+        self.assertFalse(api._container_alert_excluded('seerr'))
 
 
 class TestScanRoutes(unittest.TestCase):

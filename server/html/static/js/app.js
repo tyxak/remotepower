@@ -6639,6 +6639,11 @@ function pickScanDevice(id, name) {
 async function loadScans() {
   _registerScansTable();
   _wireScanDeviceSearch();
+  for (const id of ['scan-tool', 'scan-profile']) {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.scWired) { el.dataset.scWired = '1'; el.addEventListener('change', _syncScanControls); }
+  }
+  _syncScanControls();
   const tbody = document.getElementById('scans-tbody');
   if (tbody) tbody.innerHTML = '<tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr>';
   const data = await api('GET', '/scans');
@@ -6670,6 +6675,27 @@ async function loadScans() {
 function _selectedScanTool() {
   const t = document.getElementById('scan-tool');
   return (t && t.value) || 'nuclei';
+}
+
+// #6: keep tool/profile/intensity to VALID combos only (grey out the rest).
+// zap/wapiti are active-only; lynis is an on-host audit (profile/intensity N/A).
+function _syncScanControls() {
+  const toolSel = document.getElementById('scan-tool');
+  const profSel = document.getElementById('scan-profile');
+  const intSel  = document.getElementById('scan-intensity');
+  if (!toolSel || !profSel) return;
+  const isHost = toolSel.value === 'lynis';
+  profSel.disabled = isHost;
+  if (intSel) intSel.disabled = isHost;
+  if (isHost) return;
+  const activeOnly = (toolSel.value === 'zap' || toolSel.value === 'wapiti');
+  if (activeOnly) profSel.value = 'active';
+  const passiveOpt = profSel.querySelector('option[value="passive"]');
+  if (passiveOpt) passiveOpt.disabled = activeOnly;       // can't make zap/wapiti passive
+  const passive = (profSel.value === 'passive');
+  for (const o of toolSel.querySelectorAll('option')) {
+    if (o.value === 'zap' || o.value === 'wapiti') o.disabled = passive;  // not valid passive
+  }
 }
 
 // Build the shared scan options (tool/profile + active-tier attestation).
@@ -11549,11 +11575,11 @@ function _renderSecrets() {
       <td class="fs-12"><div class="cell-trunc" title="${escAttr(r.preview || '')}"><code>${escHtml(r.preview || '—')}</code></div></td>
       <td class="ta-center">${r.line || '—'}</td>
       <td class="nowrap">${r.host_muted
-        ? `<button class="btn-icon btn-xs" data-action="unmuteSecretHost" data-arg="${escAttr(r.device_id || '')}">Unmute host</button>`
+        ? `<button class="btn-icon cell-sm" data-action="unmuteSecretHost" data-arg="${escAttr(r.device_id || '')}">Unmute host</button>`
         : `${r.muted
-            ? `<button class="btn-icon btn-xs" data-action="unmuteSecret" data-arg="${escAttr(r.fingerprint || '')}">Unmute</button>`
-            : `<button class="btn-icon btn-xs" data-action="muteSecret" data-arg="${escAttr(r.fingerprint || '')}">Mute</button>`}
-           <button class="btn-icon btn-xs" data-action="muteSecretHost" data-arg="${escAttr(r.device_id || '')}" title="Mute every finding on this host">Mute host</button>`}</td>
+            ? `<button class="btn-icon cell-sm" data-action="unmuteSecret" data-arg="${escAttr(r.fingerprint || '')}">Unmute</button>`
+            : `<button class="btn-icon cell-sm" data-action="muteSecret" data-arg="${escAttr(r.fingerprint || '')}">Mute</button>`}
+           <button class="btn-icon cell-sm" data-action="muteSecretHost" data-arg="${escAttr(r.device_id || '')}" title="Mute every finding on this host">Mute host</button>`}</td>
     </tr>`).join('');
 }
 async function muteSecret(fp) {
@@ -22328,6 +22354,7 @@ function _palBuildIndex() {
     ['History', 'history'], ['Schedule', 'schedule'], ['Calendar', 'calendar'],
     ['Tasks', 'tasks'], ['CMDB', 'cmdb'], ['Logs', 'logs'], ['CVEs', 'cve'],
     ['Patches', 'patches'], ['Drift', 'drift'], ['TLS', 'tls'],
+    ['Pentest', 'scans'],
     ['IaC', 'iac'], ['Network Map', 'netmap'], ['Audit', 'audit'],
     ['Server status', 'self'], ['Documentation', 'docs'],
     ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],

@@ -4129,7 +4129,11 @@ def _alert_severity(event, payload):
         return sev
     # Payload-derived severity
     p = payload or {}
-    if event in ('cve_found', 'scan_finding'):
+    # v4.2.0 (#7): a scan_finding only fires for SCHEDULED scans, as a low-key
+    # INFO dashboard notice — on-demand scans you launched yourself never alert.
+    if event == 'scan_finding':
+        return 'info'
+    if event == 'cve_found':
         if int(p.get('critical') or 0) > 0:
             return 'critical'
         if int(p.get('high') or 0) > 0:
@@ -26104,16 +26108,22 @@ def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_devic
             s['finished_at'] = int(time.time())
             fire_info = {'device_id': s.get('target_device_id'),
                          'name': s.get('target_name', ''),
-                         'target': s.get('target', '')}
+                         'target': s.get('target', ''),
+                         'actor': s.get('actor', '')}
             code = 200
     if code != 200:
         return False, code
     counts = _scan_sev_counts(findings)
-    if status == 'done' and (counts['critical'] or counts['high']):
+    # v4.2.0 (#7): fire ONLY for SCHEDULED scans (actor "schedule:<id>"), and on
+    # ANY findings — a quiet INFO dashboard notice. On-demand scans you launched
+    # yourself never alert (you're already looking at the results).
+    scheduled = str(fire_info.get('actor', '')).startswith('schedule:')
+    if status == 'done' and scheduled and findings:
         fire_webhook('scan_finding', {
             'device_id':   fire_info['device_id'],
             'device_name': fire_info['name'], 'name': fire_info['name'],
             'target':      fire_info['target'], 'scan_id': scan_id,
+            'total': len(findings),
             'critical': counts['critical'], 'high': counts['high'],
             'medium': counts['medium'], 'low': counts['low'],
         })
@@ -35821,6 +35831,23 @@ def _container_is_running(status_str):
     return any(t in s for t in ('running', 'up ', 'up\t', 'ready'))
 
 
+def _container_alert_excluded(name):
+    """v4.2.0 (#4): skip container alerts for ephemeral pentest-scan containers
+    (rp-scan-*) and any operator-configured name substrings
+    (config 'container_alert_excludes' — a list of substrings)."""
+    n = str(name or '')
+    if n.startswith('rp-scan-'):
+        return True
+    try:
+        for pat in (load(CONFIG_FILE) or {}).get('container_alert_excludes') or []:
+            p = str(pat).strip()
+            if p and p in n:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     """Wrapper that fires container_stopped / container_restarting via fire_webhook."""
     devices = load(DEVICES_FILE)
@@ -35875,6 +35902,8 @@ def process_container_report(dev_id, normalised, now):
 
     # 1) Containers that disappeared or transitioned out of "running"
     for key, prev in prev_by_key.items():
+        if _container_alert_excluded(prev.get('name', '')):
+            continue  # ephemeral scan containers + operator name excludes
         prev_was_running = _container_is_running(prev.get('status'))
         if not prev_was_running:
             continue  # already-stopped containers don't generate noise
