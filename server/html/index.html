@@ -4191,6 +4191,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div id="scan-targets-list" class="scroll-cap"></div>
         </div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Scheduled scans <span class="hint">— recurring scans on a cron. They use the device/target + tool/profile/intensity selected in the toolbar above. High/critical findings raise an alert.</span></div>
+          <div class="toolbar-mb24">
+            <input type="text" id="scan-sched-cron" class="form-input" placeholder="cron, e.g. 0 3 * * * (daily 03:00)" title="5-field cron: minute hour day-of-month month day-of-week">
+            <button class="btn-icon" data-action="addScanSchedule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Add schedule</button>
+          </div>
+          <div id="scan-schedules-list" class="scroll-cap"></div>
+        </div>
       </div>
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->

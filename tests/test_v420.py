@@ -34,7 +34,8 @@ class _ScanBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('DEVICES_FILE', 'ROLES_FILE', 'SATELLITES_FILE',
-                     'SCANS_FILE', 'SCAN_TARGETS_FILE', 'MAINT_FILE', 'CONFIG_FILE'):
+                     'SCANS_FILE', 'SCAN_TARGETS_FILE', 'SCAN_SCHEDULES_FILE',
+                     'MAINT_FILE', 'CONFIG_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -715,6 +716,62 @@ class TestSatelliteTargeting(_ScanBase):
         self.assertEqual(api.load(api.SCANS_FILE)[created['id']]['satellite_id'], '')
 
 
+class TestScanSchedules(_ScanBase):
+    """B5 #4: recurring scheduled scans (cron) + due-firing."""
+
+    def test_create_list_delete(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'tool': 'nuclei', 'cron': '0 3 * * *'}
+        created = self.call(api.handle_scan_schedules_create)
+        self.assertTrue(created['ok']); sid = created['id']
+        self.assertGreater(created['schedule']['next_run'], 0)
+        api.method = lambda: 'GET'
+        lst = self.call(api.handle_scan_schedules_list)
+        self.assertTrue(any(s['id'] == sid for s in lst['schedules']))
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_scan_schedule_delete, sid)
+        self.assertEqual(api.load(api.SCAN_SCHEDULES_FILE), {})
+
+    def test_bad_cron_400(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'cron': 'not a cron'}
+        self.call(api.handle_scan_schedules_create)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_active_schedule_needs_attestation(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'profile': 'active',
+                                     'tool': 'nuclei', 'cron': '0 3 * * *'}
+        self.call(api.handle_scan_schedules_create)
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_create_scheduled_scan_enqueues(self):
+        self._device('dev1')
+        api._create_scheduled_scan({'id': 's1', 'device_id': 'dev1', 'tool': 'nuclei',
+                                    'profile': 'passive', 'intensity': 'quick', 'satellite_id': ''})
+        scans = api.load(api.SCANS_FILE)
+        self.assertEqual(len(scans), 1)
+        rec = list(scans.values())[0]
+        self.assertEqual(rec['tool'], 'nuclei')
+        self.assertEqual(rec['status'], 'queued')
+        self.assertEqual(rec['target'], '10.0.0.5')
+
+    def test_due_schedule_fires(self):
+        self._device('dev1')
+        now = int(api.time.time())
+        api.save(api.SCAN_SCHEDULES_FILE, {'s1': {
+            'id': 's1', 'device_id': 'dev1', 'tool': 'nuclei', 'profile': 'passive',
+            'intensity': 'quick', 'satellite_id': '', 'cron': '* * * * *',
+            'enabled': True, 'next_run': now - 10, 'last_run': 0}})
+        try:
+            (api.DATA_DIR / '.scan_sched_check').unlink()   # bypass the 60s gate
+        except OSError:
+            pass
+        api.run_scheduled_scans_if_due()
+        self.assertGreaterEqual(len(api.load(api.SCANS_FILE)), 1)
+        self.assertGreater(api.load(api.SCAN_SCHEDULES_FILE)['s1']['next_run'], now)
+
+
 class TestScanRoutes(unittest.TestCase):
     def test_routes_registered(self):
         from routing_harness import resolve_route
@@ -730,6 +787,9 @@ class TestScanRoutes(unittest.TestCase):
         self.assertEqual(resolve_route('POST', '/api/scan-targets')[0], 'handle_scan_targets_create')
         self.assertEqual(resolve_route('POST', '/api/scan-targets/x/verify')[0], 'handle_scan_target_verify')
         self.assertEqual(resolve_route('DELETE', '/api/scan-targets/x')[0], 'handle_scan_target_delete')
+        self.assertEqual(resolve_route('GET', '/api/scan-schedules')[0], 'handle_scan_schedules_list')
+        self.assertEqual(resolve_route('POST', '/api/scan-schedules')[0], 'handle_scan_schedules_create')
+        self.assertEqual(resolve_route('DELETE', '/api/scan-schedules/x')[0], 'handle_scan_schedule_delete')
 
 
 if __name__ == '__main__':

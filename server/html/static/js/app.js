@@ -6664,6 +6664,7 @@ async function loadScans() {
   }
   tableCtl.render('scans', scansData);
   loadScanTargets();
+  loadScanSchedules();
 }
 
 function _selectedScanTool() {
@@ -6768,7 +6769,7 @@ async function loadScanTargets() {
       ? `<span class="c-green fw-500">verified</span> <span class="hint">via ${escHtml(t.method || '')}</span>`
       : '<span class="c-amber fw-500">unverified</span>';
     const actions = t.verified
-      ? `<button class="btn-icon cell-sm" data-action="scanTarget" data-arg="${escAttr(t.id)}">Scan</button>`
+      ? `<button class="btn-icon cell-sm" data-action="scanTarget" data-arg="${escAttr(t.id)}">Scan</button> <button class="btn-icon cell-sm" data-action="scheduleScanTarget" data-arg="${escAttr(t.id)}" title="Schedule a recurring scan (uses the cron + tool/profile below)">Schedule</button>`
       : `<button class="btn-icon cell-sm" data-action="verifyScanTarget" data-arg="${escAttr(t.id)}">Verify</button>`;
     const proofBlock = (!t.verified && proof)
       ? `<div class="hint mb-8">Publish ONE proof, then Verify:<br>• DNS TXT <code>${escHtml(proof.dns ? proof.dns.name : '(IP target — use file)')}</code>${proof.dns ? ` = <code>${escHtml(proof.dns.value)}</code>` : ''}<br>• File <code>${escHtml(proof.file.path)}</code> containing <code>${escHtml(proof.file.content)}</code></div>`
@@ -6814,6 +6815,51 @@ async function deleteScanTarget(id) {
   if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
   delete _scanTargetProofs[id];
   loadScanTargets();
+}
+
+// ── #4: scheduled scans (recurring; high/critical findings raise an alert) ───
+async function loadScanSchedules() {
+  const box = document.getElementById('scan-schedules-list');
+  if (!box) return;
+  const data = await api('GET', '/scan-schedules');
+  if (!data || data.error) return;
+  const scheds = data.schedules || [];
+  if (!scheds.length) {
+    box.innerHTML = '<div class="empty-state">No scheduled scans. Set up a scan above, enter a cron, and Add schedule.</div>';
+    return;
+  }
+  box.innerHTML = scheds.map(s => {
+    const when = s.next_run ? new Date(s.next_run * 1000).toLocaleString() : '—';
+    const tgt = s.device_id ? 'device' : (s.scan_target_id ? 'verified target' : '—');
+    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong> <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · next ${escHtml(when)}</span> <button class="btn-icon cell-sm" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">Remove</button></div>`;
+  }).join('');
+}
+
+async function _createScanSchedule(extra) {
+  const cronEl = document.getElementById('scan-sched-cron');
+  const cron = cronEl && cronEl.value.trim();
+  if (!cron) { toast('Enter a cron expression (e.g. 0 3 * * *).', 'info'); return; }
+  const opts = _scanOptions();
+  if (!opts) return;
+  const res = await api('POST', '/scan-schedules', { cron, ...opts, ...extra });
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  if (cronEl) cronEl.value = '';
+  toast('Schedule created.', 'success');
+  loadScanSchedules();
+}
+
+async function addScanSchedule() {
+  if (!_scanSelectedDevice) { toast('Search and pick a device first (or use a verified target’s Schedule button).', 'info'); return; }
+  _createScanSchedule({ device_id: _scanSelectedDevice.id });
+}
+
+function scheduleScanTarget(id) { _createScanSchedule({ scan_target_id: id }); }
+
+async function deleteScanSchedule(id) {
+  const res = await api('DELETE', '/scan-schedules/' + encodeURIComponent(id));
+  if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
+  loadScanSchedules();
 }
 
 // v3.14.0 fix: show the KEV/EPSS feed state so "why is there no KEV?" is clear —

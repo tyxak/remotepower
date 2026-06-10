@@ -1235,6 +1235,7 @@ MAX_AVATAR_BYTES = 512 * 1024
 SATELLITES_FILE = DATA_DIR / 'satellites.json'       # v3.12.0: relay satellites
 SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized scan jobs + findings
 SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
+SCAN_SCHEDULES_FILE = DATA_DIR / 'scan_schedules.json'  # v4.2.0 (#4): recurring scan schedules (cron)
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
 MAX_SCAN_FINDINGS = 1000                              # per-scan finding cap
 SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap')                   # passive-capable (satellite-run)
@@ -8857,6 +8858,11 @@ def handle_heartbeat():
         _maybe_export_otlp()
     except Exception as _ot:
         sys.stderr.write(f'[remotepower] OTLP hook error: {_ot}\n')
+    # v4.2.0 (#4): opportunistic scheduled-scan check (cheap 60s gate).
+    try:
+        run_scheduled_scans_if_due()
+    except Exception as _ss:
+        sys.stderr.write(f'[remotepower] scheduled scan hook error: {_ss}\n')
     body = get_json_body()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
@@ -26325,6 +26331,201 @@ def handle_scan_target_delete(tid):
     respond(200, {'ok': True})
 
 
+# ── v4.2.0 (#4): scheduled scans ─────────────────────────────────────────────
+# A schedule stores a scan spec + a 5-field cron. run_scheduled_scans_if_due()
+# is called opportunistically from the heartbeat (cheap 60s gate) and enqueues
+# the scan(s) when due — they're ordinary scan records, so the existing
+# scan_finding alert fires automatically on high/critical results.
+
+def _store_scan_records(recs):
+    """Insert built scan records under the SCANS lock, with ring-buffer trim."""
+    with _LockedUpdate(SCANS_FILE) as scans:
+        need = len(recs)
+        if len(scans) + need > MAX_SCANS:
+            terminal = sorted(
+                [k for k, v in scans.items()
+                 if isinstance(v, dict) and v.get('status') in ('done', 'failed', 'cancelled')],
+                key=lambda k: scans[k].get('created') or 0)
+            for k in terminal[:max(0, len(scans) + need - MAX_SCANS)]:
+                del scans[k]
+        for r in recs:
+            scans[r['id']] = r
+
+
+def _scan_sched_public(s):
+    return {'id': s.get('id'), 'name': s.get('name', ''),
+            'device_id': s.get('device_id', ''), 'scan_target_id': s.get('scan_target_id', ''),
+            'tool': s.get('tool'), 'profile': s.get('profile'),
+            'intensity': s.get('intensity', 'quick'), 'cron': s.get('cron', ''),
+            'enabled': bool(s.get('enabled')), 'last_run': s.get('last_run', 0),
+            'next_run': s.get('next_run', 0), 'created': s.get('created'),
+            'actor': s.get('actor', '')}
+
+
+def _create_scheduled_scan(sc):
+    """Enqueue the scan(s) for a fired schedule. Re-resolves the target so a
+    device's current address is used; pre-authorised (the operator attested at
+    schedule-creation time)."""
+    profile = sc.get('profile', 'passive')
+    intensity = sc.get('intensity', 'quick')
+    tool = sc.get('tool', 'nuclei')
+    is_host = (tool != 'all') and tool in HOST_SCAN_TOOLS
+    dev_id, st_id = sc.get('device_id', ''), sc.get('scan_target_id', '')
+    if dev_id:
+        dev = load(DEVICES_FILE).get(dev_id)
+        if not isinstance(dev, dict):
+            return
+        target, terr = _scan_target_for_device(dev)
+        if terr:
+            return
+        target_device_id, target_name = dev_id, dev.get('name', dev_id)
+    elif st_id:
+        t = (load(SCAN_TARGETS_FILE) or {}).get(st_id)
+        if not isinstance(t, dict) or not t.get('verified'):
+            return
+        target, target_device_id, target_name = t['target'], '', t['target']
+    else:
+        return
+    tools = (list(SCAN_ACTIVE_TOOLS if profile == 'active' else SCAN_TOOLS)
+             if tool == 'all' else [tool])
+    actor = f'schedule:{sc.get("id", "")}'
+    attest = ({'attested': True, 'attested_by': actor, 'attested_at': int(time.time()),
+               'window_overridden': True} if profile == 'active' and not is_host else {})
+    now = int(time.time())
+    recs = [{
+        'id': secrets.token_hex(8), 'target_device_id': target_device_id,
+        'target_name': target_name, 'target': target, 'tool': tl,
+        'profile': profile, 'intensity': intensity, 'status': 'queued',
+        'runner': 'agent' if is_host else 'satellite',
+        'satellite_id': '' if is_host else sc.get('satellite_id', ''),
+        'created': now, 'actor': actor, 'claimed_by': None, 'claimed_at': None,
+        'finished_at': None, 'findings': [], 'error': '', **attest,
+    } for tl in tools]
+    _store_scan_records(recs)
+    audit_log(actor, 'scheduled_scan_fire',
+              f'schedule={sc.get("id")} tools={",".join(tools)} target={target} count={len(recs)}')
+
+
+def run_scheduled_scans_if_due():
+    """Heartbeat hook: fire any due scan schedule. Cheap 60s check-gate; the
+    per-schedule next_run is the real throttle."""
+    try:
+        scheds = load(SCAN_SCHEDULES_FILE)
+    except Exception:
+        return
+    if not scheds:
+        return
+    now = int(time.time())
+    gate = DATA_DIR / '.scan_sched_check'
+    try:
+        if gate.exists() and now - int(gate.stat().st_mtime) < 60:
+            return
+        gate.write_text(str(now))
+    except OSError:
+        pass
+    due = []
+    with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
+        for s in st.values():
+            if not isinstance(s, dict) or not s.get('enabled'):
+                continue
+            nr = s.get('next_run') or 0
+            if nr and nr <= now:
+                due.append(dict(s))
+                s['last_run'] = now
+                s['next_run'] = _cron_next(s.get('cron', ''), now) or 0
+    for s in due:
+        try:
+            _create_scheduled_scan(s)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] scheduled scan failed: {e}\n')
+
+
+def handle_scan_schedules_list():
+    """GET /api/scan-schedules — recurring scan schedules."""
+    require_perm('scan')
+    scheds = load(SCAN_SCHEDULES_FILE) or {}
+    out = sorted((_scan_sched_public(s) for s in scheds.values() if isinstance(s, dict)),
+                 key=lambda r: r.get('created') or 0, reverse=True)
+    respond(200, {'schedules': out})
+
+
+def handle_scan_schedules_create():
+    """POST /api/scan-schedules — create a recurring scan (cron). Same target +
+    tool/profile/intensity options as a one-off scan; active needs attestation."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
+    st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
+    tool = _sanitize_str(str(body.get('tool', 'nuclei')), 32) or 'nuclei'
+    is_host = (tool != 'all') and tool in HOST_SCAN_TOOLS
+    if is_host:
+        profile = 'host'
+    else:
+        profile = _sanitize_str(str(body.get('profile', 'passive')), 32) or 'passive'
+        if profile not in SCAN_PROFILES:
+            respond(400, {'error': f'unsupported profile (supported: {", ".join(SCAN_PROFILES)})'})
+        if tool != 'all' and tool not in (SCAN_ACTIVE_TOOLS if profile == 'active' else SCAN_TOOLS):
+            respond(400, {'error': f'tool {tool!r} not available in the {profile} profile'})
+    intensity = _sanitize_str(str(body.get('intensity', 'quick')), 16) or 'quick'
+    if intensity not in SCAN_INTENSITIES:
+        respond(400, {'error': f'unsupported intensity (supported: {", ".join(SCAN_INTENSITIES)})'})
+    cron = _sanitize_str(str(body.get('cron', '')), 64)
+    if len(cron.split()) != 5 or _cron_next(cron, int(time.time())) is None:
+        respond(400, {'error': 'cron must be a valid 5-field expression that fires within ~45 days'})
+    if dev_id:
+        actor = require_perm('scan', [dev_id])
+        if not isinstance(load(DEVICES_FILE).get(dev_id), dict):
+            respond(404, {'error': 'Device not found'})
+    elif st_id:
+        if is_host:
+            respond(400, {'error': 'host-audit tools run on an enrolled host — use device_id'})
+        actor = require_perm('scan')
+        if _caller_scope() is not None:
+            respond(403, {'error': 'scoped roles can only schedule scans on enrolled hosts in their scope'})
+        t = (load(SCAN_TARGETS_FILE) or {}).get(st_id)
+        if not isinstance(t, dict) or not t.get('verified'):
+            respond(400, {'error': 'scan target not found or not ownership-verified'})
+    else:
+        respond(400, {'error': 'device_id or scan_target_id required'})
+    if profile == 'active' and body.get('attestation') is not True:
+        respond(403, {'error': 'scheduled active scans require "attestation": true at creation'})
+    sat_id = '' if is_host else _sanitize_str(str(body.get('satellite_id', '')), 32)
+    if sat_id:
+        _sats = load(SATELLITES_FILE) or {}
+        if sat_id not in _sats or not _sats[sat_id].get('scanner'):
+            respond(400, {'error': 'unknown or non-scanner satellite'})
+    scheds = load(SCAN_SCHEDULES_FILE) or {}
+    if len(scheds) >= 100:
+        respond(400, {'error': 'schedule limit reached (max 100)'})
+    now = int(time.time())
+    sid = secrets.token_hex(8)
+    name = _sanitize_str(str(body.get('name', '')), 80) or f'{tool} {profile}'
+    rec = {'id': sid, 'name': name, 'device_id': dev_id, 'scan_target_id': st_id,
+           'tool': tool, 'profile': profile, 'intensity': intensity,
+           'satellite_id': sat_id, 'cron': cron, 'enabled': True,
+           'created': now, 'actor': actor, 'last_run': 0,
+           'next_run': _cron_next(cron, now) or 0}
+    with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
+        st[sid] = rec
+    audit_log(actor, 'scan_schedule_create', f'id={sid} cron={cron!r} tool={tool} profile={profile}')
+    respond(201, {'ok': True, 'id': sid, 'schedule': _scan_sched_public(rec)})
+
+
+def handle_scan_schedule_delete(sid):
+    """DELETE /api/scan-schedules/<id> — remove a schedule."""
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_perm('scan')
+    sid = _sanitize_str(sid, 32)
+    scheds = load(SCAN_SCHEDULES_FILE)
+    if sid in scheds:
+        del scheds[sid]
+        save(SCAN_SCHEDULES_FILE, scheds)
+        audit_log(actor, 'scan_schedule_delete', f'id={sid}')
+    respond(200, {'ok': True})
+
+
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
@@ -38656,6 +38857,8 @@ def _build_exact_routes():
         ('POST', '/api/scans/clear'): handle_scans_clear,
         ('GET', '/api/scan-targets'): handle_scan_targets_list,
         ('POST', '/api/scan-targets'): handle_scan_targets_create,
+        ('GET', '/api/scan-schedules'): handle_scan_schedules_list,
+        ('POST', '/api/scan-schedules'): handle_scan_schedules_create,
         ('GET', '/api/services'): handle_services_get,
         (None, '/api/shutdown'): handle_shutdown,
         ('POST', '/api/smtp/test'): handle_smtp_test,
@@ -39036,6 +39239,9 @@ def _dispatch(pi, m):
         handle_scan_target_verify(pi[len('/api/scan-targets/'):-len('/verify')])
     elif pi.startswith('/api/scan-targets/') and m == 'DELETE':
         handle_scan_target_delete(pi[len('/api/scan-targets/'):])
+    # v4.2.0 (#4): scheduled scans (exact GET|POST above).
+    elif pi.startswith('/api/scan-schedules/') and m == 'DELETE':
+        handle_scan_schedule_delete(pi[len('/api/scan-schedules/'):])
     elif pi.startswith('/api/me/sessions/') and m == 'DELETE':
         handle_me_session_revoke(pi[len('/api/me/sessions/'):])
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
