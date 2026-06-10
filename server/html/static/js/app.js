@@ -6572,10 +6572,8 @@ function _registerScansTable() {
                             failed: 'c-red', cancelled: 'c-muted' }[s.status] || 'c-muted';
       const cell = (n, cls) => n > 0 ? `<td class="ta-center ${cls}">${n}</td>` : '<td class="ta-center c-muted">0</td>';
       const when = s.created ? new Date(s.created * 1000).toLocaleString() : '—';
-      const cancelBtn = (s.status === 'queued' || s.status === 'running')
-        ? ` <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cancelScanBtn" data-scan-id="${escAttr(s.id)}" title="Cancel this scan">Cancel</button>`
-        : '';
-      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${cancelBtn}</td></tr>`;
+      const removeBtn = ` <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">Remove</button>`;
+      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
     },
     emptyMsg: 'No scans yet. Select an enrolled device and queue one.',
     emptyMsgFiltered: 'No scans match the filter.',
@@ -6656,6 +6654,14 @@ async function loadScans() {
   document.getElementById('scan-stat-critical').textContent = crit;
   document.getElementById('scan-stat-high').textContent = high;
   document.getElementById('scan-stat-running').textContent = running;
+  // populate the satellite picker (preserve the current choice across refresh)
+  const satSel = document.getElementById('scan-satellite');
+  if (satSel) {
+    const cur = satSel.value;
+    satSel.innerHTML = '<option value="">Any scanner satellite</option>' +
+      (data.satellites || []).map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
+    satSel.value = cur;
+  }
   tableCtl.render('scans', scansData);
   loadScanTargets();
 }
@@ -6670,6 +6676,8 @@ function _selectedScanTool() {
 function _scanOptions() {
   const profile = (document.getElementById('scan-profile') || {}).value || 'passive';
   const opts = { tool: _selectedScanTool(), profile };
+  const sat = document.getElementById('scan-satellite');
+  if (sat && sat.value) opts.satellite_id = sat.value;
   if (profile === 'active') {
     const attest = document.getElementById('scan-attest');
     if (!attest || !attest.checked) {
@@ -6717,16 +6725,24 @@ async function viewScan(scanId) {
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-async function cancelScan(scanId) {
+async function deleteScan(scanId) {
   const res = await api('DELETE', '/scans/' + encodeURIComponent(scanId));
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
-  toast(res.cancelled ? 'Scan cancelled.' : 'Scan was not cancellable.', res.cancelled ? 'success' : 'info');
+  toast('Scan removed.', 'success');
+  loadScans();
+}
+
+async function clearScans() {
+  const res = await api('POST', '/scans/clear');
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  toast(`Cleared ${res.removed} finished scan${res.removed === 1 ? '' : 's'}.`, 'success');
   loadScans();
 }
 
 function _viewScanBtn(btn)   { viewScan(btn.dataset.scanId); }
-function _cancelScanBtn(btn) { cancelScan(btn.dataset.scanId); }
+function _deleteScanBtn(btn) { deleteScan(btn.dataset.scanId); }
 
 // ── B5 P2: verified non-enrolled scan targets (ACME-style ownership proof) ───
 let _scanTargetProofs = {};   // id -> {token, dns, file} captured at create time

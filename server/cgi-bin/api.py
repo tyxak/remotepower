@@ -25752,6 +25752,7 @@ def _scan_public(s):
         'target_name': s.get('target_name', ''),
         'tool': s.get('tool'), 'profile': s.get('profile'),
         'runner': s.get('runner', 'satellite'),
+        'satellite_id': s.get('satellite_id', ''),
         'actor': s.get('actor'), 'created': s.get('created'),
         'claimed_by': s.get('claimed_by'), 'claimed_at': s.get('claimed_at'),
         'finished_at': s.get('finished_at'), 'error': s.get('error', ''),
@@ -25799,8 +25800,13 @@ def handle_scans_list():
                 continue
         out.append(_scan_public(s))
     out.sort(key=lambda r: r.get('created') or 0, reverse=True)
+    # scanner satellites the operator can target (bounded ≤50 — a dropdown is
+    # fine here, unlike device pickers). Empty list = no scanner satellite yet.
+    sats = [{'id': sid, 'name': s.get('name', '')}
+            for sid, s in (load(SATELLITES_FILE) or {}).items()
+            if isinstance(s, dict) and s.get('scanner')]
     respond(200, {'scans': out, 'tools': list(SCAN_TOOLS),
-                  'profiles': list(SCAN_PROFILES)})
+                  'profiles': list(SCAN_PROFILES), 'satellites': sats})
 
 
 def handle_scan_detail(scan_id):
@@ -25897,13 +25903,22 @@ def handle_scans_create():
         attest_meta = {'attested': True, 'attested_by': actor,
                        'attested_at': int(time.time()),
                        'window_overridden': overrode}
+    # v4.2.0: optional satellite targeting (network scans only). Empty = any
+    # scanner satellite picks it up; a value pins it to that satellite — e.g.
+    # the one on the target's network segment. Host scans run on the agent, so
+    # a satellite assignment is meaningless there.
+    sat_id = '' if is_host else _sanitize_str(str(body.get('satellite_id', '')), 32)
+    if sat_id:
+        _sats = load(SATELLITES_FILE) or {}
+        if sat_id not in _sats or not _sats[sat_id].get('scanner'):
+            respond(400, {'error': 'unknown or non-scanner satellite'})
     sid = secrets.token_hex(8)
     now = int(time.time())
     rec = {
         'id': sid, 'target_device_id': target_device_id,
         'target_name': target_name, 'target': target,
         'tool': tool, 'profile': profile, 'status': 'queued',
-        'runner': 'agent' if is_host else 'satellite',
+        'runner': 'agent' if is_host else 'satellite', 'satellite_id': sat_id,
         'created': now, 'actor': actor, 'claimed_by': None,
         'claimed_at': None, 'finished_at': None, 'findings': [], 'error': '',
         **attest_meta,
@@ -25926,8 +25941,10 @@ def handle_scans_create():
     respond(201, {'ok': True, 'id': sid, 'scan': _scan_public(rec)})
 
 
-def handle_scan_cancel(scan_id):
-    """DELETE /api/scans/<id> — cancel a queued/running scan (scope-checked)."""
+def handle_scan_delete(scan_id):
+    """DELETE /api/scans/<id> — remove a scan record and its findings
+    (scope-checked). Removing a queued/running scan also stops it: the worker
+    gets a 409 when it tries to report, since the record is gone."""
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     scan_id = _sanitize_str(scan_id, 32)
@@ -25935,16 +25952,38 @@ def handle_scan_cancel(scan_id):
     if not isinstance(s0, dict):
         respond(404, {'error': 'scan not found'})
     actor = require_perm('scan', [s0.get('target_device_id') or ''])
-    cancelled = False
+    removed = False
     with _LockedUpdate(SCANS_FILE) as scans:
-        s = scans.get(scan_id)
-        if isinstance(s, dict) and s.get('status') in ('queued', 'running'):
-            s['status'] = 'cancelled'
-            s['finished_at'] = int(time.time())
-            cancelled = True
-    if cancelled:
-        audit_log(actor, 'scan_cancel', f'id={scan_id}')
-    respond(200, {'ok': True, 'cancelled': cancelled})
+        if scan_id in scans:
+            del scans[scan_id]
+            removed = True
+    if removed:
+        audit_log(actor, 'scan_delete', f'id={scan_id}')
+    respond(200, {'ok': True, 'removed': removed})
+
+
+def handle_scans_clear():
+    """POST /api/scans/clear — remove all FINISHED scans (done/failed/cancelled)
+    the caller can see; running/queued are kept. Clears their findings too."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_perm('scan')
+    scope = _caller_scope()
+    devices = load(DEVICES_FILE) if scope is not None else None
+    removed = 0
+    with _LockedUpdate(SCANS_FILE) as scans:
+        for k in list(scans.keys()):
+            v = scans.get(k)
+            if not isinstance(v, dict) or v.get('status') not in ('done', 'failed', 'cancelled'):
+                continue
+            if scope is not None:
+                dev = (devices or {}).get(v.get('target_device_id') or '')
+                if not dev or not _device_in_scope(scope, dev):
+                    continue
+            del scans[k]
+            removed += 1
+    audit_log(actor, 'scans_clear', f'removed={removed}')
+    respond(200, {'ok': True, 'removed': removed})
 
 
 def handle_scan_claim():
@@ -25959,7 +25998,9 @@ def handle_scan_claim():
         queued = sorted(
             [v for v in scans.values()
              if isinstance(v, dict) and v.get('status') == 'queued'
-             and v.get('runner') != 'agent'],   # agent-run host scans go via heartbeat
+             and v.get('runner') != 'agent'      # agent-run host scans go via heartbeat
+             # targeted to THIS satellite, or unassigned ('any satellite')
+             and (not v.get('satellite_id') or v.get('satellite_id') == sid_sat)],
             key=lambda v: v.get('created') or 0)
         if queued:
             job = queued[0]
@@ -38577,6 +38618,7 @@ def _build_exact_routes():
         ('GET', '/api/scans'): handle_scans_list,
         ('POST', '/api/scans'): handle_scans_create,
         ('POST', '/api/scans/claim'): handle_scan_claim,
+        ('POST', '/api/scans/clear'): handle_scans_clear,
         ('GET', '/api/scan-targets'): handle_scan_targets_list,
         ('POST', '/api/scan-targets'): handle_scan_targets_create,
         ('GET', '/api/services'): handle_services_get,
@@ -38953,7 +38995,7 @@ def _dispatch(pi, m):
     elif pi.startswith('/api/scans/') and m == 'GET':
         handle_scan_detail(pi[len('/api/scans/'):])
     elif pi.startswith('/api/scans/') and m == 'DELETE':
-        handle_scan_cancel(pi[len('/api/scans/'):])
+        handle_scan_delete(pi[len('/api/scans/'):])
     # v4.2.0 (B5 P2): scan-target ownership verification (exact GET|POST above).
     elif pi.startswith('/api/scan-targets/') and pi.endswith('/verify') and m == 'POST':
         handle_scan_target_verify(pi[len('/api/scan-targets/'):-len('/verify')])

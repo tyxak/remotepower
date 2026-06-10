@@ -154,12 +154,18 @@ class TestDispatch(unittest.TestCase):
         self.assertIn('unsupported', err)
 
     def test_sandbox_is_locked_down(self):
+        # NB: deliberately NOT --read-only (it blocks the tools' scratch writes →
+        # 0 findings). The other hardening flags must still be present.
         for tool_argv in (sc._nmap_argv('10.0.0.5', 'active'),
                           sc._zap_argv('example.com', 'active')):
             if sc.RUNNER in ('docker', 'podman'):
-                for flag in ('--rm', '--cap-drop', 'ALL', '--read-only',
+                for flag in ('--rm', '--cap-drop', 'ALL', '--pids-limit',
                              '--security-opt', 'no-new-privileges'):
                     self.assertIn(flag, tool_argv)
+                self.assertNotIn('--read-only', tool_argv)
+
+    def test_nikto_does_not_force_ssl(self):
+        self.assertNotIn('-ssl', sc._nikto_argv('example.com', 'passive'))
 
 
 if __name__ == '__main__':

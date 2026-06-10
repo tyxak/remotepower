@@ -95,22 +95,26 @@ def _sandbox(image, tool_argv):
     """Wrap a tool's argv in a locked-down container (or run it bare when
     RP_SCAN_RUNNER names a local binary)."""
     if RUNNER in ('docker', 'podman'):
+        # Hardened but NOT --read-only: the tools must write scratch/report files
+        # (zap /zap/wrk, wapiti session, nmap NSE temp) — a read-only rootfs makes
+        # them silently produce nothing (0 findings). Ephemeral (--rm) +
+        # cap-drop + no-new-privileges + pids cap keep it locked down.
         return [RUNNER, 'run', '--rm', '--network', 'host', '--cap-drop', 'ALL',
-                '--security-opt', 'no-new-privileges', '--read-only',
-                '--pids-limit', '256', image] + tool_argv
+                '--security-opt', 'no-new-privileges', '--pids-limit', '512',
+                image] + tool_argv
     return tool_argv   # RP_SCAN_RUNNER is a local binary name (advanced)
 
 
 def _run(argv):
-    """Run a tool argv with the wall-clock budget. Returns (stdout, err)."""
+    """Run a tool argv with the wall-clock budget. Returns (stdout, stderr, err)."""
     try:
         proc = subprocess.run(argv, capture_output=True, text=True,
                               timeout=SCAN_TIMEOUT)
     except subprocess.TimeoutExpired:
-        return '', f'scan exceeded {SCAN_TIMEOUT}s budget'
+        return '', '', f'scan exceeded {SCAN_TIMEOUT}s budget'
     except FileNotFoundError:
-        return '', f'runner not found: {argv[0]}'
-    return proc.stdout or '', ''
+        return '', '', f'runner not found: {argv[0]}'
+    return proc.stdout or '', proc.stderr or '', ''
 
 
 def _parse_nuclei(text):
@@ -250,8 +254,10 @@ def _nuclei_argv(target, profile):
 
 def _nikto_argv(target, profile):
     tuning = [] if profile == 'active' else ['-Tuning', 'x6']  # x6 drops the DoS plugin
+    # Don't force -ssl (it pins HTTPS/443 and finds nothing on a plain-HTTP or
+    # non-443 target). nikto auto-detects from the host/URL.
     return _sandbox(_TOOL_IMAGE['nikto'], [
-        '-host', target, '-ssl', '-Format', 'json', '-output', '/dev/stdout',
+        '-host', target, '-Format', 'json', '-output', '/dev/stdout',
         '-nointeractive', '-maxtime', str(SCAN_TIMEOUT)] + tuning)
 
 
@@ -289,10 +295,16 @@ def _run_tool(tool, target, profile='passive'):
     if not spec:
         return [], f'unsupported tool {tool}'
     argv_fn, parse_fn = spec
-    stdout, err = _run(argv_fn(target, profile))
+    stdout, stderr, err = _run(argv_fn(target, profile))
     if err:
         return [], err
-    return parse_fn(stdout), ''
+    findings = parse_fn(stdout)
+    # Distinguish "scanned, genuinely clean" from "tool produced nothing" — if
+    # there's no parseable output but the tool wrote to stderr, surface the last
+    # line so the operator isn't left guessing at a silent 0.
+    if not findings and not stdout.strip() and stderr.strip():
+        return [], 'tool produced no output: ' + stderr.strip().splitlines()[-1][:200]
+    return findings, ''
 
 
 # --- main loop --------------------------------------------------------------

@@ -152,16 +152,16 @@ class TestScanLifecycle(_ScanBase):
         self.assertEqual(det['severity_counts']['low'], 1)
         self.assertEqual(len(det['findings']), 2)
 
-    def test_cancel_queued(self):
+    def test_delete_queued(self):
         self._device()
         self._as_admin()
         api.method = lambda: 'POST'
         api.get_json_body = lambda: {'device_id': 'dev1'}
         scan_id = self.call(api.handle_scans_create)['id']
         api.method = lambda: 'DELETE'
-        res = self.call(api.handle_scan_cancel, scan_id)
-        self.assertTrue(res['cancelled'])
-        self.assertEqual(api.load(api.SCANS_FILE)[scan_id]['status'], 'cancelled')
+        res = self.call(api.handle_scan_delete, scan_id)
+        self.assertTrue(res['removed'])
+        self.assertNotIn(scan_id, api.load(api.SCANS_FILE))
 
     def test_list_newest_first(self):
         self._device('dev1'); self._device('dev2')
@@ -587,6 +587,91 @@ class TestHostScans(_ScanBase):
         self.assertEqual(len(rec['findings']), 1)
 
 
+class TestScanDeleteClear(_ScanBase):
+    """B5: remove a scan record (+findings); clear all finished scans."""
+
+    def _make_scan(self, dev='dev1'):
+        self._device(dev)
+        self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': dev}
+        return self.call(api.handle_scans_create)['id']
+
+    def test_delete_removes_record(self):
+        sid = self._make_scan()
+        api.method = lambda: 'DELETE'
+        res = self.call(api.handle_scan_delete, sid)
+        self.assertTrue(res['removed'])
+        self.assertNotIn(sid, api.load(api.SCANS_FILE))
+
+    def test_delete_unknown_404(self):
+        self._as_admin(); api.method = lambda: 'DELETE'
+        self.call(api.handle_scan_delete, 'ghost')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_clear_finished_only(self):
+        done = self._make_scan('dev1')
+        queued = self._make_scan('dev2')
+        # mark `done` finished, leave `queued` queued
+        st = api.load(api.SCANS_FILE); st[done]['status'] = 'done'; api.save(api.SCANS_FILE, st)
+        api.method = lambda: 'POST'
+        res = self.call(api.handle_scans_clear)
+        self.assertEqual(res['removed'], 1)
+        scans = api.load(api.SCANS_FILE)
+        self.assertNotIn(done, scans)        # finished → cleared
+        self.assertIn(queued, scans)         # still queued → kept
+
+
+class TestSatelliteTargeting(_ScanBase):
+    """B5: route a network scan to a SPECIFIC scanner satellite (e.g. the one on
+    the target's network segment), or leave it to any scanner satellite."""
+
+    def test_list_includes_scanner_satellites(self):
+        tok, sid = self._scanner_satellite()
+        self._as_admin(); api.method = lambda: 'GET'
+        lst = self.call(api.handle_scans_list)
+        self.assertTrue(any(s['id'] == sid for s in lst['satellites']))
+
+    def test_unknown_satellite_rejected(self):
+        self._device('dev1')
+        self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'satellite_id': 'nope'}
+        self.call(api.handle_scans_create)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_targeted_scan_only_claimed_by_its_satellite(self):
+        self._device('dev1')
+        tok_a, id_a = self._scanner_satellite()
+        tok_b, id_b = self._scanner_satellite()
+        self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'satellite_id': id_a}
+        sid = self.call(api.handle_scans_create)['id']
+        self.assertEqual(api.load(api.SCANS_FILE)[sid]['satellite_id'], id_a)
+        import os
+        os.environ['HTTP_X_RP_SATELLITE'] = tok_b           # wrong satellite
+        self.assertIsNone(self.call(api.handle_scan_claim)['scan'])
+        os.environ['HTTP_X_RP_SATELLITE'] = tok_a           # the assigned one
+        self.assertEqual(self.call(api.handle_scan_claim)['scan']['id'], sid)
+
+    def test_unassigned_scan_claimed_by_any(self):
+        self._device('dev1')
+        tok, _ = self._scanner_satellite()
+        self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1'}   # no satellite_id
+        sid = self.call(api.handle_scans_create)['id']
+        import os
+        os.environ['HTTP_X_RP_SATELLITE'] = tok
+        self.assertEqual(self.call(api.handle_scan_claim)['scan']['id'], sid)
+
+    def test_host_scan_ignores_satellite(self):
+        self._device('dev1')
+        self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'tool': 'lynis',
+                                     'satellite_id': 'whatever'}
+        created = self.call(api.handle_scans_create)
+        self.assertTrue(created['ok'])                       # not rejected
+        self.assertEqual(api.load(api.SCANS_FILE)[created['id']]['satellite_id'], '')
+
+
 class TestScanRoutes(unittest.TestCase):
     def test_routes_registered(self):
         from routing_harness import resolve_route
@@ -594,7 +679,8 @@ class TestScanRoutes(unittest.TestCase):
         self.assertEqual(resolve_route('POST', '/api/scans')[0], 'handle_scans_create')
         self.assertEqual(resolve_route('POST', '/api/scans/claim')[0], 'handle_scan_claim')
         self.assertEqual(resolve_route('GET', '/api/scans/abc')[0], 'handle_scan_detail')
-        self.assertEqual(resolve_route('DELETE', '/api/scans/abc')[0], 'handle_scan_cancel')
+        self.assertEqual(resolve_route('DELETE', '/api/scans/abc')[0], 'handle_scan_delete')
+        self.assertEqual(resolve_route('POST', '/api/scans/clear')[0], 'handle_scans_clear')
         self.assertEqual(resolve_route('POST', '/api/scans/abc/results')[0], 'handle_scan_results')
         self.assertEqual(resolve_route('PATCH', '/api/satellites/x')[0], 'handle_satellites_update')
         self.assertEqual(resolve_route('GET', '/api/scan-targets')[0], 'handle_scan_targets_list')
