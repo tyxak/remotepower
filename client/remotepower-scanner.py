@@ -206,6 +206,16 @@ def _target_url(target, scheme='https'):
     return target if '://' in target else f'{scheme}://{target}'
 
 
+def _clean_reference(ref):
+    """ZAP reference fields are HTML (e.g. "<p>https://…</p><p>…</p>"). Strip the
+    markup and return the FIRST real URL, so the UI gets a clean link instead of
+    a mangled "/<p>https…</p>" string."""
+    import re
+    text = re.sub(r'<[^>]+>', ' ', str(ref or ''))
+    m = re.search(r'https?://[^\s"\'<>]+', text)
+    return (m.group(0) if m else '')[:500]
+
+
 def _parse_zap(text):
     """ZAP JSON report -> findings. riskcode 3=High 2=Medium 1=Low 0=Info."""
     try:
@@ -222,7 +232,7 @@ def _parse_zap(text):
                 'title':     str(a.get('name') or a.get('alert') or '')[:300],
                 'severity':  sev.get(str(a.get('riskcode', '0')), 'unknown'),
                 'evidence':  str((inst[0].get('uri') if inst else '') or a.get('url', ''))[:1000],
-                'reference': str(a.get('reference') or '')[:500],
+                'reference': _clean_reference(a.get('reference')),
             })
     return out
 

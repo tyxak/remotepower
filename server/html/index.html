@@ -4659,6 +4659,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-title mt-24">Exposed secrets on disk</div>
         <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting.</div>
         <div id="secrets-summary" class="hint mb-8"></div>
+        <div class="toolbar-mb24">
+          <input type="text" id="secrets-filter" class="form-input" placeholder="Filter by device, type, path, preview…" data-input-debounce="150">
+        </div>
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="secrets-thead"><tr>

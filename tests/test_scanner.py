@@ -83,6 +83,23 @@ class TestZapParser(unittest.TestCase):
         self.assertIn('http://h/x', f[0]['evidence'])
 
 
+class TestReferenceClean(unittest.TestCase):
+    def test_strips_html_extracts_url(self):
+        # ZAP references are HTML; we want a clean URL, not "<p>https…</p>"
+        ref = '<p>https://developer.mozilla.org/en-US/docs/Web/Security</p><p>x</p>'
+        self.assertEqual(sc._clean_reference(ref),
+                         'https://developer.mozilla.org/en-US/docs/Web/Security')
+
+    def test_no_url_returns_empty(self):
+        self.assertEqual(sc._clean_reference('<p>see the manual</p>'), '')
+
+    def test_zap_finding_uses_clean_reference(self):
+        text = ('{"site":[{"alerts":[{"pluginid":"90003","name":"SRI",'
+                '"riskcode":"1","reference":"<p>https://example.com/sri</p>"}]}]}')
+        f = sc._parse_zap(text)
+        self.assertEqual(f[0]['reference'], 'https://example.com/sri')
+
+
 class TestWapitiParser(unittest.TestCase):
     def test_vulns(self):
         text = ('{"vulnerabilities":{"SQL Injection":[{"level":3,"info":"param id"}],'

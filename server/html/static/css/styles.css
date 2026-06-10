@@ -4014,6 +4014,7 @@ label.form-label:has(> input[type="radio"]) {
 .meta-green { font-size: 11px; color: var(--green); }
 .meta-accent { font-size: 11px; color: var(--accent); }
 .text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-trunc { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-15 { font-size: 14px; }
 .p-4-0 { padding: 4px 0; }
 .p-0 { padding: 0; }

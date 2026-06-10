@@ -6723,7 +6723,7 @@ async function viewScan(scanId) {
     const sevColor = { critical: 'c-red', high: 'c-red', medium: 'c-amber', low: 'c-muted', info: 'c-muted', unknown: 'c-muted' };
     const sorted = findings.slice().sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
     body.innerHTML = sorted.map(f =>
-      `<div class="mb-8"><span class="${sevColor[f.severity] || 'c-muted'} fw-500">${escHtml(f.severity)}</span> <strong>${escHtml(f.title || f.rule_id)}</strong>${f.rule_id ? ` <span class="hint">${escHtml(f.rule_id)}</span>` : ''}${f.evidence ? `<div class="hint">${escHtml(f.evidence)}</div>` : ''}${f.reference ? `<div class="hint"><a href="${escAttr(f.reference)}" target="_blank" rel="noopener" class="c-accent">reference</a></div>` : ''}</div>`
+      `<div class="mb-8"><span class="${sevColor[f.severity] || 'c-muted'} fw-500">${escHtml(f.severity)}</span> <strong>${escHtml(f.title || f.rule_id)}</strong>${f.rule_id ? ` <span class="hint">${escHtml(f.rule_id)}</span>` : ''}${f.evidence ? `<div class="hint">${escHtml(f.evidence)}</div>` : ''}${/^https?:\/\//.test(f.reference || '') ? `<div class="hint"><a href="${escAttr(f.reference)}" target="_blank" rel="noopener" class="c-accent">reference</a></div>` : ''}</div>`
     ).join('');
   }
   box.classList.remove('hidden');
@@ -11458,6 +11458,8 @@ async function loadSecrets() {
   const tbody = document.getElementById('secrets-tbody');
   if (!tbody) return;
   tableCtl.wireSortOnly('secrets-thead', 'secrets', () => _renderSecrets());
+  const fb = document.getElementById('secrets-filter');
+  if (fb && !fb.dataset.wired) { fb.dataset.wired = '1'; fb.addEventListener('input', () => _renderSecrets()); }
   tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
   try {
     _secretsResp = await api('GET', '/fleet/secrets');
@@ -11475,10 +11477,15 @@ function _renderSecrets() {
     // v4.1.0 (#55): carry host id + host-mute state onto each finding row.
     for (const f of (d.findings || [])) rows.push({ device: d.name, device_id: d.device_id, host_muted: !!d.host_muted, ...f });
   }
+  const total = rows.length;
+  // filter (627-finding fleets need it)
+  const q = (document.getElementById('secrets-filter')?.value || '').toLowerCase().trim();
+  if (q) rows = rows.filter(r => `${r.device || ''} ${r.rule || ''} ${r.path || ''} ${r.preview || ''}`.toLowerCase().includes(q));
   if (summary) {
     summary.textContent = !_secretsResp.enabled
       ? 'Scanning is off — enable it in Settings → Security.'
-      : `${_secretsResp.total_active || 0} active finding(s) across ${(_secretsResp.devices || []).length} host(s).`;
+      : `${_secretsResp.total_active || 0} active finding(s) across ${(_secretsResp.devices || []).length} host(s).`
+        + (q ? ` — showing ${rows.length} of ${total}.` : '');
   }
   rows = tableCtl.sortRows('secrets', rows, (r) => ({
     device: (r.device || '').toLowerCase(), rule: r.rule || '',
@@ -11492,8 +11499,8 @@ function _renderSecrets() {
     <tr>
       <td>${escHtml(r.device || '—')}${r.host_muted ? ' <span class="hint">host muted</span>' : ''}</td>
       <td><span class="cmd-badge">${escHtml(r.rule || '?')}</span>${r.muted ? ' <span class="hint">muted</span>' : ''}</td>
-      <td class="fs-12"><code>${escHtml(r.path || '—')}</code></td>
-      <td class="fs-12"><code>${escHtml(r.preview || '—')}</code></td>
+      <td class="fs-12"><div class="cell-trunc" title="${escAttr(r.path || '')}"><code>${escHtml(r.path || '—')}</code></div></td>
+      <td class="fs-12"><div class="cell-trunc" title="${escAttr(r.preview || '')}"><code>${escHtml(r.preview || '—')}</code></div></td>
       <td class="ta-center">${r.line || '—'}</td>
       <td class="nowrap">${r.host_muted
         ? `<button class="btn-icon btn-xs" data-action="unmuteSecretHost" data-arg="${escAttr(r.device_id || '')}">Unmute host</button>`
