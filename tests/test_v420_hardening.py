@@ -168,5 +168,20 @@ class TestMfaEnrollmentGate(_Base):
             api.path_info, api.get_token_from_request = orig
 
 
+class TestSecurityPosture(_Base):
+    def test_posture_grades_config(self):
+        api.save(api.CONFIG_FILE, {'mfa_required_roles': ['admin'], 'max_sessions_per_user': 5})
+        api.save(api.USERS_FILE, {'a': {'role': 'admin', 'totp_secret': 'X'}})
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_security_posture)
+        by = {c['key']: c for c in r['checks']}
+        self.assertEqual(by['mfa_enforced']['status'], 'ok')
+        self.assertEqual(by['session_cap']['status'], 'ok')
+        self.assertEqual(by['admin_totp']['status'], 'ok')
+        self.assertEqual(by['apikey_expiry']['status'], 'warn')   # not configured
+        self.assertGreater(r['total'], 5)
+        self.assertLessEqual(r['score'], r['total'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -28992,6 +28992,50 @@ def handle_audit_log_verify():
                   'verified': checked, 'broken_at': broken_at})
 
 
+def handle_security_posture():
+    """GET /api/security-posture — v4.2.0 (A6): grade the live config against a
+    secure-defaults checklist so operators can see (and fix) what's not hardened."""
+    require_admin_auth()
+    cfg = load(CONFIG_FILE) or {}
+    users = load(USERS_FILE) or {}
+    checks = []
+
+    def add(key, label, ok, detail, hint):
+        checks.append({'key': key, 'label': label,
+                       'status': 'ok' if ok else 'warn', 'detail': detail, 'hint': hint})
+
+    roles = cfg.get('mfa_required_roles') or []
+    add('mfa_enforced', 'MFA enforced for admins', 'admin' in roles,
+        f'required roles: {", ".join(roles) or "none"}',
+        'Set mfa_required_roles to ["admin"].')
+    admins = [u for u, d in users.items() if isinstance(d, dict) and d.get('role') == 'admin']
+    no_totp = [u for u in admins if not users[u].get('totp_secret')]
+    add('admin_totp', 'All admins have TOTP enrolled', admins and not no_totp,
+        f'{len(admins) - len(no_totp)}/{len(admins)} enrolled', 'Enrol TOTP for every admin.')
+    add('apikey_expiry', 'API keys expire by default', int(cfg.get('apikey_default_expiry_days') or 0) > 0,
+        f'default: {cfg.get("apikey_default_expiry_days") or "never"}',
+        'Set apikey_default_expiry_days (e.g. 90).')
+    add('session_cap', 'Concurrent-session cap set', int(cfg.get('max_sessions_per_user') or 0) > 0,
+        f'cap: {cfg.get("max_sessions_per_user") or "unlimited"}',
+        'Set max_sessions_per_user (e.g. 5).')
+    default_pw = any(isinstance(d, dict) and d.get('must_change_password') for d in users.values())
+    add('default_password', 'No accounts on a default password', not default_pw,
+        'change-required account present' if default_pw else 'all changed',
+        'Have flagged users change their password.')
+    add('webhook_block_local', 'Webhooks blocked to internal IPs', bool(cfg.get('webhook_block_local')),
+        'on' if cfg.get('webhook_block_local') else 'off (RFC1918 allowed)',
+        'Enable webhook_block_local if you never post to internal IPs.')
+    fwd = bool(cfg.get('audit_forward_enabled') or cfg.get('siem_enabled'))
+    add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
+        'configured' if fwd else 'not configured', 'Forward audit + events to a SIEM.')
+    add('secrets_scan', 'Secrets-on-disk scanning enabled', bool(cfg.get('secrets_scan_enabled')),
+        'on' if cfg.get('secrets_scan_enabled') else 'off', 'Enable the secrets scan.')
+    add('audit_retention', 'Audit-log retention ≥ 30 days', int(cfg.get('audit_log_retention_days') or 90) >= 30,
+        f'{cfg.get("audit_log_retention_days") or 90}d', 'Keep audit retention at 30+ days.')
+    ok = sum(1 for c in checks if c['status'] == 'ok')
+    respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
+
+
 def handle_audit_log_clear():
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
@@ -38877,6 +38921,7 @@ def _build_exact_routes():
         ('GET', '/api/attention'): handle_attention,
         ('GET', '/api/audit-log'): handle_audit_log,
         ('GET', '/api/audit-log/verify'): handle_audit_log_verify,
+        ('GET', '/api/security-posture'): handle_security_posture,
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
         ('POST', '/api/otlp/test'): handle_otlp_test,

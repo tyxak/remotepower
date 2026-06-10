@@ -5036,6 +5036,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Security posture <span class="hint">— how the live config measures against secure defaults. <span id="sec-posture-score"></span></span></div>
+          <div id="sec-posture-body" class="scroll-cap"></div>
+        </div>
         <div class="isl-186">
           <input type="text" id="audit-filter-text" class="form-input isl-170" placeholder="Filter by actor, action, or detail…">
           <select id="audit-filter-action" class="form-input isl-68" data-change="renderAuditLog">

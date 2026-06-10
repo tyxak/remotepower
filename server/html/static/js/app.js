@@ -8254,6 +8254,7 @@ function _registerAuditTable() {
 
 async function loadAuditLog() {
   _registerAuditTable();
+  loadSecurityPosture();   // v4.2.0 (A6): posture self-check card on this page
   const tbody = document.getElementById('audit-tbody');
   tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">Loading…</tbody>';
   const data = await api('GET', '/audit-log');
@@ -8289,6 +8290,19 @@ async function clearAuditLog() {
   if (data?.ok) { toast('Audit log cleared (pre-wipe archive saved)', 'success'); loadAuditLog(); }
   else toast(data?.error || 'Failed', 'error');
 }
+async function loadSecurityPosture() {
+  const box = document.getElementById('sec-posture-body');
+  if (!box) return;
+  const d = await api('GET', '/security-posture');
+  if (!d || d.error) return;
+  const score = document.getElementById('sec-posture-score');
+  if (score) score.textContent = `${d.score}/${d.total} hardened`;
+  box.innerHTML = (d.checks || []).map(c => {
+    const dot = c.status === 'ok' ? '<span class="c-green fw-500">●</span>' : '<span class="c-amber fw-500">●</span>';
+    return `<div class="mb-8">${dot} <strong>${escHtml(c.label)}</strong> <span class="hint">${escHtml(c.detail)}</span>${c.status === 'ok' ? '' : `<div class="hint">${escHtml(c.hint)}</div>`}</div>`;
+  }).join('');
+}
+
 async function verifyAuditLog() {
   const d = await api('GET', '/audit-log/verify');
   if (!d) return;
