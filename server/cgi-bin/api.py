@@ -26536,6 +26536,24 @@ def handle_scan_schedule_delete(sid):
     respond(200, {'ok': True})
 
 
+def handle_scan_schedule_run(sid):
+    """POST /api/scan-schedules/<id>/run — fire a schedule NOW (test/on-demand
+    of a saved schedule), without waiting for its cron. Stamps last_run."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_perm('scan')
+    sid = _sanitize_str(sid, 32)
+    sched = (load(SCAN_SCHEDULES_FILE) or {}).get(sid)
+    if not isinstance(sched, dict):
+        respond(404, {'error': 'schedule not found'})
+    _create_scheduled_scan(sched)
+    with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
+        if sid in st:
+            st[sid]['last_run'] = int(time.time())
+    audit_log(actor, 'scan_schedule_run_now', f'id={sid}')
+    respond(200, {'ok': True})
+
+
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
@@ -39269,6 +39287,8 @@ def _dispatch(pi, m):
     elif pi.startswith('/api/scan-targets/') and m == 'DELETE':
         handle_scan_target_delete(pi[len('/api/scan-targets/'):])
     # v4.2.0 (#4): scheduled scans (exact GET|POST above).
+    elif pi.startswith('/api/scan-schedules/') and pi.endswith('/run') and m == 'POST':
+        handle_scan_schedule_run(pi[len('/api/scan-schedules/'):-len('/run')])
     elif pi.startswith('/api/scan-schedules/') and m == 'DELETE':
         handle_scan_schedule_delete(pi[len('/api/scan-schedules/'):])
     elif pi.startswith('/api/me/sessions/') and m == 'DELETE':

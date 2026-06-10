@@ -720,6 +720,15 @@ class TestScanSchedules(_ScanBase):
         self.call(api.handle_scan_schedule_delete, sid)
         self.assertEqual(api.load(api.SCAN_SCHEDULES_FILE), {})
 
+    def test_run_now_enqueues_scan(self):
+        self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'dev1', 'tool': 'nuclei', 'cron': '0 3 * * *'}
+        sid = self.call(api.handle_scan_schedules_create)['id']
+        api.method = lambda: 'POST'
+        self.call(api.handle_scan_schedule_run, sid)
+        self.assertEqual(len(api.load(api.SCANS_FILE)), 1)
+        self.assertGreater(api.load(api.SCAN_SCHEDULES_FILE)[sid]['last_run'], 0)
+
     def test_bad_cron_400(self):
         self._device('dev1'); self._as_admin(); api.method = lambda: 'POST'
         api.get_json_body = lambda: {'device_id': 'dev1', 'cron': 'not a cron'}
@@ -828,6 +837,7 @@ class TestScanRoutes(unittest.TestCase):
         self.assertEqual(resolve_route('GET', '/api/scan-schedules')[0], 'handle_scan_schedules_list')
         self.assertEqual(resolve_route('POST', '/api/scan-schedules')[0], 'handle_scan_schedules_create')
         self.assertEqual(resolve_route('DELETE', '/api/scan-schedules/x')[0], 'handle_scan_schedule_delete')
+        self.assertEqual(resolve_route('POST', '/api/scan-schedules/x/run')[0], 'handle_scan_schedule_run')
 
 
 if __name__ == '__main__':

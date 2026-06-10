@@ -6857,7 +6857,7 @@ async function loadScanSchedules() {
   box.innerHTML = scheds.map(s => {
     const when = s.next_run ? new Date(s.next_run * 1000).toLocaleString() : '—';
     const tgt = s.device_id ? 'device' : (s.scan_target_id ? 'verified target' : '—');
-    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong> <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · next ${escHtml(when)}</span> <button class="btn-icon cell-sm" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">Remove</button></div>`;
+    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong> <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · next ${escHtml(when)}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">Remove</button></div>`;
   }).join('');
 }
 
@@ -6881,6 +6881,14 @@ async function addScanSchedule() {
 }
 
 function scheduleScanTarget(id) { _createScanSchedule({ scan_target_id: id }); }
+
+async function runScanSchedule(id) {
+  const res = await api('POST', '/scan-schedules/' + encodeURIComponent(id) + '/run');
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  toast('Schedule fired — scan(s) queued.', 'success');
+  loadScans();
+}
 
 async function deleteScanSchedule(id) {
   const res = await api('DELETE', '/scan-schedules/' + encodeURIComponent(id));
