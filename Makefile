@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test format lint typecheck check clean install-dev dist version
+.PHONY: help test format lint typecheck check clean install-dev dist version scan-demo
 
 PY      ?= python3
 PIP     ?= pip3
@@ -37,10 +37,20 @@ help:
 	@echo "  make dist        - build dist/$(DIST_NAME).tar.gz (release tarball)"
 	@echo "  make version     - print the current version ($(VERSION))"
 	@echo "  make install-dev - install black, isort, mypy locally"
+	@echo "  make scan-demo   - drive a B5 security scan to completion (needs a running server)"
 	@echo "  make clean       - drop __pycache__ trees + dist/"
 
 version:
 	@echo $(VERSION)
+
+# v4.2.0 (B5): drive a security scan end-to-end against a RUNNING server (e.g.
+# the docker compose stack) — logs in, mints a scanner satellite, queues a scan,
+# fake-claims it and posts findings, so you watch it reach `done`. Override the
+# target with RP_URL / RP_USER / RP_PASS (defaults: http://localhost:8085,
+# admin, changeme).
+scan-demo:
+	@echo "==> Security-scan demo against $${RP_URL:-http://localhost:8085} (server must be up)"
+	$(PY) tools/scan-demo.py
 
 install-dev:
 	$(PIP) install $(PIP_FLAGS) black isort mypy

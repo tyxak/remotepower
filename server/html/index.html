@@ -280,6 +280,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           <span>Exposure</span>
         </button>
+        <button class="nav-btn" data-page="scans" title="Authorized vulnerability scans against enrolled hosts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6a6 6 0 1 0 6 6"/><line x1="12" y1="12" x2="22" y2="2"/></svg>
+          <span>Scans</span>
+        </button>
         <button class="nav-btn" data-page="patches" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
@@ -4148,6 +4152,40 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>
         </div>
         <div class="table-card"><table><thead id="cve-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="ecosystem">Ecosystem</th><th data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th data-col="critical" class="ta-center">Critical</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Medium</th><th data-col="low" class="ta-center">Low</th><th data-col="last_scan">Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
+      </div>
+
+      <!-- ── v4.2.0 (B5): Security Scans page ─────────────────────────────────── -->
+      <div id="page-scans" class="page">
+        <div class="page-title">Security Scans</div>
+        <div class="page-subtitle">Authorized vulnerability scans against <strong>enrolled hosts you manage</strong>. The target is derived server-side from the device — you can only scan assets you own and can see. Scans run on a <strong>scanner satellite</strong>; findings appear below. <span class="c-muted">P1: nuclei, passive profile.</span></div>
+        <div class="toolbar-mb24">
+          <button class="btn-icon" data-action="loadScans"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <select id="scan-device" class="form-input"><option value="">Select a device to scan…</option></select>
+          <select id="scan-tool" class="form-input" title="Scan tool"><option value="nuclei">nuclei</option><option value="nikto">nikto</option><option value="nmap">nmap</option><option value="zap">zap (active)</option><option value="wapiti">wapiti (active)</option><option value="lynis">lynis (on-host audit)</option></select>
+          <select id="scan-profile" class="form-input" title="Passive = safe. Active = intrusive (sends attack traffic)."><option value="passive">passive</option><option value="active">active (intrusive)</option></select>
+          <button class="btn-primary mw-200" data-action="queueScan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M12 2a10 10 0 1 0 10 10"/><line x1="12" y1="12" x2="22" y2="2"/></svg> Queue scan</button>
+          <input type="text" id="scans-filter" class="form-input" placeholder="Filter by target, status…">
+          <label class="hint" id="scan-active-controls"><input type="checkbox" id="scan-attest"> I'm authorized to actively scan this target &nbsp; <input type="checkbox" id="scan-override"> run now (override maintenance window)</label>
+        </div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div><div class="stat-value" id="scan-stat-total">0</div><div class="stat-label">Scans</div></div></div>
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value c-red" id="scan-stat-critical">0</div><div class="stat-label">Critical findings</div></div></div>
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div><div class="stat-value isl-137" id="scan-stat-high">0</div><div class="stat-label">High findings</div></div></div>
+          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div><div class="stat-value" id="scan-stat-running">0</div><div class="stat-label">Running / queued</div></div></div>
+        </div>
+        <div class="table-card"><table><thead id="scans-thead"><tr><th data-col="target">Target</th><th data-col="status">Status</th><th data-col="critical" class="ta-center">Crit</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Med</th><th data-col="low" class="ta-center">Low</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="scans-tbody"><tr><td colspan="8" class="empty-state">No scans yet. Select an enrolled device and queue one. </td></tr></tbody></table></div>
+        <div id="scan-detail" class="dash-card mb-16 hidden">
+          <div class="section-title">Findings — <span id="scan-detail-target"></span></div>
+          <div id="scan-detail-body" class="scroll-cap"></div>
+        </div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Verified web targets <span class="hint">— scan domains / IPs you own that aren't enrolled hosts. Prove ownership once, then scan.</span></div>
+          <div class="toolbar-mb24">
+            <input type="text" id="scan-target-input" class="form-input" placeholder="example.com or 203.0.113.5">
+            <button class="btn-icon" data-action="addScanTarget"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add target</button>
+          </div>
+          <div id="scan-targets-list" class="scroll-cap"></div>
+        </div>
       </div>
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->

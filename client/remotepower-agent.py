@@ -794,6 +794,60 @@ def get_third_party_updates():
 _SSG_DIRS = ('/usr/share/xml/scap/ssg/content', '/usr/local/share/xml/scap/ssg/content')
 _oscap_running = threading.Lock()
 
+# ─── v4.2.0 (B5 P3): agent-side host scan (lynis) ─────────────────────────────
+# Triggered by `host_scan` in the heartbeat response; runs lynis read-only in a
+# daemon thread and drops a result into the outbox, which the heartbeat loop
+# attaches to the next request body as `host_scan_result`.
+_host_scan_running = threading.Lock()
+_HOST_SCAN_OUTBOX = []
+
+
+def _parse_lynis_report(path):
+    """Parse a lynis report-file (warning[]= / suggestion[]= lines) into the
+    RemotePower finding shape. Warnings → medium, suggestions → low."""
+    findings = []
+    try:
+        with open(path, 'r', errors='replace') as f:
+            lines = f.read().splitlines()
+    except Exception:
+        return findings
+    for ln in lines:
+        if ln.startswith('warning[]=') or ln.startswith('suggestion[]='):
+            kind = 'warning' if ln.startswith('warning[]=') else 'suggestion'
+            parts = ln.split('=', 1)[1].split('|')
+            test_id = parts[0] if parts else ''
+            desc = parts[1] if len(parts) > 1 and parts[1] else test_id
+            findings.append({
+                'rule_id': test_id[:200], 'title': desc[:300],
+                'severity': 'medium' if kind == 'warning' else 'low',
+                'evidence': kind, 'reference': '',
+            })
+    return findings[:1000]
+
+
+def run_host_scan(job):
+    """Run an on-host posture audit (lynis) and return a heartbeat result dict:
+    {id, status, findings, error}. Read-only; bounded by a wall-clock timeout."""
+    sid = job.get('id')
+    tool = job.get('tool', 'lynis')
+    if tool != 'lynis':
+        return {'id': sid, 'status': 'failed', 'findings': [],
+                'error': f'unsupported host tool {tool}'}
+    if not _which('lynis'):
+        return {'id': sid, 'status': 'failed', 'findings': [],
+                'error': 'lynis not installed on this host'}
+    report = '/tmp/rp-lynis-report.dat'
+    try:
+        subprocess.run(['lynis', 'audit', 'system', '--quiet', '--no-colors',
+                        '--report-file', report],
+                       capture_output=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return {'id': sid, 'status': 'failed', 'findings': [], 'error': 'lynis timed out'}
+    except Exception as e:
+        return {'id': sid, 'status': 'failed', 'findings': [], 'error': str(e)[:200]}
+    return {'id': sid, 'status': 'done',
+            'findings': _parse_lynis_report(report), 'error': ''}
+
 
 def _find_ssg_datastream():
     """Pick the SCAP Security Guide datastream that best matches this host, or
@@ -6154,6 +6208,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             payload['journal'] = get_journal(100)
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
 
+        # v4.2.0 (B5 P3): report a finished host scan (lynis) to the server.
+        if _HOST_SCAN_OUTBOX:
+            payload['host_scan_result'] = _HOST_SCAN_OUTBOX.pop(0)
+
         try:
             resp = http_post(f"{server}/api/heartbeat", payload)
             cmd = resp.get('command')
@@ -6232,6 +6290,22 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     threading.Thread(target=_run_scap, daemon=True).start()
                 else:
                     log.info('OpenSCAP scan already running; ignoring request')
+            # v4.2.0 (B5 P3): one-shot host scan (lynis). Same model as oscap —
+            # daemon thread, lock prevents overlap; result goes back via the
+            # heartbeat outbox, not a direct POST.
+            _hs = resp.get('host_scan')
+            if isinstance(_hs, dict) and _hs.get('id'):
+                if _host_scan_running.acquire(blocking=False):
+                    log.info(f"Server requested host scan: {_hs.get('tool')} (id={_hs.get('id')})")
+
+                    def _run_hs(job=_hs):
+                        try:
+                            _HOST_SCAN_OUTBOX.append(run_host_scan(job))
+                        finally:
+                            _host_scan_running.release()
+                    threading.Thread(target=_run_hs, daemon=True).start()
+                else:
+                    log.info('Host scan already running; ignoring request')
             # v3.0.1: one-shot force-upgrade flag — re-download the agent
             # binary regardless of version match. Used for re-deploys or
             # corrupt-binary recovery; the server clears the flag after one

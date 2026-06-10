@@ -755,10 +755,17 @@ class TestGranularRBAC(unittest.TestCase):
         api.get_token_from_request, api.verify_token, api.respond = self._auth
         api._LOAD_CACHE.clear()
 
-    def test_perm_set_is_ten_granular(self):
-        self.assertEqual(set(api._RBAC_PERMS), {
+    def test_perm_set_is_granular(self):
+        # v3.12.0 shipped 10 granular perms; v4.2.0 (B5) added 'scan'. Pin the
+        # 10 v3.12.0 perms as a subset so this guardrail still catches an
+        # accidental removal, without re-pinning the exact count on every add.
+        self.assertTrue({
             'command', 'script', 'reboot', 'shutdown', 'patch',
-            'packages', 'containers', 'services', 'ssh', 'mitigate'})
+            'packages', 'containers', 'services', 'ssh', 'mitigate'
+        }.issubset(set(api._RBAC_PERMS)))
+        # 'scan' must NOT be folded into the legacy 'exec' umbrella (it's a
+        # distinct, sensitive capability — existing exec roles don't gain it).
+        self.assertNotIn('scan', api._expand_perms(['exec']))
 
     def test_legacy_expansion(self):
         ex = api._expand_perms(['exec'])

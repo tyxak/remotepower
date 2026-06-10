@@ -768,6 +768,8 @@ WEBHOOK_EVENTS = (
     ('process_recovered',     'A watched process dropped back below its threshold',  True),
     # v3.14.0 #35: the agent's opt-in secrets scan found a new exposed secret.
     ('secret_exposed',        'A secret was found exposed on a host filesystem',     True),
+    # v4.2.0 (B5): an authorized security scan completed with high/critical findings.
+    ('scan_finding',          'An authorized security scan found a high/critical issue', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1231,6 +1233,14 @@ SQLITE_MAINT_FILE = DATA_DIR / 'sqlite_maint.json'   # v3.12.0: maint timestamps
 AVATARS_DIR = DATA_DIR / 'avatars'                   # v3.12.0: per-user profile pics
 MAX_AVATAR_BYTES = 512 * 1024
 SATELLITES_FILE = DATA_DIR / 'satellites.json'       # v3.12.0: relay satellites
+SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized scan jobs + findings
+SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
+MAX_SCANS         = 500                               # ring-buffer cap on stored scans
+MAX_SCAN_FINDINGS = 1000                              # per-scan finding cap
+SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap')                   # passive-capable (satellite-run)
+SCAN_ACTIVE_TOOLS = ('nuclei', 'nikto', 'nmap', 'zap', 'wapiti')  # v4.2.0 P3: active profile only
+HOST_SCAN_TOOLS   = ('lynis',)                                    # v4.2.0 P3: run ON the host by its agent
+SCAN_PROFILES     = ('passive', 'active')                         # active (P3) is attestation+window gated
 _BACKEND_CACHE = None
 
 
@@ -2707,7 +2717,8 @@ def require_mcp_action(action_name):
 # names ('exec', 'upgrade') from v3.4.2 are still accepted on stored roles and
 # expanded to their granular members, so existing roles.json keeps working.
 _RBAC_PERMS = ('command', 'script', 'reboot', 'shutdown', 'patch',
-               'packages', 'containers', 'services', 'ssh', 'mitigate')
+               'packages', 'containers', 'services', 'ssh', 'mitigate',
+               'scan')   # v4.2.0 (B5): launch authorized security scans
 _PERM_ALIASES = {
     # legacy 'exec' covered everything that wasn't power/upgrade
     'exec':    frozenset({'command', 'script', 'packages', 'containers',
@@ -3770,6 +3781,7 @@ _ALERT_RULES = {
     'mailbox_threshold':      ('medium',   None),
     'custom_script_fail':     ('high',     None),
     'log_alert':              (None,       None),   # severity from payload.level
+    'scan_finding':           (None,       None),   # v4.2.0 (B5): from payload counts
     'metric_warning':         (None,       None),   # severity from payload.level
     # v3.2.0 follow-up: metric_critical was previously absent — a CRITICAL
     # threshold breach (CPU > 90%, memory > 95%, disk > 90%) fired the
@@ -3930,6 +3942,7 @@ CHANNEL_KINDS = [
     ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
     ('secrets',      'Exposed secrets on disk',  'operational',   ['secret_exposed']),
+    ('scan',         'Security scan findings',   'operational',   ['scan_finding']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4114,7 +4127,7 @@ def _alert_severity(event, payload):
         return sev
     # Payload-derived severity
     p = payload or {}
-    if event == 'cve_found':
+    if event in ('cve_found', 'scan_finding'):
         if int(p.get('critical') or 0) > 0:
             return 'critical'
         if int(p.get('high') or 0) > 0:
@@ -4179,6 +4192,9 @@ def _alert_title(event, payload):
     if event == 'cve_found':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'CVEs on {name}: {c} critical, {h} high'
+    if event == 'scan_finding':
+        c = p.get('critical') or 0; h = p.get('high') or 0
+        return f'Scan findings on {name}: {c} critical, {h} high'
     if event == 'drift_detected':
         # File-integrity drift carries the single watched path that changed.
         path = p.get('path') or '?'
@@ -5045,6 +5061,7 @@ def _webhook_title(event):
         'monitor_down':    'Monitor Down',
         'monitor_up':      'Monitor Recovered',
         'cve_found':       'New CVEs Detected',
+        'scan_finding':    'Security Scan Findings',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -10005,6 +10022,25 @@ def handle_heartbeat():
     ]
     if _agent_checks:
         common_resp['agent_checks'] = _agent_checks
+
+    # v4.2.0 (B5 P3): agent-side host scan (lynis). Post-lock, own file lock.
+    # (1) Ingest a finished result the agent reported in this heartbeat, then
+    # (2) hand the agent its next queued host-audit job. Best-effort: a failure
+    # here must never break the heartbeat.
+    _hsr = body.get('host_scan_result')
+    if isinstance(_hsr, dict) and _hsr.get('id'):
+        try:
+            _apply_scan_results(str(_hsr.get('id')), _hsr.get('status', 'done'),
+                                _hsr.get('findings') or [], _hsr.get('error', ''),
+                                by=f'agent:{dev_id}', restrict_device=dev_id)
+        except Exception as _hse:
+            sys.stderr.write(f'[remotepower] host_scan ingest failed: {_hse}\n')
+    try:
+        _hs = _claim_agent_scan(dev_id)
+        if _hs:
+            common_resp['host_scan'] = _hs
+    except Exception as _hse:
+        sys.stderr.write(f'[remotepower] host_scan dispatch failed: {_hse}\n')
 
     # v2.4.5: one-shot package-scan request. Only present (and true)
     # on the single heartbeat after the operator clicked "scan now".
@@ -25592,29 +25628,55 @@ def handle_satellites_list():
     respond(200, [{'id': sid, 'name': s.get('name', ''),
                    'created': s.get('created', 0),
                    'last_seen': s.get('last_seen'),
-                   'last_ip': s.get('last_ip', '')}
+                   'last_ip': s.get('last_ip', ''),
+                   'scanner': bool(s.get('scanner'))}   # v4.2.0 (B5)
                   for sid, s in (load(SATELLITES_FILE) or {}).items()])
 
 
 def handle_satellites_create():
-    """POST /api/satellites — mint a new satellite + token (shown once)."""
+    """POST /api/satellites — mint a new satellite + token (shown once).
+    Body: {name, scanner?}. `scanner:true` marks it a v4.2.0 (B5) scan worker
+    (may claim/complete scan jobs via the satellite token)."""
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    name = _sanitize_str((get_json_body() or {}).get('name', ''), 64)
+    body = get_json_body() or {}
+    name = _sanitize_str(body.get('name', ''), 64)
     if not name:
         respond(400, {'error': 'name required'})
+    scanner = bool(body.get('scanner'))
     sats = load(SATELLITES_FILE)
     if len(sats) >= 50:
         respond(400, {'error': 'satellite limit reached (max 50)'})
     token = secrets.token_urlsafe(32)
     sid = secrets.token_hex(8)
     sats[sid] = {'name': name, 'token_hash': _satellite_token_hash(token),
-                 'created': int(time.time()), 'last_seen': None, 'last_ip': ''}
+                 'created': int(time.time()), 'last_seen': None, 'last_ip': '',
+                 'scanner': scanner}
     save(SATELLITES_FILE, sats)
-    audit_log(actor, 'satellite_create', detail=f'name={name} id={sid}')
-    respond(201, {'ok': True, 'id': sid, 'token': token,
+    audit_log(actor, 'satellite_create',
+              detail=f'name={name} id={sid} scanner={scanner}')
+    respond(201, {'ok': True, 'id': sid, 'token': token, 'scanner': scanner,
                   'note': 'Set this as RP_SATELLITE_TOKEN on the satellite — shown once.'})
+
+
+def handle_satellites_update(sid):
+    """PATCH /api/satellites/<id> — toggle the scanner capability. Body:
+    {scanner: bool}."""
+    actor = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    sid = _sanitize_str(sid, 32)
+    scanner = bool((get_json_body() or {}).get('scanner'))
+    found = False
+    with _LockedUpdate(SATELLITES_FILE) as sats:
+        if sid in sats and isinstance(sats[sid], dict):
+            sats[sid]['scanner'] = scanner
+            found = True
+    if not found:
+        respond(404, {'error': 'satellite not found'})
+    audit_log(actor, 'satellite_update', detail=f'id={sid} scanner={scanner}')
+    respond(200, {'ok': True, 'scanner': scanner})
 
 
 def handle_satellites_delete(sid):
@@ -25627,6 +25689,563 @@ def handle_satellites_delete(sid):
         del sats[sid]
         save(SATELLITES_FILE, sats)
         audit_log(actor, 'satellite_delete', detail=f'id={sid} name={nm}')
+    respond(200, {'ok': True})
+
+
+# ── v4.2.0 (B5): authorized scan orchestration ──────────────────────────────
+# White-hat only. The CARDINAL control is server-side: a scan target is DERIVED
+# from an enrolled device the caller can see (require_perm('scan', [id]) — RBAC
+# permission + role scope), never taken from client input, and re-validated
+# against the SSRF-class denylist (`_ip_class_blocked`). P1 = enrolled hosts
+# only, one safe tool (nuclei passive), executed by a scanner-enabled relay
+# satellite that long-polls /api/scans/claim and posts normalised findings back.
+# The `scan_finding` webhook event + non-enrolled (domain-verified) targets are
+# P2 — deliberately NOT wired here.
+
+def _scan_target_for_device(dev):
+    """The address a scan job will probe for an enrolled device. Derived
+    server-side from the device's reported IP (never client-supplied) and
+    refused if it lands on an SSRF-class address (metadata/link-local/etc).
+    Returns (target, error); target is '' when unusable."""
+    ip = _sanitize_ip(dev.get('ip', '') or '')
+    if not ip:
+        return '', 'device has no known address to scan'
+    try:
+        if _ip_class_blocked(ip, allow_loopback=False):
+            return '', 'device address is in a blocked class (metadata/link-local/loopback)'
+    except ValueError:
+        return '', 'device address is not a valid IP'
+    return ip, ''
+
+
+def require_satellite_scanner():
+    """Authenticate a scanner-satellite worker via its X-RP-Satellite token and
+    require the scanner capability. Returns the satellite id. _record_satellite()
+    already 401s globally on an unknown token; this REQUIRES the header and that
+    the satellite is scanner-enabled."""
+    tok = os.environ.get('HTTP_X_RP_SATELLITE', '').strip()
+    if not tok:
+        respond(401, {'error': 'satellite token required'})
+    h = _satellite_token_hash(tok)
+    for sid, s in (load(SATELLITES_FILE) or {}).items():
+        if isinstance(s, dict) and s.get('token_hash') and \
+                hmac.compare_digest(s.get('token_hash', ''), h):
+            if not s.get('scanner'):
+                respond(403, {'error': 'satellite is not scanner-enabled'})
+            return sid
+    respond(401, {'error': 'invalid satellite token'})
+
+
+def _scan_sev_counts(findings):
+    out = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'info': 0, 'unknown': 0}
+    for f in (findings or []):
+        sv = str((f or {}).get('severity', 'unknown')).lower()
+        out[sv if sv in out else 'unknown'] += 1
+    return out
+
+
+def _scan_public(s):
+    """Public (metadata) view of a scan record — no findings body."""
+    return {
+        'id': s.get('id'), 'status': s.get('status'),
+        'target': s.get('target'), 'target_device_id': s.get('target_device_id'),
+        'target_name': s.get('target_name', ''),
+        'tool': s.get('tool'), 'profile': s.get('profile'),
+        'runner': s.get('runner', 'satellite'),
+        'actor': s.get('actor'), 'created': s.get('created'),
+        'claimed_by': s.get('claimed_by'), 'claimed_at': s.get('claimed_at'),
+        'finished_at': s.get('finished_at'), 'error': s.get('error', ''),
+        'attested': bool(s.get('attested')),
+        'window_overridden': bool(s.get('window_overridden')),
+        'finding_count': len(s.get('findings') or []),
+        'severity_counts': _scan_sev_counts(s.get('findings') or []),
+    }
+
+
+def _scan_window_active(dev_id, dev):
+    """True if an active maintenance window currently covers this device. Used
+    to gate active/intrusive scans away from peak hours (reuses _window_active,
+    the same predicate the alert-suppression path uses)."""
+    try:
+        windows = (load(MAINT_FILE) or {}).get('windows') or []
+    except Exception:
+        return False
+    now = int(time.time())
+    dev_group = (dev or {}).get('group') or ''
+    for w in windows:
+        scope = (w.get('scope') or 'device').lower()
+        applies = (scope == 'global'
+                   or (scope == 'group' and dev_group and w.get('target') == dev_group)
+                   or (scope == 'device' and dev_id and w.get('target') == dev_id))
+        if applies and _window_active(w, now):
+            return True
+    return False
+
+
+def handle_scans_list():
+    """GET /api/scans — scans visible to the caller (filtered to role scope by
+    target device). Newest first."""
+    require_perm('scan')
+    scope = _caller_scope()
+    devices = load(DEVICES_FILE) if scope is not None else None
+    scans = load(SCANS_FILE) or {}
+    out = []
+    for s in scans.values():
+        if not isinstance(s, dict):
+            continue
+        if scope is not None:
+            dev = (devices or {}).get(s.get('target_device_id') or '')
+            if not dev or not _device_in_scope(scope, dev):
+                continue
+        out.append(_scan_public(s))
+    out.sort(key=lambda r: r.get('created') or 0, reverse=True)
+    respond(200, {'scans': out, 'tools': list(SCAN_TOOLS),
+                  'profiles': list(SCAN_PROFILES)})
+
+
+def handle_scan_detail(scan_id):
+    """GET /api/scans/<id> — one scan incl. full findings (scope-checked)."""
+    require_perm('scan')
+    scan_id = _sanitize_str(scan_id, 32)
+    s = (load(SCANS_FILE) or {}).get(scan_id)
+    if not isinstance(s, dict):
+        respond(404, {'error': 'scan not found'})
+    scope = _caller_scope()
+    if scope is not None:
+        dev = load(DEVICES_FILE).get(s.get('target_device_id') or '')
+        if not dev or not _device_in_scope(scope, dev):
+            respond(404, {'error': 'scan not found'})
+    pub = _scan_public(s)
+    pub['findings'] = s.get('findings') or []
+    respond(200, pub)
+
+
+def handle_scans_create():
+    """POST /api/scans — queue an authorized scan. Two target forms:
+      • {device_id} — an ENROLLED host; target derived server-side from the
+        device record; RBAC scope enforced via require_perm('scan',[id]).
+      • {scan_target_id} — a VERIFIED non-enrolled target (B5 P2). Requires the
+        'scan' perm AND an all-scope caller (scoped roles only scan their hosts).
+    The target string is never taken from raw client input."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
+    st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
+    # Profile + tool first — the allowed tool set is profile-dependent.
+    tool = _sanitize_str(str(body.get('tool', 'nuclei')), 32) or 'nuclei'
+    is_host = tool in HOST_SCAN_TOOLS
+    if is_host:
+        # On-host audit (lynis) — run by the device's own agent, read-only; the
+        # passive/active profile axis (network intensity) doesn't apply.
+        profile = 'host'
+    else:
+        profile = _sanitize_str(str(body.get('profile', 'passive')), 32) or 'passive'
+        if profile not in SCAN_PROFILES:
+            respond(400, {'error': f'unsupported profile (supported: {", ".join(SCAN_PROFILES)})'})
+        allowed_tools = SCAN_ACTIVE_TOOLS if profile == 'active' else SCAN_TOOLS
+        if tool not in allowed_tools:
+            respond(400, {'error': f'tool {tool!r} not available in the {profile} '
+                                   f'profile (supported: {", ".join(allowed_tools)})'})
+    dev = None
+    if dev_id:
+        # RBAC: 'scan' permission AND the target must be inside the caller's scope.
+        actor = require_perm('scan', [dev_id])
+        dev = load(DEVICES_FILE).get(dev_id)
+        if not isinstance(dev, dict):
+            respond(404, {'error': 'Device not found'})
+        # CARDINAL CONTROL: target derived from the enrolled device, server-side.
+        target, terr = _scan_target_for_device(dev)
+        if terr:
+            respond(400, {'error': terr})
+        target_device_id, target_name = dev_id, dev.get('name', dev_id)
+    elif st_id:
+        if is_host:
+            respond(400, {'error': 'host-audit tools (lynis) run on an enrolled host — use device_id'})
+        actor = require_perm('scan')
+        if _caller_scope() is not None:
+            respond(403, {'error': 'scoped roles can only scan enrolled hosts in their scope'})
+        t = (load(SCAN_TARGETS_FILE) or {}).get(st_id)
+        if not isinstance(t, dict) or not t.get('verified'):
+            respond(400, {'error': 'scan target not found or not ownership-verified'})
+        target, target_device_id, target_name = t['target'], '', t['target']
+        # IP targets still honour the SSRF-class denylist (verified or not).
+        if t.get('kind') == 'ip':
+            try:
+                if _ip_class_blocked(target, allow_loopback=False):
+                    respond(400, {'error': 'target address is in a blocked class'})
+            except ValueError:
+                respond(400, {'error': 'invalid target address'})
+    else:
+        respond(400, {'error': 'device_id or scan_target_id required'})
+    # v4.2.0 P3: active/intrusive tier safety harness. Active scans send attack
+    # traffic, so they require (1) an explicit authorization ATTESTATION, and
+    # (2) for enrolled hosts, an active maintenance window (overridable) — so a
+    # fragile prod box isn't fuzzed at peak. Both are recorded on the scan.
+    attest_meta = {}
+    if profile == 'active':
+        if body.get('attestation') is not True:
+            respond(403, {'error': 'active scans require "attestation": true — '
+                          'affirm you are authorized to actively scan this target'})
+        overrode = False
+        if dev_id and not _scan_window_active(dev_id, dev):
+            if not body.get('override_window'):
+                respond(409, {'error': 'active scan needs an active maintenance '
+                              'window for this host — open one (Monitoring → '
+                              'Maintenance) or pass "override_window": true'})
+            overrode = True
+        attest_meta = {'attested': True, 'attested_by': actor,
+                       'attested_at': int(time.time()),
+                       'window_overridden': overrode}
+    sid = secrets.token_hex(8)
+    now = int(time.time())
+    rec = {
+        'id': sid, 'target_device_id': target_device_id,
+        'target_name': target_name, 'target': target,
+        'tool': tool, 'profile': profile, 'status': 'queued',
+        'runner': 'agent' if is_host else 'satellite',
+        'created': now, 'actor': actor, 'claimed_by': None,
+        'claimed_at': None, 'finished_at': None, 'findings': [], 'error': '',
+        **attest_meta,
+    }
+    with _LockedUpdate(SCANS_FILE) as scans:
+        # ring-buffer: drop oldest terminal scans once over the cap
+        if len(scans) >= MAX_SCANS:
+            terminal = sorted(
+                [k for k, v in scans.items()
+                 if isinstance(v, dict) and v.get('status') in ('done', 'failed', 'cancelled')],
+                key=lambda k: scans[k].get('created') or 0)
+            for k in terminal[:max(1, len(scans) - MAX_SCANS + 1)]:
+                del scans[k]
+        scans[sid] = rec
+    audit_log(actor, 'scan_create',
+              f'id={sid} device={target_device_id or "-"} tool={tool} '
+              f'profile={profile} target={target}'
+              + (f' attested window_overridden={attest_meta.get("window_overridden")}'
+                 if profile == 'active' else ''))
+    respond(201, {'ok': True, 'id': sid, 'scan': _scan_public(rec)})
+
+
+def handle_scan_cancel(scan_id):
+    """DELETE /api/scans/<id> — cancel a queued/running scan (scope-checked)."""
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    scan_id = _sanitize_str(scan_id, 32)
+    s0 = (load(SCANS_FILE) or {}).get(scan_id)
+    if not isinstance(s0, dict):
+        respond(404, {'error': 'scan not found'})
+    actor = require_perm('scan', [s0.get('target_device_id') or ''])
+    cancelled = False
+    with _LockedUpdate(SCANS_FILE) as scans:
+        s = scans.get(scan_id)
+        if isinstance(s, dict) and s.get('status') in ('queued', 'running'):
+            s['status'] = 'cancelled'
+            s['finished_at'] = int(time.time())
+            cancelled = True
+    if cancelled:
+        audit_log(actor, 'scan_cancel', f'id={scan_id}')
+    respond(200, {'ok': True, 'cancelled': cancelled})
+
+
+def handle_scan_claim():
+    """POST /api/scans/claim — a scanner satellite claims the next queued scan.
+    Authenticated by the satellite's (scanner-enabled) X-RP-Satellite token.
+    Returns {scan: {id,target,tool,profile}} or {scan: null}."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    sid_sat = require_satellite_scanner()
+    claimed = None
+    with _LockedUpdate(SCANS_FILE) as scans:
+        queued = sorted(
+            [v for v in scans.values()
+             if isinstance(v, dict) and v.get('status') == 'queued'
+             and v.get('runner') != 'agent'],   # agent-run host scans go via heartbeat
+            key=lambda v: v.get('created') or 0)
+        if queued:
+            job = queued[0]
+            job['status'] = 'running'
+            job['claimed_by'] = sid_sat
+            job['claimed_at'] = int(time.time())
+            claimed = {'id': job['id'], 'target': job['target'],
+                       'tool': job['tool'], 'profile': job['profile']}
+    if claimed:
+        audit_log(f'satellite:{sid_sat}', 'scan_claim',
+                  f"id={claimed['id']} target={claimed['target']}")
+    respond(200, {'scan': claimed})
+
+
+def _validate_scan_finding(f):
+    """Normalise + bound one worker-supplied finding to the stored shape."""
+    sev = str((f or {}).get('severity', 'unknown')).lower()
+    if sev not in ('critical', 'high', 'medium', 'low', 'info', 'unknown'):
+        sev = 'unknown'
+    return {
+        'rule_id':   _sanitize_str(str((f or {}).get('rule_id', '')), 200),
+        'title':     _sanitize_str(str((f or {}).get('title', '')), 300),
+        'severity':  sev,
+        'evidence':  _sanitize_str(str((f or {}).get('evidence', '')), 1000),
+        'reference': _sanitize_str(str((f or {}).get('reference', '')), 500),
+    }
+
+
+def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_device=None):
+    """Shared results-ingest for BOTH the satellite endpoint and the agent
+    heartbeat path. Moves a running scan → terminal and edge-fires scan_finding
+    on high/critical. Returns (ok, http_code).
+
+    `by` is the reporter (satellite id or 'agent:<dev>'). With restrict_device
+    set (agent path) the scan's target_device_id must match it — a host can only
+    complete ITS OWN scan. Otherwise claimed_by must match `by` (satellite path).
+    fire_webhook + audit run AFTER the lock commits."""
+    scan_id = _sanitize_str(str(scan_id), 32)
+    status = str(status).lower()
+    if status not in ('done', 'failed'):
+        status = 'done'
+    if not isinstance(findings_raw, list):
+        findings_raw = []
+    findings = [_validate_scan_finding(f) for f in findings_raw[:MAX_SCAN_FINDINGS]]
+    err = _sanitize_str(str(error or ''), 500)
+    fire_info = None
+    code = 409
+    with _LockedUpdate(SCANS_FILE) as scans:
+        s = scans.get(scan_id)
+        if not isinstance(s, dict) or s.get('status') != 'running':
+            code = 409
+        elif restrict_device is not None and s.get('target_device_id') != restrict_device:
+            code = 403
+        elif restrict_device is None and s.get('claimed_by') and s.get('claimed_by') != by:
+            code = 403
+        else:
+            s['status'] = status
+            s['findings'] = findings
+            s['error'] = err
+            s['finished_at'] = int(time.time())
+            fire_info = {'device_id': s.get('target_device_id'),
+                         'name': s.get('target_name', ''),
+                         'target': s.get('target', '')}
+            code = 200
+    if code != 200:
+        return False, code
+    counts = _scan_sev_counts(findings)
+    if status == 'done' and (counts['critical'] or counts['high']):
+        fire_webhook('scan_finding', {
+            'device_id':   fire_info['device_id'],
+            'device_name': fire_info['name'], 'name': fire_info['name'],
+            'target':      fire_info['target'], 'scan_id': scan_id,
+            'critical': counts['critical'], 'high': counts['high'],
+            'medium': counts['medium'], 'low': counts['low'],
+        })
+    audit_log(by, 'scan_results',
+              f'id={scan_id} status={status} findings={len(findings)}')
+    return True, 200
+
+
+def _claim_agent_scan(dev_id):
+    """Claim (queued→running) the oldest agent-run host scan for this device.
+    Returns {id, tool} to hand the agent, or None. Called POST-lock in the
+    heartbeat — SCANS_FILE has its own lock, so no nesting with DEVICES."""
+    claimed = None
+    with _LockedUpdate(SCANS_FILE) as scans:
+        cands = sorted(
+            [v for v in scans.values()
+             if isinstance(v, dict) and v.get('status') == 'queued'
+             and v.get('runner') == 'agent'
+             and v.get('target_device_id') == dev_id],
+            key=lambda v: v.get('created') or 0)
+        if cands:
+            j = cands[0]
+            j['status'] = 'running'
+            j['claimed_by'] = f'agent:{dev_id}'
+            j['claimed_at'] = int(time.time())
+            claimed = {'id': j['id'], 'tool': j['tool']}
+    return claimed
+
+
+def handle_scan_results(scan_id):
+    """POST /api/scans/<id>/results — scanner satellite posts SARIF-normalised
+    findings + terminal status. Only the satellite that claimed the job may
+    complete it (agent-run host scans report via the heartbeat instead)."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    sid_sat = require_satellite_scanner()
+    body = get_json_body() or {}
+    raw = body.get('findings')
+    if raw is not None and not isinstance(raw, list):
+        respond(400, {'error': 'findings must be a list'})
+    ok, code = _apply_scan_results(scan_id, body.get('status', 'done'),
+                                   raw or [], body.get('error', ''), by=sid_sat)
+    if not ok:
+        respond(code, {'error': ('scan claimed by another worker' if code == 403
+                                 else 'scan not in a running state')})
+    respond(200, {'ok': True})
+
+
+# ── v4.2.0 (B5 P2): ownership-verified scan targets (non-enrolled) ───────────
+# Enrolled hosts get free ownership proof via enrollment. To scan a domain/IP
+# that ISN'T a fleet host, the operator must first PROVE control of it — ACME
+# style — before it enters the scan allowlist. Two proofs: a DNS TXT record, or
+# a file at /.well-known/. Until `verified`, a target can never be scanned.
+
+def _classify_scan_target(s):
+    """('domain'|'ip', cleaned) for a scannable target, else (None, '').
+    Tolerates a pasted URL (scheme/path/port stripped)."""
+    s = (s or '').strip().lower()
+    if '://' in s:
+        s = s.split('://', 1)[1]
+    s = s.split('/', 1)[0].split('?', 1)[0]
+    # strip a :port suffix (but not part of an IPv6 literal)
+    if s.count(':') == 1:
+        s = s.split(':', 1)[0]
+    if not s:
+        return None, ''
+    try:
+        import ipaddress
+        ipaddress.ip_address(s)
+        return 'ip', s
+    except ValueError:
+        pass
+    if re.match(r'^(?=.{1,253}$)([a-z0-9_](-?[a-z0-9_]){0,62}\.)+[a-z]{2,}$', s):
+        return 'domain', s
+    return None, ''
+
+
+def _verify_scan_target_dns(target, token):
+    """Look for the proof token in a TXT record at _remotepower-scan-auth.<t>."""
+    try:
+        import dns.resolver
+    except ImportError:
+        return False, 'DNS verification unavailable (dnspython not installed)'
+    name = f'_remotepower-scan-auth.{target}'
+    try:
+        answers = dns.resolver.resolve(name, 'TXT')
+    except Exception:
+        return False, f'no TXT record found at {name}'
+    for rdata in answers:
+        parts = getattr(rdata, 'strings', None)
+        txt = (b''.join(parts).decode('utf-8', 'ignore') if parts
+               else str(rdata).strip('"'))
+        if token in txt:
+            return True, ''
+    return False, f'proof token not present in {name} TXT'
+
+
+def _verify_scan_target_file(target, token):
+    """Look for the proof token in /.well-known/remotepower-scan-authorization.txt,
+    fetched through the anti-rebinding, no-redirect SSRF-safe opener."""
+    path = '/.well-known/remotepower-scan-authorization.txt'
+    for scheme in ('https', 'http'):
+        url = f'{scheme}://{target}{path}'
+        try:
+            _ctx = _get_ssl_context() if scheme == 'https' else None
+            opener = _ssrf_safe_opener(allow_loopback=True, ssl_ctx=_ctx,
+                                       no_redirect=True)
+            req = urllib.request.Request(url, headers={'Accept': 'text/plain'})
+            with opener.open(req, timeout=8) as resp:
+                body = resp.read(4096).decode('utf-8', 'ignore')
+            if token in body:
+                return True, ''
+        except Exception:
+            continue
+    return False, f'proof token not found at {path}'
+
+
+def _scan_target_public(t):
+    return {'id': t.get('id'), 'target': t.get('target'), 'kind': t.get('kind'),
+            'verified': bool(t.get('verified')), 'verified_at': t.get('verified_at'),
+            'method': t.get('method', ''), 'created': t.get('created'),
+            'actor': t.get('actor', '')}
+
+
+def handle_scan_targets_list():
+    """GET /api/scan-targets — registered non-enrolled targets (no tokens)."""
+    require_perm('scan')
+    targets = load(SCAN_TARGETS_FILE) or {}
+    out = sorted((_scan_target_public(t) for t in targets.values()
+                  if isinstance(t, dict)),
+                 key=lambda r: r.get('created') or 0, reverse=True)
+    respond(200, {'targets': out})
+
+
+def handle_scan_targets_create():
+    """POST /api/scan-targets — register a domain/IP to verify ownership of.
+    Returns the proof (DNS TXT + /.well-known file). Admin-only; the target is
+    NOT scannable until /verify succeeds."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    raw = _sanitize_str(str((get_json_body() or {}).get('target', '')), 253)
+    kind, target = _classify_scan_target(raw)
+    if not kind:
+        respond(400, {'error': 'target must be a valid domain or IP address'})
+    targets = load(SCAN_TARGETS_FILE) or {}
+    for t in targets.values():
+        if isinstance(t, dict) and t.get('target') == target:
+            respond(409, {'error': 'target already registered'})
+    if len(targets) >= 200:
+        respond(400, {'error': 'scan-target limit reached (max 200)'})
+    tid = secrets.token_hex(8)
+    token = 'rpscan-' + secrets.token_urlsafe(24)
+    rec = {'id': tid, 'target': target, 'kind': kind, 'token': token,
+           'verified': False, 'verified_at': None, 'method': '',
+           'created': int(time.time()), 'actor': actor}
+    targets[tid] = rec
+    save(SCAN_TARGETS_FILE, targets)
+    audit_log(actor, 'scan_target_create', f'target={target} kind={kind}')
+    respond(201, {
+        'ok': True, 'id': tid, 'target': target, 'kind': kind, 'token': token,
+        'dns': ({'name': f'_remotepower-scan-auth.{target}', 'type': 'TXT',
+                 'value': token} if kind == 'domain' else None),
+        'file': {'path': '/.well-known/remotepower-scan-authorization.txt',
+                 'content': token},
+        'note': 'Publish EITHER proof, then POST /verify. Until verified, this '
+                'target cannot be scanned.',
+    })
+
+
+def handle_scan_target_verify(tid):
+    """POST /api/scan-targets/<id>/verify — attempt DNS then file proof."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    tid = _sanitize_str(tid, 32)
+    t = (load(SCAN_TARGETS_FILE) or {}).get(tid)
+    if not isinstance(t, dict):
+        respond(404, {'error': 'scan target not found'})
+    ok, used, err = False, '', ''
+    if t.get('kind') == 'domain':
+        ok, err = _verify_scan_target_dns(t['target'], t['token'])
+        if ok:
+            used = 'dns'
+    if not ok:
+        ok2, err2 = _verify_scan_target_file(t['target'], t['token'])
+        if ok2:
+            ok, used = True, 'file'
+        else:
+            err = err or err2
+    if ok:
+        with _LockedUpdate(SCAN_TARGETS_FILE) as st:
+            if tid in st:
+                st[tid]['verified'] = True
+                st[tid]['verified_at'] = int(time.time())
+                st[tid]['method'] = used
+        audit_log(actor, 'scan_target_verify', f'target={t["target"]} method={used}')
+        respond(200, {'ok': True, 'verified': True, 'method': used})
+    audit_log(actor, 'scan_target_verify_fail', f'target={t["target"]}')
+    respond(200, {'ok': False, 'verified': False, 'error': err or 'verification failed'})
+
+
+def handle_scan_target_delete(tid):
+    """DELETE /api/scan-targets/<id> — drop a registered target."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    tid = _sanitize_str(tid, 32)
+    targets = load(SCAN_TARGETS_FILE)
+    if tid in targets:
+        tg = targets[tid].get('target', '')
+        del targets[tid]
+        save(SCAN_TARGETS_FILE, targets)
+        audit_log(actor, 'scan_target_delete', f'id={tid} target={tg}')
     respond(200, {'ok': True})
 
 
@@ -37953,6 +38572,13 @@ def _build_exact_routes():
         # v3.12.0: relay satellites
         ('GET', '/api/satellites'): handle_satellites_list,
         ('POST', '/api/satellites'): handle_satellites_create,
+        # v4.2.0 (B5): authorized scan orchestration. /claim is exact so it
+        # matches before the '/api/scans/<id>' prefix routes below.
+        ('GET', '/api/scans'): handle_scans_list,
+        ('POST', '/api/scans'): handle_scans_create,
+        ('POST', '/api/scans/claim'): handle_scan_claim,
+        ('GET', '/api/scan-targets'): handle_scan_targets_list,
+        ('POST', '/api/scan-targets'): handle_scan_targets_create,
         ('GET', '/api/services'): handle_services_get,
         (None, '/api/shutdown'): handle_shutdown,
         ('POST', '/api/smtp/test'): handle_smtp_test,
@@ -38318,6 +38944,21 @@ def _dispatch(pi, m):
         handle_user_avatar(pi[len('/api/users/'):-len('/avatar')])
     elif pi.startswith('/api/satellites/') and m == 'DELETE':
         handle_satellites_delete(pi[len('/api/satellites/'):])
+    elif pi.startswith('/api/satellites/') and m == 'PATCH':
+        handle_satellites_update(pi[len('/api/satellites/'):])
+    # v4.2.0 (B5): scan detail / cancel / results-ingest (prefix-matched;
+    # exact GET|POST /api/scans + POST /api/scans/claim handled above).
+    elif pi.startswith('/api/scans/') and pi.endswith('/results') and m == 'POST':
+        handle_scan_results(pi[len('/api/scans/'):-len('/results')])
+    elif pi.startswith('/api/scans/') and m == 'GET':
+        handle_scan_detail(pi[len('/api/scans/'):])
+    elif pi.startswith('/api/scans/') and m == 'DELETE':
+        handle_scan_cancel(pi[len('/api/scans/'):])
+    # v4.2.0 (B5 P2): scan-target ownership verification (exact GET|POST above).
+    elif pi.startswith('/api/scan-targets/') and pi.endswith('/verify') and m == 'POST':
+        handle_scan_target_verify(pi[len('/api/scan-targets/'):-len('/verify')])
+    elif pi.startswith('/api/scan-targets/') and m == 'DELETE':
+        handle_scan_target_delete(pi[len('/api/scan-targets/'):])
     elif pi.startswith('/api/me/sessions/') and m == 'DELETE':
         handle_me_session_revoke(pi[len('/api/me/sessions/'):])
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':

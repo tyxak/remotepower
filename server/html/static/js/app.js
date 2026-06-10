@@ -1300,6 +1300,7 @@ function showPage(name, btn) {
   if (name === 'scripts')  loadScripts();
   if (name === 'patches')        loadPatchReport();
   if (name === 'cve')            loadCVEReport();
+  if (name === 'scans')          loadScans();
   if (name === 'services') loadServicesReport();
   if (name === 'maintenance') loadMaintenance();
   if (name === 'logs')     enterLogsPage();
@@ -6541,6 +6542,220 @@ async function loadCVEReport() {
   _renderKevFeedStatus(data.kev_feed);
   tableCtl.render('cves', data.devices || []);
 }
+
+// ── v4.2.0 (B5): Security Scans — authorized scans against enrolled hosts ────
+let _scansRegistered = false;
+let scansData = [];
+
+function _registerScansTable() {
+  if (_scansRegistered) return;
+  _scansRegistered = true;
+  tableCtl.register({
+    name: 'scans',
+    tbody: 'scans-tbody',
+    filterInput: 'scans-filter',
+    sortHeaders: 'scans-thead',
+    colspan: 8,
+    columns: ['target', 'status', 'critical', 'high', 'medium', 'low', 'created'],
+    getColumns: (s) => ({
+      target:   (s.target_name || '') + ' ' + (s.target || ''),
+      status:   s.status || '',
+      critical: s.severity_counts?.critical || 0,
+      high:     s.severity_counts?.high || 0,
+      medium:   s.severity_counts?.medium || 0,
+      low:      s.severity_counts?.low || 0,
+      created:  s.created || 0,
+    }),
+    row: (s) => {
+      const sc = s.severity_counts || {};
+      const statusColor = { queued: 'c-muted', running: 'c-amber', done: 'c-green',
+                            failed: 'c-red', cancelled: 'c-muted' }[s.status] || 'c-muted';
+      const cell = (n, cls) => n > 0 ? `<td class="ta-center ${cls}">${n}</td>` : '<td class="ta-center c-muted">0</td>';
+      const when = s.created ? new Date(s.created * 1000).toLocaleString() : '—';
+      const cancelBtn = (s.status === 'queued' || s.status === 'running')
+        ? ` <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cancelScanBtn" data-scan-id="${escAttr(s.id)}" title="Cancel this scan">Cancel</button>`
+        : '';
+      return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${cancelBtn}</td></tr>`;
+    },
+    emptyMsg: 'No scans yet. Select an enrolled device and queue one.',
+    emptyMsgFiltered: 'No scans match the filter.',
+  });
+}
+
+async function _populateScanDevicePicker() {
+  const sel = document.getElementById('scan-device');
+  if (!sel || sel.dataset.loaded) return;
+  const devs = await api('GET', '/devices?slim=1');
+  if (!devs || devs.error) return;
+  const list = Array.isArray(devs) ? devs : (devs.devices || []);
+  const opts = list
+    .slice()
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    .map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` (${escHtml(d.ip)})` : ''}</option>`)
+    .join('');
+  sel.innerHTML = '<option value="">Select a device to scan…</option>' + opts;
+  sel.dataset.loaded = '1';
+}
+
+async function loadScans() {
+  _registerScansTable();
+  _populateScanDevicePicker();
+  const tbody = document.getElementById('scans-tbody');
+  if (tbody) tbody.innerHTML = '<tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr>';
+  const data = await api('GET', '/scans');
+  if (!data || data.error) return;
+  scansData = data.scans || [];
+  let crit = 0, high = 0, running = 0;
+  for (const s of scansData) {
+    crit += s.severity_counts?.critical || 0;
+    high += s.severity_counts?.high || 0;
+    if (s.status === 'running' || s.status === 'queued') running++;
+  }
+  document.getElementById('scan-stat-total').textContent = scansData.length;
+  document.getElementById('scan-stat-critical').textContent = crit;
+  document.getElementById('scan-stat-high').textContent = high;
+  document.getElementById('scan-stat-running').textContent = running;
+  tableCtl.render('scans', scansData);
+  loadScanTargets();
+}
+
+function _selectedScanTool() {
+  const t = document.getElementById('scan-tool');
+  return (t && t.value) || 'nuclei';
+}
+
+// Build the shared scan options (tool/profile + active-tier attestation).
+// Returns null if the active tier is selected without the authorization box.
+function _scanOptions() {
+  const profile = (document.getElementById('scan-profile') || {}).value || 'passive';
+  const opts = { tool: _selectedScanTool(), profile };
+  if (profile === 'active') {
+    const attest = document.getElementById('scan-attest');
+    if (!attest || !attest.checked) {
+      toast('Active scans send attack traffic — tick the authorization box first.', 'error');
+      return null;
+    }
+    opts.attestation = true;
+    const ov = document.getElementById('scan-override');
+    if (ov && ov.checked) opts.override_window = true;
+  }
+  return opts;
+}
+
+async function queueScan() {
+  const sel = document.getElementById('scan-device');
+  const devId = sel && sel.value;
+  if (!devId) { toast('Select a device to scan first.', 'info'); return; }
+  const opts = _scanOptions();
+  if (!opts) return;
+  const res = await api('POST', '/scans', { device_id: devId, ...opts });
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  toast('Scan queued — runs on the next scanner-satellite poll.', 'success');
+  loadScans();
+}
+
+async function viewScan(scanId) {
+  const data = await api('GET', '/scans/' + encodeURIComponent(scanId));
+  if (!data) return;
+  if (data.error) { toast(data.error, 'error'); return; }
+  const box = document.getElementById('scan-detail');
+  document.getElementById('scan-detail-target').textContent =
+    (data.target_name || '') + ' (' + (data.target || '') + ')';
+  const body = document.getElementById('scan-detail-body');
+  const findings = data.findings || [];
+  if (!findings.length) {
+    body.innerHTML = `<div class="empty-state">${data.status === 'done' ? 'No findings — clean scan.' : 'No findings yet (status: ' + escHtml(data.status) + ').'}${data.error ? ' Error: ' + escHtml(data.error) : ''}</div>`;
+  } else {
+    const order = { critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 };
+    const sevColor = { critical: 'c-red', high: 'c-red', medium: 'c-amber', low: 'c-muted', info: 'c-muted', unknown: 'c-muted' };
+    const sorted = findings.slice().sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+    body.innerHTML = sorted.map(f =>
+      `<div class="mb-8"><span class="${sevColor[f.severity] || 'c-muted'} fw-500">${escHtml(f.severity)}</span> <strong>${escHtml(f.title || f.rule_id)}</strong>${f.rule_id ? ` <span class="hint">${escHtml(f.rule_id)}</span>` : ''}${f.evidence ? `<div class="hint">${escHtml(f.evidence)}</div>` : ''}${f.reference ? `<div class="hint"><a href="${escAttr(f.reference)}" target="_blank" rel="noopener" class="c-accent">reference</a></div>` : ''}</div>`
+    ).join('');
+  }
+  box.classList.remove('hidden');
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function cancelScan(scanId) {
+  const res = await api('DELETE', '/scans/' + encodeURIComponent(scanId));
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  toast(res.cancelled ? 'Scan cancelled.' : 'Scan was not cancellable.', res.cancelled ? 'success' : 'info');
+  loadScans();
+}
+
+function _viewScanBtn(btn)   { viewScan(btn.dataset.scanId); }
+function _cancelScanBtn(btn) { cancelScan(btn.dataset.scanId); }
+
+// ── B5 P2: verified non-enrolled scan targets (ACME-style ownership proof) ───
+let _scanTargetProofs = {};   // id -> {token, dns, file} captured at create time
+
+async function loadScanTargets() {
+  const box = document.getElementById('scan-targets-list');
+  if (!box) return;
+  const data = await api('GET', '/scan-targets');
+  if (!data || data.error) return;
+  const targets = data.targets || [];
+  if (!targets.length) {
+    box.innerHTML = '<div class="empty-state">No external targets. Add a domain or IP you own to scan it.</div>';
+    return;
+  }
+  box.innerHTML = targets.map(t => {
+    const proof = _scanTargetProofs[t.id];
+    const badge = t.verified
+      ? `<span class="c-green fw-500">verified</span> <span class="hint">via ${escHtml(t.method || '')}</span>`
+      : '<span class="c-amber fw-500">unverified</span>';
+    const actions = t.verified
+      ? `<button class="btn-icon cell-sm" data-action="scanTarget" data-arg="${escAttr(t.id)}">Scan</button>`
+      : `<button class="btn-icon cell-sm" data-action="verifyScanTarget" data-arg="${escAttr(t.id)}">Verify</button>`;
+    const proofBlock = (!t.verified && proof)
+      ? `<div class="hint mb-8">Publish ONE proof, then Verify:<br>• DNS TXT <code>${escHtml(proof.dns ? proof.dns.name : '(IP target — use file)')}</code>${proof.dns ? ` = <code>${escHtml(proof.dns.value)}</code>` : ''}<br>• File <code>${escHtml(proof.file.path)}</code> containing <code>${escHtml(proof.file.content)}</code></div>`
+      : '';
+    return `<div class="mb-8"><strong>${escHtml(t.target)}</strong> <span class="hint">${escHtml(t.kind)}</span> — ${badge} ${actions} <button class="btn-icon cell-sm" data-action="deleteScanTarget" data-arg="${escAttr(t.id)}">Remove</button>${proofBlock}</div>`;
+  }).join('');
+}
+
+async function addScanTarget() {
+  const inp = document.getElementById('scan-target-input');
+  const target = inp && inp.value.trim();
+  if (!target) { toast('Enter a domain or IP.', 'info'); return; }
+  const res = await api('POST', '/scan-targets', { target });
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  _scanTargetProofs[res.id] = { token: res.token, dns: res.dns, file: res.file };
+  inp.value = '';
+  toast('Target added — publish the proof shown, then Verify.', 'success');
+  loadScanTargets();
+}
+
+async function verifyScanTarget(id) {
+  const res = await api('POST', '/scan-targets/' + encodeURIComponent(id) + '/verify');
+  if (!res) return;
+  if (res.error && !('verified' in res)) { toast(res.error, 'error'); return; }
+  toast(res.verified ? 'Ownership verified — you can scan it now.' : ('Not verified: ' + (res.error || 'proof not found')),
+        res.verified ? 'success' : 'error');
+  loadScanTargets();
+}
+
+async function scanTarget(id) {
+  const opts = _scanOptions();
+  if (!opts) return;
+  const res = await api('POST', '/scans', { scan_target_id: id, ...opts });
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  toast('Scan queued for the target.', 'success');
+  loadScans();
+}
+
+async function deleteScanTarget(id) {
+  const res = await api('DELETE', '/scan-targets/' + encodeURIComponent(id));
+  if (!res || res.error) { if (res && res.error) toast(res.error, 'error'); return; }
+  delete _scanTargetProofs[id];
+  loadScanTargets();
+}
+
 // v3.14.0 fix: show the KEV/EPSS feed state so "why is there no KEV?" is clear —
 // distinguishes a not-yet-loaded / errored feed from genuinely-zero KEV hits.
 function _renderKevFeedStatus(f) {
@@ -13677,6 +13892,8 @@ function _renderHomeActivity(fleetEvents) {
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
     'secret_exposed',
+    // v4.2.0 (B5): authorized scan high/critical finding
+    'scan_finding',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -13844,6 +14061,9 @@ function _homeActivityAttrs(event, p) {
     // v3.14.0 #35: exposed secret → open the affected host's drawer.
     case 'secret_exposed':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    // v4.2.0 (B5): scan findings route to the Security Scans page
+    case 'scan_finding':
+      return `${base} data-home-act="scans"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -21552,6 +21772,7 @@ function _homeNavAction(btn) {
     case 'home':     showPage('home',            document.querySelector('.nav-btn[data-page="home"]')); break;
     // v3.11.0 posture pages
     case 'exposure': showPage('exposure',        document.querySelector('.nav-btn[data-page="exposure"]')); break;
+    case 'scans':    showPage('scans',            document.querySelector('.nav-btn[data-page="scans"]')); break;
     case 'storage':  showPage('storage',         document.querySelector('.nav-btn[data-page="storage"]')); break;
     case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;

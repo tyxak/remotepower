@@ -5,7 +5,9 @@ services:
     # image: tyxak/remotepower:latest
     container_name: remotepower
     ports:
-      - "8080:8080"
+      # Host port defaults to 8085 (8080 clashes on many machines). Override
+      # with:  RP_HOST_PORT=NNNN docker compose up -d
+      - "${RP_HOST_PORT:-8085}:8080"
     environment:
       - RP_ADMIN_USER=admin
       - RP_ADMIN_PASS=changeme          # Change this! Only used on first run.
