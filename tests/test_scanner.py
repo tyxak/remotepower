@@ -165,12 +165,22 @@ class TestDispatch(unittest.TestCase):
         # NB: deliberately NOT --read-only (it blocks the tools' scratch writes →
         # 0 findings). The other hardening flags must still be present.
         for tool_argv in (sc._nmap_argv('10.0.0.5', 'active'),
-                          sc._zap_argv('example.com', 'active')):
+                          sc._zap_argv('example.com', 'active', '/tmp/wd', 'report.json')):
             if sc.RUNNER in ('docker', 'podman'):
                 for flag in ('--rm', '--cap-drop', 'ALL', '--pids-limit',
                              '--security-opt', 'no-new-privileges'):
                     self.assertIn(flag, tool_argv)
                 self.assertNotIn('--read-only', tool_argv)
+
+    def test_report_tools_mount_workdir(self):
+        # zap/wapiti write a report FILE; the runner mounts a host workdir and
+        # passes a report path the worker reads back.
+        if sc.RUNNER in ('docker', 'podman'):
+            zap = sc._zap_argv('example.com', 'active', '/tmp/wd', 'report.json')
+            self.assertIn('/tmp/wd:/zap/wrk:rw', zap)
+            self.assertIn('report.json', zap)
+            wap = sc._wapiti_argv('example.com', 'active', '/tmp/wd', 'report.json')
+            self.assertIn('/tmp/wd:/output:rw', wap)
 
     def test_nikto_does_not_force_ssl(self):
         self.assertNotIn('-ssl', sc._nikto_argv('example.com', 'passive'))

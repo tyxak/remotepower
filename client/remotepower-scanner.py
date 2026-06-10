@@ -276,35 +276,42 @@ def _nmap_argv(target, profile):
         '-sV', '-Pn', '-T3', '--script', scripts, '-oX', '-', target])
 
 
-def _zap_argv(target, profile):
-    # ACTIVE-only: zap-full-scan runs a real active scan; JSON to stdout.
+def _zap_argv(target, profile, workdir, report):
+    # ACTIVE-only. zap-full-scan writes its JSON report into the work dir
+    # (/zap/wrk); mount the host workdir there and read it back. -I = don't fail
+    # the container on warnings.
     return _sandbox(_TOOL_IMAGE['zap'], [
-        'zap-full-scan.py', '-t', _target_url(target), '-J', '/dev/stdout', '-I'])
+        'zap-full-scan.py', '-t', _target_url(target), '-J', report, '-I'],
+        volumes=[f'{workdir}:/zap/wrk:rw'])
 
 
-def _wapiti_argv(target, profile):
-    # ACTIVE-only: wapiti fuzzes; JSON report to stdout.
+def _wapiti_argv(target, profile, workdir, report):
+    # ACTIVE-only. wapiti fuzzes and writes a JSON report to -o; mount the host
+    # workdir at /output and read it back.
     return _sandbox(_TOOL_IMAGE['wapiti'], [
         '-u', _target_url(target), '--flush-session', '-f', 'json',
-        '-o', '/dev/stdout', '--max-scan-time', str(SCAN_TIMEOUT)])
+        '-o', f'/output/{report}', '--max-scan-time', str(SCAN_TIMEOUT)],
+        volumes=[f'{workdir}:/output:rw'])
 
 
-TOOL_RUNNERS = {
+# Tools that stream their report to stdout (argv_fn(target, profile)).
+STDOUT_TOOLS = {
     'nuclei': (_nuclei_argv, _parse_nuclei),
     'nikto':  (_nikto_argv,  _parse_nikto),
     'nmap':   (_nmap_argv,   _parse_nmap_xml),
+}
+# Tools that write a JSON report FILE (argv_fn(target, profile, workdir, report)).
+REPORT_TOOLS = {
     'zap':    (_zap_argv,    _parse_zap),
     'wapiti': (_wapiti_argv, _parse_wapiti),
 }
+# Union, for membership checks (the worker + UI ask "is this a known tool?").
+TOOL_RUNNERS = {**STDOUT_TOOLS, **REPORT_TOOLS}
+_REPORT_NAME = 'report.json'
 
 
-def _run_tool(tool, target, profile='passive'):
-    """Dispatch to a tool runner. Returns (findings, error)."""
-    spec = TOOL_RUNNERS.get(tool)
-    if not spec:
-        return [], f'unsupported tool {tool}'
-    argv_fn, parse_fn = spec
-    stdout, stderr, err = _run(argv_fn(target, profile))
+def _run_stdout_tool(argv, parse_fn):
+    stdout, stderr, err = _run(argv)
     if err:
         return [], err
     findings = parse_fn(stdout)
@@ -314,6 +321,44 @@ def _run_tool(tool, target, profile='passive'):
     if not findings and not stdout.strip() and stderr.strip():
         return [], 'tool produced no output: ' + stderr.strip().splitlines()[-1][:200]
     return findings, ''
+
+
+def _run_report_tool(argv_fn, parse_fn, target, profile):
+    """For tools that write a JSON report FILE (zap, wapiti): mount a fresh host
+    temp dir as the container work dir, run, read the report back, parse, clean
+    up. The dir is world-writable so a tool running as a non-root container uid
+    (e.g. ZAP's uid 1000) can write into it."""
+    import shutil
+    import tempfile
+    workdir = tempfile.mkdtemp(prefix='rp-scan-')
+    try:
+        try:
+            os.chmod(workdir, 0o777)
+        except OSError:
+            pass
+        _, stderr, err = _run(argv_fn(target, profile, workdir, _REPORT_NAME))
+        if err:
+            return [], err
+        try:
+            with open(os.path.join(workdir, _REPORT_NAME), 'r', errors='replace') as f:
+                text = f.read()
+        except FileNotFoundError:
+            tail = stderr.strip().splitlines()[-1][:200] if stderr.strip() else ''
+            return [], 'no report produced' + (f': {tail}' if tail else '')
+        return parse_fn(text), ''
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _run_tool(tool, target, profile='passive'):
+    """Dispatch to a tool runner. Returns (findings, error)."""
+    if tool in STDOUT_TOOLS:
+        argv_fn, parse_fn = STDOUT_TOOLS[tool]
+        return _run_stdout_tool(argv_fn(target, profile), parse_fn)
+    if tool in REPORT_TOOLS:
+        argv_fn, parse_fn = REPORT_TOOLS[tool]
+        return _run_report_tool(argv_fn, parse_fn, target, profile)
+    return [], f'unsupported tool {tool}'
 
 
 # --- main loop --------------------------------------------------------------
