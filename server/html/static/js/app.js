@@ -6582,24 +6582,65 @@ function _registerScansTable() {
   });
 }
 
-async function _populateScanDevicePicker() {
-  const sel = document.getElementById('scan-device');
-  if (!sel || sel.dataset.loaded) return;
-  const devs = await api('GET', '/devices?slim=1');
-  if (!devs || devs.error) return;
-  const list = Array.isArray(devs) ? devs : (devs.devices || []);
-  const opts = list
-    .slice()
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-    .map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` (${escHtml(d.ip)})` : ''}</option>`)
-    .join('');
-  sel.innerHTML = '<option value="">Select a device to scan…</option>' + opts;
-  sel.dataset.loaded = '1';
+// Device selection is a SEARCH typeahead (never a dropdown — it would pile up
+// at fleet scale), backed by the same window._devicesCache the global omnisearch
+// palette uses. Type → filtered matches → pick one.
+let _scanSelectedDevice = null;
+let _scanDeviceSearchWired = false;
+
+async function _scanDeviceList() {
+  if (window._devicesCache && window._devicesCache.length) return window._devicesCache;
+  const d = await api('GET', '/devices?slim=1');
+  if (Array.isArray(d)) window._devicesCache = d;
+  return window._devicesCache || [];
+}
+
+async function _renderScanDeviceResults(term) {
+  const box = document.getElementById('scan-device-results');
+  if (!box) return;
+  const devs = await _scanDeviceList();
+  const q = (term || '').toLowerCase().trim();
+  let matches = devs;
+  if (q) {
+    matches = devs.filter(d =>
+      (d.name || '').toLowerCase().includes(q) ||
+      (d.ip || '').toLowerCase().includes(q) ||
+      (d.hostname || '').toLowerCase().includes(q) ||
+      (d.group || '').toLowerCase().includes(q) ||
+      (d.tags || []).some(t => (t || '').toLowerCase().includes(q)));
+  }
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d =>
+        `<div class="pointer mb-8" data-action="pickScanDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}</div>`).join('')
+    : '<div class="empty-state">No matching devices.</div>';
+  box.classList.remove('hidden');
+}
+
+function _wireScanDeviceSearch() {
+  if (_scanDeviceSearchWired) return;
+  const inp = document.getElementById('scan-device-search');
+  if (!inp) return;
+  _scanDeviceSearchWired = true;
+  inp.addEventListener('input', () => { _scanSelectedDevice = null; _renderScanDeviceResults(inp.value); });
+  inp.addEventListener('focus', () => _renderScanDeviceResults(inp.value));
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#scan-device-results') && e.target !== inp) {
+      document.getElementById('scan-device-results')?.classList.add('hidden');
+    }
+  });
+}
+
+function pickScanDevice(id, name) {
+  _scanSelectedDevice = { id, name };
+  const inp = document.getElementById('scan-device-search');
+  if (inp) inp.value = name;
+  document.getElementById('scan-device-results')?.classList.add('hidden');
 }
 
 async function loadScans() {
   _registerScansTable();
-  _populateScanDevicePicker();
+  _wireScanDeviceSearch();
   const tbody = document.getElementById('scans-tbody');
   if (tbody) tbody.innerHTML = '<tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr>';
   const data = await api('GET', '/scans');
@@ -6643,12 +6684,10 @@ function _scanOptions() {
 }
 
 async function queueScan() {
-  const sel = document.getElementById('scan-device');
-  const devId = sel && sel.value;
-  if (!devId) { toast('Select a device to scan first.', 'info'); return; }
+  if (!_scanSelectedDevice) { toast('Search and pick a device to scan first.', 'info'); return; }
   const opts = _scanOptions();
   if (!opts) return;
-  const res = await api('POST', '/scans', { device_id: devId, ...opts });
+  const res = await api('POST', '/scans', { device_id: _scanSelectedDevice.id, ...opts });
   if (!res) return;
   if (res.error) { toast(res.error, 'error'); return; }
   toast('Scan queued — runs on the next scanner-satellite poll.', 'success');

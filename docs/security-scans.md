@@ -1,4 +1,4 @@
-# Security Scans — how to run an authorized scan
+# Pentest — how to run an authorized scan
 
 Security Scans let you run a real vulnerability scan (nuclei / nikto / nmap)
 against a host or website **you own**, and see the findings in the dashboard.
@@ -70,8 +70,8 @@ running forever, see **Run the scanner as a service** at the bottom.)
 
 ## Part 2 — Scan an enrolled host (the easy path, 3 clicks)
 
-1. In the sidebar, open **Monitoring → Scans**.
-2. **Pick a device** from the "Select a device to scan…" dropdown.
+1. In the sidebar, open **Monitoring → Pentest**.
+2. **Search and pick the device** in the device search box (type a name, IP, or group).
 3. **Pick a tool** (`nuclei` is the default and a good first choice).
 4. Click **Queue scan**.
 
@@ -90,7 +90,7 @@ You're done. That is the whole loop.
 Domains that aren't enrolled hosts need a **one-time ownership check** first
 (the same idea as proving a domain to a TLS certificate authority).
 
-1. On the **Scans** page, find the **Verified web targets** box.
+1. On the **Pentest** page, find the **Verified web targets** box.
 2. Type your domain or IP (e.g. `example.com`) and click **Add target**.
 3. RemotePower shows you **two proofs** — do **either one**:
 
@@ -117,7 +117,7 @@ Each finding shows a **severity**, a **title**, the **rule** that fired, and the
 - **Critical / High** findings also raise an **alert** (Alerts inbox) and fire
   any notification channels you've configured (Slack, email, etc.), and appear
   in the dashboard activity feed.
-- **Medium / Low / Info** findings stay on the Scans page only — they won't
+- **Medium / Low / Info** findings stay on the Pentest page only — they won't
   page you.
 
 The four stat cards at the top of the page show fleet-wide totals: how many
@@ -135,7 +135,7 @@ permissions, sshd/PAM config, sysctl, accounts) that a network scan can't see.
 It's the easiest one to use: it runs on the host's **own agent**, so you don't
 need a scanner satellite at all.
 
-1. On the **Scans** page, pick the device.
+1. On the **Pentest** page, pick the device.
 2. Set **Tool** to **lynis (on-host audit)**.
 3. Click **Queue scan**.
 
@@ -151,7 +151,7 @@ Everything above is **passive** (safe to run anytime). RemotePower also has an
 checks — it **sends attack traffic** and can disrupt a fragile target. Because of
 that, active scans have two extra guardrails:
 
-1. On the Scans page, set **Profile** to **active (intrusive)**.
+1. On the Pentest page, set **Profile** to **active (intrusive)**.
 2. Tick **"I'm authorized to actively scan this target"** (required — the scan is
    refused without it, and your name + time are recorded on the scan).
 3. For an **enrolled host**, an active scan only runs during a **maintenance
@@ -175,7 +175,7 @@ is all that's needed.
 | **"scan target not found or not ownership-verified"** | You tried to scan a domain before clicking **Verify** (Part 3, step 4). |
 | Verify keeps failing | The DNS TXT record hasn't propagated yet (wait a few minutes), or the `/.well-known` file isn't reachable over HTTP/HTTPS. Double-check the exact value matches. |
 | Findings show `failed` with a timeout | The scan exceeded its time budget. Raise it: `RP_SCAN_TIMEOUT=1800` (seconds) on the scanner. |
-| You don't see the **Scans** page | Your role lacks the **scan** permission. Ask an admin (Settings → Roles). |
+| You don't see the **Pentest** page | Your role lacks the **scan** permission. Ask an admin (Settings → Roles). |
 
 ---
 
