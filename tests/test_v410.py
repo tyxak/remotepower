@@ -2043,38 +2043,32 @@ class TestSysinfoBinding(unittest.TestCase):
 
 
 class TestVersionBumps(unittest.TestCase):
-    """v4.1.0 "VisualMatters" — strict version-surface pins for this release."""
-    V = '4.1.0'
+    """v4.1.0 — loosened to regex on the v4.2.0 bump (the live strict pins moved
+    to tests/test_v420.py); a later bump must not fail this file."""
     _ROOT = _CGI_BIN.parent.parent
 
     def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
+        import re
+        self.assertRegex(api.SERVER_VERSION, r'^\d+\.\d+\.\d+$')
 
     def test_agent_versions(self):
-        self.assertIn(f"VERSION      = '{self.V}'",
-                      (self._ROOT / 'client/remotepower-agent.py').read_text())
+        import re
+        self.assertRegex((self._ROOT / 'client/remotepower-agent.py').read_text(),
+                         r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
         for rel in ('client/remotepower-agent-win.py', 'client/remotepower-agent-mac.py'):
-            self.assertIn(f"VERSION = '{self.V}'", (self._ROOT / rel).read_text(), rel)
+            self.assertRegex((self._ROOT / rel).read_text(),
+                             r"VERSION\s*=\s*'\d+\.\d+\.\d+'", rel)
 
     def test_agent_extensionless_in_sync(self):
         self.assertEqual((self._ROOT / 'client/remotepower-agent.py').read_bytes(),
                          (self._ROOT / 'client/remotepower-agent').read_bytes())
 
     def test_sw_and_cachebust(self):
-        self.assertIn(f'remotepower-shell-v{self.V}',
-                      (self._ROOT / 'server/html/sw.js').read_text())
-        self.assertIn(f'?v={self.V}', (self._ROOT / 'server/html/index.html').read_text())
-
-    def test_readme_and_changelog(self):
-        self.assertIn(f'version-{self.V}-blue', (self._ROOT / 'README.md').read_text())
-        self.assertIn(f'v{self.V}', (self._ROOT / 'CHANGELOG.md').read_text()[:2000])
-
-    def test_version_doc_exists(self):
-        self.assertTrue((self._ROOT / f'docs/v{self.V}.md').exists())
-
-    def test_old_version_doc_pruned(self):
-        # Keep only the last 5 version docs — v3.10.0 drops off on this bump.
-        self.assertFalse((self._ROOT / 'docs/v3.10.0.md').exists())
+        import re
+        self.assertRegex((self._ROOT / 'server/html/sw.js').read_text(),
+                         r'remotepower-shell-v\d+\.\d+\.\d+')
+        self.assertRegex((self._ROOT / 'server/html/index.html').read_text(),
+                         r'\?v=\d+\.\d+\.\d+')
 
 
 if __name__ == '__main__':

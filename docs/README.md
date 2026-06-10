@@ -41,12 +41,13 @@ holds long-form docs that don't fit there.
 - **[security-review-3.13.0.md](security-review-3.13.0.md)** — Latest security
  review (sandboxed SCAP reports, OIDC id_token claim checks, syslog-forward
  DNS-rebinding fix) plus the external-scan summary.
+- **[security-review-4.2.0.md](security-review-4.2.0.md)** — the scan engine,
+ passkeys, SAML, the audit hash-chain, the scan-schedule scope fix, and the
+ external-scan summary for v4.2.0.
 - **[security-review-4.1.0.md](security-review-4.1.0.md)** — TLS-1.2 floor on
  every hop, SSH argv hardening, and the external-scan summary for v4.1.0.
 - **[security-review-3.13.0.md](security-review-3.13.0.md)** — sandboxed SCAP,
  OIDC claim checks, syslog-forward DNS-rebinding fix.
-- **[security-review-3.10.0.md](security-review-3.10.0.md)** — Image-registry
- SSRF / credential-exfiltration fix and the `/api/config` secret-scrub backstop.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes

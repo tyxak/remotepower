@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.1.0'
+SERVER_VERSION = '4.2.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -9312,6 +9312,24 @@ def handle_heartbeat():
                     if len(safe_pn) >= 400:
                         break
                 safe_si['proc_names'] = safe_pn
+            # v4.2.0 finalize: persist the agent-evaluated custom-check results so
+            # the Checks engine's file/job/log checks (AGENT_CHECK_TYPES, read via
+            # _eval_custom_check → si['custom_check_results']) actually have data —
+            # without this they always returned 'unknown / not yet reported'. Same
+            # sanitizer-must-store-what-a-check-reads gotcha as proc_names above.
+            if isinstance(si.get('custom_check_results'), dict):
+                safe_ccr = {}
+                for cid, res in list(si['custom_check_results'].items())[:200]:
+                    if not isinstance(res, dict):
+                        continue
+                    st = res.get('status')
+                    if st not in ('ok', 'warning', 'critical', 'unknown'):
+                        continue
+                    safe_ccr[_sanitize_str(str(cid), 64)] = {
+                        'status': st,
+                        'output': _sanitize_str(str(res.get('output', '')), 200),
+                    }
+                safe_si['custom_check_results'] = safe_ccr
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
@@ -26540,11 +26558,28 @@ def run_scheduled_scans_if_due():
             sys.stderr.write(f'[remotepower] scheduled scan failed: {e}\n')
 
 
+def _scan_sched_in_scope(sched, scope):
+    """v4.2.0 finalize (authz): may a caller with `scope` (from _caller_scope())
+    act on this schedule? Mirrors handle_scan_schedules_create's rule — an
+    all-scope caller (scope is None) sees everything; a scoped caller may only
+    touch device-targeted schedules whose host is inside their scope (never a
+    domain/scan-target schedule, which is all-scope only)."""
+    if scope is None:
+        return True
+    dev_id = sched.get('device_id')
+    if not dev_id:
+        return False   # target-only schedules are all-scope only
+    dev = (load(DEVICES_FILE) or {}).get(dev_id)
+    return isinstance(dev, dict) and _device_in_scope(scope, dev)
+
+
 def handle_scan_schedules_list():
-    """GET /api/scan-schedules — recurring scan schedules."""
+    """GET /api/scan-schedules — recurring scan schedules (scope-filtered)."""
     require_perm('scan')
+    scope = _caller_scope()
     scheds = load(SCAN_SCHEDULES_FILE) or {}
-    out = sorted((_scan_sched_public(s) for s in scheds.values() if isinstance(s, dict)),
+    out = sorted((_scan_sched_public(s) for s in scheds.values()
+                  if isinstance(s, dict) and _scan_sched_in_scope(s, scope)),
                  key=lambda r: r.get('created') or 0, reverse=True)
     respond(200, {'schedules': out})
 
@@ -26620,6 +26655,8 @@ def handle_scan_schedule_delete(sid):
     sid = _sanitize_str(sid, 32)
     scheds = load(SCAN_SCHEDULES_FILE)
     if sid in scheds:
+        if not _scan_sched_in_scope(scheds[sid], _caller_scope()):
+            respond(403, {'error': 'This schedule is outside your role scope'})
         del scheds[sid]
         save(SCAN_SCHEDULES_FILE, scheds)
         audit_log(actor, 'scan_schedule_delete', f'id={sid}')
@@ -26636,6 +26673,8 @@ def handle_scan_schedule_run(sid):
     sched = (load(SCAN_SCHEDULES_FILE) or {}).get(sid)
     if not isinstance(sched, dict):
         respond(404, {'error': 'schedule not found'})
+    if not _scan_sched_in_scope(sched, _caller_scope()):
+        respond(403, {'error': 'This schedule is outside your role scope'})
     _create_scheduled_scan(sched)
     with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
         if sid in st:

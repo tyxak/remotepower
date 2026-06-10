@@ -147,7 +147,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
 | **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
-| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 65 event types, per-event toggles, test-event button |
+| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 66 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
 | **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
 | **Patch alerts** | Webhook when pending updates exceed configurable threshold |
@@ -241,7 +241,7 @@ Full reference: **[ai.md](ai.md)**.
 
 | Feature | Notes |
 |---|---|
-| **MCP server** | Read-only Model Context Protocol server. 12 tools: `list_devices`, `get_device`, `get_journal`, `get_services`, `get_containers`, `get_cves`, `get_drift`, `get_recent_commands`, `get_runbook`, `get_patches`, `get_tls`, `search_devices` |
+| **MCP server** | Model Context Protocol server, 18 tools. 14 read tools: `list_devices`, `get_device`, `search_devices`, `search_fleet`, `get_journal`, `get_services`, `get_containers`, `get_cves`, `get_drift`, `get_recent_commands`, `get_runbook`, `get_patches`, `get_tls`, `get_snmp_data` |
 | **Guarded write tools** | The 4 write tools (`reboot_device`, `run_saved_script`, `force_package_scan`, `force_acme_rescan`) require a server-side allow-list and per-token roles; arbitrary `run_command` is intentionally absent — scripts must be pre-saved in the library. |
 
 
@@ -1010,7 +1010,7 @@ credential-exfiltration gap. `GET /api/config` gained a recursive
 secret-scrub backstop so a newly-added config secret can't leak to a
 viewer/MCP key. The TCP uptime monitor and the Healthchecks.io ping picked
 up the same IP-class SSRF checks the HTTP paths already had. See
-`docs/security-review-3.10.0.md`.
+`docs/security.md`.
 
 **Fixes.** The config-drift alert title named no file (every one read
 "? file(s)") — it now names the file that changed or the number of sections

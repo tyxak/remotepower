@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.1.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.2.0">
 
 </head>
 <body>
@@ -1024,7 +1024,7 @@
         <div class="settings-section" id="acct-passkey-section" hidden>
           <h3>Passkeys (WebAuthn)</h3>
           <p class="hint">Phishing-resistant sign-in with a security key, your phone, or this device's biometrics. A passkey also satisfies any MFA-required policy.</p>
-          <div id="passkeys-list" class="mb-12"></div>
+          <div id="passkeys-list" class="mb-12 scroll-cap-sm"></div>
           <button class="btn-icon" data-action="addPasskey"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="5"/><path d="M2 21v-2a7 7 0 0 1 11-5.7"/><circle cx="18" cy="17" r="3"/><path d="M18 14v-1M18 21v-1"/></svg> Add a passkey</button>
         </div>
 
@@ -1457,7 +1457,7 @@
               </label>
               <div id="oidc-redirect-hint" class="hint mt-12"></div>
               <div class="mt-12">
-                <button type="submit" class="btn-primary">Save OIDC config</button>
+                <button type="button" class="btn-primary" data-action="saveOidcConfig">Save OIDC config</button>
                 <button type="button" class="btn-secondary" data-action="testOidcConfig">Test discovery</button>
               </div>
               <div id="oidc-test-result" class="mt-12"></div>
@@ -1498,7 +1498,7 @@
               </label>
               <div id="saml-metadata-hint" class="hint mt-12"></div>
               <div class="mt-12">
-                <button type="submit" class="btn-primary">Save SAML config</button>
+                <button type="button" class="btn-primary" data-action="saveSamlConfig">Save SAML config</button>
                 <a href="/api/saml/metadata" target="_blank" rel="noopener" class="btn-secondary" id="saml-metadata-link">View SP metadata</a>
               </div>
             </form>
@@ -4408,7 +4408,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter rollouts…" data-input="filterRows" data-input-el="1" data-filter-target="#rollouts-list > *">
-          <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
+          <div id="rollouts-list" class="scroll-cap"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
         <div class="dash-card">
@@ -4416,7 +4416,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon fs-12" data-action="clearBatchJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Clear</button>
           </div>
           <div class="page-subtitle mb-8">Follow one-time installs and batch script runs here — each host shows a checkmark when it finishes (red on a non-zero exit). Updates live while anything is still running.</div>
-          <div id="batch-jobs"><div class="c-muted">No recent jobs.</div></div>
+          <div id="batch-jobs" class="scroll-cap"><div class="c-muted">No recent jobs.</div></div>
         </div>
       </div>
 
@@ -6912,19 +6912,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.1.0"></script>
-<script defer src="static/js/app.js?v=4.1.0"></script>
+<script defer src="static/js/i18n.js?v=4.2.0"></script>
+<script defer src="static/js/app.js?v=4.2.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.1.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.1.0"></script>
-<script defer src="static/js/app-containers.js?v=4.1.0"></script>
-<script defer src="static/js/app-network.js?v=4.1.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.2.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.2.0"></script>
+<script defer src="static/js/app-containers.js?v=4.2.0"></script>
+<script defer src="static/js/app-network.js?v=4.2.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.1.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.1.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.1.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.2.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.2.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.2.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.1.0"></script>
+<script defer src="static/js/sw-register.js?v=4.2.0"></script>
 </body>
 </html>

@@ -17,11 +17,13 @@
 ## Independent security testing
 
 Each release is scanned with an external toolchain in addition to the code-level
-review and CI guardrails. **v4.1.0 was scanned with [wapiti](https://wapiti-scanner.github.io/),
+review and CI guardrails. **v4.2.0 was scanned with [wapiti](https://wapiti-scanner.github.io/),
 [nikto](https://github.com/sullo/nikto), [nuclei](https://github.com/projectdiscovery/nuclei),
 [bandit](https://github.com/PyCQA/bandit) and [OWASP ZAP](https://www.zaproxy.org/)
 and passed clean** (no actionable findings) — see
-[security-review-4.1.0.md](security-review-4.1.0.md). The strict Content-Security-Policy
+[security-review-4.2.0.md](security-review-4.2.0.md), which also covers the new
+v4.2.0 surface (authorized scanning, passkeys, SAML, the audit hash-chain) and
+the one Medium scan-schedule scope fix made in that release. The strict Content-Security-Policy
 (`default-src 'self'`, no `unsafe-inline`), full security-header set (HSTS,
 X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
 COOP/CORP), same-origin enforcement on state-changing requests, and the SSRF-safe
@@ -81,7 +83,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-4.1.0.md](security-review-4.1.0.md).
+summarised in the latest, [security-review-4.2.0.md](security-review-4.2.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
 OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -100,6 +102,17 @@ defences in place (kept current):
   prevent timing-based account enumeration.
 - **TOTP** secrets are 160-bit (RFC 4226); a code window of ±1 step
   accommodates clock skew. TOTP failures count against the login rate limit.
+- **Passkeys (WebAuthn, v4.2)** offer phishing-resistant, passwordless sign-in
+  via the vetted `py_webauthn` library; a cloned-authenticator sign-count
+  regression is refused, only the public key is stored, and a passkey satisfies
+  the MFA-required policy.
+- **SAML 2.0 SSO (v4.2)** delegates signature / audience / validity checks to
+  `pysaml2` + `xmlsec1` and adds `InResponseTo` + one-time-use replay protection;
+  the SP holds no private key.
+- **Account guardrails (v4.2):** optionally **enforce MFA** (TOTP or passkey) per
+  role, **cap concurrent sessions** per user, set a **default API-key expiry**,
+  and read a graded **security-posture self-check** on the Audit page. The audit
+  log is **hash-chained** (tamper-evident) with a one-click integrity verify.
 - **API keys** are 320-bit, compared with `hmac.compare_digest`, shown to the
   operator only at creation, support per-key expiry, capped at 50 per server.
 - **LDAP** binds use `CERT_REQUIRED` TLS verification by default; opt-out
@@ -243,7 +256,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every few releases
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-4.1.0.md](security-review-4.1.0.md)).
+  [security-review-4.2.0.md](security-review-4.2.0.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
   Python codebase.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

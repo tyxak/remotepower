@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## Unreleased — v4.2.0 "5ecur1tyM4tter5"
+## v4.2.0 — "5ecur1tyM4tter5" — 2026-06-10
 
 Security and integrations. Where v4.1.0 made the fleet *visible*, v4.2.0 makes it
 **defensible** — harder sign-in, evidence you can trust, account-model guardrails,

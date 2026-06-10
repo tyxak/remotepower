@@ -114,8 +114,10 @@ it ) and return a list of your devices.
 
 ## Available tools
 
-All read-only in v1. Each tool takes a small JSON arguments object;
-the AI host generates these from your natural-language question.
+**18 tools — 14 read, 4 guarded write.** Each takes a small JSON arguments
+object; the AI host generates these from your natural-language question. The
+read tools are always available; the four write tools only work when an admin
+has added them to the per-token allow-list (see *Guarded write tools* below).
 
 | Tool | What it returns |
 |---|---|
@@ -140,6 +142,18 @@ the AI host generates these from your natural-language question.
 > aggregation the model would otherwise have to do by hand. Requires the RAG
 > index to be enabled (Settings → AI → Knowledge index).
 
+The four **write tools** are off unless explicitly allow-listed for the token:
+
+| Write tool | What it does |
+|---|---|
+| `reboot_device` | Queue a reboot for one device |
+| `run_saved_script` | Run a script **from the saved library** (by id) — never an arbitrary command |
+| `force_package_scan` | Ask an agent to push its installed-package list now |
+| `force_acme_rescan` | Re-check a host's ACME / TLS / DNS expiry now |
+
+Every write call is gated by the per-token allow-list and the token's role
+scope, and is recorded in the audit log alongside the AI host name.
+
 ### Device-name resolution
 
 The tools accept friendly names. The MCP server does:
@@ -155,37 +169,33 @@ The tools accept friendly names. The MCP server does:
 You can also pass full names. The matching is conservative — it
 only auto-disambiguates when there's exactly one match.
 
-## What's not there (deliberately)
+## Guarded write tools — and what's still deliberately absent
 
-**No write tools.** No `run_command`, no `run_script`, no
-`reboot_device`, no `edit_device`. An LLM running with
-unconstrained shell access to a fleet is a real risk. The
-test suite explicitly asserts that no write-shaped tool names
-slipped in. The host's own consent flow ("Allow this tool to
-run? [y/n]") does **not** substitute for a server-side allow-list.
+The four write tools (`reboot_device`, `run_saved_script`,
+`force_package_scan`, `force_acme_rescan`) ship with exactly the guard rails an
+LLM acting on a fleet needs:
 
-Write tools will land in a future release with:
+- **A server-side allow-list.** A token can call a write tool only if an admin
+ has added it to that token's allow-list — the host's own "Allow this tool to
+ run? [y/n]" consent prompt is **not** the control; the server is.
+- **Pre-saved actions only.** `run_saved_script` runs a script from the library
+ by id — there is deliberately **no `run_command`** and **no `edit_device`**, so
+ the model can never assemble an arbitrary shell command.
+- **Per-token roles + scope.** Write calls are checked against the token's role
+ permissions and device scope, just like any other action.
+- **Audit logging.** Every write call is recorded with the AI host name.
 
-- A server-side allow-list of safe operations (`run_script
- <library-id>` rather than `run_command <arbitrary>`).
-- A separate per-MCP-token role (`mcp` instead of `viewer` /
- `admin`).
-- An optional "require confirmation" flag per device, defaulting
- to on for prod devices.
-- Audit log entries that record both the AI host name and the
- natural-language prompt that led to the action.
-
-Until those are in place, write tools are not a feature this
-server should have. The whole point of v1 is that the worst
-outcome of an LLM getting confused is "it gave you a slightly
-wrong fleet summary," not "it shut down a prod box."
+So the worst outcome of a confused model is bounded: it can reboot a host or run
+a vetted library script you already trust — never run an arbitrary command or
+shut a box down off-script. If you want a purely read-only assistant, simply
+leave the write tools off the token's allow-list (the default).
 
 ## Security model
 
 | Concern | Mitigation |
 |---|---|
-| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Read-only role. Generate per laptop; revoke any time. |
-| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious operator note could try to "instruct" the AI to do something silly. But since all tools are read-only and bounded, the worst outcome is a confused summary. |
+| Token leakage | Stored in your AI host's config file, never sent to the LLM provider. Scoped to its role + write allow-list; generate per laptop and revoke any time. |
+| Prompt injection | Tool *outputs* contain operator-controlled text (device names, notes, journal entries). A malicious note could try to "instruct" the AI. Read tools are bounded (worst case: a confused summary); write tools are limited to the allow-listed, pre-saved actions above, so an injected instruction still can't run an arbitrary command. Leave write tools off the allow-list for a read-only token. |
 | Self-signed TLS | Set `REMOTEPOWER_VERIFY_SSL=0` in the MCP env if you must, but prefer to install your CA's root cert in the laptop's trust store. |
 | Data sensitivity | Same as the AI privacy redaction toggles in Settings → AI assistant: when in doubt, run a local model (Ollama) as the AI host. |
 

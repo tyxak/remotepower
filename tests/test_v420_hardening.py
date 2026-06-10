@@ -345,5 +345,38 @@ class TestSamlSso(_Base):
         self.assertTrue(r.get('saml_enabled'))
 
 
+class TestFinalizeSweep(_Base):
+    """v4.2.0 finalize sweep regressions."""
+
+    def test_custom_check_results_persisted_by_sanitizer(self):
+        # Regression: the heartbeat sanitizer must keep si['custom_check_results']
+        # (the Checks engine's agent-side file/job/log checks read it). Guard the
+        # persistence so it can't silently get dropped again (proc_names class).
+        src = (Path(api.__file__).read_text())
+        self.assertIn("safe_si['custom_check_results']", src)
+
+    def test_eval_agent_check_reads_reported_result(self):
+        # an agent-side custom check returns the status the agent reported
+        cdef = {'id': 'c1', 'type': list(api.AGENT_CHECK_TYPES)[0], 'param': 'x'}
+        dev = {'sysinfo': {'custom_check_results': {'c1': {'status': 'critical',
+                                                           'output': 'missing'}}}}
+        status, out = api._eval_custom_check(cdef, dev)
+        self.assertEqual(status, 'critical')
+        self.assertIn('missing', out)
+        # no reported result → unknown (not a crash)
+        self.assertEqual(api._eval_custom_check(cdef, {'sysinfo': {}})[0], 'unknown')
+
+    def test_scan_schedule_scope_helper(self):
+        api.save(api.DEVICES_FILE, {'d1': {'group': 'prod'}, 'd2': {'group': 'dev'}})
+        prod = {'type': 'groups', 'values': ['prod']}
+        # all-scope (None) sees everything
+        self.assertTrue(api._scan_sched_in_scope({'device_id': 'd2'}, None))
+        # scoped caller: in-scope device ok, out-of-scope refused
+        self.assertTrue(api._scan_sched_in_scope({'device_id': 'd1'}, prod))
+        self.assertFalse(api._scan_sched_in_scope({'device_id': 'd2'}, prod))
+        # target-only schedule is all-scope only
+        self.assertFalse(api._scan_sched_in_scope({'scan_target_id': 't1'}, prod))
+
+
 if __name__ == '__main__':
     unittest.main()
