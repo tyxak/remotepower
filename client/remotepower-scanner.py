@@ -109,12 +109,49 @@ def _sandbox(image, tool_argv, volumes=None):
     return tool_argv   # RP_SCAN_RUNNER is a local binary name (advanced)
 
 
+MAX_FINDINGS = int(os.environ.get('RP_SCAN_MAX_FINDINGS', '200'))
+
+
+def _force_remove(name):
+    if not name or RUNNER not in ('docker', 'podman'):
+        return
+    try:
+        subprocess.run([RUNNER, 'rm', '-f', name], capture_output=True, timeout=30)
+    except Exception:
+        pass
+
+
+def _cleanup_orphans():
+    """Remove any leftover rp-scan-* containers (worker crash / prior timeout).
+    Called at startup and after each scan so the scanner never piles up."""
+    if RUNNER not in ('docker', 'podman'):
+        return
+    try:
+        r = subprocess.run([RUNNER, 'ps', '-aq', '--filter', 'name=rp-scan-'],
+                           capture_output=True, text=True, timeout=30)
+        ids = [x for x in (r.stdout or '').split() if x]
+        if ids:
+            subprocess.run([RUNNER, 'rm', '-f'] + ids, capture_output=True, timeout=60)
+    except Exception:
+        pass
+
+
 def _run(argv):
-    """Run a tool argv with the wall-clock budget. Returns (stdout, stderr, err)."""
+    """Run a tool argv with the wall-clock budget. Returns (stdout, stderr, err).
+
+    For container runs we inject a unique --name so the container can be
+    force-removed when the budget is exceeded. subprocess timeout only kills the
+    `docker run` CLIENT — the container keeps running (the orphan that pinned the
+    target host at load 8). rm -f on timeout stops it for real."""
+    name = None
+    if RUNNER in ('docker', 'podman') and len(argv) >= 2 and argv[0] == RUNNER and argv[1] == 'run':
+        name = 'rp-scan-' + os.urandom(6).hex()
+        argv = [argv[0], argv[1], '--name', name] + argv[2:]
     try:
         proc = subprocess.run(argv, capture_output=True, text=True,
                               timeout=SCAN_TIMEOUT)
     except subprocess.TimeoutExpired:
+        _force_remove(name)   # kill the still-running container, not just the client
         return '', '', f'scan exceeded {SCAN_TIMEOUT}s budget'
     except FileNotFoundError:
         return '', '', f'runner not found: {argv[0]}'
@@ -396,12 +433,20 @@ def _process_one():
         _api('POST', f'/api/scans/{sid}/results',
              {'status': 'failed', 'error': f'unsupported tool {tool}', 'findings': []})
         return True
-    findings, err = _run_tool(tool, target, job.get('profile', 'passive'),
-                              job.get('intensity', 'quick'))
+    try:
+        findings, err = _run_tool(tool, target, job.get('profile', 'passive'),
+                                  job.get('intensity', 'quick'))
+    finally:
+        _cleanup_orphans()   # belt-and-braces: nothing rp-scan-* left behind
     status = 'failed' if err else 'done'
+    total = len(findings)
+    findings = findings[:MAX_FINDINGS]   # keep the POST under the 2 MB body cap
+    note = err
+    if total > MAX_FINDINGS:
+        note = (note + '; ' if note else '') + f'showing {MAX_FINDINGS} of {total} findings'
     _api('POST', f'/api/scans/{sid}/results',
-         {'status': status, 'error': err, 'findings': findings})
-    print(f'[scanner] {sid} {status} findings={len(findings)} {err}', flush=True)
+         {'status': status, 'error': note, 'findings': findings})
+    print(f'[scanner] {sid} {status} findings={len(findings)}/{total} {err}', flush=True)
     return True
 
 
@@ -411,6 +456,7 @@ def main():
         sys.exit(2)
     print(f'[scanner] RemotePower scanner satellite v{VERSION} → {SERVER} '
           f'(runner={RUNNER})', flush=True)
+    _cleanup_orphans()   # clear any rp-scan-* left by a crashed/killed prior run
     while True:
         try:
             did_work = _process_one()

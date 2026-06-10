@@ -178,6 +178,28 @@ class TestAgentSide(unittest.TestCase):
         self.assertIn('lynis', r['error'])
 
 
+class TestContainerLifecycle(unittest.TestCase):
+    def test_timeout_names_and_force_removes_container(self):
+        import subprocess as _sp
+        calls = []
+        orig = sc.subprocess.run
+
+        def fake(argv, **kw):
+            calls.append(list(argv))
+            raise _sp.TimeoutExpired(argv, 1)
+        sc.subprocess.run = fake
+        try:
+            _o, _e, err = sc._run([sc.RUNNER, 'run', '--rm', 'img', 'tool'])
+        finally:
+            sc.subprocess.run = orig
+        self.assertIn('budget', err)
+        if sc.RUNNER in ('docker', 'podman'):
+            self.assertIn('--name', calls[0])                     # named the container
+            name = calls[0][calls[0].index('--name') + 1]
+            self.assertTrue(name.startswith('rp-scan-'))
+            self.assertTrue(any('rm' in c and '-f' in c and name in c for c in calls))  # rm -f it
+
+
 class TestDispatch(unittest.TestCase):
     def test_known_tools(self):
         self.assertEqual(set(sc.TOOL_RUNNERS),
