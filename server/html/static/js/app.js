@@ -9025,8 +9025,22 @@ async function loadIntegrationsTab() {
       setIf('oidc-admin-group', 'oidc_admin_group');
       // Don't populate the secret — it's stored hashed-server-side or simply
       // never re-read by the UI. Leave blank means "keep current".
+      // v4.2.0 (B1): SAML config (the cert is the IdP's public signing cert —
+      // not a secret — so it's safe to round-trip into the textarea).
+      setIf('saml-enabled', 'saml_enabled', true);
+      setIf('saml-idp-entity-id', 'saml_idp_entity_id');
+      setIf('saml-idp-sso-url', 'saml_idp_sso_url');
+      setIf('saml-idp-cert', 'saml_idp_x509_cert');
+      setIf('saml-attr-username', 'saml_attr_username');
+      setIf('saml-attr-groups', 'saml_attr_groups');
+      setIf('saml-admin-group', 'saml_admin_group');
+      setIf('saml-allow-unsolicited', 'saml_allow_unsolicited', true);
     }
   } catch (_) { /* non-fatal */ }
+  const samlHint = document.getElementById('saml-metadata-hint');
+  if (samlHint) {
+    samlHint.innerHTML = `<strong>SP metadata / ACS URL</strong> to register with your IdP: <code>${location.origin}/api/auth/saml/acs</code> — full metadata at <code>${location.origin}/api/saml/metadata</code>`;
+  }
 }
 
 async function loadInboundWebhooks() {
@@ -9252,6 +9266,24 @@ async function saveOidcConfig() {
   } else {
     toast((r && r.error) || 'Failed', 'error');
   }
+}
+
+// v4.2.0 (B1): persist the SAML SP/IdP config.
+async function saveSamlConfig() {
+  const val = (id) => (document.getElementById(id).value || '').trim();
+  const payload = {
+    saml_enabled:           document.getElementById('saml-enabled').checked,
+    saml_idp_entity_id:     val('saml-idp-entity-id'),
+    saml_idp_sso_url:       val('saml-idp-sso-url'),
+    saml_idp_x509_cert:     val('saml-idp-cert'),
+    saml_attr_username:     val('saml-attr-username'),
+    saml_attr_groups:       val('saml-attr-groups'),
+    saml_admin_group:       val('saml-admin-group'),
+    saml_allow_unsolicited: document.getElementById('saml-allow-unsolicited').checked,
+  };
+  const r = await api('POST', '/config', payload);
+  if (r && r.ok !== false) toast('SAML config saved', 'success');
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 // v4.1.0: per-sidebar-group "needs attention" count badges.

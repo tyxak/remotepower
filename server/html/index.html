@@ -55,6 +55,8 @@
     <button type="submit" class="login-btn" >Sign in</button>
     <!-- v3.2.0 (B3): OIDC SSO button — shown only if oidc_enabled returns from /api/public-info -->
     <a href="/api/auth/oidc/start" id="login-oidc-btn" class="login-btn login-btn-oidc d-none">Sign in with SSO</a>
+    <!-- v4.2.0 (B1): SAML SSO button — shown only if saml_enabled returns from /api/public-info -->
+    <a href="/api/auth/saml/login" id="login-saml-btn" class="login-btn login-btn-oidc d-none">Sign in with SAML</a>
     <button type="button" id="login-passkey-btn" class="login-btn login-btn-oidc" data-action="loginWithPasskey">Sign in with a passkey</button>
     <div id="login-oidc-error" class="login-error d-none">SSO sign-in failed. Try local credentials.</div>
     <div id="login-error" class="login-error">Invalid username or password</div>
@@ -1459,6 +1461,46 @@
                 <button type="button" class="btn-secondary" data-action="testOidcConfig">Test discovery</button>
               </div>
               <div id="oidc-test-result" class="mt-12"></div>
+            </form>
+          </div>
+          <!-- v4.2.0 (B1): SAML 2.0 SSO -->
+          <div class="settings-section">
+            <h3>SAML 2.0 (enterprise SSO)</h3>
+            <p class="hint">Sign in via a SAML identity provider (Okta, Azure AD / Entra, OneLogin, Ping, ADFS, …). Paste the IdP's entity ID, SSO URL and signing certificate; users arrive with the role mapped from their group attribute. Requires the <code class="ff-mono">pysaml2</code> library and the <code class="ff-mono">xmlsec1</code> binary on the server — when either is missing this stays disabled.</p>
+            <form id="saml-config-form" data-submit="saveSamlConfig" data-prevent-default="1" class="form-stack">
+              <label class="form-label">
+                <input type="checkbox" id="saml-enabled" data-config="saml_enabled">
+                Enable SAML sign-in
+              </label>
+              <label class="form-label">IdP entity ID
+                <input type="text" id="saml-idp-entity-id" class="form-input" data-config="saml_idp_entity_id" placeholder="https://idp.example.com/saml/metadata">
+              </label>
+              <label class="form-label">IdP SSO URL (HTTP-Redirect)
+                <input type="text" id="saml-idp-sso-url" class="form-input" data-config="saml_idp_sso_url" placeholder="https://idp.example.com/saml/sso">
+              </label>
+              <label class="form-label">IdP signing certificate (X.509 PEM or base64)
+                <textarea id="saml-idp-cert" class="form-input" data-config="saml_idp_x509_cert" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;MIID…&#10;-----END CERTIFICATE-----"></textarea>
+              </label>
+              <label class="form-label">Username attribute (optional)
+                <input type="text" id="saml-attr-username" class="form-input" data-config="saml_attr_username" placeholder="(blank = use the SAML NameID)">
+              </label>
+              <label class="form-label">Groups attribute (optional)
+                <input type="text" id="saml-attr-groups" class="form-input" data-config="saml_attr_groups" placeholder="groups">
+              </label>
+              <label class="form-label">Admin group (optional)
+                <input type="text" id="saml-admin-group" class="form-input" data-config="saml_admin_group" placeholder="remotepower-admins">
+                <span class="hint">Members of this group (in the groups attribute) get admin role on first login; everyone else gets viewer.</span>
+              </label>
+              <label class="form-label">
+                <input type="checkbox" id="saml-allow-unsolicited" data-config="saml_allow_unsolicited">
+                Allow IdP-initiated (unsolicited) sign-in
+                <span class="hint">Off is safer — only responses to a sign-in this server started are accepted (InResponseTo / replay protection).</span>
+              </label>
+              <div id="saml-metadata-hint" class="hint mt-12"></div>
+              <div class="mt-12">
+                <button type="submit" class="btn-primary">Save SAML config</button>
+                <a href="/api/saml/metadata" target="_blank" rel="noopener" class="btn-secondary" id="saml-metadata-link">View SP metadata</a>
+              </div>
             </form>
           </div>
           <!-- v3.14.0 (#30): SCIM 2.0 provisioning -->

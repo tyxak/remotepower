@@ -242,5 +242,108 @@ class TestWebAuthn(_Base):
             api._WEBAUTHN_MOD = None
 
 
+class TestSamlSso(_Base):
+    """v4.2.0 (B1): SAML SP SSO. The signature-verify path needs pysaml2 + the
+    xmlsec1 binary (often absent in CI), so these cover the wiring, config
+    validation, identity mapping, replay store and graceful-degradation paths —
+    the crypto path is exercised at deploy + the mandatory security review."""
+
+    _FULL = {'saml_enabled': True,
+             'saml_idp_entity_id': 'https://idp.example.com/meta',
+             'saml_idp_sso_url': 'https://idp.example.com/sso',
+             'saml_idp_x509_cert': 'MIIBfakecert'}
+
+    def setUp(self):
+        super().setUp()
+        self._sr = api.SAML_REQUESTS_FILE
+        api.SAML_REQUESTS_FILE = self.d / 'saml_req.json'
+        self._ra = api.require_auth
+        api.require_auth = lambda require_admin=False: 'alice'
+        os.environ['HTTP_HOST'] = 'rp.example.com'
+
+    def tearDown(self):
+        api.require_auth = self._ra
+        api.SAML_REQUESTS_FILE = self._sr
+        os.environ.pop('HTTP_HOST', None)
+        super().tearDown()
+
+    def test_available_shape(self):
+        api.save(api.CONFIG_FILE, {})
+        r = self.call(api.handle_saml_available)
+        self.assertIn('available', r)
+        self.assertIn('enabled', r)
+        self.assertFalse(r['enabled'])      # not configured
+
+    def test_cfg_requires_all_fields(self):
+        api.save(api.CONFIG_FILE, {})
+        self.assertIsNone(api._saml_cfg())          # disabled
+        api.save(api.CONFIG_FILE, {'saml_enabled': True,
+                                   'saml_idp_entity_id': 'x'})
+        self.assertIsNone(api._saml_cfg())          # incomplete
+        api.save(api.CONFIG_FILE, dict(self._FULL))
+        self.assertIsNotNone(api._saml_cfg())       # complete
+
+    def test_username_attr_then_nameid(self):
+        cfg = {'saml_attr_username': 'uid'}
+        self.assertEqual(api._saml_username_for('nid', {'uid': 'bob'}, cfg), 'bob')
+        self.assertEqual(api._saml_username_for('nid', {'uid': ['carol']}, cfg), 'carol')
+        self.assertEqual(api._saml_username_for('nid@x', {}, cfg), 'nid@x')   # fallback
+        self.assertEqual(api._saml_username_for('nid', {}, {}), 'nid')
+
+    def test_role_mapping(self):
+        cfg = {'saml_admin_group': 'admins', 'saml_attr_groups': 'grp'}
+        self.assertEqual(api._saml_role_for({'grp': ['admins', 'x']}, cfg), 'admin')
+        self.assertEqual(api._saml_role_for({'grp': 'admins'}, cfg), 'admin')
+        self.assertEqual(api._saml_role_for({'grp': ['x']}, cfg), 'viewer')
+        self.assertEqual(api._saml_role_for({'grp': ['admins']}, {}), 'viewer')  # no mapping
+
+    def test_outstanding_request_store(self):
+        api._saml_put_request('req-123')
+        self.assertIn('req-123', api._saml_outstanding())
+        api._saml_consume_request('req-123')             # one-time-use
+        self.assertNotIn('req-123', api._saml_outstanding())
+
+    def test_outstanding_prunes_expired(self):
+        # write an already-expired entry directly
+        api.save(api.SAML_REQUESTS_FILE, {'old': {'ts': 1}})
+        self.assertEqual(api._saml_outstanding(), {})
+
+    def test_config_save_validates(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        # enabling without the required fields → 400
+        api.get_json_body = lambda: {'saml_enabled': True}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+        # a bogus SSO URL → 400
+        api.get_json_body = lambda: {'saml_idp_sso_url': 'not-a-url'}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+        # full valid config saves
+        api.get_json_body = lambda: dict(self._FULL)
+        self.call(api.handle_config_save)
+        self.assertTrue(api.load(api.CONFIG_FILE).get('saml_enabled'))
+
+    def test_acs_unavailable_returns_503(self):
+        api._SAML_MOD = False         # simulate library/binary absent
+        try:
+            api.method = lambda: 'POST'
+            self.call(api.handle_saml_acs)
+            self.assertEqual(self.cap['s'], 503)
+        finally:
+            api._SAML_MOD = None
+
+    def test_handlers_exist(self):
+        for fn in ('handle_saml_available', 'handle_saml_metadata',
+                   'handle_saml_login', 'handle_saml_acs'):
+            self.assertTrue(callable(getattr(api, fn)))
+
+    def test_public_info_exposes_saml_flag(self):
+        api.save(api.CONFIG_FILE, dict(self._FULL))
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_public_info)
+        self.assertTrue(r.get('saml_enabled'))
+
+
 if __name__ == '__main__':
     unittest.main()

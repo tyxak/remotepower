@@ -89,6 +89,37 @@ else
       || warn "webauthn unavailable — passkeys disabled; install later with: pip3 install webauthn"
 fi
 
+# ── pysaml2 + xmlsec1 (v4.2.0 B1: SAML SSO; optional) ────────────────────────
+# SAML needs BOTH the pysaml2 library AND the xmlsec1 system binary (pysaml2
+# shells out to it for signature verification). Either missing → SAML SSO simply
+# reports unavailable; the rest of the app is unaffected.
+info "Installing pysaml2 + xmlsec1 for SAML SSO support..."
+if ! command -v xmlsec1 >/dev/null 2>&1; then
+    case $PKG_MGR in
+      apt)    apt-get install -y --no-install-recommends xmlsec1 \
+                || warn "xmlsec1 install failed — SAML SSO will be unavailable" ;;
+      dnf)    dnf install -y -q xmlsec1 xmlsec1-openssl \
+                || warn "xmlsec1 install failed — SAML SSO will be unavailable" ;;
+      pacman) pacman -S --noconfirm xmlsec \
+                || warn "xmlsec install failed — SAML SSO will be unavailable" ;;
+    esac
+fi
+if python3 -c "import saml2" 2>/dev/null; then
+    success "pysaml2 already available"
+else
+    case $PKG_MGR in
+      apt)    pip3 install pysaml2 --break-system-packages 2>/dev/null \
+                || pip3 install pysaml2 || warn "pysaml2 install failed — SAML SSO will be unavailable" ;;
+      dnf)    pip3 install pysaml2 || warn "pysaml2 install failed — SAML SSO will be unavailable" ;;
+      pacman) pip install pysaml2  || warn "pysaml2 install failed — SAML SSO will be unavailable" ;;
+    esac
+fi
+if python3 -c "import saml2" 2>/dev/null && command -v xmlsec1 >/dev/null 2>&1; then
+    success "SAML SSO support installed (pysaml2 + xmlsec1)"
+else
+    warn "SAML SSO unavailable — needs both pysaml2 and the xmlsec1 binary"
+fi
+
 # ── cryptography (for v1.9.0 CMDB credential vault) ──────────────────────────
 info "Installing cryptography for the CMDB credential vault..."
 if python3 -c "import cryptography" 2>/dev/null; then

@@ -458,6 +458,11 @@ async function loadPublicInfo() {
       const btn = document.getElementById('login-oidc-btn');
       if (btn) btn.classList.remove('d-none');
     }
+    // v4.2.0 (B1): reveal the SAML sign-in button if configured
+    if (info.saml_enabled) {
+      const btn = document.getElementById('login-saml-btn');
+      if (btn) btn.classList.remove('d-none');
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -465,9 +470,12 @@ async function loadPublicInfo() {
 // URL hash. Hash fragments never reach the server (no log exposure), the SPA
 // parses them on load and treats them like a normal post-login state.
 function _consumeOidcHashToken() {
-  if (!location.hash || location.hash.indexOf('oidc_token=') < 0) return;
+  // v4.2.0 (B1): SAML SSO uses the same hash-token delivery (saml_token=…).
+  if (!location.hash ||
+      (location.hash.indexOf('oidc_token=') < 0 &&
+       location.hash.indexOf('saml_token=') < 0)) return;
   const params = new URLSearchParams(location.hash.slice(1));
-  const token = params.get('oidc_token');
+  const token = params.get('oidc_token') || params.get('saml_token');
   const role = params.get('role') || 'viewer';
   const username = params.get('username') || '';
   if (!token) return;

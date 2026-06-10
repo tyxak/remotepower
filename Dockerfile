@@ -4,11 +4,13 @@ LABEL maintainer="tyxak"
 LABEL description="RemotePower - Self-hosted remote device management"
 LABEL version="2.0.0"
 
-# Install nginx, fcgiwrap and runtime deps
+# Install nginx, fcgiwrap and runtime deps.
+# xmlsec1 = the system binary pysaml2 shells out to for SAML signature
+# verification (v4.2.0 B1); without it SAML SSO reports unavailable.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
-        nginx fcgiwrap spawn-fcgi procps && \
-    pip install --no-cache-dir bcrypt reportlab cryptography dnspython webauthn && \
+        nginx fcgiwrap spawn-fcgi procps xmlsec1 && \
+    pip install --no-cache-dir bcrypt reportlab cryptography dnspython webauthn pysaml2 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Directories

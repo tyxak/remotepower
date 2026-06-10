@@ -1237,6 +1237,7 @@ SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized s
 SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
 SCAN_SCHEDULES_FILE = DATA_DIR / 'scan_schedules.json'  # v4.2.0 (#4): recurring scan schedules (cron)
 WEBAUTHN_CHALLENGES_FILE = DATA_DIR / 'webauthn_challenges.json'  # v4.2.0 (A1): transient, 5-min TTL
+SAML_REQUESTS_FILE = DATA_DIR / 'saml_requests.json'  # v4.2.0 (B1): outstanding AuthnRequest ids (InResponseTo/replay), 10-min TTL
 MAX_SCANS         = 500                               # ring-buffer cap on stored scans
 MAX_SCAN_FINDINGS = 1000                              # per-scan finding cap
 SCAN_TOOLS        = ('nuclei', 'nikto', 'nmap')                   # passive-capable (satellite-run)
@@ -6254,6 +6255,9 @@ def handle_public_info():
         # "Sign in with SSO" button. Just a yes/no — the issuer URL
         # itself is admin-only and never exposed pre-login.
         'oidc_enabled':        bool(cfg.get('oidc_enabled') and cfg.get('oidc_issuer')),
+        # v4.2.0 (B1): same yes/no hint for the SAML SSO button. The IdP
+        # entity-id / SSO URL / cert stay admin-only and never leak pre-login.
+        'saml_enabled':        bool(cfg.get('saml_enabled') and cfg.get('saml_idp_sso_url')),
     })
 
 
@@ -12707,6 +12711,32 @@ def handle_config_save():
             _OIDC_METADATA_CACHE.clear()
         except Exception:
             pass
+
+    # v4.2.0 (B1): SAML 2.0 SP config. The IdP entity-id / SSO URL / x509 cert
+    # plus the attribute→user/role mapping. All plain strings (the cert is the
+    # public signing cert, not a secret — store as-is). SSO URL shape-checked.
+    for key in ('saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert',
+                'saml_sp_entity_id', 'saml_attr_username', 'saml_attr_groups',
+                'saml_admin_group'):
+        if key in body:
+            cap = 8192 if key == 'saml_idp_x509_cert' else 512
+            cfg[key] = _sanitize_str(str(body[key] or ''), cap)
+    for key in ('saml_enabled', 'saml_allow_unsolicited'):
+        if key in body:
+            cfg[key] = bool(body[key])
+    if cfg.get('saml_idp_sso_url'):
+        p = urllib.parse.urlparse(cfg['saml_idp_sso_url'])
+        if p.scheme not in ('http', 'https'):
+            respond(400, {'error': 'saml_idp_sso_url must be http:// or https://'})
+        if not p.netloc:
+            respond(400, {'error': 'saml_idp_sso_url is missing the hostname'})
+        if any(c in cfg['saml_idp_sso_url'] for c in (' ', '\t', '\n')):
+            respond(400, {'error': 'saml_idp_sso_url must not contain whitespace'})
+    if cfg.get('saml_enabled'):
+        missing = [k for k in ('saml_idp_entity_id', 'saml_idp_sso_url',
+                               'saml_idp_x509_cert') if not cfg.get(k)]
+        if missing:
+            respond(400, {'error': f'SAML enabled but missing: {", ".join(missing)}'})
 
     # v3.11.0: scheduled posture digest + scrub-overdue threshold
     if 'posture_digest_enabled' in body:
@@ -29229,6 +29259,203 @@ def handle_webauthn_login_complete():
                   'must_enroll_mfa': _mfa_enrollment_required(u)})
 
 
+# ── v4.2.0 (B1): SAML 2.0 SP single-sign-on ────────────────────────────────
+# Enterprise SSO via the vetted pysaml2 library + the xmlsec1 binary (BOTH
+# optional — the feature reports unavailable and the handlers 503 when either is
+# missing, so nothing about existing auth changes until an operator opts in).
+# Mirrors the OIDC flow (handle_oidc_*): SP-initiated redirect → IdP → signed
+# assertion POSTed to the ACS → verify → provision/mint → hash-fragment token
+# redirect. pysaml2 does ALL signature/audience/expiry verification; we add
+# InResponseTo / one-time-use replay protection via the outstanding-request store.
+
+_SAML_MOD = None
+
+
+def _saml():
+    global _SAML_MOD
+    if _SAML_MOD is None:
+        try:
+            import saml_auth as _sam
+            _SAML_MOD = _sam
+        except Exception:
+            _SAML_MOD = False
+    return _SAML_MOD or None
+
+
+def _saml_base_url():
+    """Public base URL (scheme://host) — same proxy-aware derivation as OIDC."""
+    host = os.environ.get('HTTP_HOST', '').strip()
+    scheme = 'https' if os.environ.get('HTTPS', 'on') in ('on', '1', 'true') else 'http'
+    fwd = os.environ.get('HTTP_X_FORWARDED_PROTO', '').strip().lower()
+    if fwd in ('http', 'https'):
+        scheme = fwd
+    return f'{scheme}://{host}'
+
+
+def _saml_cfg():
+    """Return the full config IF SAML is enabled AND fully configured, else None."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('saml_enabled'):
+        return None
+    needed = ('saml_idp_entity_id', 'saml_idp_sso_url', 'saml_idp_x509_cert')
+    if not all(str(cfg.get(k) or '').strip() for k in needed):
+        return None
+    return cfg
+
+
+def _saml_guard():
+    sm = _saml()
+    if not sm or not sm.available():
+        respond(503, {'error': 'SAML is not available on this server '
+                               '(pysaml2 and/or the xmlsec1 binary are not installed)'})
+    return sm
+
+
+def _saml_put_request(req_id):
+    if not req_id:
+        return
+    now = int(time.time())
+    with _LockedUpdate(SAML_REQUESTS_FILE) as st:
+        for k in list(st.keys()):   # prune expired (10-min TTL)
+            if not isinstance(st[k], dict) or now - st[k].get('ts', 0) > 600:
+                del st[k]
+        st[req_id] = {'ts': now}
+
+
+def _saml_outstanding():
+    """All currently-outstanding (non-expired) AuthnRequest ids as the pysaml2
+    outstanding dict {req_id: came_from}; pysaml2 checks the response's
+    InResponseTo against these keys (rejecting unsolicited/replayed)."""
+    now = int(time.time())
+    out = {}
+    with _LockedUpdate(SAML_REQUESTS_FILE) as st:
+        for k in list(st.keys()):
+            if not isinstance(st[k], dict) or now - st[k].get('ts', 0) > 600:
+                del st[k]
+            else:
+                out[k] = '/'
+    return out
+
+
+def _saml_consume_request(req_id):
+    """One-time-use: drop a consumed request id so the same assertion can't be
+    replayed within its validity window."""
+    if not req_id:
+        return
+    with _LockedUpdate(SAML_REQUESTS_FILE) as st:
+        st.pop(req_id, None)
+
+
+def _saml_username_for(name_id, attrs, cfg):
+    """Pick a stable username: the configured attribute if present, else NameID."""
+    attr = str(cfg.get('saml_attr_username') or '').strip()
+    if attr and attrs.get(attr):
+        v = attrs[attr]
+        if isinstance(v, list):
+            v = v[0] if v else ''
+        return _sanitize_str(str(v), 64)
+    return _sanitize_str(str(name_id or ''), 64)
+
+
+def _saml_role_for(attrs, cfg):
+    """Map SAML group attributes to a role (mirrors _oidc_role_for; safe default
+    is viewer when no admin-group mapping is configured)."""
+    admin_group = str(cfg.get('saml_admin_group') or '').strip()
+    if not admin_group:
+        return 'viewer'
+    groups = attrs.get(str(cfg.get('saml_attr_groups') or 'groups')) or attrs.get('roles') or []
+    if isinstance(groups, str):
+        groups = [groups]
+    return 'admin' if admin_group in groups else 'viewer'
+
+
+def handle_saml_available():
+    """GET /api/saml/available — library+binary present, and SAML configured?"""
+    require_auth()
+    sm = _saml()
+    respond(200, {'available': bool(sm and sm.available()),
+                  'enabled': bool(_saml_cfg())})
+
+
+def handle_saml_metadata():
+    """GET /api/saml/metadata — SP metadata XML to hand to the IdP (public)."""
+    sm = _saml_guard()
+    cfg = _saml_cfg()
+    if not cfg:
+        respond(503, {'error': 'SAML is not configured on this server'})
+    try:
+        xml = sm.metadata_xml(cfg, _saml_base_url())
+    except Exception as e:
+        respond(500, {'error': f'metadata generation failed: {str(e)[:140]}'})
+    sys.stdout.write('Status: 200 OK\r\n')
+    sys.stdout.write('Content-Type: application/samlmetadata+xml\r\n')
+    sys.stdout.write('Cache-Control: no-store\r\n\r\n')
+    sys.stdout.write(xml)
+    sys.exit(0)
+
+
+def handle_saml_login():
+    """GET /api/auth/saml/login — SP-initiated SSO: 302 to the IdP (public)."""
+    sm = _saml_guard()
+    cfg = _saml_cfg()
+    if not cfg:
+        respond(503, {'error': 'SAML is not configured on this server'})
+    try:
+        redirect_url, req_id = sm.login_redirect(cfg, _saml_base_url())
+    except Exception as e:
+        respond(500, {'error': f'SAML login init failed: {str(e)[:140]}'})
+    _saml_put_request(req_id)
+    print('Status: 302 Found')
+    print(f'Location: {redirect_url}')
+    print('Cache-Control: no-store')
+    print()
+    sys.exit(0)
+
+
+def handle_saml_acs():
+    """POST /api/auth/saml/acs — Assertion Consumer Service. pysaml2 verifies the
+    signature/audience/expiry; we enforce InResponseTo + one-time-use, then
+    provision and mint a session, redirecting with the token in the URL hash
+    (exactly like the OIDC callback so the SPA picks it up identically)."""
+    sm = _saml_guard()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _saml_cfg()
+    if not cfg:
+        respond(503, {'error': 'SAML is not configured on this server'})
+    # The IdP POSTs application/x-www-form-urlencoded with SAMLResponse + RelayState.
+    form = urllib.parse.parse_qs(get_body().decode('utf-8', errors='replace'))
+    saml_response = (form.get('SAMLResponse', [''])[0] or '').strip()
+    if not saml_response:
+        respond(400, {'error': 'missing SAMLResponse'})
+    outstanding = _saml_outstanding()
+    if not outstanding and not cfg.get('saml_allow_unsolicited'):
+        respond(400, {'error': 'no outstanding SAML request (replay or unsolicited response)'})
+    try:
+        res = sm.parse_response(cfg, _saml_base_url(), saml_response, outstanding)
+    except Exception as e:
+        audit_log('?', 'login_saml_failed', f'verification failed: {str(e)[:120]}')
+        respond(400, {'error': f'SAML response rejected: {str(e)[:140]}'})
+    _saml_consume_request(res.get('in_response_to'))   # one-time-use → replay guard
+    username = _saml_username_for(res.get('name_id'), res.get('attributes') or {}, cfg)
+    if not username:
+        respond(400, {'error': 'SAML assertion has no usable username'})
+    role = _saml_role_for(res.get('attributes') or {}, cfg)
+    user = _provision_or_promote_user(username, role, {
+        'saml_name_id': _sanitize_str(str(res.get('name_id') or ''), 128),
+    }, 'saml')
+    token = _mint_session(username, extra={'saml': True})
+    audit_log(username, 'login_saml',
+              f'authenticated via SAML (nameid={str(res.get("name_id"))[:64]})')
+    safe_token = urllib.parse.quote(token, safe='')
+    print('Status: 302 Found')
+    print(f'Location: /#saml_token={safe_token}&role={user.get("role", "viewer")}'
+          f'&username={urllib.parse.quote(username)}')
+    print('Cache-Control: no-store')
+    print()
+    sys.exit(0)
+
+
 def handle_audit_log_clear():
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
@@ -39129,6 +39356,11 @@ def _build_exact_routes():
         ('GET', '/api/webauthn/credentials'): handle_webauthn_credentials_list,
         ('POST', '/api/webauthn/login/begin'): handle_webauthn_login_begin,
         ('POST', '/api/webauthn/login/complete'): handle_webauthn_login_complete,
+        # v4.2.0 (B1): SAML 2.0 SP SSO
+        ('GET', '/api/saml/available'): handle_saml_available,
+        ('GET', '/api/saml/metadata'): handle_saml_metadata,
+        ('GET', '/api/auth/saml/login'): handle_saml_login,
+        ('POST', '/api/auth/saml/acs'): handle_saml_acs,
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
         ('POST', '/api/otlp/test'): handle_otlp_test,
