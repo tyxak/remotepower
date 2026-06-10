@@ -5042,6 +5042,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <option value="">All actions</option>
           </select>
           <button class="btn-icon" data-action="loadAuditLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="verifyAuditLog" title="Check the tamper-evident hash-chain for any altered or removed entries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><polyline points="9 12 11 14 15 10"/></svg> Verify integrity</button>
           <button class="btn-icon c-danger-outline" data-action="clearAuditLog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
           <button class="btn-icon c-danger-outline" data-action="revokeAllSessions">Revoke all sessions</button>
         </div>

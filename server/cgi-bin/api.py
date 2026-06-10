@@ -2981,6 +2981,38 @@ def log_command(actor, device_id, device_name, command):
     save(HISTORY_FILE, history)
 
 # ── Audit log with IP tracking ─────────────────────────────────────────────────
+def _audit_hmac_key():
+    """Per-install HMAC key for the audit hash-chain (A2). Created once at 0600;
+    a leaked audit_log.json alone can't be re-chained without it."""
+    kf = DATA_DIR / 'audit_hmac.key'
+    try:
+        if kf.exists():
+            return bytes.fromhex(kf.read_text().strip())
+    except Exception:
+        pass
+    key = os.urandom(32)
+    try:
+        fd = os.open(str(kf), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(key.hex())
+    except FileExistsError:
+        try:
+            return bytes.fromhex(kf.read_text().strip())
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return key
+
+
+def _audit_entry_hash(prev_hash, entry):
+    """v4.2.0 (A2): HMAC-SHA256 over (prev_hash || canonical entry) — the
+    tamper-evident chain link. _hash itself is excluded from the canonical form."""
+    content = {k: entry[k] for k in entry if k != '_hash'}
+    msg = (prev_hash or '') + json.dumps(content, sort_keys=True, separators=(',', ':'))
+    return hmac.new(_audit_hmac_key(), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+
+
 def audit_log(actor, action, detail='', source_ip=None,
               ai_host=None, ai_prompt=None):
     """Log action with actor, IP, and detail for security auditing.
@@ -3019,6 +3051,12 @@ def audit_log(actor, action, detail='', source_ip=None,
         entry['ai_host'] = _sanitize_str(ai_host, 128)
     if ai_prompt is not None:
         entry['ai_prompt'] = _sanitize_str(ai_prompt, 2048)
+    # v4.2.0 (A2): chain this entry to the previous one's hash for tamper-evidence.
+    try:
+        prev_hash = entries[-1].get('_hash', '') if entries else ''
+        entry['_hash'] = _audit_entry_hash(prev_hash, entry)
+    except Exception as _he:
+        sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
     entries.append(entry)
     # Age-bound: drop entries older than retention_days
     cfg = load(CONFIG_FILE) or {}
@@ -28901,12 +28939,49 @@ def handle_audit_log():
     respond(200, _paginate_list(list(reversed(al.get('entries', [])))))
 
 
+def handle_audit_log_verify():
+    """GET /api/audit-log/verify — walk the A2 hash-chain; report tampering.
+    The first chained entry is the trusted anchor (its predecessor may have been
+    trimmed/archived); every later entry is recomputed from its predecessor."""
+    require_admin_auth()
+    entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
+    checked, broken_at, prev = 0, None, None
+    for i, e in enumerate(entries):
+        h = e.get('_hash')
+        if h is None:
+            prev = None   # pre-chain (legacy) entry — reset the anchor
+            continue
+        if prev is not None:
+            checked += 1
+            if not hmac.compare_digest(_audit_entry_hash(prev, e), h):
+                broken_at = i
+                break
+        prev = h
+    respond(200, {'ok': broken_at is None, 'entries': len(entries),
+                  'verified': checked, 'broken_at': broken_at})
+
+
 def handle_audit_log_clear():
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    # v4.2.0 (A2): gate the wipe behind an admin-password re-prompt, and write an
+    # immutable pre-wipe archive so a clear can never silently destroy evidence.
+    pw = str((get_json_body() or {}).get('password', ''))
+    u = (load(USERS_FILE) or {}).get(actor) or {}
+    if not pw or not verify_password(pw, u.get('password_hash', '')):
+        respond(403, {'error': 'admin password required to clear the audit log'})
+    try:
+        import gzip
+        cur = load(AUDIT_LOG_FILE) or {}
+        arch = DATA_DIR / f'audit_log_prewipe_{int(time.time())}.jsonl.gz'
+        with gzip.open(str(arch), 'wt') as f:
+            for e in cur.get('entries', []):
+                f.write(json.dumps(e) + '\n')
+    except Exception as _aw:
+        sys.stderr.write(f'[remotepower] pre-wipe audit archive failed: {_aw}\n')
     save(AUDIT_LOG_FILE, {'entries': []})
-    # Log the clear itself as the first new entry
-    audit_log(actor, 'clear_audit_log', 'audit log cleared')
+    # Log the clear itself as the first new (chained) entry
+    audit_log(actor, 'clear_audit_log', 'audit log cleared (pre-wipe archived)')
     respond(200, {'ok': True})
 
 
@@ -38724,6 +38799,7 @@ def _build_exact_routes():
         ('POST', '/api/apikeys'): handle_apikeys_create,
         ('GET', '/api/attention'): handle_attention,
         ('GET', '/api/audit-log'): handle_audit_log,
+        ('GET', '/api/audit-log/verify'): handle_audit_log_verify,
         ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('POST', '/api/siem/test'): handle_siem_test,
         ('POST', '/api/otlp/test'): handle_otlp_test,

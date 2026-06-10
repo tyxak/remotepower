@@ -8282,7 +8282,19 @@ function renderAuditLog() {
   tableCtl.render('audit', rows);
 }
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
-async function clearAuditLog() { if (!confirm('Clear the entire audit log? This cannot be undone.')) return; const data = await api('DELETE', '/audit-log'); if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearAuditLog() {
+  const pw = prompt('Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:');
+  if (!pw) return;
+  const data = await api('DELETE', '/audit-log', { password: pw });
+  if (data?.ok) { toast('Audit log cleared (pre-wipe archive saved)', 'success'); loadAuditLog(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+async function verifyAuditLog() {
+  const d = await api('GET', '/audit-log/verify');
+  if (!d) return;
+  if (d.ok) toast(`Audit log intact — ${d.verified} chained entries verified.`, 'success');
+  else toast(`Tamper detected at entry #${d.broken_at}! The hash-chain is broken.`, 'error');
+}
 
 // ─── v3.2.0 (B1): Alerts inbox ──────────────────────────────────────────────
 
