@@ -91,17 +91,21 @@ _TOOL_IMAGE = {
 }
 
 
-def _sandbox(image, tool_argv):
+def _sandbox(image, tool_argv, volumes=None):
     """Wrap a tool's argv in a locked-down container (or run it bare when
-    RP_SCAN_RUNNER names a local binary)."""
+    RP_SCAN_RUNNER names a local binary). `volumes` (list of 'name:/path') are
+    persistent named volumes — used to cache nuclei's template store so it isn't
+    re-downloaded every run."""
     if RUNNER in ('docker', 'podman'):
         # Hardened but NOT --read-only: the tools must write scratch/report files
         # (zap /zap/wrk, wapiti session, nmap NSE temp) — a read-only rootfs makes
         # them silently produce nothing (0 findings). Ephemeral (--rm) +
         # cap-drop + no-new-privileges + pids cap keep it locked down.
-        return [RUNNER, 'run', '--rm', '--network', 'host', '--cap-drop', 'ALL',
-                '--security-opt', 'no-new-privileges', '--pids-limit', '512',
-                image] + tool_argv
+        cmd = [RUNNER, 'run', '--rm', '--network', 'host', '--cap-drop', 'ALL',
+               '--security-opt', 'no-new-privileges', '--pids-limit', '512']
+        for v in (volumes or []):
+            cmd += ['-v', v]
+        return cmd + [image] + tool_argv
     return tool_argv   # RP_SCAN_RUNNER is a local binary name (advanced)
 
 
@@ -245,11 +249,16 @@ def _parse_wapiti(text):
 
 
 def _nuclei_argv(target, profile):
+    # NB: do NOT pass -disable-update-check — the nuclei image ships WITHOUT
+    # templates, and -duc also blocks the template download, so nuclei runs with
+    # zero templates and finds nothing. Letting it manage templates (cached in a
+    # named volume so it's downloaded once) is what makes it actually scan.
     args = ['-u', target, '-severity', _SEVERITIES, '-jsonl', '-silent',
-            '-rate-limit', RATELIMIT, '-disable-update-check']
+            '-rate-limit', RATELIMIT]
     if profile != 'active':   # passive excludes intrusive/dos/fuzz templates
         args += ['-exclude-tags', _EXCLUDE_TAGS]
-    return _sandbox(_TOOL_IMAGE['nuclei'], args)
+    return _sandbox(_TOOL_IMAGE['nuclei'], args,
+                    volumes=['rp-nuclei-templates:/root/nuclei-templates'])
 
 
 def _nikto_argv(target, profile):

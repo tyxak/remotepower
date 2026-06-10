@@ -101,6 +101,14 @@ class TestProfileFlags(unittest.TestCase):
         self.assertIn('-exclude-tags', sc._nuclei_argv('h', 'passive'))
         self.assertNotIn('-exclude-tags', sc._nuclei_argv('h', 'active'))
 
+    def test_nuclei_fetches_templates(self):
+        # -disable-update-check would leave nuclei with ZERO templates (image
+        # ships none) → 0 findings. Must be absent; templates cached in a volume.
+        argv = sc._nuclei_argv('h', 'passive')
+        self.assertNotIn('-disable-update-check', argv)
+        if sc.RUNNER in ('docker', 'podman'):
+            self.assertIn('rp-nuclei-templates:/root/nuclei-templates', argv)
+
 
 class TestAgentSide(unittest.TestCase):
     """B5 P3: the agent's lynis host-audit (importlib-loaded worker shares the
