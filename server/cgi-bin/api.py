@@ -2216,6 +2216,24 @@ def _provision_or_promote_user(username, role, metadata, source):
         return dict(users[username])
 
 
+def _enforce_session_cap(tokens, username):
+    """v4.2.0 (A4): keep at most `max_sessions_per_user` active sessions per user
+    (config; 0 = unlimited), evicting the oldest. Mutates `tokens` in place — call
+    while holding the TOKENS_FILE lock, just before inserting the new session."""
+    try:
+        cap = int((load(CONFIG_FILE) or {}).get('max_sessions_per_user') or 0)
+    except (TypeError, ValueError):
+        cap = 0
+    if cap <= 0:
+        return
+    mine = [(k, v) for k, v in tokens.items()
+            if isinstance(v, dict) and v.get('user') == username]
+    if len(mine) >= cap:   # leave room for the one about to be added
+        mine.sort(key=lambda kv: kv[1].get('created', 0))
+        for k, _ in mine[:len(mine) - (cap - 1)]:
+            del tokens[k]
+
+
 def _mint_session(username, extra=None, remember_me=False):
     """Create a session-token record with the standard fields (so an SSO session
     looks exactly like a password-login one) and return the token."""
@@ -2231,6 +2249,7 @@ def _mint_session(username, extra=None, remember_me=False):
     if extra:
         rec.update(extra)
     with _LockedUpdate(TOKENS_FILE) as tokens:
+        _enforce_session_cap(tokens, username)
         tokens[_token_hash(token)] = rec
     return token
 
@@ -6589,6 +6608,7 @@ def handle_login():
     ttl = get_session_ttl(remember_me=remember_me)
     tokens = load(TOKENS_FILE)
     _now_login = int(time.time())
+    _enforce_session_cap(tokens, username)   # v4.2.0 (A4): per-user session cap
     tokens[_token_hash(token)] = {
         'user':      username,
         'created':   _now_login,
@@ -6609,6 +6629,7 @@ def handle_login():
         # warning banner. Set on the seeded default admin, cleared
         # when the password is changed.
         'must_change_password': bool(user.get('must_change_password')),
+        'must_enroll_mfa': _mfa_enrollment_required(user),   # v4.2.0 (A3)
     })
 
 
@@ -26629,6 +26650,16 @@ def handle_apikeys_create():
                 respond(400, {'error': 'expires_at must be in the future'})
         except (ValueError, TypeError):
             respond(400, {'error': 'expires_at must be a unix timestamp'})
+    # v4.2.0 (A5): default-expiry policy — if the operator set
+    # apikey_default_expiry_days and no explicit expiry was given, apply it so
+    # keys aren't created immortal by default.
+    if expires_at is None:
+        try:
+            dd = int((load(CONFIG_FILE) or {}).get('apikey_default_expiry_days') or 0)
+        except (TypeError, ValueError):
+            dd = 0
+        if dd > 0:
+            expires_at = int(time.time()) + dd * 86400
     apikeys[kid] = {'name': name, 'key': key_value, 'user': user, 'role': role,
                     'created': int(time.time()), 'active': True,
                     'expires_at': expires_at}
@@ -29190,6 +29221,7 @@ def handle_me():
         'ldap':                 bool(u.get('ldap_dn')),
         'created':              u.get('created'),
         'must_change_password': bool(u.get('must_change_password')),
+        'must_enroll_mfa': _mfa_enrollment_required(u),   # v4.2.0 (A3)
         # v3.14.0: per-account sidebar favorites, so they follow the user
         # across devices/browsers instead of living only in localStorage.
         'favorites':            _clean_favorites(u.get('favorites')),
@@ -38745,6 +38777,51 @@ def _enforce_password_change():
     })
 
 
+# v4.2.0 (A3): paths reachable while a user still owes MFA enrollment — the TOTP
+# setup flow itself, plus the minimal shell (public info / health / me / logout).
+_MFA_ENROLL_ALLOWED_PATHS = frozenset({
+    '/api/totp/setup', '/api/totp/confirm', '/api/totp/status',
+    '/api/public-info', '/api/health', '/api/csp-report',
+    '/api/me', '/api/logout', '/api/users/passwd',
+})
+
+
+def _mfa_enrollment_required(user):
+    """True if config requires MFA for this user's role and they have no TOTP."""
+    try:
+        roles = (load(CONFIG_FILE) or {}).get('mfa_required_roles') or []
+    except Exception:
+        roles = []
+    return bool(roles) and (user or {}).get('role') in roles and not (user or {}).get('totp_secret')
+
+
+def _enforce_mfa_enrollment():
+    """v4.2.0 (A3): block a session whose role requires MFA until TOTP is set up.
+    Same session-only gate shape as _enforce_password_change (API keys exempt)."""
+    pi = path_info()
+    if pi in _MFA_ENROLL_ALLOWED_PATHS or any(pi.startswith(p) for p in _PWCHG_ALLOWED_PREFIXES):
+        return
+    token = get_token_from_request()
+    if not token:
+        return
+    tokens = load(TOKENS_FILE)
+    _tk = _resolve_token_key(token, tokens)
+    entry = tokens.get(_tk) if _tk else None
+    if not entry:
+        return  # API key / agent token — not subject to the enrollment gate
+    username = entry.get('user')
+    if not username:
+        return
+    user = (load(USERS_FILE) or {}).get(username) or {}
+    if _mfa_enrollment_required(user):
+        respond(403, {
+            'error': 'MFA enrollment required',
+            'detail': ('Your role requires two-factor auth. Enrol TOTP '
+                       '(Settings → Security) before using other endpoints.'),
+            'must_enroll_mfa': True,
+        })
+
+
 # ── Exact-match route table (v3.4.0 router refactor) ────────────────────────
 # (method, path) -> no-arg handler for fixed-path routes; None method = any
 # verb. _dispatch consults this BEFORE the ordered pattern chain. Dict keys are
@@ -39769,6 +39846,7 @@ def main():
     # password-change route (and the bare server-info endpoint the
     # login page reads) until must_change_password is cleared.
     _enforce_password_change()
+    _enforce_mfa_enrollment()   # v4.2.0 (A3)
 
     # v3.5.0 RBAC v2: block scoped roles from any out-of-scope /api/devices/<id>
     # request (read or write) at a single chokepoint, before route dispatch.

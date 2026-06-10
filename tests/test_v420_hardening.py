@@ -20,7 +20,8 @@ class _Base(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
-        for a in ('AUDIT_LOG_FILE', 'USERS_FILE', 'CONFIG_FILE'):
+        for a in ('AUDIT_LOG_FILE', 'USERS_FILE', 'CONFIG_FILE',
+                  'TOKENS_FILE', 'APIKEYS_FILE'):
             self._files[a] = getattr(api, a)
             setattr(api, a, self.d / Path(getattr(api, a)).name)
         self.cap = {}
@@ -99,6 +100,72 @@ class TestAuditTamperEvidence(_Base):
         self.assertTrue(r['ok'])
         self.assertTrue(any(p.name.startswith('audit_log_prewipe_')
                             for p in api.DATA_DIR.glob('audit_log_prewipe_*')))
+
+
+class TestSessionCap(_Base):
+    def test_cap_evicts_oldest(self):
+        api.save(api.CONFIG_FILE, {'max_sessions_per_user': 2})
+        api.save(api.TOKENS_FILE, {})
+        for _ in range(3):
+            api._mint_session('alice')
+        toks = api.load(api.TOKENS_FILE)
+        alice = [v for v in toks.values() if v.get('user') == 'alice']
+        self.assertEqual(len(alice), 2)   # oldest evicted, only 2 remain
+
+    def test_unlimited_when_zero(self):
+        api.save(api.CONFIG_FILE, {'max_sessions_per_user': 0})
+        api.save(api.TOKENS_FILE, {})
+        for _ in range(4):
+            api._mint_session('bob')
+        self.assertEqual(len(api.load(api.TOKENS_FILE)), 4)
+
+
+class TestApiKeyDefaultExpiry(_Base):
+    def test_default_expiry_applied(self):
+        api.save(api.CONFIG_FILE, {'apikey_default_expiry_days': 30})
+        api.save(api.APIKEYS_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'k', 'role': 'admin'}
+        r = self.call(api.handle_apikeys_create)
+        kid = r['id']
+        exp = api.load(api.APIKEYS_FILE)[kid]['expires_at']
+        self.assertIsNotNone(exp)
+        self.assertGreater(exp, int(__import__('time').time()) + 29 * 86400)
+
+    def test_no_policy_no_expiry(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.APIKEYS_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'k', 'role': 'admin'}
+        r = self.call(api.handle_apikeys_create)
+        self.assertIsNone(api.load(api.APIKEYS_FILE)[r['id']]['expires_at'])
+
+
+class TestMfaEnrollmentGate(_Base):
+    def test_required_predicate(self):
+        api.save(api.CONFIG_FILE, {'mfa_required_roles': ['admin']})
+        self.assertTrue(api._mfa_enrollment_required({'role': 'admin'}))
+        self.assertFalse(api._mfa_enrollment_required({'role': 'admin', 'totp_secret': 'X'}))
+        self.assertFalse(api._mfa_enrollment_required({'role': 'viewer'}))
+
+    def test_interceptor_blocks_then_allows_enrollment(self):
+        api.save(api.CONFIG_FILE, {'mfa_required_roles': ['admin']})
+        api.save(api.USERS_FILE, {'alice': {'role': 'admin'}})   # no totp
+        tok = 'rawtok'
+        api.save(api.TOKENS_FILE, {api._token_hash(tok): {'user': 'alice', 'created': 1}})
+        orig = (api.path_info, api.get_token_from_request)
+        api.get_token_from_request = lambda: tok
+        try:
+            api.path_info = lambda: '/api/devices'      # a normal endpoint → blocked
+            self.call(api._enforce_mfa_enrollment)
+            self.assertEqual(self.cap.get('s'), 403)
+            self.assertTrue(self.cap['b'].get('must_enroll_mfa'))
+            self.cap.clear()
+            api.path_info = lambda: '/api/totp/setup'    # enrollment path → allowed
+            self.call(api._enforce_mfa_enrollment)
+            self.assertEqual(self.cap, {})               # no respond → passes through
+        finally:
+            api.path_info, api.get_token_from_request = orig
 
 
 if __name__ == '__main__':
