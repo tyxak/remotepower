@@ -18,19 +18,25 @@ self-observability, UX polish, and regression guardrails.
 - **Download the archived audit log.** A button on the Audit page and
   `GET /api/audit-log/archive` stream the gzipped archive of evicted entries,
   so the full retained history is reachable without shell access.
+- **Diagnostics bundle.** A button on Server status and `GET /api/diagnostics`
+  download one JSON support bundle (versions, storage backend, fleet counts,
+  recurring-job staleness, audit + hash-chain status, optional-dependency
+  presence) with all secrets scrubbed server-side.
 - **Staleness at a glance.** Cadence jobs (monitors, the KEV/EPSS refresh,
-  scheduled reports) surface a last-ran timestamp + staleness badge on the
+  scheduled scans) surface a last-ran timestamp + staleness badge on the
   Server status page.
 - **Clickable posture fixes.** Each warning in the security-posture self-check
   links straight to the Settings section that fixes it.
 - **Consistent loading states.** Tables that flashed empty / showed a bare
   "Loading…" now use the shared skeleton-row treatment.
-- **Regression guardrails (tests).** A test diffs every `sysinfo` field the
-  Checks engine / drawer read against every field the sanitizer persists (the
-  `proc_names` / `mailq` / `pkg_scan_ts` bug-class); another walks
-  `WEBHOOK_EVENTS` against the alert-severity / channel-kind / title / front-end
-  registries (the phantom-`service_recover` class). Both now fail in CI instead
-  of in a later sweep.
+- **Regression guardrails (tests).** Diffs every `sysinfo` field the Checks
+  engine / drawer read against every field the sanitizer persists (the
+  `proc_names` / `mailq` / `pkg_scan_ts` bug-class); walks `WEBHOOK_EVENTS`
+  against the alert-severity / channel-kind / title / front-end registries (the
+  phantom-`service_recover` class); a **performance-regression** test that
+  asserts single-device endpoints never reconstruct the whole devices store on
+  SQLite; and **golden-file** tests locking the agent's apt/dnf/pacman, systemd
+  and openssl text parsers. All fail in CI instead of in a later sweep.
 
 See [docs/v4.3.0.md](docs/v4.3.0.md).
 

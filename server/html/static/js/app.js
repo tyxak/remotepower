@@ -3649,6 +3649,7 @@ const _DYK_TIPS = [
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
   "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
+  "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
   "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
   "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
   "The Audit page grades your security posture as a checklist — MFA enforced, admins with MFA, session caps, API-key expiry — so you can see at a glance what hardening is left to switch on.",
@@ -22648,6 +22649,12 @@ function _cadenceJobsCard(jobs) {
       <table class="fs-13">${rows}</table>
     </div>`;
 }
+// v4.3.0: download the support diagnostics bundle (secrets scrubbed server-side).
+function downloadDiagnostics() {
+  _downloadAuthed('/api/diagnostics', 'remotepower-diagnostics.json',
+    'Diagnostics bundle downloaded');
+}
+
 async function runBackupNow() {
   const btn = document.getElementById('self-backup-btn');
   if (!confirm('Run a backup snapshot of /var/lib/remotepower now? This may take a few seconds depending on data size.')) return;

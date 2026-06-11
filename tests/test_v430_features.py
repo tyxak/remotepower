@@ -118,6 +118,74 @@ class TestAuditArchiveDownload(_Base):
         self.assertIn('data-action="downloadAuditArchive"', _HTML)
 
 
+class TestDiagnosticsBundle(_Base):
+    def setUp(self):
+        super().setUp()
+        # diagnostics also reads DEVICES_FILE + get_online_ttl
+        self._dev_file = api.DEVICES_FILE
+        api.DEVICES_FILE = self.d / 'devices.json'
+        self._ttl = api.get_online_ttl
+        api.get_online_ttl = lambda: 180
+
+    def tearDown(self):
+        api.DEVICES_FILE = self._dev_file
+        api.get_online_ttl = self._ttl
+        super().tearDown()
+
+    def _run_capture(self):
+        import io
+        buf = io.StringIO()
+        orig = api.sys.stdout
+        api.sys.stdout = buf
+        try:
+            try:
+                api.handle_diagnostics_bundle()
+            except api.HTTPError:
+                pass
+        finally:
+            api.sys.stdout = orig
+        body = buf.getvalue()
+        # strip CGI headers (up to the blank line)
+        import json as _json
+        payload = body.split('\n\n', 1)[-1]
+        return _json.loads(payload)
+
+    def test_route_registered(self):
+        self.assertIn(('GET', '/api/diagnostics'), api._build_exact_routes())
+
+    def test_bundle_has_no_secrets(self):
+        api.save(api.CONFIG_FILE, {
+            'smtp_password': 'hunter2', 'siem_token': 'sk-secret',
+            'audit_forward_token': 'tok', 'monitor_interval': 300,
+            'webhook_urls': [{'url': 'https://x', 'pushover_token': 'p'}]})
+        api.save(api.USERS_FILE, {})
+        api.save(api.AUDIT_LOG_FILE, {'entries': []})
+        api.save(api.DEVICES_FILE, {'d1': {'last_seen': int(api.time.time())}})
+        b = self._run_capture()
+        flat = api.json.dumps(b)
+        for secret in ('hunter2', 'sk-secret', 'tok', 'pushover_token'):
+            self.assertNotIn(secret, flat, f'secret {secret} leaked into bundle')
+        # non-secret config survives
+        self.assertEqual(b['config_scrubbed']['monitor_interval'], 300)
+
+    def test_bundle_core_fields(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.USERS_FILE, {})
+        api.save(api.AUDIT_LOG_FILE, {'entries': []})
+        api.save(api.DEVICES_FILE, {})
+        b = self._run_capture()
+        self.assertEqual(b['server_version'], api.SERVER_VERSION)
+        self.assertIn('storage_backend', b)
+        self.assertIn('fleet', b)
+        self.assertIn('cadence_jobs', b)
+        self.assertIn('audit', b)
+        self.assertIn('optional_deps', b)
+
+    def test_frontend_button_and_fn(self):
+        self.assertIn('downloadDiagnostics', _APP_JS)
+        self.assertIn('data-action="downloadDiagnostics"', _HTML)
+
+
 class TestCadenceJobStaleness(_Base):
     def test_fresh_job_not_stale(self):
         now = int(api.time.time())

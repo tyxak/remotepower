@@ -11223,7 +11223,7 @@ def handle_wol():
 def handle_sysinfo(dev_id):
     require_auth()
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE); dev = devices.get(dev_id)
+    dev = device_get(dev_id)   # v4.3.0: single-row read
     if not dev: respond(404, {'error': 'Device not found'})
     respond(200, {'sysinfo': dev.get('sysinfo', {}), 'journal': dev.get('journal', []),
                   # v3.8.0: surface why the host last restarted (boot_reason)
@@ -14604,6 +14604,79 @@ def _cadence_job_status(now):
     except Exception:
         pass
     return jobs
+
+
+def handle_diagnostics_bundle():
+    """GET /api/diagnostics — v4.3.0: one downloadable JSON support bundle so an
+    operator can attach "everything you'd ask for" in a single file instead of
+    a back-and-forth. Admin only; audited. Deliberately contains NO secrets —
+    the config is deep-scrubbed with the same _scrub_config_secrets used by the
+    /api/config GET view."""
+    actor = require_admin_auth()
+    now = int(time.time())
+    cfg = load(CONFIG_FILE) or {}
+    import copy as _copy
+    scrubbed = _copy.deepcopy(cfg)
+    _scrub_config_secrets(scrubbed)
+    # Drop the noisy per-device bookkeeping maps — not useful for support and
+    # they bloat the bundle.
+    for noisy in ('offline_notified', 'offline_pending', 'patch_alerted',
+                  'monitor_notified', 'containers_stale_notified'):
+        scrubbed.pop(noisy, None)
+
+    bundle = {
+        'generated_at': now,
+        'generated_by': actor,
+        'server_version': SERVER_VERSION,
+        'storage_backend': _storage_backend(),
+        'python': sys.version.split()[0],
+        'config_scrubbed': scrubbed,
+    }
+    # Best-effort enrichments — each isolated so one failure can't blank the bundle.
+    try:
+        devices = load(DEVICES_FILE) or {}
+        ttl = get_online_ttl()
+        online = sum(1 for d in devices.values()
+                     if isinstance(d, dict) and not d.get('agentless')
+                     and d.get('last_seen', 0) and (now - d['last_seen']) < ttl)
+        bundle['fleet'] = {'total': len(devices), 'online': online,
+                           'agentless': sum(1 for d in devices.values()
+                                            if isinstance(d, dict) and d.get('agentless'))}
+    except Exception as e:
+        bundle['fleet'] = {'error': str(e)[:200]}
+    try:
+        bundle['cadence_jobs'] = _cadence_job_status(now)
+    except Exception as e:
+        bundle['cadence_jobs'] = {'error': str(e)[:200]}
+    try:
+        entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
+        checked, broken_at = _audit_chain_walk(entries)
+        bundle['audit'] = {'entries': len(entries), 'chain_ok': broken_at is None,
+                           'chain_verified': checked,
+                           'retention_days': int(cfg.get('audit_log_retention_days') or 90)}
+    except Exception as e:
+        bundle['audit'] = {'error': str(e)[:200]}
+    # Optional-dependency presence — the #1 "why is X unavailable?" question.
+    deps = {}
+    for mod in ('webauthn', 'saml2', 'psycopg2', 'snmp', 'ldap3'):
+        try:
+            __import__(mod)
+            deps[mod] = True
+        except Exception:
+            deps[mod] = False
+    bundle['optional_deps'] = deps
+
+    audit_log(actor, 'diagnostics_download', f'bundle v{SERVER_VERSION}')
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime(now))
+    fname = f'remotepower-diagnostics-{stamp}.json'
+    print("Status: 200 OK")
+    print("Content-Type: application/json")
+    print(f'Content-Disposition: attachment; filename="{fname}"')
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.write(json.dumps(bundle, indent=2, default=str))
+    sys.stdout.flush()
 
 
 def handle_backup_run():
@@ -40062,6 +40135,7 @@ def _build_exact_routes():
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
+        ('GET', '/api/diagnostics'): handle_diagnostics_bundle,
         # v3.12.0: pluggable storage backend (JSON <-> SQLite). Separate from
         # /api/config because switching triggers an in-place migration that must
         # run before config is readable from the new backend. /api/storage is

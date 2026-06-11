@@ -118,6 +118,7 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `GET` | `/api/saml/metadata` | - | SP metadata XML for your IdP |
 | `GET` | `/api/audit-log/verify` | admin | Walk the audit hash-chain; report tampering |
 | `GET` | `/api/audit-log/archive` | admin | Download the gzipped archive of evicted audit entries |
+| `GET` | `/api/diagnostics` | admin | Download a JSON support bundle (versions, backend, fleet, cadence-job staleness, audit/chain status, optional-dep presence; secrets scrubbed) |
 | `GET` | `/api/security-posture` | admin | Graded secure-defaults self-check (each warn names its fix tab) |
 | `GET` | `/api/scans` | scan | List security scans |
 | `POST` | `/api/scans` | admin | Queue a scan (tool, profile, intensity, target) |
