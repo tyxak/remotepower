@@ -1724,8 +1724,10 @@
   /* v3.8.0: the countdown bar drains via a single CSS animation per refresh
      cycle (set in startRefreshCycle), not a per-second JS width write. Fewer
      DOM mutations → fewer MutationObserver wakeups for form-filler extensions. */
-  .refresh-progress { height: 100%; background: var(--accent); transition: width 1s linear; }
-  @keyframes rp-refresh-countdown { from { width: 100%; } to { width: 0%; } }
+  /* scaleX is compositor-only — animating width repainted the full-width
+   * bar every second on every page (same class as the v3.14.0 pulse storm). */
+  .refresh-progress { height: 100%; background: var(--accent); width: 100%;
+                      transform-origin: left; transition: transform 1s linear; }
   .login-container {
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
@@ -1765,7 +1767,7 @@
     display: block;
     background: transparent;
   }
-  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-title { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
   .login-sub   { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
   .login-btn {
     width: 100%; background: var(--accent); color: #fff; border: none;
@@ -1913,6 +1915,8 @@
   }
   .kanban-list {
     display: flex; flex-direction: column; gap: 8px; flex: 1;
+    /* box-overflow rule: ~15 cards then scroll (Closed column accumulates) */
+    max-height: 340px; overflow-y: auto;
   }
   .kanban-card {
     background: var(--surface2);
@@ -3253,7 +3257,7 @@ td .kev-badge { margin-left: 0; }
 .compliance-summary { font-size: 14px; margin-bottom: 14px; font-weight: 500; }
 .compliance-fw-card { margin-bottom: 14px; }
 .compliance-fw-head { display: flex; align-items: center; justify-content: space-between; }
-.compliance-score { font-size: 20px; font-weight: 700; }
+.compliance-score { font-size: 28px; font-weight: 700; }
 
 /* v3.4.0: host-config enforce opt-in */
 .hc-enforce-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
@@ -3782,7 +3786,7 @@ label.form-label:has(> input[type="radio"]) {
 .isl-124 { max-width:600px }
 .isl-125 { display:flex; align-items:center; gap:16px; margin-bottom:24px }
 .isl-126 { width:52px; height:52px; border-radius:12px; display:block; object-fit:contain }
-.isl-127 { font-size:22px; font-weight:700 }
+.isl-127 { font-size:28px; font-weight:700 }
 .isl-128 { margin-bottom:20px }
 .isl-129 { color:var(--muted); padding:6px 12px 6px 0; width:160px }
 .isl-130 { color:var(--muted); padding:6px 12px 6px 0 }
@@ -4627,6 +4631,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .sev-pill.sev-medium   { background: rgba(255,193,7,0.15); color: #d4a017; border: 1px solid #d4a017; }
 .sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
 .sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
+.sev-pill.sev-info     { background: rgba(59,130,246,0.15); color: var(--accent); border: 1px solid var(--accent); }
+.tl-dot.sev-info       { background: var(--accent); }
 .alerts-row.resolved   { opacity: 0.55; }
 /* v4.1.0: per-host alert grouping + root-cause folding */
 .alerts-group-row { background: var(--panel-2, rgba(127,127,127,0.06)); }
@@ -4879,14 +4885,14 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v3.4.1: read-only public status page (status.html) */
 .status-page { background: var(--bg); color: var(--text); min-height: 100vh; margin: 0; }
 .status-wrap { max-width: 640px; margin: 0 auto; padding: 48px 20px; }
-.status-wrap h1 { font-size: 22px; margin: 0 0 24px; }
+.status-wrap h1 { font-size: 28px; margin: 0 0 24px; }
 .status-score { text-align: center; margin-bottom: 24px; }
 .status-num { font-size: 64px; font-weight: 800; line-height: 1; }
 .status-grade { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; }
 .status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 28px; }
 .status-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
 .status-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.status-v { font-size: 24px; font-weight: 700; margin-top: 4px; }
+.status-v { font-size: 28px; font-weight: 700; margin-top: 4px; }
 .status-h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px; }
 .status-mon { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .status-pill { display: inline-block; min-width: 48px; text-align: center; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
@@ -5008,13 +5014,13 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
     border-color: #ccc !important; }
   #print-report .pr-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
   #print-report .pr-logo { height: 40px; width: auto; }
-  #print-report h1 { font-size: 22px; margin: 0 0 2px; }
+  #print-report h1 { font-size: 28px; margin: 0 0 2px; }
   #print-report h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }
   #print-report .pr-meta { color: #555 !important; font-size: 12px; }
   #print-report .pr-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
   #print-report .pr-card { border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
   #print-report .pr-k { font-size: 11px; text-transform: uppercase; color: #555 !important; letter-spacing: .04em; }
-  #print-report .pr-v { font-size: 24px; font-weight: 600; }
+  #print-report .pr-v { font-size: 28px; font-weight: 600; }
   #print-report .pr-sub { font-size: 11px; color: #555 !important; }
   #print-report table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }
   #print-report th, #print-report td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }

@@ -70,8 +70,8 @@ sudo bash packaging/postgres-setup.sh --install --write-marker /var/lib/remotepo
 #    then migrate: Settings → Advanced → Storage backend → Migrate
 
 # b) DB high availability (streaming replication)
-sudo STANDBY_CIDR=10.0.0.5/32 bash packaging/postgres-ha-primary.sh    # on primary
-sudo PRIMARY_HOST=10.0.0.4 REPL_PASS='…' CONFIRM=yes \
+sudo STANDBY_CIDR=192.0.2.11/32 bash packaging/postgres-ha-primary.sh    # on primary
+sudo PRIMARY_HOST=192.0.2.10 REPL_PASS='…' CONFIRM=yes \
      bash packaging/postgres-ha-standby.sh                             # on standby
 #    DSN → postgresql://rp:pw@pg-primary,pg-standby:5432/remotepower  (auto-failover)
 

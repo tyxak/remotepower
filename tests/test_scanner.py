@@ -152,14 +152,26 @@ class TestAgentSide(unittest.TestCase):
         import tempfile, os
         data = ("warning[]=AUTH-9282|Password aging|-|-|\n"
                 "suggestion[]=SSH-7408|Harden sshd|-|-|\n"
+                "hardening_index=64\n"
                 "ignored line\n")
         p = os.path.join(tempfile.mkdtemp(), 'report.dat')
         open(p, 'w').write(data)
-        f = self.agent._parse_lynis_report(p)
+        # v4.2.0 sweep: returns (findings, hardening_index) — the 0–100 score
+        # used to be discarded at parse time.
+        f, hardening = self.agent._parse_lynis_report(p)
         self.assertEqual(len(f), 2)
         self.assertEqual(f[0]['rule_id'], 'AUTH-9282')
         self.assertEqual(f[0]['severity'], 'medium')   # warning
         self.assertEqual(f[1]['severity'], 'low')      # suggestion
+        self.assertEqual(hardening, 64)
+
+    def test_parse_lynis_report_no_hardening_index(self):
+        import tempfile, os
+        p = os.path.join(tempfile.mkdtemp(), 'report.dat')
+        open(p, 'w').write("warning[]=X-1|A|-|-|\n")
+        f, hardening = self.agent._parse_lynis_report(p)
+        self.assertEqual(len(f), 1)
+        self.assertIsNone(hardening)
 
     def test_run_host_scan_unsupported_tool(self):
         r = self.agent.run_host_scan({'id': 's1', 'tool': 'metasploit'})

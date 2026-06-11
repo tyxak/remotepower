@@ -57,7 +57,7 @@ function _renderRouterosCard(body, badge, data) {
 
   const ifs = ov.interfaces || [];
   if (ifs.length) {
-    h += `<h4 class="mt-12">Interfaces (${ifs.length})</h4><table class="fs-13"><thead><tr><th>Name</th><th>Type</th><th>State</th><th class="ta-right">RX</th><th class="ta-right">TX</th><th></th></tr></thead><tbody>`;
+    h += `<h4 class="mt-12">Interfaces (${ifs.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Name</th><th>Type</th><th>State</th><th class="ta-right">RX</th><th class="ta-right">TX</th><th></th></tr></thead><tbody>`;
     for (const i of ifs) {
       const state = i.disabled ? '<span class="c-muted">disabled</span>'
                   : (i.running ? '<span class="c-green">up</span>' : '<span class="c-amber">down</span>');
@@ -66,25 +66,25 @@ function _renderRouterosCard(body, badge, data) {
         : `<button class="btn-icon badge-xs" data-action="routerosAction" data-arg="disable_interface" data-arg2="${escAttr(i.id)}">Disable</button>`;
       h += `<tr><td><strong>${escHtml(i.name || '?')}</strong></td><td class="hint">${escHtml(i.type || '')}</td><td>${state}</td><td class="ta-right">${fmtB(i.rx_byte)}</td><td class="ta-right">${fmtB(i.tx_byte)}</td><td class="nowrap">${btn}</td></tr>`;
     }
-    h += '</tbody></table>';
+    h += '</tbody></table></div>';
   }
 
   const leases = ov.dhcp_leases || [];
   if (leases.length) {
-    h += `<h4 class="mt-12">DHCP leases (${leases.length})</h4><table class="fs-13"><thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Status</th></tr></thead><tbody>`;
+    h += `<h4 class="mt-12">DHCP leases (${leases.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Status</th></tr></thead><tbody>`;
     for (const l of leases.slice(0, 100)) {
       h += `<tr><td class="mono-12">${escHtml(l.address || '')}</td><td class="mono-12">${escHtml(l.mac || '')}</td><td>${escHtml(l.hostname || '—')}</td><td class="hint">${escHtml(l.status || '')}${l.dynamic ? '' : ' · static'}</td></tr>`;
     }
-    h += '</tbody></table>';
+    h += '</tbody></table></div>';
   }
 
   const wl = ov.wireless || [];
   if (wl.length) {
-    h += `<h4 class="mt-12">Wireless clients (${wl.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>MAC</th><th>Signal</th></tr></thead><tbody>`;
+    h += `<h4 class="mt-12">Wireless clients (${wl.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Interface</th><th>MAC</th><th>Signal</th></tr></thead><tbody>`;
     for (const w of wl.slice(0, 100)) {
       h += `<tr><td>${escHtml(w.interface || '')}</td><td class="mono-12">${escHtml(w.mac || '')}</td><td class="hint">${escHtml(String(w.signal || '—'))}</td></tr>`;
     }
-    h += '</tbody></table>';
+    h += '</tbody></table></div>';
   }
 
   const fw = ov.firewall || {};
@@ -286,13 +286,13 @@ function _renderOpnsenseFirewall(body) {
     h += `<div class="c-red mb-6">Could not read: ${escHtml(Object.entries(errs).map(([k, v]) => `${k} (${v})`).join('; '))}</div>`;
   }
   h += `<div class="hint mb-6">Shows rules managed via the OPNsense API (Firewall → Automation). Rules created in the classic Firewall → Rules GUI are not exposed by the API and won't appear here.</div>`;
-  h += `<h4 class="mt-12">Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Description</th><th></th></tr></thead><tbody>`;
+  h += `<h4 class="mt-12">Filter rules (${f.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Interface</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Description</th><th></th></tr></thead><tbody>`;
   h += f.map(r => _ruleRow(r, 'filter', 'opnsense')).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
 
-  h += `<h4 class="mt-12">NAT rules — outbound / source (${n.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>Target</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>→ target:port</th><th>Description</th><th></th></tr></thead><tbody>`;
+  h += `<h4 class="mt-12">NAT rules — outbound / source (${n.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Interface</th><th>Target</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>→ target:port</th><th>Description</th><th></th></tr></thead><tbody>`;
   h += n.map(r => _ruleRow(r, 'nat', 'opnsense')).join('') || '<tr><td colspan="8" class="c-muted">No NAT rules.</td></tr>';
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
 
   // Add-filter-rule form. New rules land DISABLED for review.
   h += `<h4 class="mt-12">Add filter rule</h4>
@@ -587,13 +587,13 @@ function _ruleRow(r, table, ns) {
 
 function _renderRouterosFirewall(body) {
   const f = _rosFirewall.filter || [], n = _rosFirewall.nat || [];
-  let h = `<h4>Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Comment</th><th></th></tr></thead><tbody>`;
+  let h = `<h4>Filter rules (${f.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Comment</th><th></th></tr></thead><tbody>`;
   h += f.map(r => _ruleRow(r, 'filter')).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
 
-  h += `<h4 class="mt-12">NAT rules (${n.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>→ to-addr:port</th><th>Comment</th><th></th></tr></thead><tbody>`;
+  h += `<h4 class="mt-12">NAT rules (${n.length})</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>→ to-addr:port</th><th>Comment</th><th></th></tr></thead><tbody>`;
   h += n.map(r => _ruleRow(r, 'nat')).join('') || '<tr><td colspan="8" class="c-muted">No NAT rules.</td></tr>';
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
 
   // Add-filter-rule form. New rules land DISABLED for review.
   h += `<h4 class="mt-12">Add filter rule</h4>

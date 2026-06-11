@@ -20,7 +20,7 @@ Day-to-day fleet operations, without leaving the browser:
 
 ---
 
-**It's small.** ~42,000 lines of Python on the server. ~6,900 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
+**It's small.** ~56,000 lines of Python on the server. ~7,000 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
 
 **It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
 
@@ -1147,6 +1147,42 @@ the SSH command builder rejects option-smuggling host/user values; the agent's
 mail-queue probe backs off on a broken MTA; heavy dashboard widgets compute only
 when displayed. Independently scanned with wapiti, nikto, nuclei, bandit and
 OWASP ZAP — clean.
+
+## v4.2.0 additions — "5ecur1tyM4tter5"
+
+### Authorized vulnerability scanning (the Pentest page)
+Scan the hosts and websites **you own** with industry tools — **nuclei, nikto,
+nmap** (passive profile) plus **OWASP ZAP and wapiti** (active profile) and an
+on-host **lynis** hardening audit — orchestrated from a hardened **scanner
+satellite**, with quick/full intensity, a vhost field, and cron **scheduled
+scans** that can notify a channel on recurring findings. Targets are
+authorization-gated: enrolled hosts (target derived server-side, never typed
+in) or non-enrolled domains you prove you own via a **DNS TXT** record or a
+`/.well-known` file. Active scans require an explicit attestation and, for
+enrolled hosts, a maintenance window — all of it audit-logged.
+
+### Passkeys (WebAuthn)
+Phishing-resistant, passwordless sign-in with a security key, phone or
+biometrics. Enrol under **My Account → Passkeys**, then *Sign in with a
+passkey*. A cloned authenticator (sign-count regression) is refused; a passkey
+satisfies the MFA-required policy.
+
+### SAML 2.0 single sign-on
+Sign in through an enterprise IdP (Okta, Azure AD/Entra, OneLogin, Ping, ADFS)
+alongside the existing OIDC / LDAP / local options: SP metadata published,
+signed assertions verified with replay protection, users provisioned on first
+login with admin-group → role mapping.
+
+### Tamper-evident audit log
+Audit entries are **hash-chained**; a *Verify integrity* button reports the
+first broken link, and clearing the log requires an admin password re-prompt
+plus an immutable pre-wipe archive.
+
+### Account guardrails
+Enforce **MFA per role** (TOTP or passkey), cap **concurrent sessions** per
+user, set a **default API-key expiry**, and review a graded **security-posture
+self-check** that scores the server's own configuration against secure
+defaults.
 
 ---
 

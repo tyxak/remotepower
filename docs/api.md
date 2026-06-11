@@ -104,7 +104,33 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `POST` | `/api/totp/disable` | | Disable 2FA (requires password) |
 | `GET` | `/api/totp/status` | | Check if 2FA is enabled |
 
----
+### Security (v4.2.0)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/webauthn/available` | | Is the passkey feature available + enabled |
+| `POST` | `/api/webauthn/register/begin` | | Start passkey registration (returns options) |
+| `POST` | `/api/webauthn/register/complete` | | Finish passkey registration |
+| `GET` | `/api/webauthn/credentials` | | List your registered passkeys |
+| `DELETE` | `/api/webauthn/credentials/:id` | | Remove one of your passkeys |
+| `POST` | `/api/webauthn/login/begin` | - | Start a passkey sign-in (rate-limited) |
+| `POST` | `/api/webauthn/login/complete` | - | Finish a passkey sign-in → session token |
+| `GET` | `/api/saml/available` | - | Is SAML SSO configured (boolean only) |
+| `GET` | `/api/saml/metadata` | - | SP metadata XML for your IdP |
+| `GET` | `/api/audit-log/verify` | admin | Walk the audit hash-chain; report tampering |
+| `GET` | `/api/security-posture` | admin | Graded secure-defaults self-check |
+| `GET` | `/api/scans` | scan | List security scans |
+| `POST` | `/api/scans` | admin | Queue a scan (tool, profile, intensity, target) |
+| `GET` | `/api/scans/:id` | scan | Scan detail + findings |
+| `DELETE` | `/api/scans/:id` | admin | Delete a scan record |
+| `POST` | `/api/scans/clear` | admin | Clear finished scans |
+| `GET` | `/api/scan-targets` | scan | Registered non-enrolled scan targets |
+| `POST` | `/api/scan-targets` | admin | Register a target (returns ownership proof) |
+| `POST` | `/api/scan-targets/:id/verify` | admin | Verify ownership (DNS TXT or /.well-known) |
+| `DELETE` | `/api/scan-targets/:id` | admin | Remove a scan target |
+| `GET` | `/api/scan-schedules` | scan | List scheduled scans |
+| `POST` | `/api/scan-schedules` | admin | Create a recurring (cron) scan |
+| `POST` | `/api/scan-schedules/:id/run` | admin | Run a scheduled scan now |
+| `DELETE` | `/api/scan-schedules/:id` | admin | Delete a schedule |
 
 ---
 

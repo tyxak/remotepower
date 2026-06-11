@@ -38,12 +38,9 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-3.13.0.md](security-review-3.13.0.md)** — Latest security
- review (sandboxed SCAP reports, OIDC id_token claim checks, syslog-forward
- DNS-rebinding fix) plus the external-scan summary.
-- **[security-review-4.2.0.md](security-review-4.2.0.md)** — the scan engine,
- passkeys, SAML, the audit hash-chain, the scan-schedule scope fix, and the
- external-scan summary for v4.2.0.
+- **[security-review-4.2.0.md](security-review-4.2.0.md)** — Latest security
+ review: the scan engine, passkeys, SAML, the audit hash-chain, the
+ scan-schedule scope fix, and the external-scan summary for v4.2.0.
 - **[security-review-4.1.0.md](security-review-4.1.0.md)** — TLS-1.2 floor on
  every hop, SSH argv hardening, and the external-scan summary for v4.1.0.
 - **[security-review-3.13.0.md](security-review-3.13.0.md)** — sandboxed SCAP,
@@ -62,8 +59,8 @@ The five most recent per-release notes are kept here:
  and account guardrails.
 - **[v4.1.0.md](v4.1.0.md)** — "VisualMatters": CheckMK-style per-host
  Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
-- **[v4.0.0.md](v4.0.0.md)** — per-account sidebar favorites; per-container
- stale-image badge; fleet thermal roll-up ("hottest hosts").
+- **[v4.0.0.md](v4.0.0.md)** — scale out, encrypt everything, see more:
+ PostgreSQL + HA, relay satellites, multi-node, macOS agent, KEV/EPSS.
 - **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
  at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.
 - **[v3.12.0.md](v3.12.0.md)** — optional SQLite storage backend with a live,
@@ -77,7 +74,7 @@ The five most recent per-release notes are kept here:
 - **[drift.md](drift.md)** — Configuration drift detection: what's
  watched, customising the list, re-baselining, the compliance angle.
 - **[mcp.md](mcp.md)** — MCP server setup, Claude Desktop config, the
- read-only tools, security model, troubleshooting.
+ 14 read + 4 guarded write tools, security model, troubleshooting.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run
  linting, batch execution.
 - **[compose.md](compose.md)** — docker compose dropdown on device cards.
@@ -95,6 +92,40 @@ The five most recent per-release notes are kept here:
 - **[ai.md](ai.md)** — Optional AI assistant (Anthropic / OpenAI /
  DeepSeek / Ollama / LocalAI), button inventory, privacy redaction,
  rate limiting, nginx config for slow local models.
+- **[rag.md](rag.md)** — How the AI assistant retrieves your runbooks,
+ CMDB docs and live state to ground its answers.
+- **[security-scans.md](security-scans.md)** — Authorized vulnerability
+ scanning (the Pentest page): tools, profiles, target ownership
+ verification, scheduling, the scanner satellite.
+- **[webhooks.md](webhooks.md)** — Outbound webhook destinations, the
+ event catalog, channel routing, inbound webhooks.
+- **[acme.md](acme.md)** — ACME / Let's Encrypt certificate tracking
+ across the fleet.
+- **[attention.md](attention.md)** — The "Needs attention" roll-up: what
+ feeds it and how items clear.
+- **[bulk-operations.md](bulk-operations.md)** — Multi-device commands,
+ tag/group targeting, batch patching.
+- **[custom-scripts.md](custom-scripts.md)** — Custom monitoring scripts:
+ server-defined bash health checks with fleet-wide results.
+- **[forecast.md](forecast.md)** — Disk-fill forecasting and predictive
+ disk health.
+- **[health-score.md](health-score.md)** — How the fleet health score is
+ computed.
+- **[host-config.md](host-config.md)** — Declarative per-host desired
+ state (repos, DNS, users, services) with drift reporting.
+- **[keyboard-shortcuts.md](keyboard-shortcuts.md)** — Command palette and
+ keyboard navigation.
+- **[mitigation.md](mitigation.md)** — One-click mitigation runners for
+ common findings.
+- **[opnsense.md](opnsense.md)** — OPNsense firewall integration (and the
+ RouterOS sibling).
+- **[self-monitoring.md](self-monitoring.md)** — The server watching
+ itself: status page, DB maintenance, CSP reports.
+- **[sla.md](sla.md)** — Uptime SLA targets and reporting.
+- **[terraform-api.md](terraform-api.md)** — Using the REST API from
+ Terraform / IaC pipelines.
+- **[maintaining-docs.md](maintaining-docs.md)** — How these docs are kept
+ in sync with the product (for contributors).
 - **[prometheus-metrics-sample.txt](prometheus-metrics-sample.txt)** —
  Example `/api/metrics` output for Grafana scrape config.
 - **screenshots/** — UI screenshots referenced from the main README.

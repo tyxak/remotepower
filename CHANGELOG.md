@@ -35,6 +35,48 @@ changes; every new control is off until you turn it on.
 
 See [docs/v4.2.0.md](docs/v4.2.0.md).
 
+**Post-release sweep (2026-06-11, still v4.2.0):** a full-project bind / bughunt /
+security / performance pass.
+
+- *Security:* password login now demands a **passkey assertion** for accounts
+  whose only second factor is a passkey (it previously minted a session from the
+  password alone); `webauthn_enabled=false` actually disables the passkey
+  ceremonies; the passkey login-begin endpoint is rate-limited and no longer
+  reveals which usernames exist; scan-target file verification refuses loopback;
+  audit-log writes are atomic under a file lock. Details in
+  [docs/security-review-4.2.0.md](docs/security-review-4.2.0.md).
+- *Fixed:* `service_down` alerts now auto-resolve when the unit recovers (the
+  recover hook listened for an event that was never fired — broken since v3.2.0);
+  the mail-queue check and drawer pill work again (the heartbeat sanitizer
+  dropped `mailq`); device cards show Memory % and mem/CPU sparklines again;
+  the `scan` permission can be granted in the Roles editor; yearly/quarterly
+  scan schedules survive past the cron search horizon; stuck "running" scans
+  time out after 4h; a finished on-host lynis result is retried instead of lost
+  on a flaky heartbeat; container alert excludes also cover restart alerts;
+  failed-units attention cards get a routing-matrix toggle; passkey login
+  honours Remember-me; six webhook events got proper titles.
+- *New:* the Users table shows each account's **MFA method, auth source and
+  disabled state**; scan schedules show **last run** and can be **paused /
+  resumed**; the Audit page shows a persistent **chain-intact badge** (verified
+  on load) and the posture self-check scores chain integrity; lynis scans
+  surface the **0–100 hardening index**; "Pentest" and other chrome labels are
+  translated in all five languages.
+- *Performance:* the daily KEV/EPSS feed refresh runs detached (it could stall
+  an unlucky request — worst case a heartbeat — for up to a minute, and
+  stampede); the per-request offline sweep no longer rewrites the config file
+  when nothing changed (it did so on **every** API request); per-heartbeat
+  metrics writes touch one row instead of the whole fleet window (SQLite);
+  the sidebar badges poll one bundled endpoint instead of three; the refresh
+  bar animates on the compositor; the storage backend no longer forks a
+  subprocess per process start.
+- *Docs/UI polish:* MCP documentation corrected everywhere (18 tools: 14 read +
+  4 guarded write); docs index rebuilt (17 missing topic docs listed); stale
+  v2.x changelog leftovers removed from the Manual; internal hostnames scrubbed
+  from examples; every variable-length panel capped at ~15 rows with internal
+  scroll (command queue, SMART, firewall-rule tables, kanban columns, settings
+  lists and more); remaining off-scale font sizes folded onto the canonical
+  scale; the last emoji-as-icon instances replaced.
+
 ## v4.1.0 — "VisualMatters" — 2026-06-09
 
 Surfaces what the fleet already knows and lets you shape how you see it. A new

@@ -57,7 +57,7 @@
     <a href="/api/auth/oidc/start" id="login-oidc-btn" class="login-btn login-btn-oidc d-none">Sign in with SSO</a>
     <!-- v4.2.0 (B1): SAML SSO button — shown only if saml_enabled returns from /api/public-info -->
     <a href="/api/auth/saml/login" id="login-saml-btn" class="login-btn login-btn-oidc d-none">Sign in with SAML</a>
-    <button type="button" id="login-passkey-btn" class="login-btn login-btn-oidc" data-action="loginWithPasskey">Sign in with a passkey</button>
+    <button type="button" id="login-passkey-btn" class="login-btn login-btn-oidc d-none" data-action="loginWithPasskey">Sign in with a passkey</button>
     <div id="login-oidc-error" class="login-error d-none">SSO sign-in failed. Try local credentials.</div>
     <div id="login-error" class="login-error">Invalid username or password</div>
   </form>
@@ -568,7 +568,7 @@
         <!-- Links widget — hidden until at least one link is saved -->
         <div class="dash-card mt-16 d-none" id="home-links" data-widget="links">
           <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
-          <div id="home-links-body" class="isl-762"></div>
+          <div id="home-links-body" class="isl-762 scroll-cap"></div>
         </div>
 
         <!-- v4.1.0: add-on widgets (off by default; added from Customize → Add). -->
@@ -674,7 +674,7 @@
         <div class="section-header">
           <div class="row-12-center">
             <div class="section-title">Enrolled Devices</div>
-            <div id="tag-filter-bar" class="row-6-wrap"></div>
+            <div id="tag-filter-bar" class="row-6-wrap scroll-cap-sm"></div>
           </div>
           <div class="row-8">
             <button class="btn-secondary isl-7" data-action="openBulkActions" title="Run an operation across many devices at once (Ctrl-K → Bulk actions)">
@@ -942,7 +942,7 @@
         <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" data-action="openUserAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add user</button></div>
         <!-- v1.11.6: filter -->
         <div class="mb-16"><input type="text" id="users-filter" class="form-input input-wide-sm" placeholder="Filter by username or role…"></div>
-        <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th data-col="mfa">MFA</th><th data-col="source">Source</th><th></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
 
         <!-- v3.4.2: custom RBAC roles -->
         <div class="dash-card mt-24">
@@ -1189,7 +1189,7 @@
           <div class="settings-section">
             <h3>Webhook destinations</h3>
             <p class="hint">Fire each event to any number of destinations simultaneously. Each entry has its own format adapter (Discord, Slack, Pushover, Teams, ntfy, generic JSON) and optional per-destination event filter. Use case: Pushover for critical-only push notifications + Discord channel for all events.</p>
-            <div id="webhook-dests" class="isl-25"></div>
+            <div id="webhook-dests" class="isl-25 scroll-cap"></div>
             <button class="btn-secondary isl-26" data-action="addWebhookDest" >+ Add destination</button>
             <p class="hint isl-27">Pushover credentials (token + user key) are stored encrypted in <code>config.json</code> and redacted from the backup export.</p>
           </div>
@@ -1330,7 +1330,7 @@
           <div class="settings-section">
             <h3>Cloud import (AWS EC2)</h3>
             <p class="hint">Pull EC2 instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / <code>aws</code> / region). Read-only — uses an IAM access key with <code>ec2:DescribeInstances</code>. Re-running updates in place. Other providers come later.</p>
-            <div id="cloud-accounts-list" class="mb-12"></div>
+            <div id="cloud-accounts-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row isl-82">
               <div class="form-group"><label class="form-label">Region</label>
                 <input type="text" id="cloud-region" class="form-input mw-160" placeholder="eu-west-1"></div>
@@ -2276,7 +2276,7 @@
         <div class="settings-section">
           <h3>Backup file monitoring</h3>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
-          <div id="backup-monitors-list" class="mb-12"></div>
+          <div id="backup-monitors-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
             <div class="form-group isl-83">
               <label class="form-label">File path</label>
@@ -2297,7 +2297,7 @@
         <div class="settings-section">
           <h3>Process thresholds</h3>
           <p class="hint">Fire <code>process_alert</code> (edge-triggered, with a <code>process_recovered</code> follow-up) when a process whose name matches crosses a CPU or memory threshold. Matched against the agent's top processes each heartbeat.</p>
-          <div id="process-watches-list" class="mb-12"></div>
+          <div id="process-watches-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
             <div class="form-group isl-83">
               <label class="form-label">Process name contains</label>
@@ -2342,7 +2342,7 @@
         <div class="settings-section">
           <h3>Ignored items</h3>
           <p class="hint">Items you've hidden using the × button on Needs Attention cards, device rows on the Containers page, or stale container rows. Click <em>Restore</em> on any entry to bring it back into view.</p>
-          <div id="ignored-items-list" class="isl-88">
+          <div id="ignored-items-list" class="isl-88 scroll-cap">
             <div class="isl-78">Loading…</div>
           </div>
           <button class="btn-secondary isl-89" data-action="loadIgnoredItems" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Refresh</button>
@@ -2552,6 +2552,7 @@
                 <li><strong>SAML 2.0 SSO.</strong> Sign in through an enterprise IdP (Okta, Entra, OneLogin, Ping, ADFS) — configure under <em>Settings → Authentication → SAML</em>. Signed-assertion verification with replay protection, attribute → username / group → role mapping, first-login provisioning, alongside OIDC / LDAP / local.</li>
                 <li><strong>Tamper-evident audit log.</strong> Entries are hash-chained; a <strong>Verify integrity</strong> button reports the first break, if any. Clearing requires an admin password re-prompt and writes an immutable pre-wipe archive first.</li>
                 <li><strong>Account guardrails.</strong> Enforce MFA (TOTP <em>or</em> a passkey) per role, cap concurrent sessions per user, set a default API-key expiry, and read a graded <strong>security-posture self-check</strong> on the Audit page.</li>
+                <li><strong>Post-release sweep.</strong> Password sign-in now hands off to a <strong>passkey assertion</strong> for passkey-protected accounts; the audit chain is verified on page load with a persistent badge; scan schedules show their last run and can be <strong>paused</strong>; the Users table shows each account's MFA method and auth source; lynis scans report the <strong>0–100 hardening index</strong>; plus fixes (service-recovery auto-resolve, mail-queue check, device-card memory sparkline) and hot-path performance work.</li>
               </ul>
               <p class="hint">Passkeys need the optional <code>webauthn</code> library; SAML needs <code>pysaml2</code> + the <code>xmlsec1</code> binary — each degrades to "unavailable" when absent. See <code>docs/v4.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -2665,7 +2666,7 @@
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v3.8.0 and earlier</summary>
+            <summary><strong>Older releases</strong> &mdash; v3.11.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
@@ -2970,7 +2971,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li><strong>Sudoers</strong> — written to <code>/etc/sudoers.d/remotepower</code>, validated with <code>visudo -c</code> before applying</li>
                 <li><strong>MOTD</strong> — login banner written to <code>/etc/motd</code></li>
               </ul>
-              <p><strong>Fetch current:</strong> Each tab has a "⬇ Fetch current" button that loads the live state last reported by the agent. Use it to pre-fill a section before editing, or to inspect what's actually running.</p>
+              <p><strong>Fetch current:</strong> Each tab has a "Fetch current" button that loads the live state last reported by the agent. Use it to pre-fill a section before editing, or to inspect what's actually running.</p>
               <p><strong>Drift detection:</strong> The agent reports current state every 15 minutes. The server compares it against the desired config. If any section diverges, an amber banner appears on the modal and a <code>config_drift</code> webhook fires — once on first detection, not on every heartbeat. Drift is audit-only; the agent does not auto-remediate.</p>
               <p><strong>Security:</strong> Only admins can write host config. Sudoers content is syntax-checked before writing. authorized_keys are written with mode 0600 and correct ownership. No passwords are ever stored — SSH keys only.</p>
             </div>
@@ -3183,7 +3184,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p><strong>What it is:</strong> RemotePower ships an <a href="https://modelcontextprotocol.io" class="c-accent">MCP</a> (Model Context Protocol) server at <code>mcp/remotepower-mcp.py</code>. Connect it to an MCP-compatible AI host and you can ask things like <em>"Which devices have pending security updates?"</em> or <em>"Show me the journal for mail01 from the last hour"</em> in plain English.</p>
               <p><strong>Architecture:</strong> the MCP server runs on the <strong>operator's laptop</strong>, not on the RemotePower server. The AI host (Claude Desktop, Cursor, etc.) spawns it as a stdio subprocess. The MCP server makes HTTPS calls to RemotePower's REST API on behalf of the AI using an API token you provision. Credentials live in the host's config file and never reach the AI provider.</p>
-              <p><strong>Read-only, by design.</strong> 12 tools: <code>list_devices</code>, <code>get_device</code>, <code>get_journal</code>, <code>get_services</code>, <code>get_containers</code>, <code>get_cves</code>, <code>get_drift</code>, <code>get_recent_commands</code>, <code>get_runbook</code>, <code>get_patches</code>, <code>get_tls</code>, <code>search_devices</code>. <strong>No write tools.</strong> No <code>run_command</code>, no <code>run_script</code>, no <code>reboot_device</code>. The test suite asserts no write-shaped names slipped in. Write tools land in a future release once a server-side allow-list, per-MCP-token role, and confirmation flags are in place — not before.</p>
+              <p><strong>18 tools: 14 read + 4 guarded write.</strong> Read: <code>list_devices</code>, <code>get_device</code>, <code>get_journal</code>, <code>get_services</code>, <code>get_containers</code>, <code>get_cves</code>, <code>get_drift</code>, <code>get_recent_commands</code>, <code>get_runbook</code>, <code>get_patches</code>, <code>get_tls</code>, <code>get_snmp_data</code>, <code>search_devices</code>, <code>search_fleet</code>. Write — each gated behind a server-side allow-list, per-MCP-token role, and an explicit confirmation flag: <code>reboot_device</code>, <code>run_saved_script</code> (saved, vetted scripts only — no free-form commands), <code>force_package_scan</code>, <code>force_acme_rescan</code>. Every write is audit-logged with the AI host and the prompt that triggered it.</p>
               <p><strong>Setup</strong> (Claude Desktop):</p>
               <ol>
                 <li>Settings → API keys → Generate a viewer token; copy the <code>rpk_...</code> value.</li>
@@ -3192,7 +3193,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li>Restart Claude Desktop. The tool indicator should show <strong>remotepower</strong>.</li>
               </ol>
               <p><strong>Device-name resolution</strong>: exact → prefix → substring → ambiguity error. You can pass <code>web01</code> and the server finds <code>web01.example.com</code> automatically (as long as there's exactly one match).</p>
-              <p><strong>Pure stdlib Python.</strong> No pip install. Single 470-line file.</p>
+              <p><strong>Pure stdlib Python.</strong> No pip install. A single ~900-line file.</p>
               <p>Full reference: <a href="/docs/mcp.md" class="c-accent">docs/mcp.md</a>.</p>
             </div>
           </details>
@@ -3861,7 +3862,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <h3>Custom reports</h3>
           <p class="hint">Build a report from the sections you care about, download it, or schedule it to a specific audience. Saved per server.</p>
-          <div id="report-defs-list" class="mb-12">—</div>
+          <div id="report-defs-list" class="mb-12 scroll-cap-sm">—</div>
           <div class="report-builder">
             <div class="form-group"><label class="form-label">Name</label>
               <input type="text" id="rdef-name" class="form-input" placeholder="Weekly ops report" maxlength="64" autocomplete="off"></div>
@@ -4000,7 +4001,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon fs-12" data-action="exportFleetQueryCsv">Export CSV</button>
             <button class="btn-icon fs-12" data-action="exportFleetQueryXml">Export XML</button>
             <button class="btn-icon fs-12" data-action="printFleetQuery">Print / PDF</button>
-            <span id="fq-saved" class="row-8-center"></span>
+            <span id="fq-saved" class="row-8-center scroll-cap-sm"></span>
           </div>
         </div>
         <div id="fq-results"><div class="c-muted">Set criteria and Run.</div></div>
@@ -4013,7 +4014,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <div class="section-header"><div class="section-title">Rules</div><button class="enroll-btn" data-action="openAutomationEditor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rule</button></div>
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter rules…" data-input="filterRows" data-input-el="1" data-filter-target="#automation-list > *">
-          <div id="automation-list"><div class="c-muted">Loading…</div></div>
+          <div id="automation-list" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
 
         <div id="automation-editor" class="dash-card d-none">
@@ -5093,6 +5094,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </select>
           <button class="btn-icon" data-action="loadAuditLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <button class="btn-icon" data-action="verifyAuditLog" title="Check the tamper-evident hash-chain for any altered or removed entries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><polyline points="9 12 11 14 15 10"/></svg> Verify integrity</button>
+          <span id="audit-chain-badge"></span>
           <button class="btn-icon c-danger-outline" data-action="clearAuditLog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
           <button class="btn-icon c-danger-outline" data-action="revokeAllSessions">Revoke all sessions</button>
         </div>
@@ -5182,6 +5184,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="click-row-6" title="Manage watched systemd services"><input type="checkbox" class="role-perm" value="services"> <span>services</span></label>
       <label class="click-row-6" title="Manage host accounts and SSH keys"><input type="checkbox" class="role-perm" value="ssh"> <span>ssh</span></label>
       <label class="click-row-6" title="Run security investigate / remediate actions and AV scans"><input type="checkbox" class="role-perm" value="mitigate"> <span>mitigate</span></label>
+      <label class="click-row-6" title="Run and schedule authorized security scans (the Pentest page)"><input type="checkbox" class="role-perm" value="scan"> <span>scan</span></label>
     </div>
   </div>
   <div class="form-group"><label class="form-label" for="role-scope-type">Scope</label>
@@ -5312,6 +5315,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="fs-13">Temperature °C</label>
       <input type="number" class="form-input" id="thr-temp-warn" min="0" max="200" placeholder="70">
       <input type="number" class="form-input" id="thr-temp-crit" min="0" max="200" placeholder="85">
+    </div>
+    <div class="isl-196">
+      <label class="fs-13">Mail queue (msgs)</label>
+      <input type="number" class="form-input" id="thr-mailq-warn" min="1" max="1000000" placeholder="50">
+      <input type="number" class="form-input" id="thr-mailq-crit" min="1" max="1000000" placeholder="500">
     </div>
 
     <div class="isl-198">

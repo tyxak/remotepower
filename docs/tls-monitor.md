@@ -81,7 +81,7 @@ and that's fine if you're using internal CAs deliberately.
 [
   {
     "id": "tls_abc123",
-    "host": "remote.tvipper.com",
+    "host": "remotepower.example.com",
     "port": 443,
     "label": "",
     "warn_days": 14,
@@ -92,8 +92,8 @@ and that's fine if you're using internal CAs deliberately.
     "status": "ok",
     "addresses": ["192.0.2.10"],
     "issuer": "CN=Let's Encrypt R3, O=Let's Encrypt, C=US",
-    "subject": "CN=remote.tvipper.com",
-    "san": ["remote.tvipper.com"],
+    "subject": "CN=remotepower.example.com",
+    "san": ["remotepower.example.com"],
     "dns_error": "",
     "tls_error": "",
     "verify_error": ""

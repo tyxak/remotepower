@@ -487,6 +487,11 @@ DEFAULT_METRIC_THRESHOLDS = {
     # typical homelab router/switch operating envelope.
     'temp_warn_celsius':       70,
     'temp_crit_celsius':       85,
+    # v4.2.0 sweep: mail-queue depth (message counts, not percent). The
+    # Checks-engine mailq row reads these; previously only hardcoded 50/500
+    # applied because its 'mailq_thresholds' device key had no writer.
+    'mailq_warn_count':        50,
+    'mailq_crit_count':        500,
 }
 METRIC_RECOVERY_BUFFER = 5      # percentage points (or load-ratio*100 equivalent)
 METRIC_KINDS           = ('disk', 'memory', 'swap', 'cpu')
@@ -2199,6 +2204,10 @@ def _provision_or_promote_user(username, role, metadata, source):
     auto-demotes (an operator may have changed the role for cause). `metadata`
     is merged only on create (e.g. {'oidc_subject': …} / {'saml_name_id': …}).
     Returns the current user record (a copy)."""
+    # Audit AFTER the lock is released — audit_log takes its own
+    # AUDIT_LOG_FILE lock, and nesting locks (or SQLite transactions)
+    # inside the USERS_FILE update would deadlock/abort.
+    pending_audit = None
     with _LockedUpdate(USERS_FILE) as users:
         user = users.get(username)
         if not user:
@@ -2209,13 +2218,18 @@ def _provision_or_promote_user(username, role, metadata, source):
             }
             rec.update(metadata or {})
             users[username] = rec
-            audit_log(username, f'{source}_auto_provision', f'created from {source}, role={role}')
-            return dict(rec)
-        if role == 'admin' and user.get('role') != 'admin':
-            user['role'] = 'admin'
-            users[username] = user
-            audit_log(username, f'{source}_role_promoted', 'matched admin group')
-        return dict(users[username])
+            pending_audit = (f'{source}_auto_provision',
+                             f'created from {source}, role={role}')
+            result = dict(rec)
+        else:
+            if role == 'admin' and user.get('role') != 'admin':
+                user['role'] = 'admin'
+                users[username] = user
+                pending_audit = (f'{source}_role_promoted', 'matched admin group')
+            result = dict(users[username])
+    if pending_audit:
+        audit_log(username, pending_audit[0], pending_audit[1])
+    return result
 
 
 def _enforce_session_cap(tokens, username):
@@ -3055,8 +3069,6 @@ def audit_log(actor, action, detail='', source_ip=None,
     existing call site) record neither field — the audit-log shape stays
     backward-compatible.
     """
-    al = load(AUDIT_LOG_FILE)
-    entries = al.get('entries', [])
     entry = {
         'ts':        int(time.time()),
         'actor':     _sanitize_str(actor, 64),
@@ -3072,34 +3084,40 @@ def audit_log(actor, action, detail='', source_ip=None,
         entry['ai_host'] = _sanitize_str(ai_host, 128)
     if ai_prompt is not None:
         entry['ai_prompt'] = _sanitize_str(ai_prompt, 2048)
-    # v4.2.0 (A2): chain this entry to the previous one's hash for tamper-evidence.
-    try:
-        prev_hash = entries[-1].get('_hash', '') if entries else ''
-        entry['_hash'] = _audit_entry_hash(prev_hash, entry)
-    except Exception as _he:
-        sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
-    entries.append(entry)
-    # Age-bound: drop entries older than retention_days
     cfg = load(CONFIG_FILE) or {}
     retention_days = int(cfg.get('audit_log_retention_days') or 90)
-    if retention_days > 0:
-        cutoff = int(time.time()) - retention_days * 86400
-        archive_me = [e for e in entries if e.get('ts', 0) < cutoff]
-        entries = [e for e in entries if e.get('ts', 0) >= cutoff]
-        if archive_me:
-            try:
-                import gzip
-                arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
-                with gzip.open(str(arch), 'at') as f:
-                    for e in archive_me:
-                        f.write(json.dumps(e) + '\n')
-            except Exception as _arch_err:
-                sys.stderr.write(
-                    f'[remotepower] audit archive write failed: {_arch_err}\n')
-    # Count-bound (legacy safety net so a misconfigured retention_days=0
-    # doesn't let the file grow without limit)
-    al['entries'] = entries[-MAX_AUDIT_LOG:]
-    save(AUDIT_LOG_FILE, al)
+    # v4.2.0 sweep: the whole read-hash-append-save must be one atomic unit.
+    # Two concurrent CGI requests doing unlocked load/save would both chain
+    # against the same prev_hash and the later save would silently drop the
+    # earlier entry — a lost audit record. NOTE: never call audit_log() while
+    # holding another _LockedUpdate (nested SQLite transactions abort).
+    with _LockedUpdate(AUDIT_LOG_FILE) as al:
+        entries = al.get('entries', [])
+        # v4.2.0 (A2): chain this entry to the previous one's hash for tamper-evidence.
+        try:
+            prev_hash = entries[-1].get('_hash', '') if entries else ''
+            entry['_hash'] = _audit_entry_hash(prev_hash, entry)
+        except Exception as _he:
+            sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
+        entries.append(entry)
+        # Age-bound: drop entries older than retention_days
+        if retention_days > 0:
+            cutoff = int(time.time()) - retention_days * 86400
+            archive_me = [e for e in entries if e.get('ts', 0) < cutoff]
+            entries = [e for e in entries if e.get('ts', 0) >= cutoff]
+            if archive_me:
+                try:
+                    import gzip
+                    arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
+                    with gzip.open(str(arch), 'at') as f:
+                        for e in archive_me:
+                            f.write(json.dumps(e) + '\n')
+                except Exception as _arch_err:
+                    sys.stderr.write(
+                        f'[remotepower] audit archive write failed: {_arch_err}\n')
+        # Count-bound (legacy safety net so a misconfigured retention_days=0
+        # doesn't let the file grow without limit)
+        al['entries'] = entries[-MAX_AUDIT_LOG:]
     # v3.7.0: forward to an external SIEM/syslog if configured. Best-effort and
     # fully isolated — a forwarding outage must never break audit logging.
     if cfg.get('audit_forward_enabled'):
@@ -3904,6 +3922,12 @@ _ALERT_RULES = {
 # Map recover event → firing event it resolves
 _ALERT_RECOVER = {
     'device_online':           'device_offline',
+    # v4.2.0 sweep: the service processor fires `service_up` (and always has);
+    # `service_recover` was a phantom key nothing ever fired, so service_down
+    # alerts sat open forever after the unit recovered. Keep both spellings —
+    # service_recover for anything external that posts it, service_up for the
+    # real internal event.
+    'service_up':              'service_down',
     'service_recover':         'service_down',
     'custom_script_recover':   'custom_script_fail',
     'snmp_recover':            'snmp_unreachable',
@@ -3975,6 +3999,10 @@ CHANNEL_KINDS = [
     ('backup',      'Stale backups',            'operational',   ['backup_stale']),
     ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
     ('acme',        'ACME certificate issuance','operational',   []),   # NA-only — surfaced from acme.sh state
+    # v4.2.0 sweep: NA-only kind (like acme) — _compute_attention emits
+    # failed_units cards but they had no matrix row, so the Needs-Attention
+    # filter fell back to always-on with no operator toggle.
+    ('failed_units', 'Failed systemd units',    'operational',   []),
     ('snapshot',    'Old snapshots',            'operational',   ['snapshot_old']),
     ('reboot',      'Pending reboot',           'operational',   ['reboot_required']),
     ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
@@ -4520,7 +4548,7 @@ def _auto_resolve_alerts(event, payload):
     dev_id = p.get('device_id')
     # Optional sub-keys to disambiguate (e.g. service unit, script name)
     sub_match = {}
-    if event == 'service_recover':
+    if event in ('service_recover', 'service_up'):
         sub_match['unit'] = p.get('unit')
     elif event == 'custom_script_recover':
         sub_match['script_name'] = p.get('script_name')
@@ -5133,6 +5161,13 @@ def _webhook_title(event):
         'container_stopped':    'Container Stopped',
         'container_restarting': 'Container Restarting',
         'containers_stale':     'Container Data Stale',
+        # v4.2.0 sweep: these fell through to the generic fallback title.
+        'image_update_available': 'Container Image Update Available',
+        'image_updated':          'Container Image Updated',
+        'snmp_unreachable':       'SNMP Device Unreachable',
+        'snmp_dead':              'SNMP Device Dead',
+        'snmp_recover':           'SNMP Device Recovered',
+        'mcp_confirmation_expired': 'MCP Confirmation Expired',
         'metric_warning':       'Resource Warning',
         'metric_critical':      'Resource Critical',
         'metric_recovered':     'Resource Recovered',
@@ -6032,6 +6067,51 @@ def _icmp_reachable(host, timeout=1):
         return False
 
 
+def _offline_sweep_has_work(cfg, devices, now, ttl, skip_dev_id):
+    """Read-only mirror of check_offline_webhooks' decision logic: True when
+    the locked pass would change offline/pending/patch state. Keep the two in
+    sync — a missed condition here just delays the transition one request, but
+    a too-eager True reintroduces the per-request config rewrite."""
+    notified = cfg.get('offline_notified') or {}
+    pending  = cfg.get('offline_pending') or {}
+    for dev_id, dev in devices.items():
+        if dev.get('agentless') or not dev.get('monitored', True):
+            continue
+        if skip_dev_id and dev_id == skip_dev_id:
+            if dev_id in pending or notified.get(dev_id):
+                return True
+            continue
+        last = dev.get('last_seen', 0)
+        if not last:
+            continue
+        delta = now - last
+        offline_after, debounce = _offline_thresholds(dev, ttl)
+        already = notified.get(dev_id, False)
+        if delta <= offline_after:
+            if dev_id in pending or already:
+                return True       # candidate to clear / recovery to fire
+            continue
+        if already:
+            continue
+        first = pending.get(dev_id)
+        if first is None or now - first >= debounce:
+            return True           # candidate to arm, or offline to fire
+    raw_threshold = cfg.get(PATCH_ALERT_KEY)
+    if raw_threshold is not None:
+        try:
+            patch_threshold = int(raw_threshold)
+            alerted = cfg.get('patch_alerted') or {}
+            for dev_id, dev in devices.items():
+                count = dev.get('sysinfo', {}).get('packages', {}).get('upgradable')
+                if not isinstance(count, int):
+                    continue
+                if (count >= patch_threshold) != bool(alerted.get(dev_id, False)):
+                    return True
+        except Exception:
+            return True           # malformed threshold — let the locked pass decide
+    return False
+
+
 def check_offline_webhooks(skip_dev_id=None):
     """Per-request sweep: walk every monitored device, flip the on/off
     sticky bit, fire device_offline / device_online webhooks on edge.
@@ -6074,6 +6154,18 @@ def check_offline_webhooks(skip_dev_id=None):
     now = int(time.time())
     ttl = get_online_ttl()
     webhook_enabled = is_webhook_event_enabled('device_offline')
+
+    # v4.2.0 sweep (perf): lock-free pre-pass. This sweep runs on EVERY CGI
+    # request, and _LockedUpdate unconditionally rewrites the whole config on
+    # clean exit — so steady state (no transitions, the overwhelmingly common
+    # case) paid a global config flock + full serialize + fsync per request,
+    # serialising all heartbeat handling on one lock. Decide from an unlocked
+    # snapshot whether any state could change; only then take the lock (which
+    # re-derives everything race-safely). A stale snapshot at worst delays the
+    # locked pass to the next request.
+    if not _offline_sweep_has_work(load(CONFIG_FILE) or {}, devices, now, ttl,
+                                   skip_dev_id):
+        return
 
     # Transitions to fire after the config lock is released.
     offline_fires = []   # (dev_id, name, hostname, last_seen, delta)
@@ -6258,6 +6350,9 @@ def handle_public_info():
         # v4.2.0 (B1): same yes/no hint for the SAML SSO button. The IdP
         # entity-id / SSO URL / cert stay admin-only and never leak pre-login.
         'saml_enabled':        bool(cfg.get('saml_enabled') and cfg.get('saml_idp_sso_url')),
+        # v4.2.0 sweep: same hint for the "Sign in with a passkey" button —
+        # it used to render unconditionally even when the library was absent.
+        'webauthn_enabled':    _webauthn_lib_usable(),
     })
 
 
@@ -6604,6 +6699,31 @@ def handle_login():
                 audit_log(username, 'login_failed', 'invalid TOTP code')
                 time.sleep(0.5)
                 respond(200, {'ok': False, 'totp_required': True, 'totp_invalid': True})
+    elif user.get('webauthn_credentials') and _webauthn_lib_usable():
+        # v4.2.0 sweep (H1): a user whose only second factor is a passkey must
+        # NOT get a session from password alone — that would silently defeat
+        # MFA for exactly the users who picked the phishing-resistant option.
+        # Password verified → tell the client to complete a WebAuthn assertion
+        # (the passkey login endpoints mint the session). A one-time recovery
+        # code (sent in totp_code) is the break-glass fallback; if the library
+        # was uninstalled or the feature disabled, we can't demand an assertion
+        # nobody can perform, so password login degrades to single-factor.
+        code = str(body.get('totp_code', '')).strip()
+        _consumed = False; _left = 0
+        if code:
+            with _LockedUpdate(USERS_FILE) as users_rc:
+                urec = users_rc.get(username) or {}
+                if _consume_recovery_code(urec, code):
+                    users_rc[username] = urec
+                    _consumed = True
+                    _left = len(urec.get('recovery_codes') or [])
+        if _consumed:
+            audit_log(username, 'login_recovery_code',
+                      f'passkey second factor via recovery code; {_left} left')
+        else:
+            audit_log(username, 'login_webauthn_required',
+                      'password OK — passkey assertion required to finish')
+            respond(200, {'ok': False, 'webauthn_required': True})
 
     cleanup_tokens()
     audit_log(username, 'login', 'successful login')
@@ -6611,19 +6731,20 @@ def handle_login():
     # v1.8.4: remember-me selects between short and long session TTL
     remember_me = bool(body.get('remember_me', False))
     ttl = get_session_ttl(remember_me=remember_me)
-    tokens = load(TOKENS_FILE)
     _now_login = int(time.time())
-    _enforce_session_cap(tokens, username)   # v4.2.0 (A4): per-user session cap
-    tokens[_token_hash(token)] = {
-        'user':      username,
-        'created':   _now_login,
-        'ttl':       ttl,
-        # v3.14.0: session-origin metadata for the My Account → Sessions UI.
-        'ip':        os.environ.get('REMOTE_ADDR', ''),
-        'ua':        _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
-        'last_seen': _now_login,
-    }
-    save(TOKENS_FILE, tokens)
+    # v4.2.0 sweep: atomic read-modify-write — two concurrent logins doing an
+    # unlocked load/save could drop one session (or undercount the A4 cap).
+    with _LockedUpdate(TOKENS_FILE) as tokens:
+        _enforce_session_cap(tokens, username)   # v4.2.0 (A4): per-user session cap
+        tokens[_token_hash(token)] = {
+            'user':      username,
+            'created':   _now_login,
+            'ttl':       ttl,
+            # v3.14.0: session-origin metadata for the My Account → Sessions UI.
+            'ip':        os.environ.get('REMOTE_ADDR', ''),
+            'ua':        _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+            'last_seen': _now_login,
+        }
     respond(200, {
         'ok':       True,
         'token':    token,
@@ -7241,6 +7362,14 @@ def handle_device_metric_thresholds(dev_id):
                 respond(400, {'error': f'{k} must be a number between 0 and 200'})
             overrides[k] = float(v)
 
+    # v4.2.0 sweep: mail-queue depth thresholds (message counts)
+    for k in ('mailq_warn_count', 'mailq_crit_count'):
+        if k in body:
+            v = body[k]
+            if not isinstance(v, (int, float)) or not (1 <= v <= 1000000):
+                respond(400, {'error': f'{k} must be a number between 1 and 1000000'})
+            overrides[k] = int(v)
+
     # Per-mount overrides
     if 'disk_per_mount' in body:
         pm = body['disk_per_mount']
@@ -7269,7 +7398,8 @@ def handle_device_metric_thresholds(dev_id):
                            ('cpu_warn_load_ratio','cpu_crit_load_ratio'),
                            # v3.2.0 follow-up
                            ('snmp_cpu_warn_percent', 'snmp_cpu_crit_percent'),
-                           ('temp_warn_celsius',     'temp_crit_celsius')):
+                           ('temp_warn_celsius',     'temp_crit_celsius'),
+                           ('mailq_warn_count',      'mailq_crit_count')):
         w = overrides.get(warn_k, DEFAULT_METRIC_THRESHOLDS[warn_k])
         c = overrides.get(crit_k, DEFAULT_METRIC_THRESHOLDS[crit_k])
         if w >= c:
@@ -8986,6 +9116,7 @@ def handle_heartbeat():
     _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
     _gw_event_pending = None         # v4.1.0: ('gateway_unreachable'|'gateway_reachable', payload)
     _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
+    _reinstall_audit_pending = False  # audit AFTER the device lock (audit_log locks too)
     # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
@@ -9019,8 +9150,7 @@ def handle_heartbeat():
             dev.pop('agent_uninstalled', None)
             dev.pop('agent_uninstalled_at', None)
             dev.pop('agent_uninstalled_by', None)
-            audit_log('agent', 'agent_reinstalled',
-                      f'device={dev_id} resumed heartbeating after uninstall')
+            _reinstall_audit_pending = True
 
         # Sanitize all fields coming from the agent
         dev['ip']      = _sanitize_ip(body.get('ip', dev.get('ip', '')))
@@ -9074,6 +9204,11 @@ def handle_heartbeat():
                     if safe_tp:
                         safe_pkg['third_party'] = safe_tp
                 safe_si['packages'] = safe_pkg
+                # v4.2.0 sweep: stamp when this package report landed — the
+                # Packages drawer card shows it as "Last scan" next to the
+                # Scan-now button (the pill read pkg_scan_ts but nothing ever
+                # produced it, so it rendered "—" forever).
+                safe_si['pkg_scan_ts'] = now
             if 'network' in si and isinstance(si['network'], list):
                 safe_net = []
                 for iface in si['network'][:20]:  # max 20 interfaces
@@ -9116,6 +9251,13 @@ def handle_heartbeat():
             cc = si.get('cpu_count')
             if isinstance(cc, int) and 1 <= cc <= 1024:
                 safe_si['cpu_count'] = cc
+            # v4.2.0 sweep: mail-queue depth. _host_checks and the drawer pill
+            # both read si['mailq'], but the sanitizer never persisted it
+            # (it can exceed 100, so the 0–100 metric loop skips it) — the
+            # Mail-queue check was silently dead on every MTA host.
+            mq = si.get('mailq')
+            if isinstance(mq, int) and 0 <= mq <= 1000000:
+                safe_si['mailq'] = mq
             # v3.13.0: hardware identity for the CMDB Hardware panel — CPU model,
             # kernel release, total RAM and total local disk (the panel showed
             # only Cores before because the agent never reported the rest).
@@ -9590,6 +9732,9 @@ def handle_heartbeat():
     # the nginx error log. Default silent; set RP_LOG_HEARTBEATS=1 in
     # the CGI environment to re-enable for diagnostics. Offline/online
     # transitions (above) are state changes and stay unconditional.
+    if _reinstall_audit_pending:
+        audit_log('agent', 'agent_reinstalled',
+                  f'device={dev_id} resumed heartbeating after uninstall')
     if os.environ.get('RP_LOG_HEARTBEATS') == '1':
         sys.stderr.write(
             f"[remotepower] heartbeat dev={dev_id} name={saved_dev['name']!r} "
@@ -10123,9 +10268,11 @@ def handle_heartbeat():
     _hsr = body.get('host_scan_result')
     if isinstance(_hsr, dict) and _hsr.get('id'):
         try:
+            _hidx = _hsr.get('hardening_index')
             _apply_scan_results(str(_hsr.get('id')), _hsr.get('status', 'done'),
                                 _hsr.get('findings') or [], _hsr.get('error', ''),
-                                by=f'agent:{dev_id}', restrict_device=dev_id)
+                                by=f'agent:{dev_id}', restrict_device=dev_id,
+                                hardening_index=_hidx if isinstance(_hidx, int) else None)
         except Exception as _hse:
             sys.stderr.write(f'[remotepower] host_scan ingest failed: {_hse}\n')
     try:
@@ -10208,31 +10355,47 @@ def _record_metrics(dev_id, sysinfo):
     if cpu is None and mem is None and disk is None and swap is None:
         return
     now = int(time.time())
-    metrics = load(METRICS_FILE)
-    if dev_id not in metrics:
-        metrics[dev_id] = []
-    metrics[dev_id].append({'ts': now, 'cpu': cpu, 'mem': mem,
-                            'disk': disk, 'swap': swap})
-    metrics[dev_id] = metrics[dev_id][-MAX_METRICS:]
-    save(METRICS_FILE, metrics)
-    # v3.14.0: on a DB backend, also append to the long-retention time-series
-    # (one cheap row; metrics.json stays the recent window for the JSON backend
-    # and any other consumer). Best-effort — never fail a heartbeat over it.
+    sample = {'ts': now, 'cpu': cpu, 'mem': mem, 'disk': disk, 'swap': swap}
     _m = _dbmod()
     if _m is not None:
+        # v4.2.0 sweep (perf): single-row read-append-write on the DB backend.
+        # The old load(METRICS_FILE) reconstructed EVERY device's 1440-sample
+        # window (json.loads per device) on every heartbeat just to touch one
+        # device's list. Heartbeats are per-device serialised, so the
+        # unlocked row read-modify-write here is no worse than before.
+        try:
+            window = _m.entity_get(METRICS_FILE, dev_id) or []
+        except Exception:
+            window = []
+        window.append(sample)
+        window = window[-MAX_METRICS:]
+        try:
+            _m.entity_set(METRICS_FILE, dev_id, window)
+            _invalidate_load_cache(METRICS_FILE)
+        except Exception:
+            pass
+        # v3.14.0: also append to the long-retention time-series (one cheap
+        # row). Best-effort — never fail a heartbeat over it.
         try:
             if not _m.metric_has_any(DATA_DIR, dev_id):
                 # First time we see this device on a DB backend: seed the
-                # time-series from the recent metrics.json window (which already
-                # holds the just-appended sample), so history isn't empty until
-                # 30 days have elapsed.
-                for s in metrics.get(dev_id, []):
+                # time-series from the recent window (which already holds the
+                # just-appended sample), so history isn't empty until 30 days
+                # have elapsed.
+                for s in window:
                     _m.metric_append(DATA_DIR, dev_id, int(s.get('ts') or now),
                                      s.get('cpu'), s.get('mem'), s.get('swap'), s.get('disk'))
             else:
                 _m.metric_append(DATA_DIR, dev_id, now, cpu, mem, swap, disk)
         except Exception:
             pass
+        return
+    metrics = load(METRICS_FILE)
+    if dev_id not in metrics:
+        metrics[dev_id] = []
+    metrics[dev_id].append(sample)
+    metrics[dev_id] = metrics[dev_id][-MAX_METRICS:]
+    save(METRICS_FILE, metrics)
 
 
 def _drift_policy_mode(dev):
@@ -12816,8 +12979,20 @@ def handle_history_clear():
 def handle_users_list():
     require_auth()
     users = load(USERS_FILE)
-    respond(200, [{'username': u, 'created': d.get('created', 0), 'role': d.get('role', 'admin')}
-                  for u, d in users.items()])
+    # v4.2.0 sweep: surface per-account auth state so an admin can SEE who is
+    # missing MFA / deactivated / SSO-provisioned, not just the posture page's
+    # aggregate "X/Y admins have MFA". Booleans + a coarse source only — no
+    # secrets, no credential ids.
+    def _row(u, d):
+        mfa = ('passkey' if d.get('webauthn_credentials')
+               else 'totp' if d.get('totp_secret') else 'none')
+        source = ('saml' if d.get('saml_name_id') else
+                  'oidc' if d.get('oidc_subject') else
+                  'scim' if d.get('scim_managed') else 'local')
+        return {'username': u, 'created': d.get('created', 0),
+                'role': d.get('role', 'admin'), 'mfa': mfa,
+                'disabled': bool(d.get('disabled')), 'source': source}
+    respond(200, [_row(u, d) for u, d in users.items() if isinstance(d, dict)])
 
 
 # ── v3.14.0: SCIM 2.0 user provisioning (#30) ───────────────────────────────
@@ -22230,9 +22405,13 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
     # v4.1.0: mail queue depth (agent reads postfix/sendmail/exim mailq).
     mq = si.get('mailq')
     if isinstance(mq, (int, float)):
-        mqs = (dev.get('mailq_thresholds') or {})
-        warn = mqs.get('warn', 50)
-        crit = mqs.get('crit', 500)
+        # v4.2.0 sweep: thresholds come from the standard metric_thresholds
+        # store (settable in the Thresholds modal); the old 'mailq_thresholds'
+        # key never had a writer but is honoured for hand-edited stores.
+        mto = dev.get('metric_thresholds') or {}
+        legacy = dev.get('mailq_thresholds') or {}
+        warn = mto.get('mailq_warn_count', legacy.get('warn', 50))
+        crit = mto.get('mailq_crit_count', legacy.get('crit', 500))
         add('mailq', 'Mail queue', 'services',
             'critical' if mq >= crit else 'warning' if mq >= warn else 'ok',
             f'{int(mq)} message(s) queued')
@@ -25880,6 +26059,8 @@ def _scan_public(s):
         'window_overridden': bool(s.get('window_overridden')),
         'finding_count': len(s.get('findings') or []),
         'severity_counts': _scan_sev_counts(s.get('findings') or []),
+        # v4.2.0 sweep: lynis 0–100 host-hardening score (host scans only).
+        'hardening_index': s.get('hardening_index'),
     }
 
 
@@ -26182,7 +26363,8 @@ def _validate_scan_finding(f):
     }
 
 
-def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_device=None):
+def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_device=None,
+                        hardening_index=None):
     """Shared results-ingest for BOTH the satellite endpoint and the agent
     heartbeat path. Moves a running scan → terminal and edge-fires scan_finding
     on high/critical. Returns (ok, http_code).
@@ -26214,6 +26396,11 @@ def _apply_scan_results(scan_id, status, findings_raw, error, by, restrict_devic
             s['findings'] = findings
             s['error'] = err
             s['finished_at'] = int(time.time())
+            # v4.2.0 sweep: lynis 0–100 host-hardening score — the natural
+            # per-host headline for an on-host audit (was parsed out and
+            # discarded by the agent before).
+            if isinstance(hardening_index, int) and 0 <= hardening_index <= 100:
+                s['hardening_index'] = hardening_index
             fire_info = {'device_id': s.get('target_device_id'),
                          'name': s.get('target_name', ''),
                          'target': s.get('target', ''),
@@ -26244,6 +26431,16 @@ def _claim_agent_scan(dev_id):
     """Claim (queued→running) the oldest agent-run host scan for this device.
     Returns {id, tool} to hand the agent, or None. Called POST-lock in the
     heartbeat — SCANS_FILE has its own lock, so no nesting with DEVICES."""
+    # v4.2.0 sweep (perf): lock-free peek first. This runs on every heartbeat,
+    # and _LockedUpdate rewrites the whole scans store (which can hold 500
+    # scans × 1000 findings) on exit even when nothing was claimed. Only take
+    # the lock when a matching queued job actually exists.
+    peek = load(SCANS_FILE) or {}
+    if not any(isinstance(v, dict) and v.get('status') == 'queued'
+               and v.get('runner') == 'agent'
+               and v.get('target_device_id') == dev_id
+               for v in peek.values()):
+        return None
     claimed = None
     with _LockedUpdate(SCANS_FILE) as scans:
         cands = sorted(
@@ -26337,7 +26534,10 @@ def _verify_scan_target_file(target, token):
         url = f'{scheme}://{target}{path}'
         try:
             _ctx = _get_ssl_context() if scheme == 'https' else None
-            opener = _ssrf_safe_opener(allow_loopback=True, ssl_ctx=_ctx,
+            # allow_loopback=False — matches the scan-time denylist. A target
+            # resolving to 127.0.0.0/8 would otherwise turn ownership
+            # verification into a blind SSRF oracle against the server itself.
+            opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=_ctx,
                                        no_redirect=True)
             req = urllib.request.Request(url, headers={'Accept': 'text/plain'})
             with opener.open(req, timeout=8) as resp:
@@ -26530,9 +26730,7 @@ def run_scheduled_scans_if_due():
     try:
         scheds = load(SCAN_SCHEDULES_FILE)
     except Exception:
-        return
-    if not scheds:
-        return
+        scheds = {}
     now = int(time.time())
     gate = DATA_DIR / '.scan_sched_check'
     try:
@@ -26542,20 +26740,55 @@ def run_scheduled_scans_if_due():
     except OSError:
         pass
     due = []
-    with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
-        for s in st.values():
-            if not isinstance(s, dict) or not s.get('enabled'):
-                continue
-            nr = s.get('next_run') or 0
-            if nr and nr <= now:
-                due.append(dict(s))
-                s['last_run'] = now
-                s['next_run'] = _cron_next(s.get('cron', ''), now) or 0
+    if scheds:
+        with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
+            for s in st.values():
+                if not isinstance(s, dict) or not s.get('enabled'):
+                    continue
+                nr = s.get('next_run') or 0
+                if nr and nr <= now:
+                    # _cron_next has a ~45-day search horizon, so a yearly/
+                    # quarterly cron returns None right after firing. next_run=0
+                    # is never re-evaluated (the due test skips it) — the schedule
+                    # would silently die after one run. Instead we park a re-check
+                    # ~30 days out, flagged so it only re-runs this search and
+                    # never fires a scan itself.
+                    if s.pop('_park', False):
+                        nxt = _cron_next(s.get('cron', ''), now)
+                        s['next_run'] = nxt or (now + 30 * 86400)
+                        if not nxt:
+                            s['_park'] = True
+                        continue
+                    due.append(dict(s))
+                    s['last_run'] = now
+                    nxt = _cron_next(s.get('cron', ''), now)
+                    s['next_run'] = nxt or (now + 30 * 86400)
+                    if not nxt:
+                        s['_park'] = True
     for s in due:
         try:
             _create_scheduled_scan(s)
         except Exception as e:
             sys.stderr.write(f'[remotepower] scheduled scan failed: {e}\n')
+    # v4.2.0 sweep: age out stuck scans (same 60s gate as the schedules above).
+    # A satellite that dies mid-scan, a scanner exception that posts nothing,
+    # or a lost agent result left status='running' forever — claimed_at was
+    # recorded but never compared anywhere. 4h is far past every tool timeout.
+    try:
+        cutoff = now - 4 * 3600
+        scans_peek = load(SCANS_FILE) or {}
+        if any(isinstance(sc, dict) and sc.get('status') == 'running'
+               and 0 < (sc.get('claimed_at') or 0) < cutoff
+               for sc in scans_peek.values()):
+            with _LockedUpdate(SCANS_FILE) as sc_st:
+                for sc in sc_st.values():
+                    if (isinstance(sc, dict) and sc.get('status') == 'running'
+                            and 0 < (sc.get('claimed_at') or 0) < cutoff):
+                        sc['status'] = 'failed'
+                        sc['error'] = 'timed out — no result from the runner within 4h'
+                        sc['finished_at'] = now
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] scan timeout sweep failed: {e}\n')
 
 
 def _scan_sched_in_scope(sched, scope):
@@ -26653,12 +26886,14 @@ def handle_scan_schedule_delete(sid):
         respond(405, {'error': 'Method not allowed'})
     actor = require_perm('scan')
     sid = _sanitize_str(sid, 32)
-    scheds = load(SCAN_SCHEDULES_FILE)
-    if sid in scheds:
-        if not _scan_sched_in_scope(scheds[sid], _caller_scope()):
-            respond(403, {'error': 'This schedule is outside your role scope'})
-        del scheds[sid]
-        save(SCAN_SCHEDULES_FILE, scheds)
+    deleted = False
+    with _LockedUpdate(SCAN_SCHEDULES_FILE) as scheds:
+        if sid in scheds:
+            if not _scan_sched_in_scope(scheds[sid], _caller_scope()):
+                respond(403, {'error': 'This schedule is outside your role scope'})
+            del scheds[sid]
+            deleted = True
+    if deleted:
         audit_log(actor, 'scan_schedule_delete', f'id={sid}')
     respond(200, {'ok': True})
 
@@ -26681,6 +26916,29 @@ def handle_scan_schedule_run(sid):
             st[sid]['last_run'] = int(time.time())
     audit_log(actor, 'scan_schedule_run_now', f'id={sid}')
     respond(200, {'ok': True})
+
+
+def handle_scan_schedule_toggle(sid):
+    """POST /api/scan-schedules/<id>/toggle — pause/resume a schedule. The
+    runner auto-disables a schedule on repeated failures; without this the only
+    way back (or to pause one) was delete-and-recreate."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_perm('scan')
+    sid = _sanitize_str(sid, 32)
+    new_state = None
+    with _LockedUpdate(SCAN_SCHEDULES_FILE) as st:
+        sched = st.get(sid)
+        if not isinstance(sched, dict):
+            respond(404, {'error': 'schedule not found'})
+        if not _scan_sched_in_scope(sched, _caller_scope()):
+            respond(403, {'error': 'This schedule is outside your role scope'})
+        sched['enabled'] = not sched.get('enabled', True)
+        if sched['enabled']:
+            sched['next_run'] = _cron_next(sched.get('cron', ''), int(time.time())) or 0
+        new_state = sched['enabled']
+    audit_log(actor, 'scan_schedule_toggle', f'id={sid} enabled={new_state}')
+    respond(200, {'ok': True, 'enabled': new_state})
 
 
 def handle_apikeys_list():
@@ -29040,12 +29298,10 @@ def handle_audit_log():
     respond(200, _paginate_list(list(reversed(al.get('entries', [])))))
 
 
-def handle_audit_log_verify():
-    """GET /api/audit-log/verify — walk the A2 hash-chain; report tampering.
+def _audit_chain_walk(entries):
+    """Walk the A2 hash-chain; return (links_checked, broken_at_index|None).
     The first chained entry is the trusted anchor (its predecessor may have been
     trimmed/archived); every later entry is recomputed from its predecessor."""
-    require_admin_auth()
-    entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
     checked, broken_at, prev = 0, None, None
     for i, e in enumerate(entries):
         h = e.get('_hash')
@@ -29058,6 +29314,14 @@ def handle_audit_log_verify():
                 broken_at = i
                 break
         prev = h
+    return checked, broken_at
+
+
+def handle_audit_log_verify():
+    """GET /api/audit-log/verify — walk the A2 hash-chain; report tampering."""
+    require_admin_auth()
+    entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
+    checked, broken_at = _audit_chain_walk(entries)
     respond(200, {'ok': broken_at is None, 'entries': len(entries),
                   'verified': checked, 'broken_at': broken_at})
 
@@ -29104,6 +29368,12 @@ def handle_security_posture():
         'on' if cfg.get('secrets_scan_enabled') else 'off', 'Enable the secrets scan.')
     add('audit_retention', 'Audit-log retention ≥ 30 days', int(cfg.get('audit_log_retention_days') or 90) >= 30,
         f'{cfg.get("audit_log_retention_days") or 90}d', 'Keep audit retention at 30+ days.')
+    # v4.2.0 sweep: chain integrity as a posture row — tamper-evidence that
+    # only surfaces when someone clicks "Verify" isn't really evidence.
+    _chk, _broken = _audit_chain_walk((load(AUDIT_LOG_FILE) or {}).get('entries', []))
+    add('audit_chain', 'Audit-log hash-chain intact', _broken is None,
+        f'{_chk} links verified' if _broken is None else f'BROKEN at entry #{_broken}',
+        'Investigate immediately — audit entries were altered or removed.')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
 
@@ -29157,11 +29427,30 @@ def _webauthn_take_challenge(username, kind):
     return rec.get('challenge')
 
 
+def _webauthn_feature_on(cfg=None):
+    """Passkeys are ON by default once the library is present; an operator can
+    kill the feature with webauthn_enabled=false in config. Checked by every
+    ceremony handler (not just cosmetically) so disabling it actually revokes
+    passwordless login + new registrations."""
+    cfg = cfg if cfg is not None else (load(CONFIG_FILE) or {})
+    return bool(cfg.get('webauthn_enabled', True))
+
+
+def _webauthn_lib_usable():
+    """True when a passkey assertion can actually be performed right now
+    (library installed AND feature not disabled). handle_login uses this to
+    decide whether it may demand a WebAuthn step-up."""
+    wa = _webauthn()
+    return bool(wa and wa.available()) and _webauthn_feature_on()
+
+
 def _webauthn_guard():
     wa = _webauthn()
     if not wa or not wa.available():
         respond(503, {'error': 'WebAuthn is not available on this server '
                                '(py_webauthn not installed)'})
+    if not _webauthn_feature_on():
+        respond(403, {'error': 'passkeys are disabled by the administrator'})
     return wa
 
 
@@ -29169,9 +29458,8 @@ def handle_webauthn_available():
     """GET /api/webauthn/available — is the library present + feature enabled?"""
     require_auth()
     wa = _webauthn()
-    cfg = load(CONFIG_FILE) or {}
-    respond(200, {'available': bool(wa and wa.available()),
-                  'enabled': bool(cfg.get('webauthn_enabled'))})
+    respond(200, {'available': bool(wa and wa.available()) and _webauthn_feature_on(),
+                  'enabled': _webauthn_feature_on()})
 
 
 def handle_webauthn_register_begin():
@@ -29246,13 +29534,20 @@ def handle_webauthn_login_begin():
     wa = _webauthn_guard()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # Unauthenticated → same per-IP budget as password login (shared bucket).
+    if not _ip_ratelimit('login', _get_client_ip(), 20, window=60):
+        time.sleep(0.5)
+        respond(429, {'error': 'Too many attempts — wait a minute'})
     username = _sanitize_str(str((get_json_body() or {}).get('username', '')), 64)
     creds = ((load(USERS_FILE) or {}).get(username) or {}).get('webauthn_credentials') or []
-    if not creds:
-        respond(404, {'error': 'no passkeys registered for this user'})
     rp_id, _ = _webauthn_rp()
+    # Anti-enumeration: unknown users / users without passkeys get a normal-
+    # looking challenge with an empty allow-list (the assertion can never
+    # complete — no challenge is stored), instead of a distinguishable 404
+    # that leaks which usernames exist and which of them hold passkeys.
     opts_json, challenge = wa.authentication_options(rp_id, [c['id'] for c in creds])
-    _webauthn_put_challenge(username, challenge, 'auth')
+    if creds:
+        _webauthn_put_challenge(username, challenge, 'auth')
     respond(200, json.loads(opts_json))
 
 
@@ -29290,7 +29585,9 @@ def handle_webauthn_login_complete():
             if c.get('id') == cred_id:
                 c['sign_count'] = res['new_sign_count']
         users[username] = uu
-    token = _mint_session(username)
+    # v4.2.0 sweep: honour remember-me like password login does — the UI was
+    # storing "remembered" passkey sessions that still expired on the short TTL.
+    token = _mint_session(username, remember_me=bool(body.get('remember_me')))
     audit_log(username, 'login_webauthn', 'passkey login')
     respond(200, {'ok': True, 'token': token, 'role': u.get('role', 'admin'),
                   'username': username,
@@ -30081,8 +30378,17 @@ def handle_nav_counts():
       fleet      → offline monitored devices
       monitoring → monitors currently down (latest result per target)
       security   → critical CVE findings on monitored hosts
+
+    v4.2.0 sweep (perf): also carries the alerts-summary counts and the
+    pending-MCP-confirmations count, so the sidebar's 60s badge poll is ONE
+    CGI spawn per tab instead of three (/alerts/summary + /confirmations +
+    /nav-counts each paid interpreter start + full import).
     """
     require_auth()
+    try:
+        _nc_role = verify_token(get_token_from_request())[1] or 'viewer'
+    except Exception:
+        _nc_role = 'viewer'
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -30119,7 +30425,23 @@ def handle_nav_counts():
                         if str(f.get('severity', '')).lower() == 'critical')
     except Exception:
         pass
-    respond(200, {'fleet': offline, 'monitoring': down, 'security': crit})
+    out = {'fleet': offline, 'monitoring': down, 'security': crit}
+    try:
+        out['alerts'] = _alerts_summary((load(ALERTS_FILE) or {}).get('alerts', []))
+    except Exception:
+        pass
+    if _nc_role not in ('viewer', 'mcp'):
+        # Read-only pending count (no prune here — the Confirmations page's
+        # own loader keeps doing the locked prune + expiry events).
+        try:
+            arr = (load(CONFIRMATIONS_FILE) or {}).get('confirmations', [])
+            out['confirmations_pending'] = sum(
+                1 for c in arr
+                if isinstance(c, dict) and c.get('status') == 'pending'
+                and now - (c.get('requested_at') or 0) <= CONFIRMATION_TTL_SEC)
+        except Exception:
+            pass
+    respond(200, out)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -34520,12 +34842,30 @@ def _fetch_feed_bytes(url, timeout=30):
 def refresh_kev_epss_if_due(force=False):
     """Daily refresh of the CISA KEV catalog + FIRST EPSS scores. Cheap-when-
     not-due; degrades gracefully (keeps the last cache, and the CVE views fall
-    back to plain CVSS) if a feed is unreachable."""
-    cfg = load(CONFIG_FILE)
+    back to plain CVSS) if a feed is unreachable.
+
+    v4.2.0 sweep (perf): the slot is claimed under lock BEFORE fetching, and
+    the multi-MB downloads run in a detached worker. Previously the unlucky
+    request (worst case: an agent heartbeat) synchronously downloaded both
+    feeds — up to ~60s stall — and every request arriving during that window
+    also passed the stale gate, re-downloading in a daily thundering herd."""
     now = int(time.time())
-    last = int(cfg.get('last_kev_epss_refresh', 0))
+    last = int((load(CONFIG_FILE) or {}).get('last_kev_epss_refresh', 0))
     if not force and (now - last) < KEV_EPSS_INTERVAL:
         return
+    with _LockedUpdate(CONFIG_FILE) as cfg_w:
+        last = int(cfg_w.get('last_kev_epss_refresh', 0))
+        if not force and (now - last) < KEV_EPSS_INTERVAL:
+            return        # another request claimed it while we waited
+        cfg_w['last_kev_epss_refresh'] = now
+    if force:
+        _refresh_kev_epss_now()   # explicit operator action — synchronous result
+    else:
+        _run_detached(_refresh_kev_epss_now)
+
+
+def _refresh_kev_epss_now():
+    """The actual feed fetch + cache write (see refresh_kev_epss_if_due)."""
     store = load(KEV_EPSS_FILE) or {}
     # KEV — full catalog (small, ~1–2k CVEs).
     try:
@@ -34536,32 +34876,34 @@ def refresh_kev_epss_if_due(force=False):
         store['kev_error'] = ''
     except Exception as e:
         store['kev_error'] = str(e)[:200]
-    # EPSS — gzipped CSV; keep only scores for CVEs we actually have findings for.
+    # EPSS — gzipped CSV; keep only scores for CVEs we actually have findings
+    # for. Stream-decompress line by line — materializing the whole feed was
+    # ~150 MB of text plus a ~290k-element splitlines list.
     try:
+        import io
         want = _collect_finding_cve_ids()
-        text = gzip.decompress(_fetch_feed_bytes(EPSS_FEED_URL)).decode('utf-8', 'replace')
         epss = {}
-        for line in text.splitlines():
-            if not line or line[0] == '#' or line.startswith('cve,'):
-                continue
-            parts = line.split(',')
-            if len(parts) < 2:
-                continue
-            cid = parts[0].upper()
-            if want and cid not in want:
-                continue
-            try:
-                epss[cid] = round(float(parts[1]), 4)
-            except ValueError:
-                pass
+        with gzip.GzipFile(fileobj=io.BytesIO(_fetch_feed_bytes(EPSS_FEED_URL))) as gz:
+            for raw in gz:
+                line = raw.decode('utf-8', 'replace').strip()
+                if not line or line[0] == '#' or line.startswith('cve,'):
+                    continue
+                parts = line.split(',')
+                if len(parts) < 2:
+                    continue
+                cid = parts[0].upper()
+                if want and cid not in want:
+                    continue
+                try:
+                    epss[cid] = round(float(parts[1]), 4)
+                except ValueError:
+                    pass
         store['epss'] = epss
         store['epss_error'] = ''
     except Exception as e:
         store['epss_error'] = str(e)[:200]
-    store['last_checked'] = now
+    store['last_checked'] = int(time.time())
     save(KEV_EPSS_FILE, store)
-    cfg['last_kev_epss_refresh'] = now
-    save(CONFIG_FILE, cfg)
 
 
 def _kev_epss():
@@ -36571,6 +36913,11 @@ def process_container_report(dev_id, normalised, now):
             continue
         delta = cur_n - prev_n
         if delta >= CONTAINER_RESTART_DELTA_THRESHOLD:
+            # v4.2.0 sweep: honour the operator's exclude list here too — it
+            # only covered the stopped/vanished loop, so an excluded container
+            # still paged on restarts.
+            if _container_alert_excluded(cur.get('name', '')):
+                continue
             _fire_container_webhook('container_restarting', dev_id, cur.get('name', '?'), {
                 'runtime':       cur.get('runtime', 'unknown'),
                 'namespace':     cur.get('namespace', ''),
@@ -39968,6 +40315,8 @@ def _dispatch(pi, m):
     # v4.2.0 (#4): scheduled scans (exact GET|POST above).
     elif pi.startswith('/api/scan-schedules/') and pi.endswith('/run') and m == 'POST':
         handle_scan_schedule_run(pi[len('/api/scan-schedules/'):-len('/run')])
+    elif pi.startswith('/api/scan-schedules/') and pi.endswith('/toggle') and m == 'POST':
+        handle_scan_schedule_toggle(pi[len('/api/scan-schedules/'):-len('/toggle')])
     elif pi.startswith('/api/scan-schedules/') and m == 'DELETE':
         handle_scan_schedule_delete(pi[len('/api/scan-schedules/'):])
     elif pi.startswith('/api/me/sessions/') and m == 'DELETE':

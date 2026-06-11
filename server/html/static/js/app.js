@@ -563,6 +563,16 @@ async function doLogin() {
       }
       return;
     }
+    if (data.webauthn_required) {
+      // v4.2.0 sweep: this account's second factor is a passkey — the server
+      // verified the password but refuses to mint a session until a WebAuthn
+      // assertion completes. Hand off to the passkey ceremony.
+      err.textContent = 'Confirm with your passkey to finish signing in';
+      err.style.color = 'var(--accent)';
+      err.classList.add('show');
+      loginWithPasskey();
+      return;
+    }
     if (data.ok) {
       // v1.8.5: remember-me uses localStorage (survives browser close);
       // un-checked uses sessionStorage (cleared with the tab).
@@ -1401,9 +1411,15 @@ async function loadDevices() {
   try {
     const data = await api('GET', '/devices');
     if (!data) return;
+    // v4.2.0 sweep (perf): skip the full innerHTML rebuild when nothing
+    // changed since the last poll (idle/offline fleets) — one string compare
+    // beats re-laying-out the whole grid every 60s.
+    const raw = JSON.stringify(data);
+    const unchanged = window._devicesRawPrev === raw && window._devicesRendered;
+    window._devicesRawPrev = raw;
     devices = data;
     window._devicesCache = data;  // v3.0.2: command palette consumes this
-    renderDevices();
+    if (!unchanged) { renderDevices(); window._devicesRendered = true; }
   } catch(e) {
     toast('Failed to load devices', 'error');
   }
@@ -1545,7 +1561,7 @@ function renderDevices() {
     // points we render an empty box (renderSparkline handles this).
     const mounts = (si.mounts || []);
     const rootMount = mounts.find(m => m.path === '/') || mounts[0];
-    const memPct = si.mem && si.mem.percent != null ? si.mem.percent : null;
+    const memPct = si.mem_percent != null ? si.mem_percent : null;
     // Pull from per-device metrics history (window stored client-side
     // from heartbeats). If the history isn't there yet, we'll render
     // nothing — the value still shows numerically.
@@ -1623,12 +1639,12 @@ function renderDevices() {
       h.disk.push(rootMount.percent);
       if (h.disk.length > 24) h.disk.shift();
     }
-    if (si.mem && typeof si.mem.percent === 'number') {
-      h.mem.push(si.mem.percent);
+    if (typeof si.mem_percent === 'number') {
+      h.mem.push(si.mem_percent);
       if (h.mem.length > 24) h.mem.shift();
     }
-    if (si.cpu && typeof si.cpu.percent === 'number') {
-      h.cpu.push(si.cpu.percent);
+    if (typeof si.cpu_percent === 'number') {
+      h.cpu.push(si.cpu_percent);
       if (h.cpu.length > 24) h.cpu.shift();
     }
   });
@@ -2021,16 +2037,25 @@ function _registerUsersTable() {
     tbody: 'users-tbody',
     filterInput: 'users-filter',
     sortHeaders: 'users-thead',
-    colspan: 4,
-    columns: ['username', 'created', 'role'],
+    colspan: 6,
+    columns: ['username', 'created', 'role', 'mfa', 'source'],
     getColumns: (u) => ({
       username: u.username || '',
       created:  u.created || 0,
       role:     u.role || 'admin',
+      mfa:      u.mfa || 'none',
+      source:   u.source || 'local',
     }),
     row: (u) => {
       const me = getMe();
-      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" data-action="openPasswd" data-arg="${escAttr(u.username)}" >Change pw</button><button class="btn-icon" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">Edit role</button><button class="btn-icon c-danger-outline" data-action="deleteUser" data-arg="${escAttr(u.username)}" >Delete</button></div></td></tr>`;
+      // v4.2.0 sweep: MFA + auth-source columns so "who is missing MFA /
+      // deactivated" is visible per account, not just the posture aggregate.
+      const mfaBadge = u.mfa === 'passkey' ? '<span class="patch-badge ok fs-11">passkey</span>'
+        : u.mfa === 'totp' ? '<span class="patch-badge ok fs-11">TOTP</span>'
+        : '<span class="patch-badge crit fs-11">none</span>';
+      const srcBadge = `<span class="patch-badge fs-11">${escHtml(u.source || 'local')}</span>`
+        + (u.disabled ? ' <span class="patch-badge crit fs-11">disabled</span>' : '');
+      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" data-action="openPasswd" data-arg="${escAttr(u.username)}" >Change pw</button><button class="btn-icon" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">Edit role</button><button class="btn-icon c-danger-outline" data-action="deleteUser" data-arg="${escAttr(u.username)}" >Delete</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -2980,7 +3005,7 @@ function startRefreshCycle() {
   let remaining = refreshInterval;
   function paint(pausedText) {
     if (label) label.textContent = pausedText || `Auto-refresh · ${remaining}s`;
-    if (bar) bar.style.width = Math.max(0, Math.min(100, (remaining / refreshInterval) * 100)) + '%';
+    if (bar) bar.style.transform = `scaleX(${Math.max(0, Math.min(1, remaining / refreshInterval))})`;
   }
   paint();
   refreshTimer = setInterval(() => {
@@ -2989,6 +3014,12 @@ function startRefreshCycle() {
     if (remaining <= 0) {
       remaining = refreshInterval;
       try { loadDevices(); } catch (e) {}
+      // v4.2.0 sweep (perf/UX): also refresh the page the user is actually
+      // looking at — the visible dashboard used to go stale while the hidden
+      // devices grid rebuilt every minute.
+      try {
+        if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
+      } catch (e) {}
       try { _refreshTopBadges(); } catch (e) {}
     }
     paint();
@@ -3591,8 +3622,10 @@ const _DYK_TIPS = [
   "Add a passkey under My Account → Passkeys for phishing-resistant, passwordless sign-in with a security key, your phone or biometrics — and it counts as MFA, so you can drop the password entirely.",
   "Settings → Authentication → SAML adds enterprise single sign-on (Okta, Entra, OneLogin, Ping, ADFS) — paste the IdP metadata, map a group to the admin role, and users arrive provisioned on first login.",
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
-  "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive.",
+  "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
   "The Audit page grades your security posture as a checklist — MFA enforced, admins with MFA, session caps, API-key expiry — so you can see at a glance what hardening is left to switch on.",
+  "The Users table shows each account's MFA method (TOTP, passkey, or none), its auth source (local, OIDC, SAML, SCIM) and whether it's deactivated — so 'who is missing MFA' is one glance, not an audit.",
+  "Scheduled scans on the Pentest page show when they last ran and can be paused and resumed without deleting them — and an on-host lynis audit reports its 0–100 hardening index in the scan detail.",
   "Hover any sidebar entry and click the star to pin it under 'Main' — your favorites are saved to your account, so they follow you to any browser or device you log in from.",
   "The CVEs page now flags 'KEV' (known-exploited in the wild) and an EPSS score, and sorts those to the top — so you fix what's actually being exploited first, not just the highest CVSS.",
   "My Account → Active sessions lists every browser and device signed in as you. See one you don't recognise? Revoke it — or sign out all other sessions — in a click.",
@@ -3621,7 +3654,7 @@ const _DYK_TIPS = [
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
   "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
   "On the Drift page, 'Export all host configs' downloads one JSON bundle of every device's desired + current config — handy for audits, backups and diffing. 'Collect all' refreshes them from the agents first.",
-  "Look for the ✦ AI buttons across the UI — on exposed services, filling disks, failing compliance controls, config drift, failed units and packages — for one-click, context-aware help. The Home page also has an 'Ask about my fleet' box.",
+  "Look for the AI buttons across the UI — on exposed services, filling disks, failing compliance controls, config drift, failed units and packages — for one-click, context-aware help. The Home page also has an 'Ask about my fleet' box.",
   "Take a full disaster-recovery backup from Settings → Advanced → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
   "Network shares (NFS/SMB/CIFS) now appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
   "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
@@ -3845,6 +3878,9 @@ async function openMetricThresholds(id, name) {
   fillField('thr-snmp-cpu-crit', 'snmp_cpu_crit_percent');
   fillField('thr-temp-warn',     'temp_warn_celsius');
   fillField('thr-temp-crit',     'temp_crit_celsius');
+  // v4.2.0 sweep: mail-queue depth (message counts)
+  fillField('thr-mailq-warn',    'mailq_warn_count');
+  fillField('thr-mailq-crit',    'mailq_crit_count');
 
   // Per-mount overrides
   const perMount = (o.disk_per_mount || {});
@@ -3908,6 +3944,7 @@ async function saveMetricThresholds() {
   // v3.2.0 follow-up: SNMP-derived thresholds (CPU% and temperature)
   readPair('thr-snmp-cpu-warn', 'thr-snmp-cpu-crit', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent');
   readPair('thr-temp-warn',     'thr-temp-crit',     'temp_warn_celsius',     'temp_crit_celsius');
+  readPair('thr-mailq-warn',    'thr-mailq-crit',    'mailq_warn_count',      'mailq_crit_count');
 
   // Per-mount overrides
   const mountRows = document.querySelectorAll('#thr-mounts-list .mount-row');
@@ -5648,7 +5685,7 @@ function _renderCommandQueue() {
           <span class="c-muted fs-12">${d.count} pending${d.quarantined ? ' · quarantined' : ''}</span>
           <button class="btn-icon fs-12 isl-12" data-action="clearDeviceQueue" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}">Clear all</button>
         </div>
-        <table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>`;
     }).join('');
     if (pendingTotal > pendingPage.length) {
@@ -5679,7 +5716,7 @@ function _renderCommandQueue() {
       <div class="row-8-center mb-8"><strong>Recently dispatched</strong>
         <span class="c-muted fs-12">${recentPage.length} of ${recentTotal} — what was queued, when, and by whom</span>
         <button class="btn-icon fs-12" data-action="clearDispatchLog" title="Clear the command history shown here (also clears the Command History page)">Clear log</button></div>
-      <table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${moreRecent}
     </div>`;
   }
@@ -6753,13 +6790,18 @@ async function viewScan(scanId) {
     (data.target_name || '') + ' (' + (data.target || '') + ')';
   const body = document.getElementById('scan-detail-body');
   const findings = data.findings || [];
+  // v4.2.0 sweep: lynis host-hardening score (0–100) — the headline number
+  // of an on-host audit, shown above the finding list.
+  const hidx = (typeof data.hardening_index === 'number')
+    ? `<div class="mb-8"><strong>Hardening index:</strong> <span class="${data.hardening_index >= 75 ? 'c-green' : data.hardening_index >= 50 ? 'c-amber' : 'c-red'} fw-600">${data.hardening_index}/100</span> <span class="hint">lynis host-hardening score</span></div>`
+    : '';
   if (!findings.length) {
-    body.innerHTML = `<div class="empty-state">${data.status === 'done' ? 'No findings — clean scan.' : 'No findings yet (status: ' + escHtml(data.status) + ').'}${data.error ? ' Error: ' + escHtml(data.error) : ''}</div>`;
+    body.innerHTML = hidx + `<div class="empty-state">${data.status === 'done' ? 'No findings — clean scan.' : 'No findings yet (status: ' + escHtml(data.status) + ').'}${data.error ? ' Error: ' + escHtml(data.error) : ''}</div>`;
   } else {
     const order = { critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 };
     const sevColor = { critical: 'c-red', high: 'c-red', medium: 'c-amber', low: 'c-muted', info: 'c-muted', unknown: 'c-muted' };
     const sorted = findings.slice().sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
-    body.innerHTML = sorted.map(f =>
+    body.innerHTML = hidx + sorted.map(f =>
       `<div class="mb-8"><span class="${sevColor[f.severity] || 'c-muted'} fw-500">${escHtml(f.severity)}</span> <strong>${escHtml(f.title || f.rule_id)}</strong>${f.rule_id ? ` <span class="hint">${escHtml(f.rule_id)}</span>` : ''}${f.evidence ? `<div class="hint">${escHtml(f.evidence)}</div>` : ''}${/^https?:\/\//.test(f.reference || '') ? `<div class="hint"><a href="${escAttr(f.reference)}" target="_blank" rel="noopener" class="c-accent">reference</a></div>` : ''}</div>`
     ).join('');
   }
@@ -6866,8 +6908,12 @@ async function loadScanSchedules() {
   }
   box.innerHTML = scheds.map(s => {
     const when = s.next_run ? new Date(s.next_run * 1000).toLocaleString() : '—';
+    const last = s.last_run ? new Date(s.last_run * 1000).toLocaleString() : 'never';
     const tgt = s.device_id ? 'device' : (s.scan_target_id ? 'verified target' : '—');
-    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong> <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · next ${escHtml(when)}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">Remove</button></div>`;
+    const paused = s.enabled === false;
+    const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
+    const nextStr = paused ? '' : ` · next ${escHtml(when)}`;
+    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong>${stateBadge} <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · last ${escHtml(last)}${nextStr}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="toggleScanSchedule" data-arg="${escAttr(s.id)}" title="${paused ? 'Resume the cron' : 'Pause without deleting'}">${paused ? 'Resume' : 'Pause'}</button> <button class="btn-icon cell-sm" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">Remove</button></div>`;
   }).join('');
 }
 
@@ -6898,6 +6944,14 @@ async function runScanSchedule(id) {
   if (res.error) { toast(res.error, 'error'); return; }
   toast('Schedule fired — scan(s) queued.', 'success');
   loadScans();
+}
+
+async function toggleScanSchedule(id) {
+  const res = await api('POST', '/scan-schedules/' + encodeURIComponent(id) + '/toggle');
+  if (!res) return;
+  if (res.error) { toast(res.error, 'error'); return; }
+  toast(res.enabled ? 'Schedule resumed.' : 'Schedule paused.', 'info');
+  loadScanSchedules();
 }
 
 async function deleteScanSchedule(id) {
@@ -8265,6 +8319,7 @@ function _registerAuditTable() {
 async function loadAuditLog() {
   _registerAuditTable();
   loadSecurityPosture();   // v4.2.0 (A6): posture self-check card on this page
+  _refreshAuditChainBadge();  // sweep: persistent chain status, not just a toast
   const tbody = document.getElementById('audit-tbody');
   tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">Loading…</tbody>';
   const data = await api('GET', '/audit-log');
@@ -8382,10 +8437,19 @@ async function loginWithPasskey() {
     clientDataJSON: _bufToB64u(a.response.clientDataJSON),
     signature: _bufToB64u(a.response.signature),
     userHandle: a.response.userHandle ? _bufToB64u(a.response.userHandle) : null } };
-  const res = await api('POST', '/webauthn/login/complete', { username, credential: payload });
+  // Honour the remember-me checkbox like password login does — both for the
+  // server-side session TTL and for which browser store holds the token
+  // (localStorage survives the browser, sessionStorage dies with the tab).
+  const rememberCb = document.getElementById('login-remember');
+  const remember = !!(rememberCb && rememberCb.checked);
+  const res = await api('POST', '/webauthn/login/complete',
+    { username, credential: payload, remember_me: remember });
   if (res?.ok && res.token) {
-    localStorage.setItem('rp_token', res.token);
-    localStorage.setItem('rp_me', res.username || username);
+    sessionStorage.removeItem('rp_token'); sessionStorage.removeItem('rp_me');
+    localStorage.removeItem('rp_token');   localStorage.removeItem('rp_me');
+    const store = remember ? localStorage : sessionStorage;
+    store.setItem('rp_token', res.token);
+    store.setItem('rp_me', res.username || username);
     window._mustChangePassword = !!res.must_change_password;
     showApp();
   } else toast(res?.error || 'Passkey sign-in failed', 'error');
@@ -8394,8 +8458,25 @@ async function loginWithPasskey() {
 async function verifyAuditLog() {
   const d = await api('GET', '/audit-log/verify');
   if (!d) return;
+  _renderAuditChainBadge(d);
   if (d.ok) toast(`Audit log intact — ${d.verified} chained entries verified.`, 'success');
   else toast(`Tamper detected at entry #${d.broken_at}! The hash-chain is broken.`, 'error');
+}
+
+// v4.2.0 sweep: run the chain verify on Audit-page load and keep the result
+// visible as a badge next to the Verify button — a transient toast alone
+// meant tampering only surfaced if an operator thought to click.
+async function _refreshAuditChainBadge() {
+  const d = await api('GET', '/audit-log/verify');
+  if (d) _renderAuditChainBadge(d);
+}
+
+function _renderAuditChainBadge(d) {
+  const el = document.getElementById('audit-chain-badge');
+  if (!el) return;
+  el.innerHTML = d.ok
+    ? `<span class="patch-badge ok fs-11" title="${d.verified} chained entries verified">chain intact</span>`
+    : `<span class="patch-badge crit fs-11" title="Hash-chain broken at entry #${d.broken_at}">TAMPER DETECTED</span>`;
 }
 
 // ─── v3.2.0 (B1): Alerts inbox ──────────────────────────────────────────────
@@ -8594,7 +8675,7 @@ function _renderAlertsSummary(summary) {
     (bs.high ? `<span class="alerts-summary-pill sev-pill sev-high">High: ${bs.high}</span>` : '');
 }
 
-const _ALERT_SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+const _ALERT_SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 const _ALERT_SEV_NAME = ['critical', 'high', 'medium', 'low'];
 // v4.1.0: per-host grouping state. Default grouped; collapsed set persists
 // across re-renders within the session.
@@ -8881,22 +8962,25 @@ async function clearAllAlerts() {
   } else toast((r && r.error) || 'Failed', 'error');
 }
 
+function _paintAlertsBadge(n) {
+  const badge = document.getElementById('alerts-badge');
+  if (!badge) return;
+  // v3.2.0: always visible — green at 0 (the "all clear" signal), red
+  // when anything is open. The icon-only sidebar is misread as "nothing
+  // to look at" without a present-tense indicator.
+  badge.classList.remove('d-none');
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.classList.toggle('nav-badge-ok', n === 0);
+  badge.classList.toggle('nav-badge-alert', n > 0);
+  badge.title = n === 0 ? 'No open alerts' :
+                n === 1 ? '1 open alert' :
+                `${n} open alerts`;
+}
+
 async function refreshAlertsBadge() {
   try {
     const s = await api('GET', '/alerts/summary');
-    const badge = document.getElementById('alerts-badge');
-    if (!badge || !s) return;
-    const n = s.open || 0;
-    // v3.2.0: always visible — green at 0 (the "all clear" signal), red
-    // when anything is open. The icon-only sidebar is misread as "nothing
-    // to look at" without a present-tense indicator.
-    badge.classList.remove('d-none');
-    badge.textContent = n > 99 ? '99+' : String(n);
-    badge.classList.toggle('nav-badge-ok', n === 0);
-    badge.classList.toggle('nav-badge-alert', n > 0);
-    badge.title = n === 0 ? 'No open alerts' :
-                  n === 1 ? '1 open alert' :
-                  `${n} open alerts`;
+    if (s) _paintAlertsBadge(s.open || 0);
   } catch (_) { /* non-fatal */ }
 }
 
@@ -8983,26 +9067,32 @@ async function clearConfirmations() {
   else toast((r && r.error) || 'Failed', 'error');
 }
 
+function _paintConfirmationsBadge(pending) {
+  const badge = document.getElementById('confirmations-badge');
+  if (!badge) return;
+  if (pending == null) {
+    // Viewers can't see confirmations — hide rather than show a confusing badge
+    badge.classList.add('d-none');
+    return;
+  }
+  // v3.2.0: same green-at-zero pattern as the alerts badge — present
+  // state is always visible; colour shows whether action is needed.
+  badge.classList.remove('d-none');
+  badge.textContent = pending > 99 ? '99+' : String(pending);
+  badge.classList.toggle('nav-badge-ok', pending === 0);
+  badge.classList.toggle('nav-badge-alert', pending > 0);
+  badge.title = pending === 0 ? 'No pending MCP confirmations' :
+                pending === 1 ? '1 pending MCP confirmation' :
+                `${pending} pending MCP confirmations`;
+}
+
 async function refreshConfirmationsBadge() {
   try {
     const data = await api('GET', '/confirmations');
     const arr = (data && data.confirmations) || [];
-    const pending = arr.filter(c => c.status === 'pending').length;
-    const badge = document.getElementById('confirmations-badge');
-    if (!badge) return;
-    // v3.2.0: same green-at-zero pattern as the alerts badge — present
-    // state is always visible; colour shows whether action is needed.
-    badge.classList.remove('d-none');
-    badge.textContent = pending > 99 ? '99+' : String(pending);
-    badge.classList.toggle('nav-badge-ok', pending === 0);
-    badge.classList.toggle('nav-badge-alert', pending > 0);
-    badge.title = pending === 0 ? 'No pending MCP confirmations' :
-                  pending === 1 ? '1 pending MCP confirmation' :
-                  `${pending} pending MCP confirmations`;
+    _paintConfirmationsBadge(arr.filter(c => c.status === 'pending').length);
   } catch (_) {
-    // Viewers get 403 here — hide entirely rather than showing a confusing badge
-    const badge = document.getElementById('confirmations-badge');
-    if (badge) badge.classList.add('d-none');
+    _paintConfirmationsBadge(null);
   }
 }
 
@@ -9300,6 +9390,11 @@ async function refreshNavCounts() {
   try {
     const c = await api('GET', '/nav-counts');
     if (!c) return;
+    // v4.2.0 sweep (perf): /nav-counts now bundles the alerts summary and the
+    // pending-confirmations count, so the 60s poll is one request, not three.
+    if (c.alerts) _paintAlertsBadge(c.alerts.open || 0);
+    _paintConfirmationsBadge(
+      typeof c.confirmations_pending === 'number' ? c.confirmations_pending : null);
     [['fleet', c.fleet], ['monitoring', c.monitoring], ['security', c.security]]
       .forEach(([group, n]) => {
         const toggle = document.querySelector(
@@ -9340,8 +9435,9 @@ function _applyNavTints() {
 
 // Refresh alert + confirmation badges on load and every 60s after
 function _refreshTopBadges() {
-  refreshAlertsBadge();
-  refreshConfirmationsBadge();
+  // One bundled request — /nav-counts carries all three badge groups now.
+  // refreshAlertsBadge()/refreshConfirmationsBadge() still exist for the
+  // targeted refreshes after ack/approve actions.
   refreshNavCounts();
 }
 // v3.13.0: guard against a stacked interval if app.js is ever evaluated
@@ -15329,7 +15425,7 @@ async function openSnapshots(kind, vmid, guestName) {
           </div>
           <button class="btn-primary isl-40" data-action="snapshotCreate" >Create</button>
         </div>
-        <div id="snapshot-list"></div>
+        <div id="snapshot-list" class="scroll-cap"></div>
       </div>`;
     document.body.appendChild(modal);
   }
@@ -17836,7 +17932,7 @@ async function _loadAuditSection(key) {
           appver: r.app_version || '', status: r.status,
           revision: parseInt(r.revision, 10) || 0, updated: r.updated || '',
         }));
-        body.innerHTML = `<table class="audit-table">
+        body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
           <thead id="helm-thead"><tr>
             <th data-col="name">Release</th><th data-col="namespace">Namespace</th>
             <th data-col="chart">Chart</th><th data-col="appver">App version</th>
@@ -17853,7 +17949,7 @@ async function _loadAuditSection(key) {
               <td class="${ok?'c-green':'c-amber'}">${escHtml(r.status)}</td>
               <td class="ta-center">${escHtml(r.revision)}</td>
               <td class="fs-11 c-muted">${escHtml(upd || '—')}</td></tr>`;
-          }).join('') + `</tbody></table>`;
+          }).join('') + `</tbody></table></div>`;
         badge.textContent = `${rels.length} release${rels.length>1?'s':''}`;
         break;
       }
@@ -17875,7 +17971,7 @@ async function _loadAuditSection(key) {
           threshold: b.max_age_hours || 0, status: b.ok ? 1 : 0,
         }));
         const _fmtAge = h => h == null ? 'missing' : (h >= 48 ? `${(h/24).toFixed(1)}d` : `${h}h`);
-        body.innerHTML = `<table class="audit-table">
+        body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
           <thead id="device-backups-thead"><tr>
             <th data-col="label">Backup</th><th data-col="age">Age</th>
             <th data-col="threshold">Threshold</th><th data-col="status">Status</th></tr></thead>
@@ -17884,7 +17980,7 @@ async function _loadAuditSection(key) {
               <td class="${b.ok ? '' : 'c-red'}">${escHtml(_fmtAge(b.age_h))}</td>
               <td class="fs-11 c-muted">≤ ${escHtml(_fmtAge(b.max_age_hours))}</td>
               <td class="${b.ok ? 'c-green' : 'c-red'}">${b.ok ? 'fresh' : 'stale'}</td></tr>`).join('')
-          + `</tbody></table>`;
+          + `</tbody></table></div>`;
         tableCtl.wireSortOnly('device-backups-thead', 'device_backups', () => _loadAuditSectionForce('backups'));
         badge.textContent = stale ? `${stale} stale` : `${baks.length} fresh`;
         break;
@@ -17951,7 +18047,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
       return yrsLeft < 1 ? `~${Math.round(yrsLeft * 12)} mo left` : `~${yrsLeft.toFixed(1)} yr left`;
     };
     h += `<div class="hw-block"><div class="hw-h">SMART disk health</div>
-      <table class="audit-table"><thead id="hw-smart-thead"><tr>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead id="hw-smart-thead"><tr>
         <th data-col="device">Device</th><th data-col="model">Model</th>
         <th data-col="health">Health</th><th data-col="realloc">Realloc</th>
         <th data-col="pending">Pending</th><th data-col="crc" title="CRC errors / uncorrectable sectors — these drive the FAILED verdict">CRC / Unc.</th><th data-col="temp">Temp</th>
@@ -17973,7 +18069,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
           <td class="ta-center">${d.power_on_hours??'—'}</td>
           <td class="ta-center ${d.wear_pct>=90?'c-red':d.wear_pct>=80?'c-amber':''}">${d.wear_pct!=null?`${d.wear_pct}%${_wearEol(d)?`<div class="fs-11 c-muted">${_wearEol(d)}</div>`:''}`:'—'}</td></tr>`;
-      }).join('') + `</tbody></table>`;
+      }).join('') + `</tbody></table></div>`;
     // Cross-feature: a failing disk → a prefilled AI runbook.
     const bad = disks.filter(d => d && d.failed);
     if (bad.length) {

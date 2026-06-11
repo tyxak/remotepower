@@ -77,6 +77,12 @@
     'Risk':        { zh: '风险', hi: 'जोखिम', es: 'Riesgo', ar: 'المخاطر' },
     'Audit':       { zh: '审计', hi: 'ऑडिट', es: 'Auditoría', ar: 'التدقيق' },
     'Compliance':  { zh: '合规', hi: 'अनुपालन', es: 'Cumplimiento', ar: 'الامتثال' },
+    // v4.2.0 sweep: chrome labels that were missing from the dictionary.
+    'Pentest':        { zh: '渗透测试', hi: 'पेनटेस्ट', es: 'Pentest', ar: 'اختبار الاختراق' },
+    'Virtualization': { zh: '虚拟化', hi: 'वर्चुअलाइज़ेशन', es: 'Virtualización', ar: 'المحاكاة الافتراضية' },
+    'IaC Generator':  { zh: 'IaC 生成器', hi: 'IaC जनरेटर', es: 'Generador IaC', ar: 'مولد IaC' },
+    'Server status':  { zh: '服务器状态', hi: 'सर्वर स्थिति', es: 'Estado del servidor', ar: 'حالة الخادم' },
+    'API Reference':  { zh: 'API 参考', hi: 'API संदर्भ', es: 'Referencia API', ar: 'مرجع API' },
     // ── planning ──
     'Schedule':    { zh: '计划', hi: 'शेड्यूल', es: 'Programación', ar: 'الجدولة' },
     'Calendar':    { zh: '日历', hi: 'कैलेंडर', es: 'Calendario', ar: 'التقويم' },

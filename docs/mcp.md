@@ -11,7 +11,7 @@ VS Code Copilot, etc.), you can query the fleet in plain English:
 >
 > *Show me the journal for pmg01 from the last hour.*
 >
-> *Is the SSH config on tviweb01 still at its baseline?*
+> *Is the SSH config on web01 still at its baseline?*
 >
 > *Which devices haven't been patched in 30 days?*
 
@@ -69,7 +69,7 @@ scp remotepower-server:/var/www/remotepower/mcp/remotepower-mcp.py \
 chmod +x ~/remotepower-mcp.py
 ```
 
-It's a single self-contained Python file (~470 lines, stdlib
+It's a single self-contained Python file (~880 lines, stdlib
 only). Python 3.10+.
 
 ### 3. Configure your AI host
@@ -87,7 +87,7 @@ Windows (create the file if it doesn't exist):
  "command": "python3",
  "args": ["/Users/you/remotepower-mcp.py"],
  "env": {
- "REMOTEPOWER_URL": "https://remote.tvipper.com",
+ "REMOTEPOWER_URL": "https://remotepower.example.com",
  "REMOTEPOWER_TOKEN": "rpk_xxxxxxxxxxxxxxxxxxxx"
  }
  }
@@ -159,9 +159,9 @@ scope, and is recorded in the audit log alongside the AI host name.
 The tools accept friendly names. The MCP server does:
 
 1. **Exact match** — `pmg01` matches a device named `pmg01`.
-2. **Prefix match** — `tviweb01` matches `tviweb01.tvipper.com`
+2. **Prefix match** — `web01` matches `web01.example.com`
  if there's only one device starting with it.
-3. **Substring match** — `web` matches `tviweb01.tvipper.com`
+3. **Substring match** — `web` matches `web01.example.com`
  if there's only one device containing it.
 4. **Ambiguous** — `web` raises an error if it matches multiple
  devices; the model is told to ask for more specifics.
@@ -230,7 +230,7 @@ Try running it manually to verify it starts:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
- | REMOTEPOWER_URL=https://remote.tvipper.com \
+ | REMOTEPOWER_URL=https://remotepower.example.com \
  REMOTEPOWER_TOKEN=rpk_test \
  python3 ~/remotepower-mcp.py
 ```

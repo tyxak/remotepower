@@ -804,14 +804,23 @@ _HOST_SCAN_OUTBOX = []
 
 def _parse_lynis_report(path):
     """Parse a lynis report-file (warning[]= / suggestion[]= lines) into the
-    RemotePower finding shape. Warnings → medium, suggestions → low."""
+    RemotePower finding shape. Warnings → medium, suggestions → low.
+    Returns (findings, hardening_index) — the 0–100 host-hardening score lynis
+    writes into the same report (sweep: it used to be discarded at parse time)."""
     findings = []
+    hardening = None
     try:
         with open(path, 'r', errors='replace') as f:
             lines = f.read().splitlines()
     except Exception:
-        return findings
+        return findings, hardening
     for ln in lines:
+        if ln.startswith('hardening_index='):
+            try:
+                hardening = max(0, min(100, int(ln.split('=', 1)[1].strip())))
+            except ValueError:
+                pass
+            continue
         if ln.startswith('warning[]=') or ln.startswith('suggestion[]='):
             kind = 'warning' if ln.startswith('warning[]=') else 'suggestion'
             parts = ln.split('=', 1)[1].split('|')
@@ -822,7 +831,7 @@ def _parse_lynis_report(path):
                 'severity': 'medium' if kind == 'warning' else 'low',
                 'evidence': kind, 'reference': '',
             })
-    return findings[:1000]
+    return findings[:1000], hardening
 
 
 def run_host_scan(job):
@@ -845,8 +854,11 @@ def run_host_scan(job):
         return {'id': sid, 'status': 'failed', 'findings': [], 'error': 'lynis timed out'}
     except Exception as e:
         return {'id': sid, 'status': 'failed', 'findings': [], 'error': str(e)[:200]}
-    return {'id': sid, 'status': 'done',
-            'findings': _parse_lynis_report(report), 'error': ''}
+    findings, hardening = _parse_lynis_report(report)
+    result = {'id': sid, 'status': 'done', 'findings': findings, 'error': ''}
+    if hardening is not None:
+        result['hardening_index'] = hardening
+    return result
 
 
 def _find_ssg_datastream():
@@ -6209,8 +6221,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
 
         # v4.2.0 (B5 P3): report a finished host scan (lynis) to the server.
+        # Peek, don't pop — the result is dequeued below only after the server
+        # accepted the heartbeat. A network error or busy-202 (which drops the
+        # heartbeat's writes) must not lose a finished scan permanently.
         if _HOST_SCAN_OUTBOX:
-            payload['host_scan_result'] = _HOST_SCAN_OUTBOX.pop(0)
+            payload['host_scan_result'] = _HOST_SCAN_OUTBOX[0]
 
         try:
             resp = http_post(f"{server}/api/heartbeat", payload)
@@ -6229,6 +6244,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 # Skip command-processing and follow-up block; the next
                 # heartbeat will re-send everything that mattered.
                 cmd = None
+            elif 'host_scan_result' in payload and _HOST_SCAN_OUTBOX:
+                # Server stored this heartbeat's writes — the scan result is
+                # safely delivered, drop it from the retry queue.
+                _HOST_SCAN_OUTBOX.pop(0)
             # v1.8.0: pick up server-pushed watch config
             # v1.8.3: log at info when it *changes* so ops can see config pushes
             if 'services_watched' in resp:

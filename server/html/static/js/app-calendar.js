@@ -463,6 +463,13 @@ async function loadPublicInfo() {
       const btn = document.getElementById('login-saml-btn');
       if (btn) btn.classList.remove('d-none');
     }
+    // v4.2.0 sweep: reveal the passkey button only when the server actually
+    // supports it (library installed + feature on) — it used to render
+    // unconditionally and clicking just produced a 503/403 toast.
+    if (info.webauthn_enabled) {
+      const btn = document.getElementById('login-passkey-btn');
+      if (btn) btn.classList.remove('d-none');
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -476,13 +483,13 @@ function _consumeOidcHashToken() {
        location.hash.indexOf('saml_token=') < 0)) return;
   const params = new URLSearchParams(location.hash.slice(1));
   const token = params.get('oidc_token') || params.get('saml_token');
-  const role = params.get('role') || 'viewer';
   const username = params.get('username') || '';
   if (!token) return;
   try {
     localStorage.setItem('rp_token', token);
-    localStorage.setItem('rp_role', role);
-    localStorage.setItem('rp_username', username);
+    // v4.2.0 sweep: the app reads `rp_me` everywhere (the "(you)" marker,
+    // avatar menu); the old rp_role/rp_username keys were write-only.
+    localStorage.setItem('rp_me', username);
   } catch (_) { /* private mode — non-fatal */ }
   // Clean the hash so a refresh doesn't replay the token
   history.replaceState(null, '', location.pathname);

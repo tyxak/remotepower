@@ -55,6 +55,57 @@ application or the source — only informational items and false positives.
   so the worst pre-fix outcome was a scoped operator scheduling a scan of an
   in-fleet host outside their slice — now closed.
 
+## Fixed in the post-release sweep (2026-06-11)
+
+A second adversarial pass over the v4.2.0 surface (and a whole-project
+re-trace) found and fixed the following. All were fixed the same day:
+
+- **[High] Passkey-only accounts could sign in with a password alone.** The
+  password-login path enforced a second factor only when a TOTP secret was
+  enrolled; a user whose sole MFA was a passkey received a full session from
+  username+password — silently defeating the per-role MFA policy for exactly
+  the users who chose the phishing-resistant option (and the posture page
+  showed them as fully protected). `handle_login` now refuses to mint a
+  session for an account with registered passkeys until a WebAuthn assertion
+  completes (the UI hands off to the passkey ceremony automatically); a
+  one-time recovery code remains the break-glass fallback, and if the
+  WebAuthn library is removed the login degrades rather than locking everyone
+  out.
+- **[Medium] `webauthn_enabled` gated nothing.** Setting the flag to false
+  did not disable passkey registration or passwordless login — the kill
+  switch was cosmetic. Every ceremony handler now honours the flag (default
+  ON when the library is present); disabling it revokes passwordless login
+  immediately, and the login-page button is shown only when the server
+  confirms support.
+- **[Low] Scan-target file verification allowed loopback.** The
+  `/.well-known` ownership probe used the SSRF-safe opener with
+  `allow_loopback=True`, leaving a blind, admin-only boolean oracle against
+  services on the server's own loopback. Now `allow_loopback=False`, matching
+  the scan-time denylist (and the documented behaviour).
+- **[Low] Passkey login-begin enumerated accounts.** The unauthenticated
+  `/api/webauthn/login/begin` returned a distinguishable 404 for unknown /
+  passkey-less usernames and had no rate limit. It now shares the password
+  login's per-IP rate bucket and returns a normal-looking challenge with an
+  empty allow-list for unknown users (no challenge is stored, so the ceremony
+  can never complete).
+- **[Hardening] Audit writes are now atomic.** `audit_log()` did an unlocked
+  load→append→save; two concurrent requests could silently drop an entry —
+  indistinguishable from the tampering the hash-chain exists to detect. The
+  whole read-hash-append-prune is now one `_LockedUpdate` unit (and the few
+  call sites that held another lock were rearranged to audit after release).
+  Session minting on login and scan-schedule deletion got the same treatment.
+- **[Hardening] Chain integrity is now ambient, not click-only.** The Audit
+  page verifies the hash-chain on load and shows a persistent intact/tamper
+  badge, and the security-posture self-check gained an `audit_chain` row — a
+  broken chain now surfaces without an operator thinking to press "Verify".
+
+Accurate scope note for the tamper-evidence guarantee: the chain detects
+modification or deletion of retained, chained entries; deletion of a contiguous
+*prefix* (or the whole file, by an attacker with filesystem access to the
+per-install HMAC key) is outside the threat model — the recommended mitigation
+for that class is `audit_forward_enabled` to an external SIEM, which the
+posture self-check already scores.
+
 ## New surface reviewed clean
 
 - **Authorized scanning — authorization is server-side and cannot be forged.**

@@ -692,7 +692,7 @@ async function hcFetchAllCurrent() {
   if (!_hcDevId) return;
   const btn = document.getElementById('hc-fetch-all-btn');
   btn.disabled = true;
-  btn.textContent = '⌛ Requesting…';
+  btn.textContent = 'Requesting…';
   // Queue command via the standard exec endpoint
   const r = await api('POST', '/exec', {
     device_id: _hcDevId,
@@ -723,7 +723,7 @@ async function hcFetchAllCurrent() {
       _hcShowDrift(data.drift || {});
     }
     btn.disabled = false;
-    btn.textContent = '⬇ Collect all current';
+    btn.textContent = 'Collect all current';
   }, 75000);
 }
 

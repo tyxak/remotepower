@@ -20,7 +20,7 @@ Design goals:
 
 File classification (by basename — see _classify):
   * dict-of-entity  {key: value}        -> one row per key
-        devices.json (own table, last_seen promoted to an indexed column),
+        devices.json (own table, last_seen promoted to its own column),
         cmd_output.json, metrics.json, monitor_history.json,
         metrics_history.json  (shared `entity` table, keyed by (file, k))
   * wrapped-list    {"<wrapkey>": [...]} -> one row per list element
@@ -126,19 +126,43 @@ _CONNS = {}
 _ATEXIT_REGISTERED = False
 
 
+_NETFS_CACHE = {}
+
+
 def _is_network_fs(path):
     """Best-effort: WAL's shared-memory index (-shm) is broken over NFS/CIFS and
     corrupts or throws 'database is locked' storms. Detect so the migration can
-    warn and fall back to a rollback journal."""
+    warn and fall back to a rollback journal.
+
+    v4.2.0 sweep (perf): reads /proc/self/mounts instead of forking a `stat`
+    subprocess (which ran on the first _connect of EVERY CGI process), and the
+    verdict is cached per path for the process lifetime. Non-Linux (no /proc)
+    falls through to False, same as the old GNU-stat failure path."""
+    key = str(path)
+    if key in _NETFS_CACHE:
+        return _NETFS_CACHE[key]
+    verdict = False
     try:
-        import subprocess
-        out = subprocess.run(
-            ['stat', '-f', '-c', '%T', str(path)],
-            capture_output=True, text=True, timeout=2)
-        fstype = (out.stdout or '').strip().lower()
-        return fstype in ('nfs', 'smb', 'smb2', 'cifs', 'fuseblk', 'fuse')
+        real = os.path.realpath(key)
+        best_type = ''
+        best_len = -1
+        with open('/proc/self/mounts') as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                # /proc/mounts octal-escapes spaces in mountpoints as \040
+                mnt = parts[1].replace('\\040', ' ')
+                if (real == mnt or real.startswith(mnt.rstrip('/') + '/')) \
+                        and len(mnt) > best_len:
+                    best_len = len(mnt)
+                    best_type = parts[2].lower()
+        verdict = best_type in ('nfs', 'nfs4', 'smb', 'smb2', 'smb3',
+                                'cifs', 'fuseblk', 'fuse')
     except Exception:
-        return False
+        verdict = False
+    _NETFS_CACHE[key] = verdict
+    return verdict
 
 
 def _connect(data_dir=None):
