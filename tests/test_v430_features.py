@@ -118,6 +118,63 @@ class TestAuditArchiveDownload(_Base):
         self.assertIn('data-action="downloadAuditArchive"', _HTML)
 
 
+class TestSlowHandlerLogging(_Base):
+    def setUp(self):
+        super().setUp()
+        self._shf = api.SLOW_HANDLERS_FILE
+        api.SLOW_HANDLERS_FILE = self.d / 'slow_handlers.json'
+
+    def tearDown(self):
+        api.SLOW_HANDLERS_FILE = self._shf
+        super().tearDown()
+
+    def test_records_over_threshold(self):
+        api.save(api.CONFIG_FILE, {'slow_handler_ms': 1000})
+        api._record_slow_handler('/api/devices?slim=1', 'GET', 2500)
+        store = api.load(api.SLOW_HANDLERS_FILE)
+        self.assertEqual(len(store['entries']), 1)
+        e = store['entries'][0]
+        self.assertEqual(e['path'], '/api/devices')   # query string dropped
+        self.assertEqual(e['method'], 'GET')
+        self.assertEqual(e['ms'], 2500)
+
+    def test_threshold_from_config(self):
+        api.save(api.CONFIG_FILE, {'slow_handler_ms': 800})
+        self.assertEqual(api._slow_handler_threshold_ms(), 800)
+        api.save(api.CONFIG_FILE, {})
+        self.assertEqual(api._slow_handler_threshold_ms(), 1500)   # default
+
+    def test_ring_caps(self):
+        api.save(api.CONFIG_FILE, {})
+        for i in range(api.MAX_SLOW_HANDLERS + 20):
+            api._record_slow_handler(f'/api/x{i}', 'GET', 2000)
+        store = api.load(api.SLOW_HANDLERS_FILE)
+        self.assertEqual(len(store['entries']), api.MAX_SLOW_HANDLERS)
+
+    def test_logging_failure_is_swallowed(self):
+        # A broken store path must not raise — the response is already sent.
+        api.SLOW_HANDLERS_FILE = Path('/proc/nonexistent/slow.json')
+        try:
+            api._record_slow_handler('/api/x', 'GET', 9999)  # must not raise
+        finally:
+            api.SLOW_HANDLERS_FILE = self.d / 'slow_handlers.json'
+
+    def test_frontend_card(self):
+        self.assertIn('_slowHandlersCard', _APP_JS)
+
+
+class TestAuthEndpointRateLimits(unittest.TestCase):
+    """v4.3.0: the unauthenticated auth callbacks must enforce a per-IP limit."""
+    def test_source_has_limits(self):
+        import inspect
+        for fn, bucket in (('handle_saml_acs', 'sso'),
+                           ('handle_oidc_callback', 'sso'),
+                           ('handle_webauthn_login_complete', 'login')):
+            src = inspect.getsource(getattr(api, fn))
+            self.assertIn(f"_ip_ratelimit('{bucket}'", src,
+                          f'{fn} missing per-IP rate limit')
+
+
 class TestDiagnosticsBundle(_Base):
     def setUp(self):
         super().setUp()

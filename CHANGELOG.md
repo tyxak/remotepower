@@ -22,6 +22,14 @@ self-observability, UX polish, and regression guardrails.
   download one JSON support bundle (versions, storage backend, fleet counts,
   recurring-job staleness, audit + hash-chain status, optional-dependency
   presence) with all secrets scrubbed server-side.
+- **Slow-request visibility.** Any handler that runs past the slow threshold
+  (`slow_handler_ms`, default 1500 ms) is recorded to a capped ring and shown
+  on the Server status page — so "which endpoint is slow on the real fleet?" is
+  answerable without external profiling. Only slow requests write; the
+  heartbeat path is excluded.
+- **Rate-limit coverage.** The unauthenticated, crypto-verifying auth callbacks
+  (SAML ACS, OIDC callback, WebAuthn login-complete) now enforce a per-IP rate
+  limit, matching the password-login / passkey-begin protection.
 - **Staleness at a glance.** Cadence jobs (monitors, the KEV/EPSS refresh,
   scheduled scans) surface a last-ran timestamp + staleness badge on the
   Server status page.

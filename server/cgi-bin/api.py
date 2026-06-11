@@ -81,6 +81,14 @@ MAX_INBOUND_WEBHOOK_LOG = 500
 # delivery-attempts-only for Settings → Webhook log (unchanged).
 FLEET_EVENTS_FILE = DATA_DIR / 'fleet_events.json'
 
+# v4.3.0: capped ring of requests whose handler ran longer than the slow
+# threshold (config slow_handler_ms, default 1500). Wrapped-list shape, written
+# via list_append — O(1), and only on the rare slow request. Surfaced on the
+# Server status page so "which endpoint is slow on the real fleet?" is
+# answerable without external profiling.
+SLOW_HANDLERS_FILE = DATA_DIR / 'slow_handlers.json'
+MAX_SLOW_HANDLERS  = 100
+
 # v3.2.0 (B1): mutable alert inbox with acknowledge / resolve lifecycle.
 # Distinct from FLEET_EVENTS_FILE (immutable history of every event) — alerts
 # carries only events the operator needs to *act* on, with state attached.
@@ -3051,6 +3059,39 @@ def log_command(actor, device_id, device_name, command):
     entries.append(entry)
     history['entries'] = entries[-MAX_HISTORY:]
     save(HISTORY_FILE, history)
+
+
+def _slow_handler_threshold_ms():
+    try:
+        return int((load(CONFIG_FILE) or {}).get('slow_handler_ms', 1500))
+    except (TypeError, ValueError):
+        return 1500
+
+
+def _record_slow_handler(path, method_, elapsed_ms):
+    """v4.3.0: append one over-threshold request to the capped slow-handler ring.
+    Best-effort and fully isolated — a logging failure must never affect the
+    response that's already been rendered. Only called on slow requests, so the
+    extra write is rare. Query strings are dropped (just the path shape)."""
+    entry = {
+        'ts':     int(time.time()),
+        'path':   _sanitize_str(str(path).split('?', 1)[0], 200),
+        'method': _sanitize_str(str(method_), 8),
+        'ms':     int(elapsed_ms),
+    }
+    try:
+        _m = _dbmod()
+        if _m is not None:
+            _m.list_append(SLOW_HANDLERS_FILE, entry, cap=MAX_SLOW_HANDLERS)
+            _invalidate_load_cache(SLOW_HANDLERS_FILE)
+            return
+        store = load(SLOW_HANDLERS_FILE) or {}
+        entries = store.get('entries', [])
+        entries.append(entry)
+        store['entries'] = entries[-MAX_SLOW_HANDLERS:]
+        save(SLOW_HANDLERS_FILE, store)
+    except Exception:
+        pass
 
 # ── Audit log with IP tracking ─────────────────────────────────────────────────
 def _audit_hmac_key():
@@ -14557,6 +14598,16 @@ def handle_self_status():
         out['cadence_jobs'] = _cadence_job_status(now)
     except Exception as e:
         out['cadence_jobs'] = {'error': str(e)[:200]}
+    # v4.3.0: recent slow requests (handlers past the slow threshold).
+    try:
+        slow = (load(SLOW_HANDLERS_FILE) or {}).get('entries', [])
+        out['slow_handlers'] = {
+            'threshold_ms': _slow_handler_threshold_ms(),
+            'count': len(slow),
+            'recent': list(reversed(slow[-15:])),   # newest first
+        }
+    except Exception as e:
+        out['slow_handlers'] = {'error': str(e)[:200]}
     respond(200, out)
 
 
@@ -29793,6 +29844,10 @@ def handle_webauthn_login_complete():
     wa = _webauthn_guard()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v4.3.0: same per-IP budget as password login + the begin step.
+    if not _ip_ratelimit('login', _get_client_ip(), 20, window=60):
+        time.sleep(0.5)
+        respond(429, {'error': 'Too many attempts — wait a minute'})
     body = get_json_body() or {}
     username = _sanitize_str(str(body.get('username', '')), 64)
     cred = body.get('credential') or {}
@@ -29992,6 +30047,10 @@ def handle_saml_acs():
     provision and mint a session, redirecting with the token in the URL hash
     (exactly like the OIDC callback so the SPA picks it up identically)."""
     sm = _saml_guard()
+    # v4.3.0: per-IP rate limit on the unauthenticated, crypto-verifying ACS.
+    if not _ip_ratelimit('sso', _get_client_ip(), 30, window=60):
+        time.sleep(0.5)
+        respond(429, {'error': 'Too many SSO attempts — wait a minute'})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     cfg = _saml_cfg()
@@ -32015,6 +32074,10 @@ def handle_oidc_callback():
     the id_token, looks up or creates the local user, mints a session
     token, and redirects to the dashboard with the token in the URL hash.
     """
+    # v4.3.0: per-IP rate limit on the unauthenticated OIDC callback.
+    if not _ip_ratelimit('sso', _get_client_ip(), 30, window=60):
+        time.sleep(0.5)
+        respond(429, {'error': 'Too many SSO attempts — wait a minute'})
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     err = (qs.get('error', [''])[0] or '').strip()
     if err:
@@ -40968,7 +41031,22 @@ def main():
 
     pi = path_info(); m = method()
 
-    _dispatch(pi, m)
+    # v4.3.0: time the handler and record it if it ran past the slow threshold.
+    # try/finally so the timing fires on every exit path (normal HTTPError
+    # short-circuit, real exception, or plain return) without altering control
+    # flow — the HTTPError still propagates to the __main__ renderer. The
+    # heartbeat path is excluded: it's high-frequency and would dominate the
+    # ring without telling us anything actionable.
+    _t0 = time.monotonic()
+    try:
+        _dispatch(pi, m)
+    finally:
+        try:
+            _elapsed_ms = (time.monotonic() - _t0) * 1000.0
+            if pi != '/api/heartbeat' and _elapsed_ms >= _slow_handler_threshold_ms():
+                _record_slow_handler(pi, m, _elapsed_ms)
+        except Exception:
+            pass
 
 
 

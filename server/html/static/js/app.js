@@ -22614,6 +22614,8 @@ async function loadSelfStatus() {
 
     ${_cadenceJobsCard(s.cadence_jobs)}
 
+    ${_slowHandlersCard(s.slow_handlers)}
+
     <div class="card p-16">
       <div class="fw-600-mb10">Fleet events</div>
       <table class="fs-13">
@@ -22622,6 +22624,21 @@ async function loadSelfStatus() {
       </table>
     </div>
   `;
+}
+
+// v4.3.0: recent slow requests (handlers past the slow threshold). Tells you
+// which endpoint is slow on the real fleet without external profiling.
+function _slowHandlersCard(sh) {
+  if (!sh || sh.error || !sh.count) return '';
+  const rows = (sh.recent || []).map(r => {
+    const cls = r.ms >= sh.threshold_ms * 3 ? 'c-red' : 'c-amber';
+    return `<tr><td class="c-muted-padded">${escHtml(r.method || '')} <code class="fs-11">${escHtml(r.path || '')}</code></td>`
+      + `<td class="${cls}">${r.ms} ms</td><td class="hint">${_selfFmtAgo(r.ts)}</td></tr>`;
+  }).join('');
+  return `<div class="card p-16">
+      <div class="fw-600-mb10">Slow requests <span class="hint">(> ${sh.threshold_ms} ms; last ${sh.count})</span></div>
+      <table class="fs-13">${rows}</table>
+    </div>`;
 }
 
 // v4.3.0: cadence-job staleness — a job that quietly stopped looks identical to

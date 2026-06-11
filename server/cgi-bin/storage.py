@@ -90,6 +90,8 @@ ENTITY_FILES = {
 WRAPPED_LIST_FILES = {
     'history.json': 'entries',
     'alerts.json': 'alerts',
+    # v4.3.0: capped slow-handler ring, written via list_append (O(1)).
+    'slow_handlers.json': 'entries',
 }
 
 DEVICES_FILE_NAME = 'devices.json'
