@@ -54,6 +54,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.3.0.md](v4.3.0.md)** — "ImprovementMatters": single-row device reads on
+ large fleets, audit-archive download, staleness badges, clickable posture
+ fixes, and regression guardrails. No breaking changes.
 - **[v4.2.0.md](v4.2.0.md)** — "5ecur1tyM4tter5": authorized vulnerability
  scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log,
  and account guardrails.
@@ -63,8 +66,6 @@ The five most recent per-release notes are kept here:
  PostgreSQL + HA, relay satellites, multi-node, macOS agent, KEV/EPSS.
 - **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
  at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.
-- **[v3.12.0.md](v3.12.0.md)** — optional SQLite storage backend with a live,
- in-place, reversible migration.
 
 ## Feature guides
 

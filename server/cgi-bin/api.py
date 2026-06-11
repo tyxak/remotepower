@@ -24,7 +24,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.2.0'
+SERVER_VERSION = '4.3.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -1620,6 +1620,19 @@ def _invalidate_load_cache(path):
         _LOAD_CACHE[path] = (None, False)
 
 
+def _peek_load_cache(path):
+    """Return the already-cached document for `path` if a VALID copy exists
+    this request, else None — without triggering a load. Used by device_get to
+    reuse a full devices snapshot a list handler already paid for, instead of
+    doing a redundant single-row read. Deep-copied so callers can't mutate the
+    cache (same contract as load())."""
+    cached = _LOAD_CACHE.get(path)
+    if cached is not None and cached[1] and cached[0] is not None:
+        import copy as _copy
+        return _copy.deepcopy(cached[0])
+    return None
+
+
 # v2.1.0: split critical section. The v1.12.1 design held the lock across
 # the *entire* save — backup + write + fsync + rename. fsync alone can take
 # 50–200 ms on a busy ext4 / spinning disk, and the chained saves inside
@@ -2070,6 +2083,30 @@ def _DeviceUpdate(dev_id, non_blocking=False):
     if _dbmod() is not None:
         return _DbDeviceUpdate(dev_id, non_blocking)
     return _JsonLockedUpdate(DEVICES_FILE, non_blocking)
+
+
+def device_get(dev_id, default=None):
+    """v4.3.0 (ImprovementMatters): READ ONE device by id without loading the
+    whole devices store. Under SQLite/Postgres this is a single-row SELECT;
+    under flat JSON it's identical to `load(DEVICES_FILE).get(dev_id)` (the
+    store is one file either way, so no change there). Read-only — for a
+    read-modify-write use `_DeviceUpdate`. Honours the per-request load cache
+    so two reads of the same device in one request don't double-hit the DB."""
+    m = _dbmod()
+    if m is None:
+        return (load(DEVICES_FILE) or {}).get(dev_id, default)
+    # Reuse a devices snapshot already loaded this request (e.g. a list handler
+    # that then drills into one device) — avoids a redundant round-trip and
+    # keeps reads consistent within the request.
+    cached = _peek_load_cache(DEVICES_FILE)
+    if cached is not None:
+        return cached.get(dev_id, default)
+    try:
+        return m.device_get(DEVICES_FILE, dev_id, default)
+    except Exception:
+        # Any backend hiccup → fall back to the whole-store load (correctness
+        # over the optimisation).
+        return (load(DEVICES_FILE) or {}).get(dev_id, default)
 
 
 def _locked_update(path, non_blocking=False):
@@ -2867,7 +2904,7 @@ def _enforce_device_scope():
     seg = pi[len('/api/devices/'):].split('/', 1)[0]
     if not seg or not _validate_id(seg):
         return
-    dev = (load(DEVICES_FILE) or {}).get(seg)
+    dev = device_get(seg)
     if dev is None:
         return
     # v3.14.0 P2: tenant isolation — checked before role scope, and applies even
@@ -2885,7 +2922,7 @@ def _scope_block_device(dev_id):
     """For per-device read endpoints NOT under /api/devices/ (cmdb, acme,
     patch-report/device, …). 403s only if dev_id names a real out-of-scope
     device; otherwise returns (so the handler keeps its own 404 behaviour)."""
-    dev = (load(DEVICES_FILE) or {}).get(dev_id)
+    dev = device_get(dev_id)
     if dev is None:
         return
     if not _tenant_visible(dev):     # v3.14.0 P2: tenant isolation
@@ -4479,7 +4516,7 @@ def _record_alert(event, payload):
     dev_id = p.get('device_id') if isinstance(p, dict) else None
     if dev_id:
         try:
-            dev = load(DEVICES_FILE).get(dev_id) or {}
+            dev = device_get(dev_id) or {}
             if dev and not dev.get('monitored', True):
                 return None
         except Exception:
@@ -4948,7 +4985,7 @@ def fire_webhook(event, payload):
     dev_id = (payload or {}).get('device_id')
     if dev_id:
         try:
-            dev = load(DEVICES_FILE).get(dev_id) or {}
+            dev = device_get(dev_id) or {}
             if dev and not dev.get('monitored', True):
                 # Log so the operator can see what's being suppressed
                 # (suppression-log URL helper defined below — inline the
@@ -6035,8 +6072,10 @@ def _fresh_last_seen(dev_id):
     or a lost-update clobber. Returns 0 on any error (treated as 'no fresh
     evidence', so the caller proceeds to the slower checks)."""
     try:
+        # Invalidate first so device_get can't reuse a stale in-request snapshot;
+        # it then does a fresh single-row read (SQLite) / disk load (JSON).
         _invalidate_load_cache(DEVICES_FILE)
-        dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+        dev = device_get(dev_id) or {}
         return int(dev.get('last_seen', 0) or 0)
     except Exception:
         return 0
@@ -13868,7 +13907,7 @@ def _resolve_agent_channel():
         if ch not in ('stable', 'beta'):
             did = (qs.get('device_id') or [''])[0]
             if did:
-                dev = (load(DEVICES_FILE) or {}).get(did) or {}
+                dev = device_get(did) or {}
                 ch = (dev.get('update_channel') or 'stable').lower()
             else:
                 ch = 'stable'
@@ -14511,7 +14550,60 @@ def handle_self_status():
             out['backup'] = load(bs_file)
     except Exception:
         pass
+    # v4.3.0: cadence-job staleness. A job that quietly stops looks identical to
+    # one that simply isn't due — surface the last-ran time + a stale flag (last
+    # run older than 3× its interval) so an operator can SEE a wedged job.
+    try:
+        out['cadence_jobs'] = _cadence_job_status(now)
+    except Exception as e:
+        out['cadence_jobs'] = {'error': str(e)[:200]}
     respond(200, out)
+
+
+def _cadence_job_status(now):
+    """Per-job {last_run, interval_s, stale, never_ran} for the recurring jobs
+    that record a timestamp. 'stale' = last run older than 3× the interval (and
+    the job has run at least once). Cheap — a couple of small reads."""
+    cfg = load(CONFIG_FILE) or {}
+
+    def entry(last, interval, enabled=True):
+        last = int(last or 0)
+        return {
+            'last_run': last,
+            'interval_s': int(interval),
+            'never_ran': last == 0,
+            'enabled': bool(enabled),
+            # Only flag stale once it HAS run; a never-run disabled job isn't a
+            # fault, just unconfigured.
+            'stale': bool(enabled and last and (now - last) > 3 * int(interval)),
+        }
+
+    mon_interval = max(60, int(cfg.get('monitor_interval', 300)))
+    jobs = {
+        'kev_epss_refresh': entry(cfg.get('last_kev_epss_refresh'),
+                                  KEV_EPSS_INTERVAL),
+        'monitors': entry(cfg.get('last_monitor_run'), mon_interval,
+                          enabled=bool(cfg.get('monitors'))),
+    }
+    # Scheduled scans: the soonest-overdue enabled schedule (each carries its
+    # own last_run); report the most-stale one.
+    try:
+        scheds = [s for s in (load(SCAN_SCHEDULES_FILE) or {}).values()
+                  if isinstance(s, dict) and s.get('enabled')]
+        if scheds:
+            worst = max(scheds, key=lambda s: now - int(s.get('last_run') or 0))
+            jobs['scheduled_scans'] = {
+                'last_run': int(worst.get('last_run') or 0),
+                'interval_s': 86400, 'enabled': True,
+                'never_ran': not worst.get('last_run'),
+                'count': len(scheds),
+                # A cron scan that hasn't fired in 8 days is almost certainly wedged.
+                'stale': bool(worst.get('last_run') and
+                              (now - int(worst.get('last_run'))) > 8 * 86400),
+            }
+    except Exception:
+        pass
+    return jobs
 
 
 def handle_backup_run():
@@ -22564,9 +22656,11 @@ def _disk_fill_eta(devices, min_percent=60.0, horizon_days=60):
 def handle_device_checks(dev_id):
     """GET /api/devices/<id>/checks — the unified check list + summary for one host."""
     require_auth()
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
-    dev = devices.get(dev_id)
-    if not dev:
+    # v4.3.0: single-row read + per-device scope check, instead of scope-
+    # filtering the whole fleet just to pull one host.
+    dev = device_get(dev_id)
+    _scope = _caller_scope()
+    if not dev or (_scope is not None and not _device_in_scope(_scope, dev)):
         respond(404, {'error': 'device not found'})
     cfg = load(CONFIG_FILE) or {}
     disabled = (cfg.get('host_checks_disabled') or {}).get(dev_id) or []
@@ -24076,7 +24170,7 @@ def handle_device_metrics_history(dev_id):
         respond(404, {'error': 'Device not found'})
     scope = _caller_scope()
     if scope is not None:
-        dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+        dev = device_get(dev_id) or {}
         if not _device_in_scope(scope, dev):
             respond(403, {'error': 'Device outside your role scope'})
     # v3.13.0: the store shape is {dev_id: {'samples': [...]}} — the old
@@ -26152,7 +26246,7 @@ def handle_scan_detail(scan_id):
         respond(404, {'error': 'scan not found'})
     scope = _caller_scope()
     if scope is not None:
-        dev = load(DEVICES_FILE).get(s.get('target_device_id') or '')
+        dev = device_get(s.get('target_device_id') or '')
         if not dev or not _device_in_scope(scope, dev):
             respond(404, {'error': 'scan not found'})
     pub = _scan_public(s)
@@ -26197,7 +26291,7 @@ def handle_scans_create():
     if dev_id:
         # RBAC: 'scan' permission AND the target must be inside the caller's scope.
         actor = require_perm('scan', [dev_id])
-        dev = load(DEVICES_FILE).get(dev_id)
+        dev = device_get(dev_id)
         if not isinstance(dev, dict):
             respond(404, {'error': 'Device not found'})
         # CARDINAL CONTROL: target derived from the enrolled device, server-side.
@@ -26721,7 +26815,7 @@ def _create_scheduled_scan(sc):
     is_host = (tool != 'all') and tool in HOST_SCAN_TOOLS
     dev_id, st_id = sc.get('device_id', ''), sc.get('scan_target_id', '')
     if dev_id:
-        dev = load(DEVICES_FILE).get(dev_id)
+        dev = device_get(dev_id)
         if not isinstance(dev, dict):
             return
         target, terr = _scan_target_for_device(dev)
@@ -26833,7 +26927,7 @@ def _scan_sched_in_scope(sched, scope):
     dev_id = sched.get('device_id')
     if not dev_id:
         return False   # target-only schedules are all-scope only
-    dev = (load(DEVICES_FILE) or {}).get(dev_id)
+    dev = device_get(dev_id)
     return isinstance(dev, dict) and _device_in_scope(scope, dev)
 
 
@@ -29357,6 +29451,35 @@ def handle_audit_log_verify():
                   'verified': checked, 'broken_at': broken_at})
 
 
+def handle_audit_log_archive():
+    """GET /api/audit-log/archive — v4.3.0: download the gzipped JSONL archive of
+    evicted (age/count-bounded) audit entries. The live log is bounded; this is
+    the retained tail that compliance dives need, previously reachable only via
+    shell access to DATA_DIR. Admin only; the download is itself audited.
+    404 (JSON) when nothing has been archived yet."""
+    actor = require_admin_auth()
+    arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
+    if not arch.exists() or arch.stat().st_size == 0:
+        respond(404, {'error': 'no archived audit entries yet'})
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    fname = f'remotepower-audit-archive-{stamp}.jsonl.gz'
+    audit_log(actor, 'audit_archive_download', fname)
+    print("Status: 200 OK")
+    print("Content-Type: application/gzip")
+    print(f'Content-Disposition: attachment; filename="{fname}"')
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    with open(arch, 'rb') as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            sys.stdout.buffer.write(chunk)
+    sys.stdout.buffer.flush()
+
+
 def handle_security_posture():
     """GET /api/security-posture — v4.2.0 (A6): grade the live config against a
     secure-defaults checklist so operators can see (and fix) what's not hardened."""
@@ -29365,14 +29488,17 @@ def handle_security_posture():
     users = load(USERS_FILE) or {}
     checks = []
 
-    def add(key, label, ok, detail, hint):
+    def add(key, label, ok, detail, hint, fix_tab=None):
+        # v4.3.0: fix_tab names the Settings tab that fixes this row so the UI
+        # can render the hint as a one-click link instead of a config-key name.
         checks.append({'key': key, 'label': label,
-                       'status': 'ok' if ok else 'warn', 'detail': detail, 'hint': hint})
+                       'status': 'ok' if ok else 'warn', 'detail': detail,
+                       'hint': hint, 'fix_tab': fix_tab})
 
     roles = cfg.get('mfa_required_roles') or []
     add('mfa_enforced', 'MFA enforced for admins', 'admin' in roles,
         f'required roles: {", ".join(roles) or "none"}',
-        'Turn on "Require MFA for admin accounts" under Settings → Security → Account guardrails.')
+        'Turn on "Require MFA for admin accounts" under Settings → Security → Account guardrails.', fix_tab='security')
     admins = [u for u, d in users.items() if isinstance(d, dict) and d.get('role') == 'admin']
     no_mfa = [u for u in admins
               if not (users[u].get('totp_secret') or users[u].get('webauthn_credentials'))]
@@ -29382,10 +29508,10 @@ def handle_security_posture():
         'the Users table shows who is missing one).')
     add('apikey_expiry', 'API keys expire by default', int(cfg.get('apikey_default_expiry_days') or 0) > 0,
         f'default: {cfg.get("apikey_default_expiry_days") or "never"}',
-        'Set a default expiry (e.g. 90 days) under Settings → Security → Account guardrails.')
+        'Set a default expiry (e.g. 90 days) under Settings → Security → Account guardrails.', fix_tab='security')
     add('session_cap', 'Concurrent-session cap set', int(cfg.get('max_sessions_per_user') or 0) > 0,
         f'cap: {cfg.get("max_sessions_per_user") or "unlimited"}',
-        'Set a per-user session cap (e.g. 5) under Settings → Security → Account guardrails.')
+        'Set a per-user session cap (e.g. 5) under Settings → Security → Account guardrails.', fix_tab='security')
     default_pw = any(isinstance(d, dict) and d.get('must_change_password') for d in users.values())
     add('default_password', 'No accounts on a default password', not default_pw,
         'change-required account present' if default_pw else 'all changed',
@@ -29397,14 +29523,14 @@ def handle_security_posture():
     _wbl = bool(cfg.get('webhook_block_local', True))
     add('webhook_block_local', 'Webhook SSRF guard (cloud metadata / link-local)', _wbl,
         'on' if _wbl else 'off',
-        'Re-enable it under Settings → Security → Account guardrails.')
+        'Re-enable it under Settings → Security → Account guardrails.', fix_tab='security')
     fwd = bool(cfg.get('audit_forward_enabled') or cfg.get('siem_enabled'))
     add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
         'configured' if fwd else 'not configured',
-        'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).')
+        'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).', fix_tab='security')
     add('secrets_scan', 'Secrets-on-disk scanning enabled', bool(cfg.get('secrets_scan_enabled')),
         'on' if cfg.get('secrets_scan_enabled') else 'off',
-        'Enable under Settings → Security → Secrets-on-disk scanning.')
+        'Enable under Settings → Security → Secrets-on-disk scanning.', fix_tab='security')
     add('audit_retention', 'Audit-log retention ≥ 30 days', int(cfg.get('audit_log_retention_days') or 90) >= 30,
         f'{cfg.get("audit_log_retention_days") or 90}d', 'Keep audit retention at 30+ days.')
     # v4.2.0 sweep: chain integrity as a posture row — tamper-evidence that
@@ -32720,7 +32846,7 @@ def handle_compose_stack_action(stack_id):
         respond(404, {'error': 'stack not found'})
     device_id = s.get('device_id')
     _scope_block_device(device_id)       # a scoped role can't act on a foreign device's stack
-    dev = load(DEVICES_FILE).get(device_id)
+    dev = device_get(device_id)
     if not dev:
         respond(404, {'error': 'target device not found'})
     if not dev.get('compose_enabled', False):
@@ -32744,7 +32870,7 @@ def handle_compose_fetch():
     device_id = str(body.get('device_id', '')).strip()
     token = str(body.get('token', '')).strip()
     stack_id = str(body.get('stack_id', '')).strip()
-    dev = load(DEVICES_FILE).get(device_id)
+    dev = device_get(device_id)
     if not dev or not hmac.compare_digest(dev.get('token', ''), token):
         respond(403, {'error': 'Unauthorized device'})
     s = (load(COMPOSE_STACKS_FILE) or {}).get(stack_id)
@@ -32847,7 +32973,7 @@ def handle_device_routeros(dev_id):
 def handle_device_routeros_firewall(dev_id):
     """GET /api/devices/<id>/routeros/firewall — filter + NAT rules detail."""
     require_auth()
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _routeros_target(dev)
@@ -32866,7 +32992,7 @@ def handle_device_routeros_firewall(dev_id):
 def handle_device_routeros_qos(dev_id):
     """GET /api/devices/<id>/routeros/qos — simple queues + queue tree."""
     require_auth()
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _routeros_target(dev)
@@ -32885,7 +33011,7 @@ def handle_device_routeros_qos(dev_id):
 def handle_device_routeros_traffic(dev_id):
     """GET /api/devices/<id>/routeros/traffic — live per-interface bit/s."""
     require_auth()
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _routeros_target(dev)
@@ -32906,7 +33032,7 @@ def handle_device_routeros_action(dev_id):
     actor = require_admin_auth()
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'})
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _routeros_target(dev)
@@ -33066,7 +33192,7 @@ def handle_device_opnsense(dev_id):
 def handle_device_opnsense_firewall(dev_id):
     """GET /api/devices/<id>/opnsense/firewall — filter + NAT rules detail."""
     require_auth()
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _opnsense_target(dev)
@@ -33088,7 +33214,7 @@ def handle_device_opnsense_action(dev_id):
     actor = require_admin_auth()
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'})
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _opnsense_target(dev)
@@ -33208,7 +33334,7 @@ def handle_device_synology_upgrade(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'})
-    dev = load(DEVICES_FILE).get(dev_id)
+    dev = device_get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
     tgt = _ssh_target(dev)
@@ -35081,14 +35207,13 @@ def handle_cve_device(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
 
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
+    dev = device_get(dev_id)   # v4.3.0: single-row read
+    if dev is None:
         respond(404, {'error': 'Device not found'})
 
     findings_all = load(CVE_FINDINGS_FILE)
     ignore_data  = load(CVE_IGNORE_FILE)
     pkg_store    = load(PACKAGES_FILE)
-    dev = devices[dev_id]
 
     f_entry   = findings_all.get(dev_id) or {}
     pkg_entry = pkg_store.get(dev_id) or {}
@@ -39773,6 +39898,7 @@ def _build_exact_routes():
         ('GET', '/api/attention'): handle_attention,
         ('GET', '/api/audit-log'): handle_audit_log,
         ('GET', '/api/audit-log/verify'): handle_audit_log_verify,
+        ('GET', '/api/audit-log/archive'): handle_audit_log_archive,
         ('GET', '/api/security-posture'): handle_security_posture,
         # v4.2.0 (A1): WebAuthn / passkeys
         ('GET', '/api/webauthn/available'): handle_webauthn_available,

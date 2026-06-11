@@ -2,6 +2,38 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.3.0 — "ImprovementMatters" — 2026-06-11
+
+A refinement release — no new headline subsystems and **no breaking changes**.
+Sharpens what's already there: read-path performance on large fleets,
+self-observability, UX polish, and regression guardrails.
+
+- **Faster on bigger fleets.** On the SQLite / PostgreSQL backends, the
+  single-device endpoints (per-host Checks, per-device CVE detail, the
+  heartbeat's host-config + watched-file lookups, and the firewall / compose /
+  RouterOS / OPNsense device actions) now read **one row** via a new
+  `storage.device_get(dev_id)` instead of reconstructing the whole fleet per
+  request — O(fleet) `json.loads` → O(1). Flat-JSON behaviour is unchanged; the
+  returned data is identical.
+- **Download the archived audit log.** A button on the Audit page and
+  `GET /api/audit-log/archive` stream the gzipped archive of evicted entries,
+  so the full retained history is reachable without shell access.
+- **Staleness at a glance.** Cadence jobs (monitors, the KEV/EPSS refresh,
+  scheduled reports) surface a last-ran timestamp + staleness badge on the
+  Server status page.
+- **Clickable posture fixes.** Each warning in the security-posture self-check
+  links straight to the Settings section that fixes it.
+- **Consistent loading states.** Tables that flashed empty / showed a bare
+  "Loading…" now use the shared skeleton-row treatment.
+- **Regression guardrails (tests).** A test diffs every `sysinfo` field the
+  Checks engine / drawer read against every field the sanitizer persists (the
+  `proc_names` / `mailq` / `pkg_scan_ts` bug-class); another walks
+  `WEBHOOK_EVENTS` against the alert-severity / channel-kind / title / front-end
+  registries (the phantom-`service_recover` class). Both now fail in CI instead
+  of in a later sweep.
+
+See [docs/v4.3.0.md](docs/v4.3.0.md).
+
 ## v4.2.0 — "5ecur1tyM4tter5" — 2026-06-10
 
 Security and integrations. Where v4.1.0 made the fleet *visible*, v4.2.0 makes it

@@ -3647,6 +3647,9 @@ const _DYK_TIPS = [
   "Add a passkey under My Account → Passkeys for phishing-resistant, passwordless sign-in with a security key, your phone or biometrics — and it counts as MFA, so you can drop the password entirely.",
   "Settings → Authentication → SAML adds enterprise single sign-on (Okta, Entra, OneLogin, Ping, ADFS) — paste the IdP metadata, map a group to the admin role, and users arrive provisioned on first login.",
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
+  "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
+  "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
+  "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
   "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
   "The Audit page grades your security posture as a checklist — MFA enforced, admins with MFA, session caps, API-key expiry — so you can see at a glance what hardening is left to switch on.",
   "The Users table shows each account's MFA method (TOTP, passkey, or none), its auth source (local, OIDC, SAML, SCIM) and whether it's deactivated — so 'who is missing MFA' is one glance, not an audit.",
@@ -8389,8 +8392,45 @@ async function loadSecurityPosture() {
   if (score) score.textContent = `${d.score}/${d.total} hardened`;
   box.innerHTML = (d.checks || []).map(c => {
     const dot = c.status === 'ok' ? '<span class="c-green fw-500">●</span>' : '<span class="c-amber fw-500">●</span>';
-    return `<div class="mb-8">${dot} <strong>${escHtml(c.label)}</strong> <span class="hint">${escHtml(c.detail)}</span>${c.status === 'ok' ? '' : `<div class="hint">${escHtml(c.hint)}</div>`}</div>`;
+    // v4.3.0: when a warn row names the Settings tab that fixes it, render the
+    // hint as a one-click link to that tab instead of a config-key sentence.
+    let hint = '';
+    if (c.status !== 'ok') {
+      hint = c.fix_tab
+        ? `<div class="hint">${escHtml(c.hint)} <a href="#settings/${escAttr(c.fix_tab)}" class="c-accent" data-action="gotoSettingsTab" data-arg="${escAttr(c.fix_tab)}">Fix &rarr;</a></div>`
+        : `<div class="hint">${escHtml(c.hint)}</div>`;
+    }
+    return `<div class="mb-8">${dot} <strong>${escHtml(c.label)}</strong> <span class="hint">${escHtml(c.detail)}</span>${hint}</div>`;
   }).join('');
+}
+
+// v4.3.0: jump to a Settings tab from a posture "Fix →" link.
+function gotoSettingsTab(tab) {
+  try { showPage('settings', document.querySelector('.nav-btn[data-page="settings"]')); } catch (_) {}
+  try { switchSettingsTab(tab); } catch (_) {}
+}
+
+// v4.3.0: download the gzipped archive of evicted audit entries. 404 means
+// nothing has rolled into the archive yet — say so rather than "Export failed".
+function downloadAuditArchive() {
+  fetch('/api/audit-log/archive', { headers: { 'X-Token': getToken() } })
+    .then(r => {
+      if (r.status === 404) { toast('No archived audit entries yet — the live log is still within its retention window.', 'info'); return null; }
+      if (!r.ok) throw new Error('failed');
+      const cd = r.headers.get('Content-Disposition') || '';
+      const m = /filename=([^;]+)/.exec(cd);
+      const name = m ? m[1].trim().replace(/^"|"$/g, '') : 'remotepower-audit-archive.jsonl.gz';
+      return r.blob().then(b => ({ b, name }));
+    })
+    .then(res => {
+      if (!res) return;
+      const u = URL.createObjectURL(res.b);
+      const a = document.createElement('a');
+      a.href = u; a.download = res.name; a.click();
+      URL.revokeObjectURL(u);
+      toast('Audit archive downloaded', 'success');
+    })
+    .catch(() => toast('Audit archive download failed', 'error'));
 }
 
 // ── v4.2.0 (A1): WebAuthn / passkeys (browser ceremony) ─────────────────────
@@ -22571,6 +22611,8 @@ async function loadSelfStatus() {
         </table>` : '<div class="c-muted-fs13">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
     </div>
 
+    ${_cadenceJobsCard(s.cadence_jobs)}
+
     <div class="card p-16">
       <div class="fw-600-mb10">Fleet events</div>
       <table class="fs-13">
@@ -22579,6 +22621,32 @@ async function loadSelfStatus() {
       </table>
     </div>
   `;
+}
+
+// v4.3.0: cadence-job staleness — a job that quietly stopped looks identical to
+// one that simply isn't due, so surface last-ran + a stale flag.
+function _cadenceJobsCard(jobs) {
+  if (!jobs || jobs.error) return '';
+  const labels = {
+    kev_epss_refresh: 'KEV / EPSS refresh',
+    monitors: 'Monitors',
+    scheduled_scans: 'Scheduled scans',
+  };
+  const rows = Object.keys(labels).filter(k => jobs[k]).map(k => {
+    const j = jobs[k];
+    let state, cls;
+    if (j.enabled === false)      { state = 'off';     cls = 'c-muted'; }
+    else if (j.never_ran)         { state = 'not yet run'; cls = 'c-muted'; }
+    else if (j.stale)             { state = `stale — last ran ${_selfFmtAgo(j.last_run)}`; cls = 'c-red'; }
+    else                          { state = `ran ${_selfFmtAgo(j.last_run)}`; cls = 'c-green'; }
+    const cnt = j.count ? ` <span class="hint">(${j.count})</span>` : '';
+    return `<tr><td class="c-muted-padded">${escHtml(labels[k])}${cnt}</td><td class="${cls}">${escHtml(state)}</td></tr>`;
+  }).join('');
+  if (!rows) return '';
+  return `<div class="card p-16">
+      <div class="fw-600-mb10">Recurring jobs</div>
+      <table class="fs-13">${rows}</table>
+    </div>`;
 }
 async function runBackupNow() {
   const btn = document.getElementById('self-backup-btn');

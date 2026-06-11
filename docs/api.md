@@ -117,7 +117,8 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `GET` | `/api/saml/available` | - | Is SAML SSO configured (boolean only) |
 | `GET` | `/api/saml/metadata` | - | SP metadata XML for your IdP |
 | `GET` | `/api/audit-log/verify` | admin | Walk the audit hash-chain; report tampering |
-| `GET` | `/api/security-posture` | admin | Graded secure-defaults self-check |
+| `GET` | `/api/audit-log/archive` | admin | Download the gzipped archive of evicted audit entries |
+| `GET` | `/api/security-posture` | admin | Graded secure-defaults self-check (each warn names its fix tab) |
 | `GET` | `/api/scans` | scan | List security scans |
 | `POST` | `/api/scans` | admin | Queue a scan (tool, profile, intensity, target) |
 | `GET` | `/api/scans/:id` | scan | Scan detail + findings |

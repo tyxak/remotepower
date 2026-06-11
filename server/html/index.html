@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.2.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.3.0">
 
 </head>
 <body>
@@ -2557,7 +2557,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.2.0 5ecur1tym4tter5 security integrations pentest scan vulnerability nuclei nikto nmap zap wapiti lynis scanner satellite passive active attestation maintenance window domain verification dns txt well-known passkey webauthn passwordless security key biometrics saml sso okta entra azure ad onelogin ping adfs idp audit hash chain tamper evident verify integrity mfa enforcement totp session cap api key expiry posture self check">
+          <details class="doc-card" open data-keywords="release notes changelog v4.3.0 improvementmatters refinement performance single row device read large fleet audit archive download staleness badge posture link clickable settings loading skeleton guardrail test regression unbound data webhook registry">
+            <summary><strong>What's new — v4.3.0 "ImprovementMatters"</strong> — a refinement release: faster reads on big fleets, self-observability touches, posture UX, and regression guardrails (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.3.0 sharpens what's already there — no new headline subsystems and no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.3.0</code>).</p>
+              <ul>
+                <li><strong>Faster on bigger fleets.</strong> On the SQLite / PostgreSQL backends, endpoints that need just one device — per-host Checks, per-device CVE detail, the heartbeat's host-config and watched-file lookups, and the firewall / compose / RouterOS / OPNsense device actions — now read <strong>one row</strong> instead of reconstructing the whole fleet. Same data, far less work per request on large fleets. The flat-JSON backend is unchanged.</li>
+                <li><strong>Download the archived audit log.</strong> The Audit page (and <code>GET /api/audit-log/archive</code>) now lets you download the gzipped archive of evicted entries, so the full retained history is reachable without shell access.</li>
+                <li><strong>Staleness at a glance.</strong> Cadence jobs — monitors, the KEV/EPSS refresh, scheduled reports — show a last-ran timestamp and a staleness badge on the <em>Server status</em> page, so a job that quietly stopped is visible.</li>
+                <li><strong>Clickable posture fixes.</strong> Each warning in the security-posture self-check links straight to the Settings section that fixes it, instead of naming a config key.</li>
+                <li><strong>Consistent loading states.</strong> Tables that used to flash empty or show a bare "Loading…" now use the same skeleton-row treatment as the rest of the app.</li>
+                <li><strong>Regression guardrails.</strong> New CI tests catch two recurring bug-classes at commit: a check reading a sysinfo field the sanitizer never persisted (the <code>proc_names</code> / <code>mailq</code> class), and a webhook event that half-registers (fires but never lands in the inbox).</li>
+              </ul>
+              <p class="hint">A refinement release — every install keeps working exactly as before. See <code>docs/v4.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.2.0 5ecur1tym4tter5 security integrations pentest scan vulnerability nuclei nikto nmap zap wapiti lynis scanner satellite passive active attestation maintenance window domain verification dns txt well-known passkey webauthn passwordless security key biometrics saml sso okta entra azure ad onelogin ping adfs idp audit hash chain tamper evident verify integrity mfa enforcement totp session cap api key expiry posture self check">
             <summary><strong>What's new — v4.2.0 "5ecur1tyM4tter5"</strong> — authorized vulnerability scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log, and account guardrails</summary>
             <div class="doc-body">
               <p>v4.2.0 makes the fleet <strong>defensible</strong>, not just visible. Security and integrations — every new control is off until you turn it on. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.2.0</code>).</p>
@@ -2653,31 +2668,6 @@
                 <li><strong>Tighter security.</strong> Agent-supplied SCAP reports are served under a self-contained sandboxed CSP (stored-XSS can't reach an operator's session even if the upstream policy is loosened); OIDC id_tokens are now checked for expiry, issuer and audience; and the syslog audit-forwarder resolves its target once to close a DNS-rebinding window.</li>
               </ul>
               <p class="hint">See <code>docs/v3.13.0.md</code> for the full list.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle listening port firewall audit world exposed docker-proxy mute noisy opt-in off by default exposure integrity check vacuum maintenance db_integrity_failed new_port_detected my account profile picture avatar 2fa totp ssh username permissions acknowledged alerts ack webhook ticket jira servicenow pagerduty github issue on_ack">
-            <summary><strong>What's new — v3.12.0</strong> — optional SQLite storage backend (switch from flat JSON in Settings → Advanced)</summary>
-            <div class="doc-body">
-              <p>RemotePower has always stored its state as flat-JSON files. That's simple and robust, but every write rewrites a whole file — on a busy fleet <code>devices.json</code> is rewritten on <em>every</em> heartbeat. v3.12.0 adds an optional embedded <strong>SQLite</strong> backend (WAL mode, stdlib only — no new dependencies) you can switch to under <strong>Settings → Advanced → Storage backend</strong>. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.12.0</code>).</p>
-              <h4>What you get</h4>
-              <ul>
-                <li><strong>Decomposed storage.</strong> Hot, high-cardinality data (devices, alerts, command output, the history / events / metrics logs) is stored row-per-entity instead of as one big document. A device update writes a single row rather than rewriting the whole file, and appends to the event/command logs are O(1).</li>
-                <li><strong>In-place, reversible migration.</strong> The switch takes a rollback snapshot, migrates every file, verifies a full round-trip, and only then flips the active backend. You can switch back to JSON the same way. A <strong>Preview</strong> button shows what would move without changing anything.</li>
-                <li><strong>Same behaviour, same API.</strong> The backend lives behind the existing storage layer, so every feature works identically — only the on-disk representation changes. Flat JSON remains the default; nothing changes until you opt in.</li>
-                <li><strong>Self-maintaining.</strong> The database checkpoints its write-ahead log hourly and runs a <code>VACUUM</code> + <code>integrity_check</code> weekly. DB size and the last integrity verdict appear on <strong>Server Status</strong>; a failed integrity check raises a critical <em>Database integrity check failed</em> alert.</li>
-              </ul>
-              <h4>Quieter posture alerts</h4>
-              <ul>
-                <li><strong>Listening-port &amp; firewall audit is now opt-in.</strong> The <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts are noisy on Docker hosts (where <code>docker-proxy</code> publishes every container port to 0.0.0.0), so they are <strong>off by default</strong>. Turn them on under <strong>Settings → Security → Listening-port &amp; firewall audit</strong>.</li>
-                <li><strong>Surgical mutes.</strong> Prefer to keep the audit on but silence one noisy service? Use the per-process <strong>Mute</strong> button on the <strong>Exposure</strong> page (or manage rules in Settings → Security). Muting resolves matching open alerts in the same click; turning the whole audit off clears the backlog at once.</li>
-                <li><strong>Discovery.</strong> When alerting is off but world-reachable services exist, the Exposure page shows a banner linking back to the toggle — you keep the visibility either way.</li>
-              </ul>
-              <h4>My Account &amp; ticketing</h4>
-              <ul>
-                <li><strong>My Account.</strong> A new account menu in the top-right corner (your avatar → My Account / Sign out). The <strong>My Account</strong> page gathers your personal settings in one place — profile picture, your role &amp; permissions, <strong>2FA</strong> and <strong>default SSH username</strong> (both moved here from Settings → Security), and <strong>My acknowledged alerts</strong>.</li>
-                <li><strong>Acknowledge → ticket webhook.</strong> Each webhook destination now has an <em>“Also fire on alert ACK”</em> option. When you acknowledge an alert, the flagged destinations receive the <strong>full alert</strong> (id, severity, device, payload, who/when) — point a generic / GitHub-issue / PagerDuty destination at your ticket system to open a ticket the instant a human takes ownership.</li>
-              </ul>
-              <p class="hint">CLI: <code>tools/migrate_storage.py --to sqlite</code> (and <code>--to json</code> to revert; <code>--dry-run</code> / <code>--verify-only</code> supported). On a network filesystem (NFS/CIFS) WAL is unsafe, so a rollback journal is used automatically — a local disk is strongly recommended. See <code>docs/v3.12.0.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -5110,6 +5100,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="loadAuditLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <button class="btn-icon" data-action="verifyAuditLog" title="Check the tamper-evident hash-chain for any altered or removed entries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><polyline points="9 12 11 14 15 10"/></svg> Verify integrity</button>
           <span id="audit-chain-badge"></span>
+          <button class="btn-icon" data-action="downloadAuditArchive" title="Download the gzipped archive of evicted (retention-aged) audit entries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Archive</button>
           <button class="btn-icon c-danger-outline" data-action="clearAuditLog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
           <button class="btn-icon c-danger-outline" data-action="revokeAllSessions">Revoke all sessions</button>
         </div>
@@ -6935,19 +6926,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.2.0"></script>
-<script defer src="static/js/app.js?v=4.2.0"></script>
+<script defer src="static/js/i18n.js?v=4.3.0"></script>
+<script defer src="static/js/app.js?v=4.3.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.2.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.2.0"></script>
-<script defer src="static/js/app-containers.js?v=4.2.0"></script>
-<script defer src="static/js/app-network.js?v=4.2.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.3.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.3.0"></script>
+<script defer src="static/js/app-containers.js?v=4.3.0"></script>
+<script defer src="static/js/app-network.js?v=4.3.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.2.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.2.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.2.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.3.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.3.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.3.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.2.0"></script>
+<script defer src="static/js/sw-register.js?v=4.3.0"></script>
 </body>
 </html>

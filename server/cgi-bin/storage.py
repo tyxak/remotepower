@@ -701,6 +701,17 @@ def metric_has_any(data_dir, device):
                        (device,)).fetchone() is not None
 
 
+def device_get(path, dev_id, default=None):
+    """v4.3.0: read ONE device by id with a single-row SELECT instead of loading
+    and json.loads-ing every device. Read-only mirror of DeviceTxn's row read —
+    no transaction, no lock (callers that mutate must still use DeviceTxn).
+    Returns `default` when the device isn't found."""
+    conn = _connect(_dir(path))
+    row = conn.execute(
+        'SELECT doc FROM devices WHERE id=?', (dev_id,)).fetchone()
+    return json.loads(row['doc']) if row else default
+
+
 def entity_get(path, key, default=None):
     conn = _connect(_dir(path))
     name = _name(path)

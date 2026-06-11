@@ -154,6 +154,22 @@ class TestRowHelpers(_Base):
         self.assertEqual([e['i'] for e in entries], [2, 3, 4])  # newest 3
         self.assertEqual(over, [{'i': 1}])  # last append evicted i=1
 
+    def test_device_get_single_row(self):
+        # v4.3.0: single-row read must match what load()[id] returns.
+        storage.save(self.p('devices.json'),
+                     {'d1': {'name': 'a', 'last_seen': 10},
+                      'd2': {'name': 'b', 'last_seen': 20}})
+        self.assertEqual(storage.device_get(self.p('devices.json'), 'd1'),
+                         {'name': 'a', 'last_seen': 10})
+        self.assertEqual(storage.device_get(self.p('devices.json'), 'd2'),
+                         {'name': 'b', 'last_seen': 20})
+
+    def test_device_get_missing_returns_default(self):
+        storage.save(self.p('devices.json'), {'d1': {'name': 'a'}})
+        self.assertIsNone(storage.device_get(self.p('devices.json'), 'nope'))
+        self.assertEqual(
+            storage.device_get(self.p('devices.json'), 'nope', {}), {})
+
 
 class TestDeviceTxn(_Base):
     """v3.12.0 heartbeat fast path: single-device atomic update."""
@@ -326,6 +342,25 @@ class TestApiIntegrationSqlite(unittest.TestCase):
         self.assertFalse(api.backend_exists(api.DEVICES_FILE))
         api.save(api.DEVICES_FILE, {'d1': {'last_seen': 1}})
         self.assertTrue(api.backend_exists(api.DEVICES_FILE))
+
+    def test_device_get_matches_load_get(self):
+        # v4.3.0: api.device_get must equal load(DEVICES_FILE).get(id) under
+        # SQLite — same data, single-row read.
+        api.save(api.DEVICES_FILE,
+                 {'d1': {'name': 'a', 'last_seen': 1}, 'd2': {'name': 'b'}})
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api.device_get('d1'), {'name': 'a', 'last_seen': 1})
+        self.assertEqual(api.device_get('d2'), {'name': 'b'})
+        self.assertIsNone(api.device_get('missing'))
+        self.assertEqual(api.device_get('missing', {}), {})
+
+    def test_device_get_reuses_request_cache(self):
+        # If a full devices snapshot is already cached this request, device_get
+        # reuses it rather than a redundant round-trip.
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}})
+        api._LOAD_CACHE.clear()
+        api.load(api.DEVICES_FILE)        # populate cache
+        self.assertEqual(api.device_get('d1'), {'name': 'a'})
 
 
 class TestRoutesRegistered(unittest.TestCase):

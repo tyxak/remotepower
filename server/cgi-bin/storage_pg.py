@@ -826,6 +826,15 @@ def rag_clear(data_dir):
         c.execute('DROP TABLE IF EXISTS rag_chunks')
 
 
+def device_get(path, dev_id, default=None):
+    """v4.3.0: single-row device read (read-only mirror of DeviceTxn). See the
+    storage.py equivalent. Callers that mutate must still use DeviceTxn."""
+    conn = _connect(_dir(path))
+    row = conn.execute('SELECT doc FROM devices WHERE id=%s',
+                       (dev_id,)).fetchone()
+    return json.loads(row['doc']) if row else default
+
+
 def entity_get(path, key, default=None):
     conn = _connect(_dir(path))
     row = conn.execute('SELECT doc FROM entity WHERE file=%s AND k=%s',

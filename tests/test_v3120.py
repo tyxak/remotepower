@@ -60,12 +60,11 @@ class TestVersionBumps(unittest.TestCase):
         txt = (_ROOT / "CHANGELOG.md").read_text()
         self.assertRegex(txt[:2000], r"v\d+\.\d+\.\d+")
 
-    def test_version_doc_exists(self):
-        self.assertTrue((_ROOT / f"docs/v{VERSION}.md").exists())
-
-    def test_whats_new_card_present(self):
-        html = (_ROOT / "server/html/index.html").read_text()
-        self.assertIn("What's new — v3.12.0", html)
+    # v4.3.0: docs/v3.12.0.md and the "What's new — v3.12.0" card intentionally
+    # aged out of the "keep last 5 versions" window when v4.3.0 shipped, so the
+    # original doc-exists / card-present pins were dropped here (the live
+    # strict pins live in tests/test_v430.py). The complete v3.12.0 history is
+    # preserved in CHANGELOG.md.
 
 
 class TestStorageBackendWiring(unittest.TestCase):

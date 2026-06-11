@@ -1184,6 +1184,36 @@ user, set a **default API-key expiry**, and review a graded **security-posture
 self-check** that scores the server's own configuration against secure
 defaults.
 
+## v4.3.0 additions — "ImprovementMatters"
+
+A refinement release — no new headline subsystems, no breaking changes.
+
+### Faster on bigger fleets
+On the SQLite / PostgreSQL backends, the endpoints that need just one device —
+per-host **Checks**, per-device **CVE** detail, the heartbeat's host-config and
+watched-file lookups, and the firewall / compose / RouterOS / OPNsense device
+actions — read a **single row** via `storage.device_get()` instead of
+reconstructing the whole fleet on every request (O(fleet) `json.loads` → O(1)).
+The flat-JSON backend is unchanged; the data returned is identical.
+
+### Self-observability
+**Download the archived audit log** — a button on the Audit page (and
+`GET /api/audit-log/archive`) streams the gzipped archive of evicted entries, so
+the full retained history is reachable without shell access. **Staleness at a
+glance** — cadence jobs (monitors, the KEV/EPSS refresh, scheduled scans) show a
+last-ran timestamp and a stale flag on the **Server status** page.
+
+### UX polish
+Each warning in the **security-posture self-check** links straight to the
+Settings section that fixes it. Tables that flashed empty or showed a bare
+"Loading…" now use the shared skeleton-row loading state.
+
+### Regression guardrails
+Two CI tests lock recurring bug-classes: a check reading a `sysinfo` field the
+heartbeat sanitizer never persisted (the `proc_names` / `mailq` / `pkg_scan_ts`
+class), and a webhook event that half-registers (fires but never lands in the
+inbox). Both now fail at commit instead of in a later sweep.
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
