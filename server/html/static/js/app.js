@@ -2363,6 +2363,20 @@ async function loadSettings() {
     const el = document.getElementById(id);
     if (el) el.value = data[key] ?? 0;
   }
+  // v4.2.0 follow-up: account guardrails (Settings → Security)
+  const _mfaAdm = document.getElementById('cfg-mfa-require-admin');
+  if (_mfaAdm) {
+    const roles = Array.isArray(data.mfa_required_roles) ? data.mfa_required_roles : [];
+    _mfaAdm.checked = roles.includes('admin');
+    const extra = document.getElementById('cfg-mfa-extra-roles');
+    if (extra) extra.value = roles.filter(r => r !== 'admin').join(', ');
+    const exp = document.getElementById('cfg-apikey-expiry-days');
+    if (exp) exp.value = data.apikey_default_expiry_days ?? 0;
+    const cap = document.getElementById('cfg-max-sessions');
+    if (cap) cap.value = data.max_sessions_per_user ?? 0;
+    const wbl = document.getElementById('cfg-webhook-block-local');
+    if (wbl) wbl.checked = data.webhook_block_local !== false;
+  }
   // v3.7.0: audit forwarding + change approval
   const _afe = document.getElementById('cfg-audit-forward-enabled');
   if (_afe) {
@@ -2743,6 +2757,17 @@ async function saveSettings(btn) {
     };
   }
 
+  // v4.2.0 follow-up: account guardrails
+  const _mfaAdmSave = document.getElementById('cfg-mfa-require-admin');
+  if (_mfaAdmSave) {
+    const roles = (document.getElementById('cfg-mfa-extra-roles')?.value || '')
+      .split(',').map(r => r.trim()).filter(Boolean);
+    if (_mfaAdmSave.checked) roles.unshift('admin');
+    payload.mfa_required_roles = [...new Set(roles)];
+    payload.apikey_default_expiry_days = parseInt(document.getElementById('cfg-apikey-expiry-days')?.value || '0', 10) || 0;
+    payload.max_sessions_per_user = parseInt(document.getElementById('cfg-max-sessions')?.value || '0', 10) || 0;
+    payload.webhook_block_local = !!document.getElementById('cfg-webhook-block-local')?.checked;
+  }
   // v3.7.0: audit forwarding + change approval (maker-checker)
   const _afEn = document.getElementById('cfg-audit-forward-enabled');
   if (_afEn) {

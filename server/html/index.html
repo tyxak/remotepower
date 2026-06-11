@@ -1583,6 +1583,21 @@
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
           </div>
 
+          <!-- v4.2.0 follow-up: the account-guardrail keys the posture self-check
+               grades, settable here instead of via the config API -->
+          <div class="settings-section">
+            <h3>Account guardrails</h3>
+            <p class="hint">The controls the <strong>security-posture self-check</strong> (Audit page) grades. Everything enforces immediately on save; MFA-required users are prompted to enrol on their next sign-in.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mfa-require-admin"> Require MFA (TOTP or a passkey) for <strong>admin</strong> accounts</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-mfa-extra-roles">Also require MFA for these roles (comma-separated, optional)</label>
+              <input type="text" id="cfg-mfa-extra-roles" class="form-input input-wide-sm" placeholder="operator, auditor"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-apikey-expiry-days">Default API-key expiry in days (0 = never)</label>
+              <input type="number" id="cfg-apikey-expiry-days" class="form-input mw-160" min="0" max="3650" placeholder="90"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-max-sessions">Concurrent sessions per user (0 = unlimited)</label>
+              <input type="number" id="cfg-max-sessions" class="form-input mw-160" min="0" max="1000" placeholder="5"></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webhook-block-local"> Block webhooks to link-local / cloud-metadata addresses (on by default; LAN and loopback stay allowed)</label></div>
+          </div>
+
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
           <div class="settings-section">
             <h3>Audit log forwarding</h3>
@@ -2551,7 +2566,7 @@
                 <li><strong>Passkeys (WebAuthn).</strong> Phishing-resistant, passwordless sign-in with a security key, phone or biometrics — add one under <em>My Account → Passkeys</em> and use <em>Sign in with a passkey</em>. Refuses a cloned authenticator and <strong>satisfies the MFA-required policy</strong>.</li>
                 <li><strong>SAML 2.0 SSO.</strong> Sign in through an enterprise IdP (Okta, Entra, OneLogin, Ping, ADFS) — configure under <em>Settings → Authentication → SAML</em>. Signed-assertion verification with replay protection, attribute → username / group → role mapping, first-login provisioning, alongside OIDC / LDAP / local.</li>
                 <li><strong>Tamper-evident audit log.</strong> Entries are hash-chained; a <strong>Verify integrity</strong> button reports the first break, if any. Clearing requires an admin password re-prompt and writes an immutable pre-wipe archive first.</li>
-                <li><strong>Account guardrails.</strong> Enforce MFA (TOTP <em>or</em> a passkey) per role, cap concurrent sessions per user, set a default API-key expiry, and read a graded <strong>security-posture self-check</strong> on the Audit page.</li>
+                <li><strong>Account guardrails.</strong> Enforce MFA (TOTP <em>or</em> a passkey) per role, cap concurrent sessions per user, set a default API-key expiry (all under <em>Settings → Security → Account guardrails</em>), and read a graded <strong>security-posture self-check</strong> on the Audit page.</li>
                 <li><strong>Post-release sweep.</strong> Password sign-in now hands off to a <strong>passkey assertion</strong> for passkey-protected accounts; the audit chain is verified on page load with a persistent badge; scan schedules show their last run and can be <strong>paused</strong>; the Users table shows each account's MFA method and auth source; lynis scans report the <strong>0–100 hardening index</strong>; plus fixes (service-recovery auto-resolve, mail-queue check, device-card memory sparkline) and hot-path performance work.</li>
               </ul>
               <p class="hint">Passkeys need the optional <code>webauthn</code> library; SAML needs <code>pysaml2</code> + the <code>xmlsec1</code> binary — each degrades to "unavailable" when absent. See <code>docs/v4.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>

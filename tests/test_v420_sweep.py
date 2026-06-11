@@ -219,6 +219,60 @@ class TestUsersListAuthState(_Base):
             self.assertNotIn('password_hash', r)
 
 
+class TestAccountGuardrailsUI(_Base):
+    """The posture self-check told operators to set config keys that had no
+    UI and no config-save path — now settable in Settings → Security."""
+
+    def test_config_save_accepts_guardrails(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {
+            'mfa_required_roles': ['admin', 'ops', '', 42],
+            'apikey_default_expiry_days': 90,
+            'max_sessions_per_user': 5,
+        }
+        self.call(api.handle_config_save)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg['mfa_required_roles'], ['admin', 'ops'])
+        self.assertEqual(cfg['apikey_default_expiry_days'], 90)
+        self.assertEqual(cfg['max_sessions_per_user'], 5)
+
+    def test_config_save_rejects_bad_expiry(self):
+        api.save(api.CONFIG_FILE, {})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'apikey_default_expiry_days': 99999}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_settings_ui_wired(self):
+        for el in ('cfg-mfa-require-admin', 'cfg-mfa-extra-roles',
+                   'cfg-apikey-expiry-days', 'cfg-max-sessions',
+                   'cfg-webhook-block-local'):
+            self.assertIn(f'id="{el}"', _HTML)
+        self.assertIn('mfa_required_roles', _APP_JS)
+
+    def test_posture_webhook_guard_honours_default(self):
+        # The guard defaults ON; an unconfigured install must not warn — and
+        # the row must not claim RFC1918 blocking, which the key never did
+        # (RFC1918 is allowed by design; the guard covers link-local/metadata).
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.USERS_FILE, {'a': {'role': 'admin', 'totp_secret': 'X'}})
+        api.save(api.AUDIT_LOG_FILE, {'entries': []})
+        r = self.call(api.handle_security_posture)
+        by = {c['key']: c for c in r['checks']}
+        self.assertEqual(by['webhook_block_local']['status'], 'ok')
+        self.assertNotIn('RFC1918', by['webhook_block_local']['label'])
+
+    def test_posture_hints_point_at_ui(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.USERS_FILE, {})
+        api.save(api.AUDIT_LOG_FILE, {'entries': []})
+        r = self.call(api.handle_security_posture)
+        by = {c['key']: c for c in r['checks']}
+        for key in ('mfa_enforced', 'apikey_expiry', 'session_cap'):
+            self.assertIn('Settings → Security', by[key]['hint'])
+
+
 class TestPostureChainRow(_Base):
     def test_audit_chain_row_present(self):
         api.save(api.CONFIG_FILE, {})

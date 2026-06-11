@@ -11710,6 +11710,10 @@ def handle_config_get():
     # SSRF block and the loopback-allow flag specifically.
     safe.setdefault('webhook_block_local',    True)
     safe.setdefault('webhook_allow_loopback', True)
+    # v4.2.0 follow-up: account-guardrail defaults for the Settings UI.
+    safe.setdefault('mfa_required_roles',          [])
+    safe.setdefault('apikey_default_expiry_days',  0)
+    safe.setdefault('max_sessions_per_user',       0)
     safe.setdefault('viewers_can_ack_alerts', True)
     safe.setdefault('ip_allowlist_enabled',   False)
     # v3.7.0: audit forwarding — surface config + a *_set flag, never the token.
@@ -12650,6 +12654,33 @@ def handle_config_save():
         cfg['webhook_block_local'] = bool(body['webhook_block_local'])
     if 'webhook_allow_loopback' in body:
         cfg['webhook_allow_loopback'] = bool(body['webhook_allow_loopback'])
+
+    # v4.2.0 follow-up: account guardrails (Settings → Security → Account
+    # guardrails). The A3–A5 keys were enforce-only — the posture self-check
+    # told operators to set them but there was no UI and no save path.
+    if 'mfa_required_roles' in body:
+        roles = body['mfa_required_roles']
+        if not isinstance(roles, list):
+            respond(400, {'error': 'mfa_required_roles must be a list of role names'})
+        cfg['mfa_required_roles'] = [
+            _sanitize_str(str(r).strip(), 64) for r in roles
+            if isinstance(r, str) and str(r).strip()][:20]
+    if 'apikey_default_expiry_days' in body:
+        try:
+            v = int(body['apikey_default_expiry_days'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'apikey_default_expiry_days must be an integer'})
+        if not (0 <= v <= 3650):
+            respond(400, {'error': 'apikey_default_expiry_days must be 0..3650 (0 = never)'})
+        cfg['apikey_default_expiry_days'] = v
+    if 'max_sessions_per_user' in body:
+        try:
+            v = int(body['max_sessions_per_user'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'max_sessions_per_user must be an integer'})
+        if not (0 <= v <= 1000):
+            respond(400, {'error': 'max_sessions_per_user must be 0..1000 (0 = unlimited)'})
+        cfg['max_sessions_per_user'] = v
 
     # v3.7.0: audit-log forwarding to an external SIEM / syslog.
     if 'audit_forward_enabled' in body:
@@ -29341,31 +29372,39 @@ def handle_security_posture():
     roles = cfg.get('mfa_required_roles') or []
     add('mfa_enforced', 'MFA enforced for admins', 'admin' in roles,
         f'required roles: {", ".join(roles) or "none"}',
-        'Set mfa_required_roles to ["admin"].')
+        'Turn on "Require MFA for admin accounts" under Settings → Security → Account guardrails.')
     admins = [u for u, d in users.items() if isinstance(d, dict) and d.get('role') == 'admin']
     no_mfa = [u for u in admins
               if not (users[u].get('totp_secret') or users[u].get('webauthn_credentials'))]
     add('admin_mfa', 'All admins have MFA (TOTP or passkey)', admins and not no_mfa,
         f'{len(admins) - len(no_mfa)}/{len(admins)} have MFA',
-        'Enrol TOTP or a passkey for every admin.')
+        'Enrol TOTP or a passkey for every admin (My Account → 2FA / Passkeys; '
+        'the Users table shows who is missing one).')
     add('apikey_expiry', 'API keys expire by default', int(cfg.get('apikey_default_expiry_days') or 0) > 0,
         f'default: {cfg.get("apikey_default_expiry_days") or "never"}',
-        'Set apikey_default_expiry_days (e.g. 90).')
+        'Set a default expiry (e.g. 90 days) under Settings → Security → Account guardrails.')
     add('session_cap', 'Concurrent-session cap set', int(cfg.get('max_sessions_per_user') or 0) > 0,
         f'cap: {cfg.get("max_sessions_per_user") or "unlimited"}',
-        'Set max_sessions_per_user (e.g. 5).')
+        'Set a per-user session cap (e.g. 5) under Settings → Security → Account guardrails.')
     default_pw = any(isinstance(d, dict) and d.get('must_change_password') for d in users.values())
     add('default_password', 'No accounts on a default password', not default_pw,
         'change-required account present' if default_pw else 'all changed',
         'Have flagged users change their password.')
-    add('webhook_block_local', 'Webhooks blocked to internal IPs', bool(cfg.get('webhook_block_local')),
-        'on' if cfg.get('webhook_block_local') else 'off (RFC1918 allowed)',
-        'Enable webhook_block_local if you never post to internal IPs.')
+    # Sweep fix: this guard blocks link-local / cloud-metadata targets (RFC1918
+    # is allowed by design — the product targets the LAN), and it defaults ON;
+    # the old row read the key without the default and claimed RFC1918, so an
+    # unconfigured install showed a false warning.
+    _wbl = bool(cfg.get('webhook_block_local', True))
+    add('webhook_block_local', 'Webhook SSRF guard (cloud metadata / link-local)', _wbl,
+        'on' if _wbl else 'off',
+        'Re-enable it under Settings → Security → Account guardrails.')
     fwd = bool(cfg.get('audit_forward_enabled') or cfg.get('siem_enabled'))
     add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
-        'configured' if fwd else 'not configured', 'Forward audit + events to a SIEM.')
+        'configured' if fwd else 'not configured',
+        'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).')
     add('secrets_scan', 'Secrets-on-disk scanning enabled', bool(cfg.get('secrets_scan_enabled')),
-        'on' if cfg.get('secrets_scan_enabled') else 'off', 'Enable the secrets scan.')
+        'on' if cfg.get('secrets_scan_enabled') else 'off',
+        'Enable under Settings → Security → Secrets-on-disk scanning.')
     add('audit_retention', 'Audit-log retention ≥ 30 days', int(cfg.get('audit_log_retention_days') or 90) >= 30,
         f'{cfg.get("audit_log_retention_days") or 90}d', 'Keep audit retention at 30+ days.')
     # v4.2.0 sweep: chain integrity as a posture row — tamper-evidence that
