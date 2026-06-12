@@ -249,7 +249,8 @@ class TestDispatch(unittest.TestCase):
         # passes a report path the worker reads back.
         if sc.RUNNER in ('docker', 'podman'):
             zap = sc._zap_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')
-            self.assertIn('/tmp/wd:/zap/wrk:rw', zap)
+            # :z relabels the bind mount for SELinux hosts (v4.3.0 fix).
+            self.assertIn('/tmp/wd:/zap/wrk:rw,z', zap)
             self.assertIn('report.json', zap)
             wap = sc._wapiti_argv('example.com', 'active', 'quick', '/tmp/wd', 'report.json')
             self.assertIn('/tmp/wd:/output:rw', wap)

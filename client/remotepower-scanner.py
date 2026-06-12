@@ -345,13 +345,17 @@ def _zap_argv(target, profile, intensity, workdir, report):
     script = 'zap-baseline.py' if _quick(intensity) else 'zap-full-scan.py'
     # Point ZAP's HOME + working dir at the writable /zap/wrk mount. Newer
     # zaproxy/zap-stable images write an intermediate summary (zap_out.json) to
-    # $HOME (/home/zap), which fails under the locked-down container ("Failed to
-    # access summary file /home/zap/zap_out.json") and produces 0 findings with
-    # no report. Redirecting HOME to the mounted dir keeps all ZAP scratch on a
-    # writable path so the -J report is actually produced.
+    # $HOME, which fails under the locked-down container and produces 0 findings
+    # with no report. Redirecting HOME to the mounted dir keeps all ZAP scratch
+    # on a writable path so the -J report is actually produced.
+    #
+    # :z relabels the bind mount for SELinux — without it, an SELinux-enforcing
+    # host (RHEL/Fedora/CentOS) denies the container's write to the mounted dir,
+    # so the scan runs but the report write fails ("Failed to access summary
+    # file /zap/wrk/zap_out.json"). Harmless on non-SELinux hosts.
     return _sandbox(_TOOL_IMAGE['zap'], [
         script, '-t', _target_url(target), '-J', report, '-I'],
-        volumes=[f'{workdir}:/zap/wrk:rw'],
+        volumes=[f'{workdir}:/zap/wrk:rw,z'],
         workdir='/zap/wrk', env={'HOME': '/zap/wrk'})
 
 
@@ -406,14 +410,19 @@ def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
             os.chmod(workdir, 0o777)
         except OSError:
             pass
-        _, stderr, err = _run(argv_fn(target, profile, intensity, workdir, _REPORT_NAME))
+        stdout, stderr, err = _run(argv_fn(target, profile, intensity, workdir, _REPORT_NAME))
         if err:
             return [], err
         try:
             with open(os.path.join(workdir, _REPORT_NAME), 'r', errors='replace') as f:
                 text = f.read()
         except FileNotFoundError:
-            tail = stderr.strip().splitlines()[-1][:200] if stderr.strip() else ''
+            # Surface the last few lines of the tool's OWN output (stdout+stderr,
+            # ZAP logs to both) — not just one line — so a report-generation
+            # failure is actually diagnosable from the scanner journal.
+            blob = ((stdout or '') + '\n' + (stderr or '')).strip()
+            lines = [l for l in blob.splitlines() if l.strip()]
+            tail = ' | '.join(lines[-6:])[:600] if lines else ''
             return [], 'no report produced' + (f': {tail}' if tail else '')
         return parse_fn(text), ''
     finally:
