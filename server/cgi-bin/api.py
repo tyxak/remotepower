@@ -19390,7 +19390,24 @@ def _rag_build_corpus(cfg):
             cve = load(CVE_FINDINGS_FILE) or {}
             containers = load(CONTAINERS_FILE) or {}
             snmp = load(SNMP_DATA_FILE) or {}
+            # v4.3.0: index the live OPERATIONAL state the AI most needs to answer
+            # "what's wrong with the fleet" — open alerts (grouped per device +
+            # a fleet rollup), watched-service up/down, and local cert expiry.
+            # All cheap (one alerts read; the rest already on the device record).
             facets = {}
+            open_alerts_by_dev = {}
+            fleet_open = []
+            for a in ((load(ALERTS_FILE) or {}).get('alerts') or []):
+                if not isinstance(a, dict) or a.get('resolved_at'):
+                    continue
+                did = a.get('device_id')
+                sev = a.get('severity', '?')
+                acked = ' (acknowledged)' if a.get('acknowledged_at') else ''
+                line = f"[{sev}] {a.get('title') or a.get('event', 'alert')}{acked}"
+                if did:
+                    open_alerts_by_dev.setdefault(did, []).append(line)
+                fleet_open.append((a.get('device_name') or did or 'fleet-wide',
+                                   a.get('event', 'alert'), sev))
             for d in devices:
                 dev_id = d.get('id') or d.get('name')
                 if not dev_id:
@@ -19404,9 +19421,27 @@ def _rag_build_corpus(cfg):
                     f['containers'] = cont['items']
                 if snmp.get(dev_id):
                     f['snmp'] = snmp[dev_id]
+                if open_alerts_by_dev.get(dev_id):
+                    f['open_alerts'] = open_alerts_by_dev[dev_id]
+                # (watched-service up/down is already indexed inline by the
+                # corpus builder from dev['services'] — don't duplicate it.)
+                # Local TLS cert files + expiry (from the agent's cert inventory).
+                certs = (d.get('sysinfo') or {}).get('cert_files')
+                if certs:
+                    f['cert_expiry'] = certs
                 if f:
                     facets[dev_id] = f
             docs += rag_index.build_live_state_corpus(devices, facets=facets, now=now)
+            # Fleet-wide open-alert rollup — one chunk so "what is alerting across
+            # the fleet" retrieves authoritative data instead of fanning out.
+            if fleet_open:
+                _sev_rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+                fleet_open.sort(key=lambda x: _sev_rank.get(str(x[2]).lower(), 9))
+                body = "Fleet open (unresolved) alerts, worst first:\n" + '\n'.join(
+                    f"- {n}: {ev} [{sev}]" for n, ev, sev in fleet_open[:200])
+                docs.append(rag_index.make_doc(
+                    'live/fleet#open_alerts', 'live_state', 'fleet_alerts', body,
+                    title='Fleet — open alerts', device=None, ts=now))
         except Exception as e:
             sys.stderr.write(f'rag: live_state source failed: {e}\n')
 

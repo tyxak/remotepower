@@ -63,6 +63,16 @@ self-observability, UX polish, and regression guardrails.
   SQLite; and **golden-file** tests locking the agent's apt/dnf/pacman, systemd
   and openssl text parsers. All fail in CI instead of in a later sweep.
 
+- **AI/RAG knows the live fleet better.** The RAG index now includes each
+  device's **open (unresolved) alerts** and **local TLS cert expiry**, plus a
+  fleet-wide **open-alerts rollup** (worst-first) — so "what's wrong with the
+  fleet / what's alerting on web01" is answered from real state, not a tool
+  fan-out. (Watched-service up/down was already indexed.)
+- **Fixed:** the custom-script *Assign to devices* picker — `.d-none` was being
+  overridden by a later same-specificity `display` rule, so filtered rows
+  stayed visible and the count / Select-all disagreed with the screen. The
+  hide-utility is now authoritative.
+
 See [docs/v4.3.0.md](docs/v4.3.0.md).
 
 ## v4.2.0 — "5ecur1tyM4tter5" — 2026-06-10

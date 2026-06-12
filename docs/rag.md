@@ -29,8 +29,8 @@ embeddings. v3.4.0 ships both 2 and 3.
 | Source | Contents | Notes |
 |---|---|---|
 | **Docs & runbooks** | Product Markdown docs + per-device AI runbooks | docs deployed to `/var/lib/remotepower/docs/` |
-| **Live state** | Per device: summary (incl. IP/hostname/MAC), resources (CPU/RAM/disk/uptime), listening ports, patch & reboot status, config drift, watched services, CVEs, containers, SNMP | one chunk per `(device, facet)` |
-| **Fleet rollups** | Cross-host summaries: worst CVEs, hosts with pending updates / pending reboot, drifted hosts, certs expiring soon | answers "which hosts have X?" |
+| **Live state** | Per device: summary (incl. IP/hostname/MAC), resources (CPU/RAM/disk/uptime), listening ports, patch & reboot status, config drift, watched services, **open alerts**, **local TLS cert expiry**, CVEs, containers, SNMP | one chunk per `(device, facet)` |
+| **Fleet rollups** | Cross-host summaries: worst CVEs, **all open (unresolved) alerts worst-first**, hosts with pending updates / pending reboot, drifted hosts, certs expiring soon | answers "which hosts have X?" / "what is alerting?" |
 | **CMDB** | Asset metadata + per-asset Markdown docs | **credentials vault never indexed** |
 | **History** | Recent commands, alerts, fleet events | bounded by count + age; redaction applied |
 
