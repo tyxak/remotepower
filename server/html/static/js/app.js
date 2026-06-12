@@ -1922,7 +1922,7 @@ function _registerMonitorTable() {
 async function runMonitor() {
   _registerMonitorTable();
   const tbody = document.getElementById('monitor-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" class="empty-state-sm">Checking…</td></tr>';
+  tbody.innerHTML = _skeletonRows(7);
   const data = await api('GET', '/monitor');
   if (!data) return;
   const results = data.monitors || [];
@@ -3227,6 +3227,18 @@ function _ensurePwFormA11y() {
 // `O'Brien` or whose group ended with a tick caused the failure on every
 // 60s refresh.
 function escAttr(s) { return String(s).replace(/[&<>"'`\\\n\r\u2028\u2029]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2,'0')); }
+// v4.3.0: shared table loading placeholder — skeleton rows instead of a bare
+// "Loading…" cell, so every table fetches with the same polished treatment.
+function _skeletonRows(colspan, count) {
+  const n = count || 4;
+  const widths = ['long', 'med', 'long', 'short', 'med'];
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    out += '<tr class="skeleton-row"><td colspan="' + colspan + '">'
+         + '<div class="skeleton skeleton-line ' + widths[i % widths.length] + '"></div></td></tr>';
+  }
+  return out;
+}
 
 // v3.12.0: generic client-side row/card filter for large-fleet pages. Wire an
 // input with data-input="filterRows" data-input-el="1" data-filter-target="<sel>"
@@ -3431,7 +3443,7 @@ function _registerHistoryTable() {
 async function loadHistory() {
   _registerHistoryTable();
   const tbody = document.getElementById('history-tbody');
-  tbody.innerHTML = '<tr><td colspan="4" class="empty-state-sm">Loading…</tbody>';
+  tbody.innerHTML = _skeletonRows(4);
   const data = await api('GET', '/history');
   tableCtl.render('history', data || []);
 }
@@ -5003,7 +5015,7 @@ async function loadRisk() {
   const tbody = document.getElementById('risk-tbody');
   if (!tbody) return;
   tableCtl.wireSortOnly('risk-thead', 'risk', () => _renderRisk());
-  tbody.innerHTML = '<tr><td colspan="4" class="hint">Computing…</td></tr>';
+  tbody.innerHTML = _skeletonRows(4);
   const data = await api('GET', '/risk');
   if (!data) { tbody.innerHTML = '<tr><td colspan="4" class="c-red">Failed to load.</td></tr>'; return; }
   _riskResp = data;
@@ -6502,7 +6514,7 @@ function _renderInventoryResults() {
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); _fleetTargetsCache = null; onInstallTargetChange(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); _fleetTargetsCache = null; onInstallTargetChange(); }
 
 // v3.4.2: fleet-wide patch catalog (pending updates aggregated by package).
 async function loadPatchCatalog() {
@@ -8350,7 +8362,7 @@ async function loadAuditLog() {
   loadSecurityPosture();   // v4.2.0 (A6): posture self-check card on this page
   _refreshAuditChainBadge();  // sweep: persistent chain status, not just a toast
   const tbody = document.getElementById('audit-tbody');
-  tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">Loading…</tbody>';
+  tbody.innerHTML = _skeletonRows(5);
   const data = await api('GET', '/audit-log');
   _auditLogCache = Array.isArray(data) ? data : [];
   // Repopulate the action-filter dropdown with whatever actions appear in
@@ -8571,7 +8583,7 @@ async function loadChecks() {
   const tbody = document.getElementById('checks-tbody');
   if (!tbody) return;
   tableCtl.wireSortOnly('checks-thead', 'checks', renderChecks);
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/checks');
     // Flatten the host matrix into one row per (host, check).
@@ -11825,7 +11837,7 @@ async function loadExposure() {
   const summary = document.getElementById('exposure-summary');
   if (!tbody) return;
   tableCtl.wireSortOnly('exposure-thead', 'exposure', () => _renderExposure());
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/exposure' + (_exposureScope ? `?scope=${_exposureScope}` : ''));
     _exposureResp = data;
@@ -11848,7 +11860,7 @@ async function loadSecrets() {
   tableCtl.wireSortOnly('secrets-thead', 'secrets', () => _renderSecrets());
   const fb = document.getElementById('secrets-filter');
   if (fb && !fb.dataset.wired) { fb.dataset.wired = '1'; fb.addEventListener('input', () => _renderSecrets()); }
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   try {
     _secretsResp = await api('GET', '/fleet/secrets');
     _renderSecrets();
@@ -12070,7 +12082,7 @@ async function loadStorage() {
   const summary = document.getElementById('storage-summary');
   if (!tbody) return;
   tableCtl.wireSortOnly('storage-thead', 'storage', () => _renderStorage());
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/storage');
     _storageResp = data;
@@ -12132,7 +12144,7 @@ async function loadThermal() {
   const summary = document.getElementById('thermal-summary');
   if (!tbody) return;
   tableCtl.wireSortOnly('thermal-thead', 'thermal', () => _renderThermal());
-  tbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(5);
   try {
     const data = await api('GET', '/fleet/thermal');
     _thermalResp = data;
@@ -12180,7 +12192,7 @@ async function loadSshKeys() {
   const summary = document.getElementById('ssh-keys-summary');
   if (!tbody) return;
   tableCtl.wireSortOnly('ssh-keys-thead', 'sshkeys', () => _renderSshKeys());
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   try {
     const data = await api('GET', '/ssh-keys');
     _sshKeysResp = data;
@@ -12231,7 +12243,7 @@ async function loadPower() {
   const tbody = document.getElementById('power-tbody');
   if (!tbody) return;
   tableCtl.wireSortOnly('power-thead', 'power', () => _renderPower());
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   // restore the saved cost/kWh
   try {
     const saved = localStorage.getItem('rp_cost_kwh');
@@ -12344,7 +12356,7 @@ async function loadDiskHealth() {
   if (!tbody) return;
   tableCtl.wireSortOnly('disk-health-thead', 'diskhealth', () => _renderDiskHealth());
   tableCtl.wireSortOnly('unstable-thead', 'unstablehosts', () => _renderUnstableHosts());
-  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(6);
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
     if (summary) summary.textContent = `${_diskHealthResp.count} disk(s) at risk · ${_diskHealthResp.critical} critical · ${_diskHealthResp.high} high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
@@ -12498,7 +12510,7 @@ async function loadSoftwarePolicy() {
   if (!tbody) return;
   loadSoftwareCatalog();   // v3.13.0: software center
   tableCtl.wireSortOnly('swpol-viol-thead', 'swpol', () => _renderSwViolations());
-  tbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(5);
   try {
     _swPolicy = await api('GET', '/software-policy') || { rules: [] };
     const v = await api('GET', '/software-policy/violations');
@@ -16128,7 +16140,7 @@ async function loadProcesses() {
   // arrives (and in empty / failure states). Other Monitoring tables do
   // the same — keeps the column UX consistent.
   tableCtl.wireSortOnly('processes-thead', 'processes', _renderProcessesFiltered);
-  tbody.innerHTML = '<tr><td colspan="5" class="c-muted-padded">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(5);
   const devs = await api('GET', '/devices');
   if (!Array.isArray(devs)) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load.</td></tr>'; return; }
 
@@ -21076,7 +21088,7 @@ async function clearAcmeDnsCreds(providerKey) {
 async function loadAcme() {
   const tbody = document.getElementById('acme-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Loading…</td></tr>';
+  tbody.innerHTML = _skeletonRows(8);
   const data = await api('GET', '/acme');
   if (!data) { tbody.innerHTML = '<tr><td colspan="8" class="isl-670">Failed to load.</td></tr>'; return; }
   _acmeData = data;

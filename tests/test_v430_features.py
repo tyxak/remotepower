@@ -163,6 +163,25 @@ class TestSlowHandlerLogging(_Base):
         self.assertIn('_slowHandlersCard', _APP_JS)
 
 
+class TestLoadingStateConsistency(unittest.TestCase):
+    """v4.3.0: table loaders use the shared skeleton-row helper, not an ad-hoc
+    "Loading…" cell. Guards the consistency claim against regression."""
+
+    def test_skeleton_helper_exists(self):
+        self.assertIn('function _skeletonRows(', _APP_JS)
+
+    def test_no_adhoc_table_loading_placeholders(self):
+        import re
+        # A `tbody.innerHTML = '<tr><td colspan="N" ...>Loading…/Computing…/Checking…'
+        # is the old ad-hoc placeholder the skeleton helper replaced.
+        leftovers = re.findall(
+            r"""\.innerHTML = '<tr><td colspan="\d+"[^>]*>(?:Loading…|Computing…|Checking…)""",
+            _APP_JS)
+        self.assertEqual(leftovers, [],
+                         f'{len(leftovers)} ad-hoc table loading placeholders remain '
+                         '— use _skeletonRows(colspan) instead')
+
+
 class TestAuthEndpointRateLimits(unittest.TestCase):
     """v4.3.0: the unauthenticated auth callbacks must enforce a per-IP limit."""
     def test_source_has_limits(self):
