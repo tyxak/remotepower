@@ -49,6 +49,13 @@ class TestSCGIParsing(unittest.TestCase):
         self.assertEqual(env["REQUEST_METHOD"], "GET")
         self.assertEqual(env["PATH_INFO"], "/api/home")
 
+    def test_oversized_header_block_refused(self):
+        # v4.3.0 security review: a fabricated netstring length must not make
+        # the worker allocate unbounded memory (local socket-access DoS).
+        big = str(api_worker.MAX_HEADER_BYTES + 1).encode() + b":x"
+        with self.assertRaises(api_worker.SCGIProtocolError):
+            api_worker.read_netstring(io.BytesIO(big))
+
     def test_parse_headers_rejects_odd_parts(self):
         with self.assertRaises(api_worker.SCGIProtocolError):
             api_worker.parse_scgi_headers(b"KEY_WITHOUT_VALUE\x00")

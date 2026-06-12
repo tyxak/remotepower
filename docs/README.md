@@ -38,13 +38,15 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-4.2.0.md](security-review-4.2.0.md)** — Latest security
- review: the scan engine, passkeys, SAML, the audit hash-chain, the
- scan-schedule scope fix, and the external-scan summary for v4.2.0.
+- **[security-review-4.3.0.md](security-review-4.3.0.md)** — Latest security
+ review: the persistent SCGI API worker, per-endpoint gzip (BREACH
+ reasoning), the fleet-checks cache scope guarantee, heartbeat rate floor,
+ deploy rollback, and two Low hardenings fixed in-release.
+- **[security-review-4.2.0.md](security-review-4.2.0.md)** — The scan engine,
+ passkeys, SAML, the audit hash-chain, the scan-schedule scope fix, and the
+ external-scan summary for v4.2.0.
 - **[security-review-4.1.0.md](security-review-4.1.0.md)** — TLS-1.2 floor on
  every hop, SSH argv hardening, and the external-scan summary for v4.1.0.
-- **[security-review-3.13.0.md](security-review-3.13.0.md)** — sandboxed SCAP,
- OIDC claim checks, syslog-forward DNS-rebinding fix.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes

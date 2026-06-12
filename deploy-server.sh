@@ -33,7 +33,8 @@ if [[ "${1:-}" == "--rollback" ]]; then
 fi
 
 if [[ -d "$WEB_ROOT" ]]; then
-    mkdir -p "$BACKUP_DIR"
+    mkdir -p -m 700 "$BACKUP_DIR"
+    chmod 700 "$BACKUP_DIR"   # also tighten a pre-existing dir
     stamp="$(date +%Y%m%d-%H%M%S)"
     info "Backing up current deployment → $BACKUP_DIR/deploy_$stamp.tar.gz"
     tar -czf "$BACKUP_DIR/deploy_$stamp.tar.gz" \

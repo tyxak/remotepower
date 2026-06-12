@@ -63,6 +63,11 @@ self-observability, UX polish, and regression guardrails.
 - **Maintainer QoL.** `make bump VERSION=x.y.z` automates the mechanical
   version-bump surfaces; lint-tool versions pinned; vendored JS libraries
   inventoried in `static/vendor/VENDORED.md`.
+- **Security review.** Dedicated v4.3.0 review
+  (`docs/security-review-4.3.0.md`) covering the SCGI worker trust model,
+  the per-endpoint gzip/BREACH reasoning, the cache scope guarantee, and the
+  heartbeat floor; two Low hardenings found and fixed in-release (SCGI
+  header-size cap, `0700` deploy-backup directory).
 - **Download the archived audit log.** A button on the Audit page and
   `GET /api/audit-log/archive` stream the gzipped archive of evicted entries,
   so the full retained history is reachable without shell access.

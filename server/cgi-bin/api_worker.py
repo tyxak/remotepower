@@ -76,6 +76,12 @@ class SCGIProtocolError(Exception):
     pass
 
 
+# SCGI headers are nginx-generated CGI vars — a few KB. The cap exists so a
+# rogue local process with socket access can't make the child allocate
+# gigabytes with a fabricated netstring length (v4.3.0 security review).
+MAX_HEADER_BYTES = 1024 * 1024
+
+
 def read_netstring(rfile):
     """Read one netstring ("<len>:<payload>,") and return the payload bytes."""
     length = b""
@@ -85,12 +91,14 @@ def read_netstring(rfile):
             raise SCGIProtocolError("EOF while reading netstring length")
         if ch == b":":
             break
-        if not ch.isdigit() or len(length) > 14:
+        if not ch.isdigit() or len(length) > 8:
             raise SCGIProtocolError("malformed netstring length")
         length += ch
     if not length:
         raise SCGIProtocolError("empty netstring length")
     n = int(length)
+    if n > MAX_HEADER_BYTES:
+        raise SCGIProtocolError("netstring header block too large")
     payload = rfile.read(n)
     if len(payload) != n:
         raise SCGIProtocolError("short netstring payload")
