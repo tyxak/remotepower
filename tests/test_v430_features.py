@@ -302,22 +302,33 @@ class TestCadenceJobStaleness(_Base):
 
 
 
-class TestHideUtilityAuthoritative(unittest.TestCase):
-    """v4.3.0 fix: the .d-none / .hidden hide-utilities must use !important so a
-    later same-specificity `display:` rule can't leave a "hidden" element on
-    screen (this broke the custom-script device-assignment filter)."""
-    def test_d_none_is_important(self):
-        css = (_ROOT / 'server/html/static/css/styles.css').read_text()
-        import re
-        # find the canonical top-level `.d-none { display: ... }` rule
-        m = re.search(r'\n\.d-none\s*\{[^}]*display:\s*none[^}]*\}', css)
-        self.assertIsNotNone(m, '.d-none display rule not found')
-        self.assertIn('!important', m.group(0),
-                      '.d-none must be `display: none !important` so it always wins')
+class TestHideUtilityScoping(unittest.TestCase):
+    """v4.3.0 (corrected): global `.d-none` must NOT be !important — #login-page
+    and #app carry d-none as a pre-JS hide and are revealed at boot via inline
+    `style.display`, which an !important rule would override → blank app. The
+    !important fix for the device-assignment filter is scoped to its rows only.
+    Regression guard for the production-blanking bug."""
 
-    def test_hidden_is_important(self):
-        css = (_ROOT / 'server/html/static/css/styles.css').read_text()
-        self.assertIn('.hidden { display: none !important; }', css)
+    def _css(self):
+        return (_ROOT / 'server/html/static/css/styles.css').read_text()
+
+    def test_global_d_none_is_not_important(self):
+        import re
+        m = re.search(r'\n\.d-none\s*\{[^}]*\}', self._css())
+        self.assertIsNotNone(m, '.d-none rule not found')
+        self.assertNotIn('!important', m.group(0),
+                         'global .d-none must stay overridable by inline style '
+                         '(#login-page / #app are shown via inline style.display)')
+
+    def test_picker_rows_scope_important(self):
+        self.assertIn('.cs-device-row.d-none { display: none !important; }',
+                      self._css())
+
+    def test_boot_containers_carry_d_none(self):
+        # the assumption the above protects: these are pre-JS-hidden via d-none.
+        html = _HTML
+        self.assertIn('id="login-page" class="login-container d-none"', html)
+        self.assertIn('id="app" class="d-none"', html)
 
 
 if __name__ == '__main__':

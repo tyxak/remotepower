@@ -3571,12 +3571,16 @@ body.no-anim * { transition: none !important; }
 .refresh-bar { display: none; }
 
 /* CSP L1 fix: utility classes replacing inline style= attributes */
-/* v4.3.0: !important so this hide-utility always wins. A later same-specificity
- * rule with an explicit display (e.g. .isl-605 { display:flex } further down the
- * sheet) was beating `.d-none`, leaving "hidden" rows visible — it broke the
- * custom-script device-assignment filter (rows marked d-none stayed on screen,
- * so the count + Select-all disagreed with what you saw). */
-.d-none { display: none !important; }
+/* Plain (NOT !important) on purpose: #login-page and #app carry `d-none` as a
+ * pre-JS hide and are revealed at boot via inline `style.display = 'flex'`.
+ * An `!important` here would beat that inline style and leave the whole app
+ * blank — so the global utility must stay overridable by inline styles. */
+.d-none { display: none; }
+/* The custom-script device-assignment rows (.cs-device-row / .isl-605) set
+ * `display:flex` in a rule defined LATER in this sheet, which beat the plain
+ * `.d-none` and left filtered rows visible (the count + Select-all disagreed
+ * with the screen). Scope the !important to those rows only — never globally. */
+.cs-device-row.d-none { display: none !important; }
 .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .w-full { width: 100%; }
 .flex-1 { flex: 1; }
