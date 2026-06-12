@@ -301,5 +301,24 @@ class TestCadenceJobStaleness(_Base):
         self.assertIn('_cadenceJobsCard', _APP_JS)
 
 
+
+class TestHideUtilityAuthoritative(unittest.TestCase):
+    """v4.3.0 fix: the .d-none / .hidden hide-utilities must use !important so a
+    later same-specificity `display:` rule can't leave a "hidden" element on
+    screen (this broke the custom-script device-assignment filter)."""
+    def test_d_none_is_important(self):
+        css = (_ROOT / 'server/html/static/css/styles.css').read_text()
+        import re
+        # find the canonical top-level `.d-none { display: ... }` rule
+        m = re.search(r'\n\.d-none\s*\{[^}]*display:\s*none[^}]*\}', css)
+        self.assertIsNotNone(m, '.d-none display rule not found')
+        self.assertIn('!important', m.group(0),
+                      '.d-none must be `display: none !important` so it always wins')
+
+    def test_hidden_is_important(self):
+        css = (_ROOT / 'server/html/static/css/styles.css').read_text()
+        self.assertIn('.hidden { display: none !important; }', css)
+
+
 if __name__ == '__main__':
     unittest.main()

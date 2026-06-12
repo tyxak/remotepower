@@ -3571,7 +3571,12 @@ body.no-anim * { transition: none !important; }
 .refresh-bar { display: none; }
 
 /* CSP L1 fix: utility classes replacing inline style= attributes */
-.d-none { display: none; }
+/* v4.3.0: !important so this hide-utility always wins. A later same-specificity
+ * rule with an explicit display (e.g. .isl-605 { display:flex } further down the
+ * sheet) was beating `.d-none`, leaving "hidden" rows visible — it broke the
+ * custom-script device-assignment filter (rows marked d-none stayed on screen,
+ * so the count + Select-all disagreed with what you saw). */
+.d-none { display: none !important; }
 .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .w-full { width: 100%; }
 .flex-1 { flex: 1; }
