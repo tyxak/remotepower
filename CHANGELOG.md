@@ -43,6 +43,13 @@ self-observability, UX polish, and regression guardrails.
   after consecutive failures"; default 1 = unchanged). A recovery before N
   resets the streak; the streak is capped so a long-down monitor stops
   re-writing config.
+- **Metric & SNMP flap dampening.** Matching `metric_failures_before_alert`
+  (default 1) and `snmp_failures_before_alert` (default 2 — making the existing
+  snmp_unreachable threshold configurable) under Settings → Monitoring. A first
+  metric breach (ok→warn/crit) is held until it persists N heartbeats; only the
+  first breach is dampened — escalation, de-escalation and recovery fire
+  immediately. Shared `_metric_damp_hold` covers both the agent and SNMP metric
+  paths.
 - **Clickable posture fixes.** Each warning in the security-posture self-check
   links straight to the Settings section that fixes it.
 - **Consistent loading states.** Tables that flashed empty / showed a bare

@@ -2318,6 +2318,8 @@ async function loadSettings() {
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
   document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
   document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
+  { const e = document.getElementById('cfg-metric-fba'); if (e) e.value = data.metric_failures_before_alert || 1; }
+  { const e = document.getElementById('cfg-snmp-fba'); if (e) e.value = data.snmp_failures_before_alert || 2; }
   document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
   document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255';
   document.getElementById('cfg-wol-port').value  = data.wol_port || '9';
@@ -2685,6 +2687,8 @@ async function saveSettings(btn) {
     default_poll_interval: parseInt(document.getElementById('cfg-default-poll').value) || 60,
     online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
     monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
+    metric_failures_before_alert: parseInt(document.getElementById('cfg-metric-fba')?.value) || 1,
+    snmp_failures_before_alert:   parseInt(document.getElementById('cfg-snmp-fba')?.value) || 2,
     cve_cache_days:        parseInt(document.getElementById('cfg-cve-cache-days').value) || 7,
     wol_broadcast:         document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255',
     wol_port:              parseInt(document.getElementById('cfg-wol-port').value) || 9,
@@ -3666,6 +3670,7 @@ const _DYK_TIPS = [
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
   "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
+  "Resource alerts flapping? Settings \u2192 Monitoring has \u201cMetric alert dampening\u201d (wait N over-threshold checks before a CPU/mem/disk alert) and \u201cSNMP alert dampening\u201d (N failed polls before SNMP-unreachable) \u2014 the metric/SNMP siblings of the per-monitor setting.",
   "A flaky monitor that blips for one check shouldn\u2019t page you \u2014 set \u201cAlert after consecutive failures\u201d on the monitor (Monitoring \u2192 add/edit) so monitor-down only fires after N failures in a row.",
   "A device\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a device-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
   "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",

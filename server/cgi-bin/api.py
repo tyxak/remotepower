@@ -12463,6 +12463,19 @@ def handle_config_save():
         except (ValueError, TypeError):
             respond(400, {'error': 'monitor_interval must be an integer (60–3600)'})
 
+    # v4.3.0: flap-dampening thresholds (consecutive failures/breaches before an
+    # alert fires). Defaults preserve current behaviour: SNMP=2, metrics=1.
+    if 'snmp_failures_before_alert' in body:
+        try:
+            cfg['snmp_failures_before_alert'] = max(2, min(72, int(body['snmp_failures_before_alert'])))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'snmp_failures_before_alert must be an integer (2–72)'})
+    if 'metric_failures_before_alert' in body:
+        try:
+            cfg['metric_failures_before_alert'] = max(1, min(10, int(body['metric_failures_before_alert'])))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'metric_failures_before_alert must be an integer (1–10)'})
+
     # v2.8.1: brute-force detection settings
     if 'brute_force_enabled' in body:
         cfg['brute_force_enabled'] = bool(body['brute_force_enabled'])
@@ -32473,10 +32486,16 @@ def _do_snmp_poll(dev_id, dev):
             'last_fail':  now,
             'consecutive_fails': new_fails,
         }
-        # Unreachable transition: fires once on the 2nd consecutive failure.
+        # Unreachable transition: fires once on the Nth consecutive failure.
         # Single packet loss → no alert. Sustained → one alert, then quiet
-        # until the recover transition.
-        if is_monitored and prev_fails == 1 and new_fails == 2:
+        # until the recover transition. v4.3.0: N is configurable via
+        # snmp_failures_before_alert (default 2 = unchanged), the SNMP sibling
+        # of the monitor failures_before_alert flap-dampening knob.
+        try:
+            _snmp_need = max(2, min(72, int((load(CONFIG_FILE) or {}).get('snmp_failures_before_alert', 2) or 2)))
+        except (TypeError, ValueError):
+            _snmp_need = 2
+        if is_monitored and prev_fails == _snmp_need - 1 and new_fails == _snmp_need:
             try:
                 fire_webhook('snmp_unreachable', {
                     'device_id': dev_id, 'device_name': name, 'host': host,
@@ -36794,6 +36813,34 @@ def _classify_metric(value, warn, crit):
     return 'ok'
 
 
+def _metric_failures_before_alert():
+    """v4.3.0: consecutive over-threshold heartbeats before a metric alert fires
+    (the metrics sibling of the monitor / SNMP flap-dampening knob). 1 (default)
+    = alert on the first breach, exactly as before."""
+    try:
+        return max(1, min(10, int((load(CONFIG_FILE) or {}).get('metric_failures_before_alert', 1) or 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _metric_damp_hold(streaks, key, prev_level, new_level, need):
+    """Return True if a FIRST breach (ok → warning/critical) should be HELD
+    because it hasn't persisted for `need` consecutive heartbeats yet. Only the
+    first breach off 'ok' is dampened — escalation (warning→critical),
+    de-escalation and recovery are never delayed, so a genuine critical is never
+    held back. Mutates the per-key streak map in place."""
+    if need <= 1:
+        return False
+    if prev_level == 'ok' and new_level != 'ok':
+        s = min(need, int(streaks.get(key, 0) or 0) + 1)
+        streaks[key] = s
+        return s < need
+    # Not a first breach (escalation / de-escalation / recovery) — clear any
+    # pending streak and let it through.
+    streaks.pop(key, None)
+    return False
+
+
 def _below_recovery(value, warn):
     """True if value has dropped far enough below warn to fire 'recovered'.
 
@@ -36862,6 +36909,11 @@ def process_metric_thresholds(dev_id, dev, safe_si):
     state = dev.get('metric_state') or {}
     if not isinstance(state, dict):
         state = {}
+    # v4.3.0: per-key breach streak for flap dampening (see _metric_damp_hold).
+    streaks = dev.get('metric_breach_streak') or {}
+    if not isinstance(streaks, dict):
+        streaks = {}
+    need = _metric_failures_before_alert()
 
     def _check(kind, target, value):
         """Check one metric and fire webhooks on transition."""
@@ -36883,6 +36935,15 @@ def process_metric_thresholds(dev_id, dev, safe_si):
                 _fire_metric_webhook('metric_recovered', dev_id, dev, kind, target,
                                      value, warn)
                 state[key] = 'ok'
+                streaks.pop(key, None)
+            elif new_level == 'ok':
+                streaks.pop(key, None)   # steady-OK: clear any pending breach
+            return
+
+        # v4.3.0: flap dampening — hold a first ok→warn/crit breach until it
+        # has persisted for `need` consecutive heartbeats (escalation, recovery
+        # and de-escalation are never held).
+        if _metric_damp_hold(streaks, key, prev_level, new_level, need):
             return
 
         # Transition. Fire the appropriate event.
@@ -36923,7 +36984,11 @@ def process_metric_thresholds(dev_id, dev, safe_si):
         prev_level = state.get(key, 'ok')
         if new_level != prev_level:
             transitioned = True
-            if new_level == 'critical':
+            # v4.3.0: hold a first ok→warn/crit breach until it persists `need`
+            # heartbeats (escalation / recovery / de-escalation never held).
+            if _metric_damp_hold(streaks, key, prev_level, new_level, need):
+                transitioned = False
+            elif new_level == 'critical':
                 _fire_metric_webhook('metric_critical', dev_id, dev, 'cpu', '',
                                      round(load, 2), crit, {'cpu_count': cpu_count})
             elif new_level == 'warning':
@@ -36944,6 +37009,9 @@ def process_metric_thresholds(dev_id, dev, safe_si):
             _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
                                  round(load, 2), warn, {'cpu_count': cpu_count})
             state[key] = 'ok'
+            streaks.pop(key, None)
+        elif new_level == 'ok':
+            streaks.pop(key, None)   # steady-OK: clear any pending breach
 
     # Disks: per-mount if reported, fall back to legacy disk_percent for /
     mounts = safe_si.get('mounts') or []
@@ -36976,6 +37044,11 @@ def process_metric_thresholds(dev_id, dev, safe_si):
     _check('conntrack', '', safe_si.get('conntrack_percent'))
 
     dev['metric_state'] = state
+    # v4.3.0: persist (or drop, when empty) the per-key breach-streak map.
+    if streaks:
+        dev['metric_breach_streak'] = streaks
+    else:
+        dev.pop('metric_breach_streak', None)
 
 
 # ── v3.2.0 (B5 follow-up): threshold check for SNMP-polled devices ─────────
@@ -37133,6 +37206,11 @@ def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
         state = d.get('metric_state') or {}
         if not isinstance(state, dict):
             state = {}
+        # v4.3.0: same flap dampening as the agent metric path.
+        streaks = d.get('metric_breach_streak') or {}
+        if not isinstance(streaks, dict):
+            streaks = {}
+        need = _metric_failures_before_alert()
         for kind, target, value, kft in measurements:
             if value is None:
                 continue
@@ -37146,7 +37224,12 @@ def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
                 if prev_level != 'ok' and _below_recovery(value, warn):
                     pending.append(('metric_recovered', kind, target, value, warn))
                     state[key] = 'ok'
+                    streaks.pop(key, None)
+                elif new_level == 'ok':
+                    streaks.pop(key, None)
                 continue
+            if _metric_damp_hold(streaks, key, prev_level, new_level, need):
+                continue   # held — first breach hasn't persisted `need` cycles
             if new_level == 'critical':
                 pending.append(('metric_critical', kind, target, value, crit))
             elif new_level == 'warning':
@@ -37161,6 +37244,10 @@ def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
             if k.startswith('snmp_disk:') and k not in disk_keys:
                 state.pop(k, None)
         d['metric_state'] = state
+        if streaks:
+            d['metric_breach_streak'] = streaks
+        else:
+            d.pop('metric_breach_streak', None)
 
     for event, kind, target, value, ref in pending:
         _fire_metric_webhook(event, dev_id, dev, kind, target, value, ref,
