@@ -120,6 +120,28 @@ CGI throughput = how many `api.py` processes can run concurrently. The stock
 Rule of thumb: enough children that steady-state heartbeat req/s (Step 1
 arithmetic) uses well under half the pool, leaving headroom for UI + bursts.
 
+### Or skip the CGI tax entirely: the persistent API worker (v4.3.0)
+
+Widening fcgiwrap raises *concurrency*, but every request still pays the
+classic-CGI startup cost — fork + Python interpreter start + parsing the whole
+`api.py` source — before a single handler line runs. The persistent worker
+removes that cost instead: `server/cgi-bin/api_worker.py` (SCGI prefork)
+imports `api.py` **once** at service start and forks per request, which keeps
+CGI's process-isolation semantics (each request runs in a pristine
+copy-on-write copy, crashes are isolated) while the startup tax is paid once.
+
+```bash
+cp server/conf/remotepower-api.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now remotepower-api
+# then switch the nginx /api/ location to the commented scgi_pass block in
+# server/conf/remotepower.conf (or your deployed copy) and reload nginx
+```
+
+Concurrency is capped by `RP_WORKER_MAX` (default 32). Rollback is the nginx
+block swap in reverse — the worker and fcgiwrap can coexist; nginx decides
+which serves. On a busy fleet this is the single biggest latency win in this
+guide: it applies to **every** request, heartbeats and dashboard alike.
+
 ---
 
 ## Step 4 — Go horizontal (load balancer + shared Postgres)

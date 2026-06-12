@@ -2714,15 +2714,59 @@ _HTTP_STATUS_REASONS = {
 }
 
 
+# v4.3.0 perf: app-level gzip for the bulk read-only GET endpoints. nginx
+# deliberately does NOT gzip application/json (BREACH defence — see the
+# shipped nginx config), which left the largest payloads on the
+# wire uncompressed (a fleet /api/home or /api/devices response is easily
+# hundreds of KB, ~5-10x smaller gzipped). BREACH needs a response that
+# reflects attacker-controlled input next to a secret; the endpoints below
+# are GET-only fleet/telemetry reads that contain neither session tokens
+# nor reflected request data, so compressing them is safe. Do NOT add
+# token-bearing or input-reflecting endpoints (login, API-key create,
+# config dumps, vault) to this list.
+_GZIP_SAFE_GET_PATHS = (
+    '/api/home',
+    '/api/devices',
+    '/api/attention',
+    '/api/alerts',
+    '/api/checks',
+)
+_GZIP_MIN_BYTES = 1400        # below ~one MTU compression only adds latency
+
+
+def _gzip_response_wanted(body_len: int) -> bool:
+    try:
+        if body_len < _GZIP_MIN_BYTES:
+            return False
+        if os.environ.get('REQUEST_METHOD', '') != 'GET':
+            return False
+        if 'gzip' not in os.environ.get('HTTP_ACCEPT_ENCODING', '').lower():
+            return False
+        pi = os.environ.get('PATH_INFO', '')
+        return any(pi == p or pi.startswith(p + '/') for p in _GZIP_SAFE_GET_PATHS)
+    except Exception:
+        return False
+
+
 def _render_response(status: int, data) -> None:
     """Render an HTTP response to stdout. Used by main() — handlers should
     use respond()/HTTPError instead so the response is uniformly handled."""
+    body = json.dumps(data)
     print(f"Status: {status} {_HTTP_STATUS_REASONS.get(status, '')}")
     print("Content-Type: application/json")
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
+    raw = body.encode('utf-8')
+    if _gzip_response_wanted(len(raw)):
+        print("Content-Encoding: gzip")
+        print("Vary: Accept-Encoding")
+        print()
+        sys.stdout.flush()
+        sys.stdout.buffer.write(gzip.compress(raw, compresslevel=5))
+        sys.stdout.buffer.flush()
+        return
     print()
-    print(json.dumps(data))
+    print(body)
 
 
 def respond(status, data):
@@ -22926,26 +22970,56 @@ def handle_device_checks(dev_id):
                   'checks': checks, 'summary': _host_check_summary(checks)})
 
 
-def handle_fleet_checks():
-    """GET /api/checks — CheckMK-style fleet matrix: every host with its check
-    list + roll-up summary. Scope-filtered. Optional ?status=critical|warning to
-    pre-filter hosts to those with a check at that level."""
-    require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
-    want = (qs.get('status', [''])[0] or '').strip().lower()
-    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
-    cfg = load(CONFIG_FILE) or {}
+# v4.3.0 perf: file-backed cache for the fleet-checks matrix. _host_checks is
+# O(fleet) pure-Python work per request and the Checks page + the checksrollup
+# widget poll it. Layout of the guard:
+#   * the cache stores the UNSCOPED host rows — RBAC scope and the ?status
+#     filter are applied per request AFTER the cache, so a viewer can never
+#     be served another scope's hosts from a cache an admin warmed.
+#   * `fp` fingerprints the admin-tunable inputs (check toggles, custom
+#     checks, exposure mutes, custom scripts) — toggling a mute busts the
+#     cache instantly instead of waiting out the TTL.
+#   * on the JSON backend the underlying files' mtimes also bust it (same
+#     trick as _attention_payload — keeps tests deterministic). Under
+#     SQLite those logical paths don't exist on disk, so staleness is
+#     bounded by the TTL alone.
+_FLEET_CHECKS_CACHE_TTL = 15
+
+
+def _fleet_checks_cache_file():
+    return DATA_DIR / 'fleet_checks_cache.json'
+
+
+def _fleet_checks_rows(devices_all, cfg, scripts, fp):
+    """Return the full (unscoped) computed host rows, from cache if fresh."""
+    cache_file = _fleet_checks_cache_file()
+    try:
+        cached = load(cache_file)
+        if (isinstance(cached, dict) and cached.get('fp') == fp
+                and isinstance(cached.get('hosts'), list)
+                and time.time() - cached.get('ts', 0) < _FLEET_CHECKS_CACHE_TTL):
+            stale = False
+            for src in (DEVICES_FILE, CVE_FINDINGS_FILE, HARDWARE_FILE):
+                try:
+                    if src.exists() and src.stat().st_mtime > cached.get('ts', 0):
+                        stale = True
+                        break
+                except Exception:
+                    pass
+            if not stale:
+                return cached['hosts']
+    except Exception:
+        pass
     disabled_all = cfg.get('host_checks_disabled') or {}
     hw_all = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
     cve_all = _cve_high_counts()
-    eta_all = _disk_fill_eta(devices)
+    eta_all = _disk_fill_eta(devices_all)
     custom_defs = cfg.get('custom_checks') or []
-    scripts = _load_custom_scripts()
     exposure_mutes = cfg.get('exposure_mutes') or []
     now = int(time.time())
     ttl = get_online_ttl()
     hosts = []
-    for did, dev in devices.items():
+    for did, dev in devices_all.items():
         if not isinstance(dev, dict):
             continue
         checks = _host_checks(did, dev, hw_all.get(did) or {},
@@ -22954,12 +23028,36 @@ def handle_fleet_checks():
                               custom_defs=custom_defs, scripts=scripts,
                               exposure_mutes=exposure_mutes)
         summ = _host_check_summary(checks)
-        if want in ('critical', 'warning') and not summ['counts'].get(want):
-            continue
         hosts.append({'device_id': did, 'name': dev.get('name', did),
                       'group': dev.get('group', ''),
                       'monitored': dev.get('monitored', True),
                       'summary': summ, 'checks': checks})
+    try:
+        save(_fleet_checks_cache_file(), {'ts': time.time(), 'fp': fp, 'hosts': hosts})
+    except Exception:
+        pass
+    return hosts
+
+
+def handle_fleet_checks():
+    """GET /api/checks — CheckMK-style fleet matrix: every host with its check
+    list + roll-up summary. Scope-filtered. Optional ?status=critical|warning to
+    pre-filter hosts to those with a check at that level."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    want = (qs.get('status', [''])[0] or '').strip().lower()
+    devices_all = load(DEVICES_FILE) or {}
+    allowed = set(_scope_filter_devices(devices_all).keys())
+    cfg = load(CONFIG_FILE) or {}
+    scripts = _load_custom_scripts()
+    fp = hashlib.md5(json.dumps(
+        [cfg.get('host_checks_disabled') or {}, cfg.get('custom_checks') or [],
+         cfg.get('exposure_mutes') or [], scripts],
+        sort_keys=True, default=str).encode()).hexdigest()
+    rows = _fleet_checks_rows(devices_all, cfg, scripts, fp)
+    hosts = [h for h in rows if h.get('device_id') in allowed]
+    if want in ('critical', 'warning'):
+        hosts = [h for h in hosts if h['summary']['counts'].get(want)]
     hosts.sort(key=lambda h: h['name'].lower())
     return respond(200, {'hosts': hosts, 'total': len(hosts)})
 
@@ -24850,21 +24948,21 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     # genuinely heavy widget — only run it when it's actually on a dashboard.
     if _g('checksrollup'):
         try:
-            cve_all = _cve_high_counts()
-            cfg_custom = cfg.get('custom_checks') or []
+            # v4.3.0 perf: share _fleet_checks_rows' 15s cache with the
+            # Checks page instead of re-running the O(fleet) _host_checks
+            # loop inside every /api/home poll that shows this widget.
             scripts_all = _load_custom_scripts()
-            disabled_all = cfg.get('host_checks_disabled') or {}
-            ttl = get_online_ttl()
+            fp = hashlib.md5(json.dumps(
+                [cfg.get('host_checks_disabled') or {},
+                 cfg.get('custom_checks') or [],
+                 cfg.get('exposure_mutes') or [], scripts_all],
+                sort_keys=True, default=str).encode()).hexdigest()
+            rows = _fleet_checks_rows(devices_raw, cfg, scripts_all, fp)
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
-            for did, d in devices_raw.items():
-                if not isinstance(d, dict) or d.get('monitored') is False:
+            for h in rows:
+                if h.get('monitored') is False:
                     continue
-                chk = _host_checks(did, d, hw_all.get(did) or {},
-                                   disabled_all.get(did) or [], now, ttl,
-                                   cve_high=cve_all.get(did), disk_eta=eta_shared.get(did),
-                                   custom_defs=cfg_custom, scripts=scripts_all,
-                                   exposure_mutes=cfg.get('exposure_mutes') or [])
-                counts = _host_check_summary(chk)['counts']
+                counts = (h.get('summary') or {}).get('counts') or {}
                 for k in roll:
                     roll[k] += counts.get(k, 0)
             out['checksrollup'] = roll

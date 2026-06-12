@@ -43,7 +43,8 @@
     --muted: #64748b;
   }
   body.light body::before { background-image: linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
-  body.light header { background: rgba(241,245,249,0.9); }
+  /* (v4.3.0: the old body.light header rgba override is gone — the header now
+     uses opaque var(--bg), which is theme- and light-mode-correct by itself.) */
   /* Accent presets moved BELOW the data-theme blocks (see ~"v4.1: full themes")
      so a chosen accent overrides the active theme's default accent. */
   .accent-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
@@ -164,7 +165,7 @@
     border-radius: 6px;
     font-size: 16px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     line-height: 1;
   }
   .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -219,7 +220,7 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -236,7 +237,7 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -253,7 +254,7 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -270,7 +271,7 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -399,8 +400,12 @@
     padding: 12px 0;
     position: sticky;
     top: 0;
-    background: rgba(10,12,16,0.85);
-    backdrop-filter: blur(12px);
+    /* v4.3.0 perf: opaque var(--bg), NO backdrop-filter. The old
+       rgba(...,0.85)+blur(12px) forced Firefox to re-blur the page under
+       this always-visible sticky bar on every scroll/repaint frame (Chrome
+       caches the layer; Firefox doesn't) — a top contributor to "sluggish
+       in Firefox". Don't reintroduce backdrop-filter here. */
+    background: var(--bg);
     z-index: 100;
   }
   .header-inner {
@@ -508,7 +513,7 @@
     border-radius: 8px;
     font-size: 13px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
     font-family: var(--font);
     white-space: nowrap;
     text-align: left;
@@ -873,7 +878,11 @@
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
      Recent Activity / Alerts / Webhook stay readable no matter the scroll. */
-  .sticky-head-scroll { max-height: 460px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  /* v4.3.0 perf: contain:paint on the table scroll wrappers isolates their
+   * repaints (sticky thead + row churn) from the rest of the page — Firefox
+   * otherwise widens invalidation past the scroller. Visually a no-op: these
+   * wrappers already clip via overflow:auto. */
+  .sticky-head-scroll { max-height: 460px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; contain: paint; }
   .sticky-head-scroll > table { width: 100%; border-collapse: collapse; margin: 0; }
   .sticky-head-scroll thead th { position: sticky; top: 0; z-index: 3; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
   .table-card.sticky-head-scroll { overflow: auto; }
@@ -931,7 +940,7 @@
     border-radius: 6px;
     font-size: 13px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     font-family: var(--font);
   }
   .logout-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -1007,7 +1016,7 @@
     border-radius: 8px;
     font-size: 14px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     font-family: var(--font);
   }
   .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
@@ -1028,7 +1037,7 @@
     border-radius: 8px;
     font-size: 13px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex; align-items: center; gap: 6px;
     font-family: var(--font);
   }
@@ -1043,7 +1052,7 @@
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1343,7 +1352,7 @@
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
   }
   .dropdown-btn:hover {
     border-color: var(--accent);
@@ -1487,8 +1496,10 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(4px);
+    /* v4.3.0 perf: slightly deeper dim instead of backdrop-filter blur —
+       a full-viewport blur(4px) made Firefox re-blur everything underneath
+       per frame while a modal was open. Don't reintroduce backdrop-filter. */
+    background: rgba(0,0,0,0.78);
     z-index: 200;
     display: none;          /* structurally hidden — no FOUC on mobile refresh */
     align-items: center;
@@ -1607,7 +1618,7 @@
     border-radius: 8px;
     font-size: 14px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
     font-family: var(--font);
   }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -1642,7 +1653,7 @@
    * fit under the cap so they don't get a redundant inner scrollbar, and their
    * pager renders as a sibling *outside* the card so it's never hidden. This is
    * the single guard that keeps every page short instead of kilometers of rows. */
-  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 480px; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 480px; contain: paint; }
   .table-card thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; box-shadow: inset 0 -1px 0 var(--border); }
   /* v3.13.0: discovery scan results render into a bare div (not a .table-card),
    * so cap it too — a /24 scan can return 254 hosts. */
@@ -1881,7 +1892,9 @@
     color: white; font-weight: 500;
     cursor: pointer;
   }
-  .cal-event:hover { filter: brightness(1.15); }
+  /* v4.3.0 perf: hover brightens via precomputed colors, not
+     filter:brightness() — CSS filters force an expensive composite pass
+     (worst in Firefox). The hover values are each base color +~15% light. */
   .cal-event.color-blue   { background: #3b82f6; }
   .cal-event.color-green  { background: #22c55e; }
   .cal-event.color-amber  { background: #f59e0b; color: #1a1a1a; }
@@ -1889,6 +1902,13 @@
   .cal-event.color-purple { background: #a855f7; }
   .cal-event.color-teal   { background: #14b8a6; }
   .cal-event.color-slate  { background: #64748b; }
+  .cal-event.color-blue:hover   { background: #5e9bf8; }
+  .cal-event.color-green:hover  { background: #44d97c; }
+  .cal-event.color-amber:hover  { background: #f7b13c; }
+  .cal-event.color-red:hover    { background: #f26a6a; }
+  .cal-event.color-purple:hover { background: #b876f9; }
+  .cal-event.color-teal:hover   { background: #2dd4bf; }
+  .cal-event.color-slate:hover  { background: #7c8da3; }
 
   .kanban-column {
     background: var(--surface);
@@ -2059,19 +2079,31 @@ input.form-input[type="text"][data-token],
 /* ─── Skeleton loaders ─────────────────────────────────────────────────
  * Show the shape of incoming content rather than a centred spinner. The
  * shimmer is the visual cue that data is loading. */
+/* v4.3.0 perf: the shimmer is a transform-animated ::after overlay, NOT an
+ * animated background-position — background-position re-rasterizes the
+ * gradient every frame (notably slow in Firefox), while translateX runs on
+ * the compositor. Don't move the animation back onto background-position. */
 @keyframes rp-shimmer {
-  0%   { background-position: -400px 0; }
-  100% { background-position: 400px 0; }
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 .skeleton {
-  background: linear-gradient(90deg,
-    var(--surface2)  25%,
-    var(--border)    50%,
-    var(--surface2)  75%);
-  background-size: 800px 100%;
-  animation: rp-shimmer 1.4s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: var(--surface2);
   border-radius: 4px;
   display: inline-block;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 25%, var(--border) 50%, transparent 75%);
+  animation: rp-shimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
 }
 .skeleton-line   { height: 12px; width: 100%; margin: 4px 0; }
 .skeleton-line.short { width: 40%; }
@@ -2121,7 +2153,7 @@ input.form-input[type="text"][data-token],
  * vs what came from their data. */
 .ai-btn {
   position: relative;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 .ai-btn.available::after {
   content: '';
@@ -2133,6 +2165,9 @@ input.form-input[type="text"][data-token],
     transparent 65%);
   opacity: 0;
   animation: rp-ai-glow 3.2s ease-in-out infinite;
+  /* v4.3.0 perf: guarantee compositor promotion of this infinite
+     opacity+scale loop (few instances, so the extra layer is cheap). */
+  will-change: opacity, transform;
   pointer-events: none;
   z-index: -1;
 }
@@ -2161,6 +2196,7 @@ input.form-input[type="text"][data-token],
 .ai-thinking .sparkle {
   display: inline-block;
   animation: rp-sparkle-cycle 1.6s ease-in-out infinite;
+  will-change: opacity, transform;
 }
 .ai-thinking .sparkle:nth-child(2) { animation-delay: 0.4s; }
 .ai-thinking .sparkle:nth-child(3) { animation-delay: 0.8s; }
@@ -2620,6 +2656,7 @@ input.form-input[type="text"][data-token],
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
+  contain: paint;
   /* The thead inside this wrap gets sticky top:0 — backgrounds need
    * to be opaque so rows scrolling underneath don't show through. */
 }
@@ -4078,7 +4115,7 @@ label.form-label:has(> input[type="radio"]) {
 .isl-323 { width: 160px }
 .isl-324 { width: 130px }
 .isl-325 { width: 50px }
-.isl-326 { font-size: 24px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: all 0.15s; min-width: 44px; text-align: center }
+.isl-326 { font-size: 24px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; min-width: 44px; text-align: center }
 /* v3.0.5: hover effect was inline `onmouseover`/`onmouseout` pre-CSP; now CSS. */
 .isl-326:hover { border-color: var(--accent); }
 .isl-327 { font-family: var(--font-mono); font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }

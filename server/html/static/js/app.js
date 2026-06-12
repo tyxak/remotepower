@@ -126,19 +126,26 @@ const tableCtl = (() => {
       if (el) {
         const stored = (getTablePrefs(opts.name).filter) || '';
         if (stored && !el.value) el.value = stored;
+        // v4.3.0 perf: debounce the re-render — typing a 6-char search in a
+        // big table used to rebuild it 6 times. Prefs/page state update
+        // immediately; only the render waits for a 150ms typing pause.
+        let _filterT = null;
         el.addEventListener('input', () => {
           getTablePrefs(opts.name).filter = el.value;
           _page[opts.name] = 0;     // v3.12.0: jump back to page 1 on filter
           _scheduleFlushUiPrefs();
-          // v1.11.6: pages that compose multiple filters (e.g. audit
-          // log's action dropdown + free-text) supply their own
-          // re-render via opts.refresh. Without it, fall back to
-          // re-rendering the last-known rows.
-          if (opts.refresh) {
-            opts.refresh();
-          } else if (opts._lastRows) {
-            render(opts.name, opts._lastRows);
-          }
+          clearTimeout(_filterT);
+          _filterT = setTimeout(() => {
+            // v1.11.6: pages that compose multiple filters (e.g. audit
+            // log's action dropdown + free-text) supply their own
+            // re-render via opts.refresh. Without it, fall back to
+            // re-rendering the last-known rows.
+            if (opts.refresh) {
+              opts.refresh();
+            } else if (opts._lastRows) {
+              render(opts.name, opts._lastRows);
+            }
+          }, 150);
         });
       }
     }
@@ -1539,8 +1546,17 @@ function renderDevices() {
   // narrow the set; minimal density paginates instead. Render the first N and
   // show a "+more" prompt to refine.
   const DEVICE_CARD_CAP = 300;
-  const _cardOverflow = filtered.length - DEVICE_CARD_CAP;
-  const _cards = _cardOverflow > 0 ? filtered.slice(0, DEVICE_CARD_CAP) : filtered;
+  // v4.3.0 perf: window the card build instead of rendering all ≤300 at
+  // once — 300 cards is ~300KB of HTML parsed + laid out per refresh tick.
+  // First page renders fast; "Show more" (below) widens the window, and the
+  // chosen width sticks for the session so the 60s refresh doesn't collapse
+  // an expanded grid under the user.
+  const DEVICE_CARD_PAGE = 60;
+  const _shown = Math.min(
+    Math.max(window._deviceCardsShown || DEVICE_CARD_PAGE, DEVICE_CARD_PAGE),
+    DEVICE_CARD_CAP);
+  const _cards = filtered.slice(0, _shown);
+  const _cardOverflow = filtered.length - _cards.length;
   container.innerHTML = _cards.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
@@ -1624,7 +1640,10 @@ function renderDevices() {
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('')
-    + (_cardOverflow > 0
+    + (_cardOverflow > 0 && _shown < DEVICE_CARD_CAP
+        ? `<div class="device-card-more hint">Showing ${_cards.length} of ${filtered.length} devices. <button class="btn-icon btn-xs" data-action="showMoreDeviceCards">Show ${Math.min(_cardOverflow, 120)} more</button></div>`
+        : '')
+    + (_cardOverflow > 0 && _shown >= DEVICE_CARD_CAP
         ? `<div class="device-card-more hint">Showing the first ${DEVICE_CARD_CAP} of ${filtered.length} devices (+${_cardOverflow} more). Narrow with search or the group / tag / status / site filters above, or switch to the <strong>minimal</strong> density (it paginates).</div>`
         : '');
   // v2.2.1: update the client-side metrics history ring buffer so the
@@ -3391,6 +3410,12 @@ function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const ic
 // all-numeric args to Number, which broke the strict `activeTagFilter===t`
 // highlight test (t is always a string) for purely numeric tags.
 function setTagFilter(tag) { activeTagFilter = (tag == null ? null : String(tag)); renderDevices(); }
+// v4.3.0 perf: widen the device-card window (see DEVICE_CARD_PAGE in
+// renderDevices). Session-sticky so the 60s refresh keeps the expansion.
+function showMoreDeviceCards() {
+  window._deviceCardsShown = (window._deviceCardsShown || 60) + 120;
+  renderDevices();
+}
 // v1.11.5: schedule and history get filter+sort via tableCtl. Minimal
 // refactor — register once on first load, then push rows in.
 let _scheduleRegistered = false;
@@ -7872,7 +7897,8 @@ async function pollLogsTail(initial) {
     }
     const last = logsState.lines[logsState.lines.length - 1];
     document.getElementById('logs-stat-last').textContent = last ? relTime(last.ts) : '—';
-    renderLogsViewer();
+    if (initial) renderLogsViewer();
+    else appendLogLines(data.lines);   // v4.3.0 perf: append, don't rebuild
   } else if (initial) {
     // v1.8.2: three distinct empty states for clearer diagnosis
     let msg;
@@ -7908,19 +7934,17 @@ async function pollLogsTail(initial) {
   }
 }
 
-function renderLogsViewer() {
-  const viewer = document.getElementById('logs-viewer');
-  const wasAtBottom = (viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight) < 30;
-  viewer.innerHTML = logsState.lines.map(l => {
-    const color = lineSeverityColor(l.line);
-    const ts = new Date(l.ts*1000).toLocaleTimeString();
-    return `<div class="isl-419" data-color="${color||''}">`
-      + `<span class="c-muted">${ts}</span> `
-      + `<span class="c-accent">${escHtml(l.name)}</span> `
-      + `<span class="c-muted">${escHtml(l.unit)}</span>  `
-      + escHtml(l.line)
-      + `</div>`;
-  }).join('');
+function _logLineHtml(l) {
+  const color = lineSeverityColor(l.line);
+  const ts = new Date(l.ts*1000).toLocaleTimeString();
+  return `<div class="isl-419" data-color="${color||''}">`
+    + `<span class="c-muted">${ts}</span> `
+    + `<span class="c-accent">${escHtml(l.name)}</span> `
+    + `<span class="c-muted">${escHtml(l.unit)}</span>  `
+    + escHtml(l.line)
+    + `</div>`;
+}
+function _logsFollowBottom(viewer, wasAtBottom) {
   // Always-on polling (v1.8.2). Auto-scroll respects user's checkbox + whether
   // they were already at the bottom — so manual scroll-up to read older lines
   // still works within a poll window; next poll jumps them down again unless
@@ -7929,6 +7953,30 @@ function renderLogsViewer() {
   if (autoScroll && wasAtBottom) {
     viewer.scrollTop = viewer.scrollHeight;
   }
+}
+function renderLogsViewer() {
+  const viewer = document.getElementById('logs-viewer');
+  const wasAtBottom = (viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight) < 30;
+  viewer.innerHTML = logsState.lines.map(_logLineHtml).join('');
+  _logsFollowBottom(viewer, wasAtBottom);
+}
+// v4.3.0 perf: the 30s tail poll appends only the NEW lines and trims excess
+// rows from the top, instead of rebuilding the whole viewer (up to maxLines
+// = thousands of rows re-parsed every poll). Falls back to the full rebuild
+// when the viewer shows an empty-state or hasn't been rendered yet.
+function appendLogLines(lines) {
+  const viewer = document.getElementById('logs-viewer');
+  if (!viewer) return;
+  if (!viewer.children.length || viewer.querySelector('.empty-state')) {
+    renderLogsViewer();
+    return;
+  }
+  const wasAtBottom = (viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight) < 30;
+  viewer.insertAdjacentHTML('beforeend', lines.map(_logLineHtml).join(''));
+  while (viewer.children.length > logsState.maxLines) {
+    viewer.removeChild(viewer.firstChild);
+  }
+  _logsFollowBottom(viewer, wasAtBottom);
 }
 
 function lineSeverityColor(line) {
@@ -11835,9 +11883,12 @@ function _renderDrift(rows) {
 }
 
 // Re-render when filter changes
+let _driftFilterT = null;
 document.addEventListener('input', e => {
   if (e.target && e.target.id === 'drift-filter' && _driftLastResponse) {
-    _renderDrift(_driftLastResponse.devices || []);
+    // v4.3.0 perf: debounced like the other table filters (180ms)
+    clearTimeout(_driftFilterT);
+    _driftFilterT = setTimeout(() => _renderDrift(_driftLastResponse.devices || []), 180);
   }
 });
 
@@ -13253,9 +13304,19 @@ async function loadHome() {
   } catch (e) { _wq = ''; }
   const home = await api('GET', '/home' + _wq).catch(() => null);
   if (!home) {
+    window._homeLastRender = null;   // recover with a full render next tick
     _renderHomeTiles([], {}, {}, {});
     return;
   }
+  // v4.3.0 perf: if the bundled payload is byte-identical to what we last
+  // rendered (same enabled-widget set, same data), the DOM is already right —
+  // skip the whole render pass. On a quiet fleet this turns the 60s tick into
+  // a no-op instead of 40+ widget rebuilds (and, in Firefox, a repaint storm).
+  // Layout edits don't go through here (applyDashboardLayout is called
+  // directly by the editor), and toggling widgets changes _wq, busting this.
+  const _renderKey = _wq + JSON.stringify(home);
+  if (window._homeLastRender === _renderKey) return;
+  window._homeLastRender = _renderKey;
   const devs        = home.devices      || [];
   const drift       = home.drift        || {};
   const cves        = home.cves         || {};
@@ -13341,9 +13402,15 @@ function _miniRows(rows) {
     `<div class="dash-mini-row"><span class="dm-l">${r.l}</span>`
     + `<span class="dm-r ${r.cls || ''}">${r.r}</span></div>`).join('');
 }
+// v4.3.0 perf: per-widget render guard — skip the innerHTML write when the
+// markup is identical to what this widget already shows. Every skipped write
+// avoids a parse + repaint AND an i18n MutationObserver re-translate walk
+// (non-English sessions), so a quiet 60s tick becomes a near-no-op.
+const _widgetHtmlCache = new Map();
 function _setWidget(id, html) {
+  if (_widgetHtmlCache.get(id) === html) return;
   const el = document.getElementById(id);
-  if (el) el.innerHTML = html;
+  if (el) { el.innerHTML = html; _widgetHtmlCache.set(id, html); }
 }
 function _dashUpg(d) {
   return (d.sysinfo && d.sysinfo.packages && d.sysinfo.packages.upgradable) || 0;

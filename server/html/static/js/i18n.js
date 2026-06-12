@@ -1660,11 +1660,21 @@
     }
   }
 
+  // v4.3.0 perf: _dirty tracks whether any non-English translation has been
+  // written into the DOM this session. English sessions (the default) get a
+  // hard early-out — app.js calls apply() on every page switch, and without
+  // this the TreeWalker walked the whole page's text nodes just to write
+  // nothing. The flag (not `current` alone) gates the skip so switching
+  // de→en still runs the full restore pass before the early-out resumes.
+  var _dirty = false;
   function apply(root) {
+    if (current === 'en' && !_dirty) return;
     var scope = root || document;
     translateSubtitles(scope);
     translateAttrs(scope);
     translateTextNodes(scope);
+    if (current !== 'en') _dirty = true;
+    else if (!root) _dirty = false;   // full-document English restore done
   }
 
   // Re-translate content rendered after first paint (only while non-English).

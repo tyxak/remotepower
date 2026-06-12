@@ -1,0 +1,44 @@
+# RemotePower persistent API worker (v4.3.0 perf).
+#
+# Replaces the fcgiwrap/CGI execution model: api.py is imported once at
+# service start and forked per request, removing the ~hundreds-of-ms Python
+# startup + parse tax that classic CGI paid on EVERY /api/* request
+# (dashboard polls and agent heartbeats alike).
+#
+# Install:
+#   cp server/conf/remotepower-api.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now remotepower-api
+# then switch the nginx /api/ location to the scgi_pass block (see the
+# commented alternative in server/conf/remotepower.conf) and reload nginx.
+# Roll back by reverting the nginx block to fcgiwrap — the worker and
+# fcgiwrap can coexist; nginx config decides which one serves.
+
+[Unit]
+Description=RemotePower API worker (SCGI prefork)
+Documentation=file:///var/www/remotepower/cgi-bin/api_worker.py
+After=network.target
+
+[Service]
+Type=simple
+# Same user nginx/fcgiwrap ran the CGI as — file ownership in RP_DATA_DIR
+# must keep working unchanged.
+User=www-data
+Group=www-data
+RuntimeDirectory=remotepower
+RuntimeDirectoryMode=0750
+Environment=RP_DATA_DIR=/var/lib/remotepower
+Environment=RP_SCGI_SOCKET=/run/remotepower/api.sock
+Environment=RP_WORKER_MAX=32
+ExecStart=/usr/bin/python3 /var/www/remotepower/cgi-bin/api_worker.py
+Restart=always
+RestartSec=2
+
+# Hardening (mirrors what the CGI effectively had)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/remotepower
+
+[Install]
+WantedBy=multi-user.target

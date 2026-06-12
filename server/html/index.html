@@ -860,7 +860,7 @@
           <div class="row-8-center">
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="cs-filter" class="form-input isl-15" placeholder="Filter…" data-input="renderCustomScriptsPage">
+              <input type="text" id="cs-filter" class="form-input isl-15" placeholder="Filter…" data-input="renderCustomScriptsPage" data-input-debounce="180">
             </div>
             <select id="cs-status-filter" class="form-input isl-16" data-change="renderCustomScriptsPage">
               <option value="all">All</option>
@@ -2571,12 +2571,14 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.3.0 improvementmatters refinement performance single row device read large fleet audit archive download staleness badge posture link clickable settings loading skeleton guardrail test regression unbound data webhook registry">
+          <details class="doc-card" open data-keywords="release notes changelog v4.3.0 improvementmatters refinement performance single row device read large fleet audit archive download staleness badge posture link clickable settings loading skeleton guardrail test regression unbound data webhook registry firefox sluggish slow dashboard backdrop filter blur gzip compression scgi worker prefork debounce">
             <summary><strong>What's new — v4.3.0 "ImprovementMatters"</strong> — a refinement release: faster reads on big fleets, self-observability touches, posture UX, and regression guardrails (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.3.0 sharpens what's already there — no new headline subsystems and no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.3.0</code>).</p>
               <ul>
                 <li><strong>Faster on bigger fleets.</strong> On the SQLite / PostgreSQL backends, endpoints that need just one device — per-host Checks, per-device CVE detail, the heartbeat's host-config and watched-file lookups, and the firewall / compose / RouterOS / OPNsense device actions — now read <strong>one row</strong> instead of reconstructing the whole fleet. Same data, far less work per request on large fleets. The flat-JSON backend is unchanged.</li>
+                <li><strong>A faster dashboard — especially in Firefox.</strong> The sticky header and modal overlay no longer use <code>backdrop-filter</code> blur (Firefox repainted it every frame), all animations are compositor-only, the 60s refresh skips re-rendering anything whose data didn't change, the device grid renders 60 cards and grows via "Show more", table filters are debounced, and the live log viewer appends new lines instead of rebuilding. Big read-only API responses (<code>/api/home</code>, devices, alerts, checks) are gzipped, and the fleet-checks matrix is served from a short scope-safe server cache.</li>
+                <li><strong>Optional persistent API worker.</strong> For installs that want every click faster: <code>api_worker.py</code> keeps the API imported in memory and forks per request, removing the Python-startup tax classic CGI paid on every request. Opt-in via <code>server/conf/remotepower-api.service</code> + the <code>scgi_pass</code> block in the shipped nginx config; the default fcgiwrap setup keeps working unchanged.</li>
                 <li><strong>Download the archived audit log.</strong> The Audit page (and <code>GET /api/audit-log/archive</code>) now lets you download the gzipped archive of evicted entries, so the full retained history is reachable without shell access.</li>
                 <li><strong>Diagnostics bundle.</strong> A button on <em>Server status</em> (and <code>GET /api/diagnostics</code>) downloads one JSON support bundle — versions, storage backend, fleet counts, recurring-job staleness, audit + hash-chain status, optional-dependency presence — with all secrets scrubbed. One attachment instead of a back-and-forth.</li>
                 <li><strong>Staleness at a glance.</strong> Cadence jobs — monitors, the KEV/EPSS refresh, scheduled reports — show a last-ran timestamp and a staleness badge on the <em>Server status</em> page, so a job that quietly stopped is visible.</li>
@@ -3774,7 +3776,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. Ephemeral mounts (<code>/tmp</code>, <code>/run</code>, <code>/dev/shm</code>, …) are excluded, and a heavily-fluctuating mount shows <em>fluctuating</em> instead of a misleading date. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
           <button class="btn-secondary fs-12" data-action="loadForecast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter device or mount…" data-input="renderForecastTable" data-input-value="1" autocomplete="off">
+          <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter device or mount…" data-input="renderForecastTable" data-input-value="1" data-input-debounce="180" autocomplete="off">
           <label class="form-label fs-12"><input type="checkbox" id="forecast-atrisk" data-change="renderForecastTable"> At-risk only</label>
           <span id="forecast-summary" class="fs-12 c-muted"></span>
         </div>
@@ -4112,7 +4114,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-header"><div class="section-title">Pending per device</div>
             <button class="btn-icon fs-12" data-action="loadCommandQueue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           </div>
-          <input type="text" id="cmdqueue-filter" class="form-input mb-8" placeholder="Filter by device, actor, or command…" data-input="_renderCommandQueue">
+          <input type="text" id="cmdqueue-filter" class="form-input mb-8" placeholder="Filter by device, actor, or command…" data-input="_renderCommandQueue" data-input-debounce="180">
           <div id="cmdqueue-body"><div class="c-muted">Loading…</div></div>
         </div>
       </div>

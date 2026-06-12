@@ -15,6 +15,28 @@ self-observability, UX polish, and regression guardrails.
   `storage.device_get(dev_id)` instead of reconstructing the whole fleet per
   request — O(fleet) `json.loads` → O(1). Flat-JSON behaviour is unchanged; the
   returned data is identical.
+- **A faster dashboard, especially in Firefox.** Removed the sticky-header /
+  modal `backdrop-filter` blurs (Firefox re-blurs per frame), made every
+  animation compositor-only (the skeleton shimmer no longer animates
+  `background-position`), and added a guardrail test that fails any
+  `@keyframes` touching a paint/layout property. The 60s refresh now
+  diff-guards: the whole `/api/home` render is skipped when the payload is
+  unchanged and each dashboard widget skips its DOM write when its markup
+  didn't change. The device-card grid is windowed (60 + "Show more"), all live
+  table filters are debounced, the log viewer appends instead of rebuilding,
+  English sessions skip the i18n tree-walk, and `transition: all` is gone.
+- **Lighter, cached API.** The fleet-checks matrix (Checks page + checksrollup
+  widget) is computed at most once per 15s behind a fingerprint-busted,
+  scope-safe cache. The bulk read-only GET endpoints (`/api/home`,
+  `/api/devices`, attention, alerts, fleet checks) are gzipped when the client
+  supports it (~5–10× smaller); token-bearing endpoints stay uncompressed
+  (BREACH).
+- **Optional persistent API worker.** `cgi-bin/api_worker.py` (SCGI prefork)
+  imports api.py once at service start and forks per request — same
+  process-isolation semantics as CGI without the per-request Python startup +
+  2 MB parse tax on every poll and heartbeat. Opt-in via
+  `server/conf/remotepower-api.service` + the commented `scgi_pass` block
+  in `server/conf/remotepower.conf`; fcgiwrap keeps working unchanged.
 - **Download the archived audit log.** A button on the Audit page and
   `GET /api/audit-log/archive` stream the gzipped archive of evicted entries,
   so the full retained history is reachable without shell access.

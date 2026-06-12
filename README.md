@@ -96,8 +96,10 @@ in-place, reversible migration from **Settings → Advanced → Storage backend*
 **PostgreSQL** with **automatic failover + read replicas**, pool connections
 through **PgBouncer**, run **load-balanced multiple app nodes** behind a trusted
 proxy, and reach segmented networks through **relay satellites** — the same flat
-front-end, just a bigger back-end. Same zero-inbound, push-based agents
-throughout. See **[docs/scaling.md](docs/scaling.md)** and
+front-end, just a bigger back-end. There's also an optional **persistent API
+worker** (one systemd unit + an nginx block swap) that removes classic CGI's
+per-request Python startup cost once a fleet gets busy. Same zero-inbound,
+push-based agents throughout. See **[docs/scaling.md](docs/scaling.md)** and
 **[docs/deployment.md](docs/deployment.md)**.
 
 ## Quick start
