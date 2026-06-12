@@ -136,6 +136,17 @@ class TestProfileFlags(unittest.TestCase):
         self.assertIn('zap-baseline.py', sc._zap_argv('h', 'active', 'quick', '/w', 'r.json'))
         self.assertIn('zap-full-scan.py', sc._zap_argv('h', 'active', 'full', '/w', 'r.json'))
 
+    def test_zap_redirects_home_to_writable_mount(self):
+        # v4.3.0 fix: ZAP's intermediate summary (zap_out.json) goes to $HOME;
+        # newer images fail writing it to /home/zap under the locked container
+        # ("Failed to access summary file") → 0 findings. HOME + cwd must point
+        # at the writable /zap/wrk mount so the -J report is produced.
+        argv = sc._zap_argv('h', 'active', 'quick', '/w', 'r.json')
+        if sc.RUNNER in ('docker', 'podman'):
+            self.assertIn('-w', argv)
+            self.assertIn('/zap/wrk', argv)
+            self.assertIn('HOME=/zap/wrk', argv)
+
 
 class TestAgentSide(unittest.TestCase):
     """B5 P3: the agent's lynis host-audit (importlib-loaded worker shares the

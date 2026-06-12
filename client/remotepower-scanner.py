@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RemotePower scanner satellite — v4.2.0 (B5) P1.
+"""RemotePower scanner satellite — v4.3.0 (B5).
 
 A long-polling worker that claims authorized scan jobs from a RemotePower
 server and runs them with a vetted security toolchain, posting normalised
@@ -37,7 +37,7 @@ import time
 import urllib.request
 import urllib.error
 
-VERSION = '4.2.0'
+VERSION = '4.3.0'
 
 SERVER       = os.environ.get('RP_SERVER_URL', '').rstrip('/')
 TOKEN        = os.environ.get('RP_SATELLITE_TOKEN', '')
@@ -91,11 +91,13 @@ _TOOL_IMAGE = {
 }
 
 
-def _sandbox(image, tool_argv, volumes=None):
+def _sandbox(image, tool_argv, volumes=None, workdir=None, env=None):
     """Wrap a tool's argv in a locked-down container (or run it bare when
     RP_SCAN_RUNNER names a local binary). `volumes` (list of 'name:/path') are
     persistent named volumes — used to cache nuclei's template store so it isn't
-    re-downloaded every run."""
+    re-downloaded every run. `workdir` sets the container working dir (-w) and
+    `env` (dict) sets environment vars (-e) — used to point a tool's HOME/cwd at
+    a writable mount so its scratch files don't hit a read-only container path."""
     if RUNNER in ('docker', 'podman'):
         # Hardened but NOT --read-only: the tools must write scratch/report files
         # (zap /zap/wrk, wapiti session, nmap NSE temp) — a read-only rootfs makes
@@ -105,6 +107,10 @@ def _sandbox(image, tool_argv, volumes=None):
                '--security-opt', 'no-new-privileges', '--pids-limit', '512']
         for v in (volumes or []):
             cmd += ['-v', v]
+        if workdir:
+            cmd += ['-w', workdir]
+        for k, val in (env or {}).items():
+            cmd += ['-e', f'{k}={val}']
         return cmd + [image] + tool_argv
     return tool_argv   # RP_SCAN_RUNNER is a local binary name (advanced)
 
@@ -337,9 +343,16 @@ def _zap_argv(target, profile, intensity, workdir, report):
     # Both write a JSON report into the work dir (/zap/wrk); mount + read it back.
     # -I = don't fail the container on warnings.
     script = 'zap-baseline.py' if _quick(intensity) else 'zap-full-scan.py'
+    # Point ZAP's HOME + working dir at the writable /zap/wrk mount. Newer
+    # zaproxy/zap-stable images write an intermediate summary (zap_out.json) to
+    # $HOME (/home/zap), which fails under the locked-down container ("Failed to
+    # access summary file /home/zap/zap_out.json") and produces 0 findings with
+    # no report. Redirecting HOME to the mounted dir keeps all ZAP scratch on a
+    # writable path so the -J report is actually produced.
     return _sandbox(_TOOL_IMAGE['zap'], [
         script, '-t', _target_url(target), '-J', report, '-I'],
-        volumes=[f'{workdir}:/zap/wrk:rw'])
+        volumes=[f'{workdir}:/zap/wrk:rw'],
+        workdir='/zap/wrk', env={'HOME': '/zap/wrk'})
 
 
 def _wapiti_argv(target, profile, intensity, workdir, report):
