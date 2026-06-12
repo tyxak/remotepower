@@ -2997,7 +2997,7 @@ button, a, [role="button"],
 /* Panel — slides in from right, explicitly above backdrop */
 .device-drawer .drawer-panel {
   position: absolute; top: 0; right: 0; bottom: 0;
-  width: min(640px, 100vw);
+  width: min(820px, 100vw);
   background: var(--surface);
   border-left: 1px solid var(--border);
   display: flex; flex-direction: column;
@@ -3078,14 +3078,23 @@ button, a, [role="button"],
 
 /* Settings form */
 .drawer-setting-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 0;
+  /* label + control(s) on the first line; the descriptive hint wraps to its
+     own full-width line below (see .drawer-setting-row .hint) so a long
+     description no longer crams onto the same line as the input. */
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  padding: 11px 0;
   border-bottom: 1px solid var(--border);
 }
 .drawer-setting-row:last-child { border-bottom: none; }
 .drawer-setting-label {
-  font-size: 12px; color: var(--muted); flex-shrink: 0;
-  min-width: 110px;
+  font-size: 13px; color: var(--text); font-weight: 600; flex-shrink: 0;
+  min-width: 132px;
+}
+/* Push the explanatory hint (and any block of help text) onto its own line,
+   spanning the full row width, so it reads as a caption rather than crowding
+   the input. */
+.drawer-setting-row > .hint {
+  flex-basis: 100%; margin: 0; font-size: 12px; line-height: 1.45;
 }
 
 /* Audit accordion */
