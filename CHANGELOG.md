@@ -33,6 +33,11 @@ self-observability, UX polish, and regression guardrails.
 - **Staleness at a glance.** Cadence jobs (monitors, the KEV/EPSS refresh,
   scheduled scans) surface a last-ran timestamp + staleness badge on the
   Server status page.
+- **Per-device offline alert delay.** A device's drawer Settings tab can set
+  extra minutes of silence before that host raises a `device_offline` alert
+  (0 = default, capped 24h) — for a box on a flaky link you don't want paging
+  on every blip. `PATCH /api/devices/<id>/alert-delay`, also saved with the
+  rest of the drawer settings.
 - **Clickable posture fixes.** Each warning in the security-posture self-check
   links straight to the Settings section that fixes it.
 - **Consistent loading states.** Tables that flashed empty / showed a bare

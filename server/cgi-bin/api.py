@@ -979,6 +979,15 @@ def _offline_thresholds(dev, ttl):
         poll = DEFAULT_POLL_INTERVAL
     poll = max(1, poll)
     offline_after = max(ttl, poll * OFFLINE_MISSED_POLLS) + OFFLINE_GRACE_S
+    # v4.3.0: operator-configurable per-device extra grace before a silent host
+    # is even a candidate for OFFLINE. Lets a box on a flaky link or a known-
+    # slow poller avoid noisy offline alerts without raising the global TTL.
+    # 0 (default) leaves behaviour exactly as before; capped at 24h.
+    try:
+        extra_min = int(dev.get('offline_alert_delay_min', 0) or 0)
+    except (TypeError, ValueError):
+        extra_min = 0
+    offline_after += max(0, min(1440, extra_min)) * 60
     debounce = max(OFFLINE_GRACE_S, poll)
     return offline_after, debounce
 
@@ -6930,6 +6939,7 @@ def handle_devices_list():
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60),
             'update_channel': dev.get('update_channel', 'stable'),   # v3.14.0 #38
+            'offline_alert_delay_min': int(dev.get('offline_alert_delay_min', 0) or 0),  # v4.3.0
             'remediation_enabled': bool(dev.get('remediation_enabled')),  # v3.14.0 #31
             'tenant': _device_tenant(dev),                                 # v3.14.0 #24 P2
 
@@ -7224,6 +7234,15 @@ def handle_device_save_bulk(dev_id):
     if 'update_channel' in body:
         ch = _sanitize_str(body.get('update_channel') or '', 16).lower()
         updates['update_channel'] = ch if ch in ('stable', 'beta') else 'stable'
+
+    # v4.3.0: per-device extra grace before a device_offline alert. 0 = default
+    # behaviour; capped at 24h. Read by _offline_thresholds on the offline sweep.
+    if 'offline_alert_delay_min' in body:
+        try:
+            _ad = int(body.get('offline_alert_delay_min') or 0)
+        except (TypeError, ValueError):
+            _ad = 0
+        updates['offline_alert_delay_min'] = max(0, min(1440, _ad))
 
     # v3.14.0 #31: per-host opt-in for one-click CIS remediation. Default off —
     # remediation queues mutating commands (reboot, package upgrade), so it only
@@ -8560,6 +8579,32 @@ def handle_device_poll_interval(dev_id):
     save(CMDS_FILE, cmds)
     save(DEVICES_FILE, devices)
     respond(200, {'ok': True, 'poll_interval': interval})
+
+
+def handle_device_alert_delay(dev_id):
+    """PATCH /api/devices/<id>/alert-delay {offline_alert_delay_min} — v4.3.0:
+    per-device extra grace before this host raises a device_offline alert.
+    Server-side only (no agent command); 0 = default behaviour, capped at 24h.
+    Useful for a box on a flaky link you don't want paging you on every blip."""
+    actor = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    try:
+        mins = int((get_json_body() or {}).get('offline_alert_delay_min', 0))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'offline_alert_delay_min must be an integer'})
+    mins = max(0, min(1440, mins))   # 0 .. 24h
+    found = False
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id in devices:
+            devices[dev_id]['offline_alert_delay_min'] = mins
+            found = True
+    if not found:
+        respond(404, {'error': 'Device not found'})
+    audit_log(actor, 'device_alert_delay', f'device={dev_id} delay_min={mins}')
+    respond(200, {'ok': True, 'offline_alert_delay_min': mins})
 
 
 def handle_device_icon(dev_id):
@@ -40379,6 +40424,8 @@ def _dispatch(pi, m):
         handle_ansible_playbook_delete(pi[len('/api/ansible/playbooks/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
         handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/alert-delay') and m == 'PATCH':
+        handle_device_alert_delay(pi[len('/api/devices/'):-len('/alert-delay')])
     elif pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH':
         handle_device_icon(pi[len('/api/devices/'):-len('/icon')])
     elif pi.startswith('/api/devices/') and pi.endswith('/monitored') and m == 'PATCH':

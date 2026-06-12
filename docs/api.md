@@ -11,6 +11,7 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `PATCH` | `/api/devices/:id/notes` | admin | Set device notes |
 | `PATCH` | `/api/devices/:id/group` | admin | Set device group |
 | `PATCH` | `/api/devices/:id/poll_interval` | admin | Set poll interval hint |
+| `PATCH` | `/api/devices/:id/alert-delay` | admin | Per-device extra grace (minutes) before a device_offline alert (0=default, ≤1440) |
 | `GET` | `/api/devices/:id/sysinfo` | | Cached sysinfo + journal |
 | `GET` | `/api/devices/:id/uptime` | | Uptime event history |
 | `GET` | `/api/devices/:id/output` | | Custom command output |

@@ -3661,6 +3661,7 @@ const _DYK_TIPS = [
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
   "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
+  "A device\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a device-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
   "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
   "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",
   "The Audit page now has a Verify integrity button — the audit log is hash-chained, so a deleted or edited entry is detectable, and clearing it needs an admin re-prompt plus an immutable archive. The chain is also verified automatically every time the page loads.",
@@ -16834,6 +16835,11 @@ function _renderDrawerSettings() {
       <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30">
       <span class="hint">seconds</span>
     </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Offline alert delay</span>
+      <input class="form-input isl-621" id="ds-alert-delay" type="number" value="${d.offline_alert_delay_min||0}" min="0" max="1440">
+      <span class="hint">minutes of extra silence before this host raises a <em>device offline</em> alert (0 = default). Use it for a box on a flaky link you don't want paging on every blip.</span>
+    </div>
     ${isAgentless ? '' : `
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Release channel</span>
@@ -16974,9 +16980,11 @@ async function _drawerSaveSettings() {
     return unit && rest.length ? {unit: unit.trim(), pattern: rest.join(':').trim()} : null;
   }).filter(Boolean);
 
+  const _alertDelay = parseInt(document.getElementById('ds-alert-delay')?.value || '0', 10);
   const body = {
     group, tags, icon, monitored,
     poll_interval: Math.max(30, poll),
+    offline_alert_delay_min: Math.max(0, Math.min(1440, isNaN(_alertDelay) ? 0 : _alertDelay)),
     watched_services: services,
     log_watch: logWatch,
     watched_files: driftFiles,
