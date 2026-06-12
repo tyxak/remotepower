@@ -1942,6 +1942,7 @@ function _monClearFields() {
   set('mon-target', ''); set('mon-port', ''); set('mon-expect', '');
   set('mon-dbkind', 'postgres');
   set('mon-status', ''); set('mon-latency', ''); set('mon-loss', '');
+  set('mon-failures-before-alert', '1');
   set('mon-body-mode', ''); set('mon-body-value', '');
 }
 function openMonitorAdd() {
@@ -1970,6 +1971,7 @@ function editMonitor(idx) {
   set('mon-status', m.expect_status);
   set('mon-latency', m.max_latency_ms);
   set('mon-loss', m.max_loss_pct);
+  set('mon-failures-before-alert', m.failures_before_alert || 1);
   set('mon-body-mode', (m.body_match && m.body_match.mode) || '');
   set('mon-body-value', (m.body_match && m.body_match.value) || '');
   monTypeChanged();
@@ -2011,6 +2013,9 @@ async function addMonitor() {
   if (type === 'http') { const s = numOf('mon-status'); if (s !== null) entry.expect_status = Math.round(s); }
   if (type === 'http' || type === 'icmp') { const l = numOf('mon-latency'); if (l !== null) entry.max_latency_ms = Math.round(l); }
   if (type === 'icmp') { const lp = numOf('mon-loss'); if (lp !== null) entry.max_loss_pct = lp; }
+  // v4.3.0: flap dampening — alert only after N consecutive failures (1 = default).
+  const fba = numOf('mon-failures-before-alert');
+  if (fba !== null && Math.round(fba) > 1) entry.failures_before_alert = Math.max(2, Math.min(10, Math.round(fba)));
   if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) {
     monitors[_monitorEditIdx] = entry;
   } else {
@@ -3661,6 +3666,7 @@ const _DYK_TIPS = [
   "Require MFA for a role under Settings → Security and those users must enrol TOTP or a passkey before they can do anything else — and cap how many sessions one user can hold at once.",
   "Each warning on the security-posture self-check (Audit page) now links straight to the Settings section that fixes it — click \u201cFix \u2192\u201d to jump there.",
   "The Audit page can download the gzipped archive of older, retention-aged audit entries — the full history auditors ask for, without shell access to the server.",
+  "A flaky monitor that blips for one check shouldn\u2019t page you \u2014 set \u201cAlert after consecutive failures\u201d on the monitor (Monitoring \u2192 add/edit) so monitor-down only fires after N failures in a row.",
   "A device\u2019s drawer \u2192 Settings has an \u201cOffline alert delay\u201d \u2014 extra minutes of silence before THAT host raises a device-offline alert. Set it for a box on a flaky link you don\u2019t want paging you on every blip (0 = default).",
   "Server status \u2192 Diagnostics bundle downloads a single JSON file with versions, backend, fleet counts, recurring-job staleness and dependency presence (secrets scrubbed) \u2014 the one attachment to send when you ask for help.",
   "The Server status page shows a last-ran time and a stale flag for recurring jobs (monitors, KEV/EPSS refresh, scheduled scans), so a job that quietly stopped is visible instead of silently absent.",

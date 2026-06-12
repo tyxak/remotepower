@@ -38,6 +38,11 @@ self-observability, UX polish, and regression guardrails.
   (0 = default, capped 24h) — for a box on a flaky link you don't want paging
   on every blip. `PATCH /api/devices/<id>/alert-delay`, also saved with the
   rest of the drawer settings.
+- **Monitor flap dampening.** Each monitor can require N consecutive failed
+  checks before raising `monitor_down` (the monitor add/edit modal's "Alert
+  after consecutive failures"; default 1 = unchanged). A recovery before N
+  resets the streak; the streak is capped so a long-down monitor stops
+  re-writing config.
 - **Clickable posture fixes.** Each warning in the security-posture self-check
   links straight to the Settings section that fixes it.
 - **Consistent loading states.** Tables that flashed empty / showed a bare

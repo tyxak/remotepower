@@ -11615,28 +11615,51 @@ def _persist_monitor_results(results):
         mh = load(MON_HIST_FILE)
         cfg = load(CONFIG_FILE)
         mon_notified = cfg.get('monitor_notified', {})
-        mon_changed = False
+        # v4.3.0: per-monitor flap dampening. A monitor only raises monitor_down
+        # after `failures_before_alert` CONSECUTIVE failed checks (default 1 =
+        # alert on first failure, exactly as before). monitor_fail_streak tracks
+        # the run of failures; it's capped at the threshold so a long-down
+        # monitor stops re-writing config every cycle.
+        mon_streak = cfg.get('monitor_fail_streak', {})
+        thresholds = {}
+        for _m in (cfg.get('monitors') or []):
+            if isinstance(_m, dict) and _m.get('label'):
+                try:
+                    thresholds[_m['label']] = max(1, min(10, int(_m.get('failures_before_alert', 1) or 1)))
+                except (TypeError, ValueError):
+                    thresholds[_m['label']] = 1
+        dirty = False
         for r in results:
             key = r['label']
             if key not in mh: mh[key] = []
             mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
             mh[key] = mh[key][-MAX_MON_HISTORY:]
             was_down = mon_notified.get(key, False)
-            if not r['ok'] and not was_down:
-                fire_webhook('monitor_down', {
-                    'label': r['label'], 'type': r['type'],
-                    'target': r['target'], 'detail': r['detail'],
-                })
-                mon_notified[key] = True; mon_changed = True
-            elif r['ok'] and was_down:
-                fire_webhook('monitor_up', {
-                    'label': r['label'], 'type': r['type'],
-                    'target': r['target'], 'detail': r['detail'],
-                })
-                mon_notified[key] = False; mon_changed = True
+            need = thresholds.get(key, 1)
+            if not r['ok']:
+                prev = int(mon_streak.get(key, 0) or 0)
+                streak = min(need, prev + 1)   # cap → no more writes once alerted
+                if streak != prev:
+                    mon_streak[key] = streak; dirty = True
+                if streak >= need and not was_down:
+                    fire_webhook('monitor_down', {
+                        'label': r['label'], 'type': r['type'],
+                        'target': r['target'], 'detail': r['detail'],
+                    })
+                    mon_notified[key] = True; dirty = True
+            else:
+                if int(mon_streak.get(key, 0) or 0) != 0:
+                    mon_streak[key] = 0; dirty = True
+                if was_down:
+                    fire_webhook('monitor_up', {
+                        'label': r['label'], 'type': r['type'],
+                        'target': r['target'], 'detail': r['detail'],
+                    })
+                    mon_notified[key] = False; dirty = True
         save(MON_HIST_FILE, mh)
-        if mon_changed:
+        if dirty:
             cfg['monitor_notified'] = mon_notified
+            cfg['monitor_fail_streak'] = mon_streak
             save(CONFIG_FILE, cfg)
     except Exception:
         pass
@@ -12418,6 +12441,14 @@ def handle_config_save():
                 lp = m.get('max_loss_pct')
                 if isinstance(lp, (int, float)) and 0 <= lp <= 100:
                     entry['max_loss_pct'] = float(lp)
+            # v4.3.0: flap dampening — alert only after N consecutive failed
+            # checks (1 = default, stored only when raised so configs stay clean).
+            try:
+                fba = int(m.get('failures_before_alert', 1) or 1)
+            except (TypeError, ValueError):
+                fba = 1
+            if fba > 1:
+                entry['failures_before_alert'] = max(2, min(10, fba))
             validated.append(entry)
         cfg['monitors'] = validated
 
