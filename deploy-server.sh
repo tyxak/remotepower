@@ -11,6 +11,36 @@ die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 [[ $EUID -ne 0 ]] && die "Run as root: sudo bash deploy-server.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WEB_ROOT="/var/www/remotepower"
+BACKUP_DIR="/var/backups/remotepower-deploys"
+
+# ── v4.3.0: pre-deploy backup + rollback ─────────────────────────────────────
+# Every deploy first snapshots the currently-deployed tree (code only — the
+# data dir is untouched by this script) and keeps the last 3.
+#   sudo bash deploy-server.sh --rollback     restores the newest snapshot.
+# NOTE: rollback restores CODE only. If the newer version migrated the
+# database schema, also restore the matching data backup — the server logs a
+# loud schema-newer-than-code warning on every request in that state.
+if [[ "${1:-}" == "--rollback" ]]; then
+    latest="$(ls -1t "$BACKUP_DIR"/deploy_*.tar.gz 2>/dev/null | head -1 || true)"
+    [[ -z "$latest" ]] && die "No deploy backups found in $BACKUP_DIR"
+    info "Rolling back to $(basename "$latest") ..."
+    tar -xzf "$latest" -C "$(dirname "$WEB_ROOT")"
+    success "Rolled back. If the database was migrated by the newer version,"
+    success "restore the matching data backup too (watch the nginx error log"
+    success "for a 'schema is NEWER than this server' warning)."
+    exit 0
+fi
+
+if [[ -d "$WEB_ROOT" ]]; then
+    mkdir -p "$BACKUP_DIR"
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    info "Backing up current deployment → $BACKUP_DIR/deploy_$stamp.tar.gz"
+    tar -czf "$BACKUP_DIR/deploy_$stamp.tar.gz" \
+        -C "$(dirname "$WEB_ROOT")" "$(basename "$WEB_ROOT")"
+    # keep the 3 newest snapshots
+    ls -1t "$BACKUP_DIR"/deploy_*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+fi
 
 info "Deploying all cgi-bin Python modules..."
 # Auto-discovers api.py plus all sibling modules (cve_scanner.py, prometheus_export.py,

@@ -23,6 +23,7 @@ _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 _HTML = _ROOT / "server" / "html"
 import sys
+
 sys.path.insert(0, str(_CGI))
 _spec = importlib.util.spec_from_file_location("api_v430pw", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)

@@ -920,8 +920,14 @@ def _path_auth_misc() -> dict[str, Any]:
                 "tags": ["Checks"],
                 "summary": "Fleet check matrix (OK/WARN/CRIT/UNKNOWN per host)",
                 "operationId": "fleetChecks",
-                "parameters": [{"name": "status", "in": "query", "required": False,
-                                "schema": {"type": "string", "enum": ["critical", "warning"]}}],
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": False,
+                        "schema": {"type": "string", "enum": ["critical", "warning"]},
+                    }
+                ],
                 "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
             }
         },
@@ -935,7 +941,8 @@ def _path_auth_misc() -> dict[str, Any]:
         },
         "/checks/custom": {
             "get": {
-                "tags": ["Checks"], "summary": "List custom-check definitions",
+                "tags": ["Checks"],
+                "summary": "List custom-check definitions",
                 "operationId": "listCustomChecks",
                 "responses": {"200": {"description": "OK", "content": {"application/json": {}}}},
             },
@@ -951,11 +958,12 @@ def _path_auth_misc() -> dict[str, Any]:
                 "tags": ["CVE"],
                 "summary": "Queue a background CVE scan (one device or the whole fleet)",
                 "description": "Returns 202 immediately; the scan runs in a detached "
-                               "process. Poll /api/cve/scan-status for progress.",
+                "process. Poll /api/cve/scan-status for progress.",
                 "operationId": "cveScan",
-                "responses": {"202": {"description": "Scan queued",
-                                       "content": {"application/json": {}}},
-                              "409": {"description": "A scan is already running"}},
+                "responses": {
+                    "202": {"description": "Scan queued", "content": {"application/json": {}}},
+                    "409": {"description": "A scan is already running"},
+                },
             }
         },
         "/cve/scan-status": {

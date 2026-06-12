@@ -49,6 +49,11 @@
      so a chosen accent overrides the active theme's default accent. */
   .accent-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
   .accent-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px currentColor; }
+  /* v4.3.0 a11y: visible keyboard-focus ring everywhere. :focus-visible fires
+     for keyboard navigation only, so mouse users see no change; elements with
+     their own outline:none + focus styling (e.g. .sidebar-search) win on
+     specificity, which is intended. */
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   body.light .journal-wrap { background: #f8fafc; color: #334155; }
 
   /* ── v4.1: full themes (data-theme on <body>) ──────────────────────────────
@@ -1714,6 +1719,26 @@
   .user-row td:last-child { text-align: right; }
   .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  /* v4.3.0: connectivity banner — fixed, bottom-centred, above toasts.
+     Shown only while /api fetches fail at the network level. */
+  .net-down-banner {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    color: var(--text);
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 10001;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .net-down-banner svg { flex-shrink: 0; color: var(--red); }
   .toast {
     background: var(--surface);
     border: 1px solid var(--border);

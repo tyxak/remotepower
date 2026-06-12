@@ -103,6 +103,40 @@ Postgres** — the app is stateless, so any node serves any request:
 
 ---
 
+## Upgrades, rollback & recovery (v4.3.0)
+
+**Every `deploy-server.sh` run snapshots the deployed code first** (last 3
+kept in `/var/backups/remotepower-deploys/`). To undo a bad deploy:
+
+```bash
+sudo bash deploy-server.sh --rollback
+```
+
+Rollback restores **code only** — your data dir (`/var/lib/remotepower/`) is
+never touched by the deploy script. Two recovery situations to know:
+
+- **Rolled back under a newer database.** If the newer version migrated the
+  SQLite schema, the old code now logs `database schema vN is NEWER than this
+  server` on every request (nginx error log). The data the newer version
+  wrote is preserved but invisible — either re-deploy the newer version or
+  restore the matching data backup.
+- **Corrupt SQLite store.** The `/api/diagnostics` bundle (Server status →
+  Diagnostics) includes a `database.quick_check` field — anything but `ok`
+  means corruption. Recovery, in order of preference: (1) restore the data
+  dir from backup (`tar` of `/var/lib/remotepower/`), (2) salvage with
+  `sqlite3 remotepower.db ".recover" | sqlite3 new.db` and swap the file in,
+  (3) migrate back from a JSON-backend backup via
+  `tools/migrate_storage.py`. Take a copy of the broken file before any of
+  these.
+
+Plain-files backup of everything (config, users, devices, history):
+
+```bash
+tar -czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
+```
+
+---
+
 ## Encrypt every hop
 
 The edge (agent/browser → server/LB) is TLS by default; **internal hops are not

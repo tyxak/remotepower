@@ -9280,6 +9280,17 @@ def handle_heartbeat():
     # μs of regex / sanitisation), so even under fleet-wide poll bursts
     # the wait is short. We cache the few values we need *outside* the
     # lock (device name, poll interval, allowlist, etc.) before exit.
+    # v4.3.0: optional per-device heartbeat rate floor (default 0 = off). A
+    # misconfigured/looping agent hammering /api/heartbeat bloats metrics +
+    # history and burns CGI workers; with a floor, arrivals faster than
+    # heartbeat_min_interval_s get 429 + retry_after and write NOTHING.
+    # Set it well below the fleet's poll interval (e.g. 10 for 60s polls) —
+    # a healthy agent never sees it. load() is request-memoized: free here.
+    try:
+        _hb_floor = int((load(CONFIG_FILE) or {}).get('heartbeat_min_interval_s') or 0)
+    except Exception:
+        _hb_floor = 0
+
     saved_dev = {}
     _reboot_webhook_pending = False  # set True inside lock if reboot state changes
     _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
@@ -9296,6 +9307,15 @@ def handle_heartbeat():
             # respond() raises SystemExit; __exit__ skips the save, releases
             # the lock. No partial write on disk.
             respond(403, {'error': 'Unauthorized device'})
+
+        # v4.3.0: heartbeat rate floor — same early-exit mechanics as the 403
+        # above (no partial write). Only authenticated devices reach this, so
+        # the floor can't be used to probe ids.
+        if _hb_floor > 0:
+            _since = int(time.time()) - int(dev.get('last_seen') or 0)
+            if 0 <= _since < _hb_floor:
+                respond(429, {'error': 'heartbeat faster than heartbeat_min_interval_s',
+                              'retry_after': _hb_floor - _since})
 
         now = int(time.time())
         dev['last_seen'] = now
@@ -14840,6 +14860,16 @@ def handle_diagnostics_bundle():
                            'retention_days': int(cfg.get('audit_log_retention_days') or 90)}
     except Exception as e:
         bundle['audit'] = {'error': str(e)[:200]}
+    # v4.3.0: database integrity (SQLite backend only) — quick_check catches
+    # page-level corruption that otherwise only surfaces as weird reads later.
+    try:
+        if _storage_backend() == 'sqlite':
+            bundle['database'] = {'backend': 'sqlite',
+                                  'quick_check': storage.integrity_check()}
+        else:
+            bundle['database'] = {'backend': _storage_backend()}
+    except Exception as e:
+        bundle['database'] = {'error': str(e)[:200]}
     # Optional-dependency presence — the #1 "why is X unavailable?" question.
     deps = {}
     for mod in ('webauthn', 'saml2', 'psycopg2', 'snmp', 'ldap3'):

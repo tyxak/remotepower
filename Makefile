@@ -11,10 +11,15 @@ PIP     ?= pip3
 # black + isort + strict mypy. The bulk of api.py predates the formatter
 # pass and reformatting it in one go would produce an unreviewable diff;
 # expanding the scope is a deliberate, separate effort.
+# v4.3.0: every NEW module gets added here at creation (api_worker.py is the
+# template). The legacy monolith files (api.py, app.js-era tests) stay out —
+# reformatting them is an unreviewable diff for zero behavior change.
 LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/openapi_spec.py \
+            server/cgi-bin/api_worker.py \
             tests/test_v190.py \
-            tests/test_v1100.py
+            tests/test_v1100.py \
+            tests/test_v430_worker.py
 TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/openapi_spec.py
 PIP_FLAGS ?= --break-system-packages
@@ -52,11 +57,26 @@ scan-demo:
 	@echo "==> Security-scan demo against $${RP_URL:-http://localhost:8085} (server must be up)"
 	$(PY) tools/scan-demo.py
 
+# Pinned versions (see [tool.remotepower-dev-deps] in pyproject.toml): an
+# unpinned `black` drifts with every release and starts flagging files the
+# previous version formatted — which is exactly how `make lint` silently
+# broke between v4.2.0 and v4.3.0.
 install-dev:
-	$(PIP) install $(PIP_FLAGS) black isort mypy
+	$(PIP) install $(PIP_FLAGS) 'black==26.5.1' 'isort==8.0.1' 'mypy==2.1.0'
 
 test:
 	$(PY) -m unittest discover -s tests -v
+
+# v4.3.0: automate the mechanical version-bump steps (CLAUDE.md checklist).
+# Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)
+bump:
+	$(PY) tools/bump_version.py $(VERSION) $(if $(DRY),--dry-run,)
+
+# v4.3.0: browser smoke suite (Playwright + Chromium). Self-skips when
+# playwright isn't installed: pip install playwright && python -m playwright
+# install chromium. Boots the real stack (static + SCGI worker) headless.
+e2e:
+	cd tests && $(PY) -m unittest test_v430_e2e -v
 
 # v3.12.0: run the full suite against the SQLite storage backend. The flat-JSON
 # storage-internals tests (flock/.bak/.tmp) are skipped via @skip_under_sqlite;

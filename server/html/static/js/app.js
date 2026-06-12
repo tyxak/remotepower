@@ -641,6 +641,7 @@ async function showApp() {
   loadHome();
   loadDevices();
   _applyInitialViewHash();   // v3.14.0: honor a shared #devices?view=Name link
+  _openDeviceFromHash();     // v4.3.0: honor a #device/<id> deep link
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
@@ -896,6 +897,22 @@ try {
       if (t === 'auto') applyTheme();
     });
 } catch (_) {}
+// v4.3.0: connectivity banner — network-level fetch failures (server down,
+// connection lost) show a persistent banner instead of only a one-shot toast;
+// the next request that gets through clears it. Endpoint errors (4xx/5xx with
+// a response) are NOT connectivity problems and don't touch the banner.
+function _setApiDown(down) {
+  const b = document.getElementById('net-down-banner');
+  if (!b) return;
+  if (down === !b.classList.contains('hidden')) return;   // no churn
+  b.classList.toggle('hidden', !down);
+}
+function retryConnection() {
+  try { loadDevices(); } catch (_) {}
+  try {
+    if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
+  } catch (_) {}
+}
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
@@ -910,7 +927,15 @@ async function api(method, path, body, extra) {
       if (extra[k] !== undefined) opts[k] = extra[k];
     }
   }
-  const r = await fetch('/api' + path, opts);
+  let r;
+  try {
+    r = await fetch('/api' + path, opts);
+  } catch (e) {
+    // Deliberate aborts (AbortController) are not connectivity failures.
+    if (!e || e.name !== 'AbortError') _setApiDown(true);
+    throw e;   // preserve every caller's existing .catch() behaviour
+  }
+  _setApiDown(false);
   if (r.status === 401) { doLogout(); return null; }
   // v2.0: surface a friendly toast for demo-mode 403s. The server
   // returns {demo: true, error: "..."} which this catches centrally so
@@ -3686,6 +3711,9 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "While a device drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
+  "If the dashboard can't reach the server, a banner with a Retry button appears at the bottom — and clears itself the moment a request gets through. No more silently-stale pages.",
+  "deploy-server.sh keeps the last 3 deployed versions as snapshots — `sudo bash deploy-server.sh --rollback` restores the newest one if an upgrade misbehaves.",
   "The Pentest page (under Monitoring) scans the hosts and websites you own for vulnerabilities — nuclei, nikto and nmap on the safe passive profile; OWASP ZAP and wapiti on the gated active one; and a lynis hardening audit on-host.",
   "To scan a website you don't have an agent on, add it as a target and prove you own it with a DNS TXT record or a .well-known file — ACME-style, just like issuing a TLS certificate. RemotePower refuses anything you haven't verified.",
   "Vulnerability scans run on a scanner satellite — a hardened relay node — not on your production hosts, so there's no footprint on the machine being scanned. Pin a scan to a specific satellite, e.g. one per network segment.",
@@ -6444,6 +6472,21 @@ function _applyInitialViewHash() {
     setTimeout(() => applyDeviceView(name), 400);
   } catch (_) {}
 }
+// v4.3.0: #device/<id> deep link — opens the device drawer directly (the
+// drawer resolves the name itself when only the id is known). Handles both
+// a cold load and a hash pasted/changed while the app is open.
+function _openDeviceFromHash() {
+  try {
+    const m = (location.hash || '').match(/^#device\/(.+)$/);
+    if (!m) return false;
+    const id = decodeURIComponent(m[1]);
+    if (_drawerDeviceId === id) return true;   // already showing it
+    showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+    openDeviceDrawer(id, '');
+    return true;
+  } catch (_) { return false; }
+}
+window.addEventListener('hashchange', () => { _openDeviceFromHash(); });
 let patchReportData = null;
 // v1.11.6: register patches table for sort. The existing 3-control filter
 // system (text + group dropdown + device dropdown) keeps owning filter
@@ -16670,6 +16713,12 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   drawer.classList.add('open');
   document.body.style.overflow = 'hidden';
 
+  // v4.3.0: deep-linkable drawer — the URL becomes #device/<id> while open,
+  // so a device view can be copied/pasted/bookmarked (and webhooks/tickets
+  // can link straight to a host). replaceState, not pushState, per the
+  // showPage() convention (back-button must not unwind every drawer open).
+  try { history.replaceState(null, '', '#device/' + encodeURIComponent(id)); } catch (_) {}
+
   // Fetch device data for status badge + settings form
   try {
     const devs = await api('GET', '/devices');
@@ -16701,6 +16750,10 @@ function closeDeviceDrawer() {
   _drawerDeviceId   = null;
   _drawerDeviceName = null;
   _drawerAuditLoaded = {};
+  // Leave the URL on the devices page once the deep-linked drawer closes.
+  try {
+    if (location.hash.startsWith('#device/')) history.replaceState(null, '', '#devices');
+  } catch (_) {}
 }
 
 // Close on Escape

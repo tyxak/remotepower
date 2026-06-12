@@ -22,6 +22,33 @@ sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
 
 import api  # noqa: E402
 
+# v4.3.0 fix: several tests in this file assign through the agent module's
+# namespace (`ag.subprocess.run = …`, `ns["subprocess"].run = …`) — but those
+# ARE the process-global subprocess/shutil modules, so the mocks leaked into
+# every test file that ran afterwards (caught when new tests' real
+# subprocess.run calls returned this file's canned usg output). The module
+# fixture guarantees the real functions are back when this file finishes;
+# TestUsgScan additionally restores per-test.
+_ORIG_SP_RUN = None
+_ORIG_SH_WHICH = None
+
+
+def setUpModule():
+    global _ORIG_SP_RUN, _ORIG_SH_WHICH
+    import shutil as _sh
+    import subprocess as _sp
+    _ORIG_SP_RUN = _sp.run
+    _ORIG_SH_WHICH = _sh.which
+
+
+def tearDownModule():
+    import shutil as _sh
+    import subprocess as _sp
+    if _ORIG_SP_RUN is not None:
+        _sp.run = _ORIG_SP_RUN
+    if _ORIG_SH_WHICH is not None:
+        _sh.which = _ORIG_SH_WHICH
+
 
 class _Base(unittest.TestCase):
     _FILES = ("DEVICES_FILE", "CMDS_FILE", "AUDIT_LOG_FILE")
@@ -216,6 +243,22 @@ class TestOscapInvocationFlags(unittest.TestCase):
 class TestUsgScan(unittest.TestCase):
     """On Ubuntu the agent prefers Canonical's `usg` (release-correct CIS/STIG
     content) over raw oscap, parsing its XCCDF results into a real score."""
+
+    # v4.3.0 fix: `ag.subprocess` / `ag.shutil` are the SHARED global modules
+    # — assigning ag.subprocess.run replaced subprocess.run for every test
+    # that ran after this file (caught when a new test's real subprocess.run
+    # returned this class's canned usg output). Save/restore around each test.
+    def setUp(self):
+        import shutil as _sh
+        import subprocess as _sp
+        self._orig_run = _sp.run
+        self._orig_which = _sh.which
+
+    def tearDown(self):
+        import shutil as _sh
+        import subprocess as _sp
+        _sp.run = self._orig_run
+        _sh.which = self._orig_which
 
     def _agent(self):
         import importlib.util

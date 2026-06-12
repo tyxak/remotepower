@@ -201,6 +201,20 @@ def _connect(data_dir=None):
     return conn
 
 
+def integrity_check(data_dir=None):
+    """v4.3.0: PRAGMA quick_check on the SQLite store — surfaced in the
+    /api/diagnostics bundle so silent corruption is visible before it bites.
+    Returns 'ok', the first corruption message, or an 'error: …' string.
+    quick_check (not integrity_check) keeps this cheap enough for a support
+    bundle; it still catches page-level corruption."""
+    try:
+        conn = _connect(data_dir)
+        row = conn.execute('PRAGMA quick_check(1)').fetchone()
+        return str(row[0]) if row else 'error: no result'
+    except Exception as exc:
+        return f'error: {exc.__class__.__name__}: {exc}'
+
+
 def close_connection():
     """Close every open per-directory connection (process exit / data-dir
     change / test teardown)."""
@@ -269,6 +283,27 @@ def _ensure_schema(conn):
         CREATE INDEX IF NOT EXISTS idx_metric_samples ON metric_samples(device, ts);
         """
     )
+    # v4.3.0 rollback safety: if the database was written by a NEWER server
+    # (schema_version ahead of this code), the operator has rolled the code
+    # back under a newer DB. Older code silently overwrote the version and
+    # ignored tables/columns it didn't know — destroying the only evidence.
+    # We warn loudly on every connect and leave the recorded version alone
+    # (refusing to serve would take monitoring down, which is worse).
+    try:
+        row = conn.execute(
+            "SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
+        db_ver = int(row['value']) if row and row['value'] else None
+    except Exception:
+        db_ver = None
+    if db_ver is not None and db_ver > SCHEMA_VERSION:
+        import sys
+        sys.stderr.write(
+            f"[remotepower] WARNING: database schema v{db_ver} is NEWER than "
+            f"this server's v{SCHEMA_VERSION} — the code was rolled back under "
+            f"a newer database. Data written by the newer version is preserved "
+            f"but invisible to this build; restore the matching server version "
+            f"or the pre-upgrade backup.\n")
+        return
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

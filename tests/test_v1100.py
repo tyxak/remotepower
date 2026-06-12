@@ -269,7 +269,7 @@ class TestSysinfoTrim(unittest.TestCase):
             "kernel": "5.15.0",
             # v3.12.0: mounts + network are now whitelisted (bounded, dict-only)
             # for the CMDB Hardware panel — but non-dict junk is still dropped.
-            "mounts": ["y"] * 100,           # strings → sanitised away to []
+            "mounts": ["y"] * 100,  # strings → sanitised away to []
             # All these should be dropped:
             "services": ["x"] * 200,
             "nics": ["z"] * 50,

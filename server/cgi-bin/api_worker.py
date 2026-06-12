@@ -63,13 +63,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-REQUEST_TIMEOUT = int(os.environ.get('RP_WORKER_TIMEOUT', '900'))
-MAX_CHILDREN = int(os.environ.get('RP_WORKER_MAX', '32'))
+REQUEST_TIMEOUT = int(os.environ.get("RP_WORKER_TIMEOUT", "900"))
+MAX_CHILDREN = int(os.environ.get("RP_WORKER_MAX", "32"))
 
 _active = 0
 
 
 # ── SCGI parsing ─────────────────────────────────────────────────────────────
+
 
 class SCGIProtocolError(Exception):
     pass
@@ -77,43 +78,45 @@ class SCGIProtocolError(Exception):
 
 def read_netstring(rfile):
     """Read one netstring ("<len>:<payload>,") and return the payload bytes."""
-    length = b''
+    length = b""
     while True:
         ch = rfile.read(1)
         if not ch:
-            raise SCGIProtocolError('EOF while reading netstring length')
-        if ch == b':':
+            raise SCGIProtocolError("EOF while reading netstring length")
+        if ch == b":":
             break
         if not ch.isdigit() or len(length) > 14:
-            raise SCGIProtocolError('malformed netstring length')
+            raise SCGIProtocolError("malformed netstring length")
         length += ch
     if not length:
-        raise SCGIProtocolError('empty netstring length')
+        raise SCGIProtocolError("empty netstring length")
     n = int(length)
     payload = rfile.read(n)
     if len(payload) != n:
-        raise SCGIProtocolError('short netstring payload')
-    if rfile.read(1) != b',':
-        raise SCGIProtocolError('netstring missing trailing comma')
+        raise SCGIProtocolError("short netstring payload")
+    if rfile.read(1) != b",":
+        raise SCGIProtocolError("netstring missing trailing comma")
     return payload
 
 
 def parse_scgi_headers(blob):
     """NUL-separated key/value pairs → dict (decoded like os.environ would)."""
-    parts = blob.split(b'\x00')
+    parts = blob.split(b"\x00")
     # trailing NUL leaves one empty element at the end
-    if parts and parts[-1] == b'':
+    if parts and parts[-1] == b"":
         parts.pop()
     if len(parts) % 2:
-        raise SCGIProtocolError('odd number of SCGI header parts')
+        raise SCGIProtocolError("odd number of SCGI header parts")
     env = {}
     for i in range(0, len(parts), 2):
-        env[parts[i].decode('utf-8', 'surrogateescape')] = \
-            parts[i + 1].decode('utf-8', 'surrogateescape')
+        env[parts[i].decode("utf-8", "surrogateescape")] = parts[i + 1].decode(
+            "utf-8", "surrogateescape"
+        )
     return env
 
 
 # ── per-request child ────────────────────────────────────────────────────────
+
 
 def run_request(api_mod, conn):
     """Run exactly one CGI-style request in this (forked) process and exit.
@@ -124,23 +127,22 @@ def run_request(api_mod, conn):
     """
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    signal.alarm(REQUEST_TIMEOUT)            # hung-handler backstop
-    rfile = conn.makefile('rb')
-    wfile = conn.makefile('wb')
+    signal.alarm(REQUEST_TIMEOUT)  # hung-handler backstop
+    rfile = conn.makefile("rb")
+    wfile = conn.makefile("wb")
     exit_code = 0
     try:
         env = parse_scgi_headers(read_netstring(rfile))
         os.environ.update(env)
         # The request body (CONTENT_LENGTH bytes) follows the headers on the
         # same stream — hand it to the handler as stdin, CGI-style.
-        sys.stdin = io.TextIOWrapper(rfile, encoding='utf-8',
-                                     errors='replace', newline='')
-        sys.stdout = io.TextIOWrapper(wfile, encoding='utf-8',
-                                      newline='\n', write_through=True)
+        sys.stdin = io.TextIOWrapper(rfile, encoding="utf-8", errors="replace", newline="")
+        sys.stdout = io.TextIOWrapper(wfile, encoding="utf-8", newline="\n", write_through=True)
         # Fresh per-request state, exactly like a new CGI process.
         api_mod._LOAD_CACHE.clear()
         import random
-        random.seed()                        # never share the parent's PRNG state
+
+        random.seed()  # never share the parent's PRNG state
         try:
             api_mod.main()
         except api_mod.HTTPError as e:
@@ -150,11 +152,11 @@ def run_request(api_mod, conn):
         except Exception:
             traceback.print_exc(file=sys.stderr)
             try:
-                api_mod._render_response(500, {'error': 'Internal server error'})
+                api_mod._render_response(500, {"error": "Internal server error"})
             except Exception:
                 pass
     except SCGIProtocolError as exc:
-        sys.stderr.write(f'[rp-worker] bad SCGI request: {exc}\n')
+        sys.stderr.write(f"[rp-worker] bad SCGI request: {exc}\n")
         exit_code = 1
     except Exception:
         traceback.print_exc(file=sys.stderr)
@@ -169,10 +171,11 @@ def run_request(api_mod, conn):
             conn.shutdown(socket.SHUT_WR)
         except OSError:
             pass
-        os._exit(exit_code)                  # skip atexit — that's the parent's
+        os._exit(exit_code)  # skip atexit — that's the parent's
 
 
 # ── parent ───────────────────────────────────────────────────────────────────
+
 
 def _reap(signum, frame):
     global _active
@@ -188,8 +191,8 @@ def _reap(signum, frame):
 
 def make_listen_socket(spec):
     """Bind the listening socket: 'host:port' → TCP, anything else → unix."""
-    if ':' in spec and not spec.startswith('/'):
-        host, port = spec.rsplit(':', 1)
+    if ":" in spec and not spec.startswith("/"):
+        host, port = spec.rsplit(":", 1)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, int(port)))
@@ -198,30 +201,33 @@ def make_listen_socket(spec):
             os.unlink(spec)
         except FileNotFoundError:
             pass
-        os.makedirs(os.path.dirname(spec) or '.', exist_ok=True)
+        os.makedirs(os.path.dirname(spec) or ".", exist_ok=True)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.bind(spec)
-        os.chmod(spec, 0o660)                # nginx (same group) connects; others don't
+        os.chmod(spec, 0o660)  # nginx (same group) connects; others don't
     sock.listen(64)
     return sock
 
 
 def serve():
     global _active
-    spec = os.environ.get('RP_SCGI_SOCKET', '/run/remotepower/api.sock')
+    spec = os.environ.get("RP_SCGI_SOCKET", "/run/remotepower/api.sock")
 
     # Pay the expensive part exactly once.
     t0 = time.monotonic()
-    import api as api_mod                     # noqa: E402 — deliberate late import
     import storage
+
+    import api as api_mod  # noqa: E402 — deliberate late import
+
     # Fork hygiene (see module docstring): no inherited SQLite connections,
     # no import-time load() snapshots surviving into children.
     storage.close_connection()
     api_mod._LOAD_CACHE.clear()
     sys.stderr.write(
-        f'[rp-worker] api.py v{api_mod.SERVER_VERSION} imported in '
-        f'{time.monotonic() - t0:.2f}s; serving SCGI on {spec} '
-        f'(max {MAX_CHILDREN} children)\n')
+        f"[rp-worker] api.py v{api_mod.SERVER_VERSION} imported in "
+        f"{time.monotonic() - t0:.2f}s; serving SCGI on {spec} "
+        f"(max {MAX_CHILDREN} children)\n"
+    )
 
     listen = make_listen_socket(spec)
     signal.signal(signal.SIGCHLD, _reap)
@@ -230,12 +236,13 @@ def serve():
         try:
             listen.close()
         finally:
-            if not (':' in spec and not spec.startswith('/')):
+            if not (":" in spec and not spec.startswith("/")):
                 try:
                     os.unlink(spec)
                 except OSError:
                     pass
             os._exit(0)
+
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
@@ -256,12 +263,12 @@ def serve():
             if pid == 0:
                 signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGCHLD})
                 listen.close()
-                run_request(api_mod, conn)   # never returns
+                run_request(api_mod, conn)  # never returns
             _active += 1
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGCHLD})
         conn.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     serve()

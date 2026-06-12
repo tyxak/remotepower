@@ -37,6 +37,32 @@ self-observability, UX polish, and regression guardrails.
   2 MB parse tax on every poll and heartbeat. Opt-in via
   `server/conf/remotepower-api.service` + the commented `scgi_pass` block
   in `server/conf/remotepower.conf`; fcgiwrap keeps working unchanged.
+- **Accessibility floor, enforced by tests.** Modals announce as dialogs
+  (`role="dialog" aria-modal`), filter/search inputs carry aria-labels, a
+  visible `:focus-visible` keyboard ring everywhere, and a guardrail keeps
+  icon-only buttons labeled.
+- **Device deep links.** The URL becomes `#device/<id>` while a drawer is
+  open — paste it in a ticket and it opens straight to that host.
+- **Connectivity banner.** Network-level API failures show a persistent
+  "can't reach the server" banner with a Retry button, auto-cleared by the
+  next successful request.
+- **Deploy snapshots + rollback.** `deploy-server.sh` backs up the deployed
+  tree before every run (keeps 3) and gains `--rollback`; the SQLite store
+  warns loudly when code is rolled back under a newer database; the
+  diagnostics bundle includes a `quick_check` integrity verdict; recovery
+  procedures documented in `docs/deployment.md`.
+- **Heartbeat rate floor (optional).** `heartbeat_min_interval_s` (default
+  0 = off) 429s heartbeats arriving faster than the floor so a looping agent
+  can't bloat state.
+- **Browser smoke tests** (`make e2e`, Playwright; self-skipping): boots the
+  real stack (static + SCGI worker), logs in, walks the core pages, fails on
+  any uncaught JS error — the first runtime UI tests in the project. Plus:
+  real-GPG signed-update verification + log-rotation + malformed-check agent
+  tests, a chrome-i18n coverage gate (29 page titles backfilled in 5
+  languages), and a typography-scale guardrail.
+- **Maintainer QoL.** `make bump VERSION=x.y.z` automates the mechanical
+  version-bump surfaces; lint-tool versions pinned; vendored JS libraries
+  inventoried in `static/vendor/VENDORED.md`.
 - **Download the archived audit log.** A button on the Audit page and
   `GET /api/audit-log/archive` stream the gzipped archive of evicted entries,
   so the full retained history is reachable without shell access.

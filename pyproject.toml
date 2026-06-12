@@ -1,5 +1,12 @@
 # RemotePower — Python tooling configuration.
 # Used by `make lint`, `make format`, and `make typecheck`.
+#
+# Dev-tool versions are PINNED (installed by `make install-dev`):
+#   black 26.5.1 · isort 8.0.1 · mypy 2.1.0
+# Rationale: formatter output changes between releases; an unpinned black
+# eventually flags files its predecessor formatted and `make lint` rots.
+# Bump all three deliberately, re-run `make format` on LINT_SRC, and commit
+# the reformat in the same change as the pin bump.
 
 [tool.black]
 line-length = 100
