@@ -15,9 +15,13 @@ services:
       - remotepower_data:/var/lib/remotepower
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      # curl is not installed in the image — use Python (always present).
+      # Probes /api/health (lightweight JSON) instead of the full SPA root.
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/api/health',timeout=4).status==200 else 1)"]
       interval: 60s
       timeout: 5s
+      start_period: 15s
       retries: 3
 
 volumes:

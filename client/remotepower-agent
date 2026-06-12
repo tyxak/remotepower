@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '4.3.0'
+VERSION      = '4.4.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
@@ -416,15 +416,25 @@ def get_local_ip():
     except Exception:
         return '127.0.0.1'
 
+_os_info_cache = None
 def get_os_info():
+    # v4.4.0 (PERF): the OS string is constant for the process lifetime, so
+    # read /etc/os-release once and memoize instead of re-opening it every
+    # 60s heartbeat.
+    global _os_info_cache
+    if _os_info_cache is not None:
+        return _os_info_cache
+    info = platform.system() + ' ' + platform.release()
     try:
         with open('/etc/os-release') as f:
             for line in f:
                 if line.startswith('PRETTY_NAME='):
-                    return line.split('=', 1)[1].strip().strip('"')
+                    info = line.split('=', 1)[1].strip().strip('"')
+                    break
     except Exception:
         pass
-    return platform.system() + ' ' + platform.release()
+    _os_info_cache = info
+    return info
 
 def get_mac():
     try:
@@ -845,16 +855,28 @@ def run_host_scan(job):
     if not _which('lynis'):
         return {'id': sid, 'status': 'failed', 'findings': [],
                 'error': 'lynis not installed on this host'}
-    report = '/tmp/rp-lynis-report.dat'
+    # v4.4.0 (SECURITY): mkstemp gives an unpredictable, O_EXCL-created path
+    # owned by root (0600). The old fixed /tmp/rp-lynis-report.dat let a local
+    # unprivileged user pre-plant a symlink there so the root lynis run would
+    # clobber an arbitrary file (e.g. /etc/cron.d/*) → local privilege
+    # escalation. Unlink it after parsing.
+    fd, report = tempfile.mkstemp(prefix='rp-lynis-', suffix='.dat')
+    os.close(fd)
     try:
-        subprocess.run(['lynis', 'audit', 'system', '--quiet', '--no-colors',
-                        '--report-file', report],
-                       capture_output=True, timeout=900)
-    except subprocess.TimeoutExpired:
-        return {'id': sid, 'status': 'failed', 'findings': [], 'error': 'lynis timed out'}
-    except Exception as e:
-        return {'id': sid, 'status': 'failed', 'findings': [], 'error': str(e)[:200]}
-    findings, hardening = _parse_lynis_report(report)
+        try:
+            subprocess.run(['lynis', 'audit', 'system', '--quiet', '--no-colors',
+                            '--report-file', report],
+                           capture_output=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            return {'id': sid, 'status': 'failed', 'findings': [], 'error': 'lynis timed out'}
+        except Exception as e:
+            return {'id': sid, 'status': 'failed', 'findings': [], 'error': str(e)[:200]}
+        findings, hardening = _parse_lynis_report(report)
+    finally:
+        try:
+            os.unlink(report)
+        except OSError:
+            pass
     result = {'id': sid, 'status': 'done', 'findings': findings, 'error': ''}
     if hardening is not None:
         result['hardening_index'] = hardening
@@ -3172,8 +3194,11 @@ def get_host_health():
     # ── recent logins / source IPs (v3.11.0 access watch) ────────────
     try:
         if _which('last'):
+            # v4.4.0: LC_ALL=C so the `-F` full timestamps parse deterministically
+            # (English weekday/month names) regardless of the host locale.
             r = subprocess.run(['last', '-i', '-w', '-F', '-n', '25'],
-                               capture_output=True, text=True, timeout=8)
+                               capture_output=True, text=True, timeout=8,
+                               env=dict(os.environ, LC_ALL='C'))
             if r.returncode == 0:
                 logins, srcs = [], []
                 for ln in r.stdout.splitlines():
@@ -3184,12 +3209,27 @@ def get_host_health():
                     if len(f) < 2 or f[0] in ('reboot', 'shutdown'):
                         continue
                     ip = ''
-                    for tok in f[1:5]:
+                    ip_idx = -1
+                    for idx in range(1, min(5, len(f))):
+                        tok = f[idx]
                         if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', tok) or \
                            (tok.count(':') >= 2):
                             ip = tok
+                            ip_idx = idx
                             break
-                    logins.append({'user': f[0], 'source': ip})
+                    # v4.4.0: with -F the five tokens after the IP are the login
+                    # time, e.g. "Wed Jun 9 14:23:01 2026". Parse to epoch so the
+                    # drawer Access table can show *when*. Best-effort → 0 on any
+                    # format/locale surprise.
+                    ts = 0
+                    if ip_idx >= 0 and len(f) >= ip_idx + 6:
+                        try:
+                            ts = int(time.mktime(time.strptime(
+                                ' '.join(f[ip_idx + 1:ip_idx + 6]),
+                                '%a %b %d %H:%M:%S %Y')))
+                        except Exception:
+                            ts = 0
+                    logins.append({'user': f[0], 'source': ip, 'ts': ts})
                     if ip and ip not in srcs and ip != '0.0.0.0':
                         srcs.append(ip)
                 if logins:

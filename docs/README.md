@@ -38,15 +38,17 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-4.3.0.md](security-review-4.3.0.md)** — Latest security
- review: the persistent SCGI API worker, per-endpoint gzip (BREACH
- reasoning), the fleet-checks cache scope guarantee, heartbeat rate floor,
- deploy rollback, and two Low hardenings fixed in-release.
+- **[security-review-4.4.0.md](security-review-4.4.0.md)** — Latest security
+ review: a full server + agent audit (independently pentested clean) — a
+ critical admin-gate escalation, mitigation-route scope guards, shell-quoting
+ the drift/ACME command builders, the RouterOS SSRF guard, metrics-scrape
+ resilience, and Windows/macOS agent transport parity.
+- **[security-review-4.3.0.md](security-review-4.3.0.md)** — The persistent
+ SCGI API worker, per-endpoint gzip (BREACH reasoning), the fleet-checks cache
+ scope guarantee, heartbeat rate floor, deploy rollback, and two Low hardenings.
 - **[security-review-4.2.0.md](security-review-4.2.0.md)** — The scan engine,
  passkeys, SAML, the audit hash-chain, the scan-schedule scope fix, and the
  external-scan summary for v4.2.0.
-- **[security-review-4.1.0.md](security-review-4.1.0.md)** — TLS-1.2 floor on
- every hop, SSH argv hardening, and the external-scan summary for v4.1.0.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes
@@ -56,6 +58,10 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.4.0.md](v4.4.0.md)** — "FortifyMatters": a security-hardening + bind
+ release — a critical admin-gate fix, an independent pentest pass, Windows/macOS
+ agent transport parity, login timestamps + clock-skew in the drawer, and
+ single-row heartbeat reads. No breaking changes.
 - **[v4.3.0.md](v4.3.0.md)** — "ImprovementMatters": single-row device reads on
  large fleets, audit-archive download, staleness badges, clickable posture
  fixes, and regression guardrails. No breaking changes.
@@ -66,8 +72,6 @@ The five most recent per-release notes are kept here:
  Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
 - **[v4.0.0.md](v4.0.0.md)** — scale out, encrypt everything, see more:
  PostgreSQL + HA, relay satellites, multi-node, macOS agent, KEV/EPSS.
-- **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
- at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.
 
 ## Feature guides
 

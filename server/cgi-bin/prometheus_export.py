@@ -82,6 +82,14 @@ def generate_metrics(ctx: dict) -> str:
     devices     = ctx['devices']
     version     = ctx['server_version']
 
+    # v4.4.0 (RELIABILITY): a single corrupt store record must not 500 the whole
+    # scrape. Keep only well-formed dict records here so every downstream
+    # `d.get(...)` loop is safe; the handler also wraps this in try/except.
+    if isinstance(devices, dict):
+        devices = {k: v for k, v in devices.items() if isinstance(v, dict)}
+    else:
+        devices = {}
+
     # ── Build-info gauge ───────────────────────────────────────────────────────
     lines.append('# HELP remotepower_info Server build information.')
     lines.append('# TYPE remotepower_info gauge')
@@ -177,6 +185,8 @@ def generate_metrics(ctx: dict) -> str:
         findings = entry.get('findings') or []
         counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'unknown': 0}
         for f in findings:
+            if not isinstance(f, dict):
+                continue   # v4.4.0: skip a malformed finding, don't break the scrape
             vid = f.get('vuln_id')
             ig = ignore_data.get(vid)
             if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
@@ -311,6 +321,8 @@ def generate_metrics(ctx: dict) -> str:
     cutoff = now - 86400
     by_kind = {}
     for e in evs:
+        if not isinstance(e, dict):
+            continue   # v4.4.0: skip a malformed event record
         if (e.get('ts') or 0) >= cutoff:
             k = e.get('event', '') or 'unknown'
             by_kind[k] = by_kind.get(k, 0) + 1

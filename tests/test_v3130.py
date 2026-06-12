@@ -64,7 +64,10 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex(txt[:2000], r"v\d+\.\d+\.\d+")
 
     def test_version_doc_exists(self):
-        self.assertTrue(list((_ROOT / "docs").glob("v3.*.md")))
+        # v4.4.0: the keep-last-5 housekeeping aged out the final v3.x doc, so
+        # this no longer pins a v3.* file specifically — just that the per-release
+        # version docs exist at all.
+        self.assertTrue(list((_ROOT / "docs").glob("v*.md")))
 
     def test_whats_new_card_present(self):
         html = (_ROOT / "server/html/index.html").read_text()

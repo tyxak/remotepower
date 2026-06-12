@@ -15,6 +15,7 @@ import hmac
 import secrets
 import socket
 import subprocess
+import shlex
 import shutil
 import fcntl
 import gzip
@@ -24,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.3.0'
+SERVER_VERSION = '4.4.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2792,7 +2793,14 @@ def require_auth(require_admin=False):
     # Admin-only endpoints (config edits, user management, API key creation)
     # stay admin-only regardless of whether the caller is a human viewer
     # or an MCP key.
-    if require_admin and role in ('viewer', 'mcp'):
+    #
+    # v4.4.0 (SECURITY): gate on the RESOLVED role record, not a string denylist.
+    # A custom operator role (assignable to a login account via _assignable_role)
+    # is neither 'viewer' nor 'mcp', so the old `role in ('viewer','mcp')` check
+    # let it slip through every admin-only endpoint — user/role/key/config and the
+    # agent-update SIGNING KEY → full takeover. _resolve_role() correctly marks
+    # only built-in 'admin' as admin:True; viewer/mcp/custom all resolve admin:False.
+    if require_admin and not _resolve_role(role).get('admin'):
         respond(403, {'error': 'This action requires admin role'})
     return username
 
@@ -9692,9 +9700,14 @@ def handle_heartbeat():
                 for e in (a.get('recent_logins') or [])[:25]:
                     if not isinstance(e, dict):
                         continue
+                    try:
+                        ts = int(e.get('ts') or 0)
+                    except (TypeError, ValueError):
+                        ts = 0
                     logins.append({
                         'user':   _sanitize_str(e.get('user', ''), 64),
                         'source': _sanitize_str(e.get('source', ''), 64),
+                        'ts':     ts,   # v4.4.0: login time (epoch), 0 if unknown
                     })
                 srcs = [_sanitize_str(s, 64) for s in (a.get('sources') or [])[:25]
                         if isinstance(s, str) and s]
@@ -10193,7 +10206,11 @@ def handle_heartbeat():
 
     # v2.2.0: surface the watched-files list to the agent so it knows what
     # to hash next round. Added to common_resp below.
-    watched_files = get_watched_files_for(dev_id, devices=load(DEVICES_FILE))
+    # v4.4.0 (PERF): device_get() is an O(1) single-row read on SQLite/PG;
+    # the old load(DEVICES_FILE) was a cold full-fleet read on every heartbeat
+    # (the device write just invalidated the load cache). get_watched_files_for
+    # only ever indexes devices[dev_id], so a one-entry dict is equivalent.
+    watched_files = get_watched_files_for(dev_id, devices={dev_id: device_get(dev_id)})
 
     # v2.4.3: mailbox-count monitor. Ingest the counts the agent
     # reported, and tell the agent which paths to count next round.
@@ -10398,7 +10415,9 @@ def handle_heartbeat():
     # saved_dev predates this heartbeat's ingest, so read the freshly-stored
     # drift state (load() is per-request memoised; the ingest invalidated it).
     if host_config_desired is None and _desired and (_hc.get('enforce') or _pol_mode == 'enforce'):
-        _fresh_hc = (load(DEVICES_FILE).get(dev_id) or {}).get('host_config') or _hc
+        # v4.4.0 (PERF): single-row read instead of a full-fleet load() (the
+        # ingest above invalidated the load cache, so this was a cold full read).
+        _fresh_hc = ((device_get(dev_id) or {}).get('host_config')) or _hc
         if not (_fresh_hc.get('drift') or {}).get('clean', True):
             host_config_desired = _desired
             try:
@@ -23025,19 +23044,18 @@ def _fleet_checks_rows(devices_all, cfg, scripts, fp):
     cache_file = _fleet_checks_cache_file()
     try:
         cached = load(cache_file)
+        # v4.4.0 (PERF): honor the cache for its full 15s TTL. The old code also
+        # busted it whenever DEVICES_FILE/CVE/HARDWARE mtime advanced — but on any
+        # fleet larger than ~15 hosts a heartbeat rewrites DEVICES_FILE more often
+        # than every 15s, so the cache NEVER hit and every Checks-page poll +
+        # checksrollup widget re-ran the full _host_checks fleet loop. The `fp`
+        # fingerprint still busts the cache instantly on the changes operators
+        # make and expect reflected (config / scripts / custom-check defs); device
+        # telemetry being ≤15s stale on a rollup view is the intended contract.
         if (isinstance(cached, dict) and cached.get('fp') == fp
                 and isinstance(cached.get('hosts'), list)
                 and time.time() - cached.get('ts', 0) < _FLEET_CHECKS_CACHE_TTL):
-            stale = False
-            for src in (DEVICES_FILE, CVE_FINDINGS_FILE, HARDWARE_FILE):
-                try:
-                    if src.exists() and src.stat().st_mtime > cached.get('ts', 0):
-                        stale = True
-                        break
-                except Exception:
-                    pass
-            if not stale:
-                return cached['hosts']
+            return cached['hosts']
     except Exception:
         pass
     disabled_all = cfg.get('host_checks_disabled') or {}
@@ -26234,9 +26252,12 @@ def handle_drift_fetch_content(dev_id):
             # arbitrary file-read primitive.
             not_watched.append(p)
             continue
-        # Single-quote the path for the shell to handle awkward
-        # characters; this matches the agent's exec dispatcher.
-        cmd = f"exec:cat '{p}'"
+        # v4.4.0 (SECURITY): shell-quote the path with shlex.quote — the old
+        # naive f"…'{p}'" broke out of the single quotes if a watched path
+        # contained a quote (watched_files ingestion has no metachar filter),
+        # turning this watch-only `cat` into agent RCE. shlex.quote is the
+        # correct POSIX-shell escaping the agent's exec dispatcher expects.
+        cmd = f"exec:cat {shlex.quote(p)}"
         if cmd not in cmds[dev_id]:
             cmds[dev_id].append(cmd)
             queued.append(p)
@@ -33286,6 +33307,14 @@ def _routeros_target(dev):
     if not host or not user:
         return None
     port = int(cfg.get('port') or 443)
+    # v4.4.0 (SECURITY): SSRF pre-flight on the RouterOS REST host. These
+    # handlers are reachable by any authenticated user (incl. viewer), and the
+    # module fetched https://{host}/rest with no anti-rebinding check. Block
+    # loopback + link-local/cloud-metadata (allow_loopback=False) while still
+    # permitting the RFC1918 LAN address a real router lives on.
+    if _url_targets_local_or_meta(urllib.parse.urlparse(f'https://{host}'),
+                                  allow_loopback=False):
+        return None
     return (f'{host}:{port}', user, password, bool(cfg.get('verify', False)))
 
 
@@ -36016,7 +36045,21 @@ def handle_prometheus_metrics():
             print('Unauthorized')
             sys.exit(0)
 
-    body = prometheus_export.generate_metrics(_build_metrics_ctx())
+    # v4.4.0 (RELIABILITY): never let a single malformed store record 500 the
+    # whole scrape — that breaks Prometheus monitoring fleet-wide. Degrade to a
+    # minimal valid exposition plus a `remotepower_scrape_error` gauge the
+    # operator can alert on. (generate_metrics also skips non-dict records
+    # internally, so this is the belt to that suspenders.)
+    try:
+        body = prometheus_export.generate_metrics(_build_metrics_ctx())
+        scrape_error = 0
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] metrics scrape failed: {e}\n')
+        body = f'remotepower_info{{version="{SERVER_VERSION}"}} 1\n'
+        scrape_error = 1
+    body += f'# HELP remotepower_scrape_error Whether the last scrape hit an internal error (1/0).\n'
+    body += f'# TYPE remotepower_scrape_error gauge\n'
+    body += f'remotepower_scrape_error {scrape_error}\n'
 
     print('Status: 200 OK')
     print('Content-Type: text/plain; version=0.0.4; charset=utf-8')
@@ -43020,7 +43063,11 @@ def handle_acme_force_renew(dev_id, domain):
     # Shell-escape domain via single quotes; domain is already validated against
     # a strict regex so this is paranoia, not the security boundary.
     safe_domain = domain.replace("'", "'\\''")
-    cmd = f"'{home}/acme.sh' --renew --force -d '{safe_domain}'"
+    # v4.4.0 (SECURITY): shlex.quote the agent-reported `home` path too — it was
+    # interpolated raw inside the quotes, so a rogue/compromised agent could set
+    # `home` to break out of the acme.sh invocation.
+    acme_bin = shlex.quote(f'{home}/acme.sh')
+    cmd = f"{acme_bin} --renew --force -d '{safe_domain}'"
     result = _acme_queue_command(dev_id, 'renew', domain, cmd)
     if result:
         respond(200, result)
@@ -43037,10 +43084,11 @@ def handle_acme_revoke(dev_id, domain):
     rec = store.get(dev_id) or {}
     home = rec.get('home') or '/root/.acme.sh'
     safe_domain = domain.replace("'", "'\\''")
+    acme_bin = shlex.quote(f'{home}/acme.sh')   # v4.4.0: quote agent-reported home
     # --revoke tells LE the cert is no longer trusted; --remove drops the
     # local files so the next scan reflects the change.
-    cmd = (f"'{home}/acme.sh' --revoke -d '{safe_domain}' && "
-           f"'{home}/acme.sh' --remove -d '{safe_domain}'")
+    cmd = (f"{acme_bin} --revoke -d '{safe_domain}' && "
+           f"{acme_bin} --remove -d '{safe_domain}'")
     result = _acme_queue_command(dev_id, 'revoke', domain, cmd)
     if result:
         respond(200, result)
@@ -43206,8 +43254,9 @@ def handle_acme_issue(dev_id):
     # on every device. Empty prefix when no creds are stored — the agent
     # falls back to acme.sh's normal env/config-file lookup.
     cred_prefix = _acme_credential_env_prefix(dns_provider)
+    acme_bin = shlex.quote(f'{home}/acme.sh')   # v4.4.0: quote agent-reported home
     cmd = (cred_prefix
-           + f"'{home}/acme.sh' --issue --dns {dns_provider} "
+           + f"{acme_bin} --issue --dns {dns_provider} "
            + f"{' '.join(d_args)} --keylength {key_length}")
     result = _acme_queue_command(dev_id, 'issue', domain, cmd)
     if result:
@@ -43861,6 +43910,10 @@ def handle_mitigate_status(dev_id, action_id):
     Returns the captured log content + meta, including rc when done.
     """
     require_auth()
+    _scope_block_device(dev_id)   # v4.4.0: this route is NOT under /api/devices/,
+                                  # so the central scope guard doesn't cover it —
+                                  # a scoped operator/viewer could otherwise read
+                                  # another scope's 256 KB diagnostic capture.
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
@@ -43917,6 +43970,8 @@ def handle_mitigate_ai(dev_id, action_id):
     Body (all optional): {kind, target} — defaults pulled from meta.json.
     """
     require_auth()
+    _scope_block_device(dev_id)   # v4.4.0: scope-guard a non-/api/devices/ route
+                                  # (sends another scope's diagnostic output to AI).
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):

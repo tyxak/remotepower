@@ -106,7 +106,10 @@ class TestDriftFetchContent(_DriftContentBase):
         self.assertEqual(r.status, 200)
         self.assertIn('/etc/ssh/sshd_config', r.body['queued'])
         cmds = api.load(api.CMDS_FILE)
-        self.assertIn("exec:cat '/etc/ssh/sshd_config'", cmds['d1'])
+        # v4.4.0: the path is shell-quoted with shlex.quote, which leaves a
+        # metachar-free path unquoted (the old code hard-wrapped it in single
+        # quotes). The mirror hook's _CAT_CMD_RE matches the bare form too.
+        self.assertIn("exec:cat /etc/ssh/sshd_config", cmds['d1'])
 
     def test_denylist_refuses_shadow(self):
         _set_method('POST', {'paths': ['/etc/shadow', '/etc/ssh/sshd_config']})

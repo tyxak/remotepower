@@ -188,9 +188,10 @@ for f in "$SCRIPT_DIR"/server/html/*.html; do
     name="$(basename "$f")"
     cp "$f" /var/www/remotepower/"$name"
 done
-# v2.4.15: Root-level non-HTML assets (favicon, manifest, service worker).
+# v2.4.15: Root-level non-HTML assets (favicon, manifest, service worker, robots.txt).
 # The *.html glob above only catches .html files; these must be copied separately.
 for f in "$SCRIPT_DIR"/server/html/favicon.* \
+         "$SCRIPT_DIR"/server/html/robots.txt \
          "$SCRIPT_DIR"/server/html/manifest.json \
          "$SCRIPT_DIR"/server/html/sw.js; do
     [[ -f "$f" ]] || continue
@@ -215,6 +216,19 @@ if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null || compgen -G "$SCRIPT_DIR/doc
     install -m 644 "$SCRIPT_DIR"/docs/*.md   /var/www/remotepower/docs/ 2>/dev/null || true
     install -m 644 "$SCRIPT_DIR"/docs/*.html /var/www/remotepower/docs/ 2>/dev/null || true
 fi
+# v2.0: static assets (logos, CSS, JS). rsync is preferred (atomic, handles
+# subdirs); fall back to cp -r if rsync is absent on the target machine.
+if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then
+    install -d -m 755 /var/www/remotepower/static
+    if command -v rsync &>/dev/null; then
+        rsync -a --delete "$SCRIPT_DIR/server/html/static/" /var/www/remotepower/static/
+    else
+        cp -rp "$SCRIPT_DIR/server/html/static/." /var/www/remotepower/static/
+    fi
+    chown -R root:root /var/www/remotepower/static
+    find /var/www/remotepower/static -type f -exec chmod 644 {} \;
+    find /var/www/remotepower/static -type d -exec chmod 755 {} \;
+fi
 # Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
 # cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
 # api.py needs +x for CGI; others are imports so 644 is fine.
@@ -235,6 +249,17 @@ for helper in remotepower-tls-check; do
 done
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 success "Web files installed"
+
+# ── SCGI prefork API worker service (optional perf; not enabled by default) ──
+# Copies the unit file so the operator can enable it later with:
+#   systemctl enable --now remotepower-api
+# then switch nginx to the scgi_pass block (see server/conf/remotepower.conf).
+if [[ -f "$SCRIPT_DIR/server/conf/remotepower-api.service" ]]; then
+    install -m 644 "$SCRIPT_DIR/server/conf/remotepower-api.service" \
+        /etc/systemd/system/remotepower-api.service
+    systemctl daemon-reload
+    success "SCGI worker unit installed (not started — enable with: systemctl enable --now remotepower-api)"
+fi
 
 # ── Agent binary for self-update ────────────────────────────────────────────────
 info "Publishing agent binary for self-update..."
@@ -348,7 +373,29 @@ echo "  Logs:      journalctl -u nginx -f"
 echo "             tail -f /var/log/nginx/remotepower_*.log"
 echo ""
 echo "  User mgmt: python3 /var/www/remotepower/cgi-bin/remotepower-passwd"
+echo "             (add / change / delete users and list accounts)"
+echo ""
+echo "  Perf (optional): systemctl enable --now remotepower-api"
+echo "    then switch nginx /api/ to scgi_pass (see server/conf/remotepower.conf)"
 echo ""
 echo "  Next: Install the client on each machine you want to control:"
 echo "    sudo bash install-client.sh"
+echo ""
+echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${RED}║  WARNING: TLS IS NOT CONFIGURED — DO THIS BEFORE GOING LIVE  ║${NC}"
+echo -e "${RED}║                                                                ║${NC}"
+echo -e "${RED}║  Session tokens and agent credentials travel in CLEARTEXT     ║${NC}"
+echo -e "${RED}║  over HTTP. Set up HTTPS before enrolling any real agent or   ║${NC}"
+echo -e "${RED}║  exposing this server to your network.                        ║${NC}"
+echo -e "${RED}║                                                                ║${NC}"
+echo -e "${RED}║  Quickest path (Let's Encrypt):                               ║${NC}"
+echo -e "${RED}║    sudo apt install certbot python3-certbot-nginx             ║${NC}"
+echo -e "${RED}║    sudo certbot --nginx -d your.domain.com                    ║${NC}"
+echo -e "${RED}║                                                                ║${NC}"
+echo -e "${RED}║  Then uncomment in /etc/nginx/sites-available/remotepower:    ║${NC}"
+echo -e "${RED}║    return 301 https://\$host\$request_uri;                      ║${NC}"
+echo -e "${RED}║    Strict-Transport-Security header (HSTS)                    ║${NC}"
+echo -e "${RED}║                                                                ║${NC}"
+echo -e "${RED}║  Full guide: docs/install.md → TLS section                   ║${NC}"
+echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""

@@ -33,13 +33,35 @@ import os
 import platform
 import re
 import socket
+import ssl
 import subprocess
 import sys
 import time
 import urllib.request
 
-VERSION = '4.3.0'
+VERSION = '4.4.0'
 DEFAULT_POLL = 60
+
+
+def _make_ssl_context():
+    """Strict TLS context: cert verification on, TLS 1.2 floor — parity with the
+    Linux agent (v4.4.0). The default urlopen context already verifies certs, but
+    it permits obsolete TLS 1.0/1.1; pin the floor here. RP_CA_BUNDLE lets the
+    agent trust an internal CA without weakening verification."""
+    ctx = ssl.create_default_context()
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.check_hostname = True
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
+    if _ca and os.path.exists(_ca):
+        try:
+            ctx.load_verify_locations(cafile=_ca)
+        except Exception:
+            pass
+    return ctx
+
+
+_SSL_CTX = _make_ssl_context()
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
 MAX_OUTPUT = 32 * 1024
@@ -502,11 +524,16 @@ def _uninstall():
 # ─── server I/O ────────────────────────────────────────────────────────────--
 
 def _post_json(url, payload, timeout=HTTP_TIMEOUT):
+    # v4.4.0 (SECURITY): refuse non-HTTPS — otherwise the device token and all
+    # command output travel in cleartext and a MITM can inject commands the
+    # agent executes as SYSTEM. Mirrors the Linux agent's guard.
+    if not url.startswith('https://'):
+        raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     data = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(url, data=data, method='POST',
                                  headers={'Content-Type': 'application/json',
                                           'User-Agent': f'RemotePower-Win/{VERSION}'})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
 

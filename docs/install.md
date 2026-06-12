@@ -7,10 +7,50 @@ The fastest path. Three commands on the server, two on the client.
 ```bash
 git clone https://github.com/tyxak/remotepower
 cd remotepower
-sudo bash install-server.sh        # nginx + fcgiwrap + Python deps + initial admin password
+sudo bash install-server.sh        # nginx + fcgiwrap + Python deps; prompts for admin credentials
 ```
 
-That's it. The installer prints the URL and the auto-generated admin password. Open it in a browser, log in, change the password under Settings → Account.
+The installer asks for an admin username and password, then prints the URL. Open it in a browser and log in.
+
+### TLS — strongly recommended before enrolling any agent
+
+> **Without TLS, session tokens and agent credentials travel in cleartext.**
+> Do not expose the server on a network you don't fully control without HTTPS.
+
+The fastest path is certbot with the nginx plugin:
+
+```bash
+# 1. Install certbot
+sudo apt install certbot python3-certbot-nginx   # Debian/Ubuntu
+# sudo dnf install certbot python3-certbot-nginx  # RHEL/Fedora
+# sudo pacman -S certbot certbot-nginx             # Arch
+
+# 2. Obtain a certificate and let certbot rewrite the nginx config
+sudo certbot --nginx -d your.domain.com
+
+# Certbot adds the SSL server block and sets up auto-renewal via a systemd
+# timer or cron. Verify with:
+sudo certbot renew --dry-run
+```
+
+After certbot runs, enable the two commented-out lines in
+`/etc/nginx/sites-available/remotepower`:
+
+```nginx
+# Uncomment these after certbot has added the SSL block:
+return 301 https://$host$request_uri;          # HTTP → HTTPS redirect
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+```
+
+Then reload nginx: `sudo nginx -t && sudo systemctl reload nginx`.
+
+**Using acme.sh / DNS-01 instead?** RemotePower has built-in ACME support
+(Settings → ACME / Let's Encrypt) that can issue and renew certificates
+for your devices using Cloudflare, Hetzner, Route 53, and others — no
+certbot needed once the server itself has a cert.
+
+For a hardened production nginx config (TLS 1.2+, OCSP, rate-limiting,
+IP allowlist), see [`deploy/nginx/remotepower.conf`](../deploy/nginx/remotepower.conf).
 
 ### Client (on the host you want to manage)
 
@@ -35,6 +75,27 @@ sudo bash packaging/install-webterm.sh    # browser-based SSH terminal (separate
 
 Auto-detects your nginx user (`www-data` / `nginx` / `http` / etc.) and wires everything up. Run with `--dry-run` first if you want to see what it'll do.
 
+#### User management
+
+```bash
+python3 /var/www/remotepower/cgi-bin/remotepower-passwd
+```
+
+Interactive CLI for adding users, changing passwords, deleting accounts, and listing all users.  Supports bcrypt (preferred) and salted PBKDF2-HMAC-SHA256 (fallback when bcrypt is absent) — the same hash formats the server verifies.
+
+#### High-performance API worker (SCGI prefork — optional)
+
+By default the API runs as a classic CGI process (one Python startup per request).  For busier deployments, switch to the persistent SCGI prefork worker installed at `/etc/systemd/system/remotepower-api.service`:
+
+```bash
+systemctl enable --now remotepower-api          # start the worker
+# then switch the /api/ location in nginx to the scgi_pass block
+# (commented alternative in server/conf/remotepower.conf) and reload nginx
+nginx -t && systemctl reload nginx
+```
+
+Roll back at any time by reverting the nginx block to `fastcgi_pass` — the worker and fcgiwrap can coexist.
+
 ### Public demo / sandbox
 
 If you want to host a read-only demo at e.g. `demoremote.example.com` alongside your production install:
@@ -53,7 +114,7 @@ git clone https://github.com/tyxak/remotepower && cd remotepower
 docker compose up -d
 ```
 
-Dashboard at `http://localhost:8080`. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front for production.
+Dashboard at `http://localhost:8085` (host port default; container listens on 8080). Override with `RP_HOST_PORT=8080 docker compose up -d`. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front for production.
 
 ---
 

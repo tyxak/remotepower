@@ -51,6 +51,8 @@ The complete list. Items marked with a version number indicate when they were ad
 | ⟳ **Pending Reboot indicator** | Amber ⟳ Reboot badge next to hostname on the Patches page when `/run/reboot-required` exists on the host (Debian/Ubuntu). Tooltip explains the source (v2.4.14) |
 | **Timeline (fleet or device)** | One chronological stream (**Monitoring → Timeline**): fleet events + command runs merged newest-first, filterable. Scope selector does whole-fleet (rows tagged by device) or a single host. `GET /api/fleet/timeline`, `GET /api/devices/<id>/timeline` (v3.4.1) |
 | **Fleet health score** | A single 0–100 score per device and across the fleet on the home dashboard, weighted from the Needs Attention signals; worst devices link into their timelines. `GET /api/fleet/health` (v3.4.1) |
+| **Risk scoring** | A dedicated **Risk** page scores each asset 0–100 from its CVEs, world-exposure, software-policy violations, certificate/lifecycle expiry and mount health, with a per-point breakdown so you can see *why* a host scores the way it does. `GET /api/risk` |
+| **Tasks** | An operational checklist page for tracking fleet work items alongside the live signals. `data-page="tasks"` |
 | **Health-score history & alerts** | Daily score samples with a home-panel trend sparkline (`GET /api/fleet/health/history`), plus an opt-in threshold that fires the edge-triggered `health_degraded` / `health_recovered` events (v3.4.1) |
 | **CVE ↔ patch cross-link** | The Patches page shows per device how many critical/high CVEs a pending patch would fix (`cve_fixable`), linking to the device's CVE list (v3.4.1) |
 | **Software inventory search** | "Which hosts run openssl < X" over the collected package inventory — name + ecosystem-aware version compare. `GET /api/inventory/search` (v3.4.1) |
@@ -215,7 +217,7 @@ The complete list. Items marked with a version number indicate when they were ad
 
 | Feature | Notes |
 |---|---|
-| **Dark/light mode** | Toggle in header, persisted per browser |
+| **Themes** | 13 named palettes (Midnight, Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, Rosé Pine, Oceanic, Solarized Dark, Daylight, Paper, Solarized Light, Nord Light) plus *Follow system* and accent presets; switched in the header, persisted per browser |
 | **Tags & groups** | Tag devices and namespace by group (e.g. `dc1/prod`, `homelab`); filter and batch by either |
 | **Device notes** | Free-text per device, shown as tooltip |
 | **Filter & sort everywhere** | Substring filter + clickable headers on every fleet table; multi-key sort with Shift-click |
@@ -1213,6 +1215,35 @@ Two CI tests lock recurring bug-classes: a check reading a `sysinfo` field the
 heartbeat sanitizer never persisted (the `proc_names` / `mailq` / `pkg_scan_ts`
 class), and a webhook event that half-registers (fires but never lands in the
 inbox). Both now fail at commit instead of in a later sweep.
+
+## v4.4.0 additions — "FortifyMatters"
+
+A security-hardening + bind-it-together release — no breaking changes.
+
+### Security (audited + independently pentested clean)
+Every server handler and all three agents were read end-to-end; the web surface
+was scanned with **wapiti, nikto, nuclei, bandit and OWASP ZAP** with no
+exploitable findings. Fixes: a **critical** admin-gate escalation (a custom
+operator role could reach admin-only endpoints — the gate now checks the
+resolved role's admin flag, not a name denylist); device-scope guards on the
+mitigation status / AI-analysis routes; `shlex.quote` on the drift file-fetch
+and ACME issue/renew/revoke command builders; an SSRF pre-flight on the RouterOS
+REST integration; `/api/metrics` degrading to a minimal payload +
+`remotepower_scrape_error` gauge instead of 500-ing on a malformed record; a
+private-tempfile fix for the agent's on-host lynis audit (was a fixed `/tmp`
+path); and **HTTPS + TLS 1.2 enforcement on the Windows and macOS agents** to
+match Linux.
+
+### Bind it together
+The device drawer's **Access — recent logins** table gains a **Last seen**
+timestamp column (the agent now reports per-login time), and the **Clock** pill
+reflects the server's threshold-aware skew verdict ("skewed" vs "synced").
+
+### Performance
+The heartbeat's watched-files and host-config-enforce lookups are single-row
+reads (O(1) on SQLite/PostgreSQL); the 15-second fleet-checks cache now honours
+its TTL instead of being invalidated by every heartbeat; the agent memoizes its
+OS string.
 
 ---
 

@@ -3734,7 +3734,7 @@ label.form-label:has(> input[type="radio"]) {
 .icon-search-abs-sm { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; pointer-events: none; }
 
 /* CSP L1 fix: one-off inline styles (auto-generated) */
-.isl-1 { text-align:center; font-size:20px; letter-spacing:6px; font-weight:700 }
+.isl-1 { text-align:center; font-size:16px; letter-spacing:6px; font-weight:700 }
 .isl-2 { display:flex; align-items:center; gap:8px; cursor:pointer; margin:8px 0 16px; font-size:13px; color:var(--muted) }
 .isl-3 { width:16px; height:16px; accent-color:var(--accent) }
 .isl-4 { display:none; background:linear-gradient(90deg,#1e3a8a,#7c3aed); color:white; padding:8px 18px; font-size:13px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.1) }
@@ -4025,7 +4025,7 @@ label.form-label:has(> input[type="radio"]) {
 .isl-283 { display:none; font-size:11px; color:var(--muted) }
 .isl-284 { display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:13px }
 .isl-285 { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; max-height:200px; overflow-y:auto }
-.isl-286 { font-size:24px; text-align:center; max-width:80px }
+.isl-286 { font-size:16px; text-align:center; max-width:80px }
 .isl-287 { white-space:nowrap; padding:0 14px }
 .isl-288 { font-size:12px; color:var(--muted); margin-top:3px }
 .isl-289 { color:var(--muted); font-size:11px; margin-left:6px }
@@ -4140,7 +4140,7 @@ label.form-label:has(> input[type="radio"]) {
 .isl-323 { width: 160px }
 .isl-324 { width: 130px }
 .isl-325 { width: 50px }
-.isl-326 { font-size: 24px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; min-width: 44px; text-align: center }
+.isl-326 { font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; min-width: 44px; text-align: center }
 /* v3.0.5: hover effect was inline `onmouseover`/`onmouseout` pre-CSP; now CSS. */
 .isl-326:hover { border-color: var(--accent); }
 .isl-327 { font-family: var(--font-mono); font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }

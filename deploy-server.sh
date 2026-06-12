@@ -143,6 +143,32 @@ fi
 info "Deploying remotepower-passwd..."
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 
+# ── SCGI prefork API worker — update service unit if installed ────────────────
+# The shippable unit ships in server/conf/remotepower-api.service. On first
+# install it is copied by install-server.sh (as disabled). Here we keep it
+# current on every redeploy: if the unit file already exists in systemd, update
+# it and reload the daemon; if the service was active, restart it so it picks up
+# the new api_worker.py.
+SVC_SRC="$SCRIPT_DIR/server/conf/remotepower-api.service"
+SVC_DST="/etc/systemd/system/remotepower-api.service"
+if [[ -f "$SVC_SRC" ]]; then
+    if [[ -f "$SVC_DST" ]]; then
+        install -m 644 "$SVC_SRC" "$SVC_DST"
+        systemctl daemon-reload
+        if systemctl is-active --quiet remotepower-api; then
+            systemctl restart remotepower-api
+            info "SCGI worker restarted (service was active)"
+        else
+            info "SCGI worker unit updated (service is not running)"
+        fi
+    else
+        # Not yet installed — copy it so the operator can enable it later
+        install -m 644 "$SVC_SRC" "$SVC_DST"
+        systemctl daemon-reload
+        info "SCGI worker unit installed (not started — enable with: systemctl enable --now remotepower-api)"
+    fi
+fi
+
 info "Publishing agent binary..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent
 

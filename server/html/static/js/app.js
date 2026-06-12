@@ -17284,7 +17284,11 @@ async function _loadAuditSection(key) {
           // page already used but the drawer never showed — at-a-glance per host.
           ['FD usage',  si.fd_percent != null ? Number(si.fd_percent).toFixed(0) + '%' : null],
           ['Conntrack', si.conntrack_percent != null ? Number(si.conntrack_percent).toFixed(0) + '%' : null],
-          ['Clock',     si.clock ? (si.clock.synced === false ? 'NOT synced' : 'synced')
+          // v4.4.0: honor the server's threshold-aware `skewed` verdict — a host
+          // can be NTP-synced yet beyond the offset threshold (server fires
+          // clock_skew); show that instead of a plain "synced".
+          ['Clock',     si.clock ? (si.clock.synced === false ? 'NOT synced'
+                          : (si.clock.skewed ? 'skewed' : 'synced'))
                           + (si.clock.offset_ms != null ? ` (${si.clock.offset_ms}ms)` : '') : null],
           ['Gateway',   si.gateway ? (si.gateway.reachable === false ? 'unreachable' : 'reachable')
                           + (si.gateway.ip ? ` · ${si.gateway.ip}` : '') : null],
@@ -17431,21 +17435,25 @@ async function _loadAuditSection(key) {
         // login_new_source event fires off this, but the who/from-where table
         // (the highest-value security data on the host) had no UI before.
         if (si.auth && (Array.isArray(si.auth.recent_logins) && si.auth.recent_logins.length)) {
-          // Aggregate user → distinct sources, most-recent first (preserving order).
+          // Aggregate user → distinct sources + most-recent login time
+          // (v4.4.0: the agent now reports a per-login epoch `ts`).
           const byUser = new Map();
           for (const e of si.auth.recent_logins) {
             if (!e || !e.user) continue;
-            if (!byUser.has(e.user)) byUser.set(e.user, []);
-            const list = byUser.get(e.user);
-            if (e.source && !list.includes(e.source)) list.push(e.source);
+            if (!byUser.has(e.user)) byUser.set(e.user, {srcs: [], lastTs: 0});
+            const rec = byUser.get(e.user);
+            if (e.source && !rec.srcs.includes(e.source)) rec.srcs.push(e.source);
+            const ts = Number(e.ts) || 0;
+            if (ts > rec.lastTs) rec.lastTs = ts;
           }
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Access — recent logins</div>
             <div class="scrollable-table-wrap audit-scroll">
             <table class="isl-627">
-            <thead><tr class="c-muted"><th class="isl-628">User</th><th>Source IPs (distinct)</th></tr></thead>
-            <tbody>` + [...byUser.entries()].map(([u,srcs])=>
+            <thead><tr class="c-muted"><th class="isl-628">User</th><th>Source IPs (distinct)</th><th>Last seen</th></tr></thead>
+            <tbody>` + [...byUser.entries()].map(([u,rec])=>
               `<tr><td class="isl-629"><code>${escHtml(u)}</code></td>
-                   <td class="fs-11">${srcs.length ? srcs.map(s=>`<span class="cmd-badge fs-11">${escHtml(s)}</span>`).join(' ') : '<span class="c-muted">—</span>'}</td></tr>`
+                   <td class="fs-11">${rec.srcs.length ? rec.srcs.map(s=>`<span class="cmd-badge fs-11">${escHtml(s)}</span>`).join(' ') : '<span class="c-muted">—</span>'}</td>
+                   <td class="fs-11">${rec.lastTs ? escHtml(new Date(rec.lastTs*1000).toLocaleString()) : '<span class="c-muted">—</span>'}</td></tr>`
             ).join('') + `</tbody></table></div>`;
         }
         if (jrnl.length) {

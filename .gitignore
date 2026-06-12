@@ -24,3 +24,7 @@ site/
 # the operator but NEVER tracked — the public/shippable templates live in
 # server/conf/ and docker/ instead.
 deploy/
+
+# Internal planning / roadmap / scoping notes — kept on disk for the agent and
+# operator, never tracked, so they never reach the public/production repo.
+docs/*-internal.md

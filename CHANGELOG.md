@@ -2,6 +2,50 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.4.0 — "FortifyMatters" — 2026-06-13
+
+A security-hardening and bind-it-together release. **No breaking changes.**
+Full details in [docs/v4.4.0.md](docs/v4.4.0.md).
+
+**Security (audited + independently pentested with wapiti / nikto / nuclei /
+bandit / OWASP ZAP — clean):**
+- **Critical:** the `require_admin` gate blocked `viewer`/`mcp` by name, letting
+  a custom operator role reach every admin-only endpoint (user/role/key/config
+  management and the agent-update signing key). It now checks the resolved
+  role's `admin` flag — built-in admin only.
+- Scope-guarded the mitigation status / AI-analysis routes (they returned
+  captured command output to a scoped operator outside their scope).
+- `shlex.quote` on the drift file-fetch and ACME issue/renew/revoke commands —
+  closes a watched-path / agent-home shell-quoting break-out.
+- RouterOS REST integration now runs the SSRF pre-flight (blocks
+  loopback/link-local/metadata, allows the RFC1918 LAN target).
+- `/api/metrics` degrades to a minimal payload + `remotepower_scrape_error`
+  gauge instead of 500-ing when a single store record is malformed.
+- Agent: lynis posture audit uses a private temp file (was a fixed `/tmp` path
+  → local symlink-clobber privesc).
+- Windows & macOS agents now enforce HTTPS and a TLS 1.2 floor (Linux already
+  did) — no cleartext token, no obsolete-TLS downgrade.
+
+**Bind it together:**
+- Device drawer: recent-logins table gains a **Last seen** timestamp column
+  (agent now reports per-login time); Clock pill reflects the server's
+  threshold-aware skew verdict ("skewed" vs "synced").
+
+**Performance:**
+- Heartbeat watched-files and host-config-enforce lookups are single-row reads
+  (O(1) on SQLite/PG instead of O(fleet)).
+- The 15s fleet-checks cache now honours its TTL instead of being busted by
+  every heartbeat — the per-host checks loop no longer re-runs on every poll.
+- Agent memoizes its OS string (one `/etc/os-release` read per process).
+
+**Polish:**
+- Capped the remaining variable-length boxes (fleet AI anomaly results, saved
+  links grid, AI-prompt list); folded leftover off-scale font sizes back onto
+  the canonical scale.
+- Installer ships/wires the optional SCGI worker unit, copies the full static
+  tree, and prints a TLS-setup reminder; `docs/install.md` documents the
+  password utility, the SCGI worker, and a Let's Encrypt walkthrough.
+
 ## v4.3.0 — "ImprovementMatters" — 2026-06-11
 
 A refinement release — no new headline subsystems and **no breaking changes**.

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.3.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.4.0">
 
 </head>
 <body>
@@ -2194,7 +2194,7 @@
           <div class="settings-section">
             <h3>Prompt customization</h3>
             <p class="hint">Each AI feature uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models. Edit if your model needs different wording (e.g. DeepSeek reasoning models, smaller local models, format-specific quirks). Clearing a field reverts to the default for that feature.</p>
-            <div id="ai-prompts-list" class="isl-77">
+            <div id="ai-prompts-list" class="isl-77 scroll-cap">
               <div class="isl-78">Loading prompts…</div>
             </div>
           </div>
@@ -2571,7 +2571,23 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.3.0 improvementmatters refinement performance single row device read large fleet audit archive download staleness badge posture link clickable settings loading skeleton guardrail test regression unbound data webhook registry firefox sluggish slow dashboard backdrop filter blur gzip compression scgi worker prefork debounce deep link device url accessibility aria dialog focus ring screen reader rollback deploy backup integrity heartbeat rate floor flood e2e playwright browser smoke i18n translation">
+          <details class="doc-card" open data-keywords="release notes changelog v4.4.0 fortifymatters security hardening audit pentest wapiti nikto nuclei bandit zap clean privilege escalation admin gate custom role require_admin scope guard mitigation shlex quote drift acme command injection routeros ssrf metrics 500 scrape error lynis tmp symlink privesc windows macos agent https tls 1.2 floor cleartext mitm bind login timestamp last seen clock skew drawer single row heartbeat watched files host config fleet checks cache ttl os release memoize box overflow scroll cap font scale">
+            <summary><strong>What's new — v4.4.0 "FortifyMatters"</strong> — a security-hardening + bind-it-together release: a full server + agent audit (independently pentested clean), a critical admin-gate fix, Windows/macOS agent transport parity, drawer login timestamps + clock-skew, and faster heartbeats (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.4.0 is security-themed: every server handler and all three agents were read end-to-end, and the web surface was independently scanned with <strong>wapiti, nikto, nuclei, bandit and OWASP ZAP</strong> — clean. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.4.0</code>).</p>
+              <ul>
+                <li><strong>Critical admin-gate fix.</strong> The <code>require_admin</code> check blocked the built-in <code>viewer</code> and <code>mcp</code> roles by name — but a <em>custom operator role</em> was neither, so it reached every admin-only endpoint (user / role / API-key / config management and the agent-update signing key). The gate now resolves the role and checks its actual admin flag; built-in viewer/mcp behaviour is unchanged and custom roles are confined to their granted permissions and scope.</li>
+                <li><strong>Tighter authorization &amp; command building.</strong> The mitigation status / AI-analysis routes (which return captured command output) are now device-scope-guarded; the drift file-fetch and ACME issue/renew/revoke command builders use <code>shlex.quote</code>; and the RouterOS REST integration runs the same SSRF pre-flight as the other egress paths (loopback / link-local / cloud-metadata refused, RFC1918 LAN allowed).</li>
+                <li><strong>Agents at transport parity.</strong> The <strong>Windows and macOS agents now enforce HTTPS and a TLS 1.2 floor</strong>, matching the Linux agent — the device token and command output can never travel in cleartext, and an obsolete-TLS downgrade is refused. The on-host lynis posture audit now uses a private temp file (a fixed <code>/tmp</code> path was a local symlink-clobber risk).</li>
+                <li><strong>Metrics that can't be knocked over.</strong> <code>/api/metrics</code> degrades to a minimal valid payload plus a <code>remotepower_scrape_error</code> gauge if a single malformed record would otherwise throw — one bad record no longer 500s the whole Prometheus scrape.</li>
+                <li><strong>Bind it together.</strong> The device drawer's <em>Access — recent logins</em> table gains a <em>Last seen</em> timestamp column (the agent now reports per-login time), and the Clock pill reflects the server's threshold-aware skew verdict — a host that is NTP-synced but drifting reads <em>skewed</em> instead of a plain "synced".</li>
+                <li><strong>Faster heartbeats.</strong> The watched-files and host-config-enforce lookups run on every heartbeat and were doing a full-fleet read; they're now single-row (O(1) on SQLite/PostgreSQL). The 15-second fleet-checks cache now honours its TTL instead of being busted by every heartbeat, so the per-host checks loop no longer re-runs on every poll.</li>
+                <li><strong>Polish.</strong> The remaining variable-length boxes (fleet AI anomaly results, saved links grid, AI-prompt list) are capped and scroll; a few leftover off-scale font sizes were folded back onto the canonical scale; and the installer ships/wires the optional SCGI worker, copies the full static tree, and ends with a TLS-setup reminder.</li>
+              </ul>
+              <p class="hint">A hardening release — every install keeps working exactly as before. See <code>docs/v4.4.0.md</code> and <code>docs/security-review-4.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.3.0 improvementmatters refinement performance single row device read large fleet audit archive download staleness badge posture link clickable settings loading skeleton guardrail test regression unbound data webhook registry firefox sluggish slow dashboard backdrop filter blur gzip compression scgi worker prefork debounce deep link device url accessibility aria dialog focus ring screen reader rollback deploy backup integrity heartbeat rate floor flood e2e playwright browser smoke i18n translation">
             <summary><strong>What's new — v4.3.0 "ImprovementMatters"</strong> — a refinement release: faster reads on big fleets, self-observability touches, posture UX, and regression guardrails (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.3.0 sharpens what's already there — no new headline subsystems and no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.3.0</code>).</p>
@@ -2607,7 +2623,7 @@
               <p class="hint">Passkeys need the optional <code>webauthn</code> library; SAML needs <code>pysaml2</code> + the <code>xmlsec1</code> binary — each degrades to "unavailable" when absent. See <code>docs/v4.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.1.0 visibilitymatters checks checkmk per host matrix ok warn crit unknown custom checks process port file log job dns icmp http db liveness monitor tag group dashboard widget resize reorder share catalog alert inbox group root cause fold tls 1.2 satellite mailq mute exposed">
+          <details class="doc-card" data-keywords="release notes changelog v4.1.0 visualmatters checks checkmk per host matrix ok warn crit unknown custom checks process port file log job dns icmp http db liveness monitor tag group dashboard widget resize reorder share catalog alert inbox group root cause fold tls 1.2 satellite mailq mute exposed">
             <summary><strong>What's new — v4.1.0 "VisualMatters"</strong> — a CheckMK-style per-host Checks matrix, custom checks, more monitors, a composable 66-widget dashboard, and a host-grouped alert inbox</summary>
             <div class="doc-body">
               <p>v4.1.0 surfaces what the fleet already knows and lets you shape how you see it. No breaking changes — most of it surfaces data the agent already reports. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.1.0</code>).</p>
@@ -2660,34 +2676,6 @@
                 <li><strong>Security hardening.</strong> Session tokens are hashed at rest, OIDC token-exchange errors never log the response body, webhook-host matching is anchored against look-alike domains, AWS cloud-import region input is validated through the SSRF-safe fetch path, and Ansible runs trust host keys on first use instead of disabling the check. Independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean. See <code>docs/security.md</code>.</li>
               </ul>
               <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v4.0.0.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v3.13.0 bind it together device drawer recent logins source ip access watch who logged in systemd timers scheduled jobs failed cron storage raid pools zfs mdadm btrfs per host listening port bind address scope world lan local firewall fingerprint ruleset brute force lockout badge disk swap pills overflow scrollbar 15 lines max height scroll cap performance immutable cache static assets defer script fleet risk cache hardening scap report sandbox csp oidc id_token exp aud iss expiry audience syslog dns rebinding toctou polish">
-            <summary><strong>What's new — v3.13.0</strong> — bind round four: surface every signal the agent already collects, cap overflowing boxes, plus perf &amp; hardening</summary>
-            <div class="doc-body">
-              <p>This release is a <strong>bind-it-together</strong> sweep: a lot of data the agent has always reported was stored and even served by the API, but had no home in the UI. v3.13.0 wires those signals into the device drawer and device cards, caps every panel so it scrolls instead of growing without bound, and adds a round of performance and security hardening. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.13.0</code>).</p>
-              <h4>Newly surfaced host signals</h4>
-              <ul>
-                <li><strong>Access — recent logins.</strong> The device drawer now lists who logged in and from which distinct source IPs (the same data the <em>new login source</em> alert fires off). The highest-value security signal on a host finally has a table.</li>
-                <li><strong>Scheduled jobs / timers.</strong> A failed-first table of every systemd timer (with what it activates and its last state), per device.</li>
-                <li><strong>Pools / arrays.</strong> This host's own ZFS / mdadm / btrfs storage health (state, capacity, scrub) — previously only on the fleet Storage page.</li>
-                <li><strong>Listening ports gain Address &amp; Scope.</strong> The drawer Ports card now shows the bind address and a world / LAN / local badge for each socket, so you can see that <code>:22</code> is bound <code>0.0.0.0</code> right where you're inspecting the host.</li>
-                <li><strong>Firewall ruleset summary.</strong> The Firewall card shows the active backend, rule count and fingerprint (the drift baseline the <em>firewall changed</em> alert compares against).</li>
-                <li><strong>Brute-force lockouts &amp; pressure pills.</strong> Active brute-force sources now show as a badge on the device card, and the drawer adds at-a-glance <em>Disk</em> and <em>Swap</em> pills.</li>
-                <li><strong>Named drift profiles.</strong> Reusable sets of watched config files, managed on the <strong>Drift</strong> page and assigned to a device, tag, or group — instead of editing each host's watched-file list by hand. A device's own explicit list still overrides any profile, and the drift detail explains which rule won.</li>
-                <li><strong>Network-mount trends.</strong> NFS/SMB/CIFS shares now appear as their own line on the <strong>Trends</strong> chart and feed disk-fill forecasting, alongside local filesystems.</li>
-                <li><strong>Controller backup &amp; restore.</strong> <strong>Settings → Advanced → Backup &amp; restore</strong> adds a full disaster-recovery backup (tar.gz of the whole data dir, including the encrypted vault) and a restore that takes a safety snapshot first — in addition to the existing redacted ZIP export.</li>
-              </ul>
-              <h4>Every box now fits</h4>
-              <ul>
-                <li><strong>Capped, scrolling panels.</strong> Drawer cards and large page tables (Compliance, Pools, Ports, Mounts, Containers, SMART) cap at roughly 15 rows and scroll internally instead of stretching the page. Two latent clip bugs (host-config dump, patch history) where content was cut off with no scrollbar are fixed.</li>
-              </ul>
-              <h4>Performance &amp; hardening</h4>
-              <ul>
-                <li><strong>Faster loads.</strong> Version-busted static assets are now cached immutably for a year (no more per-load revalidation round-trips), scripts load deferred, and the fleet-risk computation is file-cached for 10s so <code>/api/home</code> and <code>/api/risk</code> share the work.</li>
-                <li><strong>Tighter security.</strong> Agent-supplied SCAP reports are served under a self-contained sandboxed CSP (stored-XSS can't reach an operator's session even if the upstream policy is loosened); OIDC id_tokens are now checked for expiry, issuer and audience; and the syslog audit-forwarder resolves its target once to close a DNS-rebinding window.</li>
-              </ul>
-              <p class="hint">See <code>docs/v3.13.0.md</code> for the full list.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -3769,7 +3757,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </button>
           </div>
           <div class="hint">Sends a compact live snapshot of the fleet to the model and ranks anomalies. On-demand — costs one AI request. Requires the AI assistant to be configured.</div>
-          <div id="ai-anomaly-results" class="ai-tool-body"></div>
+          <div id="ai-anomaly-results" class="ai-tool-body scroll-cap"></div>
         </div>
       </div>
 
@@ -5036,7 +5024,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon isl-12" data-action="linkAddOpen">+ Add link</button>
           <button class="btn-icon" id="links-edit-toggle" data-action="linksToggleEditMode" title="Toggle edit/delete buttons on each card">Edit mode</button>
         </div>
-        <div id="links-grid" class="isl-185"></div>
+        <div id="links-grid" class="isl-185 scroll-cap"></div>
         <datalist id="links-category-datalist"></datalist>
       </div>
 
@@ -6955,19 +6943,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.3.0"></script>
-<script defer src="static/js/app.js?v=4.3.0"></script>
+<script defer src="static/js/i18n.js?v=4.4.0"></script>
+<script defer src="static/js/app.js?v=4.4.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.3.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.3.0"></script>
-<script defer src="static/js/app-containers.js?v=4.3.0"></script>
-<script defer src="static/js/app-network.js?v=4.3.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.4.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.4.0"></script>
+<script defer src="static/js/app-containers.js?v=4.4.0"></script>
+<script defer src="static/js/app-network.js?v=4.4.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.3.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.3.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.3.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.4.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.4.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.4.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.3.0"></script>
+<script defer src="static/js/sw-register.js?v=4.4.0"></script>
 </body>
 </html>
