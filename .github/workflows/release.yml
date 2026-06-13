@@ -65,7 +65,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}},value=${{ github.event.release.tag_name || github.event.inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name || github.event.inputs.tag }}
-            type=raw,value=latest
+            # Don't move :latest to a prerelease (manual dispatch counts as stable).
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
