@@ -8,9 +8,18 @@ services:
       # Host port defaults to 8085 (8080 clashes on many machines). Override
       # with:  RP_HOST_PORT=NNNN docker compose up -d
       - "${RP_HOST_PORT:-8085}:8080"
+      # In-container self-signed TLS (v4.5.0): uncomment to map host 443 -> the
+      # container's HTTPS port, and set RP_TLS_SELFSIGNED=1 below. Prefer a real
+      # cert / reverse proxy for production — see docs/tls-selfsigned.md.
+      # - "443:8443"
     environment:
       - RP_ADMIN_USER=admin
       - RP_ADMIN_PASS=changeme          # Change this! Only used on first run.
+      # Self-signed TLS in the container (off by default). On first boot the
+      # entrypoint generates a CA+leaf into the data volume and prints the CA
+      # fingerprint to `docker logs`. Enroll agents with --ca-fingerprint.
+      # - RP_TLS_SELFSIGNED=1
+      # - RP_TLS_HOST=rp.internal       # the hostname/IP agents will use
     volumes:
       - remotepower_data:/var/lib/remotepower
     restart: unless-stopped

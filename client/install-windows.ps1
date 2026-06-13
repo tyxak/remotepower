@@ -8,12 +8,19 @@
 
   Run from an elevated PowerShell:
     .\install-windows.ps1 -Server https://rp.example.com -Pin 123456 [-Name MyHost]
+
+  Self-signed-CA server (v4.5.0): pass -CaFingerprint (printed by tools/gen-ca.sh)
+  so the agent trusts your internal CA. The CA is fetched over HTTP and verified
+  against the fingerprint before it is trusted.
+    .\install-windows.ps1 -Server https://rp.internal -Pin 123456 -CaFingerprint AA:BB:..
 #>
 param(
   [Parameter(Mandatory = $true)] [string] $Server,
   [string] $Pin,
   [string] $Token,
-  [string] $Name = $env:COMPUTERNAME
+  [string] $Name = $env:COMPUTERNAME,
+  [string] $CaFingerprint,
+  [string] $Ca
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,6 +33,36 @@ if (-not $py) { throw 'Python 3.8+ not found on PATH. Install from https://pytho
 $installDir = Join-Path $env:ProgramFiles 'RemotePower'
 $dataDir    = Join-Path $env:ProgramData 'RemotePower'
 New-Item -ItemType Directory -Force -Path $installDir, $dataDir | Out-Null
+
+# ── Self-signed CA trust (optional) ───────────────────────────────────────────
+$caPath = Join-Path $dataDir 'ca.crt'
+if ($CaFingerprint -or $Ca) {
+  $tmpCa = Join-Path $env:TEMP ('rp-ca-' + [guid]::NewGuid().ToString('N') + '.crt')
+  if (-not $Ca) {
+    $h = ([uri]$Server).Host
+    $Ca = "http://$h/ca.crt"
+  }
+  Write-Host "Fetching CA from $Ca ..."
+  if ($Ca -match '^https?://') {
+    Invoke-WebRequest -Uri $Ca -OutFile $tmpCa -UseBasicParsing
+  } else {
+    Copy-Item $Ca $tmpCa -Force
+  }
+  $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $tmpCa
+  if ($CaFingerprint) {
+    $got  = $cert.GetCertHashString('SHA256').ToUpper()
+    $want = ($CaFingerprint -replace '[^0-9A-Fa-f]', '').ToUpper()
+    if ($got -ne $want) { throw "CA FINGERPRINT MISMATCH — refusing to trust (expected $want, got $got)" }
+    Write-Host "CA fingerprint verified ($got)" -ForegroundColor Green
+  } else {
+    Write-Warning 'No -CaFingerprint — trusting fetched CA WITHOUT verification (TOFU).'
+  }
+  Copy-Item $tmpCa $caPath -Force
+  Remove-Item $tmpCa -Force -ErrorAction SilentlyContinue
+  # Machine-scoped env var (the agent also falls back to this exact path).
+  [Environment]::SetEnvironmentVariable('RP_CA_BUNDLE', $caPath, 'Machine')
+  Write-Host "CA installed -> $caPath" -ForegroundColor Green
+}
 
 # Copy the agent next to this script into the install dir.
 $src = Join-Path $PSScriptRoot 'remotepower-agent-win.py'

@@ -19,17 +19,62 @@ SRC="$SCRIPT_DIR/remotepower-agent-mac.py"
 [ -f "$SRC" ] || SRC="$SCRIPT_DIR/client/remotepower-agent-mac.py"
 [ -f "$SRC" ] || die "cannot find remotepower-agent-mac.py"
 
-SERVER="${1:-}"; PIN="${2:-}"
+# Positional SERVER / PIN for back-compat; flags add the self-signed CA story.
+SERVER=""; PIN=""; CA_FP=""; CA_SRC=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ca-fingerprint) CA_FP="$2"; shift 2 ;;
+    --ca)             CA_SRC="$2"; shift 2 ;;
+    --server)         SERVER="$2"; shift 2 ;;
+    --pin)            PIN="$2"; shift 2 ;;
+    *) if [ -z "$SERVER" ]; then SERVER="$1"; elif [ -z "$PIN" ]; then PIN="$1"; fi; shift ;;
+  esac
+done
 if [ -z "$SERVER" ]; then read -r -p "Server URL (https://…): " SERVER; fi
 if [ -z "$PIN" ];    then read -r -p "Enrollment PIN (from the dashboard): " PIN; fi
 [ -n "$SERVER" ] && [ -n "$PIN" ] || die "server URL and PIN required"
+
+# ── Self-signed CA trust (optional) ───────────────────────────────────────────
+norm_fp() { echo "$1" | tr 'a-f' 'A-F' | sed -E 's/.*=//; s/[^0-9A-F]//g'; }
+if [ -n "$CA_FP" ] || [ -n "$CA_SRC" ]; then
+  command -v openssl >/dev/null 2>&1 || die "openssl required to verify the CA"
+  TMPCA="$(mktemp)"; trap 'rm -f "$TMPCA"' EXIT
+  if [ -z "$CA_SRC" ]; then
+    host="${SERVER#*://}"; host="${host%%/*}"; host="${host%%:*}"
+    CA_SRC="http://${host}/ca.crt"
+  fi
+  info "Fetching CA from ${CA_SRC} …"
+  case "$CA_SRC" in
+    http://*|https://*) curl -fsSL "$CA_SRC" -o "$TMPCA" || die "could not fetch CA from $CA_SRC" ;;
+    *)                  [ -f "$CA_SRC" ] || die "CA file not found: $CA_SRC"; cp "$CA_SRC" "$TMPCA" ;;
+  esac
+  openssl x509 -in "$TMPCA" -noout >/dev/null 2>&1 || die "fetched file is not a valid certificate"
+  if [ -n "$CA_FP" ]; then
+    got="$(norm_fp "$(openssl x509 -in "$TMPCA" -noout -fingerprint -sha256)")"
+    want="$(norm_fp "$CA_FP")"
+    [ "$got" = "$want" ] || die "CA FINGERPRINT MISMATCH — refusing to trust (expected $want, got $got)"
+    success "CA fingerprint verified ($got)"
+  else
+    warn "No --ca-fingerprint — trusting fetched CA WITHOUT verification (TOFU)."
+  fi
+  install -d -m 0755 /etc/remotepower
+  install -m 0644 "$TMPCA" /etc/remotepower/ca.crt
+  success "CA installed → /etc/remotepower/ca.crt"
+fi
 
 info "Installing agent to /usr/local/bin/remotepower-agent-mac"
 install -d -m 0755 /usr/local/bin
 install -m 0755 "$SRC" /usr/local/bin/remotepower-agent-mac
 
 info "Enrolling…"
-/usr/bin/env python3 /usr/local/bin/remotepower-agent-mac --enroll --server "$SERVER" --pin "$PIN"
+RP_CA_BUNDLE=/etc/remotepower/ca.crt /usr/bin/env python3 /usr/local/bin/remotepower-agent-mac --enroll --server "$SERVER" --pin "$PIN"
+
+# Point the daemon at the CA via the launchd EnvironmentVariables dict when set.
+PLIST_ENV=""
+if [ -f /etc/remotepower/ca.crt ]; then
+  PLIST_ENV='  <key>EnvironmentVariables</key>
+  <dict><key>RP_CA_BUNDLE</key><string>/etc/remotepower/ca.crt</string></dict>'
+fi
 
 PLIST=/Library/LaunchDaemons/com.remotepower.agent.plist
 info "Installing LaunchDaemon $PLIST"
@@ -45,6 +90,7 @@ cat > "$PLIST" <<EOF
     <string>/usr/local/bin/remotepower-agent-mac</string>
     <string>--run</string>
   </array>
+$PLIST_ENV
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardErrorPath</key><string>/var/log/remotepower-agent.log</string>

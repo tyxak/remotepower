@@ -26,7 +26,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '4.4.1'
+VERSION = '4.5.0'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
@@ -41,6 +41,8 @@ def _make_ssl_context():
     ctx.check_hostname = True
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
+    if not _ca and os.path.exists('/etc/remotepower/ca.crt'):
+        _ca = '/etc/remotepower/ca.crt'   # v4.5.0: conventional self-signed CA path
     if _ca and os.path.exists(_ca):
         try:
             ctx.load_verify_locations(cafile=_ca)

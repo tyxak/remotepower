@@ -39,7 +39,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '4.4.1'
+VERSION = '4.5.0'
 DEFAULT_POLL = 60
 
 
@@ -53,6 +53,13 @@ def _make_ssl_context():
     ctx.check_hostname = True
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
+    if not _ca:
+        # v4.5.0: conventional self-signed CA path (mirrors _data_dir(), inlined
+        # because _SSL_CTX is built before _data_dir() is defined).
+        _def = os.path.join(os.environ.get('ProgramData', r'C:\ProgramData'),
+                            'RemotePower', 'ca.crt')
+        if os.path.exists(_def):
+            _ca = _def
     if _ca and os.path.exists(_ca):
         try:
             ctx.load_verify_locations(cafile=_ca)

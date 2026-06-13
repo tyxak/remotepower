@@ -28,6 +28,10 @@ ProtectControlGroups=yes
 
 # Environment overrides (optional)
 # Environment="RP_INTERVAL=60"
+# v4.5.0: optional env file written by install-client.sh --ca-fingerprint; sets
+# RP_CA_BUNDLE=/etc/remotepower/ca.crt so the agent trusts a self-signed CA. The
+# leading '-' makes it optional (absent on real-cert / Let's Encrypt installs).
+EnvironmentFile=-/etc/remotepower/agent.env
 
 [Install]
 WantedBy=multi-user.target

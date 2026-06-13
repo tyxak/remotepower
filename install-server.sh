@@ -283,8 +283,14 @@ success "Agent published"
 
 # ── Nginx config ────────────────────────────────────────────────────────────────
 info "Configuring Nginx..."
+# v4.5.0: the location {} blocks live in a shared snippet that both the HTTP and
+# HTTPS server blocks include (no drift; also serves /ca.crt). Install it first
+# so `nginx -t` below can resolve the include.
+mkdir -p /etc/nginx/snippets
+cp "$SCRIPT_DIR/server/conf/remotepower-locations.conf" /etc/nginx/snippets/remotepower-locations.conf
 if [[ -f /etc/nginx/sites-available/remotepower ]]; then
     warn "Nginx config already exists — skipping (edit /etc/nginx/sites-available/remotepower manually)"
+    warn "  (refreshed /etc/nginx/snippets/remotepower-locations.conf to match this version)"
 else
     cp "$SCRIPT_DIR/server/conf/remotepower.conf" /etc/nginx/sites-available/remotepower
 
@@ -388,14 +394,17 @@ echo -e "${RED}║  Session tokens and agent credentials travel in CLEARTEXT    
 echo -e "${RED}║  over HTTP. Set up HTTPS before enrolling any real agent or   ║${NC}"
 echo -e "${RED}║  exposing this server to your network.                        ║${NC}"
 echo -e "${RED}║                                                                ║${NC}"
-echo -e "${RED}║  Quickest path (Let's Encrypt):                               ║${NC}"
+echo -e "${RED}║  RECOMMENDED — real cert (Let's Encrypt):                     ║${NC}"
 echo -e "${RED}║    sudo apt install certbot python3-certbot-nginx             ║${NC}"
 echo -e "${RED}║    sudo certbot --nginx -d your.domain.com                    ║${NC}"
 echo -e "${RED}║                                                                ║${NC}"
-echo -e "${RED}║  Then uncomment in /etc/nginx/sites-available/remotepower:    ║${NC}"
-echo -e "${RED}║    return 301 https://\$host\$request_uri;                      ║${NC}"
-echo -e "${RED}║    Strict-Transport-Security header (HSTS)                    ║${NC}"
+echo -e "${RED}║  Internal-only / no public DNS — self-signed CA:              ║${NC}"
+echo -e "${RED}║    sudo make tls-selfsigned HOST=rp.internal NGINX=1          ║${NC}"
+echo -e "${RED}║    (then enroll agents with the printed --ca-fingerprint)     ║${NC}"
 echo -e "${RED}║                                                                ║${NC}"
-echo -e "${RED}║  Full guide: docs/install.md → TLS section                   ║${NC}"
+echo -e "${RED}║  Then uncomment the HTTPS server block in                     ║${NC}"
+echo -e "${RED}║    /etc/nginx/sites-available/remotepower  (+ HSTS/redirect)  ║${NC}"
+echo -e "${RED}║                                                                ║${NC}"
+echo -e "${RED}║  Full guide: docs/tls-selfsigned.md  /  docs/install.md       ║${NC}"
 echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""

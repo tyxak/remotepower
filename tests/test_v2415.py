@@ -244,7 +244,10 @@ class TestNginxConfig(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.conf = (_ROOT / 'server/conf/remotepower.conf').read_text()
+        # v4.5.0: location blocks live in a shared include — read the effective
+        # config (server block + included locations).
+        cls.conf = ((_ROOT / 'server/conf/remotepower.conf').read_text()
+                    + (_ROOT / 'server/conf/remotepower-locations.conf').read_text())
 
     def test_worker_src_in_csp(self):
         self.assertIn("worker-src 'self'", self.conf,

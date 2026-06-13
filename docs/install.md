@@ -49,6 +49,14 @@ Then reload nginx: `sudo nginx -t && sudo systemctl reload nginx`.
 for your devices using Cloudflare, Hetzner, Route 53, and others — no
 certbot needed once the server itself has a cert.
 
+**Internal-only / airgapped / no public DNS?** Use the built-in self-signed
+**CA**: `sudo make tls-selfsigned HOST=rp.internal NGINX=1` generates a CA + a
+server leaf and prints the CA fingerprint; enrol agents with
+`install-client.sh --ca-fingerprint <sha256>` so they trust it. Renewing the
+server cert never touches the clients, and switching to a real cert later is a
+server-only change. Full guide and decision tree:
+[`docs/tls-selfsigned.md`](tls-selfsigned.md).
+
 For a hardened production nginx config (TLS 1.2+, OCSP, rate-limiting,
 IP allowlist), see [`deploy/nginx/remotepower.conf`](../deploy/nginx/remotepower.conf).
 

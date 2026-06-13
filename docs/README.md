@@ -58,6 +58,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.5.0.md](v4.5.0.md)** — "TrustMatters": TLS onboarding — a one-command
+ self-signed CA, fingerprint-verified rollout to agents, Docker opt-in TLS, and a
+ server-only self-signed → real migration. No breaking changes.
 - **[v4.4.1.md](v4.4.1.md)** — "DocumentationMatters": triage of the open CodeQL
  code-scanning alerts (all false positives), a documentation-coverage pass, and
  two no-behaviour weak-hash annotations. No code-behaviour changes.
@@ -71,10 +74,8 @@ The five most recent per-release notes are kept here:
 - **[v4.2.0.md](v4.2.0.md)** — "5ecur1tyM4tter5": authorized vulnerability
  scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log,
  and account guardrails.
-- **[v4.1.0.md](v4.1.0.md)** — "VisualMatters": CheckMK-style per-host
- Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
 
-Older release notes (v4.0.0 and earlier) live in
+Older release notes (v4.1.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

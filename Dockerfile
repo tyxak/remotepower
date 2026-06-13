@@ -9,7 +9,7 @@ LABEL version="2.0.0"
 # verification (v4.2.0 B1); without it SAML SSO reports unavailable.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
-        nginx fcgiwrap spawn-fcgi procps xmlsec1 && \
+        nginx fcgiwrap spawn-fcgi procps xmlsec1 openssl && \
     pip install --no-cache-dir bcrypt reportlab cryptography dnspython webauthn pysaml2 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -41,16 +41,25 @@ RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
         chmod 755 /var/www/remotepower/cgi-bin/remotepower-tls-check; \
     fi
 
-# Nginx config (Docker variant - listens on 8080, no IPv6 listen)
-COPY docker/nginx-docker.conf /etc/nginx/sites-available/remotepower
+# Nginx config (Docker variant - listens on 8080, no IPv6 listen). The shared
+# location snippet + the opt-in TLS variant ride along for RP_TLS_SELFSIGNED.
+COPY docker/nginx-docker.conf            /etc/nginx/sites-available/remotepower
+COPY docker/nginx-docker-tls.conf        /etc/nginx/sites-available/remotepower-tls
+RUN mkdir -p /etc/nginx/snippets
+COPY docker/nginx-docker-locations.conf  /etc/nginx/snippets/remotepower-docker-locations.conf
 RUN ln -sf /etc/nginx/sites-available/remotepower /etc/nginx/sites-enabled/remotepower && \
     rm -f /etc/nginx/sites-enabled/default
+
+# v4.5.0: the self-signed CA generator, used by the entrypoint when
+# RP_TLS_SELFSIGNED=1 (openssl is installed above).
+COPY tools/gen-ca.sh /usr/local/bin/rp-gen-ca
+RUN chmod 755 /usr/local/bin/rp-gen-ca
 
 # Entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod 755 /entrypoint.sh
 
-EXPOSE 8080
+EXPOSE 8080 8443
 
 VOLUME ["/var/lib/remotepower"]
 

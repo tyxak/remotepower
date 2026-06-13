@@ -805,7 +805,9 @@ class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored
         # (environment-specific) and absent from a clean checkout / dist tarball.
-        conf = (_ROOT / "server/conf/remotepower.conf").read_text()
+        # v4.5.0: location blocks moved into a shared include.
+        conf = ((_ROOT / "server/conf/remotepower.conf").read_text()
+                + (_ROOT / "server/conf/remotepower-locations.conf").read_text())
         self.assertIn("location ^~ /static/", conf)
         self.assertIn("immutable", conf)
 

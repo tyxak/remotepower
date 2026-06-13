@@ -41,6 +41,8 @@ help:
 	@echo "  make check       - test + lint (CI gate)"
 	@echo "  make dist        - build dist/$(DIST_NAME).tar.gz (release tarball)"
 	@echo "  make version     - print the current version ($(VERSION))"
+	@echo "  make tls-selfsigned HOST=rp.internal [NGINX=1] - self-signed CA + leaf (prefer a real cert)"
+	@echo "  make tls-renew   - re-issue the server leaf from the existing CA (clients unaffected)"
 	@echo "  make install-dev - install black, isort, mypy locally"
 	@echo "  make scan-demo   - drive a B5 security scan to completion (needs a running server)"
 	@echo "  make clean       - drop __pycache__ trees + dist/"
@@ -71,6 +73,18 @@ test:
 # Usage: make bump VERSION=4.4.0  (add DRY=1 for a dry run)
 bump:
 	$(PY) tools/bump_version.py $(VERSION) $(if $(DRY),--dry-run,)
+
+# v4.5.0 "TrustMatters": generate a self-signed CA + server leaf for instances
+# that can't use a real (Let's Encrypt) cert. Agents trust the CA via
+# RP_CA_BUNDLE; renew the leaf without touching clients. PREFER A REAL CERT —
+# see docs/tls-selfsigned.md. Usage: make tls-selfsigned HOST=rp.internal
+tls-selfsigned:
+	@test -n "$(HOST)" || { echo "usage: make tls-selfsigned HOST=<dns-or-ip> [NGINX=1]"; exit 1; }
+	sudo bash tools/gen-ca.sh --host $(HOST) $(if $(NGINX),--nginx --reload,)
+
+# Re-issue ONLY the server leaf from the existing CA (clients keep trust).
+tls-renew:
+	sudo bash tools/gen-ca.sh --renew $(if $(NGINX),--reload,)
 
 # v4.3.0: browser smoke suite (Playwright + Chromium). Self-skips when
 # playwright isn't installed: pip install playwright && python -m playwright

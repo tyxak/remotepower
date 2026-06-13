@@ -82,6 +82,32 @@ path.write_text(json.dumps(users, indent=2))
     unset RP_ADMIN_PASS
 fi
 
+# ── Opt-in self-signed TLS (v4.5.0) ──────────────────────────────────────────
+# RP_TLS_SELFSIGNED=1 makes the container terminate TLS itself: generate a CA +
+# leaf into the persistent data volume (once) and serve HTTPS on :8443. Prefer a
+# real cert / reverse proxy for production — see docs/tls-selfsigned.md.
+if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; then
+    TLS_HOST="${RP_TLS_HOST:-localhost}"
+    TLS_DIR=/var/lib/remotepower/tls
+    if [ ! -f "$TLS_DIR/server.crt" ]; then
+        echo "[*] RP_TLS_SELFSIGNED set — generating self-signed CA + leaf for ${TLS_HOST}"
+        /usr/local/bin/rp-gen-ca --host "$TLS_HOST" --dir "$TLS_DIR" >/tmp/genca.log 2>&1 || {
+            echo "[!] cert generation failed:"; cat /tmp/genca.log; exit 1; }
+    fi
+    chown -R www-data:www-data "$TLS_DIR" 2>/dev/null || true
+    ln -sf /etc/nginx/sites-available/remotepower-tls /etc/nginx/sites-enabled/remotepower
+    FP="$(openssl x509 -in "$TLS_DIR/ca.crt" -noout -fingerprint -sha256 | sed 's/^.*=//')"
+    echo ""
+    echo "  ╔══════════════════════════════════════════════════════════╗"
+    echo "  ║  SELF-SIGNED TLS ENABLED — HTTPS on container :8443       ║"
+    echo "  ╠══════════════════════════════════════════════════════════╣"
+    echo "  ║  Enroll agents with this CA fingerprint (pin it):         ║"
+    echo "  ║  $FP"
+    echo "  ║  install-client.sh --server https://${TLS_HOST} --ca-fingerprint <above>"
+    echo "  ╚══════════════════════════════════════════════════════════╝"
+    echo ""
+fi
+
 # Start fcgiwrap (socket for nginx)
 echo "[*] Starting fcgiwrap..."
 # Create socket dir

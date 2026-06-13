@@ -2,6 +2,37 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.5.0 — "TrustMatters" — 2026-06-13
+
+TLS onboarding. A one-command self-signed **CA** for instances that can't use a
+real cert, fingerprint-verified rollout to agents, and an opt-in TLS mode for the
+Docker image. **No breaking changes** — HTTP-only installs and real-cert setups
+are untouched. Full details in [docs/v4.5.0.md](docs/v4.5.0.md) and the decision
+tree / migration guide in [docs/tls-selfsigned.md](docs/tls-selfsigned.md).
+
+- **Self-signed CA + leaf generator** (`tools/gen-ca.sh`, `make tls-selfsigned
+  HOST=…`). Generates a private CA and a server leaf (ECDSA P-256, SAN, EKU
+  serverAuth), installs the leaf for nginx, and prints the CA's SHA-256
+  fingerprint. Agents trust the **CA**, so `make tls-renew` re-issues the leaf
+  without touching a single client.
+- **Fingerprint-verified agent rollout.** `install-client.sh --ca-fingerprint
+  <sha256>` (and the macOS / Windows installers) fetch the CA over HTTP and
+  refuse to trust it unless its fingerprint matches — safe bootstrap with no TLS
+  yet. The CA is wired in via `RP_CA_BUNDLE` (systemd EnvironmentFile / launchd
+  plist / Windows machine env); all three agents also fall back to the
+  conventional CA path. nginx serves the CA at `/ca.crt`.
+- **Shared nginx location snippet.** The HTTP and HTTPS server blocks now include
+  one `remotepower-locations.conf` (also the Docker config) so they can't drift,
+  and HTTPS is a clean uncomment.
+- **Docker opt-in TLS.** `RP_TLS_SELFSIGNED=1` makes the container generate a
+  CA+leaf into the data volume on first boot and serve HTTPS on :8443, printing
+  the fingerprint to `docker logs`.
+- **Switching self-signed → real is a server-only change:** because the agent
+  trusts the system roots *and* the CA simultaneously, you point nginx at a real
+  (Let's Encrypt) cert and reload — agents keep working with no redeploy.
+- A real cert is still recommended; the self-signed path is for airgapped /
+  internal-only / no-public-DNS deployments.
+
 ## v4.4.1 — "DocumentationMatters" — 2026-06-13
 
 A documentation-and-triage release on the heels of the security-themed v4.4.0.

@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '4.4.1'
+VERSION      = '4.5.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
@@ -237,13 +237,20 @@ def _make_ssl_context():
     internal CA — e.g. a self-hosted server or a TLS satellite with a private
     cert — WITHOUT weakening verification (CERT_REQUIRED + hostname check stay
     on). Prefer adding the CA to the OS trust store; this is the no-root-needed
-    alternative."""
+    alternative.
+
+    v4.5.0: if RP_CA_BUNDLE is unset, fall back to the conventional path the
+    installer drops the self-signed CA at (/etc/remotepower/ca.crt), so a bare
+    `remotepower-agent run` trusts it even without the systemd EnvironmentFile.
+    Public-CA / Let's Encrypt servers are unaffected (no file there)."""
     ctx = _ssl.create_default_context()
     ctx.verify_mode = _ssl.CERT_REQUIRED
     ctx.check_hostname = True
     # v4.1.0: refuse obsolete TLS 1.0/1.1 on the agent→server/satellite hop.
     ctx.minimum_version = _ssl.TLSVersion.TLSv1_2
     _ca = os.environ.get('RP_CA_BUNDLE', '').strip()
+    if not _ca and os.path.exists('/etc/remotepower/ca.crt'):
+        _ca = '/etc/remotepower/ca.crt'
     if _ca and os.path.exists(_ca):
         try:
             ctx.load_verify_locations(cafile=_ca)
@@ -4734,18 +4741,27 @@ def enroll_with_token(server_url, token, device_name=None):
     return new_creds
 
 
-def enroll_interactive(re_enroll=False):
+def enroll_interactive(re_enroll=False, server_url=None, pin=None):
+    # v4.5.0: server_url/pin may be supplied (by install-client.sh) to skip the
+    # matching prompt — keeps the install fully non-interactive.
     print()
     print("╔══════════════════════════════════════════╗")
     print("║     RemotePower Client Setup             ║")
     print("╚══════════════════════════════════════════╝")
     print()
-    server_url = input("RemotePower server URL (e.g. https://remote.example.com): ").strip().rstrip('/')
+    if not server_url:
+        server_url = input("RemotePower server URL (e.g. https://remote.example.com): ").strip()
+    server_url = server_url.strip().rstrip('/')
     if not server_url.startswith('https://'):
         print("⚠  Only HTTPS is supported. Prepending https://")
         server_url = 'https://' + _strip_url_scheme(server_url)
-    pin = input("Enrollment PIN (shown in web dashboard): ").strip()
-    device_name = input(f"Device display name [{socket.gethostname()}]: ").strip()
+    if not pin:
+        pin = input("Enrollment PIN (shown in web dashboard): ").strip()
+        # Only prompt for a display name in the interactive path; a scripted
+        # enroll (pin supplied) defaults to the hostname without blocking.
+        device_name = input(f"Device display name [{socket.gethostname()}]: ").strip()
+    else:
+        device_name = ''
     if not device_name: device_name = socket.gethostname()
     print(); print("Enrolling device...")
     payload = {
@@ -6547,8 +6563,9 @@ def main():
     parser.add_argument('--interval', type=int, default=POLL_INTERVAL,
         help=f'Poll interval in seconds (default: {POLL_INTERVAL})')
     # v1.11.10: token-based enrollment for non-interactive use
-    parser.add_argument('--server', help='Server URL for enroll-token (e.g. https://remote.example.com)')
+    parser.add_argument('--server', help='Server URL for enroll / enroll-token (e.g. https://remote.example.com)')
     parser.add_argument('--token', help='Enrollment token (or use $REMOTEPOWER_ENROLL_TOKEN, or /etc/remotepower/enroll-token)')
+    parser.add_argument('--pin', help='Enrollment PIN for a non-interactive `enroll` (skips the prompt)')
     parser.add_argument('--name', help='Device display name (defaults to hostname)')
     args = parser.parse_args()
 
@@ -6558,10 +6575,10 @@ def main():
         print()
 
     if args.action == 'enroll':
-        enroll_interactive(re_enroll=False); return
+        enroll_interactive(re_enroll=False, server_url=args.server, pin=args.pin); return
 
     if args.action == 're-enroll':
-        enroll_interactive(re_enroll=True); return
+        enroll_interactive(re_enroll=True, server_url=args.server, pin=args.pin); return
 
     if args.action == 'enroll-token':
         # Server URL: --server flag, or existing creds (re-enrollment), or

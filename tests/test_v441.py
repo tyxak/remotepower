@@ -28,41 +28,29 @@ _spec.loader.exec_module(api)
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = '4.4.1'
+    """v4.4.1 — loosened to regex on the v4.5.0 bump (the live strict pins moved
+    to tests/test_v450.py); a later bump must not fail this file. The
+    doc-housekeeping invariants below are version-agnostic and stay."""
 
     def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, self.V)
+        self.assertRegex(api.SERVER_VERSION, r'^\d+\.\d+\.\d+$')
 
     def test_agent_versions(self):
-        self.assertIn(f"VERSION      = '{self.V}'",
-                      (_ROOT / 'client/remotepower-agent.py').read_text())
+        self.assertRegex((_ROOT / 'client/remotepower-agent.py').read_text(),
+                         r"\nVERSION\s*=\s*'\d+\.\d+\.\d+'")
         for rel in ('client/remotepower-agent-win.py', 'client/remotepower-agent-mac.py'):
-            self.assertIn(f"VERSION = '{self.V}'", (_ROOT / rel).read_text(), rel)
+            self.assertRegex((_ROOT / rel).read_text(),
+                             r"VERSION\s*=\s*'\d+\.\d+\.\d+'", rel)
 
     def test_agent_extensionless_in_sync(self):
         self.assertEqual((_ROOT / 'client/remotepower-agent.py').read_bytes(),
                          (_ROOT / 'client/remotepower-agent').read_bytes())
 
     def test_sw_and_cachebust(self):
-        self.assertIn(f'remotepower-shell-v{self.V}',
-                      (_ROOT / 'server/html/sw.js').read_text())
-        self.assertIn(f'?v={self.V}', (_ROOT / 'server/html/index.html').read_text())
-
-    def test_no_stale_cachebust(self):
-        # every ?v= in index.html must be the current version
-        idx = (_ROOT / 'server/html/index.html').read_text()
-        stale = set(re.findall(r'\?v=(4\.4\.0)\b', idx))
-        self.assertEqual(stale, set(), f'stale ?v= cache-busts left: {stale}')
-
-    def test_readme_and_changelog(self):
-        self.assertIn(f'version-{self.V}-blue', (_ROOT / 'README.md').read_text())
-        self.assertIn(f'v{self.V}', (_ROOT / 'CHANGELOG.md').read_text()[:2000])
-
-    def test_version_doc_exists(self):
-        self.assertTrue((_ROOT / f'docs/v{self.V}.md').exists())
-
-    def test_security_review_doc_exists(self):
-        self.assertTrue((_ROOT / f'docs/security-review-{self.V}.md').exists())
+        self.assertRegex((_ROOT / 'server/html/sw.js').read_text(),
+                         r'remotepower-shell-v\d+\.\d+\.\d+')
+        self.assertRegex((_ROOT / 'server/html/index.html').read_text(),
+                         r'\?v=\d+\.\d+\.\d+')
 
     def test_doc_set_keeps_five_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / 'docs').glob('v*.md'))
@@ -76,17 +64,10 @@ class TestVersionBumps(unittest.TestCase):
         revs = sorted(p.name for p in (_ROOT / 'docs').glob('security-review-*.md'))
         self.assertEqual(len(revs), 3, f'expected exactly 3 security reviews, got {revs}')
 
-    def test_whats_new_card_present(self):
-        self.assertIn(f"What's new — v{self.V}",
-                      (_ROOT / 'server/html/index.html').read_text())
-
     def test_whats_new_cards_capped_at_five(self):
         idx = (_ROOT / 'server/html/index.html').read_text()
         cards = re.findall(r"What's new — v[0-9.]+", idx)
         self.assertEqual(len(cards), 5, f'expected exactly 5 What\'s-new cards, got {cards}')
-
-    def test_manual_version(self):
-        self.assertIn(f'Version {self.V} —', (_ROOT / 'docs/Manual.html').read_text())
 
 
 class TestNoDanglingReviewLinks(unittest.TestCase):

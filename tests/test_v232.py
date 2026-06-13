@@ -114,8 +114,13 @@ class TestSecurityAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = client_js()
-        cls.docker_nginx = (_ROOT / 'docker/nginx-docker.conf').read_text()
-        cls.bare_nginx = (_ROOT / 'server/conf/remotepower.conf').read_text()
+        # v4.5.0: the location {} blocks moved into a shared snippet that both
+        # the HTTP and HTTPS server blocks include — read the effective config
+        # (server block + included locations).
+        cls.docker_nginx = ((_ROOT / 'docker/nginx-docker.conf').read_text()
+                            + (_ROOT / 'docker/nginx-docker-locations.conf').read_text())
+        cls.bare_nginx = ((_ROOT / 'server/conf/remotepower.conf').read_text()
+                          + (_ROOT / 'server/conf/remotepower-locations.conf').read_text())
 
     def test_default_pw_banner_in_js(self):
         self.assertIn('_mustChangePassword', self.js)
