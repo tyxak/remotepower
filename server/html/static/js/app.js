@@ -8549,6 +8549,38 @@ async function genSelfSignedCert() {
       <code class="ff-mono fs-12">sudo ./install-client.sh --server https://${escHtml(r.cn)} --ca-fingerprint ${fp}</code>
     </div>`;
 }
+// v4.6.0: import a PKCS#12 (.p12/.pfx) cert bundle from Settings → Security.
+// Reads the file to base64 in the browser and POSTs it (+ optional password) to
+// the admin-only endpoint, which extracts cert+key to the tls/ dir. CSP-safe.
+async function importP12() {
+  const f = document.getElementById('p12-file')?.files?.[0];
+  const pass = document.getElementById('p12-pass')?.value || '';
+  const box = document.getElementById('p12-result');
+  if (!f) { toast('Choose a .p12 / .pfx file first', 'error'); return; }
+  if (f.size > 1024 * 1024) { toast('File too large (max 1 MB)', 'error'); return; }
+  if (box) box.innerHTML = '<div class="c-muted">Importing…</div>';
+  let b64;
+  try {
+    b64 = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result).split(',')[1] || '');
+      fr.onerror = () => rej(new Error('read failed'));
+      fr.readAsDataURL(f);
+    });
+  } catch (_) { if (box) box.innerHTML = ''; toast('Could not read the file', 'error'); return; }
+  const r = await api('POST', '/tls/import-p12', { p12: b64, password: pass }).catch(() => null);
+  if (!r || !r.ok) { if (box) box.innerHTML = ''; toast(r?.error || 'Import failed', 'error'); return; }
+  const passInp = document.getElementById('p12-pass'); if (passInp) passInp.value = '';
+  toast('Certificate imported', 'success');
+  if (!box) return;
+  box.innerHTML = `
+    <div class="table-card card-padded">
+      <div><strong>Imported</strong> ${r.cn ? '— ' + escHtml(r.cn) : ''} <span class="hint">expires ${escHtml(r.expires || '?')}${r.chain ? ` · +${r.chain} chain cert(s)` : ''}</span></div>
+      <div class="form-label mb-6 mt-12">Files written</div>
+      <div class="ff-mono fs-12">${escHtml(r.server_crt)}<br>${escHtml(r.server_key)}</div>
+      <div class="hint mt-12"><strong>Next:</strong> point nginx at <code>server.crt</code> / <code>server.key</code> and reload it.</div>
+    </div>`;
+}
 async function loadSecurityPosture() {
   const box = document.getElementById('sec-posture-body');
   if (!box) return;

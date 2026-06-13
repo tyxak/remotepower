@@ -15057,6 +15057,69 @@ def handle_tls_gen_self_signed():
     respond(200, out)
 
 
+def handle_tls_import_p12():
+    """POST /api/tls/import-p12 {p12:<base64>, password:<optional>} — import a
+    PKCS#12 (.p12/.pfx) bundle: extract the cert (+ any chain) and private key and
+    write them to DATA_DIR/tls/server.{crt,key} for nginx to use. Admin-only,
+    audited. The password is optional and never stored. The operator still points
+    nginx at the files and reloads (needs root)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    import base64
+    body = get_json_body() or {}
+    b64 = body.get('p12') or body.get('p12_b64') or ''
+    password = body.get('password') or ''
+    try:
+        raw = base64.b64decode(str(b64), validate=True)
+    except Exception:
+        respond(400, {'error': 'Invalid file data'}); return
+    if not raw:
+        respond(400, {'error': 'Empty file'}); return
+    if len(raw) > 1024 * 1024:
+        respond(400, {'error': 'File too large (max 1 MB)'}); return
+    try:
+        from cryptography.hazmat.primitives.serialization import (
+            pkcs12, Encoding, PrivateFormat, NoEncryption)
+        from cryptography.x509.oid import NameOID
+        pw = password.encode('utf-8') if password else None
+        key, cert, chain = pkcs12.load_key_and_certificates(raw, pw)
+    except ImportError:
+        respond(500, {'error': 'The cryptography library is not installed on the server'}); return
+    except Exception:
+        respond(400, {'error': 'Could not read the .p12 — wrong password, or not a PKCS#12 file'}); return
+    if not key or not cert:
+        respond(400, {'error': 'The bundle must contain both a private key and a certificate'}); return
+    out_dir = DATA_DIR / 'tls'
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(out_dir, 0o750)
+    except OSError:
+        pass
+    crt_pem = cert.public_bytes(Encoding.PEM)
+    for c in (chain or []):
+        crt_pem += c.public_bytes(Encoding.PEM)
+    key_pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+    crt_p, key_p = out_dir / 'server.crt', out_dir / 'server.key'
+    try:
+        with open(crt_p, 'wb') as f:
+            f.write(crt_pem)
+        os.chmod(crt_p, 0o644)
+        with open(key_p, 'wb') as f:
+            f.write(key_pem)
+        os.chmod(key_p, 0o600)
+    except OSError as e:
+        respond(500, {'error': f'Could not write the certificate: {e}'}); return
+    try:
+        cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+    except Exception:
+        cn = ''
+    expires = getattr(cert, 'not_valid_after_utc', None) or cert.not_valid_after
+    audit_log(actor, 'tls_import_p12', f"cn={cn or '?'}")
+    respond(200, {'ok': True, 'cn': cn, 'expires': expires.strftime('%Y-%m-%d'),
+                  'chain': len(chain or []), 'server_crt': str(crt_p), 'server_key': str(key_p)})
+
+
 def handle_backup_run():
     """POST /api/self/backup-now — manually run a snapshot backup of DATA_DIR.
 
@@ -40720,6 +40783,7 @@ def _build_exact_routes():
         ('POST', '/api/scripts'): handle_scripts_add,
         ('GET', '/api/security/diag'): handle_security_diag,
         ('POST', '/api/tls/gen-self-signed'): handle_tls_gen_self_signed,
+        ('POST', '/api/tls/import-p12'): handle_tls_import_p12,
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,

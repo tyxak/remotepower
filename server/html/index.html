@@ -1858,6 +1858,17 @@
           </div>
 
           <div class="settings-section">
+            <h3>Import a certificate (.p12 / .pfx)</h3>
+            <p class="hint">Already have a certificate? Upload a <strong>PKCS#12</strong> bundle (<code>.p12</code> / <code>.pfx</code>) containing the certificate and its private key. The cert (plus any chain) and key are written to the data directory's <code>tls/</code> folder as <code>server.crt</code> / <code>server.key</code> — point nginx at them and reload. The bundle password is optional and never stored.</p>
+            <div class="sb-controls mt-8">
+              <input type="file" id="p12-file" class="form-input" accept=".p12,.pfx,application/x-pkcs12">
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="p12-pass" class="form-input input-auto" autocomplete="new-password" placeholder="password (optional)"></form>
+              <button class="btn-secondary" data-action="importP12">Import</button>
+            </div>
+            <div id="p12-result" class="mt-8"></div>
+          </div>
+
+          <div class="settings-section">
             <h3>Transport security (HSTS)</h3>
             <p class="hint">HSTS forces every future visit to use HTTPS — defence against a downgrade attack. Set by nginx, not the application; this panel just reports whether the response on your current page is carrying the header.</p>
             <div id="cfg-hsts-status" class="hint">Checking…</div>

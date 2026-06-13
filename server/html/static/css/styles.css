@@ -5257,11 +5257,15 @@ body[data-ui="industrial"] .nav-btn.active,
 body[data-ui="industrial"] .sidebar-group .nav-btn.active,
 body[data-ui="industrial"] .nav-favorites .nav-btn.active {
   box-shadow:inset 3px 0 0 var(--accent) !important;
-  background:var(--surface2) !important;
+  background:var(--accent-soft) !important;   /* blue-tinted "selected" block, not grey */
   margin-left:0 !important;
-  color:var(--text) !important;
+  color:var(--accent2) !important;            /* brighter blue label */
+  font-weight:600;
 }
 body[data-ui="industrial"] .nav-btn.active svg { color:var(--accent); }
+body[data-ui="industrial"] .nav-btn.active:hover { background:var(--accent-soft) !important; }
+/* more breathing room before each sidebar group (e.g. Links → Fleet) */
+body[data-ui="industrial"] .sidebar-group { margin-top:10px; padding-top:10px; }
 body[data-ui="industrial"] .nav-badge,
 body[data-ui="industrial"] .nav-group-badge { font-family:var(--font-mono); border-radius:3px; font-size:10px; }
 body[data-ui="industrial"] .sidebar-search { border-radius:2px; font-family:var(--font); }
@@ -5318,7 +5322,8 @@ body[data-ui="industrial"] .stat-card,
 body[data-ui="industrial"] .tile,
 body[data-ui="industrial"] .table-card,
 body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .home-widget {
+body[data-ui="industrial"] .home-widget,
+body[data-ui="industrial"] .login-card {
   position:relative;
   background-image:
     linear-gradient(var(--accent-edge),var(--accent-edge)),

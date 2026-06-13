@@ -148,6 +148,19 @@ class TestSelfSignedCertEndpoint(unittest.TestCase):
         self.assertIn('id="tls-gen-hosts"', _HTML)
         self.assertIn('function genSelfSignedCert(', _JS)
 
+    def test_p12_import_route_and_hidden_password(self):
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn("('POST', '/api/tls/import-p12'): handle_tls_import_p12", src)
+        m = re.search(r'def handle_tls_import_p12\(\):(.*?)\ndef ', src, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('require_admin_auth()', m.group(1))   # admin only
+        self.assertIn('audit_log(', m.group(1))             # audited
+        # UI: file input + a HIDDEN (type=password) optional password + handler
+        self.assertIn('id="p12-file"', _HTML)
+        self.assertIn('type="password" id="p12-pass"', _HTML)
+        self.assertIn('data-action="importP12"', _HTML)
+        self.assertIn('function importP12(', _JS)
+
     def test_host_validation_rejects_injection(self):
         self.assertTrue(api._valid_tls_host('rp.internal'))
         self.assertTrue(api._valid_tls_host('10.0.0.5'))
