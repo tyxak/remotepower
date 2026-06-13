@@ -1,8 +1,9 @@
 services:
   remotepower:
     build: .
-    # Or use a published image instead of building locally:
-    # image: tyxak/remotepower:latest
+    # Or use the prebuilt image instead of building locally — comment out
+    # `build:` above and uncomment this (published on every release):
+    # image: ghcr.io/tyxak/remotepower:latest
     container_name: remotepower
     ports:
       # Host port defaults to 8085 (8080 clashes on many machines). Override

@@ -1,0 +1,76 @@
+# Publish the RemotePower server image to the GitHub Container Registry
+# (ghcr.io) when a release is published on the PRODUCTION repo.
+#
+# Division of labour, on purpose:
+#   - The signed release tarball (.tar.gz + .sha256 + .asc) is built and signed
+#     LOCALLY with `make release` and uploaded by hand via `gh release create`.
+#     The GPG signing key never touches CI.
+#   - This workflow only builds + pushes the Docker image, authenticating with
+#     the auto-provisioned GITHUB_TOKEN (no secrets to manage).
+#
+# Trigger: a published GitHub Release (the `gh release create` step of the
+# production promotion). `workflow_dispatch` lets you re-run for a given tag.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v4.6.0"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    # Only the production repo publishes images. Guards against an accidental
+    # publish if Actions is ever re-enabled on the test remote (tyxak/claude-code).
+    if: github.repository == 'tyxak/remotepower'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags + OCI labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # The release tag (vX.Y.Z) drives the version; also tag X.Y and latest.
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name || github.event.inputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name || github.event.inputs.tag }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # amd64 only for now (fast, the common server arch). To also publish
+          # arm64 (e.g. for SBC management nodes), add a
+          # `docker/setup-qemu-action@v3` step above and set:
+          #   platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false

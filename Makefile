@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test format lint typecheck check clean install-dev dist version scan-demo
+.PHONY: help test format lint typecheck check clean install-dev dist release version scan-demo
 
 PY      ?= python3
 PIP     ?= pip3
@@ -31,6 +31,12 @@ VERSION := $(shell awk -F"'" '/^SERVER_VERSION/ {print $$2; exit}' \
                    server/cgi-bin/api.py)
 DIST_NAME := remotepower-$(VERSION)
 DIST_DIR  := dist
+
+# GPG key the release tarball is detach-signed with (`make release`). Defaults
+# to the key git already uses for signed tags/commits, so the tarball signature
+# and the signed git tag come from the same identity. Override:
+#   make release SIGN_KEY=<keyid>
+SIGN_KEY  ?= $(shell git config --get user.signingkey)
 
 help:
 	@echo "RemotePower dev targets"
@@ -185,6 +191,38 @@ dist: clean
 	@echo
 	@echo "==> Built $(DIST_DIR)/$(DIST_NAME).tar.gz"
 	@ls -lh $(DIST_DIR)/$(DIST_NAME).tar.gz $(DIST_DIR)/$(DIST_NAME).tar.gz.sha256
+
+# Production release artifacts: the verified tarball + sha256 (from `dist`) plus
+# a detached, ASCII-armoured GPG signature. Signing is LOCAL on purpose — the
+# private key never goes near CI. Publishing the GitHub release (with these three
+# assets) triggers the ghcr.io image push (.github/workflows/release.yml).
+release: dist
+	@command -v gpg >/dev/null 2>&1 || \
+	  { echo "==> gpg not found — install gnupg or sign the tarball manually"; exit 1; }
+	@test -n "$(SIGN_KEY)" || \
+	  { echo "==> No signing key. Set one: git config user.signingkey <keyid>  (or make release SIGN_KEY=<keyid>)"; exit 1; }
+	@echo "==> Signing $(DIST_NAME).tar.gz with key $(SIGN_KEY)"
+	@rm -f $(DIST_DIR)/$(DIST_NAME).tar.gz.asc
+	@gpg --local-user $(SIGN_KEY) --armor --output $(DIST_DIR)/$(DIST_NAME).tar.gz.asc \
+	     --detach-sign $(DIST_DIR)/$(DIST_NAME).tar.gz
+	@gpg --verify $(DIST_DIR)/$(DIST_NAME).tar.gz.asc $(DIST_DIR)/$(DIST_NAME).tar.gz
+	@echo
+	@echo "==> Release artifacts:"
+	@ls -lh $(DIST_DIR)/$(DIST_NAME).tar.gz \
+	        $(DIST_DIR)/$(DIST_NAME).tar.gz.sha256 \
+	        $(DIST_DIR)/$(DIST_NAME).tar.gz.asc
+	@echo
+	@echo "==> Recipients verify with:"
+	@echo "      sha256sum -c $(DIST_NAME).tar.gz.sha256"
+	@echo "      gpg --verify $(DIST_NAME).tar.gz.asc $(DIST_NAME).tar.gz"
+	@echo
+	@echo "==> Publish (signed tag must already be pushed to the remotepower remote):"
+	@echo "      gh release create v$(VERSION) \\"
+	@echo "        $(DIST_DIR)/$(DIST_NAME).tar.gz \\"
+	@echo "        $(DIST_DIR)/$(DIST_NAME).tar.gz.sha256 \\"
+	@echo "        $(DIST_DIR)/$(DIST_NAME).tar.gz.asc \\"
+	@echo "        --repo tyxak/remotepower --title 'v$(VERSION)' --notes-file docs/v$(VERSION).md"
+	@echo "    Publishing the release pushes ghcr.io/tyxak/remotepower:$(VERSION) (+ :latest)."
 
 clean:
 	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true

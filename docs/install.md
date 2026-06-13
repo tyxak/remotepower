@@ -117,12 +117,24 @@ This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo
 
 ### Docker (one-liner alternative)
 
+**Pull the prebuilt image** (published to the GitHub Container Registry on every release):
+
+```bash
+docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :4.6.0
+docker run -d --name remotepower -p 8085:8080 -v remotepower-data:/var/lib/remotepower \
+  ghcr.io/tyxak/remotepower:latest
+```
+
+**Or build from source** with compose:
+
 ```bash
 git clone https://github.com/tyxak/remotepower && cd remotepower
 docker compose up -d
 ```
 
-Dashboard at `http://localhost:8085` (host port default; container listens on 8080). Override with `RP_HOST_PORT=8080 docker compose up -d`. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front for production.
+(To run the published image via compose instead of building, uncomment the `image:` line in `docker-compose.yml` and drop `build:`.)
+
+Dashboard at `http://localhost:8085` (host port default; container listens on 8080). Override with `RP_HOST_PORT=8080 docker compose up -d`. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front for production — or set `RP_TLS_SELFSIGNED=1` to serve HTTPS directly (see [tls-selfsigned.md](tls-selfsigned.md)).
 
 ---
 

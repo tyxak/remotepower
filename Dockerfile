@@ -1,8 +1,13 @@
 FROM python:3.12-slim
 
+# Real version is injected at build time (the ghcr.io release workflow passes
+# --build-arg VERSION=<tag>); defaults to "dev" for a local `docker build`.
+ARG VERSION=dev
+
 LABEL maintainer="tyxak"
 LABEL description="RemotePower - Self-hosted remote device management"
-LABEL version="2.0.0"
+LABEL version="${VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/tyxak/remotepower"
 
 # Install nginx, fcgiwrap and runtime deps.
 # xmlsec1 = the system binary pysaml2 shells out to for SAML signature

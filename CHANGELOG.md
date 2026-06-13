@@ -56,6 +56,10 @@ No breaking changes; fully CSP-safe. Full notes in
 - Predictive health no longer alerts on a disk that's years from failing (only
   reactive high/critical or a ≤180-day ETA), and lists a host's healthy disks
   alongside its at-risk one instead of hiding them.
+- **Release distribution.** Releases now ship a **GPG-signed** tarball
+  (`make release` → `.tar.gz` + `.sha256` + `.asc`), and the server image is
+  published to the **GitHub Container Registry** on every release —
+  `docker pull ghcr.io/tyxak/remotepower:<version>` (or `:latest`).
 - Colour themes (nord/dracula/…) continue to apply to the Old UI.
 
 ## v4.5.0 — "TrustMatters" — 2026-06-13
