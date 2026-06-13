@@ -5262,10 +5262,17 @@ body[data-ui="industrial"] .nav-btn { border-radius:0 !important; font-family:va
 body[data-ui="industrial"] .nav-btn.active,
 body[data-ui="industrial"] .sidebar-group .nav-btn.active,
 body[data-ui="industrial"] .nav-favorites .nav-btn.active {
-  box-shadow:inset 3px 0 0 var(--accent) !important;   /* the accent line, like the mockup */
-  background:var(--surface2) !important;               /* subtle grey block, not a blue fill */
+  box-shadow:none !important;                           /* not a full-height line */
+  background:var(--surface2) !important;                /* subtle grey block, not a blue fill */
   margin-left:0 !important;
   color:var(--text) !important;
+  position:relative;
+}
+/* short, vertically-centred accent bar on the left — exactly like
+   identity-mockups.html (3px × 18px, not the full item height). */
+body[data-ui="industrial"] .nav-btn.active::before {
+  content:""; position:absolute; left:0; top:50%; transform:translateY(-50%);
+  width:3px; height:18px; background:var(--accent); border-radius:0 2px 2px 0;
 }
 body[data-ui="industrial"] .nav-btn.active svg { color:var(--accent); }
 /* one consistent sidebar item size — the group sub-items were 12px vs 13px for
