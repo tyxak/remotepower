@@ -9,6 +9,7 @@
  *        hashes, paths, command output, code).
  */
 @import url('../vendor/fonts/inter-jetbrains.css');
+@import url('../vendor/fonts/industrial.css');  /* v4.6.0: Space Grotesk + IBM Plex Mono for the Industrial UI */
 
 /* CMDB active tab — moved out of inline <style> injection (CSP L1). */
 .cmdb-tab-btn.active {
@@ -5207,39 +5208,91 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 
 /* ════════════════════════════════════════════════════════════════════════════
    NEW UI — "Industrial" design system  (v4.6.0 "InterfaceMatters")
-   Applied when body[data-ui="industrial"] is set (the default). Opt out to the
-   classic look via Settings → Interface / My Account → Appearance (removes the
-   attribute). Keeps RemotePower's blue accent; swaps the navy palette for warm
-   graphite/steel and adds the instrument-panel motifs (corner ticks, dashed
-   rules, mono eyebrow labels, tabular figures). Pure CSS — CSP-safe.
-   Placed after every theme block so its palette wins by source order.
+   A real redesign, not a recolour: warm graphite/steel with the RemotePower
+   blue, IBM Plex Mono body + Space Grotesk display, instrument-panel chrome.
+   Applied via body[data-ui="industrial"] (default); opt out under Settings →
+   Interface. Placed after every theme block so its palette wins by source order.
+   Pure CSS, self-hosted fonts — CSP-safe.
    ════════════════════════════════════════════════════════════════════════════ */
 body[data-ui="industrial"] {
-  --bg:#13151a; --surface:#1b1e25; --surface2:#23272f; --border:#333a47;
-  --text:#dfe3ea; --muted:#7c869a;
-  --accent:#3b7eff; --accent2:#5c9fff;                 /* our logo blue, kept */
-  --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.34);
+  --bg:#0f1217; --surface:#171b22; --surface2:#1f242d; --border:#313a47;
+  --text:#dfe4ec; --muted:#7c879a;
+  --accent:#3b7eff; --accent2:#5c9fff;                       /* our logo blue, kept */
+  --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.40);
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+  --font:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;     /* body = mono */
+  --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;
+  --font-display:'Space Grotesk','Inter',system-ui,sans-serif;        /* headings/brand */
 }
+body[data-ui="industrial"] { font-family:var(--font); letter-spacing:-0.005em; }
 
-/* sharper, machined corners */
+/* ── Typography: Space Grotesk on every prominent heading / number / brand ── */
+body[data-ui="industrial"] .logo-text,
+body[data-ui="industrial"] .page-title,
+body[data-ui="industrial"] .section-title,
+body[data-ui="industrial"] .empty-title,
+body[data-ui="industrial"] .modal-title,
+body[data-ui="industrial"] .drawer-title,
+body[data-ui="industrial"] .stat-value,
+body[data-ui="industrial"] .tile-value,
+body[data-ui="industrial"] .card-title,
+body[data-ui="industrial"] h1,
+body[data-ui="industrial"] h2,
+body[data-ui="industrial"] h3 { font-family:var(--font-display); letter-spacing:-0.01em; }
+body[data-ui="industrial"] .stat-value,
+body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
+
+/* ── Sidebar: machined nav ──────────────────────────────────────────────── */
+body[data-ui="industrial"] .sidebar { background:#0b0e12; border-right:1px solid var(--border); }
+body[data-ui="industrial"] .logo-text { text-transform:uppercase; font-weight:700; letter-spacing:0.02em; font-size:16px; }
+body[data-ui="industrial"] .logo-img { border-radius:3px; }
+body[data-ui="industrial"] .sidebar-label {
+  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.14em;
+  font-size:10px; color:var(--muted); font-weight:600;
+}
+body[data-ui="industrial"] .nav-btn { border-radius:2px; font-family:var(--font); }
+body[data-ui="industrial"] .nav-btn.active { box-shadow:inset 3px 0 0 var(--accent); background:var(--surface2); }
+body[data-ui="industrial"] .nav-btn.active svg { color:var(--accent); }
+body[data-ui="industrial"] .nav-badge,
+body[data-ui="industrial"] .nav-group-badge { font-family:var(--font-mono); border-radius:3px; font-size:10px; }
+body[data-ui="industrial"] .sidebar-search { border-radius:2px; font-family:var(--font); }
+body[data-ui="industrial"] .sidebar-group-toggle { font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.12em; font-size:10px; }
+
+/* ── Page header ────────────────────────────────────────────────────────── */
+body[data-ui="industrial"] .page-title { font-weight:600; letter-spacing:-0.015em; }
+body[data-ui="industrial"] .page-subtitle { font-family:var(--font-mono); color:var(--muted); }
+
+/* ── Sharper corners everywhere ─────────────────────────────────────────── */
 body[data-ui="industrial"] .stat-card,
 body[data-ui="industrial"] .tile,
 body[data-ui="industrial"] .table-card,
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .home-widget,
 body[data-ui="industrial"] .settings-section,
+body[data-ui="industrial"] .settings-pane,
 body[data-ui="industrial"] .modal,
+body[data-ui="industrial"] .card,
 body[data-ui="industrial"] .drawer { border-radius:3px; }
+body[data-ui="industrial"] .btn,
 body[data-ui="industrial"] .btn-primary,
 body[data-ui="industrial"] .btn-secondary,
 body[data-ui="industrial"] .form-input,
-body[data-ui="industrial"] .sidebar-search,
-body[data-ui="industrial"] .nav-btn,
-body[data-ui="industrial"] .settings-tab { border-radius:2px; }
+body[data-ui="industrial"] .form-select,
+body[data-ui="industrial"] select,
+body[data-ui="industrial"] input[type="text"],
+body[data-ui="industrial"] input[type="search"],
+body[data-ui="industrial"] .settings-tab,
+body[data-ui="industrial"] .chip,
+body[data-ui="industrial"] .badge { border-radius:2px; }
 
-/* corner ticks on the primary panels (inset 5px so .tile's overflow:hidden
-   doesn't clip them; absolute so they aren't flex items on .stat-card) */
+/* ── Buttons read like panel controls ───────────────────────────────────── */
+body[data-ui="industrial"] .btn-primary,
+body[data-ui="industrial"] .btn-secondary,
+body[data-ui="industrial"] .settings-tab {
+  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
+}
+
+/* ── Corner ticks on the primary panels (inset; absolute so not flex items) ─ */
 body[data-ui="industrial"] .stat-card,
 body[data-ui="industrial"] .tile,
 body[data-ui="industrial"] .table-card,
@@ -5255,37 +5308,34 @@ body[data-ui="industrial"] .dash-card::before,
 body[data-ui="industrial"] .dash-card::after,
 body[data-ui="industrial"] .home-widget::before,
 body[data-ui="industrial"] .home-widget::after {
-  content:""; position:absolute; width:7px; height:7px;
-  border-color:var(--accent-edge); border-style:solid; opacity:.75; pointer-events:none;
+  content:""; position:absolute; width:8px; height:8px;
+  border-color:var(--accent-edge); border-style:solid; opacity:.8; pointer-events:none;
 }
 body[data-ui="industrial"] .stat-card::before,
 body[data-ui="industrial"] .tile::before,
 body[data-ui="industrial"] .table-card::before,
 body[data-ui="industrial"] .dash-card::before,
-body[data-ui="industrial"] .home-widget::before { top:5px; left:5px; border-width:1px 0 0 1px; }
+body[data-ui="industrial"] .home-widget::before { top:6px; left:6px; border-width:1px 0 0 1px; }
 body[data-ui="industrial"] .stat-card::after,
 body[data-ui="industrial"] .tile::after,
 body[data-ui="industrial"] .table-card::after,
 body[data-ui="industrial"] .dash-card::after,
-body[data-ui="industrial"] .home-widget::after { bottom:5px; right:5px; border-width:0 1px 1px 0; }
+body[data-ui="industrial"] .home-widget::after { bottom:6px; right:6px; border-width:0 1px 1px 0; }
 
-/* dashed rules — the technical-drawing tell */
-body[data-ui="industrial"] table td { border-bottom-style:dashed; }
-body[data-ui="industrial"] .settings-tabs { border-bottom-style:dashed; }
-
-/* mono, tracked eyebrow labels + tabular figures */
+/* ── Eyebrow labels: mono, uppercase, tracked ───────────────────────────── */
 body[data-ui="industrial"] .stat-label,
 body[data-ui="industrial"] .tile-label,
-body[data-ui="industrial"] .sidebar-label {
+body[data-ui="industrial"] .form-label,
+body[data-ui="industrial"] .meta-label {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.10em;
 }
-body[data-ui="industrial"] .stat-value,
-body[data-ui="industrial"] .tile-value {
-  font-family:var(--font-mono); font-variant-numeric:tabular-nums; letter-spacing:-0.01em;
-}
 
-/* logo reads as a machined badge, not a soft chip */
-body[data-ui="industrial"] .logo-img { border-radius:2px; }
+/* ── Tables: technical-drawing rows ─────────────────────────────────────── */
+body[data-ui="industrial"] th {
+  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; font-size:10px;
+}
+body[data-ui="industrial"] td { border-bottom-style:dashed; font-family:var(--font); }
+body[data-ui="industrial"] .settings-tabs { border-bottom-style:dashed; }
 
 /* ── New UI / Old UI selector (used in both UIs; CSP-safe, classes only) ── */
 .ui-toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }

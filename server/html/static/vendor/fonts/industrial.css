@@ -1,0 +1,19 @@
+/* Self-hosted fonts for the Industrial "New UI" (v4.6.0). Space Grotesk (display)
+   + IBM Plex Mono (body/mono). Latin subset; non-latin text falls back to the
+   stack in styles.css. Served same-origin so the strict CSP is satisfied. */
+
+@font-face { font-family:'Space Grotesk'; font-style:normal; font-weight:400; font-display:swap;
+  src:url(files/space-grotesk-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family:'Space Grotesk'; font-style:normal; font-weight:500; font-display:swap;
+  src:url(files/space-grotesk-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family:'Space Grotesk'; font-style:normal; font-weight:600; font-display:swap;
+  src:url(files/space-grotesk-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family:'Space Grotesk'; font-style:normal; font-weight:700; font-display:swap;
+  src:url(files/space-grotesk-latin-700-normal.woff2) format('woff2'); }
+
+@font-face { font-family:'IBM Plex Mono'; font-style:normal; font-weight:400; font-display:swap;
+  src:url(files/ibm-plex-mono-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family:'IBM Plex Mono'; font-style:normal; font-weight:500; font-display:swap;
+  src:url(files/ibm-plex-mono-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family:'IBM Plex Mono'; font-style:normal; font-weight:600; font-display:swap;
+  src:url(files/ibm-plex-mono-latin-600-normal.woff2) format('woff2'); }

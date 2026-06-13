@@ -14,7 +14,9 @@ changes**, and fully CSP-safe. Full notes in [docs/v4.6.0.md](docs/v4.6.0.md).
   RemotePower **blue** accent), instrument-panel motifs — corner ticks on panels,
   dashed technical rules, mono uppercase eyebrow labels, tabular figures — and
   sharper corners. Implemented as `body[data-ui="industrial"]` layered after the
-  theme blocks; the self-hosted JetBrains Mono is reused, so no external fonts.
+  theme blocks. A real type system too — body in **IBM Plex Mono**, headings/brand
+  in **Space Grotesk**, both newly **self-hosted** (no external fonts; the strict
+  CSP blocks Google Fonts).
 - **New UI / Old UI toggle.** A new **Settings → Interface** tab (and a control in
   **My Account → Appearance**, so non-admins can switch too) flips between the
   Industrial look and the classic one. Per-browser preference (`rp_ui`, default

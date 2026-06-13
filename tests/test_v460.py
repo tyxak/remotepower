@@ -82,14 +82,25 @@ class TestIndustrialTheme(unittest.TestCase):
         self.assertIsNotNone(m)
         block = m.group(1)
         self.assertIn('--accent:#3b7eff', block.replace(' ', ''))
-        self.assertIn('--bg:#13151a', block.replace(' ', ''))
+        self.assertIn('--bg:#0f1217', block.replace(' ', ''))
+        # body in IBM Plex Mono, headings in Space Grotesk
+        self.assertIn("--font:'IBMPlexMono'", block.replace(' ', ''))
+        self.assertIn("--font-display:'SpaceGrotesk'", block.replace(' ', ''))
 
-    def test_industrial_uses_self_hosted_mono_not_external(self):
-        # mono eyebrow labels use the already-self-hosted var(--font-mono); no
-        # external Google Fonts (would break under the strict CSP).
-        self.assertIn('font-family:var(--font-mono)', _CSS.replace(' ', ''))
-        self.assertNotIn('fonts.googleapis.com', _CSS)
-        self.assertNotIn('fonts.gstatic.com', _CSS)
+    def test_fonts_are_self_hosted_not_external(self):
+        # Space Grotesk + IBM Plex Mono ship as same-origin @font-face (the strict
+        # CSP blocks Google Fonts); no external font references anywhere.
+        face = (_ROOT / 'server/html/static/vendor/fonts/industrial.css').read_text()
+        self.assertIn("font-family:'Space Grotesk'", face)
+        self.assertIn("font-family:'IBM Plex Mono'", face)
+        self.assertIn('.woff2', face)
+        for txt in (_CSS, face):
+            self.assertNotIn('fonts.googleapis.com', txt)
+            self.assertNotIn('fonts.gstatic.com', txt)
+        # the woff2 files actually exist
+        fdir = _ROOT / 'server/html/static/vendor/fonts/files'
+        self.assertTrue((fdir / 'space-grotesk-latin-500-normal.woff2').exists())
+        self.assertTrue((fdir / 'ibm-plex-mono-latin-400-normal.woff2').exists())
 
 
 class TestUIVersionToggle(unittest.TestCase):
