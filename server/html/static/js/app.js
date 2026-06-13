@@ -10089,6 +10089,10 @@ async function runCompose(action) {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+  // v4.6.0: apply the theme + New/Old UI skin up front so the LOGIN / front
+  // page is themed too (not just the post-login app, which re-applies in showApp).
+  try { applyTheme(); } catch (_) {}
+  try { applyUIVersion(); } catch (_) {}
   loadPublicInfo();
   // The login fields are now inside #login-form so Enter triggers the
   // form's submit naturally — no per-field keydown listeners required.

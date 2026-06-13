@@ -5292,35 +5292,27 @@ body[data-ui="industrial"] .settings-tab {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
 }
 
-/* ── Corner ticks on the primary panels (inset; absolute so not flex items) ─ */
+/* ── Corner ticks, drawn as background-image so they frame the box and scroll
+   correctly. The old ::before/::after were position:absolute; on a card that is
+   itself a scroll container (table-cards use overflow:auto) absolute children
+   anchor to the scrolled content and look "stuck". A background is painted on
+   the border box (background-attachment:scroll = fixed to the element), so the
+   ticks always frame the visible box and move with it on page scroll. TL + BR. ─ */
 body[data-ui="industrial"] .stat-card,
 body[data-ui="industrial"] .tile,
 body[data-ui="industrial"] .table-card,
 body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .home-widget { position:relative; }
-body[data-ui="industrial"] .stat-card::before,
-body[data-ui="industrial"] .stat-card::after,
-body[data-ui="industrial"] .tile::before,
-body[data-ui="industrial"] .tile::after,
-body[data-ui="industrial"] .table-card::before,
-body[data-ui="industrial"] .table-card::after,
-body[data-ui="industrial"] .dash-card::before,
-body[data-ui="industrial"] .dash-card::after,
-body[data-ui="industrial"] .home-widget::before,
-body[data-ui="industrial"] .home-widget::after {
-  content:""; position:absolute; width:8px; height:8px;
-  border-color:var(--accent-edge); border-style:solid; opacity:.8; pointer-events:none;
+body[data-ui="industrial"] .home-widget {
+  position:relative;
+  background-image:
+    linear-gradient(var(--accent-edge),var(--accent-edge)),
+    linear-gradient(var(--accent-edge),var(--accent-edge)),
+    linear-gradient(var(--accent-edge),var(--accent-edge)),
+    linear-gradient(var(--accent-edge),var(--accent-edge));
+  background-repeat:no-repeat;
+  background-size:9px 1px, 1px 9px, 9px 1px, 1px 9px;
+  background-position:7px 7px, 7px 7px, right 7px bottom 7px, right 7px bottom 7px;
 }
-body[data-ui="industrial"] .stat-card::before,
-body[data-ui="industrial"] .tile::before,
-body[data-ui="industrial"] .table-card::before,
-body[data-ui="industrial"] .dash-card::before,
-body[data-ui="industrial"] .home-widget::before { top:6px; left:6px; border-width:1px 0 0 1px; }
-body[data-ui="industrial"] .stat-card::after,
-body[data-ui="industrial"] .tile::after,
-body[data-ui="industrial"] .table-card::after,
-body[data-ui="industrial"] .dash-card::after,
-body[data-ui="industrial"] .home-widget::after { bottom:6px; right:6px; border-width:0 1px 1px 0; }
 
 /* ── Eyebrow labels: mono, uppercase, tracked ───────────────────────────── */
 body[data-ui="industrial"] .stat-label,
@@ -5329,6 +5321,18 @@ body[data-ui="industrial"] .form-label,
 body[data-ui="industrial"] .meta-label {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.10em;
 }
+
+/* ── Stat cards: instrument readout, not soft app cards ─────────────────────
+   Drop the pastel rgba icon square for a flat outlined chip (keeps the semantic
+   icon colour), and tighten the readout. The number is already Space Grotesk and
+   the label mono-uppercase from the rules above. ── */
+body[data-ui="industrial"] .stat-icon {
+  background:transparent;
+  border:1px solid var(--border);
+}
+body[data-ui="industrial"] .stat-card { padding:16px 18px; gap:14px; }
+body[data-ui="industrial"] .stat-value { font-size:28px; font-weight:600; letter-spacing:-0.02em; }
+body[data-ui="industrial"] .stat-label { font-size:10px; margin-top:5px; }
 
 /* ── Tables: technical-drawing rows ─────────────────────────────────────── */
 body[data-ui="industrial"] th {
