@@ -22973,7 +22973,7 @@ function _palBuildIndex() {
   const items = [];
   // Static pages (sidebar destinations)
   const pages = [
-    ['Home', 'home'], ['Devices', 'devices'], ['Containers', 'containers'],
+    ['Dashboard', 'home'], ['Devices', 'devices'], ['Containers', 'containers'],
     ['Virtualization', 'virtualization'], ['Monitoring', 'monitor'],
     ['History', 'history'], ['Schedule', 'schedule'], ['Calendar', 'calendar'],
     ['Tasks', 'tasks'], ['CMDB', 'cmdb'], ['Logs', 'logs'], ['CVEs', 'cve'],
@@ -23176,7 +23176,7 @@ document.addEventListener('keydown', e => {
 // (the old cheat sheet documented 4 of 8 shortcuts — exactly the kind of
 // silent mismatch this consolidation removes). [key, page-id, label].
 const _G_NAV = [
-  ['h', 'home',     'Home'],
+  ['h', 'home',     'Dashboard'],
   ['d', 'devices',  'Devices'],
   ['a', 'audit',    'Audit log'],
   ['l', 'logs',     'Logs'],

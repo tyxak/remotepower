@@ -5256,14 +5256,15 @@ body[data-ui="industrial"] .nav-btn { border-radius:2px; font-family:var(--font)
 body[data-ui="industrial"] .nav-btn.active,
 body[data-ui="industrial"] .sidebar-group .nav-btn.active,
 body[data-ui="industrial"] .nav-favorites .nav-btn.active {
-  box-shadow:inset 3px 0 0 var(--accent) !important;
-  background:var(--accent-soft) !important;   /* blue-tinted "selected" block, not grey */
+  box-shadow:inset 3px 0 0 var(--accent) !important;   /* the accent line, like the mockup */
+  background:var(--surface2) !important;               /* subtle grey block, not a blue fill */
   margin-left:0 !important;
-  color:var(--accent2) !important;            /* brighter blue label */
-  font-weight:600;
+  color:var(--text) !important;
 }
 body[data-ui="industrial"] .nav-btn.active svg { color:var(--accent); }
-body[data-ui="industrial"] .nav-btn.active:hover { background:var(--accent-soft) !important; }
+/* one consistent sidebar item size — the group sub-items were 12px vs 13px for
+   Home/Alerts/Links; bring them up so the whole menu matches. */
+body[data-ui="industrial"] .sidebar-group .nav-btn { font-size:13px; }
 /* more breathing room before each sidebar group (e.g. Links → Fleet) */
 body[data-ui="industrial"] .sidebar-group { margin-top:10px; padding-top:10px; }
 body[data-ui="industrial"] .nav-badge,
