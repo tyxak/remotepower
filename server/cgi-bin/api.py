@@ -22305,6 +22305,12 @@ def _maybe_check_disk_predictions():
     for r in rows:
         if r.get('eta_days') is None:
             continue  # predictive (has an ETA), not just reactive-critical
+        # v4.6.0: don't alert on a disk that's years from failing. A 'medium'
+        # disk is only "wearing out" on a slow trajectory; only fire when it's
+        # genuinely urgent — reactive high/critical, or a near-term ETA (≤180d).
+        # (e.g. 27% SSD wear with a ~700-day ETA should not raise an alert.)
+        if r.get('risk') == 'medium' and (r.get('eta_days') or 0) > 180:
+            continue
         key = f"{r['device_id']}|{r.get('serial') or r.get('disk')}"
         cur.add(key)
         if key not in prev:

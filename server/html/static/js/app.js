@@ -8513,7 +8513,13 @@ function renderAuditLog() {
 }
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() {
-  const pw = prompt('Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:');
+  // v4.6.0: use the in-app password modal (uiPrompt type:'password') — the native
+  // prompt() shows the typed password in clear text and can't be masked.
+  const pw = await uiPrompt({
+    title: 'Clear audit log',
+    message: 'Clearing the audit log is gated. A pre-wipe archive is saved automatically. Enter your admin password to confirm:',
+    type: 'password', confirmText: 'Clear audit log', danger: true,
+  });
   if (!pw) return;
   const data = await api('DELETE', '/audit-log', { password: pw });
   if (data?.ok) { toast('Audit log cleared (pre-wipe archive saved)', 'success'); loadAuditLog(); }
@@ -12535,36 +12541,44 @@ function _renderDiskHealth() {
     eta: r.eta_days != null ? r.eta_days : 1e9,
     reasons: (r.reasons || []).join(' '),
   }));
+  // Shared renderer for a healthy/tracked disk row — used both in the all-healthy
+  // state and appended under the at-risk list (so one at-risk disk never hides a
+  // host's other healthy disks).
+  const trackedRow = (t) => {
+    const det = [];
+    if (t.reallocated != null) det.push(`realloc ${t.reallocated}`);
+    if (t.pending != null) det.push(`pending ${t.pending}`);
+    if (t.temperature_c != null) det.push(`${t.temperature_c}°C`);
+    det.push(`${t.samples} sample${t.samples === 1 ? '' : 's'}`);
+    return `<tr>
+      <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
+      <td class="fw-500">${escHtml(t.device)}</td>
+      <td><code>${escHtml(t.disk)}</code>${t.model ? `<div class="fs-11 c-muted">${escHtml(t.model)}</div>` : ''}</td>
+      <td class="ta-center ${(t.wear_pct >= 90) ? 'c-red' : (t.wear_pct >= 80) ? 'c-amber' : ''}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
+      <td class="ta-center">—</td>
+      <td class="hint">${escHtml(det.join(' · '))}</td></tr>`;
+  };
+  const tracked = _diskHealthResp.tracked || [];
   if (rows.length === 0) {
     // No at-risk disks — show the disks we ARE tracking (healthy), so the page
     // isn't blank. Distinguishes "all healthy" from "no SMART data reported".
-    const tracked = _diskHealthResp.tracked || [];
     if (!tracked.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="hint ta-center">No SMART data reported yet — no disk exposes SMART attributes (common on virtual/cloud disks), or the agent can\'t read smartctl. Physical disks build a trend over a few days.</td></tr>';
       return;
     }
     tbody.innerHTML = '<tr><td colspan="6" class="c-green ta-center">'
       + `No disks at risk — tracking ${tracked.length} disk${tracked.length === 1 ? '' : 's'}.</td></tr>`
-      + tracked.map(t => {
-          const det = [];
-          if (t.reallocated != null) det.push(`realloc ${t.reallocated}`);
-          if (t.pending != null) det.push(`pending ${t.pending}`);
-          if (t.temperature_c != null) det.push(`${t.temperature_c}°C`);
-          det.push(`${t.samples} sample${t.samples === 1 ? '' : 's'}`);
-          return `<tr>
-            <td><span class="pill" data-color="var(--green)">${t.failed ? 'failed' : 'stable'}</span></td>
-            <td class="fw-500">${escHtml(t.device)}</td>
-            <td><code>${escHtml(t.disk)}</code>${t.model ? `<div class="fs-11 c-muted">${escHtml(t.model)}</div>` : ''}</td>
-            <td class="ta-center ${(t.wear_pct >= 90) ? 'c-red' : (t.wear_pct >= 80) ? 'c-amber' : ''}">${t.wear_pct != null ? t.wear_pct + '%' : '—'}</td>
-            <td class="ta-center">—</td>
-            <td class="hint">${escHtml(det.join(' · '))}</td></tr>`;
-        }).join('');
+      + tracked.map(trackedRow).join('');
     return;
   }
   const riskPill = (risk) => {
     const cls = risk === 'critical' ? 'var(--red)' : risk === 'high' ? '#f97316' : 'var(--amber)';
     return `<span class="pill" data-color="${cls}">${escHtml(risk)}</span>`;
   };
+  // v4.6.0: also list the healthy tracked disks under the at-risk ones, deduped,
+  // so a host with one at-risk disk still shows its other (healthy) disks.
+  const riskKeys = new Set(rows.map(r => `${r.device}|${r.disk}`));
+  const healthy = tracked.filter(t => !riskKeys.has(`${t.device}|${t.disk}`));
   tbody.innerHTML = rows.map(r => {
     const eta = r.eta_days != null ? (r.eta_days < 1 ? 'imminent' : `~${r.eta_days}d`) : '—';
     const etaCls = (r.eta_days != null && r.eta_days < 30) ? 'c-red' : (r.eta_days != null && r.eta_days < 90) ? 'c-amber' : '';
@@ -12576,7 +12590,11 @@ function _renderDiskHealth() {
       <td class="ta-center ${etaCls}">${eta}</td>
       <td class="hint">${escHtml((r.reasons || []).join(' · '))}</td>
     </tr>`;
-  }).join('');
+  }).join('')
+    + (healthy.length
+        ? '<tr><td colspan="6" class="hint ta-center">Other tracked disks (healthy)</td></tr>'
+          + healthy.map(trackedRow).join('')
+        : '');
 }
 
 // ─── v3.11.0: Fleet Software Policy ──────────────────────────────────────────
