@@ -789,6 +789,37 @@ function applyUIVersion() {
   else document.body.dataset.ui = 'industrial';
   document.querySelectorAll('[data-action="setUIVersion"]').forEach(b =>
     b.classList.toggle('sel', b.dataset.arg === v));
+  try { _applyPageSubtitleInfo(); } catch (_) {}
+}
+// v4.6.0: in the New UI, fold each page's descriptive subtitle into a hover info
+// icon next to the title (native title tooltip — CSP-safe). Old UI shows the
+// subtitle inline as before. Idempotent; runs on load and on UI toggle.
+const _INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+function _applyPageSubtitleInfo() {
+  const industrial = document.body.dataset.ui === 'industrial';
+  document.querySelectorAll('.page-subtitle').forEach(sub => {
+    // the title this subtitle belongs to: the nearest preceding .page-title or
+    // .page-title-row (which wraps a .page-title).
+    let prev = sub.previousElementSibling;
+    while (prev && !prev.matches('.page-title, .page-title-row')) prev = prev.previousElementSibling;
+    if (!prev) return;
+    const titleEl = prev.matches('.page-title') ? prev : prev.querySelector('.page-title');
+    if (!titleEl) return;
+    const existing = titleEl.querySelector(':scope > .page-info-ic');
+    if (!industrial) {
+      sub.classList.remove('subtitle-hidden');
+      if (existing) existing.remove();
+      return;
+    }
+    sub.classList.add('subtitle-hidden');
+    if (existing) return;                 // already folded
+    const ic = document.createElement('span');
+    ic.className = 'page-info-ic';
+    ic.setAttribute('title', sub.textContent.trim());
+    ic.setAttribute('aria-label', sub.textContent.trim());
+    ic.innerHTML = _INFO_SVG;
+    titleEl.appendChild(ic);
+  });
 }
 function setUIVersion(v) {
   try { localStorage.setItem('rp_ui', v); } catch (_) {}

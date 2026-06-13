@@ -83,9 +83,10 @@ class TestIndustrialTheme(unittest.TestCase):
         block = m.group(1)
         self.assertIn('--accent:#3b7eff', block.replace(' ', ''))
         self.assertIn('--bg:#0f1217', block.replace(' ', ''))
-        # body in IBM Plex Mono, headings in Space Grotesk
-        self.assertIn("--font:'IBMPlexMono'", block.replace(' ', ''))
-        self.assertIn("--font-display:'SpaceGrotesk'", block.replace(' ', ''))
+        # body reverted to the old Inter font; the SIDEBAR keeps IBM Plex Mono
+        self.assertIn("--font:'Inter'", block.replace(' ', ''))
+        self.assertIn("--font-mono:'IBMPlexMono'", block.replace(' ', ''))
+        self.assertIn('.sidebar*{font-family:var(--font-mono)', _CSS.replace(' ', ''))
 
     def test_fonts_are_self_hosted_not_external(self):
         # Space Grotesk + IBM Plex Mono ship as same-origin @font-face (the strict

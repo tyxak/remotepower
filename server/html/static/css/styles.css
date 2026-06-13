@@ -5220,11 +5220,15 @@ body[data-ui="industrial"] {
   --accent:#3b7eff; --accent2:#5c9fff;                       /* our logo blue, kept */
   --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.40);
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
-  --font:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;     /* body = mono */
-  --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;
-  --font-display:'Space Grotesk','Inter',system-ui,sans-serif;        /* headings/brand */
+  --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
+  --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
+  --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
 }
-body[data-ui="industrial"] { font-family:var(--font); letter-spacing:-0.005em; }
+body[data-ui="industrial"] { font-family:var(--font); }
+/* the SIDEBAR keeps the distinctive mono font (the rest of the app reverts to the
+   old Inter font); brand + nav + labels + headers all in IBM Plex Mono */
+body[data-ui="industrial"] .sidebar,
+body[data-ui="industrial"] .sidebar * { font-family:var(--font-mono) !important; }
 
 /* ── Typography: Space Grotesk on every prominent heading / number / brand ── */
 body[data-ui="industrial"] .logo-text,
@@ -5319,12 +5323,11 @@ body[data-ui="industrial"] .badge { border-radius:2px; }
    strip and stay at the dense 12px. ── */
 body[data-ui="industrial"] .btn-primary,
 body[data-ui="industrial"] .btn-secondary {
-  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.05em; font-size:13px;
-  white-space:nowrap;   /* uppercase mono is wider — keep labels on one line so
-                           a toolbar's button heights stay equal (no 2-line wrap) */
+  text-transform:uppercase; letter-spacing:0.05em; font-size:13px;
+  white-space:nowrap;   /* keep labels on one line so toolbar button heights stay equal */
 }
 body[data-ui="industrial"] .settings-tab {
-  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
+  text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
 }
 
 /* ── Corner ticks, drawn as background-image so they frame the box and scroll
@@ -5341,10 +5344,10 @@ body[data-ui="industrial"] .home-widget,
 body[data-ui="industrial"] .login-card {
   position:relative;
   background-image:
-    linear-gradient(var(--accent-edge),var(--accent-edge)),
-    linear-gradient(var(--accent-edge),var(--accent-edge)),
-    linear-gradient(var(--accent-edge),var(--accent-edge)),
-    linear-gradient(var(--accent-edge),var(--accent-edge));
+    linear-gradient(var(--border),var(--border)),
+    linear-gradient(var(--border),var(--border)),
+    linear-gradient(var(--border),var(--border)),
+    linear-gradient(var(--border),var(--border));
   background-repeat:no-repeat;
   background-size:9px 1px, 1px 9px, 9px 1px, 1px 9px;
   background-position:7px 7px, 7px 7px, right 7px bottom 7px, right 7px bottom 7px;
@@ -5355,7 +5358,7 @@ body[data-ui="industrial"] .stat-label,
 body[data-ui="industrial"] .tile-label,
 body[data-ui="industrial"] .form-label,
 body[data-ui="industrial"] .meta-label {
-  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.10em;
+  text-transform:uppercase; letter-spacing:0.10em;
 }
 
 /* ── Stat cards: instrument readout, not soft app cards ─────────────────────
@@ -5372,7 +5375,7 @@ body[data-ui="industrial"] .stat-label { font-size:10px; margin-top:5px; }
 
 /* ── Tables: technical-drawing rows ─────────────────────────────────────── */
 body[data-ui="industrial"] th {
-  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; font-size:10px;
+  text-transform:uppercase; letter-spacing:0.08em; font-size:10px;
 }
 body[data-ui="industrial"] td { font-family:var(--font); }
 
@@ -5417,3 +5420,11 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .ui-opt.sel .ui-opt-desc { color:rgba(255,255,255,0.82); }
 .ui-opt-name { font-size:14px; font-weight:600; }
 .ui-opt-desc { font-size:11px; color:var(--muted); }
+
+/* v4.6.0: page descriptions folded into a hover info icon next to the title
+   (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
+.subtitle-hidden { display:none !important; }
+.page-info-ic { display:inline-flex; align-items:center; vertical-align:middle;
+  margin-left:8px; color:var(--muted); cursor:help; }
+.page-info-ic svg { width:16px; height:16px; }
+.page-info-ic:hover { color:var(--accent); }
