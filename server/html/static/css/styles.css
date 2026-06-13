@@ -5336,6 +5336,24 @@ body[data-ui="industrial"] th {
 }
 body[data-ui="industrial"] td { font-family:var(--font); }
 
+/* ── ONE shape language ─────────────────────────────────────────────────────
+   The app sets border-radius ad hoc on hundreds of components (6/8/10/12px…),
+   so a hand-picked override list always leaves a mix of round + square. Square
+   EVERY box & control with a universal rule (boxes and buttons end up the same
+   shape), then restore only genuinely circular UI. `!important` beats the app's
+   per-class radii; scoped to the opt-in industrial mode, so the Old UI keeps its
+   rounded look. Pseudo-elements (the corner ticks) aren't matched by `*`. ── */
+body[data-ui="industrial"] * { border-radius: 3px !important; }
+body[data-ui="industrial"] [class*="avatar"],
+body[data-ui="industrial"] [class*="dot"],
+body[data-ui="industrial"] .accent-swatch,
+body[data-ui="industrial"] .skeleton-circle,
+body[data-ui="industrial"] .spinner,
+body[data-ui="industrial"] .loader,
+body[data-ui="industrial"] .online,
+body[data-ui="industrial"] .offline,
+body[data-ui="industrial"] .cal-day-num { border-radius: 50% !important; }
+
 /* ── New UI / Old UI selector (used in both UIs; CSP-safe, classes only) ── */
 .ui-toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .ui-opt { background:var(--surface); border:0; border-right:1px solid var(--border);
