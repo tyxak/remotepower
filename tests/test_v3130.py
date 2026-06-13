@@ -745,8 +745,11 @@ class TestSecurityAuditFixes(unittest.TestCase):
         self.assertIn("include_rag and _ai_scope is None", self.src)
 
     def test_sha1_fingerprints_not_for_security(self):
-        # Both dedupe fingerprints annotated usedforsecurity=False.
-        self.assertEqual(self.src.count("usedforsecurity=False"), 2)
+        # The dedupe fingerprints are annotated usedforsecurity=False. v4.4.1
+        # extended the same annotation to the two MD5 fleet-checks cache-key
+        # fingerprints, so the count only grows — every weak-hash call must be
+        # marked non-security.
+        self.assertGreaterEqual(self.src.count("usedforsecurity=False"), 2)
 
 
 class TestRiskScoring(unittest.TestCase):

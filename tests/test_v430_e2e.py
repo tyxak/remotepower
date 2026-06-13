@@ -26,6 +26,14 @@ except ImportError:
 class TestSmoke(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # `make e2e` runs from tests/, but `unittest discover` from the repo
+        # root (the `make check` gate) leaves this dir off sys.path — make the
+        # sibling-harness import work regardless of cwd.
+        import os as _os
+        import sys as _sys
+        _here = _os.path.dirname(_os.path.abspath(__file__))
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
         from e2e_harness import start_stack  # local import: harness needs no deps
         cls._pw = sync_playwright().start()
         try:

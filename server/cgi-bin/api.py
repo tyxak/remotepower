@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.4.0'
+SERVER_VERSION = '4.4.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -23098,10 +23098,13 @@ def handle_fleet_checks():
     allowed = set(_scope_filter_devices(devices_all).keys())
     cfg = load(CONFIG_FILE) or {}
     scripts = _load_custom_scripts()
+    # Non-security cache-key fingerprint (checks-config change detection),
+    # not a credential digest — usedforsecurity=False silences CodeQL's
+    # weak-hash query (see docs/security-review-4.4.1.md).
     fp = hashlib.md5(json.dumps(
         [cfg.get('host_checks_disabled') or {}, cfg.get('custom_checks') or [],
          cfg.get('exposure_mutes') or [], scripts],
-        sort_keys=True, default=str).encode()).hexdigest()
+        sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()
     rows = _fleet_checks_rows(devices_all, cfg, scripts, fp)
     hosts = [h for h in rows if h.get('device_id') in allowed]
     if want in ('critical', 'warning'):
@@ -25000,11 +25003,12 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             # Checks page instead of re-running the O(fleet) _host_checks
             # loop inside every /api/home poll that shows this widget.
             scripts_all = _load_custom_scripts()
+            # Non-security cache-key fingerprint (see docs/security-review-4.4.1.md).
             fp = hashlib.md5(json.dumps(
                 [cfg.get('host_checks_disabled') or {},
                  cfg.get('custom_checks') or [],
                  cfg.get('exposure_mutes') or [], scripts_all],
-                sort_keys=True, default=str).encode()).hexdigest()
+                sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()
             rows = _fleet_checks_rows(devices_raw, cfg, scripts_all, fp)
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0}
             for h in rows:

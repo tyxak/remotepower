@@ -2,6 +2,37 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.4.1 — "DocumentationMatters" — 2026-06-13
+
+A documentation-and-triage release on the heels of the security-themed v4.4.0.
+**No breaking changes and no runtime behaviour changes.** Full details in
+[docs/v4.4.1.md](docs/v4.4.1.md) and [docs/security-review-4.4.1.md](docs/security-review-4.4.1.md).
+
+**CodeQL code-scanning triage — all 13 alerts are false positives:**
+- **XSS / DOM-as-HTML (7):** every flagged `innerHTML` assignment interpolates
+  only values that pass through the project `escHtml()` / `escAttr()` sanitizers
+  (unrecognised by CodeQL's default model), behind the strict no-inline CSP.
+- **SSRF (1, Critical):** `fetch('/api' + path)` is the same-origin front-end API
+  client — an origin-pinned relative path, never a user-supplied host.
+- **Weak hashing (2):** one is the **HMAC-SHA256** audit chain (strong); the
+  other a non-security dedup key already marked `usedforsecurity=False`.
+- **Clear-text logging / storage (3):** the admin-gated diagnostics download
+  (by design, `no-store`), a non-sensitive `stderr` diagnostic, and the app's
+  own atomic `chmod 0600` data-file write.
+
+**Hardening (no behaviour change):**
+- The two MD5 cache-key fingerprints in the fleet-checks fast path now pass
+  `usedforsecurity=False` — the signal CodeQL's weak-hash query honours. The
+  remaining 11 alerts are documented false positives suitable for dismissal.
+
+**Documentation:**
+- A coverage pass across all five doc surfaces (in-app Documentation page,
+  README, `docs/Manual.html`, per-version notes, did-you-know tips) confirmed
+  every shipped feature/function is documented and the headline counts are
+  accurate (65 webhook events, the 66-widget dashboard catalog, 18 MCP tools =
+  14 read + 4 guarded write). Rotated the version/security-review doc sets to the
+  kept window and repointed links to the durable `docs/security.md`.
+
 ## v4.4.0 — "FortifyMatters" — 2026-06-13
 
 A security-hardening and bind-it-together release. **No breaking changes.**
@@ -214,7 +245,8 @@ security / performance pass.
   ceremonies; the passkey login-begin endpoint is rate-limited and no longer
   reveals which usernames exist; scan-target file verification refuses loopback;
   audit-log writes are atomic under a file lock. Details in
-  [docs/security-review-4.2.0.md](docs/security-review-4.2.0.md).
+  [docs/security.md](docs/security.md) (the per-release v4.2.0 review has since
+  rotated out of the kept set).
 - *Fixed:* `service_down` alerts now auto-resolve when the unit recovers (the
   recover hook listened for an event that was never fired — broken since v3.2.0);
   the mail-queue check and drawer pill work again (the heartbeat sanitizer

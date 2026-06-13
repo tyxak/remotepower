@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.4.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.4.1">
 
 </head>
 <body>
@@ -2571,7 +2571,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.4.0 fortifymatters security hardening audit pentest wapiti nikto nuclei bandit zap clean privilege escalation admin gate custom role require_admin scope guard mitigation shlex quote drift acme command injection routeros ssrf metrics 500 scrape error lynis tmp symlink privesc windows macos agent https tls 1.2 floor cleartext mitm bind login timestamp last seen clock skew drawer single row heartbeat watched files host config fleet checks cache ttl os release memoize box overflow scroll cap font scale">
+          <details class="doc-card" open data-keywords="release notes changelog v4.4.1 documentationmatters codeql code scanning alert triage false positive xss dom innerhtml eschtml escattr sanitizer ssrf same origin fetch api client weak hash hmac sha256 audit chain md5 cache fingerprint usedforsecurity cleartext logging storage diagnostics bundle stderr documentation coverage pass webhook events widgets mcp tools">
+            <summary><strong>What's new — v4.4.1 "DocumentationMatters"</strong> — a documentation + triage release: every open CodeQL code-scanning alert triaged (all false positives), a documentation-coverage pass, and two no-behaviour weak-hash annotations (no code-behaviour changes)</summary>
+            <div class="doc-body">
+              <p>v4.4.1 resolves the open <strong>CodeQL</strong> code-scanning alerts and runs a documentation-coverage sweep. No runtime behaviour changed. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.4.1</code>).</p>
+              <ul>
+                <li><strong>All 13 CodeQL alerts are false positives.</strong> Each (1 Critical, 12 High) was read against the actual code path and the feature that governs it — none is an exploitable vulnerability. The full write-up, mapping every alert to the feature/function that already covers it, is in <code>docs/security-review-4.4.1.md</code>.</li>
+                <li><strong>XSS / DOM-as-HTML (7).</strong> Every flagged <code>innerHTML</code> assignment interpolates only values that pass through the project's <code>escHtml()</code> / <code>escAttr()</code> sanitizers, which CodeQL's default model doesn't recognise; the strict no-inline CSP is an independent second barrier.</li>
+                <li><strong>SSRF (1, Critical).</strong> <code>fetch('/api' + path)</code> is the same-origin front-end API client — an origin-pinned relative path, never a user-supplied host. Not request forgery.</li>
+                <li><strong>Weak hashing (2).</strong> One points at the audit-log chain, which is <strong>HMAC-SHA256</strong> (strong); the other is a non-security dedup key already marked <code>usedforsecurity=False</code>. The two MD5 cache-key fingerprints now carry <code>usedforsecurity=False</code> too — the signal the scanner honours.</li>
+                <li><strong>Clear-text logging / storage (3).</strong> The admin-gated diagnostics download (by design, <code>no-store</code>), a non-sensitive <code>stderr</code> diagnostic, and the app's own atomic <code>chmod 0600</code> data-file write — none is a secret-disclosure path.</li>
+                <li><strong>Documentation pass.</strong> A sweep across the in-app docs, README, Manual and per-version notes confirmed every shipped feature/function is documented and the headline counts are accurate (65 webhook events, the 66-widget dashboard catalog, 18 MCP tools).</li>
+              </ul>
+              <p class="hint">A documentation + triage release — every install keeps working exactly as before. See <code>docs/v4.4.1.md</code> and <code>docs/security-review-4.4.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.4.0 fortifymatters security hardening audit pentest wapiti nikto nuclei bandit zap clean privilege escalation admin gate custom role require_admin scope guard mitigation shlex quote drift acme command injection routeros ssrf metrics 500 scrape error lynis tmp symlink privesc windows macos agent https tls 1.2 floor cleartext mitm bind login timestamp last seen clock skew drawer single row heartbeat watched files host config fleet checks cache ttl os release memoize box overflow scroll cap font scale">
             <summary><strong>What's new — v4.4.0 "FortifyMatters"</strong> — a security-hardening + bind-it-together release: a full server + agent audit (independently pentested clean), a critical admin-gate fix, Windows/macOS agent transport parity, drawer login timestamps + clock-skew, and faster heartbeats (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.4.0 is security-themed: every server handler and all three agents were read end-to-end, and the web surface was independently scanned with <strong>wapiti, nikto, nuclei, bandit and OWASP ZAP</strong> — clean. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.4.0</code>).</p>
@@ -2638,48 +2653,8 @@
               <p class="hint">See <code>docs/v4.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v3.14.0 v4.0.0 favorites favourite star pin sidebar nav per account per user sync across devices localStorage api me api favorites stale image badge container update available registry digest image updates drawer fleet thermal hottest hosts temperature temps cpu chipset disk smart sensor heat overheat celsius degrees service worker cache f5 refresh reset">
-            <summary><strong>What's new — v4.0.0</strong> — the big one: scale (PostgreSQL HA, relay satellites, load-balanced nodes), encryption everywhere, deep fleet visibility, and a security-hardening pass</summary>
-            <div class="doc-body">
-              <p>v4.0.0 is a large, polished release that folds together everything since v3.13. It scales out (optional PostgreSQL backend with automatic failover + read replicas, relay satellites for segmented networks, load-balanced multi-node), encrypts every hop (incl. the agent→satellite relay), surfaces far more of what the agent already collects, and ships a focused security-hardening pass. No breaking changes for a single-node JSON install — most of it surfaces data you already have. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.0.0</code>).</p>
-              <ul>
-                <li><strong>Per-account sidebar favorites.</strong> Hover any entry in the sidebar groups and click the star to pin a copy under the <strong>“Main”</strong> label, so your most-used pages are always one click away. Favorites are stored on your account and follow you across browsers and devices (the browser keeps only a fast-paint cache). Keyboard accessible; works for real pages and section-jump rows alike.</li>
-                <li><strong>Per-container stale-image badge.</strong> The device drawer's <strong>Containers</strong> table now shows an <em>update</em> badge when a container's running image is older than the latest digest in the registry — the same check the fleet <strong>Image Updates</strong> page makes, so the two never disagree. Locally-built and accepted images aren't flagged.</li>
-                <li><strong>Fleet thermal roll-up.</strong> A new <strong>Thermal</strong> page (next to Storage) lists the hottest hosts fleet-wide — one row per host with its hottest CPU / chipset / disk / GPU sensor, sorted hottest-first, flagged ≥75 °C amber and ≥85 °C red. Answerable without opening each device drawer.</li>
-                <li><strong>CVE prioritization (KEV + EPSS).</strong> The CVEs page ranks by real-world risk — a daily join of the CISA <em>Known-Exploited Vulnerabilities</em> catalog and <em>FIRST EPSS</em> scores, with a red <strong>KEV</strong> badge, an EPSS %, a KEV column on the device list, and KEV-first sorting.</li>
-                <li><strong>Active session management.</strong> <em>My Account → Active sessions</em> lists every browser/device signed in as you and lets you revoke any one — or sign out all other sessions — in a click.</li>
-                <li><strong>Saved &amp; shareable views.</strong> Save the current Devices filter set as a named <strong>view</strong> (per-account) and share it by URL.</li>
-                <li><strong>SSD / NVMe endurance.</strong> The drawer's SMART table gains a <strong>Wear</strong> column with a projected end-of-life, flagged amber ≥80 % / red ≥90 %.</li>
-                <li><strong>GPU monitoring.</strong> Hosts with <code>nvidia-smi</code> / <code>rocm-smi</code> get a <strong>GPUs</strong> drawer card (util / memory / temp / power), and GPU temps feed the Thermal page.</li>
-                <li><strong>Local certificate-file inventory.</strong> A <strong>Local certificate files</strong> drawer card shows the expiry of x509 files on the host, coloured like the TLS page.</li>
-                <li><strong>Local account audit.</strong> A flagged-first <strong>Local accounts</strong> drawer card (extra UID 0, empty/stale passwords, locked, sudo) — no password hashes ever leave the host.</li>
-                <li><strong>Power scheduling.</strong> The Schedule page adds <strong>Suspend</strong> and <strong>Wake (Wake-on-LAN)</strong> actions alongside shut down / reboot, one-shot or recurring.</li>
-                <li><strong>Predictive health.</strong> A new page flags hardware before it fails — daily SMART snapshots project a disk-failure ETA, and frequently-restarting hosts (uptime-trend) are listed too.</li>
-                <li><strong>Power &amp; energy.</strong> A new agent UPS probe (NUT / apcupsd) drives a drawer <strong>UPS / power</strong> card and a fleet <strong>Power</strong> page; set your price/kWh to estimate energy cost from the live total.</li>
-                <li><strong>SSH key audit.</strong> A new <strong>SSH keys</strong> page lists every <code>authorized_keys</code> entry across the fleet with SHA256 fingerprints, weak-type flags, and a reuse count.</li>
-                <li><strong>Container logs.</strong> A per-container <em>logs</em> button in the drawer fetches recent docker/podman logs on demand — no SSH needed.</li>
-                <li><strong>Global omnisearch.</strong> The command palette (<kbd>/</kbd> or <kbd>Ctrl-K</kbd>) now searches open alerts and CVE findings too, not just pages and devices.</li>
-                <li><strong>Custom report builder.</strong> <em>Reports → Custom reports</em>: build a report from just the sections you want, pick JSON/CSV, download, and schedule each one to its own recipients.</li>
-                <li><strong>Container images in SBOMs.</strong> A host's CycloneDX/SPDX SBOM now also lists its running container images as components.</li>
-                <li><strong>Fleet drift-enforcement policy.</strong> The Drift page can auto-apply (or correct-on-drift) the desired config for every host matching a tag or group.</li>
-                <li><strong>Alerts for the new signals.</strong> Predicted disk failure, UPS on battery, expiring certificate files, and unexpected root-equivalent accounts now raise alerts/webhooks, not just dashboard views.</li>
-                <li><strong>Metrics push (Prometheus).</strong> Settings → Integrations can periodically POST the <code>/api/metrics</code> exposition to a Pushgateway / remote target.</li>
-                <li><strong>GitOps (config from Git).</strong> <em>Settings → Integrations → GitOps</em> pulls a JSON manifest from a raw Git URL and reconciles your drift profiles (watched-config sets) + tag/group assignments to match — config-as-code, with a dry-run preview. Off by default; manages watched-file lists only (no exec).</li>
-                <li><strong>Customizable dashboard.</strong> A <em>Customize</em> button on the Home page shows/hides and reorders the dashboard widgets; the layout is saved to your account and follows you across devices.</li>
-                <li><strong>Interface language.</strong> <em>My Account → Language</em> switches the UI between English, Mandarin, Hindi, Spanish and Arabic (RTL); the choice is saved to your account and follows you across devices.</li>
-                <li><strong>Change approval covers more actions.</strong> The optional second-admin approval now also gates reboot, shutdown, update/upgrade, uninstall and container actions — not just Run command.</li>
-                <li><strong>Scale-out: PostgreSQL + HA.</strong> An optional PostgreSQL backend (alongside flat-JSON and SQLite) with automatic failover across a multi-host DSN and optional read replicas, a PgBouncer pooler, and a load-balanced multi-node mode behind a trusted proxy. For 1000+ agents. See <code>docs/scaling.md</code>.</li>
-                <li><strong>Relay satellites + encryption everywhere.</strong> Run a relay satellite in a segmented network so agents never reach the server directly; the agent→satellite hop can run over HTTPS, and agents can trust an internal CA without weakening verification. See <code>docs/satellites.md</code>.</li>
-                <li><strong>macOS agent &amp; more installers.</strong> A launchd-based macOS agent joins Linux + Windows; new install scripts for satellites, PostgreSQL (incl. HA primary/standby), PgBouncer and an HAProxy example. <code>docs/deployment.md</code> maps every component to its script.</li>
-                <li><strong>Large-fleet UI guards.</strong> No page floods on a huge fleet — the Devices grid and the Thermal / Storage / SSH-key / Power roll-ups cap what they render and scroll, with a "refine your filter" prompt.</li>
-                <li><strong>Report an issue.</strong> A button on this page (and About) opens a prefilled GitHub bug report with app version, browser and recent client errors — no credentials, no fleet data.</li>
-                <li><strong>Security hardening.</strong> Session tokens are hashed at rest, OIDC token-exchange errors never log the response body, webhook-host matching is anchored against look-alike domains, AWS cloud-import region input is validated through the SSRF-safe fetch path, and Ansible runs trust host keys on first use instead of disabling the check. Independently scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP — clean. See <code>docs/security.md</code>.</li>
-              </ul>
-              <p class="hint">Note: if favorites ever appeared to “reset” on a normal refresh before this release, that was a stale service-worker cache — the cache is versioned per release, so a plain F5 now loads the current front-end. See <code>docs/v4.0.0.md</code>.</p>
-            </div>
-          </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
-            <summary><strong>Older releases</strong> &mdash; v3.11.0 and earlier</summary>
+            <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
             </div>
@@ -4788,7 +4763,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.14.0: Fleet thermal roll-up (hottest hosts) ─────────────── -->
       <div id="page-thermal" class="page">
         <div class="page-title">Thermal health</div>
-        <div class="page-subtitle">Hottest hosts across the fleet — CPU, chipset and disk temperatures the agents already report. Each host shows its single hottest sensor; the list is sorted hottest-first and anything ≥75 °C is flagged. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Hottest hosts across the fleet — CPU, chipset and disk temperatures the agents already report. Each host shows its single hottest sensor; the list is sorted hottest-first and anything ≥75 °C is flagged. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadThermal" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / sensor…" data-input="filterRows" data-input-el="1" data-filter-target="#thermal-tbody tr" aria-label="Filter device / sensor">
@@ -4811,7 +4786,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.14.0: SSH key audit ─────────────────────────────────────── -->
       <div id="page-ssh-keys" class="page">
         <div class="page-title">SSH key audit</div>
-        <div class="page-subtitle">Every <code>authorized_keys</code> entry across the fleet, with OpenSSH SHA256 fingerprints. Weak key types and keys reused across multiple hosts are listed first. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Every <code>authorized_keys</code> entry across the fleet, with OpenSSH SHA256 fingerprints. Weak key types and keys reused across multiple hosts are listed first. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadSshKeys" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / user / key…" data-input="filterRows" data-input-el="1" data-filter-target="#ssh-keys-tbody tr" aria-label="Filter device / user / key">
@@ -4834,7 +4809,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.14.0: Fleet power / UPS + energy ────────────────────────── -->
       <div id="page-power" class="page">
         <div class="page-title">Power &amp; energy</div>
-        <div class="page-subtitle">UPS status and measured power draw across the fleet. Hosts on battery are listed first. Set your electricity price to estimate energy cost from the live total. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">UPS status and measured power draw across the fleet. Hosts on battery are listed first. Set your electricity price to estimate energy cost from the live total. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadPower" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <label class="hint">Cost <input type="number" id="power-cost-kwh" class="form-input input-cost-kwh" min="0" step="0.01" value="0.30" data-input="renderPowerCost" data-input-value="1"> /kWh</label>
@@ -4863,7 +4838,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.14.0: predictive disk-failure maintenance ───────────────── -->
       <div id="page-disk-health" class="page">
         <div class="page-title">Predictive health</div>
-        <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/v4.0.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadDiskHealth" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / disk…" data-input="filterRows" data-input-el="1" data-filter-target="#disk-health-tbody tr" aria-label="Filter device / disk">
@@ -6943,19 +6918,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.4.0"></script>
-<script defer src="static/js/app.js?v=4.4.0"></script>
+<script defer src="static/js/i18n.js?v=4.4.1"></script>
+<script defer src="static/js/app.js?v=4.4.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.4.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.4.0"></script>
-<script defer src="static/js/app-containers.js?v=4.4.0"></script>
-<script defer src="static/js/app-network.js?v=4.4.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.4.1"></script>
+<script defer src="static/js/app-cmdb.js?v=4.4.1"></script>
+<script defer src="static/js/app-containers.js?v=4.4.1"></script>
+<script defer src="static/js/app-network.js?v=4.4.1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.4.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.4.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.4.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.4.1"></script>
+<script defer src="static/js/app-compliance.js?v=4.4.1"></script>
+<script defer src="static/js/app-integrations.js?v=4.4.1"></script>
 
-<script defer src="static/js/sw-register.js?v=4.4.0"></script>
+<script defer src="static/js/sw-register.js?v=4.4.1"></script>
 </body>
 </html>

@@ -38,17 +38,17 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-4.4.0.md](security-review-4.4.0.md)** — Latest security
- review: a full server + agent audit (independently pentested clean) — a
- critical admin-gate escalation, mitigation-route scope guards, shell-quoting
- the drift/ACME command builders, the RouterOS SSRF guard, metrics-scrape
- resilience, and Windows/macOS agent transport parity.
+- **[security-review-4.4.1.md](security-review-4.4.1.md)** — Latest review:
+ triage of the open CodeQL code-scanning alerts (XSS/SSRF/weak-hash/clear-text);
+ all confirmed false positives, with the feature/function that covers each.
+- **[security-review-4.4.0.md](security-review-4.4.0.md)** — A full server +
+ agent audit (independently pentested clean) — a critical admin-gate escalation,
+ mitigation-route scope guards, shell-quoting the drift/ACME command builders,
+ the RouterOS SSRF guard, metrics-scrape resilience, and Windows/macOS agent
+ transport parity.
 - **[security-review-4.3.0.md](security-review-4.3.0.md)** — The persistent
  SCGI API worker, per-endpoint gzip (BREACH reasoning), the fleet-checks cache
  scope guarantee, heartbeat rate floor, deploy rollback, and two Low hardenings.
-- **[security-review-4.2.0.md](security-review-4.2.0.md)** — The scan engine,
- passkeys, SAML, the audit hash-chain, the scan-schedule scope fix, and the
- external-scan summary for v4.2.0.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes
@@ -58,6 +58,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.4.1.md](v4.4.1.md)** — "DocumentationMatters": triage of the open CodeQL
+ code-scanning alerts (all false positives), a documentation-coverage pass, and
+ two no-behaviour weak-hash annotations. No code-behaviour changes.
 - **[v4.4.0.md](v4.4.0.md)** — "FortifyMatters": a security-hardening + bind
  release — a critical admin-gate fix, an independent pentest pass, Windows/macOS
  agent transport parity, login timestamps + clock-skew in the drawer, and
@@ -70,8 +73,9 @@ The five most recent per-release notes are kept here:
  and account guardrails.
 - **[v4.1.0.md](v4.1.0.md)** — "VisualMatters": CheckMK-style per-host
  Checks, custom checks, more monitors, a composable dashboard, grouped alerts.
-- **[v4.0.0.md](v4.0.0.md)** — scale out, encrypt everything, see more:
- PostgreSQL + HA, relay satellites, multi-node, macOS agent, KEV/EPSS.
+
+Older release notes (v4.0.0 and earlier) live in
+[CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
 

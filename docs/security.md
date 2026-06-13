@@ -17,13 +17,15 @@
 ## Independent security testing
 
 Each release is scanned with an external toolchain in addition to the code-level
-review and CI guardrails. **v4.2.0 was scanned with [wapiti](https://wapiti-scanner.github.io/),
+review and CI guardrails. **v4.4.0 was independently scanned with [wapiti](https://wapiti-scanner.github.io/),
 [nikto](https://github.com/sullo/nikto), [nuclei](https://github.com/projectdiscovery/nuclei),
 [bandit](https://github.com/PyCQA/bandit) and [OWASP ZAP](https://www.zaproxy.org/)
-and passed clean** (no actionable findings) — see
-[security-review-4.2.0.md](security-review-4.2.0.md), which also covers the new
-v4.2.0 surface (authorized scanning, passkeys, SAML, the audit hash-chain) and
-the one Medium scan-schedule scope fix made in that release. The strict Content-Security-Policy
+and passed clean** (no exploitable findings) — see
+[security-review-4.4.0.md](security-review-4.4.0.md), the security-themed release
+(authorized scanning, passkeys, SAML, the audit hash-chain, and the CRITICAL
+admin-gate escalation fix). The most recent pass,
+[security-review-4.4.1.md](security-review-4.4.1.md), triages the open CodeQL
+code-scanning alerts (all confirmed false positives). The strict Content-Security-Policy
 (`default-src 'self'`, no `unsafe-inline`), full security-header set (HSTS,
 X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
 COOP/CORP), same-origin enforcement on state-changing requests, and the SSRF-safe
@@ -83,7 +85,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-4.2.0.md](security-review-4.2.0.md).
+summarised in the latest, [security-review-4.4.1.md](security-review-4.4.1.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
 OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -256,7 +258,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every few releases
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-4.2.0.md](security-review-4.2.0.md)).
+  [security-review-4.4.1.md](security-review-4.4.1.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
   Python codebase.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

@@ -70,15 +70,18 @@ class TestVersionBumps(unittest.TestCase):
         self.assertRegex(txt[:2000], r"v4\.\d+\.\d+")
 
     def test_version_doc_exists(self):
-        self.assertTrue((_ROOT / f"docs/v{VERSION}.md").exists())
+        # loosened: v4.0.0 has since rotated out of the kept set — assert the
+        # *current* release's doc exists instead of the historical pin.
+        self.assertTrue((_ROOT / f"docs/v{api.SERVER_VERSION}.md").exists())
 
     def test_old_version_doc_gone(self):
         # v3.14.0 became v4.0.0 — there is no separate v3.14.0 doc anymore.
         self.assertFalse((_ROOT / "docs/v3.14.0.md").exists())
 
     def test_whats_new_card_present(self):
+        # loosened: assert the current release's What's-new card, not v4.0.0's.
         html = (_ROOT / "server/html/index.html").read_text()
-        self.assertIn(f"What's new — v{VERSION}", html)
+        self.assertIn(f"What's new — v{api.SERVER_VERSION}", html)
 
     def test_doc_set_keeps_five_versions(self):
         vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v*.md"))
