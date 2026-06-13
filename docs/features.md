@@ -1245,6 +1245,91 @@ reads (O(1) on SQLite/PostgreSQL); the 15-second fleet-checks cache now honours
 its TTL instead of being invalidated by every heartbeat; the agent memoizes its
 OS string.
 
+## v4.4.1 additions — "DocumentationMatters"
+
+A documentation + static-analysis hygiene release — no functional changes.
+
+### Static-analysis triage
+Every static-analysis finding on the codebase was reviewed and mapped to the
+feature that already covers it, with a written disposition for each. Two cheap
+hardenings landed alongside: the two MD5 cache-fingerprint helpers are now
+flagged `usedforsecurity=False` (they are integrity keys, not a security
+primitive), making the intent explicit.
+
+### Documentation coverage
+A full pass to keep every user-facing surface — README, the in-app
+Documentation page, `Manual.html`, the per-version docs and the "did-you-know"
+tips — describing the current feature set.
+
+## v4.5.0 additions — "TrustMatters"
+
+TLS onboarding for instances where a public certificate is hard (internal,
+airgapped, no public DNS) — no breaking changes. Full guide:
+[tls-selfsigned.md](tls-selfsigned.md).
+
+### Self-signed CA (not a bare cert)
+`make tls-selfsigned HOST=rp.internal` (`tools/gen-ca.sh`) generates a private
+**CA** plus a server leaf (ECDSA P-256, SAN, serverAuth), installs the leaf for
+nginx, and prints the CA's SHA-256 fingerprint. Agents trust the **CA**, so
+`make tls-renew` re-issues the server certificate **without touching any
+client**, and a later self-signed → real-CA migration is server-only too
+(agents trust system roots and the pinned CA additively).
+
+### Fingerprint-verified rollout
+The Linux / macOS / Windows installers take `--ca-fingerprint <sha256>`: they
+fetch `/ca.crt` over plain HTTP at bootstrap and **refuse to trust it on a
+fingerprint mismatch**. The CA is wired in via `RP_CA_BUNDLE`; full verification
+(hostname + TLS 1.2 floor) is never weakened. Docker opt-in via
+`RP_TLS_SELFSIGNED`, and you can also generate/import a cert straight from
+**Settings → Security**.
+
+## v4.6.0 additions — "RepellantMatters"
+
+A visual-identity release paired with a project-wide reliability, security and
+performance polish pass — no breaking changes.
+
+### Industrial "New UI" (default) + New/Old toggle
+A graphite/steel **Industrial** interface (keeping the RemotePower blue) is the
+new default, with the sidebar/nav set in self-hosted IBM Plex Mono and
+instrument-panel motifs (corner ticks, dashed rules, mono eyebrow labels,
+tabular figures). A **Settings → Interface** tab — and a **My Account →
+Appearance** control so non-admins can switch too — flips between the new look
+and the classic one, per-browser, with no reload. Pure CSS plus one `data-ui`
+attribute, fully CSP-safe; nothing functional changes.
+
+### Navigation
+A dedicated **Admin** group (Links now lives there), and every sidebar group is
+alphabetically sorted.
+
+### Bind it together
+The device drawer now surfaces **CPU model, kernel, total RAM and total disk**
+beside the live usage (previously CMDB-page-only). More lists and tables cap at
+~15 rows then scroll internally, and the disk-forecast table sorts correctly by
+both GB and percent.
+
+### Security (independently pentested clean)
+The server and all three agents were audited and the web surface re-scanned with
+**wapiti, nikto, nuclei, bandit and OWASP ZAP** with no exploitable findings.
+Fixes: SSRF pre-flights on the OPNsense, Proxmox, AI-provider and TLS-monitor
+targets (matching the RouterOS guard); resolved-role checks on two read
+endpoints (a custom operator role could previously see admin-only config /
+counts); and hardened agent credential storage — restrictive ACLs on the
+Windows agent's token file, atomic 0600 writes on macOS, and the Linux command
+stash routed through the O_NOFOLLOW state-file helpers.
+
+### Performance
+The dashboard's 7-day uptime stripe is cached for 5 minutes instead of firing a
+second round-trip every tick; the offline-sweep transition handler uses
+single-row reads; and the agent heartbeat is lighter — memoized tool-path and
+CPU-model lookups, a single memory read, and a non-blocking uptime probe (reads
+`/proc/uptime`, no subprocess).
+
+### Correctness
+A batch of quiet bugs fixed: custom-script OK↔FAIL alerts no longer drop under
+the SQLite backend, the device runbook now actually injects its RAG context and
+recent-command history, the `kernel_outdated` device-list filter works again,
+and the CMDB asset modal shows real free-memory / free-disk figures.
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

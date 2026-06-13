@@ -337,10 +337,13 @@ class TestRunbookGenerate(_Base):
                 'patch_status': 'fully_patched', 'upgradable': 0,
             },
         })
+        # CMD_OUTPUT_FILE[dev_id] is a LIST of command records (the shape the
+        # agent actually writes — see api.py heartbeat cmd_output handling), not
+        # a {'outputs': [...]} dict. v4.6.0 fixed the snapshot reader to match.
         api.save(api.CMD_OUTPUT_FILE, {
-            'dev1': {'outputs': [
+            'dev1': [
                 {'ts': 1700000000, 'cmd': 'df -h', 'rc': 0, 'output': 'usage data'},
-            ]},
+            ],
         })
         # Capture AI calls
         self._calls = []

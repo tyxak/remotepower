@@ -16,7 +16,8 @@ RemotePower has three parts:
   checks, and stores everything in flat JSON files by default — or, on
   larger fleets, an optional embedded SQLite backend (stdlib only, no
   external database server) you can switch to in place. See
-  `docs/v3.12.0.md` for the storage backend.
+  [security.md](security.md) for the on-disk data layout and the
+  storage backends.
 - **The agent** — a small Python script (`remotepower-agent`) on
   each managed host. It heartbeats out to the server every 60
   seconds. The agent reaches the server; the server never needs

@@ -104,6 +104,20 @@ def save_creds(creds):
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(creds, f)
     os.replace(tmp, _creds_path())
+    # v4.6.0 (SECURITY): agent.json holds the device bearer token. Under
+    # C:\ProgramData it inherits ACLs that let the local Users group read it,
+    # so any non-admin user could read the token and impersonate this host.
+    # Strip inheritance and grant only SYSTEM + Administrators on both the
+    # data dir and the creds file. Best-effort (icacls ships with Windows).
+    try:
+        for path in (d, _creds_path()):
+            subprocess.run(
+                ['icacls', path, '/inheritance:r',
+                 '/grant:r', 'SYSTEM:(OI)(CI)F', '/grant:r', 'Administrators:(OI)(CI)F'],
+                capture_output=True, timeout=15,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except Exception:
+        pass
 
 
 # ─── host facts ────────────────────────────────────────────────────────────--

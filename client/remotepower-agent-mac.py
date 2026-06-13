@@ -82,9 +82,18 @@ def load_creds():
 def save_creds(creds):
     p = _creds_path()
     try:
-        with open(p, 'w') as f:
-            json.dump(creds, f)
-        os.chmod(p, 0o600)
+        # v4.6.0 (SECURITY): create a 0600 temp file, then atomically replace —
+        # the old open+write+chmod left a brief window where the bearer token
+        # was world-readable at the process umask before the chmod landed.
+        d = os.path.dirname(p) or '.'
+        os.makedirs(d, exist_ok=True)
+        tmp = p + '.tmp'
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, json.dumps(creds).encode())
+        finally:
+            os.close(fd)
+        os.replace(tmp, p)
     except Exception as e:
         sys.stderr.write(f'[remotepower] could not save credentials: {e}\n')
 

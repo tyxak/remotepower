@@ -156,10 +156,6 @@
       <span>Alerts</span>
       <span id="alerts-badge" class="nav-badge nav-badge-ok" title="No open alerts">0</span>
     </button>
-    <button class="nav-btn" data-page="links" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-      <span>Links</span>
-    </button>
 
     <!-- Fleet group: all device / inventory views -->
     <div class="sidebar-group" data-group="fleet">
@@ -283,13 +279,13 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           <span>Exposure</span>
         </button>
-        <button class="nav-btn" data-page="scans" title="Authorized penetration testing / vulnerability scans">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6a6 6 0 1 0 6 6"/><line x1="12" y1="12" x2="22" y2="2"/></svg>
-          <span>Pentest</span>
-        </button>
         <button class="nav-btn" data-page="patches" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
+        </button>
+        <button class="nav-btn" data-page="scans" title="Authorized penetration testing / vulnerability scans">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6a6 6 0 1 0 6 6"/><line x1="12" y1="12" x2="22" y2="2"/></svg>
+          <span>Pentest</span>
         </button>
         <button class="nav-btn" data-page="power" title="UPS status + power draw and energy cost, fleet-wide">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -414,6 +410,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           <span>Library</span>
         </button>
+        <button class="nav-btn" data-page="links" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span>Links</span>
+        </button>
         <button class="nav-btn" data-page="signing" title="Sign agent releases so agents reject tampered binaries">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg>
           <span>Release Signing</span>
@@ -510,11 +510,11 @@
           <div class="dash-cols">
             <div>
               <div class="row-8-center mb-6"><h3 class="m-0">Open tickets</h3><span class="fs-12 c-muted" id="home-tickets-open-count"></span></div>
-              <div id="home-tickets-open"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
+              <div id="home-tickets-open" class="scroll-cap"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
             </div>
             <div>
               <h3>Recently acknowledged</h3>
-              <div id="home-tickets-acked"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
+              <div id="home-tickets-acked" class="scroll-cap"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
             </div>
           </div>
         </div>
@@ -1104,7 +1104,7 @@
             <h3>Getting started</h3>
             <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it.</p>
             <div id="setup-progress" class="mb-12"></div>
-            <div id="setup-steps"><div class="c-muted">Loading…</div></div>
+            <div id="setup-steps" class="scroll-cap"><div class="c-muted">Loading…</div></div>
           </div>
         </div>
 
@@ -1755,12 +1755,16 @@
               <span class="fs-14">Enable LDAP authentication</span>
             </label>
 
+            <!-- v4.6.0: LDAP URL on its own full-width row — keeping it in the
+                 flex row left its hint pushing the input above the Timeout/toggle
+                 baseline (settings-row is align-items:flex-end). -->
+            <div class="form-group">
+              <label class="form-label">LDAP URL</label>
+              <input type="url" id="cfg-ldap-url" class="form-input" placeholder="ldaps://ldap.example.com:636">
+              <div class="meta-sm"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
+            </div>
+
             <div class="settings-row">
-              <div class="form-group isl-35">
-                <label class="form-label">LDAP URL</label>
-                <input type="url" id="cfg-ldap-url" class="form-input" placeholder="ldaps://ldap.example.com:636">
-                <div class="meta-sm"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
-              </div>
               <div class="form-group isl-28">
                 <label class="isl-51">
                   <input type="checkbox" id="cfg-ldap-tls-verify" checked class="isl-3">
@@ -2624,17 +2628,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.6.0 interfacematters industrial new ui old ui theme design skin graphite steel blue accent corner ticks dashed mono labels look redesign appearance interface tab toggle data-ui csp font jetbrains mono classic revert">
-            <summary><strong>What's new — v4.6.0 "RepellantMatters"</strong> — a new Industrial interface ("New UI") as the default, with a one-click New UI / Old UI toggle to keep the classic look (no markup, nav or functional changes)</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v4.6.0 repellantmatters industrial new ui old ui theme design skin graphite steel blue accent corner ticks dashed mono labels look redesign appearance interface tab toggle data-ui csp font ibm plex mono space grotesk inter classic revert admin group alphabetical menu security hardening ssrf bugfix performance bind drawer cpu kernel ram scroll cap">
+            <summary><strong>What's new — v4.6.0 "RepellantMatters"</strong> — a new Industrial interface ("New UI") as the default with a one-click New UI / Old UI toggle, plus a project-wide reliability, security and performance polish pass</summary>
             <div class="doc-body">
-              <p>v4.6.0 gives RemotePower a look of its own — an <strong>Industrial</strong> interface that replaces the generic dark-slate template, while keeping our blue accent. A toggle lets anyone keep the old look. Only the skin changes; pages, nav and data are identical. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.0</code>).</p>
+              <p>v4.6.0 gives RemotePower a look of its own — an <strong>Industrial</strong> interface that replaces the generic dark-slate template, while keeping our blue accent — and pairs it with a thorough sweep across the whole project: bug fixes, security hardening, performance, and data-binding polish. A toggle lets anyone keep the old look. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.0</code>).</p>
               <ul>
-                <li><strong>Industrial "New UI" (default).</strong> Warm <strong>graphite/steel</strong> palette (keeping the RemotePower <strong>blue</strong>), a real type system — body in <strong>IBM Plex Mono</strong>, headings/brand in <strong>Space Grotesk</strong> (both self-hosted, no external fonts) — and instrument-panel motifs: corner ticks on panels, dashed technical rules, mono uppercase eyebrow labels and buttons, tabular figures, sharper corners. A genuine re-skin of the chrome (sidebar, headers, cards, tables, controls) via <code>body[data-ui="industrial"]</code>.</li>
+                <li><strong>Industrial "New UI" (default).</strong> Warm <strong>graphite/steel</strong> palette (keeping the RemotePower <strong>blue</strong>), with the <strong>sidebar/nav set in self-hosted IBM Plex Mono</strong> and the rest of the UI in the familiar Inter, plus instrument-panel motifs: corner ticks on panels, dashed technical rules, mono uppercase eyebrow labels, tabular figures, sharper corners. A genuine re-skin of the chrome (sidebar, headers, cards, tables, controls) via <code>body[data-ui="industrial"]</code>.</li>
                 <li><strong>New UI / Old UI toggle.</strong> A new <strong>Settings → Interface</strong> tab (and a control in <strong>My Account → Appearance</strong>, so non-admins can switch too) flips between the Industrial look and the classic one. Per-browser, default New, applied instantly with no reload.</li>
-                <li><strong>Nothing functional changed.</strong> Same pages, same navigation, same data — only the design. Colour themes (nord, dracula, …) still apply to the Old UI.</li>
+                <li><strong>Navigation tidy-up.</strong> A dedicated <strong>Admin</strong> group (Links now lives there), and every sidebar group is alphabetically sorted for quicker scanning.</li>
+                <li><strong>Bind-it-together &amp; polish.</strong> The device drawer now shows CPU model, kernel, total RAM and total disk alongside the live usage; more lists and tables cap at ~15 rows then scroll internally; the disk-forecast table sorts correctly by GB and percent.</li>
+                <li><strong>Security hardening.</strong> Tighter SSRF guards on appliance / integration targets, resolved-role checks on a couple of read endpoints, and hardened agent credential storage on Windows and macOS. Independently pentested clean (see the security review).</li>
+                <li><strong>Performance.</strong> Fewer per-tick round-trips on the dashboard, single-row reads on a hot path, and lighter agent heartbeats (cached tool lookups, no blocking uptime probe).</li>
                 <li><strong>CSP-safe by construction.</strong> Pure CSS plus one <code>data-ui</code> attribute; the toggle is wired through the existing <code>data-action</code> dispatch with no inline scripts, styles or <code>on*</code> handlers.</li>
               </ul>
-              <p class="hint">A visual-identity release — switch back any time under <em>Settings → Interface</em>. See <code>docs/v4.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+              <p class="hint">Switch the look any time under <em>Settings → Interface</em>. See <code>docs/v4.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v4.5.0 trustmatters tls https self-signed ca certificate authority gen-ca openssl ecdsa leaf fingerprint sha256 rp_ca_bundle install-client ca-fingerprint nginx snippet lets encrypt certbot acme docker rp_tls_selfsigned renew rotate internal airgapped trust">

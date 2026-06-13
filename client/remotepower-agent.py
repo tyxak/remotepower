@@ -599,8 +599,10 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
 
 
 def get_uptime():
+    # v4.6.0: add a timeout — the bare check_output had none, so a hung `uptime`
+    # (stuck utmp/NSS) could block the entire heartbeat loop indefinitely.
     try:
-        return subprocess.check_output(['uptime', '-p'], text=True).strip()
+        return subprocess.check_output(['uptime', '-p'], text=True, timeout=5).strip()
     except Exception:
         return ''
 
@@ -1525,13 +1527,20 @@ CONTAINERS_HARD_CAP = 100      # total across all runtimes
 CONTAINER_CMD_TIMEOUT = 5      # seconds — never let a stuck runtime hang us
 
 
-def _which(prog):
+def _which(prog, _cache={}):
     """Return path to ``prog`` if it's executable on PATH, else None.
+
+    v4.6.0: memoized in a default-arg dict — tool paths are immutable for the
+    agent's lifetime and this is called dozens of times per heartbeat
+    (stat-walking PATH each call). (A plain dict rather than @lru_cache so the
+    function source stays decorator-free for source-extraction tests.)
 
     v3.13.0: also searches the standard sbin dirs even when they're absent from
     a minimal service PATH — firewall tools (iptables/nft) live in /usr/sbin and
     /sbin, and a systemd unit's PATH often omits them, which made firewall
     detection report "unknown"."""
+    if prog in _cache:
+        return _cache[prog]
     seen = []
     for d in os.environ.get('PATH', '').split(':'):
         if d:
@@ -1539,11 +1548,14 @@ def _which(prog):
     for d in ('/usr/sbin', '/sbin', '/usr/bin', '/bin', '/usr/local/sbin', '/usr/local/bin'):
         if d not in seen:
             seen.append(d)
+    result = None
     for d in seen:
         full = os.path.join(d, prog)
         if os.path.isfile(full) and os.access(full, os.X_OK):
-            return full
-    return None
+            result = full
+            break
+    _cache[prog] = result
+    return result
 
 
 def _cpu_model():
@@ -4289,7 +4301,8 @@ def get_metrics():
         return {}
     try:
         cpu  = _psutil.cpu_percent(interval=0.5)
-        mem  = _psutil.virtual_memory().percent
+        _vm  = _psutil.virtual_memory()   # v4.6.0: one call, reused for mem_total_mb below
+        mem  = _vm.percent
         # Root mount kept for backward compat; per-mount list is the new shape
         disk = _psutil.disk_usage('/').percent
     except Exception:
@@ -4369,7 +4382,7 @@ def get_metrics():
 
     # v3.13.0: total RAM (MB) for the CMDB Hardware panel.
     try:
-        out['mem_total_mb'] = round(_psutil.virtual_memory().total / (1024 ** 2))
+        out['mem_total_mb'] = round(_vm.total / (1024 ** 2))   # v4.6.0: reuse the vm read above
     except Exception:
         pass
 
@@ -5922,19 +5935,21 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v3.0.2: prefer STATE_DIR over the loose /var/lib path so the file
     # sits in a directory we control rather than the parent of an
     # unrelated package install.
-    pending_cmd_output_file = STATE_DIR / 'pending-cmd.json'
-    if not pending_cmd_output_file.parent.exists() or not os.access(
-            pending_cmd_output_file.parent, os.W_OK):
-        pending_cmd_output_file = Path('/tmp/remotepower-pending-cmd.json')
+    # v4.6.0 (SECURITY): route this stash through the O_NOFOLLOW state-file
+    # helpers like every other marker — the old write_text/read_text on a
+    # predictable /tmp fallback let a local attacker pre-plant a symlink and
+    # make the agent clobber an attacker-chosen file. _safe_state_write writes
+    # the full payload safely; the read below uses an O_NOFOLLOW full read
+    # (the shared _safe_state_read caps at 4 KB, too small for cmd output).
 
     def _stash_pending_cmd_output(result, cmd):
-        """Persist cmd_output to disk so the next heartbeat can retry it."""
-        pending_cmd_output_file.write_text(json.dumps({
+        """Persist cmd_output to disk (O_NOFOLLOW) so the next heartbeat can retry it."""
+        _safe_state_write('pending-cmd.json', json.dumps({
             'cmd_output': result,
             'executed_command': cmd,
             'stashed_at': int(time.time()),
         }))
-        log.info(f"Stashed cmd_output for retry: {pending_cmd_output_file}")
+        log.info("Stashed cmd_output for retry")
 
     def _load_pending_cmd_output():
         """Pop any stashed cmd_output. Returns dict or None.
@@ -5945,17 +5960,34 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         lost — but the alternative (replay until success) is worse for
         an upgrade log that might already be partially recorded.
         """
-        if not pending_cmd_output_file.exists():
+        raw = None
+        for cand in (STATE_DIR / 'pending-cmd.json',
+                     Path('/tmp/remotepower-pending-cmd.json')):
+            try:
+                fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW)
+            except (FileNotFoundError, OSError):
+                continue
+            try:
+                chunks = []
+                while True:
+                    b = os.read(fd, 65536)
+                    if not b:
+                        break
+                    chunks.append(b)
+                raw = b''.join(chunks).decode(errors='replace')
+            finally:
+                os.close(fd)
+            break
+        # Delete before the heartbeat goes out (see docstring).
+        _safe_state_unlink('pending-cmd.json')
+        if raw is None:
             return None
         try:
-            data = json.loads(pending_cmd_output_file.read_text())
-            pending_cmd_output_file.unlink()
+            data = json.loads(raw)
             log.info("Loaded stashed cmd_output for retry")
             return data
         except Exception as e:
             log.warning(f"Failed to read stashed cmd_output: {e}")
-            try: pending_cmd_output_file.unlink()
-            except Exception: pass
             return None
 
     while True:

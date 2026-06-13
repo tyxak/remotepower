@@ -132,6 +132,7 @@ has added them to the per-token allow-list (see *Guarded write tools* below).
 | `get_runbook` | AI-generated device runbook (v2.1.7+) |
 | `get_patches` | Pending OS package updates |
 | `get_tls` | TLS / DNS expiry watchlist |
+| `get_snmp_data` | SNMP data collected from a network appliance / device |
 | `search_devices` | Free-text search by name / OS / group / tags / notes |
 | `search_fleet` | RAG retrieval across all fleet state, CMDB, runbooks, history, and docs — one call for broad/cross-host questions ("worst CVEs in the fleet", "which hosts need a reboot"). Returns ranked, cited chunks incl. fleet-wide rollups. (v3.4.0) |
 

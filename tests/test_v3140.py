@@ -2496,7 +2496,7 @@ class TestRosterAndTransport(unittest.TestCase):
 
     def test_roster_capped_15_and_sorted_by_offline(self):
         idx = self.APP.find('async function _renderHomeFleet')
-        chunk = self.APP[idx:idx + 2500]
+        chunk = self.APP[idx:idx + 3300]
         self.assertIn('MAX_ROWS = 15', chunk)
         self.assertIn('offlineScore', chunk)
         self.assertNotIn('.slice(0, 30)', chunk)   # old uncapped behaviour gone

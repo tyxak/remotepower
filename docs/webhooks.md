@@ -107,7 +107,7 @@ Migrating a single legacy URL to the new array:
 |---|---|---|
 | GET  | `/api/config` | Returns `webhook_urls` with Pushover creds redacted, `pushover_token_set` / `pushover_user_set` flags |
 | POST | `/api/config` | Accepts `webhook_urls` array; empty pushover_token/pushover_user fields preserve existing values |
-| POST | `/api/webhook-test` | Body `{}` → fan out to all enabled destinations. Body `{id: "wh_xxx"}` → fire only to that one (uses a synthetic config without touching persisted state) |
+| POST | `/api/webhook/test` | Body `{}` → fan out to all enabled destinations. Body `{id: "wh_xxx"}` → fire only to that one (uses a synthetic config without touching persisted state) |
 
 Max 20 destinations. URL must be http or https. Format must be one of those listed above (anything else returns 400).
 

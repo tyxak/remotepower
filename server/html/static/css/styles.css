@@ -5232,6 +5232,17 @@ body[data-ui="industrial"] {
   --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
   --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
 }
+/* v4.6.0 (FIX): the graphite palette above is unconditional, so the header
+   bright/dark toggle (which sets body.light) did NOTHING in the New UI — its
+   vars were always overridden. Provide a LIGHT Industrial variant (steel/paper,
+   same blue) so the toggle works again. The `.light` class adds specificity
+   (0,2,1) > (0,1,1), so it wins over the dark block above regardless of order. */
+body[data-ui="industrial"].light {
+  --bg:#e7ebf0; --surface:#f7f9fb; --surface2:#eef1f5; --border:#cbd2dc;
+  --text:#1b2230; --muted:#5c6675;
+  --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.45);
+}
+body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 body[data-ui="industrial"] { font-family:var(--font); }
 /* the SIDEBAR keeps the distinctive mono font (the rest of the app reverts to the
    old Inter font); brand + nav + labels + headers all in IBM Plex Mono */

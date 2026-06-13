@@ -2,37 +2,60 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v4.6.0 — "RepellantMatters" — 2026-06-13
+## v4.6.0 — "RepellantMatters" — 2026-06-14
 
-A visual-identity release: a new **Industrial** interface ("New UI") becomes the
+A visual-identity release paired with a project-wide reliability, security and
+performance polish pass. A new **Industrial** interface ("New UI") becomes the
 default, with a one-click **New UI / Old UI** toggle so anyone can keep the
-classic look. Pure CSS + a data attribute — **no markup, navigation or layout
-changes**, and fully CSP-safe. Full notes in [docs/v4.6.0.md](docs/v4.6.0.md).
+classic look — and a thorough sweep of the whole project lands alongside it.
+No breaking changes; fully CSP-safe. Full notes in
+[docs/v4.6.0.md](docs/v4.6.0.md).
 
 - **Industrial "New UI" (default).** A distinctive skin that drops the generic
-  slate-navy + Inter template for a warm **graphite/steel** palette (keeping the
+  slate-navy template for a warm **graphite/steel** palette (keeping the
   RemotePower **blue** accent), instrument-panel motifs — corner ticks on panels,
   dashed technical rules, mono uppercase eyebrow labels, tabular figures — and
   sharper corners. Implemented as `body[data-ui="industrial"]` layered after the
-  theme blocks. A real type system too — body in **IBM Plex Mono**, headings/brand
-  in **Space Grotesk**, both newly **self-hosted** (no external fonts; the strict
-  CSP blocks Google Fonts).
+  theme blocks. The **sidebar/nav are set in self-hosted IBM Plex Mono** and the
+  rest of the UI keeps the familiar Inter (no external fonts; the strict CSP
+  blocks Google Fonts).
 - **New UI / Old UI toggle.** A new **Settings → Interface** tab (and a control in
   **My Account → Appearance**, so non-admins can switch too) flips between the
   Industrial look and the classic one. Per-browser preference (`rp_ui`, default
   `new`), applied instantly with no reload. Wired via `data-action="setUIVersion"`
   through the existing delegated dispatch — no inline scripts/styles/handlers.
-- **Mostly skin-only**, plus a few fixes and one new feature:
-  - **Generate a self-signed certificate from the UI** — *Settings → Security →
-    Self-signed certificate*. Admin-only, audited; generates the CA + server cert
-    in Python (`cryptography`, no root / no `openssl`) into the data dir's `tls/`,
-    reusing the CA on re-issue, and shows the fingerprint + agent-enrolment line.
-    Complements `tools/gen-ca.sh` (v4.5.0).
-  - The audit-log clear now uses the masked in-app password modal (the native
-    `prompt()` showed the typed admin password in clear text).
-  - Predictive health no longer alerts on a disk that's years from failing (only
-    reactive high/critical or a ≤180-day ETA), and lists a host's healthy disks
-    alongside its at-risk one instead of hiding them.
+- **Navigation.** A dedicated **Admin** sidebar group (Links moved there), and
+  every sidebar group is alphabetically sorted.
+- **Bind it together.** The device drawer now shows **CPU model, kernel, total
+  RAM and total disk** beside the live usage (previously CMDB-page-only); more
+  lists and Hardware/SNMP tables cap at ~15 rows then scroll internally; and the
+  disk-forecast table sorts correctly by both GB and percent.
+- **Security (independently pentested clean — wapiti, nikto, nuclei, bandit,
+  OWASP ZAP).** SSRF pre-flights extended to the OPNsense / Proxmox / AI-provider
+  / TLS-monitor targets (matching the RouterOS guard); resolved-role checks on
+  two read endpoints (a custom operator role could previously read admin-only
+  config and a pending-confirmation count); and hardened agent credential
+  storage — restrictive ACLs on the Windows token file, atomic 0600 writes on
+  macOS, and the Linux command stash routed through the O_NOFOLLOW helpers. See
+  [docs/security-review-4.6.0.md](docs/security-review-4.6.0.md).
+- **Performance.** The dashboard's 7-day uptime stripe is cached 5 min instead of
+  firing a second round-trip every tick; the offline-sweep transition handler
+  uses single-row reads; and the agent heartbeat is lighter — memoized tool-path
+  and CPU-model lookups, a single memory read, and a non-blocking uptime probe.
+- **Correctness fixes.** Custom-script OK↔FAIL alerts no longer drop under the
+  SQLite backend; the device runbook now actually injects its RAG context and
+  recent-command history; the `kernel_outdated` device-list filter works again;
+  and the CMDB asset modal shows real free-memory / free-disk figures.
+- **New feature: generate a self-signed certificate from the UI** — *Settings →
+  Security → Self-signed certificate*. Admin-only, audited; generates the CA +
+  server cert in Python (`cryptography`, no root / no `openssl`) into the data
+  dir's `tls/`, reusing the CA on re-issue, and shows the fingerprint +
+  agent-enrolment line. Complements `tools/gen-ca.sh` (v4.5.0).
+- The audit-log clear now uses the masked in-app password modal (the native
+  `prompt()` showed the typed admin password in clear text).
+- Predictive health no longer alerts on a disk that's years from failing (only
+  reactive high/critical or a ≤180-day ETA), and lists a host's healthy disks
+  alongside its at-risk one instead of hiding them.
 - Colour themes (nord/dracula/…) continue to apply to the Old UI.
 
 ## v4.5.0 — "TrustMatters" — 2026-06-13

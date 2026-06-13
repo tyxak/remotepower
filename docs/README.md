@@ -38,17 +38,18 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-4.4.1.md](security-review-4.4.1.md)** — Latest review:
- triage of the open CodeQL code-scanning alerts (XSS/SSRF/weak-hash/clear-text);
- all confirmed false positives, with the feature/function that covers each.
+- **[security-review-4.6.0.md](security-review-4.6.0.md)** — Latest review:
+ a full server + agent re-audit (independently pentested clean) — SSRF parity on
+ the OPNsense/Proxmox/AI/TLS-monitor targets, resolved-role checks on two read
+ endpoints, and agent credential-storage hardening on Windows/macOS/Linux.
+- **[security-review-4.4.1.md](security-review-4.4.1.md)** — Triage of the open
+ CodeQL code-scanning alerts (XSS/SSRF/weak-hash/clear-text); all confirmed
+ false positives, with the feature/function that covers each.
 - **[security-review-4.4.0.md](security-review-4.4.0.md)** — A full server +
  agent audit (independently pentested clean) — a critical admin-gate escalation,
  mitigation-route scope guards, shell-quoting the drift/ACME command builders,
  the RouterOS SSRF guard, metrics-scrape resilience, and Windows/macOS agent
  transport parity.
-- **[security-review-4.3.0.md](security-review-4.3.0.md)** — The persistent
- SCGI API worker, per-endpoint gzip (BREACH reasoning), the fleet-checks cache
- scope guarantee, heartbeat rate floor, deploy rollback, and two Low hardenings.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes
@@ -98,6 +99,8 @@ Older release notes (v4.2.0 and earlier) live in
  switches, APs, printers, IPMI cards.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
+- **[tls-selfsigned.md](tls-selfsigned.md)** — Built-in self-signed CA +
+ fingerprint-verified agent TLS (generate a cert from the UI).
 - **[update-history.md](update-history.md)** — Captured `apt` / `dnf` /
  `pacman` upgrade output.
 - **[swagger.md](swagger.md)** — OpenAPI / Swagger UI details.

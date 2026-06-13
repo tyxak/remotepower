@@ -14821,10 +14821,21 @@ async function _renderHomeFleet(devs) {
   // record for still show 'unknown' (honest — history only builds up
   // from when uptime recording works; it cannot be known
   // retroactively), but real up/down now shows once data exists.
+  // v4.6.0 (PERF): cache the 7-day uptime stripe for 5 min. /api/home already
+  // bundles the rest of the dashboard into one request, but this widget fired a
+  // SECOND CGI round-trip every 60s tick — and the 7-day stripe barely moves
+  // minute-to-minute, so the per-tick fetch was nearly pure overhead.
   let uptime = {};
   try {
-    const r = await api('GET', '/fleet/uptime7d');
-    uptime = (r && r.uptime) || {};
+    const _now = Date.now();
+    if (_renderHomeFleet._u7d && (_now - _renderHomeFleet._u7dAt) < 300000) {
+      uptime = _renderHomeFleet._u7d;
+    } else {
+      const r = await api('GET', '/fleet/uptime7d');
+      uptime = (r && r.uptime) || {};
+      _renderHomeFleet._u7d = uptime;
+      _renderHomeFleet._u7dAt = _now;
+    }
   } catch (e) { /* fallback: today-only stripe below */ }
 
   // v3.14.0: cap the roster at 15 and surface the WORST hosts first — sort by
@@ -17410,7 +17421,17 @@ async function _loadAuditSection(key) {
         const pills = [
           ['Uptime',    si.uptime],
           ['Platform',  si.platform],
+          // v4.6.0: hardware identity — collected + persisted but previously
+          // shown only on the CMDB page; bind it into the drawer too.
+          ['CPU model', si.cpu || null],
+          ['Kernel',    si.kernel || null],
           ['CPU count', si.cpu_count],
+          ['Total RAM', si.mem_total_mb != null
+                          ? (Number(si.mem_total_mb) >= 1024
+                              ? (Number(si.mem_total_mb) / 1024).toFixed(1) + ' GB'
+                              : Number(si.mem_total_mb) + ' MB') : null],
+          ['Total disk', si.disk_total_gb != null
+                          ? Number(si.disk_total_gb).toFixed(0) + ' GB' : null],
           ['Load avg',  si.loadavg_1m],
           // v3.13.0: surface root-disk and swap pressure as at-a-glance pills
           // (both already in sysinfo; previously only on the devices table).
@@ -18145,7 +18166,7 @@ async function _loadAuditSection(key) {
         }
         // Storage table
         if (Array.isArray(data.storage) && data.storage.length) {
-          h += '<h4 class="mt-12">Storage</h4><table class="fs-13"><thead><tr><th>Mount</th><th class="ta-right">Size</th><th class="ta-right">Used</th><th class="ta-right">%</th></tr></thead><tbody>';
+          h += '<h4 class="mt-12">Storage</h4><div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Mount</th><th class="ta-right">Size</th><th class="ta-right">Used</th><th class="ta-right">%</th></tr></thead><tbody>';
           for (const s of data.storage) {
             const sizeMb = s.size_bytes ? (s.size_bytes / 1024 / 1024).toFixed(0) : '?';
             const usedMb = s.used_bytes != null ? (s.used_bytes / 1024 / 1024).toFixed(0) : '?';
@@ -18153,7 +18174,7 @@ async function _loadAuditSection(key) {
             const pctCls = (s.used_pct ?? 0) > 90 ? 'c-red' : (s.used_pct ?? 0) > 70 ? 'c-amber' : '';
             h += `<tr><td>${escHtml(s.descr || '?')}</td><td class="ta-right">${sizeMb} MB</td><td class="ta-right">${usedMb} MB</td><td class="ta-right ${pctCls}">${pct}</td></tr>`;
           }
-          h += '</tbody></table>';
+          h += '</tbody></table></div>';
         }
         // v3.3.4: Synology DSM health (system + disks + RAID/volumes)
         if (data.synology && (data.synology.system || (data.synology.disks||[]).length)) {
@@ -18175,28 +18196,28 @@ async function _loadAuditSection(key) {
           if (sy.upgrade) h += `<tr><td class="c-muted-padded">DSM update</td><td>${sy.upgrade === 'available' ? '<span class="c-amber">available</span>' : escHtml(sy.upgrade)}</td></tr>`;
           h += '</tbody></table>';
           if ((syn.disks || []).length) {
-            h += '<table class="fs-13 mt-6"><thead><tr><th>Disk</th><th>Model</th><th>Status</th><th class="ta-right">Temp</th></tr></thead><tbody>';
+            h += '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13 mt-6"><thead><tr><th>Disk</th><th>Model</th><th>Status</th><th class="ta-right">Temp</th></tr></thead><tbody>';
             for (const d of syn.disks) {
               const dCls = d.status && d.status !== 'normal' ? 'c-red' : '';
               const dt = d.temperature_c != null ? `${d.temperature_c}°C` : '—';
               h += `<tr><td><strong>${escHtml(d.id || '?')}</strong></td><td class="hint">${escHtml(d.model || '—')}</td><td class="${dCls}">${escHtml(d.status || '—')}</td><td class="ta-right">${dt}</td></tr>`;
             }
-            h += '</tbody></table>';
+            h += '</tbody></table></div>';
           }
           if ((syn.volumes || []).length) {
-            h += '<table class="fs-13 mt-6"><thead><tr><th>Volume</th><th>Status</th></tr></thead><tbody>';
+            h += '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13 mt-6"><thead><tr><th>Volume</th><th>Status</th></tr></thead><tbody>';
             for (const v of syn.volumes) {
               const vCls = v.status && v.status !== 'normal' ? 'c-red' : '';
               h += `<tr><td><strong>${escHtml(v.name || '?')}</strong></td><td class="${vCls}">${escHtml(v.status || '—')}</td></tr>`;
             }
-            h += '</tbody></table>';
+            h += '</tbody></table></div>';
           }
           h += '<div class="hint mt-6">DSM upgrade is in the <strong>Synology (DSM)</strong> section below.</div>';
         }
         // Interface table
         if (Array.isArray(data.interfaces) && data.interfaces.length) {
           h += `<h4 class="mt-12">Interfaces (${data.interfaces.length})</h4>`;
-          h += '<table class="fs-13"><thead><tr><th>Name</th><th>Admin</th><th>Oper</th><th class="ta-right">Speed</th><th class="ta-right">In</th><th class="ta-right">Out</th><th class="ta-right">Errs</th></tr></thead><tbody>';
+          h += '<div class="scrollable-table-wrap audit-scroll"><table class="fs-13"><thead><tr><th>Name</th><th>Admin</th><th>Oper</th><th class="ta-right">Speed</th><th class="ta-right">In</th><th class="ta-right">Out</th><th class="ta-right">Errs</th></tr></thead><tbody>';
           for (const ifn of data.interfaces) {
             const speedMbps = ifn.speed_bps ? Math.round(ifn.speed_bps / 1e6) + ' Mbps' : '—';
             const upCls = ifn.oper === 'up' ? 'c-green' : 'c-muted';
@@ -18210,7 +18231,7 @@ async function _loadAuditSection(key) {
             const errCls = errs > 0 ? 'c-amber' : '';
             h += `<tr><td><strong>${escHtml(ifn.descr || `if${ifn.index}`)}</strong></td><td>${escHtml(ifn.admin)}</td><td class="${upCls}">${escHtml(ifn.oper)}</td><td class="ta-right">${speedMbps}</td><td class="ta-right">${fmtB(ifn.in_octets)}</td><td class="ta-right">${fmtB(ifn.out_octets)}</td><td class="ta-right ${errCls}">${errs}</td></tr>`;
           }
-          h += '</tbody></table>';
+          h += '</tbody></table></div>';
         }
         // Errors
         if (data.errors && Object.keys(data.errors).length) {
@@ -18449,7 +18470,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
   const gpus = hw.gpus || [];
   if (gpus.length) {
     h += `<div class="hw-block"><div class="hw-h">GPUs</div>
-      <table class="audit-table"><thead><tr>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr>
         <th>Name</th><th>Vendor</th><th class="ta-center">Util</th><th class="ta-center">Memory</th><th class="ta-center">Temp</th><th class="ta-center">Power</th></tr></thead><tbody>` +
       gpus.map(g => {
         const mem = (g.mem_used_mb != null && g.mem_total_mb != null) ? `${Math.round(g.mem_used_mb)} / ${Math.round(g.mem_total_mb)} MB` : '—';
@@ -18459,14 +18480,14 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center">${mem}</td>
           <td class="ta-center ${tcls}">${g.temp_c != null ? g.temp_c + '°C' : '—'}</td>
           <td class="ta-center">${g.power_w != null ? g.power_w + ' W' : '—'}</td></tr>`;
-      }).join('') + `</tbody></table></div>`;
+      }).join('') + `</tbody></table></div></div>`;
   }
 
   // ── v3.14.0: UPS / power ───────────────────────────────────────────
   const upses = hw.ups || [];
   if (upses.length) {
     h += `<div class="hw-block"><div class="hw-h">UPS / power</div>
-      <table class="audit-table"><thead><tr>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr>
         <th>UPS</th><th>Status</th><th class="ta-center">Battery</th><th class="ta-center">Load</th><th class="ta-center">Runtime</th><th class="ta-center">Power</th></tr></thead><tbody>` +
       upses.map(u => {
         const onBatt = /OB|BATT/i.test(u.status || '');
@@ -18478,7 +18499,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center">${u.load_pct != null ? u.load_pct + '%' : '—'}</td>
           <td class="ta-center">${rt}</td>
           <td class="ta-center">${u.power_w != null ? u.power_w + ' W' : '—'}</td></tr>`;
-      }).join('') + `</tbody></table></div>`;
+      }).join('') + `</tbody></table></div></div>`;
   }
 
   // ── v3.14.0: Local accounts ────────────────────────────────────────
@@ -18527,13 +18548,13 @@ function _renderHardwareSection(id, hw, fc, ch) {
   const risers = mounts.filter(m => m.days_to_full != null);
   if (risers.length) {
     h += `<div class="hw-block"><div class="hw-h">Disk-fill forecast <span class="c-muted fs-11">(${fc.sample_days||0} daily samples)</span></div>
-      <table class="audit-table"><thead><tr>
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr>
         <th>Mount</th><th>Used</th><th>Trend</th><th>Fills in</th></tr></thead><tbody>` +
       risers.map(m => `<tr><td><code>${escHtml(m.path)}</code></td>
         <td class="ta-center">${m.current_percent}%</td>
         <td class="ta-center">${m.trend_gb_per_day} GB/day</td>
         <td class="ta-center ${m.days_to_full<14?'c-red':m.days_to_full<45?'c-amber':''}">${_fmtDays(m.days_to_full)}</td></tr>`
-      ).join('') + `</tbody></table>`;
+      ).join('') + `</tbody></table></div>`;
     // Cross-feature: an imminent fill → a prefilled AI runbook.
     const urgent = risers.filter(m => m.days_to_full != null && m.days_to_full < 30)
                          .sort((a,b)=>a.days_to_full-b.days_to_full)[0];
@@ -18563,9 +18584,9 @@ function _renderHardwareSection(id, hw, fc, ch) {
       // v3.4.2: surface manufacturer + serial — the identifying detail you need
       // to order/swap a specific DIMM (the agent reports both when dmidecode runs).
       h += `<div class="fs-11 c-muted mb-4">Memory (${inv.memory.length} module${inv.memory.length>1?'s':''})</div>
-        <table class="audit-table"><thead><tr><th>Slot</th><th>Size</th><th>Type</th><th>Speed</th><th>Manufacturer</th><th>Serial</th></tr></thead><tbody>` +
+        <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>Slot</th><th>Size</th><th>Type</th><th>Speed</th><th>Manufacturer</th><th>Serial</th></tr></thead><tbody>` +
         inv.memory.map(d=>`<tr><td>${escHtml(d.locator||'—')}</td><td>${escHtml(d.size||'—')}</td><td>${escHtml(d.type||'—')}</td><td>${escHtml(d.speed||'—')}</td><td>${escHtml(d.manufacturer||'—')}</td><td class="mono-12">${escHtml(d.serial||'—')}</td></tr>`).join('') +
-        `</tbody></table>`;
+        `</tbody></table></div>`;
     }
     if ((inv.raid||[]).length) {
       // v3.4.2: include the member block devices so a degraded array names the
@@ -20017,7 +20038,8 @@ function _renderForecastTable() {
   if (q) pool = pool.filter(m => (m.device_name || '').toLowerCase().includes(q)
                                 || (m.path || '').toLowerCase().includes(q));
   const sorted = tableCtl.sortRows('forecast', pool.slice(), m => ({
-    device: m.device_name, mount: m.path, used: m.current_percent,
+    device: m.device_name, mount: m.path,
+    gb: (m.current_gb || 0), used: m.current_percent,
     perday: m.trend_gb_per_day,
     days: (m.days_to_full == null ? 1e12 : m.days_to_full),
     fill: (m.fill_date_ts || 1e15),
@@ -20067,7 +20089,7 @@ function _renderForecastTable() {
     ? '<div class="c-muted p-12">No mounts match the current filter.</div>' : '';
   body.innerHTML = `<div class="table-card"><table class="audit-table"><thead id="forecast-thead"><tr>
     <th data-col="device">Device</th><th data-col="mount">Mount</th>
-    <th data-col="used">Used</th><th data-col="used">%</th>
+    <th data-col="gb">Used</th><th data-col="used">%</th>
     <th data-col="perday">Trend</th><th data-col="days">Fills in</th>
     <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table></div>${emptyNote}${footer}`;
   // Wire sort after the thead exists (re-wires each render — safe).

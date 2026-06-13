@@ -901,7 +901,7 @@ def run_agentless_reachability_if_due():
             pass
 
     for dev_id, name, online in transitions:
-        d = load(DEVICES_FILE).get(dev_id) or {}
+        d = device_get(dev_id) or {}   # v4.6.0: O(1) single-row (was a full-store reload per transition)
         if not d.get('monitored', True):
             continue            # unmonitored: track status, stay silent
         event = 'device_online' if online else 'device_offline'
@@ -11908,7 +11908,11 @@ def _scrub_config_secrets(obj):
 def handle_config_get():
     require_auth()
     _cfg_user, _cfg_role = verify_token(get_token_from_request())
-    _cfg_is_admin = _cfg_role not in ('viewer', 'mcp')
+    # v4.6.0 (SECURITY): gate on the RESOLVED role record, not a string denylist.
+    # A custom operator role is neither 'viewer' nor 'mcp', so the old denylist
+    # marked it admin and leaked raw webhook secret URLs (Slack/Discord/Teams
+    # paths) via /api/config. Mirror the require_auth() admin gate.
+    _cfg_is_admin = bool(_resolve_role(_cfg_role).get('admin'))
     cfg = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
             if k not in ('offline_notified', 'offline_pending', 'patch_alerted',
@@ -12379,7 +12383,19 @@ def handle_config_save():
         cfg['proxmox_lifecycle_enabled'] = bool(body['proxmox_lifecycle_enabled'])
     if 'proxmox_host' in body:
         # Bare host, host:port, or a full URL — the client normalises it.
-        cfg['proxmox_host'] = _sanitize_str(body['proxmox_host'], 255)
+        _ph = _sanitize_str(body['proxmox_host'], 255)
+        if _ph:
+            # v4.6.0 (SECURITY): SSRF pre-flight — block loopback / link-local /
+            # cloud-metadata. RFC1918 LAN is allowed (Proxmox lives on a LAN).
+            _phu = _ph if '://' in _ph else 'https://' + _ph
+            try:
+                if _url_targets_local_or_meta(urllib.parse.urlparse(_phu),
+                                              allow_loopback=False):
+                    respond(400, {'error': 'proxmox_host targets a loopback or '
+                                  'link-local/metadata address'})
+            except ValueError:
+                respond(400, {'error': 'invalid proxmox_host'})
+        cfg['proxmox_host'] = _ph
     if 'proxmox_node' in body:
         cfg['proxmox_node'] = _sanitize_str(body['proxmox_node'], 64)
     if 'proxmox_token_id' in body:
@@ -17989,6 +18005,19 @@ def handle_tls_add() -> None:
     parsed = tls_monitor.parse_target(body)
     if parsed is None:
         respond(400, {'error': 'invalid target — host required, port 1-65535'})
+    # v4.6.0 (SECURITY): SSRF pre-flight — a TLS target (and its optional
+    # connect_address DNS override) must not point at loopback / link-local /
+    # cloud-metadata. RFC1918 LAN is allowed (internal cert monitoring is valid).
+    for _h in (parsed.get('host'), parsed.get('connect_address')):
+        if not _h:
+            continue
+        try:
+            if _url_targets_local_or_meta(urllib.parse.urlparse('https://' + str(_h)),
+                                          allow_loopback=False):
+                respond(400, {'error': 'target host is not allowed (loopback or '
+                              'link-local/metadata address)'})
+        except ValueError:
+            respond(400, {'error': 'invalid target host'})
     targets = _tls_targets()
     if len(targets) >= MAX_TLS_TARGETS:
         respond(400, {'error': f'max {MAX_TLS_TARGETS} TLS targets'})
@@ -19440,6 +19469,23 @@ def handle_ai_config_set():
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
 
+    # v4.6.0 (SECURITY): reject an admin-set base_url that targets cloud
+    # metadata / link-local (SSRF). Loopback is allowed only for the local
+    # providers (Ollama / LocalAI legitimately run on 127.0.0.1). Validate
+    # before taking the config lock so respond() never unwinds it.
+    _bu = (body.get('base_url') or '').strip()
+    if _bu:
+        _prov = (body.get('provider')
+                 or ((load(CONFIG_FILE) or {}).get('ai') or {}).get('provider') or '')
+        _local_ai = _prov in ('ollama', 'localai')
+        try:
+            if _url_targets_local_or_meta(urllib.parse.urlparse(_bu),
+                                          allow_loopback=_local_ai):
+                respond(400, {'error': 'base_url targets a loopback or '
+                              'link-local/metadata address'})
+        except ValueError:
+            respond(400, {'error': 'invalid base_url'})
+
     with _locked_update(CONFIG_FILE) as cfg:
         cur = dict(_AI_DEFAULTS)
         cur.update(cfg.get('ai') or {})
@@ -20853,8 +20899,12 @@ def handle_device_runbook(dev_id):
     if (cfg.get('rag') or {}).get('enabled'):
         try:
             r = _rag_retrieve(cfg, trigger)
-            if isinstance(r, dict):
-                retrieved_text = r.get('text', '') or ''
+            # v4.6.0 (BUGFIX): _rag_retrieve returns a LIST of chunk dicts, never
+            # a dict — the old isinstance(r, dict) branch never fired, so the
+            # runbook RAG context was always empty. Join the chunk texts.
+            if isinstance(r, list):
+                retrieved_text = '\n\n'.join(
+                    c.get('text', '') for c in r if isinstance(c, dict))
         except Exception:
             pass
     system, messages = ai_insights.runbook_prompt(trigger[:4000], retrieved_text[:8000])
@@ -20884,7 +20934,7 @@ def handle_device_doc_draft(dev_id):
         'kernel':   {k: v for k, v in (hw.get('kernel') or {}).items()},
         'hardware': hw.get('hardware', {}),
         'smart':    hw.get('smart', []),
-        'containers': containers.get('containers', []) if isinstance(containers, dict) else [],
+        'containers': containers.get('items', []) if isinstance(containers, dict) else [],
     }
     system, messages = ai_insights.docdraft_prompt(
         dev.get('name', dev_id), json.dumps(state, default=str)[:16000])
@@ -21215,14 +21265,20 @@ def _build_runbook_snapshot(dev_id, devices):
     # ~3-5 KB of nested data; we only need the operator-relevant bits.
     si_full = dev.get('sysinfo') or {}
     si = {}
-    for k in ('uptime', 'platform', 'kernel', 'hostname', 'load',
-              'cpu_percent', 'memory', 'disks', 'os_pretty'):
+    # v4.6.0 (BUGFIX): read the field names the sanitizer actually persists.
+    # The old list ('hostname','load','memory','disks','os_pretty') never
+    # existed in safe_si, so the runbook got almost no host context. The
+    # sanitizer stores cpu/cpu_count/cpu_percent, loadavg_1m, mem_percent,
+    # mem_total_mb, disk_percent, disk_total_gb, swap_percent and mounts.
+    for k in ('uptime', 'platform', 'kernel', 'cpu', 'cpu_count', 'cpu_percent',
+              'loadavg_1m', 'mem_percent', 'mem_total_mb', 'disk_percent',
+              'disk_total_gb', 'swap_percent', 'mounts'):
         if k in si_full:
             si[k] = si_full[k]
-    # disks can be a list with many entries — keep top 5 by usage
-    if isinstance(si.get('disks'), list):
-        si['disks'] = sorted(
-            si['disks'],
+    # mounts can be a list with many entries — keep top 5 by usage
+    if isinstance(si.get('mounts'), list):
+        si['mounts'] = sorted(
+            si['mounts'],
             key=lambda d: d.get('percent', 0) if isinstance(d, dict) else 0,
             reverse=True,
         )[:5]
@@ -21247,8 +21303,11 @@ def _build_runbook_snapshot(dev_id, devices):
 
     # Recent command output — last 5 (was 15), output capped to 200 chars
     try:
-        out = load(CMD_OUTPUT_FILE).get(dev_id) or {}
-        recent_cmds = (out.get('outputs') or [])[-5:]
+        # v4.6.0 (BUGFIX): CMD_OUTPUT_FILE[dev_id] is a LIST, not a dict — the
+        # old out.get('outputs') raised AttributeError every call (caught below),
+        # so recent_commands was always empty in the runbook snapshot.
+        out = load(CMD_OUTPUT_FILE).get(dev_id) or []
+        recent_cmds = out[-5:] if isinstance(out, list) else []
     except Exception:
         recent_cmds = []
     recent_cmds = [{
@@ -22546,6 +22605,14 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
     """
     scripts = _load_custom_scripts()
 
+    # v4.6.0 (BUGFIX): fire_webhook() opens its own _LockedUpdate on the
+    # alerts/fleet-events files. Under the SQLite backend those share one
+    # per-directory connection with DEVICES_FILE, so firing inside this lock
+    # raises "cannot start a transaction within a transaction" — swallowed by
+    # the recorders' try/except, silently dropping every OK↔FAIL alert + event.
+    # Collect transitions inside the lock; fire after it exits.
+    pending_webhooks = []
+
     with _locked_update(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if not dev:
@@ -22590,25 +22657,30 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
                 pass
             elif not ok and prev_ok:
                 # Transition OK → FAIL
-                fire_webhook('custom_script_fail', {
+                pending_webhooks.append(('custom_script_fail', {
                     'device_id':   dev_id,
                     'name':        dev_name,
                     'script_id':   script_id,
                     'script_name': s['name'],
                     'output':      out,
                     'rc':          rc,
-                })
+                }))
             elif ok and not prev_ok:
                 # Transition FAIL → OK
-                fire_webhook('custom_script_recover', {
+                pending_webhooks.append(('custom_script_recover', {
                     'device_id':   dev_id,
                     'name':        dev_name,
                     'script_id':   script_id,
                     'script_name': s['name'],
-                })
+                }))
 
         devices[dev_id] = dev
         # devices auto-saved by _locked_update.__exit__
+
+    # Fire transitions now that the DEVICES_FILE lock has been released, so the
+    # alert/fleet-event recorders can take their own locks safely.
+    for event, payload in pending_webhooks:
+        fire_webhook(event, payload)
 
 
 def handle_custom_scripts_list():
@@ -28062,6 +28134,10 @@ def handle_fleet_query():
                         brute_active.add(_bdid)
         except Exception:
             pass
+    # v4.6.0 (BUGFIX): the kernel_outdated flag is NOT persisted into sysinfo —
+    # it lives in the hardware record as kernel.reboot_for_kernel. Load the
+    # store once (only when the filter is active) so the lookup stays O(1).
+    _kernel_hw = (load(HARDWARE_FILE) or {}) if kernel_q else {}
     rows = []
     for did, d in devices.items():
         if not isinstance(d, dict):
@@ -28099,7 +28175,7 @@ def handle_fleet_query():
             continue
         if failed_q and not (si.get('failed_units') or []):
             continue
-        if kernel_q and not si.get('kernel_outdated'):
+        if kernel_q and not (((_kernel_hw.get(did) or {}).get('kernel') or {}).get('reboot_for_kernel')):
             continue
         pend = pkg.get('upgradable')
         if pending_gt is not None and not (isinstance(pend, int) and pend > pending_gt):
@@ -31218,9 +31294,11 @@ def handle_nav_counts():
         out['alerts'] = _alerts_summary((load(ALERTS_FILE) or {}).get('alerts', []))
     except Exception:
         pass
-    if _nc_role not in ('viewer', 'mcp'):
+    if _resolve_role(_nc_role).get('admin'):
         # Read-only pending count (no prune here — the Confirmations page's
         # own loader keeps doing the locked prune + expiry events).
+        # v4.6.0 (SECURITY): resolved-role gate, not a string denylist (a custom
+        # role is neither 'viewer' nor 'mcp' → must not see admin-only counts).
         try:
             arr = (load(CONFIRMATIONS_FILE) or {}).get('confirmations', [])
             out['confirmations_pending'] = sum(
@@ -33725,6 +33803,14 @@ def _opnsense_target(dev):
     if not host or not key:
         return None
     port = int(cfg.get('port') or 443)
+    # v4.6.0 (SECURITY): SSRF pre-flight on the OPNsense REST host — parity with
+    # _routeros_target. These handlers are reachable by any authenticated user
+    # and the module connects with CERT_NONE, returning distinct success/failure
+    # text → an internal-TCP reachability/port oracle. Block loopback +
+    # link-local/cloud-metadata while still allowing the RFC1918 LAN firewall.
+    if _url_targets_local_or_meta(urllib.parse.urlparse(f'https://{host}'),
+                                  allow_loopback=False):
+        return None
     return (f'{host}:{port}', key, secret, bool(cfg.get('verify', False)))
 
 
@@ -37672,9 +37758,14 @@ def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
             d['metric_breach_streak'] = streaks
         else:
             d.pop('metric_breach_streak', None)
+        # v4.6.0 (BUGFIX): the v3.4.2 fix read live state under the lock but the
+        # webhook below still used the stale pre-lock `dev` snapshot — so a
+        # mid-sweep rename produced a webhook with the old name/group. Capture
+        # the live record for the post-lock fire.
+        live_dev = d
 
     for event, kind, target, value, ref in pending:
-        _fire_metric_webhook(event, dev_id, dev, kind, target, value, ref,
+        _fire_metric_webhook(event, dev_id, live_dev, kind, target, value, ref,
                              extra={'source': 'snmp'})
 
 
@@ -39407,17 +39498,34 @@ def _trim_sysinfo(sysinfo) -> dict:
     """
     if not isinstance(sysinfo, dict):
         return {}
+    # v4.6.0 (BUGFIX): mem_free_mb / disk_free_gb / uptime_seconds / boot_time
+    # are NOT persisted by the heartbeat sanitizer, so they were always None.
+    # Surface the percents the sanitizer DOES store, and derive the free/boot
+    # values from total×(1-percent) and last_boot so the modal shows real data.
+    mem_total = sysinfo.get('mem_total_mb')
+    mem_pct   = sysinfo.get('mem_percent')
+    disk_total = sysinfo.get('disk_total_gb')
+    disk_pct  = sysinfo.get('disk_percent')
+    last_boot = sysinfo.get('last_boot')
+    mem_free = (round(mem_total * (1 - mem_pct / 100))
+                if isinstance(mem_total, (int, float))
+                and isinstance(mem_pct, (int, float)) else None)
+    disk_free = (round(disk_total * (1 - disk_pct / 100), 1)
+                 if isinstance(disk_total, (int, float))
+                 and isinstance(disk_pct, (int, float)) else None)
     out = {
         'kernel':         sysinfo.get('kernel', ''),
         'cpu':            sysinfo.get('cpu', ''),
         'cores':          sysinfo.get('cores') or sysinfo.get('cpu_count'),
         'cpu_count':      sysinfo.get('cpu_count'),
-        'mem_total_mb':   sysinfo.get('mem_total_mb'),
-        'mem_free_mb':    sysinfo.get('mem_free_mb'),
-        'disk_total_gb':  sysinfo.get('disk_total_gb'),
-        'disk_free_gb':   sysinfo.get('disk_free_gb'),
-        'uptime_seconds': sysinfo.get('uptime_seconds'),
-        'boot_time':      sysinfo.get('boot_time'),
+        'mem_total_mb':   mem_total,
+        'mem_percent':    mem_pct,
+        'mem_free_mb':    mem_free,
+        'disk_total_gb':  disk_total,
+        'disk_percent':   disk_pct,
+        'disk_free_gb':   disk_free,
+        'uptime':         sysinfo.get('uptime'),
+        'boot_time':      last_boot,
     }
     # v3.12.0: per-interface network + per-mount disks for the CMDB
     # Hardware/Network panels (already collected by the agent; just surface).

@@ -163,7 +163,7 @@ class TestAPIHandlers(unittest.TestCase):
 
     def test_ingest_no_alert_on_first_result(self):
         idx = self.api.find('def _ingest_custom_script_results(')
-        block = self.api[idx: idx + 2500]
+        block = self.api[idx: idx + 3400]
         # prev_ok is None on first run → no alert
         self.assertIn('prev_ok is None', block,
                       'first-run case must be handled to suppress initial alerts')
@@ -296,7 +296,7 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 32000]
+        block = self.agent[idx: idx + 34000]
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):

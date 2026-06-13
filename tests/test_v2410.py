@@ -204,7 +204,7 @@ class TestFrontend(unittest.TestCase):
 
     def test_stripe_uses_real_endpoint(self):
         idx = self.js.find('function _renderHomeFleet')
-        chunk = self.js[idx:idx + 1800]
+        chunk = self.js[idx:idx + 2600]
         self.assertIn("/fleet/uptime7d", chunk)
         # The old hardcoded 6x'unknown' mock must be gone as the
         # primary path (only kept as a labelled fallback).
