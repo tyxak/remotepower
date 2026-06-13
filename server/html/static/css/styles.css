@@ -5334,8 +5334,7 @@ body[data-ui="industrial"] .meta-label {
 body[data-ui="industrial"] th {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; font-size:10px;
 }
-body[data-ui="industrial"] td { border-bottom-style:dashed; font-family:var(--font); }
-body[data-ui="industrial"] .settings-tabs { border-bottom-style:dashed; }
+body[data-ui="industrial"] td { font-family:var(--font); }
 
 /* ── New UI / Old UI selector (used in both UIs; CSP-safe, classes only) ── */
 .ui-toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
