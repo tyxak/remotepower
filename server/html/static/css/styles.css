@@ -5251,7 +5251,16 @@ body[data-ui="industrial"] .sidebar-label {
   font-size:10px; color:var(--muted); font-weight:600;
 }
 body[data-ui="industrial"] .nav-btn { border-radius:2px; font-family:var(--font); }
-body[data-ui="industrial"] .nav-btn.active { box-shadow:inset 3px 0 0 var(--accent); background:var(--surface2); }
+/* one consistent highlight for EVERY active nav item — top-level, group
+   sub-items (which otherwise carry a 2px bar + margin-left:-1px) and favourites */
+body[data-ui="industrial"] .nav-btn.active,
+body[data-ui="industrial"] .sidebar-group .nav-btn.active,
+body[data-ui="industrial"] .nav-favorites .nav-btn.active {
+  box-shadow:inset 3px 0 0 var(--accent) !important;
+  background:var(--surface2) !important;
+  margin-left:0 !important;
+  color:var(--text) !important;
+}
 body[data-ui="industrial"] .nav-btn.active svg { color:var(--accent); }
 body[data-ui="industrial"] .nav-badge,
 body[data-ui="industrial"] .nav-group-badge { font-family:var(--font-mono); border-radius:3px; font-size:10px; }
@@ -5349,14 +5358,19 @@ body[data-ui="industrial"] td { font-family:var(--font); }
    rounded look. Pseudo-elements (the corner ticks) aren't matched by `*`. ── */
 body[data-ui="industrial"] * { border-radius: 3px !important; }
 body[data-ui="industrial"] [class*="avatar"],
-body[data-ui="industrial"] [class*="dot"],
+body[data-ui="industrial"] .dot,
+body[data-ui="industrial"] .status-dot,
+body[data-ui="industrial"] .status-badge-dot,
+body[data-ui="industrial"] .ts-dot,
+body[data-ui="industrial"] .tl-dot,
+body[data-ui="industrial"] .acme-timeline-dot,
 body[data-ui="industrial"] .accent-swatch,
 body[data-ui="industrial"] .skeleton-circle,
 body[data-ui="industrial"] .spinner,
 body[data-ui="industrial"] .loader,
-body[data-ui="industrial"] .online,
-body[data-ui="industrial"] .offline,
 body[data-ui="industrial"] .cal-day-num { border-radius: 50% !important; }
+/* the status accent bar on device cards followed the old 14px corner — square it */
+body[data-ui="industrial"] .device-card::before { border-radius: 0 !important; }
 
 /* ── Icons: one consistent weight + round caps across the whole UI ───────────
    Many of the app's inline SVGs ship with square caps/joins and a heavy 2px
