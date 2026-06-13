@@ -67,6 +67,7 @@
     'Users & Roles':          { zh: '用户与角色', hi: 'उपयोगकर्ता और भूमिकाएँ', es: 'Usuarios y roles', ar: 'المستخدمون والأدوار' },
     // ── top-level nav ──
     'Home':        { zh: '主页', hi: 'होम', es: 'Inicio', ar: 'الرئيسية' },
+    'Dashboard':   { zh: '仪表板', hi: 'डैशबोर्ड', es: 'Panel', ar: 'لوحة المعلومات' },
     'Alerts':      { zh: '警报', hi: 'अलर्ट', es: 'Alertas', ar: 'التنبيهات' },
     'Links':       { zh: '链接', hi: 'लिंक', es: 'Enlaces', ar: 'الروابط' },
     // ── fleet ──
