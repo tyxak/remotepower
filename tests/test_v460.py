@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strict version-surface pins + New/Old UI guardrails for v4.6.0 "InterfaceMatters".
+"""Strict version-surface pins + New/Old UI guardrails for v4.6.0 "RepellantMatters".
 
 The headline is the Industrial "New UI" (default) with a CSP-safe New/Old toggle.
 These tests pin the version surface and the toggle wiring + the industrial theme

@@ -775,7 +775,7 @@ function applyTheme() {
   if (btn) btn.innerHTML = light ? _THEME_MOON : _THEME_SUN;
   applyAccent();
 }
-// v4.6.0 "InterfaceMatters": "New UI" (the Industrial design system) vs "Old UI"
+// v4.6.0 "RepellantMatters": "New UI" (the Industrial design system) vs "Old UI"
 // (the classic look). Per-browser preference (rp_ui), default 'new' so the new
 // look ships by default but anyone can revert. Sets body[data-ui="industrial"];
 // pure-CSS reskin, so no reload is needed. The toggle lives in Settings →

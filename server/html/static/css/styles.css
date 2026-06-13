@@ -5207,7 +5207,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .table-pager-info { font-size: 12px; color: var(--muted); }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   NEW UI — "Industrial" design system  (v4.6.0 "InterfaceMatters")
+   NEW UI — "Industrial" design system  (v4.6.0 "RepellantMatters")
    A real redesign, not a recolour: warm graphite/steel with the RemotePower
    blue, IBM Plex Mono body + Space Grotesk display, instrument-panel chrome.
    Applied via body[data-ui="industrial"] (default); opt out under Settings →

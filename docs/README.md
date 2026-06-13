@@ -58,7 +58,7 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v4.6.0.md](v4.6.0.md)** — "InterfaceMatters": a visual-identity release — the
+- **[v4.6.0.md](v4.6.0.md)** — "RepellantMatters": a visual-identity release — the
  new Industrial "New UI" (graphite/steel + blue accent) as default, with a
  CSP-safe New UI / Old UI toggle. No markup/nav/functional changes.
 - **[v4.5.0.md](v4.5.0.md)** — "TrustMatters": TLS onboarding — a one-command

@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v4.6.0 — "InterfaceMatters" — 2026-06-13
+## v4.6.0 — "RepellantMatters" — 2026-06-13
 
 A visual-identity release: a new **Industrial** interface ("New UI") becomes the
 default, with a one-click **New UI / Old UI** toggle so anyone can keep the
