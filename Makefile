@@ -149,6 +149,8 @@ dist: clean
 	  --exclude='./venv' \
 	  --exclude='./node_modules' \
 	  --exclude='./site' \
+	  --exclude='./deploy' \
+	  --exclude='./docs/*-internal.md' \
 	  --exclude='./CLAUDE.md' \
 	  .
 	@# Verify the smoke test passes against the staged tree. Extract into

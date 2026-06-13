@@ -221,5 +221,22 @@ class TestLynisTempfile(unittest.TestCase):
         self.assertIn("tempfile.mkstemp(prefix='rp-lynis-'", src)
 
 
+class TestReleaseTarballExcludes(unittest.TestCase):
+    """v4.4.0: the `make dist` tarball must never ship environment-specific or
+    internal files — the gitignored deploy/ tree (real hostnames, cert paths,
+    the IP allowlist) and the docs/*-internal.md planning notes leaked into the
+    release archive until this was fixed. Pin the exclude list."""
+
+    def test_makefile_dist_excludes_sensitive(self):
+        mk = (_ROOT / 'Makefile').read_text()
+        # isolate the dist: target body
+        dist = mk.split('\ndist:', 1)[1].split('\n\n', 1)[0]
+        for needle in ("--exclude='./deploy'",
+                       "--exclude='./docs/*-internal.md'",
+                       "--exclude='./site'",
+                       "--exclude='./CLAUDE.md'"):
+            self.assertIn(needle, dist, f'dist target missing {needle}')
+
+
 if __name__ == '__main__':
     unittest.main()
