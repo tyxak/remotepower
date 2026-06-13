@@ -5246,11 +5246,17 @@ body[data-ui="industrial"] .tile-value { font-variant-numeric:tabular-nums; }
 body[data-ui="industrial"] .sidebar { background:#0b0e12; border-right:1px solid var(--border); }
 body[data-ui="industrial"] .logo-text { text-transform:uppercase; font-weight:700; letter-spacing:0.02em; font-size:16px; }
 body[data-ui="industrial"] .logo-img { border-radius:3px; }
-body[data-ui="industrial"] .sidebar-label {
-  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.14em;
-  font-size:10px; color:var(--muted); font-weight:600;
+/* section labels (MAIN) + group headers (FLEET/MONITORING/…) — same size as the
+   nav items, bold, so they read as real headers, not tiny eyebrows */
+body[data-ui="industrial"] .sidebar-label,
+body[data-ui="industrial"] .sidebar-group-toggle {
+  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em;
+  font-size:13px; color:var(--muted); font-weight:700;
 }
-body[data-ui="industrial"] .nav-btn { border-radius:2px; font-family:var(--font); }
+/* square the sidebar items so the active/hover block is a clean rectangle — the
+   universal `* { border-radius:3px }` was rounding the marked item into a
+   "half-rounded square". */
+body[data-ui="industrial"] .nav-btn { border-radius:0 !important; font-family:var(--font); }
 /* one consistent highlight for EVERY active nav item — top-level, group
    sub-items (which otherwise carry a 2px bar + margin-left:-1px) and favourites */
 body[data-ui="industrial"] .nav-btn.active,
@@ -5270,7 +5276,6 @@ body[data-ui="industrial"] .sidebar-group { margin-top:10px; padding-top:10px; }
 body[data-ui="industrial"] .nav-badge,
 body[data-ui="industrial"] .nav-group-badge { font-family:var(--font-mono); border-radius:3px; font-size:10px; }
 body[data-ui="industrial"] .sidebar-search { border-radius:2px; font-family:var(--font); }
-body[data-ui="industrial"] .sidebar-group-toggle { font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.12em; font-size:10px; }
 
 /* ── Page header ────────────────────────────────────────────────────────── */
 body[data-ui="industrial"] .page-title { font-weight:600; letter-spacing:-0.015em; }
