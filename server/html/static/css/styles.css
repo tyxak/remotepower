@@ -5307,6 +5307,8 @@ body[data-ui="industrial"] .badge { border-radius:2px; }
 body[data-ui="industrial"] .btn-primary,
 body[data-ui="industrial"] .btn-secondary {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.05em; font-size:13px;
+  white-space:nowrap;   /* uppercase mono is wider — keep labels on one line so
+                           a toolbar's button heights stay equal (no 2-line wrap) */
 }
 body[data-ui="industrial"] .settings-tab {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
