@@ -5294,9 +5294,16 @@ body[data-ui="industrial"] .settings-tab,
 body[data-ui="industrial"] .chip,
 body[data-ui="industrial"] .badge { border-radius:2px; }
 
-/* ── Buttons read like panel controls ───────────────────────────────────── */
+/* ── Buttons read like panel controls ───────────────────────────────────────
+   Keep buttons at the 14px body/input size so a button never sits SMALLER than
+   the input beside it (the enforcement-policy row had a 12px `fs-12` button next
+   to 14px inputs). This selector outranks the .fs-12 utility, so every
+   industrial form control lands on one size project-wide. Tabs are their own
+   strip and stay at the dense 12px. ── */
 body[data-ui="industrial"] .btn-primary,
-body[data-ui="industrial"] .btn-secondary,
+body[data-ui="industrial"] .btn-secondary {
+  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.05em; font-size:13px;
+}
 body[data-ui="industrial"] .settings-tab {
   font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
 }
