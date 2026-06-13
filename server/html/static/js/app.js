@@ -798,12 +798,18 @@ const _INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 function _applyPageSubtitleInfo() {
   const industrial = document.body.dataset.ui === 'industrial';
   document.querySelectorAll('.page-subtitle').forEach(sub => {
-    // the title this subtitle belongs to: the nearest preceding .page-title or
-    // .page-title-row (which wraps a .page-title).
+    // Find the title this subtitle belongs to, robustly: (1) a preceding sibling
+    // .page-title / .page-title-row, else (2) a .page-title in the same parent,
+    // else (3) the first .page-title in the closest page container.
+    let titleEl = null;
     let prev = sub.previousElementSibling;
-    while (prev && !prev.matches('.page-title, .page-title-row')) prev = prev.previousElementSibling;
-    if (!prev) return;
-    const titleEl = prev.matches('.page-title') ? prev : prev.querySelector('.page-title');
+    while (prev && !titleEl) {
+      if (prev.matches && prev.matches('.page-title')) titleEl = prev;
+      else if (prev.matches && prev.matches('.page-title-row')) titleEl = prev.querySelector('.page-title');
+      prev = prev.previousElementSibling;
+    }
+    if (!titleEl && sub.parentElement) titleEl = sub.parentElement.querySelector('.page-title');
+    if (!titleEl) { const pg = sub.closest('.page'); if (pg) titleEl = pg.querySelector('.page-title'); }
     if (!titleEl) return;
     const existing = titleEl.querySelector(':scope > .page-info-ic');
     if (!industrial) {
@@ -815,9 +821,14 @@ function _applyPageSubtitleInfo() {
     if (existing) return;                 // already folded
     const ic = document.createElement('span');
     ic.className = 'page-info-ic';
-    ic.setAttribute('title', sub.textContent.trim());
+    ic.setAttribute('tabindex', '0');
     ic.setAttribute('aria-label', sub.textContent.trim());
     ic.innerHTML = _INFO_SVG;
+    // rich tooltip — the subtitle's own HTML, so any links stay clickable
+    const tip = document.createElement('span');
+    tip.className = 'page-info-tip';
+    tip.innerHTML = sub.innerHTML;
+    ic.appendChild(tip);
     titleEl.appendChild(ic);
   });
 }
@@ -1343,6 +1354,7 @@ function showPage(name, btn) {
   const el = document.getElementById('page-' + name);
   if (el) el.classList.add('active');
   if (btn) btn.classList.add('active');
+  try { _applyPageSubtitleInfo(); } catch (_) {}   // v4.6.0: fold the page subtitle into its info icon
   // v3.0.2: keep the URL bar in sync with the visible page. Without this,
   // the hash sticks at whatever switchSettingsTab last wrote (e.g.
   // #settings/notifs) and stays there as you click through Home, Devices,

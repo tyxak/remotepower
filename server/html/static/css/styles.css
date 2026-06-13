@@ -5424,7 +5424,19 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
 .subtitle-hidden { display:none !important; }
-.page-info-ic { display:inline-flex; align-items:center; vertical-align:middle;
+.page-info-ic { position:relative; display:inline-flex; align-items:center; vertical-align:middle;
   margin-left:8px; color:var(--muted); cursor:help; }
 .page-info-ic svg { width:16px; height:16px; }
-.page-info-ic:hover { color:var(--accent); }
+.page-info-ic:hover, .page-info-ic:focus-visible { color:var(--accent); outline:none; }
+/* rich tooltip — carries the subtitle's own HTML, so any links stay clickable.
+   Shown on hover/focus; staying inside the icon's hover area keeps it open. */
+.page-info-tip {
+  display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:300;
+  width:max-content; max-width:380px; padding:11px 14px;
+  background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  box-shadow:0 10px 30px rgba(0,0,0,.4);
+  font-family:var(--font); font-size:13px; line-height:1.55; font-weight:400;
+  text-transform:none; letter-spacing:normal; white-space:normal; color:var(--text);
+}
+.page-info-ic:hover .page-info-tip,
+.page-info-ic:focus-within .page-info-tip { display:block; }
