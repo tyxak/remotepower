@@ -57,8 +57,9 @@ No breaking changes; fully CSP-safe. Full notes in
   reactive high/critical or a ≤180-day ETA), and lists a host's healthy disks
   alongside its at-risk one instead of hiding them.
 - **Release distribution.** Releases now ship a **GPG-signed** tarball
-  (`make release` → `.tar.gz` + `.sha256` + `.asc`), and the server image is
-  published to the **GitHub Container Registry** on every release —
+  (`make release` → `.tar.gz` + `.sha256` + `.asc`), and a **multi-arch
+  (amd64 + arm64)** server image is published to the **GitHub Container
+  Registry** on every release —
   `docker pull ghcr.io/tyxak/remotepower:<version>` (or `:latest`).
 - Colour themes (nord/dracula/…) continue to apply to the Old UI.
 

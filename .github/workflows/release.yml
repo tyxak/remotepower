@@ -31,12 +31,20 @@ jobs:
     # publish if Actions is ever re-enabled on the test remote (tyxak/claude-code).
     if: github.repository == 'tyxak/remotepower'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The emulated arm64 leg pushes this past the amd64-only ~10 min; 60 gives
+    # generous headroom for a cold-cache multi-arch build.
+    timeout-minutes: 60
     steps:
       - name: Checkout the released tag
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+
+      # QEMU provides the binfmt handlers so the amd64 runner can build the
+      # arm64 image too (emulated). cryptography/bcrypt ship arm64 wheels, so
+      # the slow part is the emulated apt layer, not pip.
+      - name: Set up QEMU (cross-arch emulation)
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -64,11 +72,10 @@ jobs:
         with:
           context: .
           push: true
-          # amd64 only for now (fast, the common server arch). To also publish
-          # arm64 (e.g. for SBC management nodes), add a
-          # `docker/setup-qemu-action@v3` step above and set:
-          #   platforms: linux/amd64,linux/arm64
-          platforms: linux/amd64
+          # Multi-arch: amd64 (common server) + arm64 (SBC / Ampere management
+          # nodes). The arm64 leg is emulated via QEMU so it's slower — see the
+          # bumped job timeout. Drop back to `linux/amd64` if build time hurts.
+          platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
