@@ -132,5 +132,47 @@ class TestUIVersionToggle(unittest.TestCase):
             self.assertNotIn('onclick=', tag)
 
 
+class TestSelfSignedCertEndpoint(unittest.TestCase):
+    """Generate-a-cert-from-the-UI: admin-gated endpoint + Python cert generation."""
+
+    def test_route_registered_and_admin_gated(self):
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn("('POST', '/api/tls/gen-self-signed'): handle_tls_gen_self_signed", src)
+        m = re.search(r'def handle_tls_gen_self_signed\(\):(.*?)\ndef ', src, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn('require_admin_auth()', body)   # admin only
+        self.assertIn('audit_log(', body)             # audited
+        # the UI control + handler are wired
+        self.assertIn('data-action="genSelfSignedCert"', _HTML)
+        self.assertIn('id="tls-gen-hosts"', _HTML)
+        self.assertIn('function genSelfSignedCert(', _JS)
+
+    def test_host_validation_rejects_injection(self):
+        self.assertTrue(api._valid_tls_host('rp.internal'))
+        self.assertTrue(api._valid_tls_host('10.0.0.5'))
+        self.assertFalse(api._valid_tls_host('bad;rm -rf /'))
+        self.assertFalse(api._valid_tls_host('a b'))
+        self.assertFalse(api._valid_tls_host(''))
+
+    def test_generates_verifiable_chain_and_reuses_ca(self):
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            self.skipTest('cryptography not installed')
+        import tempfile
+        d = tempfile.mkdtemp()
+        out = api._tls_gen_self_signed(['rp.test', '10.9.8.7'], d)
+        self.assertTrue(out['ok'])
+        self.assertRegex(out['fingerprint'], r'^[0-9A-F:]{40,}$')
+        self.assertFalse(out['renewed'])
+        self.assertTrue((Path(d) / 'server.crt').exists())
+        self.assertEqual(oct((Path(d) / 'ca.key').stat().st_mode)[-3:], '600')
+        # re-issuing keeps the SAME CA (enrolled agents keep trust)
+        out2 = api._tls_gen_self_signed(['rp.test'], d)
+        self.assertEqual(out['fingerprint'], out2['fingerprint'])
+        self.assertTrue(out2['renewed'])
+
+
 if __name__ == '__main__':
     unittest.main()

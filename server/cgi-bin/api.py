@@ -14912,6 +14912,151 @@ def handle_diagnostics_bundle():
     sys.stdout.flush()
 
 
+def _valid_tls_host(h):
+    """A DNS hostname or an IP literal — strict, so arbitrary input can't reach
+    the certificate SAN."""
+    import ipaddress
+    h = (h or '').strip()
+    if not h or len(h) > 253:
+        return False
+    try:
+        ipaddress.ip_address(h)
+        return True
+    except ValueError:
+        pass
+    if '..' in h:
+        return False
+    return bool(re.match(r'^([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62})\.?)+$', h))
+
+
+def _tls_gen_self_signed(hosts, out_dir):
+    """Create (or reuse) a private CA and (re)issue a server leaf for `hosts`,
+    in Python via the cryptography library — the web user needs no root and no
+    openssl CLI. Mirrors tools/gen-ca.sh: ECDSA P-256, SAN (DNS+IP), serverAuth
+    EKU, CA ~10y / leaf 397d. Reusing the CA keeps enrolled agents' trust across
+    a re-issue. Returns the CA SHA-256 fingerprint + the written paths."""
+    import datetime
+    import ipaddress
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(out_dir, 0o750)
+    except OSError:
+        pass
+    ca_crt_p, ca_key_p = out_dir / 'ca.crt', out_dir / 'ca.key'
+    leaf_crt_p, leaf_key_p = out_dir / 'server.crt', out_dir / 'server.key'
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    def _write(path, data, mode):
+        with open(path, 'wb') as f:
+            f.write(data)
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
+
+    renewed = ca_crt_p.exists() and ca_key_p.exists()
+    if renewed:
+        ca_cert = x509.load_pem_x509_certificate(ca_crt_p.read_bytes())
+        ca_key = serialization.load_pem_private_key(ca_key_p.read_bytes(), password=None)
+    else:
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        ca_name = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, 'RemotePower Internal CA'),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'RemotePower')])
+        ca_cert = (x509.CertificateBuilder()
+            .subject_name(ca_name).issuer_name(ca_name)
+            .public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=5))
+            .not_valid_after(now + datetime.timedelta(days=3650))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.KeyUsage(
+                digital_signature=False, content_commitment=False, key_encipherment=False,
+                data_encipherment=False, key_agreement=False, key_cert_sign=True,
+                crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+            .sign(ca_key, hashes.SHA256()))
+        _write(ca_crt_p, ca_cert.public_bytes(serialization.Encoding.PEM), 0o644)
+        _write(ca_key_p, ca_key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption()), 0o600)
+
+    san, cn = [], None
+    for h in hosts:
+        try:
+            san.append(x509.IPAddress(ipaddress.ip_address(h)))
+        except ValueError:
+            san.append(x509.DNSName(h))
+            if cn is None:
+                cn = h
+    if cn is None:
+        cn = hosts[0]
+
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+    leaf_cert = (x509.CertificateBuilder()
+        .subject_name(x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, cn),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'RemotePower')]))
+        .issuer_name(ca_cert.subject)
+        .public_key(leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(now + datetime.timedelta(days=397))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.SubjectAlternativeName(san), critical=False)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, content_commitment=False, key_encipherment=True,
+            data_encipherment=False, key_agreement=False, key_cert_sign=False,
+            crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
+        .sign(ca_key, hashes.SHA256()))
+    _write(leaf_crt_p, leaf_cert.public_bytes(serialization.Encoding.PEM), 0o644)
+    _write(leaf_key_p, leaf_key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()), 0o600)
+
+    fp_hex = ca_cert.fingerprint(hashes.SHA256()).hex().upper()
+    fp = ':'.join(fp_hex[i:i + 2] for i in range(0, len(fp_hex), 2))
+    return {'ok': True, 'fingerprint': fp, 'cn': cn, 'renewed': renewed,
+            'dir': str(out_dir), 'ca_crt': str(ca_crt_p),
+            'server_crt': str(leaf_crt_p), 'server_key': str(leaf_key_p)}
+
+
+def handle_tls_gen_self_signed():
+    """POST /api/tls/gen-self-signed {hosts:[...]} — generate a self-signed CA +
+    server leaf into DATA_DIR/tls (admin-only, audited). The web user can't reload
+    nginx (needs root), so this returns the paths + the CA fingerprint and the
+    operator points nginx at server.crt/server.key and enrols agents with the
+    fingerprint. See docs/tls-selfsigned.md."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    raw = body.get('hosts')
+    if isinstance(raw, str):
+        raw = re.split(r'[,\s]+', raw)
+    hosts = [str(h).strip() for h in (raw or []) if str(h).strip()]
+    if not hosts:
+        respond(400, {'error': 'Provide at least one hostname or IP'}); return
+    if len(hosts) > 16 or any(not _valid_tls_host(h) for h in hosts):
+        respond(400, {'error': 'Invalid hostname or IP in the list'}); return
+    try:
+        out = _tls_gen_self_signed(hosts, DATA_DIR / 'tls')
+    except ImportError:
+        respond(500, {'error': 'The cryptography library is not installed on the server'}); return
+    except Exception as e:
+        respond(500, {'error': f'Certificate generation failed: {e}'}); return
+    audit_log(actor, 'tls_gen_self_signed',
+              f"hosts={','.join(hosts)} fingerprint={out['fingerprint']}")
+    respond(200, out)
+
+
 def handle_backup_run():
     """POST /api/self/backup-now — manually run a snapshot backup of DATA_DIR.
 
@@ -40574,6 +40719,7 @@ def _build_exact_routes():
         ('GET', '/api/scripts'): handle_scripts_list,
         ('POST', '/api/scripts'): handle_scripts_add,
         ('GET', '/api/security/diag'): handle_security_diag,
+        ('POST', '/api/tls/gen-self-signed'): handle_tls_gen_self_signed,
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,

@@ -1848,6 +1848,16 @@
           </div>
 
           <div class="settings-section">
+            <h3>Self-signed certificate</h3>
+            <p class="hint">Generate a self-signed <strong>CA</strong> + server certificate for an internal / airgapped instance that can't use a real (Let's Encrypt) cert. The files are written under the data directory's <code>tls/</code> folder; point nginx at <code>server.crt</code> / <code>server.key</code> and enrol agents with the printed fingerprint. Re-generating reuses the CA, so the server cert renews without re-trusting agents. <strong>Prefer a real cert</strong> when you have a public hostname — full guide in <code>docs/tls-selfsigned.md</code>.</p>
+            <div class="sb-controls mt-8">
+              <input type="text" id="tls-gen-hosts" class="form-input" placeholder="rp.internal, 10.0.0.5  (hostnames / IPs, comma-separated)" autocomplete="off">
+              <button class="btn-secondary" data-action="genSelfSignedCert">Generate certificate</button>
+            </div>
+            <div id="tls-gen-result" class="mt-8"></div>
+          </div>
+
+          <div class="settings-section">
             <h3>Transport security (HSTS)</h3>
             <p class="hint">HSTS forces every future visit to use HTTPS — defence against a downgrade attack. Set by nginx, not the application; this panel just reports whether the response on your current page is carrying the header.</p>
             <div id="cfg-hsts-status" class="hint">Checking…</div>

@@ -22,8 +22,18 @@ changes**, and fully CSP-safe. Full notes in [docs/v4.6.0.md](docs/v4.6.0.md).
   Industrial look and the classic one. Per-browser preference (`rp_ui`, default
   `new`), applied instantly with no reload. Wired via `data-action="setUIVersion"`
   through the existing delegated dispatch — no inline scripts/styles/handlers.
-- **No functional changes.** Same pages, same nav, same data — only the skin.
-  Colour themes (nord/dracula/…) continue to apply to the Old UI.
+- **Mostly skin-only**, plus a few fixes and one new feature:
+  - **Generate a self-signed certificate from the UI** — *Settings → Security →
+    Self-signed certificate*. Admin-only, audited; generates the CA + server cert
+    in Python (`cryptography`, no root / no `openssl`) into the data dir's `tls/`,
+    reusing the CA on re-issue, and shows the fingerprint + agent-enrolment line.
+    Complements `tools/gen-ca.sh` (v4.5.0).
+  - The audit-log clear now uses the masked in-app password modal (the native
+    `prompt()` showed the typed admin password in clear text).
+  - Predictive health no longer alerts on a disk that's years from failing (only
+    reactive high/critical or a ≤180-day ETA), and lists a host's healthy disks
+    alongside its at-risk one instead of hiding them.
+- Colour themes (nord/dracula/…) continue to apply to the Old UI.
 
 ## v4.5.0 — "TrustMatters" — 2026-06-13
 

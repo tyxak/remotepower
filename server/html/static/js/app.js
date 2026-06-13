@@ -8525,6 +8525,30 @@ async function clearAuditLog() {
   if (data?.ok) { toast('Audit log cleared (pre-wipe archive saved)', 'success'); loadAuditLog(); }
   else toast(data?.error || 'Failed', 'error');
 }
+// v4.6.0: generate a self-signed CA + server cert from Settings → Security.
+// Calls the admin-only /api/tls/gen-self-signed endpoint (Python cryptography),
+// then shows the CA fingerprint + paths + next steps. CSP-safe (classes only).
+async function genSelfSignedCert() {
+  const inp = document.getElementById('tls-gen-hosts');
+  const box = document.getElementById('tls-gen-result');
+  const hosts = (inp?.value || '').trim();
+  if (!hosts) { toast('Enter at least one hostname or IP', 'error'); return; }
+  if (box) box.innerHTML = '<div class="c-muted">Generating…</div>';
+  const r = await api('POST', '/tls/gen-self-signed', { hosts }).catch(() => null);
+  if (!r || !r.ok) { if (box) box.innerHTML = ''; toast(r?.error || 'Generation failed', 'error'); return; }
+  toast(r.renewed ? 'Server certificate re-issued (CA unchanged)' : 'Self-signed CA + certificate generated', 'success');
+  if (!box) return;
+  const fp = escHtml(r.fingerprint || '');
+  box.innerHTML = `
+    <div class="table-card card-padded">
+      <div class="form-label mb-6">CA SHA-256 fingerprint — pin this on agents</div>
+      <code class="ff-mono">${fp}</code>
+      <div class="form-label mb-6 mt-12">Files written</div>
+      <div class="ff-mono fs-12">${escHtml(r.ca_crt)}<br>${escHtml(r.server_crt)}<br>${escHtml(r.server_key)}</div>
+      <div class="hint mt-12"><strong>Next:</strong> point nginx at <code>server.crt</code> / <code>server.key</code> (or run <code>sudo tools/gen-ca.sh --nginx</code>), reload nginx, then enrol agents:</div>
+      <code class="ff-mono fs-12">sudo ./install-client.sh --server https://${escHtml(r.cn)} --ca-fingerprint ${fp}</code>
+    </div>`;
+}
 async function loadSecurityPosture() {
   const box = document.getElementById('sec-posture-body');
   if (!box) return;
