@@ -3704,10 +3704,18 @@ body.no-anim * { transition: none !important; }
    render it as normal 14px sentence-case body text, inline with the box. */
 label.form-label:has(> input[type="checkbox"]),
 label.form-label:has(> input[type="radio"]) {
-  display: inline-flex; align-items: center; gap: 8px;
+  /* checkbox in col 1, label text in col 2, and any .hint stacked UNDER the text
+     (col 2 row 2) — not inline/centered with the box. Row gap gives stacked
+     toggles real breathing room (was margin-bottom:0 → cramped). */
+  display: grid; grid-template-columns: auto 1fr; align-items: start;
+  column-gap: 8px; row-gap: 3px;
   font-size: 14px; text-transform: none; letter-spacing: normal;
-  color: var(--text); margin-bottom: 0; cursor: pointer;
+  color: var(--text); margin-bottom: 14px; cursor: pointer;
 }
+label.form-label:has(> input[type="checkbox"]) > input,
+label.form-label:has(> input[type="radio"]) > input { margin-top: 2px; }
+label.form-label:has(> input[type="checkbox"]) > .hint,
+label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0; }
 .row-12-center { display: flex; align-items: center; gap: 12px; }
 .row-6-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
 .col-4 { display: flex; flex-direction: column; gap: 4px; }
@@ -5343,6 +5351,11 @@ body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .home-widget,
 body[data-ui="industrial"] .login-card {
   position:relative;
+  /* solid surface UNDER the tick background-image. Without this, state tiles like
+     .tile.alert / .tile.warn (which set `background:` shorthand → transparent
+     colour + a semantic gradient) render transparent once we replace their
+     gradient with the corner ticks. */
+  background-color:var(--surface) !important;
   background-image:
     linear-gradient(var(--border),var(--border)),
     linear-gradient(var(--border),var(--border)),
