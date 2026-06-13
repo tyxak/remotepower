@@ -5354,6 +5354,13 @@ body[data-ui="industrial"] .online,
 body[data-ui="industrial"] .offline,
 body[data-ui="industrial"] .cal-day-num { border-radius: 50% !important; }
 
+/* ── Icons: one consistent weight + round caps across the whole UI ───────────
+   Many of the app's inline SVGs ship with square caps/joins and a heavy 2px
+   stroke; normalise every icon to a finer 1.75 stroke with round caps/joins for
+   a crisp, uniform "instrument" set. CSS overrides the SVG presentation attrs;
+   filled icons are unaffected. Scoped to the industrial UI. ── */
+body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
 /* ── New UI / Old UI selector (used in both UIs; CSP-safe, classes only) ── */
 .ui-toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .ui-opt { background:var(--surface); border:0; border-right:1px solid var(--border);
