@@ -58,6 +58,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.6.0.md](v4.6.0.md)** — "InterfaceMatters": a visual-identity release — the
+ new Industrial "New UI" (graphite/steel + blue accent) as default, with a
+ CSP-safe New UI / Old UI toggle. No markup/nav/functional changes.
 - **[v4.5.0.md](v4.5.0.md)** — "TrustMatters": TLS onboarding — a one-command
  self-signed CA, fingerprint-verified rollout to agents, Docker opt-in TLS, and a
  server-only self-signed → real migration. No breaking changes.
@@ -71,11 +74,8 @@ The five most recent per-release notes are kept here:
 - **[v4.3.0.md](v4.3.0.md)** — "ImprovementMatters": single-row device reads on
  large fleets, audit-archive download, staleness badges, clickable posture
  fixes, and regression guardrails. No breaking changes.
-- **[v4.2.0.md](v4.2.0.md)** — "5ecur1tyM4tter5": authorized vulnerability
- scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log,
- and account guardrails.
 
-Older release notes (v4.1.0 and earlier) live in
+Older release notes (v4.2.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

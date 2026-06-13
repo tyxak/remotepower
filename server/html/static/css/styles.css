@@ -5204,3 +5204,97 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .table-pager { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin: 10px 0 4px; }
 .table-pager .btn-icon[disabled] { opacity: .4; cursor: default; }
 .table-pager-info { font-size: 12px; color: var(--muted); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NEW UI — "Industrial" design system  (v4.6.0 "InterfaceMatters")
+   Applied when body[data-ui="industrial"] is set (the default). Opt out to the
+   classic look via Settings → Interface / My Account → Appearance (removes the
+   attribute). Keeps RemotePower's blue accent; swaps the navy palette for warm
+   graphite/steel and adds the instrument-panel motifs (corner ticks, dashed
+   rules, mono eyebrow labels, tabular figures). Pure CSS — CSP-safe.
+   Placed after every theme block so its palette wins by source order.
+   ════════════════════════════════════════════════════════════════════════════ */
+body[data-ui="industrial"] {
+  --bg:#13151a; --surface:#1b1e25; --surface2:#23272f; --border:#333a47;
+  --text:#dfe3ea; --muted:#7c869a;
+  --accent:#3b7eff; --accent2:#5c9fff;                 /* our logo blue, kept */
+  --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.34);
+  --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+}
+
+/* sharper, machined corners */
+body[data-ui="industrial"] .stat-card,
+body[data-ui="industrial"] .tile,
+body[data-ui="industrial"] .table-card,
+body[data-ui="industrial"] .dash-card,
+body[data-ui="industrial"] .home-widget,
+body[data-ui="industrial"] .settings-section,
+body[data-ui="industrial"] .modal,
+body[data-ui="industrial"] .drawer { border-radius:3px; }
+body[data-ui="industrial"] .btn-primary,
+body[data-ui="industrial"] .btn-secondary,
+body[data-ui="industrial"] .form-input,
+body[data-ui="industrial"] .sidebar-search,
+body[data-ui="industrial"] .nav-btn,
+body[data-ui="industrial"] .settings-tab { border-radius:2px; }
+
+/* corner ticks on the primary panels (inset 5px so .tile's overflow:hidden
+   doesn't clip them; absolute so they aren't flex items on .stat-card) */
+body[data-ui="industrial"] .stat-card,
+body[data-ui="industrial"] .tile,
+body[data-ui="industrial"] .table-card,
+body[data-ui="industrial"] .dash-card,
+body[data-ui="industrial"] .home-widget { position:relative; }
+body[data-ui="industrial"] .stat-card::before,
+body[data-ui="industrial"] .stat-card::after,
+body[data-ui="industrial"] .tile::before,
+body[data-ui="industrial"] .tile::after,
+body[data-ui="industrial"] .table-card::before,
+body[data-ui="industrial"] .table-card::after,
+body[data-ui="industrial"] .dash-card::before,
+body[data-ui="industrial"] .dash-card::after,
+body[data-ui="industrial"] .home-widget::before,
+body[data-ui="industrial"] .home-widget::after {
+  content:""; position:absolute; width:7px; height:7px;
+  border-color:var(--accent-edge); border-style:solid; opacity:.75; pointer-events:none;
+}
+body[data-ui="industrial"] .stat-card::before,
+body[data-ui="industrial"] .tile::before,
+body[data-ui="industrial"] .table-card::before,
+body[data-ui="industrial"] .dash-card::before,
+body[data-ui="industrial"] .home-widget::before { top:5px; left:5px; border-width:1px 0 0 1px; }
+body[data-ui="industrial"] .stat-card::after,
+body[data-ui="industrial"] .tile::after,
+body[data-ui="industrial"] .table-card::after,
+body[data-ui="industrial"] .dash-card::after,
+body[data-ui="industrial"] .home-widget::after { bottom:5px; right:5px; border-width:0 1px 1px 0; }
+
+/* dashed rules — the technical-drawing tell */
+body[data-ui="industrial"] table td { border-bottom-style:dashed; }
+body[data-ui="industrial"] .settings-tabs { border-bottom-style:dashed; }
+
+/* mono, tracked eyebrow labels + tabular figures */
+body[data-ui="industrial"] .stat-label,
+body[data-ui="industrial"] .tile-label,
+body[data-ui="industrial"] .sidebar-label {
+  font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.10em;
+}
+body[data-ui="industrial"] .stat-value,
+body[data-ui="industrial"] .tile-value {
+  font-family:var(--font-mono); font-variant-numeric:tabular-nums; letter-spacing:-0.01em;
+}
+
+/* logo reads as a machined badge, not a soft chip */
+body[data-ui="industrial"] .logo-img { border-radius:2px; }
+
+/* ── New UI / Old UI selector (used in both UIs; CSP-safe, classes only) ── */
+.ui-toggle { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.ui-opt { background:var(--surface); border:0; border-right:1px solid var(--border);
+  padding:10px 18px; cursor:pointer; color:var(--muted); font-family:var(--font);
+  text-align:left; display:flex; flex-direction:column; gap:2px; }
+.ui-opt:last-child { border-right:0; }
+.ui-opt:hover { background:var(--surface2); color:var(--text); }
+.ui-opt.sel { background:var(--accent); color:#fff; }
+.ui-opt.sel .ui-opt-desc { color:rgba(255,255,255,0.82); }
+.ui-opt-name { font-size:14px; font-weight:600; }
+.ui-opt-desc { font-size:11px; color:var(--muted); }

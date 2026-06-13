@@ -2,6 +2,27 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.6.0 — "InterfaceMatters" — 2026-06-13
+
+A visual-identity release: a new **Industrial** interface ("New UI") becomes the
+default, with a one-click **New UI / Old UI** toggle so anyone can keep the
+classic look. Pure CSS + a data attribute — **no markup, navigation or layout
+changes**, and fully CSP-safe. Full notes in [docs/v4.6.0.md](docs/v4.6.0.md).
+
+- **Industrial "New UI" (default).** A distinctive skin that drops the generic
+  slate-navy + Inter template for a warm **graphite/steel** palette (keeping the
+  RemotePower **blue** accent), instrument-panel motifs — corner ticks on panels,
+  dashed technical rules, mono uppercase eyebrow labels, tabular figures — and
+  sharper corners. Implemented as `body[data-ui="industrial"]` layered after the
+  theme blocks; the self-hosted JetBrains Mono is reused, so no external fonts.
+- **New UI / Old UI toggle.** A new **Settings → Interface** tab (and a control in
+  **My Account → Appearance**, so non-admins can switch too) flips between the
+  Industrial look and the classic one. Per-browser preference (`rp_ui`, default
+  `new`), applied instantly with no reload. Wired via `data-action="setUIVersion"`
+  through the existing delegated dispatch — no inline scripts/styles/handlers.
+- **No functional changes.** Same pages, same nav, same data — only the skin.
+  Colour themes (nord/dracula/…) continue to apply to the Old UI.
+
 ## v4.5.0 — "TrustMatters" — 2026-06-13
 
 TLS onboarding. A one-command self-signed **CA** for instances that can't use a

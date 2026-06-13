@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.5.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.6.0">
 
 </head>
 <body>
@@ -984,6 +984,19 @@
         <!-- v3.14.0 (#46): appearance — theme + accent (stored locally per browser). -->
         <div class="settings-section">
           <h3>Appearance</h3>
+          <!-- v4.6.0: New UI (Industrial) / Old UI (classic) — per browser. -->
+          <div class="form-label mb-6">Interface</div>
+          <p class="hint mb-12">New UI is the Industrial interface (default); Old UI restores the classic look. Colour themes below apply to the Old UI.</p>
+          <div class="ui-toggle mb-16" role="group" aria-label="Interface version">
+            <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="new">
+              <span class="ui-opt-name">New UI</span>
+              <span class="ui-opt-desc">Industrial · default</span>
+            </button>
+            <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="old">
+              <span class="ui-opt-name">Old UI</span>
+              <span class="ui-opt-desc">Classic look</span>
+            </button>
+          </div>
           <p class="hint">Pick a theme for this browser. <strong>Follow system</strong> tracks your OS light/dark setting. The accent tints buttons and highlights on top of any theme.</p>
           <div class="form-label mb-6">Theme</div>
           <div id="acct-theme-grid" class="theme-grid mb-16"></div>
@@ -1073,6 +1086,7 @@
         <div class="settings-tabs">
           <button class="settings-tab"        data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
           <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
+          <button class="settings-tab"        data-tab="interface" data-action="switchSettingsTab" data-arg="interface" >Interface</button>
           <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
           <button class="settings-tab"        data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
           <button class="settings-tab"        data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
@@ -1091,6 +1105,24 @@
             <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it.</p>
             <div id="setup-progress" class="mb-12"></div>
             <div id="setup-steps"><div class="c-muted">Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ── Interface (New UI / Old UI) ──────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-interface">
+          <div class="settings-section">
+            <h3>Interface</h3>
+            <p class="hint">Choose how RemotePower looks. <strong>New UI</strong> is the Industrial interface (graphite &amp; steel with the RemotePower blue) — the default. <strong>Old UI</strong> restores the previous look. The choice is saved in this browser and applies instantly; switch back any time. Colour themes under <em>My Account → Appearance</em> apply to the Old UI.</p>
+            <div class="ui-toggle" role="group" aria-label="Interface version">
+              <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="new">
+                <span class="ui-opt-name">New UI</span>
+                <span class="ui-opt-desc">Industrial · default</span>
+              </button>
+              <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="old">
+                <span class="ui-opt-name">Old UI</span>
+                <span class="ui-opt-desc">Classic look</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2571,7 +2603,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.5.0 trustmatters tls https self-signed ca certificate authority gen-ca openssl ecdsa leaf fingerprint sha256 rp_ca_bundle install-client ca-fingerprint nginx snippet lets encrypt certbot acme docker rp_tls_selfsigned renew rotate internal airgapped trust">
+          <details class="doc-card" open data-keywords="release notes changelog v4.6.0 interfacematters industrial new ui old ui theme design skin graphite steel blue accent corner ticks dashed mono labels look redesign appearance interface tab toggle data-ui csp font jetbrains mono classic revert">
+            <summary><strong>What's new — v4.6.0 "InterfaceMatters"</strong> — a new Industrial interface ("New UI") as the default, with a one-click New UI / Old UI toggle to keep the classic look (no markup, nav or functional changes)</summary>
+            <div class="doc-body">
+              <p>v4.6.0 gives RemotePower a look of its own — an <strong>Industrial</strong> interface that replaces the generic dark-slate template, while keeping our blue accent. A toggle lets anyone keep the old look. Only the skin changes; pages, nav and data are identical. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.0</code>).</p>
+              <ul>
+                <li><strong>Industrial "New UI" (default).</strong> Warm <strong>graphite/steel</strong> palette (keeping the RemotePower <strong>blue</strong>), instrument-panel motifs — corner ticks on panels, dashed technical rules, mono uppercase eyebrow labels, tabular figures — and sharper corners. Implemented as <code>body[data-ui="industrial"]</code>, reusing the self-hosted JetBrains Mono (no external fonts).</li>
+                <li><strong>New UI / Old UI toggle.</strong> A new <strong>Settings → Interface</strong> tab (and a control in <strong>My Account → Appearance</strong>, so non-admins can switch too) flips between the Industrial look and the classic one. Per-browser, default New, applied instantly with no reload.</li>
+                <li><strong>Nothing functional changed.</strong> Same pages, same navigation, same data — only the design. Colour themes (nord, dracula, …) still apply to the Old UI.</li>
+                <li><strong>CSP-safe by construction.</strong> Pure CSS plus one <code>data-ui</code> attribute; the toggle is wired through the existing <code>data-action</code> dispatch with no inline scripts, styles or <code>on*</code> handlers.</li>
+              </ul>
+              <p class="hint">A visual-identity release — switch back any time under <em>Settings → Interface</em>. See <code>docs/v4.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.5.0 trustmatters tls https self-signed ca certificate authority gen-ca openssl ecdsa leaf fingerprint sha256 rp_ca_bundle install-client ca-fingerprint nginx snippet lets encrypt certbot acme docker rp_tls_selfsigned renew rotate internal airgapped trust">
             <summary><strong>What's new — v4.5.0 "TrustMatters"</strong> — TLS onboarding: a one-command self-signed CA, fingerprint-verified rollout to agents, Docker opt-in TLS, and a server-only self-signed → real migration (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.5.0 makes TLS easy to stand up where a real cert is hard — internal / airgapped / no-public-DNS instances. A real cert is still recommended. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.5.0</code>). Full guide: <code>docs/tls-selfsigned.md</code>.</p>
@@ -2635,21 +2680,6 @@
                 <li><strong>Regression guardrails.</strong> New CI tests catch two recurring bug-classes at commit: a check reading a sysinfo field the sanitizer never persisted (the <code>proc_names</code> / <code>mailq</code> class), and a webhook event that half-registers (fires but never lands in the inbox).</li>
               </ul>
               <p class="hint">A refinement release — every install keeps working exactly as before. See <code>docs/v4.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.2.0 5ecur1tym4tter5 security integrations pentest scan vulnerability nuclei nikto nmap zap wapiti lynis scanner satellite passive active attestation maintenance window domain verification dns txt well-known passkey webauthn passwordless security key biometrics saml sso okta entra azure ad onelogin ping adfs idp audit hash chain tamper evident verify integrity mfa enforcement totp session cap api key expiry posture self check">
-            <summary><strong>What's new — v4.2.0 "5ecur1tyM4tter5"</strong> — authorized vulnerability scanning (the Pentest page), passkeys, SAML SSO, a tamper-evident audit log, and account guardrails</summary>
-            <div class="doc-body">
-              <p>v4.2.0 makes the fleet <strong>defensible</strong>, not just visible. Security and integrations — every new control is off until you turn it on. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.2.0</code>).</p>
-              <ul>
-                <li><strong>Authorized vulnerability scanning.</strong> A new <strong>Pentest</strong> page (under Monitoring) scans the hosts and websites you own with industry tools — white-hat only. Targets are authorization-gated: enrolled hosts (target IP derived server-side), or domains you prove you own via an <strong>ACME-style DNS-TXT / <code>.well-known</code></strong> check. A <strong>passive</strong> profile (nuclei / nikto / nmap) is safe any time; an <strong>active</strong> profile (OWASP ZAP / wapiti) is gated behind an authorization attestation + a maintenance window; an on-host <strong>lynis</strong> audit runs through the agent. The toolchain runs on a hardened <strong>scanner satellite</strong> (no footprint on scanned hosts; pin one per segment), with quick/full intensity, a vhost field, and cron <strong>scheduled scans</strong>.</li>
-                <li><strong>Passkeys (WebAuthn).</strong> Phishing-resistant, passwordless sign-in with a security key, phone or biometrics — add one under <em>My Account → Passkeys</em> and use <em>Sign in with a passkey</em>. Refuses a cloned authenticator and <strong>satisfies the MFA-required policy</strong>.</li>
-                <li><strong>SAML 2.0 SSO.</strong> Sign in through an enterprise IdP (Okta, Entra, OneLogin, Ping, ADFS) — configure under <em>Settings → Authentication → SAML</em>. Signed-assertion verification with replay protection, attribute → username / group → role mapping, first-login provisioning, alongside OIDC / LDAP / local.</li>
-                <li><strong>Tamper-evident audit log.</strong> Entries are hash-chained; a <strong>Verify integrity</strong> button reports the first break, if any. Clearing requires an admin password re-prompt and writes an immutable pre-wipe archive first.</li>
-                <li><strong>Account guardrails.</strong> Enforce MFA (TOTP <em>or</em> a passkey) per role, cap concurrent sessions per user, set a default API-key expiry (all under <em>Settings → Security → Account guardrails</em>), and read a graded <strong>security-posture self-check</strong> on the Audit page.</li>
-                <li><strong>Post-release sweep.</strong> Password sign-in now hands off to a <strong>passkey assertion</strong> for passkey-protected accounts; the audit chain is verified on page load with a persistent badge; scan schedules show their last run and can be <strong>paused</strong>; the Users table shows each account's MFA method and auth source; lynis scans report the <strong>0–100 hardening index</strong>; plus fixes (service-recovery auto-resolve, mail-queue check, device-card memory sparkline) and hot-path performance work.</li>
-              </ul>
-              <p class="hint">Passkeys need the optional <code>webauthn</code> library; SAML needs <code>pysaml2</code> + the <code>xmlsec1</code> binary — each degrades to "unavailable" when absent. See <code>docs/v4.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -6917,19 +6947,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.5.0"></script>
-<script defer src="static/js/app.js?v=4.5.0"></script>
+<script defer src="static/js/i18n.js?v=4.6.0"></script>
+<script defer src="static/js/app.js?v=4.6.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.5.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.5.0"></script>
-<script defer src="static/js/app-containers.js?v=4.5.0"></script>
-<script defer src="static/js/app-network.js?v=4.5.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.6.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.6.0"></script>
+<script defer src="static/js/app-containers.js?v=4.6.0"></script>
+<script defer src="static/js/app-network.js?v=4.6.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.5.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.5.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.5.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.6.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.6.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.6.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.5.0"></script>
+<script defer src="static/js/sw-register.js?v=4.6.0"></script>
 </body>
 </html>

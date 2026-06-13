@@ -645,6 +645,7 @@ async function showApp() {
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
+  applyUIVersion();   // v4.6.0: New UI (Industrial) by default; opt out in Settings → Interface
   applyBackground();
   applyBannerState();
   requestNotifications();
@@ -773,6 +774,25 @@ function applyTheme() {
   const btn = document.querySelector('.theme-btn');
   if (btn) btn.innerHTML = light ? _THEME_MOON : _THEME_SUN;
   applyAccent();
+}
+// v4.6.0 "InterfaceMatters": "New UI" (the Industrial design system) vs "Old UI"
+// (the classic look). Per-browser preference (rp_ui), default 'new' so the new
+// look ships by default but anyone can revert. Sets body[data-ui="industrial"];
+// pure-CSS reskin, so no reload is needed. The toggle lives in Settings →
+// Interface and My Account → Appearance and is wired via data-action=setUIVersion.
+function _uiVersion() {
+  try { return localStorage.getItem('rp_ui') || 'new'; } catch (_) { return 'new'; }
+}
+function applyUIVersion() {
+  const v = _uiVersion();
+  if (v === 'old') delete document.body.dataset.ui;
+  else document.body.dataset.ui = 'industrial';
+  document.querySelectorAll('[data-action="setUIVersion"]').forEach(b =>
+    b.classList.toggle('sel', b.dataset.arg === v));
+}
+function setUIVersion(v) {
+  try { localStorage.setItem('rp_ui', v); } catch (_) {}
+  applyUIVersion();
 }
 function toggleTheme() {
   // Header quick-toggle: flip between the dark and light families. The full
