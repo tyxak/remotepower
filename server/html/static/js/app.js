@@ -9461,6 +9461,11 @@ async function loadIntegrations() {
   const data = await api('GET', '/integrations');
   _integrations = (data && data.integrations) || [];
   _integrationCatalog = (data && data.catalog) || [];
+  _showHomelab = !data || data.show_homelab !== false;
+  const cb = document.getElementById('show-homelab');
+  if (cb) cb.checked = _showHomelab;
+  const body = document.getElementById('homelab-integrations-body');
+  if (body) body.style.display = _showHomelab ? '' : 'none';
   const iv = document.getElementById('integrations-interval');
   if (iv && data && data.interval) iv.value = data.interval;
   const sel = document.getElementById('integration-add-type');
@@ -9558,15 +9563,25 @@ function removeIntegration(idx) {
   renderIntegrations();
 }
 
+// Live-toggle the homelab section + the dashboard widget (persisted on Save).
+function toggleShowHomelab() {
+  const cb = document.getElementById('show-homelab');
+  _showHomelab = !cb || cb.checked;
+  const body = document.getElementById('homelab-integrations-body');
+  if (body) body.style.display = _showHomelab ? '' : 'none';
+}
+
 async function saveIntegrations() {
   _readIntegrationCards();
   const iv = document.getElementById('integrations-interval');
+  const cb = document.getElementById('show-homelab');
   const status = document.getElementById('integrations-save-status');
   if (status) status.textContent = 'Saving…';
   try {
     await api('POST', '/integrations', {
       integrations: _integrations,
       interval: iv ? parseInt(iv.value, 10) || 300 : 300,
+      show_homelab: cb ? cb.checked : true,
     });
     if (status) status.textContent = 'Saved ✓';
     toast('Integrations saved', 'success');
@@ -13748,6 +13763,7 @@ function _msWorst(d) {
   return v.includes('critical') ? 'critical' : v.includes('warning') ? 'warning' : null;
 }
 function _renderHomeWidgets(home) {
+  _showHomelab = home.show_homelab !== false;   // v4.7.0: gate the homelab widget
   const devs = home.devices || [];
   const counted = devs.filter(d => d.monitored !== false);
   // Offline hosts
@@ -14082,6 +14098,16 @@ function _renderHomeWidgets(home) {
         { l: 'OK', r: String(cr.ok || 0), cls: 'c-green' },
       ])
     : '<div class="hint">No checks yet.</div>');
+  // v4.7.0: homelab software integration health rollup.
+  const ig = W.integrations || {};
+  _setWidget('home-w-integrations-body', (ig.total)
+    ? _miniRows([
+        { l: 'Critical', r: String(ig.critical || 0), cls: 'c-red' },
+        { l: 'Warning', r: String(ig.warning || 0), cls: 'c-amber' },
+        { l: 'Unknown', r: String(ig.unknown || 0), cls: 'c-muted' },
+        { l: 'OK', r: String(ig.ok || 0), cls: 'c-green' },
+      ])
+    : '<div class="hint">No integrations configured.</div>');
   // Actionable alerts feed — open alerts with inline ack / resolve / investigate.
   const af = (home.tickets && home.tickets.open) || [];
   _setWidget('home-w-alertsfeed-body', af.length
@@ -14177,6 +14203,7 @@ const DASH_WIDGETS = [
   { key: 'bruteforce',  label: 'Active brute-force',    opt: true, size: 'sm' },
   { key: 'bandwidth',   label: 'Top bandwidth',         opt: true, size: 'sm' },
   { key: 'checksrollup', label: 'Checks roll-up',       opt: true, size: 'sm' },
+  { key: 'integrations', label: 'Integration health',   opt: true, size: 'sm' },
   { key: 'alertsfeed',  label: 'Alerts (ack / resolve)', opt: true, size: 'md' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
@@ -14187,6 +14214,9 @@ const DASH_WIDGETS = [
   // (not moved into the grid). size is irrelevant; default on.
   { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },
 ];
+// v4.7.0: instance-wide "Show Homelab software" flag (default on). Set from the
+// /api/home + /api/integrations payloads; gates the homelab integration widget.
+let _showHomelab = true;
 const _DASH_KEYS = DASH_WIDGETS.map(w => w.key);
 const _DASH_META = Object.fromEntries(DASH_WIDGETS.map(w => [w.key, w]));
 const _DASH_SIZES = ['sm', 'md', 'lg'];
@@ -14214,6 +14244,10 @@ function _dashLayout() {
   const mk = k => ({ key: k, on: !_dashIsOpt(k), size: _dashDefaultSize(k) });
   out.unshift(...missing.filter(k => !_dashIsOpt(k)).map(mk));
   out.push(...missing.filter(_dashIsOpt).map(mk));
+  // v4.7.0: enterprise instances can hide the homelab-software integration
+  // widget entirely (Settings → Integrations → "Show Homelab software"). One
+  // filter here removes it from the grid, the catalog/picker, and the ?w= hint.
+  if (!_showHomelab) return out.filter(e => e.key !== 'integrations');
   return out;
 }
 

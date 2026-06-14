@@ -229,6 +229,9 @@ class TestApiWiring(unittest.TestCase):
 
     def test_persist_alert_transitions(self):
         api = self.api
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['integrations'] = [{'id': 'i1', 'type': 'truenas'}]   # a polled instance is configured
+        api.save(api.CONFIG_FILE, cfg)
         fired = []
         orig = api.fire_webhook
         api.fire_webhook = lambda ev, p: fired.append((ev, p))
@@ -255,6 +258,75 @@ class TestApiWiring(unittest.TestCase):
         client = self.api._SSRFIntegrationClient('http://169.254.169.254', verify_tls=False)
         with self.assertRaises(I.IntegrationError):
             client.request('GET', '/latest/meta-data/')
+
+
+class TestSecurityFixes(unittest.TestCase):
+    """Regression tests for the v4.7.0 security review findings."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api = _load_api()
+
+    def test_integration_down_reaches_inbox(self):
+        # Finding 1 (HIGH): integration_down must get a non-None severity, or it
+        # fires a webhook but never lands in the Alerts inbox.
+        self.assertEqual(self.api._alert_severity('integration_down', {'severity': 'high'}), 'high')
+        self.assertEqual(self.api._alert_severity('integration_down', {'severity': 'medium'}), 'medium')
+        self.assertEqual(self.api._alert_severity('integration_down', {}), 'medium')      # default
+        self.assertIsNotNone(self.api._alert_severity('integration_down', {'severity': 'x'}))
+
+    def test_integration_down_title_has_label(self):
+        t = self.api._alert_title('integration_down', {'label': 'TrueNAS', 'detail': 'pool DEGRADED'})
+        self.assertIn('TrueNAS', t)
+        self.assertNotIn('integration_down', t)   # not the bare event name
+
+    def test_no_ctrl_strips_crlf(self):
+        # Finding 5: credential fields are stripped of control chars before they
+        # reach an HTTP header.
+        self.assertEqual(self.api._no_ctrl('tok\r\nX-Evil: 1'), 'tokX-Evil: 1')
+        self.assertEqual(self.api._no_ctrl('a\x00b\x1fc\x7fd'), 'abcd')
+
+    def test_poll_budget_constants(self):
+        # Finding 2: a per-cycle wall-clock budget + bounded per-call timeout exist.
+        self.assertLessEqual(self.api._INTEGRATIONS_POLL_BUDGET_S, 30)
+        self.assertLessEqual(self.api._INTEGRATION_HTTP_TIMEOUT_S, 10)
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn('time.monotonic() > budget', src)
+
+    def test_persist_keeps_configured_but_unpolled(self):
+        # Finding 6: an integration that exists in config but wasn't polled this
+        # cycle keeps its history (don't purge based on the polled batch).
+        api = self.api
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['integrations'] = [{'id': 'keep', 'type': 'pihole'}, {'id': 'gone', 'type': 'pihole'}]
+        api.save(api.CONFIG_FILE, cfg)
+        # seed history for both
+        api._persist_integration_results([
+            {'id': 'keep', 'label': 'k', 'type': 'pihole', 'status': 'ok', 'detail': '', 'checked': 1, 'metrics': {}},
+            {'id': 'gone', 'label': 'g', 'type': 'pihole', 'status': 'ok', 'detail': '', 'checked': 1, 'metrics': {}},
+        ])
+        # next cycle polls only 'keep' (budget skipped 'gone') — 'gone' still configured
+        api._persist_integration_results([
+            {'id': 'keep', 'label': 'k', 'type': 'pihole', 'status': 'ok', 'detail': '', 'checked': 2, 'metrics': {}},
+        ])
+        latest = (api.load(api.INTEG_STATE_FILE) or {}).get('latest') or {}
+        self.assertIn('gone', latest, 'configured-but-unpolled integration was wrongly purged')
+        # remove 'gone' from config → now it should be purged
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['integrations'] = [{'id': 'keep', 'type': 'pihole'}]
+        api.save(api.CONFIG_FILE, cfg)
+        api._persist_integration_results([
+            {'id': 'keep', 'label': 'k', 'type': 'pihole', 'status': 'ok', 'detail': '', 'checked': 3, 'metrics': {}},
+        ])
+        latest = (api.load(api.INTEG_STATE_FILE) or {}).get('latest') or {}
+        self.assertNotIn('gone', latest, 'removed integration should be purged')
+
+    def test_show_homelab_in_payloads(self):
+        # The instance-wide flag round-trips through the integrations list response.
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn("'show_homelab': cfg.get('show_homelab', True) is not False", src)
+        # gated widget exists in the server allowlist
+        self.assertIn('integrations', self.api.DASHBOARD_WIDGETS)
 
 
 if __name__ == '__main__':

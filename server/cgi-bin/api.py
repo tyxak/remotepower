@@ -448,6 +448,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'newports', 'fwchanges', 'sshkeys',
                               # v4.1.0 catalog expansion wave 5 (data-backed):
                               'tls', 'bruteforce', 'bandwidth', 'checksrollup',
+                              # v4.7.0: homelab software integration health rollup
+                              'integrations',
                               # v4.1.0: actionable alerts feed (ack/resolve inline)
                               'alertsfeed',
                               'health', 'heatmap', 'overview', 'roster', 'links',
@@ -4408,6 +4410,12 @@ def _alert_severity(event, payload):
         if score < 70:
             return 'high'
         return 'medium'
+    # v4.7.0: integration health — severity carried in the payload (crit→high,
+    # warn→medium). Without this branch the event fires a webhook but never lands
+    # in the Alerts inbox (the _ALERT_RULES (None,None) → _alert_severity gap).
+    if event == 'integration_down':
+        s = str(p.get('severity', '')).lower()
+        return s if s in ('low', 'medium', 'high', 'critical') else 'medium'
     return None
 
 
@@ -4439,6 +4447,8 @@ def _alert_title(event, payload):
     if event == 'scan_finding':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'Scan findings on {name}: {c} critical, {h} high'
+    if event == 'integration_down':
+        return f'Integration unhealthy: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'drift_detected':
         # File-integrity drift carries the single watched path that changed.
         path = p.get('path') or '?'
@@ -11825,6 +11835,18 @@ def ping_healthchecks_if_due():
 
 INTEGRATION_FIELDS = ('id', 'type', 'label', 'url', 'enabled', 'verify_tls',
                       'username', 'secret', 'slug', 'interval')
+# Per-cycle wall-clock cap for the inline poll loop (security: bound the latency
+# a few slow/hostile targets can add to the request that trips the cadence).
+_INTEGRATIONS_POLL_BUDGET_S = 25
+# Per-request timeout for a single connector HTTP call.
+_INTEGRATION_HTTP_TIMEOUT_S = 8
+
+
+def _no_ctrl(s):
+    """Strip ASCII control chars (incl. CR/LF) from a credential/identifier so it
+    can't attempt HTTP header injection when a connector puts it in a header.
+    The stdlib already rejects CR/LF in header values; this is defence-in-depth."""
+    return ''.join(ch for ch in str(s or '') if ord(ch) >= 0x20 and ord(ch) != 0x7f)
 # Credential fields that must never be echoed back to the UI (a *_set bool is
 # sent instead). 'secret' is also caught by the recursive config scrubber.
 _INTEGRATION_SECRET_FIELDS = ('secret',)
@@ -11893,7 +11915,8 @@ def _get_integrations(cfg=None):
 
 def _integration_client(inst):
     return _SSRFIntegrationClient(inst.get('url', ''),
-                                  verify_tls=bool(inst.get('verify_tls', True)))
+                                  verify_tls=bool(inst.get('verify_tls', True)),
+                                  timeout=_INTEGRATION_HTTP_TIMEOUT_S)
 
 
 def _poll_one_integration(inst):
@@ -11923,7 +11946,17 @@ def run_integrations_if_due():
     # Claim the slot before the (slow) network work so concurrent requests skip.
     cfg['last_integrations_run'] = now
     save(CONFIG_FILE, cfg)
-    results = [_poll_one_integration(i) for i in insts]
+    # This runs INLINE in whichever request tripped the cadence, so cap total
+    # wall-clock: a few slow/black-holed targets must not stall that request for
+    # minutes. Whatever doesn't get polled this cycle is picked up next cycle
+    # (its prior result/history is preserved — _persist keys "live" off the
+    # configured list, not this batch).
+    budget = time.monotonic() + _INTEGRATIONS_POLL_BUDGET_S
+    results = []
+    for i in insts:
+        if time.monotonic() > budget:
+            break
+        results.append(_poll_one_integration(i))
     _persist_integration_results(results)
 
 
@@ -11965,15 +11998,18 @@ def _persist_integration_results(results):
             notified[key] = False
             dirty_cfg = True
 
-    # Drop history/notified for integrations that no longer exist.
-    live = {str(r.get('id') or r.get('label')) for r in results}
-    for stale in [k for k in latest if k not in live]:
+    # Drop history/notified only for integrations no longer CONFIGURED — keying
+    # off `results` would wrongly purge instances that were merely disabled or
+    # skipped by the per-cycle time budget this round.
+    configured = {str(i.get('id') or i.get('label'))
+                  for i in _get_integrations(cfg) if isinstance(i, dict)}
+    for stale in [k for k in latest if k not in configured]:
         latest.pop(stale, None); hist.pop(stale, None)
     state['latest'] = latest
     state['history'] = hist
     save(INTEG_STATE_FILE, state)
     if dirty_cfg:
-        cfg['integration_notified'] = {k: v for k, v in notified.items() if k in live}
+        cfg['integration_notified'] = {k: v for k, v in notified.items() if k in configured}
         save(CONFIG_FILE, cfg)
     for event, payload in pending:
         try:
@@ -12013,7 +12049,8 @@ def handle_integrations_list():
         insts.append(safe)
     respond(200, {'integrations': insts,
                   'catalog': integrations_mod.list_connectors(),
-                  'interval': int(cfg.get('integrations_interval', 300) or 300)})
+                  'interval': int(cfg.get('integrations_interval', 300) or 300),
+                  'show_homelab': cfg.get('show_homelab', True) is not False})
 
 
 def handle_integrations_save():
@@ -12052,20 +12089,22 @@ def handle_integrations_save():
                 'url': url,
                 'enabled': bool(raw.get('enabled')),
                 'verify_tls': bool(raw.get('verify_tls', True)),
-                'username': _sanitize_str(raw.get('username', ''), 255),
-                'slug': _sanitize_str(raw.get('slug', ''), 120),
+                'username': _no_ctrl(_sanitize_str(raw.get('username', ''), 255)),
+                'slug': _no_ctrl(_sanitize_str(raw.get('slug', ''), 120)),
                 'interval': max(60, int(raw.get('interval', 0) or 0)) if raw.get('interval') else 0,
             }
             # Preserve an existing secret when the field comes back blank.
             new_secret = raw.get('secret')
             if new_secret:
-                inst['secret'] = str(new_secret)[:2048]
+                inst['secret'] = _no_ctrl(str(new_secret)[:2048])
             elif iid in old_by_id and old_by_id[iid].get('secret'):
                 inst['secret'] = old_by_id[iid]['secret']
             clean.append(inst)
         cfg['integrations'] = clean
         if 'interval' in body:
             cfg['integrations_interval'] = max(60, int(body.get('interval', 300) or 300))
+        if 'show_homelab' in body:
+            cfg['show_homelab'] = bool(body.get('show_homelab'))
         # Force a re-poll on next request.
         cfg['last_integrations_run'] = 0
     audit_log('integrations_save', f'{len(clean)} integration(s) configured')
@@ -12084,6 +12123,11 @@ def handle_integration_test():
         respond(400, {'error': f'unknown integration type: {typ}'})
     inst = dict(raw)
     inst['type'] = typ
+    # Strip control chars from credential/identifier fields used in headers
+    # (defence-in-depth header-injection guard, same as the save path).
+    for _f in ('username', 'slug', 'secret'):
+        if inst.get(_f):
+            inst[_f] = _no_ctrl(inst[_f])
     if not inst.get('secret') and inst.get('id'):
         for i in _get_integrations():
             if str(i.get('id')) == str(inst['id']) and i.get('secret'):
@@ -25616,6 +25660,18 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             out['checksrollup'] = roll
         except Exception:
             out['checksrollup'] = {}
+    # v4.7.0: homelab software integration health rollup (cheap — one file read).
+    if _g('integrations'):
+        try:
+            latest = (load(INTEG_STATE_FILE) or {}).get('latest') or {}
+            roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0, 'total': len(latest)}
+            for r in latest.values():
+                st = r.get('status', 'unknown')
+                if st in roll:
+                    roll[st] += 1
+            out['integrations'] = roll
+        except Exception:
+            out['integrations'] = {}
     return out
 
 
@@ -25781,6 +25837,9 @@ def handle_home():
         'fleet_events': fleet_events,
         'mailwatch':    mailwatch,
         'links':        links,
+        # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
+        # integration widget in the dashboard.
+        'show_homelab': cfg.get('show_homelab', True) is not False,
         'attention':    _attention_payload(),
         # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
         'upcoming':     _dashboard_upcoming(),
