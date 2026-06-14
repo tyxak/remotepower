@@ -10,6 +10,12 @@ cd remotepower
 sudo bash install-server.sh        # nginx + fcgiwrap + Python deps; prompts for admin credentials
 ```
 
+**Arch Linux (AUR):** `yay -S remotepower-server` installs the code + deps; then
+finish setup as the package prints (enable `fcgiwrap.socket`, drop the sample
+vhost from `/usr/share/doc/remotepower-server/` into `/etc/nginx/conf.d/` with
+your `server_name`/TLS, and `remotepower-passwd` to create the admin). Or use the
+Docker image (below).
+
 The installer asks for an admin username and password, then prints the URL. Open it in a browser and log in.
 
 ### TLS — strongly recommended before enrolling any agent
@@ -67,6 +73,13 @@ sudo bash install-client.sh                                   # Linux
 powershell -ExecutionPolicy Bypass -File client\install-windows.ps1   # Windows
 sudo bash client/install-macos.sh https://your-server 123456  # macOS
 # Paste the server URL and the 6-digit PIN from the dashboard. Done.
+```
+
+**Arch Linux (AUR):** `yay -S remotepower-agent`, then enrol + start:
+
+```bash
+remotepower-agent enroll --server https://your-server --pin 123456
+sudo systemctl enable --now remotepower-agent
 ```
 
 The device shows up in the dashboard within ~60 seconds.
