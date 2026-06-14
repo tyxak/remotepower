@@ -5448,6 +5448,13 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
 .subtitle-hidden { display:none !important; }
+/* Hide the page subtitle by DEFAULT so it never flashes as raw text on reload
+   before JS runs. The industrial UI (the default) folds it into the info icon;
+   pre-JS the <body> has no data-ui attribute yet, so a body-scoped rule would
+   lose the first-paint race. _applyPageSubtitleInfo adds .subtitle-shown to
+   reveal it inline in the old UI. */
+.page-subtitle { display:none; }
+.page-subtitle.subtitle-shown { display:block; }
 .page-info-ic { position:relative; display:inline-flex; align-items:center; vertical-align:middle;
   margin-left:8px; color:var(--muted); cursor:help; }
 .page-info-ic svg { width:16px; height:16px; }

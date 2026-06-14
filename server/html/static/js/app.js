@@ -798,6 +798,11 @@ const _INFO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 function _applyPageSubtitleInfo() {
   const industrial = document.body.dataset.ui === 'industrial';
   document.querySelectorAll('.page-subtitle').forEach(sub => {
+    // Decide visibility FIRST, independent of whether we can find a title to
+    // attach the icon to — a subtitle must never be left as raw flashing text.
+    // CSS hides .page-subtitle by default; .subtitle-shown reveals it inline.
+    if (industrial) { sub.classList.add('subtitle-hidden'); sub.classList.remove('subtitle-shown'); }
+    else { sub.classList.add('subtitle-shown'); sub.classList.remove('subtitle-hidden'); }
     // Find the title this subtitle belongs to, robustly: (1) a preceding sibling
     // .page-title / .page-title-row, else (2) a .page-title in the same parent,
     // else (3) the first .page-title in the closest page container.
@@ -810,14 +815,12 @@ function _applyPageSubtitleInfo() {
     }
     if (!titleEl && sub.parentElement) titleEl = sub.parentElement.querySelector('.page-title');
     if (!titleEl) { const pg = sub.closest('.page'); if (pg) titleEl = pg.querySelector('.page-title'); }
-    if (!titleEl) return;
+    if (!titleEl) return;                 // visibility already handled above
     const existing = titleEl.querySelector(':scope > .page-info-ic');
     if (!industrial) {
-      sub.classList.remove('subtitle-hidden');
       if (existing) existing.remove();
       return;
     }
-    sub.classList.add('subtitle-hidden');
     if (existing) return;                 // already folded
     const ic = document.createElement('span');
     ic.className = 'page-info-ic';
