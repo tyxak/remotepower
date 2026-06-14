@@ -9527,7 +9527,9 @@ async function loadIntegrationsTab() {
 // ── v4.7.0: homelab software integrations ────────────────────────────────────
 let _integrations = [];
 let _integrationCatalog = [];
-const _INTEG_BADGE = { ok: 'badge-ok', warning: 'badge-warn', critical: 'badge-crit', unknown: 'badge-muted' };
+// Map a connector result status to the canonical themed .status-pill variant
+// (adapts to every theme incl. Industrial light/dark; carries a status dot).
+const _INTEG_PILL = { ok: 'ok', warning: 'warn', critical: 'critical', unknown: 'neutral' };
 
 async function loadIntegrations() {
   const data = await api('GET', '/integrations');
@@ -9574,10 +9576,10 @@ function renderIntegrations() {
         </div>`;
     }).join('');
     const st = it.last_status || 'unknown';
-    const badge = `<span class="badge ${_INTEG_BADGE[st] || 'badge-muted'}">${escHtml(st)}</span>`;
+    const badge = `<span class="status-pill ${_INTEG_PILL[st] || 'neutral'}">${escHtml(st)}</span>`;
     const detail = it.last_detail ? `<span class="hint ml-8">${escHtml(it.last_detail)}</span>` : '';
     const note = cat && cat.notes ? `<p class="hint">${escHtml(cat.notes)}</p>` : '';
-    return `<div class="integration-card audit-scroll" data-idx="${idx}">
+    return `<div class="integration-card" data-idx="${idx}">
       <div class="integration-card-head">
         <label class="ff-bold"><input type="checkbox" data-ifield="enabled" ${it.enabled ? 'checked' : ''}> ${escHtml(label)}</label>
         ${badge}${detail}

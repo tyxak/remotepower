@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v4.7.0 — 2026-06-15
+## v4.7.0 — "IntegrationsMatters" — 2026-06-15
 
 A reach-outward release: monitor the popular software your homelab/fleet already
 runs, and run the agent as a container to watch a Docker host. No breaking

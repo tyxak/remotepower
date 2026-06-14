@@ -1382,7 +1382,7 @@
               <span class="hint ml-8">Uncheck on an enterprise instance to hide this section and the <em>Integration health</em> dashboard widget for everyone (reduces noise). Saved with the button below.</span>
             </div>
             <div id="homelab-integrations-body">
-              <div id="integrations-list" class="mb-12"></div>
+              <div id="integrations-list" class="mb-12 scroll-cap"></div>
               <div class="settings-row isl-iadd">
                 <div class="form-group">
                   <label class="form-label">Add integration</label>
@@ -2656,7 +2656,7 @@
 
         <div id="docs-container" class="isl-102">
           <details class="doc-card" open data-keywords="release notes changelog v4.7.0 integrations homelab software pihole adguard truenas unifi home assistant proxmox backup server kubernetes k3s vcenter esxi unraid traefik nginx proxy manager caddy netdata grafana uptime kuma jellyfin plex nextcloud qbittorrent transmission deluge sabnzbd nzbget sonarr radarr prowlarr lidarr servarr bazarr overseerr jellyseerr connector ssrf integration_down widget show homelab containerized agent docker host compose ghcr">
-            <summary><strong>What's new — v4.7.0</strong> — monitor the popular homelab/fleet software you already run (26 integrations), plus run the agent as a container to watch a Docker host (no breaking changes)</summary>
+            <summary><strong>What's new — v4.7.0 "IntegrationsMatters"</strong> — monitor the popular homelab/fleet software you already run (26 integrations), plus run the agent as a container to watch a Docker host (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.7.0 reaches outward: a new server-side <strong>integration subsystem</strong> polls popular self-hosted software for health and folds it into Alerts, and the Linux agent can now run <strong>as a container</strong> to monitor a Docker host with no install. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.7.0</code>).</p>
               <ul>

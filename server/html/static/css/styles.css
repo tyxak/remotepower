@@ -5453,14 +5453,13 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
   background:var(--surface2); color:var(--text); padding:10px 12px;
   border:1px solid var(--border); border-radius:6px; margin-top:8px; }
 /* v4.7.0: homelab software integrations (Settings → Integrations). */
+/* Status is shown with the canonical .status-pill (themed, with a dot). The
+   card flows naturally; the LIST is scroll-capped (.scroll-cap) per the
+   box-overflow rule, like the sibling webhook-destinations list. */
 .integration-card { border:1px solid var(--border); border-radius:8px; padding:12px 14px;
-  margin-bottom:12px; background:var(--surface); max-height:420px; overflow:auto; }
+  margin-bottom:12px; background:var(--surface); }
 .integration-card-head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
 .integration-card .settings-row { gap:14px; flex-wrap:wrap; }
-.badge-ok    { background:rgba(35,160,90,.16);  color:#1f9d57; }
-.badge-warn  { background:rgba(214,158,46,.18); color:#b9851f; }
-.badge-crit  { background:rgba(214,69,69,.16);  color:#d04545; }
-.badge-muted { background:var(--surface2);      color:var(--muted); }
 .ff-bold { font-weight:600; }
 .spacer  { flex:1 1 auto; }
 .mw-100 { max-width:100px; } .mw-220 { max-width:220px; } .mw-260 { max-width:260px; }
