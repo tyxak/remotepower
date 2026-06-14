@@ -33,6 +33,75 @@ LOG_FILE     = '/var/log/remotepower-agent.log'
 VERSION      = '4.6.1'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
+# ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
+# When the agent runs INSIDE a container monitoring its Docker HOST, the host's
+# filesystem is bind-mounted read-only under $HOST_ROOT (e.g. /host) and the host
+# PID/network namespaces are shared (--pid=host --network=host). HOST_ROOT lets
+# every host-fact collector read the HOST's files instead of the slim container's.
+#
+# IMPORTANT: this applies ONLY to host-FACT reads (os-release, /proc, /sys,
+# /etc/passwd, package DBs, …). The agent's OWN files — CONF_DIR
+# (/etc/remotepower, persisted via a volume), the state dir, its log and its
+# binary — must NOT be remapped; they live in the container.
+#
+# Empty HOST_ROOT (the default) makes host_path() the identity function, so a
+# native (non-container) install behaves exactly as before — zero behaviour change.
+HOST_ROOT = os.environ.get('HOST_ROOT', '').rstrip('/')
+# Container mode is implied by HOST_ROOT, or forced with RP_CONTAINER=1 (e.g. a
+# container that genuinely only wants to report itself). Drives the package-DB
+# rooting and the "don't run host scanners that would only see the container" gate.
+IN_CONTAINER = bool(HOST_ROOT) or os.environ.get('RP_CONTAINER', '').lower() in ('1', 'true', 'yes')
+
+
+def host_path(p):
+    """Map an absolute HOST path to where it is actually readable.
+
+    Native (HOST_ROOT unset): identity. Containerized with the host rootfs at
+    HOST_ROOT: '/etc/os-release' -> '<HOST_ROOT>/etc/os-release'. Only absolute
+    paths are rewritten; relative paths and already-prefixed paths pass through.
+    Accepts and returns the same type-ish value (str in, str out; Path in, Path out).
+    """
+    if not HOST_ROOT:
+        return p
+    is_path = isinstance(p, Path)
+    s = os.fspath(p)
+    if not s.startswith('/') or s.startswith(HOST_ROOT + '/') or s == HOST_ROOT:
+        return p
+    mapped = HOST_ROOT + s
+    return Path(mapped) if is_path else mapped
+
+
+def unhost_path(p):
+    """Inverse of host_path() for DISPLAY: strip the HOST_ROOT prefix so paths
+    reported to the server read as the host sees them (/host/etc/x -> /etc/x).
+    Identity when native."""
+    if not HOST_ROOT:
+        return p
+    s = os.fspath(p)
+    if s.startswith(HOST_ROOT + '/'):
+        return s[len(HOST_ROOT):]
+    return s
+
+
+def host_glob(pattern):
+    """glob a HOST path pattern and return DISPLAY paths (HOST_ROOT stripped).
+    Read the results back through _safe_read()/host_path(), which re-apply the
+    prefix. Native: a plain glob."""
+    import glob as _g
+    return [unhost_path(m) for m in _g.glob(host_path(pattern))]
+
+
+# Point psutil at the host's procfs when containerized so process / memory /
+# network stats reflect the HOST. The compose mounts host /proc at $HOST_ROOT/proc
+# explicitly (a `-v /:/host` bind does NOT recurse into the /proc submount).
+# Always set it explicitly (to '/proc' natively) so the path is deterministic and
+# psutil is never left pointing at a stale root from an earlier import.
+try:
+    import psutil as _psutil_cfg
+    _psutil_cfg.PROCFS_PATH = (HOST_ROOT + '/proc') if HOST_ROOT else '/proc'
+except Exception:
+    pass
+
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
 # on every heartbeat so the server can attest the running agent matches the
 # canonical copy it serves (tamper / partial-update / corruption detection).
@@ -433,7 +502,7 @@ def get_os_info():
         return _os_info_cache
     info = platform.system() + ' ' + platform.release()
     try:
-        with open('/etc/os-release') as f:
+        with open(host_path('/etc/os-release')) as f:
             for line in f:
                 if line.startswith('PRETTY_NAME='):
                     info = line.split('=', 1)[1].strip().strip('"')
@@ -449,7 +518,7 @@ def get_mac():
         parts = out.split()
         if 'dev' in parts:
             iface = parts[parts.index('dev') + 1]
-            addr = Path(f'/sys/class/net/{iface}/address')
+            addr = Path(host_path(f'/sys/class/net/{iface}/address'))
             if addr.exists(): return addr.read_text().strip()
     except Exception:
         pass
@@ -650,6 +719,27 @@ def get_patch_info():
             result['third_party'] = tp
     except Exception:
         pass
+    if IN_CONTAINER:
+        # Containerized: detect the HOST's package manager from its DB (not the
+        # agent image's binaries) and try a rooted upgrade simulation. On any
+        # failure upgradable stays None — an honest "unknown", never a false 0
+        # that would read as "fully patched". dnf/pacman upgrade-rooting is
+        # deliberately left unknown for v1 (documented).
+        mgr, _ = _host_pkglist_from_db()
+        if mgr:
+            result['manager'] = mgr
+        if mgr == 'apt' and shutil.which('apt-get'):
+            try:
+                out = subprocess.check_output(
+                    ['apt-get', '-o', f'Dir={HOST_ROOT}',
+                     '-o', f'Dir::State::status={HOST_ROOT}/var/lib/dpkg/status',
+                     '--simulate', '--quiet', 'upgrade'],
+                    text=True, timeout=45, stderr=subprocess.DEVNULL)
+                result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
+                result['upgradable_names'] = _parse_upgradable_names('apt', out)
+            except Exception:
+                pass
+        return result
     if Path('/usr/bin/apt-get').exists():
         result['manager'] = 'apt'
         try:
@@ -858,6 +948,12 @@ def run_host_scan(job):
     {id, status, findings, error}. Read-only; bounded by a wall-clock timeout."""
     sid = job.get('id')
     tool = job.get('tool', 'lynis')
+    if IN_CONTAINER:
+        # lynis introspects the RUNNING system; inside the agent container it
+        # would score the container image, not the Docker host. Refuse honestly
+        # rather than report a misleading hardening score for the host.
+        return {'id': sid, 'status': 'skipped', 'findings': [],
+                'error': 'host posture scan not available from the containerized agent'}
     if tool != 'lynis':
         return {'id': sid, 'status': 'failed', 'findings': [],
                 'error': f'unsupported host tool {tool}'}
@@ -1137,6 +1233,18 @@ def run_oscap_scan(profile, creds):
     never raises."""
     report = {'device_id': creds['device_id'], 'token': creds['token'],
               'ts': int(time.time()), 'profile': profile}
+    if IN_CONTAINER:
+        # OpenSCAP evaluates the running system's config; inside the agent
+        # container it would grade the container image, not the Docker host —
+        # report an honest "not available" instead of a misleading compliance score.
+        report.update(available=False,
+                      reason='compliance scan not available from the containerized agent '
+                             '(it would evaluate the container, not the Docker host)')
+        try:
+            http_post(f"{creds['server_url']}/api/scap/report", report, timeout=30)
+        except Exception as e:
+            log.warning(f'OpenSCAP report submission failed: {e}')
+        return
     try:
         # Ubuntu fast path: usg ships release-correct CIS/STIG content.
         usg = _run_usg_scan(profile)
@@ -1303,7 +1411,7 @@ def get_os_release():
     """Parse /etc/os-release into a dict. Returns {} if unavailable."""
     out = {}
     try:
-        with open('/etc/os-release', 'r', encoding='utf-8') as f:
+        with open(host_path('/etc/os-release'), 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith('#') or '=' not in line:
@@ -1318,11 +1426,88 @@ def get_os_release():
     return out
 
 
+def _host_pkglist_from_db():
+    """Container mode: enumerate the HOST's installed packages by reading its
+    package DB directly under HOST_ROOT. dpkg/pacman DBs are plain text, so this
+    works no matter what (if any) package tooling the slim agent image ships —
+    avoiding the trap where a Debian-based image reports its own packages (or an
+    empty list) instead of the host's. Returns (manager, [pkgs]) or (None, None)
+    when the host's package manager can't be determined."""
+    # Debian / Ubuntu — /var/lib/dpkg/status is RFC822-ish paragraphs.
+    status = Path(host_path('/var/lib/dpkg/status'))
+    if status.exists():
+        pkgs, cur = [], {}
+        try:
+            for line in status.read_text(errors='replace').splitlines():
+                if not line.strip():
+                    if cur.get('Package') and 'installed' in cur.get('Status', ''):
+                        pkgs.append({'name': cur['Package'], 'version': cur.get('Version', ''),
+                                     'arch': cur.get('Architecture', '')})
+                    cur = {}
+                    continue
+                if line[:1] in (' ', '\t'):
+                    continue                      # folded continuation line
+                k, _, v = line.partition(':')
+                if k in ('Package', 'Version', 'Architecture', 'Status'):
+                    cur[k] = v.strip()
+            if cur.get('Package') and 'installed' in cur.get('Status', ''):
+                pkgs.append({'name': cur['Package'], 'version': cur.get('Version', ''),
+                             'arch': cur.get('Architecture', '')})
+        except Exception:
+            pass
+        return 'apt', pkgs
+    # Arch — /var/lib/pacman/local/<pkg>/desc, %FIELD% then value on next line.
+    pac = Path(host_path('/var/lib/pacman/local'))
+    if pac.is_dir():
+        pkgs = []
+        try:
+            for d in sorted(pac.iterdir()):
+                desc = d / 'desc'
+                if not desc.is_file():
+                    continue
+                lines = desc.read_text(errors='replace').splitlines()
+                f = {}
+                for i, ln in enumerate(lines):
+                    if ln.startswith('%') and ln.endswith('%') and i + 1 < len(lines):
+                        f[ln.strip('%')] = lines[i + 1].strip()
+                if f.get('NAME'):
+                    pkgs.append({'name': f['NAME'], 'version': f.get('VERSION', ''),
+                                 'arch': f.get('ARCH', '')})
+        except Exception:
+            pass
+        return 'pacman', pkgs
+    # RHEL / Fedora — the rpmdb is a binary store, so we still need the rpm tool,
+    # run rooted at the host. If the image lacks rpm we return an HONEST empty
+    # list tagged 'dnf' (never a false "0 packages / fully patched").
+    if Path(host_path('/var/lib/rpm')).exists() or Path(host_path('/usr/lib/sysimage/rpm')).exists():
+        if shutil.which('rpm'):
+            try:
+                out = subprocess.check_output(
+                    ['rpm', '--root', HOST_ROOT, '-qa', '--qf',
+                     '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n'],
+                    text=True, timeout=30, stderr=subprocess.DEVNULL)
+                pkgs = []
+                for line in out.splitlines():
+                    parts = line.split('\t')
+                    if len(parts) >= 3 and parts[0] and parts[1]:
+                        pkgs.append({'name': parts[0].strip(), 'version': parts[1].strip(),
+                                     'arch': parts[2].strip()})
+                return 'dnf', pkgs
+            except Exception:
+                return 'dnf', []
+        return 'dnf', []
+    return None, None
+
+
 def get_package_list():
     """
     Enumerate all installed packages via the system package manager.
     Returns (pkg_manager, [{name, version, arch}, ...]).
     """
+    if IN_CONTAINER:
+        mgr, pkgs = _host_pkglist_from_db()
+        if mgr is not None:
+            return mgr, pkgs
     if Path('/usr/bin/dpkg-query').exists():
         try:
             out = subprocess.check_output(
@@ -2409,7 +2594,7 @@ def collect_apt_history(state_file):
     Tracks file position in state_file so only new lines are sent.
     Submitted as virtual unit 'apt.history'.
     """
-    apt_log = Path('/var/log/apt/history.log')
+    apt_log = Path(host_path('/var/log/apt/history.log'))
     entries = []
     try:
         if not apt_log.exists():
@@ -2999,10 +3184,10 @@ def get_host_health():
 
     # ── reboot-required (Debian/Ubuntu convention) ───────────────────
     try:
-        rr = Path('/run/reboot-required')
-        if rr.exists() or Path('/var/run/reboot-required').exists():
+        rr = Path(host_path('/run/reboot-required'))
+        if rr.exists() or Path(host_path('/var/run/reboot-required')).exists():
             out['reboot_required'] = True
-            pkgs = Path('/run/reboot-required.pkgs')
+            pkgs = Path(host_path('/run/reboot-required.pkgs'))
             if pkgs.exists():
                 names = sorted(set(pkgs.read_text().split()))
                 out['reboot_reason'] = ', '.join(names[:10])
@@ -3133,7 +3318,7 @@ def get_host_health():
 
     # ── last boot time ───────────────────────────────────────────────
     try:
-        with open('/proc/uptime') as fh:
+        with open(host_path('/proc/uptime')) as fh:
             up = float(fh.read().split()[0])
         out['last_boot'] = int(time.time() - up)
     except Exception:
@@ -3176,7 +3361,7 @@ def get_host_health():
     except Exception:
         pass
     try:
-        mdstat = Path('/proc/mdstat')
+        mdstat = Path(host_path('/proc/mdstat'))
         if mdstat.exists():
             cur = None
             for ln in mdstat.read_text().splitlines():
@@ -3378,7 +3563,7 @@ def _list_block_devices():
     except Exception:
         pass
     try:
-        for name in sorted(os.listdir('/sys/block')):
+        for name in sorted(os.listdir(host_path('/sys/block'))):
             if name.startswith(('loop', 'ram', 'sr', 'fd', 'dm-', 'md')):
                 continue
             devs.append('/dev/' + name)
@@ -3691,13 +3876,13 @@ def get_cert_files():
     seen = set()
     out = []
     for pat in patterns:
-        for path in _glob.glob(pat):
-            rp = os.path.realpath(path)
+        for path in host_glob(pat):
+            rp = os.path.realpath(host_path(path))
             if rp in seen:
                 continue
             seen.add(rp)
             try:
-                r = subprocess.run([openssl, 'x509', '-in', path, '-noout',
+                r = subprocess.run([openssl, 'x509', '-in', host_path(path), '-noout',
                                     '-enddate', '-subject', '-issuer'],
                                    capture_output=True, text=True, timeout=5)
             except Exception:
@@ -3822,7 +4007,7 @@ def get_network_gateway():
     not an outage). Best-effort, Linux-only."""
     gw = None
     try:
-        with open('/proc/net/route') as f:
+        with open(host_path('/proc/net/route')) as f:
             for line in f.read().splitlines()[1:]:
                 fields = line.split()
                 if len(fields) >= 3 and fields[1] == '00000000' and fields[2] != '00000000':
@@ -4145,7 +4330,7 @@ def get_hardware_inventory():
     # ── RAID arrays (mdadm software RAID; storcli hardware RAID) ──────
     raid = []
     try:
-        mdstat = Path('/proc/mdstat')
+        mdstat = Path(host_path('/proc/mdstat'))
         if mdstat.exists():
             txt = mdstat.read_text()
             for ln in txt.splitlines():
@@ -4331,7 +4516,7 @@ def get_metrics():
     # v4.1.0: open file descriptors vs the system max (/proc/sys/fs/file-nr:
     # "allocated  unused  max"). Exhaustion → "too many open files" outages.
     try:
-        with open('/proc/sys/fs/file-nr') as _f:
+        with open(host_path('/proc/sys/fs/file-nr')) as _f:
             _alloc, _unused, _fmax = (int(x) for x in _f.read().split()[:3])
         if _fmax > 0:
             out['fd_percent'] = round(_alloc / _fmax * 100, 1)
@@ -4340,9 +4525,9 @@ def get_metrics():
     # v4.1.0: netfilter conntrack table fullness. A full table silently drops
     # new connections — a classic hard-to-diagnose firewall/NAT outage.
     try:
-        with open('/proc/sys/net/netfilter/nf_conntrack_count') as _f:
+        with open(host_path('/proc/sys/net/netfilter/nf_conntrack_count')) as _f:
             _ccount = int(_f.read().strip())
-        with open('/proc/sys/net/netfilter/nf_conntrack_max') as _f:
+        with open(host_path('/proc/sys/net/netfilter/nf_conntrack_max')) as _f:
             _cmax = int(_f.read().strip())
         if _cmax > 0:
             out['conntrack_percent'] = round(_ccount / _cmax * 100, 1)
@@ -4564,6 +4749,13 @@ def check_for_update(server_url, force=False):
     # This applies to force=True too: a forced re-deploy mid-scan kills the scan
     # exactly like a normal update would. The caller (heartbeat) re-tries a
     # deferred force upgrade locally so the one-shot server flag isn't lost.
+    if IN_CONTAINER:
+        # In a container the binary is baked into an immutable image; replacing
+        # it in-place would be lost on the next restart and can break the running
+        # container. Upgrades happen by pulling a newer image tag, so never
+        # self-update here.
+        log.debug("Containerized agent — skipping self-update (upgrade via image tag)")
+        return False
     if _oscap_running.locked():
         log.info("Deferring agent self-update — an OpenSCAP scan is in progress")
         return False
@@ -6702,8 +6894,10 @@ def _safe_run(cmd, timeout=10):
         return -1, f'<error: {e}>'
 
 def _safe_read(path, max_bytes=200_000):
+    # host_path() is the identity when running natively; in a container it
+    # redirects host-fact reads (/proc, /etc, …) to the bind-mounted host rootfs.
     try:
-        with open(path, 'r', errors='replace') as f:
+        with open(host_path(path), 'r', errors='replace') as f:
             return f.read(max_bytes)
     except Exception:
         return ''
@@ -6808,7 +7002,7 @@ def iac_collect_ssh_keys():
             except ValueError:
                 pass
     for username, home in homes:
-        ak = Path(home) / '.ssh' / 'authorized_keys'
+        ak = Path(host_path(home)) / '.ssh' / 'authorized_keys'
         if ak.exists():
             try:
                 content = ak.read_text(errors='replace')
@@ -6833,12 +7027,12 @@ def iac_collect_network():
     # /etc/netplan or /etc/network/interfaces
     cfg_files = {}
     for path in ('/etc/network/interfaces',):
-        if Path(path).exists():
+        if Path(host_path(path)).exists():
             cfg_files[path] = _safe_read(path, 20_000)
-    netplan_dir = Path('/etc/netplan')
+    netplan_dir = Path(host_path('/etc/netplan'))
     if netplan_dir.is_dir():
         for f in netplan_dir.glob('*.yaml'):
-            cfg_files[str(f)] = _safe_read(str(f), 20_000)
+            cfg_files[unhost_path(str(f))] = _safe_read(str(f), 20_000)
     return {'addresses': addrs, 'routes': routes, 'config_files': cfg_files}
 
 
@@ -6880,20 +7074,20 @@ def iac_collect_repos():
     """Category 10: custom apt/dnf repos."""
     repos = {}
     # apt
-    apt_dir = Path('/etc/apt/sources.list.d')
-    apt_main = Path('/etc/apt/sources.list')
+    apt_dir = Path(host_path('/etc/apt/sources.list.d'))
+    apt_main = Path(host_path('/etc/apt/sources.list'))
     if apt_main.exists():
-        repos['/etc/apt/sources.list'] = _safe_read(str(apt_main), 50_000)
+        repos['/etc/apt/sources.list'] = _safe_read('/etc/apt/sources.list', 50_000)
     if apt_dir.is_dir():
         for f in apt_dir.glob('*.list'):
-            repos[str(f)] = _safe_read(str(f), 50_000)
+            repos[unhost_path(str(f))] = _safe_read(str(f), 50_000)
         for f in apt_dir.glob('*.sources'):
-            repos[str(f)] = _safe_read(str(f), 50_000)
+            repos[unhost_path(str(f))] = _safe_read(str(f), 50_000)
     # dnf/yum
-    yum_dir = Path('/etc/yum.repos.d')
+    yum_dir = Path(host_path('/etc/yum.repos.d'))
     if yum_dir.is_dir():
         for f in yum_dir.glob('*.repo'):
-            repos[str(f)] = _safe_read(str(f), 50_000)
+            repos[unhost_path(str(f))] = _safe_read(str(f), 50_000)
     return {'repos': repos}
 
 
@@ -6919,14 +7113,14 @@ def iac_collect_cron():
     """Category 12: cron jobs across the system."""
     crons = {}
     # system crontab
-    if Path('/etc/crontab').exists():
+    if Path(host_path('/etc/crontab')).exists():
         crons['/etc/crontab'] = _safe_read('/etc/crontab', 50_000)
     # /etc/cron.d
-    cron_d = Path('/etc/cron.d')
+    cron_d = Path(host_path('/etc/cron.d'))
     if cron_d.is_dir():
         for f in cron_d.iterdir():
             if f.is_file():
-                crons[str(f)] = _safe_read(str(f), 50_000)
+                crons[unhost_path(str(f))] = _safe_read(str(f), 50_000)
     # user crontabs (root + uid≥1000)
     user_crons = {}
     rc, root_c = _safe_run(['crontab', '-u', 'root', '-l'])
@@ -6948,25 +7142,25 @@ def iac_collect_tls():
     paths = []
     for d in ('/etc/ssl/certs', '/etc/ssl/private', '/etc/letsencrypt/live',
               '/etc/pki/tls/certs', '/etc/nginx/ssl', '/etc/apache2/ssl'):
-        p = Path(d)
+        p = Path(host_path(d))
         if p.is_dir():
             for f in p.rglob('*'):
                 if f.is_file() and f.suffix in ('.crt', '.pem', '.cert', '.key'):
-                    paths.append(str(f))
+                    paths.append(unhost_path(str(f)))
     return {'tls_cert_paths': sorted(set(paths))[:200]}
 
 
 def iac_collect_env():
     """Category 14: /etc/environment + /etc/profile.d snippets."""
     out = {}
-    if Path('/etc/environment').exists():
+    if Path(host_path('/etc/environment')).exists():
         out['/etc/environment'] = _safe_read('/etc/environment', 10_000)
-    pd = Path('/etc/profile.d')
+    pd = Path(host_path('/etc/profile.d'))
     if pd.is_dir():
         for f in pd.glob('*.sh'):
             content = _safe_read(str(f), 10_000)
             if content.strip():
-                out[str(f)] = content
+                out[unhost_path(str(f))] = content
     return {'environment_files': out}
 
 
@@ -6987,13 +7181,13 @@ def iac_collect_kmod():
     """Category 16: persistent kernel modules (modules-load.d, modprobe.d)."""
     out = {}
     for d in ('/etc/modules-load.d', '/etc/modprobe.d', '/usr/lib/modules-load.d'):
-        p = Path(d)
+        p = Path(host_path(d))
         if p.is_dir():
             for f in p.glob('*.conf'):
                 content = _safe_read(str(f), 20_000)
                 if content.strip():
-                    out[str(f)] = content
-    if Path('/etc/modules').exists():
+                    out[unhost_path(str(f))] = content
+    if Path(host_path('/etc/modules')).exists():
         out['/etc/modules'] = _safe_read('/etc/modules', 10_000)
     return {'kernel_module_config': out}
 
@@ -7001,15 +7195,15 @@ def iac_collect_kmod():
 def iac_collect_sysctl():
     """Category 17: non-default sysctl parameters from /etc/sysctl.d/* and /etc/sysctl.conf."""
     out = {}
-    if Path('/etc/sysctl.conf').exists():
+    if Path(host_path('/etc/sysctl.conf')).exists():
         out['/etc/sysctl.conf'] = _safe_read('/etc/sysctl.conf', 50_000)
     for d in ('/etc/sysctl.d', '/usr/lib/sysctl.d', '/run/sysctl.d'):
-        p = Path(d)
+        p = Path(host_path(d))
         if p.is_dir():
             for f in p.glob('*.conf'):
                 content = _safe_read(str(f), 50_000)
                 if content.strip():
-                    out[str(f)] = content
+                    out[unhost_path(str(f))] = content
     return {'sysctl_files': out}
 
 

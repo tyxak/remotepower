@@ -1,0 +1,50 @@
+# RemotePower agent — containerized host monitor (v4.7.0).
+#
+# Runs the standard Linux agent inside a container to monitor its DOCKER HOST and
+# report to a RemotePower server. The host rootfs is bind-mounted read-only at
+# $HOST_ROOT (default /host) and the host PID/network namespaces are shared, so
+# the agent reads the HOST's facts — not this slim image's. See docs/docker-agent.md.
+#
+# This is a DIFFERENT image from the server (ghcr.io/tyxak/remotepower); it is
+# published as ghcr.io/tyxak/remotepower-agent.
+FROM python:3.12-slim
+
+# Injected by the release workflow (--build-arg VERSION=<tag>); "dev" for local builds.
+ARG VERSION=dev
+
+LABEL maintainer="tyxak"
+LABEL description="RemotePower agent - containerized Docker-host monitor"
+LABEL version="${VERSION}"
+LABEL org.opencontainers.image.source="https://github.com/tyxak/remotepower"
+
+# Runtime tools the collectors shell out to. The base is Debian, so apt-get /
+# dpkg-query are already present for the host-rooted package check. We add:
+#   iproute2      → ip / ss (interfaces, routes, listening ports)
+#   procps        → process helpers
+#   util-linux    → lsblk and friends
+#   smartmontools → smartctl (SMART; needs the optional "full" device profile)
+#   iputils-ping  → gateway reachability (needs CAP_NET_RAW)
+#   openssl       → TLS cert inventory + CA-fingerprint verification at enroll
+#   curl          → fetch the CA over HTTP during fingerprint-pinned enrollment
+#   ca-certificates → trust store for the server's real TLS cert
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates iproute2 procps util-linux smartmontools \
+        iputils-ping openssl curl && \
+    pip install --no-cache-dir psutil && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# The agent binary lives where it expects (AGENT_BINARY=/usr/local/bin/remotepower-agent,
+# used for its self-sha attestation). Credentials persist in /etc/remotepower,
+# which the operator mounts as a named volume so enrollment survives restarts.
+COPY client/remotepower-agent /usr/local/bin/remotepower-agent
+COPY docker/agent-entrypoint.sh /entrypoint.sh
+RUN chmod 755 /usr/local/bin/remotepower-agent /entrypoint.sh && \
+    mkdir -p /etc/remotepower
+
+# Monitor its own host by default; the compose mounts the host rootfs here.
+ENV HOST_ROOT=/host
+
+VOLUME ["/etc/remotepower"]
+
+ENTRYPOINT ["/entrypoint.sh"]

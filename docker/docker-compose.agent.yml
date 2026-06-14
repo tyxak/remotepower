@@ -1,0 +1,66 @@
+# RemotePower containerized agent — monitor a Docker host.
+#
+# Bind a host in two steps:
+#   1. In the RemotePower UI: Add device → Docker → copy the generated token.
+#   2. On the host: set the two values below and `docker compose up -d`.
+#
+# The agent enrolls on first boot (named after this host), persists its
+# credentials to the rp-agent-creds volume, and reports to the server. Upgrade by
+# pulling a newer image tag — the agent never self-updates inside a container.
+#
+# Standard-caps profile (default): no --privileged. Covers resources, listening
+# ports, processes, host package inventory + CVEs, disk/RAID, accounts, SSH keys,
+# firewall, config/drift inventory and container inventory. See docs/docker-agent.md
+# for what needs the optional "full" profile (SMART/DMI) and the v1 limitations
+# (systemd units/journal, host compliance scans).
+services:
+  remotepower-agent:
+    image: ghcr.io/tyxak/remotepower-agent:latest
+    container_name: remotepower-agent
+    restart: unless-stopped
+
+    # Share the host's process + network namespaces so the agent sees the host's
+    # processes, listening ports, connections and routes (not the container's).
+    pid: host
+    network_mode: host
+
+    # Targeted capabilities instead of --privileged:
+    #   NET_RAW         → ping (gateway reachability check)
+    #   NET_ADMIN       → read nftables/iptables firewall state
+    #   DAC_READ_SEARCH → read root-only host files (/etc/shadow account audit)
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN, DAC_READ_SEARCH]
+    security_opt:
+      - no-new-privileges:true
+
+    environment:
+      # ── REQUIRED on first boot ──────────────────────────────────────────────
+      RP_SERVER: "https://remote.example.com"   # your RemotePower server URL
+      RP_ENROLL_TOKEN: "PASTE_TOKEN_FROM_UI"    # Add device → Docker → copy token
+      # ── OPTIONAL ────────────────────────────────────────────────────────────
+      # RP_DEVICE_NAME: "edge-01"               # default: this host's hostname
+      # RP_CA_FINGERPRINT: "AA:BB:CC:…"         # pin a self-signed server's CA
+      # RP_INTERVAL: "60"                        # heartbeat seconds (default 60)
+      HOST_ROOT: /host
+
+    volumes:
+      # Host rootfs (read-only) — gives the agent /host/etc, /host/var, /host/usr…
+      - /:/host:ro
+      # /proc and /sys are separate mounts that a `/:/host` bind does NOT include,
+      # so mount them explicitly for process/memory/network/block-device facts.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      # Container inventory (Docker/Podman) — read-only socket.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Enrollment credentials persist here across restarts/upgrades.
+      - rp-agent-creds:/etc/remotepower
+
+    # ── Optional "full" profile — UNCOMMENT for SMART disk health + DMI/firmware.
+    # These need raw device access, which is a much broader grant than the
+    # standard caps above. Only enable if you want hardware-health telemetry.
+    # devices:
+    #   - /dev:/dev
+    # cap_add: [NET_RAW, NET_ADMIN, DAC_READ_SEARCH, SYS_RAWIO, SYS_ADMIN]
+
+volumes:
+  rp-agent-creds:

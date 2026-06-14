@@ -5445,6 +5445,14 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .ui-opt-name { font-size:14px; font-weight:600; }
 .ui-opt-desc { font-size:11px; color:var(--muted); }
 
+/* v4.7.0: Docker-host enrollment block inside the Enroll modal. */
+.enroll-or { text-align:center; color:var(--muted); font-size:12px;
+  margin:18px 0 10px; text-transform:uppercase; letter-spacing:0.04em; }
+.enroll-docker { text-align:left; }
+.enroll-docker-pre { max-height:280px; overflow:auto; white-space:pre;
+  background:var(--surface2); color:var(--text); padding:10px 12px;
+  border:1px solid var(--border); border-radius:6px; margin-top:8px; }
+
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
 .subtitle-hidden { display:none !important; }

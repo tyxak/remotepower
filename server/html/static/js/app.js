@@ -1995,6 +1995,73 @@ function openDetail(id, name) {
   openDeviceDrawer(id, name, 'audit');
 }function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 async function generateNewPin() { document.getElementById('pin-code').textContent = '……'; try { const data = await api('POST', '/enroll/pin'); document.getElementById('pin-code').textContent = data.pin; startPinCountdown(600); } catch(e) { document.getElementById('pin-code').textContent = 'ERROR'; } }
+// v4.7.0: one-click Docker-host enrollment. Mints a one-time enrollment token
+// and renders a ready-to-run compose file with this server's URL + the token
+// pre-filled. Built with createElement/textContent (never innerHTML string
+// interpolation) so the token can't break out — CSP-safe by construction.
+async function generateDockerEnroll() {
+  const box = document.getElementById('enroll-docker-result');
+  if (!box) return;
+  box.textContent = '';
+  const minting = document.createElement('div');
+  minting.className = 'c-muted'; minting.textContent = 'Minting one-time token…';
+  box.appendChild(minting);
+  let data;
+  try {
+    data = await api('POST', '/enrollment-tokens', { label: 'docker-host', expires_in: 86400 });
+  } catch (e) {
+    box.textContent = '';
+    toast('Could not mint enrollment token (admin only)', 'error');
+    return;
+  }
+  const token = (data && data.token) || '';
+  const server = window.location.origin;
+  const compose =
+`services:
+  remotepower-agent:
+    image: ghcr.io/tyxak/remotepower-agent:latest
+    container_name: remotepower-agent
+    restart: unless-stopped
+    pid: host
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_RAW, NET_ADMIN, DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      RP_SERVER: "${server}"
+      RP_ENROLL_TOKEN: "${token}"
+      HOST_ROOT: /host
+    volumes:
+      - /:/host:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - rp-agent-creds:/etc/remotepower
+volumes:
+  rp-agent-creds:`;
+  box.textContent = '';
+  const hint = document.createElement('div');
+  hint.className = 'hint mb-6';
+  hint.textContent = 'Save as docker-compose.yml on the host, then: docker compose up -d — the token is one-time and expires in 24h.';
+  const pre = document.createElement('pre');
+  pre.id = 'enroll-docker-pre';
+  pre.className = 'ff-mono fs-12 enroll-docker-pre';
+  pre.textContent = compose;
+  pre.dataset.rawText = compose;
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn-secondary mt-12';
+  copyBtn.textContent = 'Copy compose';
+  copyBtn.dataset.action = 'copyDockerEnroll';
+  box.appendChild(hint);
+  box.appendChild(pre);
+  box.appendChild(copyBtn);
+}
+function copyDockerEnroll() {
+  const pre = document.getElementById('enroll-docker-pre');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.dataset.rawText || pre.textContent || '');
+  toast('Compose copied to clipboard', 'success');
+}
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
 function updatePinDisplay() { const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0'); const s = (pinSeconds % 60).toString().padStart(2, '0'); document.getElementById('pin-countdown').textContent = `${m}:${s}`; }
 let monitorTargets = [];

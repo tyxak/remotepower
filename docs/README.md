@@ -92,6 +92,8 @@ Older release notes (v4.3.0 and earlier) live in
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run
  linting, batch execution.
 - **[compose.md](compose.md)** — docker compose dropdown on device cards.
+- **[docker-agent.md](docker-agent.md)** — run the agent as a container to
+ monitor a Docker host (no host install; one-click compose from the UI).
 - **[containers.md](containers.md)** — Docker / Podman / Kubernetes pod
  listings.
 - **[network-map.md](network-map.md)** — Manual topology graph from

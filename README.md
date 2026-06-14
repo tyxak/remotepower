@@ -132,6 +132,12 @@ sudo bash install-client.sh
 
 Shows up in the dashboard within ~60 seconds.
 
+Running a **Docker host** and don't want to install on the OS? Use the
+containerized agent instead — in the UI, *Enroll device → Generate Docker
+compose*, then `docker compose up -d` on the host. It monitors the host (shared
+PID/network namespaces, host rootfs mounted read-only) with standard
+capabilities, no `--privileged`. See **[docs/docker-agent.md](docs/docker-agent.md)**.
+
 Browser SSH terminal is one more command: `sudo bash packaging/install-webterm.sh`.
 
 For longer install paths (Docker, demo vhost, Windows client, Ansible-driven
