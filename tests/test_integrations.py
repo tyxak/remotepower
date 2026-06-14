@@ -321,6 +321,17 @@ class TestSecurityFixes(unittest.TestCase):
         latest = (api.load(api.INTEG_STATE_FILE) or {}).get('latest') or {}
         self.assertNotIn('gone', latest, 'removed integration should be purged')
 
+    def test_url_gated_behind_admin(self):
+        # The raw url (which could embed creds) is admin-only; viewers get url_set.
+        inst = {'id': 'x', 'type': 'pihole', 'url': 'https://user:pass@pi.lan', 'secret': 's'}
+        adm = self.api._redact_integration(inst, admin=True)
+        self.assertEqual(adm['url'], 'https://user:pass@pi.lan')
+        self.assertNotIn('secret', adm)
+        viewer = self.api._redact_integration(inst, admin=False)
+        self.assertNotIn('url', viewer)
+        self.assertTrue(viewer['url_set'])
+        self.assertNotIn('secret', viewer)
+
     def test_show_homelab_in_payloads(self):
         # The instance-wide flag round-trips through the integrations list response.
         src = (_CGI / 'api.py').read_text()

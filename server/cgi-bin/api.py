@@ -12018,18 +12018,27 @@ def _persist_integration_results(results):
             pass
 
 
-def _redact_integration(inst):
-    """A UI-safe copy of an instance: secrets replaced with a *_set boolean."""
+def _redact_integration(inst, admin=True):
+    """A UI-safe copy of an instance: secrets replaced with a *_set boolean.
+
+    The raw `url` is ADMIN-ONLY: an operator could embed credentials in it
+    (https://user:pass@host), so a viewer/mcp gets only a `url_set` flag — the
+    `label` already identifies the target for status purposes."""
     safe = {k: inst.get(k) for k in INTEGRATION_FIELDS if k in inst}
     for f in _INTEGRATION_SECRET_FIELDS:
         safe.pop(f, None)
         safe[f + '_set'] = bool(inst.get(f))
+    if not admin:
+        safe['url_set'] = bool(inst.get('url'))
+        safe.pop('url', None)
     return safe
 
 
 def handle_integrations_list():
     """GET /api/integrations — instances (redacted) + the connector catalog."""
     require_auth()
+    _il_user, _il_role = verify_token(get_token_from_request())
+    _il_admin = bool(_resolve_role(_il_role).get('admin'))
     cfg = load(CONFIG_FILE)
     state = load(INTEG_STATE_FILE) or {}
     latest = state.get('latest') or {}
@@ -12037,7 +12046,7 @@ def handle_integrations_list():
     for i in _get_integrations(cfg):
         if not isinstance(i, dict):
             continue
-        safe = _redact_integration(i)
+        safe = _redact_integration(i, admin=_il_admin)
         key = str(i.get('id') or i.get('label'))
         r = latest.get(key)
         if r:
