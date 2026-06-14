@@ -39,6 +39,13 @@ ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/remotepower
+# The agentless ICMP reachability sweep shells out to `ping`, which needs
+# CAP_NET_RAW for its ICMP socket. NoNewPrivileges (above) blocks ping's
+# setuid / file-capability elevation, so grant the capability AMBIENTLY here:
+# ambient caps are inherited across exec, so the spawned `ping` gets it without
+# any setuid step. Without this line, ICMP-monitored agentless devices flap
+# offline under the SCGI worker (they work fine under classic fcgiwrap CGI).
+AmbientCapabilities=CAP_NET_RAW
 
 [Install]
 WantedBy=multi-user.target
