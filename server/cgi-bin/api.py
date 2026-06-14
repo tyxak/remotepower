@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.6.1'
+SERVER_VERSION = '4.7.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -11935,6 +11935,11 @@ def _poll_one_integration(inst):
 def run_integrations_if_due():
     """Poll all enabled integrations when the cadence is due. Cheap when not."""
     cfg = load(CONFIG_FILE)
+    # "Show Homelab software" off (enterprise declutter) disables the feature
+    # WHOLESALE — no polling, so no integration_down alerts either, not just a
+    # hidden UI. Turning it back on resumes polling on the next cycle.
+    if cfg.get('show_homelab', True) is False:
+        return
     insts = [i for i in _get_integrations(cfg) if isinstance(i, dict) and i.get('enabled')]
     if not insts:
         return

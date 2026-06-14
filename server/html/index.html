@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.6.1">
+<link rel="stylesheet" href="static/css/styles.css?v=4.7.0">
 
 </head>
 <body>
@@ -2655,7 +2655,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.6.1 patch stability hardening scgi worker cap_net_raw icmp ping offline postgres fork psycopg eof connection pid reconnect redos regex valid tls host denial of service xss upgradable innerhtml coerce subtitle flash fouc reload page info icon">
+          <details class="doc-card" open data-keywords="release notes changelog v4.7.0 integrations homelab software pihole adguard truenas unifi home assistant proxmox backup server kubernetes k3s vcenter esxi unraid traefik nginx proxy manager caddy netdata grafana uptime kuma jellyfin plex nextcloud qbittorrent transmission deluge sabnzbd nzbget sonarr radarr prowlarr lidarr servarr bazarr overseerr jellyseerr connector ssrf integration_down widget show homelab containerized agent docker host compose ghcr">
+            <summary><strong>What's new — v4.7.0</strong> — monitor the popular homelab/fleet software you already run (26 integrations), plus run the agent as a container to watch a Docker host (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.7.0 reaches outward: a new server-side <strong>integration subsystem</strong> polls popular self-hosted software for health and folds it into Alerts, and the Linux agent can now run <strong>as a container</strong> to monitor a Docker host with no install. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.7.0</code>).</p>
+              <ul>
+                <li><strong>26 homelab software integrations.</strong> Pi-hole, AdGuard, TrueNAS, UniFi, Home Assistant, Proxmox Backup Server, Kubernetes/k3s, vCenter/ESXi, Unraid, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, and Overseerr/Jellyseerr. Set them up under <strong>Settings → Integrations</strong>: pick a type, add a URL + token, Test.</li>
+                <li><strong>Health → Alerts + dashboard.</strong> An unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</li>
+                <li><strong>Read-only &amp; SSRF-guarded.</strong> Every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only.</li>
+                <li><strong>Containerized agent.</strong> <em>Enroll device → Generate Docker compose</em>, then <code>docker compose up -d</code> on a Docker host. The agent reads the host's facts (shared namespaces, host rootfs mounted read-only), names itself after the host, and persists credentials in a volume. Multi-arch image at <code>ghcr.io/tyxak/remotepower-agent</code>. Standard caps, no <code>--privileged</code>.</li>
+                <li><strong>Enterprise declutter.</strong> A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling, hides the section, and removes the widget.</li>
+              </ul>
+              <p class="hint">See <code>docs/integrations.md</code> and <code>docs/docker-agent.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.6.1 patch stability hardening scgi worker cap_net_raw icmp ping offline postgres fork psycopg eof connection pid reconnect redos regex valid tls host denial of service xss upgradable innerhtml coerce subtitle flash fouc reload page info icon">
             <summary><strong>What's new — v4.6.1</strong> — a stability + hardening patch on v4.6.0: SCGI-worker fixes (ICMP ping, Postgres fork-safety), a ReDoS and a defence-in-depth XSS fix, and no more subtitle flash on reload (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.6.1 is a small patch on top of v4.6.0. It fixes two issues that only surface under the optional <strong>SCGI prefork worker</strong>, closes a ReDoS and a defence-in-depth XSS finding, and removes a brief UI flash on page reload. No breaking changes, no schema changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.1</code>).</p>
@@ -2712,22 +2726,6 @@
                 <li><strong>Documentation pass.</strong> A sweep across the in-app docs, README, Manual and per-version notes confirmed every shipped feature/function is documented and the headline counts are accurate (65 webhook events, the 66-widget dashboard catalog, 18 MCP tools).</li>
               </ul>
               <p class="hint">A documentation + triage release — every install keeps working exactly as before. See <code>docs/v4.4.1.md</code> and <code>docs/security-review-4.4.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.4.0 fortifymatters security hardening audit pentest wapiti nikto nuclei bandit zap clean privilege escalation admin gate custom role require_admin scope guard mitigation shlex quote drift acme command injection routeros ssrf metrics 500 scrape error lynis tmp symlink privesc windows macos agent https tls 1.2 floor cleartext mitm bind login timestamp last seen clock skew drawer single row heartbeat watched files host config fleet checks cache ttl os release memoize box overflow scroll cap font scale">
-            <summary><strong>What's new — v4.4.0 "FortifyMatters"</strong> — a security-hardening + bind-it-together release: a full server + agent audit (independently pentested clean), a critical admin-gate fix, Windows/macOS agent transport parity, drawer login timestamps + clock-skew, and faster heartbeats (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.4.0 is security-themed: every server handler and all three agents were read end-to-end, and the web surface was independently scanned with <strong>wapiti, nikto, nuclei, bandit and OWASP ZAP</strong> — clean. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.4.0</code>).</p>
-              <ul>
-                <li><strong>Critical admin-gate fix.</strong> The <code>require_admin</code> check blocked the built-in <code>viewer</code> and <code>mcp</code> roles by name — but a <em>custom operator role</em> was neither, so it reached every admin-only endpoint (user / role / API-key / config management and the agent-update signing key). The gate now resolves the role and checks its actual admin flag; built-in viewer/mcp behaviour is unchanged and custom roles are confined to their granted permissions and scope.</li>
-                <li><strong>Tighter authorization &amp; command building.</strong> The mitigation status / AI-analysis routes (which return captured command output) are now device-scope-guarded; the drift file-fetch and ACME issue/renew/revoke command builders use <code>shlex.quote</code>; and the RouterOS REST integration runs the same SSRF pre-flight as the other egress paths (loopback / link-local / cloud-metadata refused, RFC1918 LAN allowed).</li>
-                <li><strong>Agents at transport parity.</strong> The <strong>Windows and macOS agents now enforce HTTPS and a TLS 1.2 floor</strong>, matching the Linux agent — the device token and command output can never travel in cleartext, and an obsolete-TLS downgrade is refused. The on-host lynis posture audit now uses a private temp file (a fixed <code>/tmp</code> path was a local symlink-clobber risk).</li>
-                <li><strong>Metrics that can't be knocked over.</strong> <code>/api/metrics</code> degrades to a minimal valid payload plus a <code>remotepower_scrape_error</code> gauge if a single malformed record would otherwise throw — one bad record no longer 500s the whole Prometheus scrape.</li>
-                <li><strong>Bind it together.</strong> The device drawer's <em>Access — recent logins</em> table gains a <em>Last seen</em> timestamp column (the agent now reports per-login time), and the Clock pill reflects the server's threshold-aware skew verdict — a host that is NTP-synced but drifting reads <em>skewed</em> instead of a plain "synced".</li>
-                <li><strong>Faster heartbeats.</strong> The watched-files and host-config-enforce lookups run on every heartbeat and were doing a full-fleet read; they're now single-row (O(1) on SQLite/PostgreSQL). The 15-second fleet-checks cache now honours its TTL instead of being busted by every heartbeat, so the per-host checks loop no longer re-runs on every poll.</li>
-                <li><strong>Polish.</strong> The remaining variable-length boxes (fleet AI anomaly results, saved links grid, AI-prompt list) are capped and scroll; a few leftover off-scale font sizes were folded back onto the canonical scale; and the installer ships/wires the optional SCGI worker, copies the full static tree, and ends with a TLS-setup reminder.</li>
-              </ul>
-              <p class="hint">A hardening release — every install keeps working exactly as before. See <code>docs/v4.4.0.md</code> and <code>docs/security-review-4.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -6996,19 +6994,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.6.1"></script>
-<script defer src="static/js/app.js?v=4.6.1"></script>
+<script defer src="static/js/i18n.js?v=4.7.0"></script>
+<script defer src="static/js/app.js?v=4.7.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.6.1"></script>
-<script defer src="static/js/app-cmdb.js?v=4.6.1"></script>
-<script defer src="static/js/app-containers.js?v=4.6.1"></script>
-<script defer src="static/js/app-network.js?v=4.6.1"></script>
+<script defer src="static/js/app-calendar.js?v=4.7.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.7.0"></script>
+<script defer src="static/js/app-containers.js?v=4.7.0"></script>
+<script defer src="static/js/app-network.js?v=4.7.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.6.1"></script>
-<script defer src="static/js/app-compliance.js?v=4.6.1"></script>
-<script defer src="static/js/app-integrations.js?v=4.6.1"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.7.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.7.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.7.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.6.1"></script>
+<script defer src="static/js/sw-register.js?v=4.7.0"></script>
 </body>
 </html>

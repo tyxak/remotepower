@@ -3846,6 +3846,9 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "Settings → Integrations can poll the software your homelab already runs — Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more — and raise an alert when one goes unhealthy. Read-only and SSRF-guarded.",
+  "Running a Docker host? Enroll device → Generate Docker compose gives you a ready-to-run container that monitors the host — no install on the OS, named after the host automatically.",
+  "On an enterprise instance that doesn't use homelab software, untick Settings → Integrations → Show Homelab software to hide the whole feature (and stop its polling) in one click.",
   "While a device drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
   "If the dashboard can't reach the server, a banner with a Retry button appears at the bottom — and clears itself the moment a request gets through. No more silently-stale pages.",
   "deploy-server.sh keeps the last 3 deployed versions as snapshots — `sudo bash deploy-server.sh --rollback` restores the newest one if an upgrade misbehaves.",

@@ -2,6 +2,38 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.7.0 — 2026-06-15
+
+A reach-outward release: monitor the popular software your homelab/fleet already
+runs, and run the agent as a container to watch a Docker host. No breaking
+changes. Full notes in [docs/v4.7.0.md](docs/v4.7.0.md).
+
+- **Homelab software integrations (26 connectors).** A new read-only server-side
+  subsystem polls popular self-hosted software for health on a cadence and folds
+  it into the Alerts inbox + dashboard. Connectors: Pi-hole (v6), AdGuard,
+  TrueNAS, Unraid, Kubernetes/k3s, vCenter/ESXi, Proxmox Backup Server, UniFi,
+  Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin,
+  Plex, Home Assistant, Nextcloud, qBittorrent, Transmission, Deluge, SABnzbd,
+  NZBGet, Servarr (one connector for Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, and
+  Overseerr/Jellyseerr. Configure under **Settings → Integrations**.
+- **Health → Alerts + widget.** An unhealthy/unreachable target raises an
+  `integration_down` alert (severity from the result, auto-resolved on recovery)
+  routed through your channels, plus an **Integration health** dashboard widget.
+- **Security.** Every outbound call goes through the SSRF guard (loopback /
+  link-local / cloud-metadata refused, RFC1918 LAN allowed, peer re-validated at
+  connect time, redirects refused); credentials are stored server-side and
+  redacted from every response; the raw URL is admin-only. An independent
+  adversarial review closed all findings.
+- **Show Homelab software.** An instance-wide switch (default on) hides the whole
+  feature — stops polling, hides the section + widget — for enterprise instances.
+- **Containerized agent.** The Linux agent can run as a container that monitors
+  its Docker host with no host install (*Enroll device → Generate Docker
+  compose*). Reads the host's facts (shared PID/network namespaces, host rootfs
+  read-only), names itself after the host, persists credentials in a volume.
+  Published multi-arch at `ghcr.io/tyxak/remotepower-agent`; standard
+  capabilities, no `--privileged` (SMART/DMI and Docker-socket container
+  inventory are opt-in).
+
 ## v4.6.1 — 2026-06-14
 
 A stability-and-hardening patch on top of v4.6.0 "RepellantMatters". It fixes two

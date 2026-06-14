@@ -59,6 +59,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.7.0.md](v4.7.0.md)** — homelab/fleet software integrations (26 read-only
+ connectors → Alerts + dashboard, SSRF-guarded) + a containerized agent that
+ monitors a Docker host with no install. No breaking changes.
 - **[v4.6.1.md](v4.6.1.md)** — a stability + hardening patch on v4.6.0: SCGI-worker
  fixes (CAP_NET_RAW for agentless ICMP ping, Postgres connection fork-safety), a
  ReDoS fix in `_valid_tls_host`, a defence-in-depth XSS coercion, and a subtitle
@@ -72,12 +75,8 @@ The five most recent per-release notes are kept here:
 - **[v4.4.1.md](v4.4.1.md)** — "DocumentationMatters": triage of the open CodeQL
  code-scanning alerts (all false positives), a documentation-coverage pass, and
  two no-behaviour weak-hash annotations. No code-behaviour changes.
-- **[v4.4.0.md](v4.4.0.md)** — "FortifyMatters": a security-hardening + bind
- release — a critical admin-gate fix, an independent pentest pass, Windows/macOS
- agent transport parity, login timestamps + clock-skew in the drawer, and
- single-row heartbeat reads. No breaking changes.
 
-Older release notes (v4.3.0 and earlier) live in
+Older release notes (v4.4.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

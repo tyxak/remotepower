@@ -95,3 +95,13 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 - `GET  /api/integrations/status` — latest poll result + history per instance.
 
 Adjust the poll cadence with the **Poll interval** field (minimum 60 s).
+
+## Hiding the feature (enterprise)
+
+The **Show Homelab software** checkbox (Settings → Integrations, default on) is an
+instance-wide kill switch for enterprise deployments that don't use any of this.
+Unchecking it **disables the feature wholesale** — no polling, so no
+`integration_down` alerts; the configuration section is hidden; and the
+*Integration health* dashboard widget disappears from the grid, the widget
+catalog, and the data the dashboard requests. Re-checking it resumes polling on
+the next cycle.
