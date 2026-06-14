@@ -50,10 +50,17 @@ services:
       # so mount them explicitly for process/memory/network/block-device facts.
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
-      # Container inventory (Docker/Podman) — read-only socket.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       # Enrollment credentials persist here across restarts/upgrades.
       - rp-agent-creds:/etc/remotepower
+      # ── Container inventory (Docker/Podman) — OPT-IN; see the WARNING.
+      #   ⚠ SECURITY: mounting the Docker socket — EVEN `:ro` — grants effective
+      #   ROOT ON THE HOST to anything that can talk to this container. `:ro`
+      #   only makes the socket *file* read-only; the Docker API stays fully
+      #   usable (e.g. create a privileged container bind-mounting host / → escape).
+      #   Docker has no read-only API scope. Enable ONLY if you want container
+      #   inventory and trust this image; better, front it with a scoped proxy
+      #   (e.g. tecnativa/docker-socket-proxy, CONTAINERS=1 and everything else 0).
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
 
     # ── Optional "full" profile — UNCOMMENT for SMART disk health + DMI/firmware.
     # These need raw device access, which is a much broader grant than the

@@ -177,6 +177,21 @@ class TestDockerArtifacts(unittest.TestCase):
         self.assertIn('enroll-token', ep)
         self.assertIn('RP_CA_FINGERPRINT', ep)        # fingerprint pinning path
 
+    def test_enroll_token_via_env_not_argv(self):
+        # Security review: the token must be passed via the env var (not readable
+        # by `ps`), never as a --token argv flag (world-readable under pid: host).
+        ep = (_ROOT / 'docker' / 'agent-entrypoint.sh').read_text()
+        self.assertIn('REMOTEPOWER_ENROLL_TOKEN="$RP_ENROLL_TOKEN"', ep)
+        self.assertNotIn('--token "$RP_ENROLL_TOKEN"', ep)
+
+    def test_docker_socket_is_opt_in(self):
+        # Security review: docker.sock = effective host root, so it must be
+        # commented out (opt-in) in the shipped compose, with a warning.
+        c = (_ROOT / 'docker' / 'docker-compose.agent.yml').read_text()
+        active = '\n'.join(l for l in c.splitlines() if not l.lstrip().startswith('#'))
+        self.assertNotIn('docker.sock', active, 'docker.sock must not be an active mount')
+        self.assertIn('ROOT ON THE HOST', c)          # the warning is present
+
     def test_compose_standard_caps_no_privileged(self):
         c = (_ROOT / 'docker' / 'docker-compose.agent.yml').read_text()
         self.assertIn('remotepower-agent', c)

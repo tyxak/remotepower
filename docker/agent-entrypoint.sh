@@ -64,7 +64,12 @@ else
     [ -f /etc/remotepower/ca.crt ] && export RP_CA_BUNDLE="${RP_CA_BUNDLE:-/etc/remotepower/ca.crt}"
     name=$(host_name)
     log "Enrolling '$name' with $RP_SERVER …"
-    "$AGENT" enroll-token --server "$RP_SERVER" --token "$RP_ENROLL_TOKEN" --name "$name"
+    # SECURITY: pass the token via the env var the agent already reads, NOT as a
+    # --token argv flag. With `pid: host` the container's argv (and thus the
+    # token) is world-readable on the host via /proc/<pid>/cmdline / ps /
+    # `docker top`; a process's environ is only readable by root/same-uid.
+    REMOTEPOWER_ENROLL_TOKEN="$RP_ENROLL_TOKEN" \
+        "$AGENT" enroll-token --server "$RP_SERVER" --name "$name"
 fi
 
 # Self-signed CA also needed by the run loop.

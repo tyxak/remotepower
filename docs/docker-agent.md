@@ -61,7 +61,18 @@ host` and a read-only host rootfs. This covers the large majority of telemetry:
 - Disk usage, RAID/ZFS/Btrfs health, mounts
 - Local accounts, SSH authorized_keys
 - Firewall rules, config/drift inventory (fstab, sysctl, cron, repos, netplan, …)
-- Docker/Podman container inventory (via the mounted socket)
+- Docker/Podman container inventory (**opt-in** — see the Docker-socket warning below)
+
+> ### ⚠ Docker socket = effective host root
+> Container inventory needs the Docker socket, which is **commented out by
+> default**. Mounting `/var/run/docker.sock` — **even with `:ro`** — grants
+> anything that can talk to this container **full control of the Docker daemon**,
+> i.e. **root on the host** (it can create a privileged container that bind-mounts
+> host `/`). `:ro` only makes the socket *file* read-only; the API stays fully
+> usable, and Docker has no read-only API scope. Enable it **only** if you need
+> container inventory and trust this image — and prefer fronting it with a scoped
+> **socket-proxy** (e.g. `tecnativa/docker-socket-proxy` with `CONTAINERS=1` and
+> every other capability `0`) rather than the raw socket.
 
 **Full (opt-in)** — uncomment the `devices: [/dev:/dev]` and the extra
 `SYS_RAWIO`/`SYS_ADMIN` caps in the compose to add **SMART disk health** and

@@ -2035,8 +2035,10 @@ async function generateDockerEnroll() {
       - /:/host:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - rp-agent-creds:/etc/remotepower
+      # Container inventory is OPT-IN: mounting the Docker socket (even :ro)
+      # grants effective root on the host. Uncomment only if you need it.
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
 volumes:
   rp-agent-creds:`;
   box.textContent = '';
