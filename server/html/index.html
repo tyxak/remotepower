@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.6.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.6.1">
 
 </head>
 <body>
@@ -2628,7 +2628,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.6.0 repellantmatters industrial new ui old ui theme design skin graphite steel blue accent corner ticks dashed mono labels look redesign appearance interface tab toggle data-ui csp font ibm plex mono space grotesk inter classic revert admin group alphabetical menu security hardening ssrf bugfix performance bind drawer cpu kernel ram scroll cap">
+          <details class="doc-card" open data-keywords="release notes changelog v4.6.1 patch stability hardening scgi worker cap_net_raw icmp ping offline postgres fork psycopg eof connection pid reconnect redos regex valid tls host denial of service xss upgradable innerhtml coerce subtitle flash fouc reload page info icon">
+            <summary><strong>What's new — v4.6.1</strong> — a stability + hardening patch on v4.6.0: SCGI-worker fixes (ICMP ping, Postgres fork-safety), a ReDoS and a defence-in-depth XSS fix, and no more subtitle flash on reload (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.6.1 is a small patch on top of v4.6.0. It fixes two issues that only surface under the optional <strong>SCGI prefork worker</strong>, closes a ReDoS and a defence-in-depth XSS finding, and removes a brief UI flash on page reload. No breaking changes, no schema changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.1</code>).</p>
+              <ul>
+                <li><strong>SCGI worker: agentless ICMP devices stay online.</strong> The persistent worker runs with <code>NoNewPrivileges</code>, which blocked <code>ping</code>'s capability elevation, so reachability sweeps reported agentless devices down. The unit now grants <code>CAP_NET_RAW</code> ambiently. Classic fcgiwrap/CGI was never affected.</li>
+                <li><strong>SCGI worker: Postgres fork-safety.</strong> A forked worker child inherited the parent's <code>psycopg</code> connection, corrupting the protocol stream (<em>consuming input failed: EOF detected</em>). Each connection is now tagged with its owning PID and transparently reconnected in a child — the same guard the SQLite backend already had.</li>
+                <li><strong>Security: ReDoS in TLS-host validation.</strong> <code>_valid_tls_host</code> used a nested-quantifier regex that backtracked catastrophically on a long letter/hyphen run. It now validates <strong>label by label</strong> in linear time, same accept/reject set.</li>
+                <li><strong>Security: package update count coerced before render.</strong> The per-device update badge coerces the upgradable count to a number (or <code>?</code>) before it reaches <code>innerHTML</code> — a non-numeric value can never become markup. The strict CSP is an independent second barrier.</li>
+                <li><strong>UI: no subtitle flash on reload.</strong> Each page's descriptive subtitle is folded into a hover info icon at runtime; on a hard reload it briefly painted as raw text before the script ran. The subtitle is now hidden by default in CSS and revealed inline only in the Old UI.</li>
+              </ul>
+              <p class="hint">A stability + hardening patch — every install keeps working exactly as before. See <code>docs/v4.6.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.6.0 repellantmatters industrial new ui old ui theme design skin graphite steel blue accent corner ticks dashed mono labels look redesign appearance interface tab toggle data-ui csp font ibm plex mono space grotesk inter classic revert admin group alphabetical menu security hardening ssrf bugfix performance bind drawer cpu kernel ram scroll cap">
             <summary><strong>What's new — v4.6.0 "RepellantMatters"</strong> — a new Industrial interface ("New UI") as the default with a one-click New UI / Old UI toggle, plus a project-wide reliability, security and performance polish pass</summary>
             <div class="doc-body">
               <p>v4.6.0 gives RemotePower a look of its own — an <strong>Industrial</strong> interface that replaces the generic dark-slate template, while keeping our blue accent — and pairs it with a thorough sweep across the whole project: bug fixes, security hardening, performance, and data-binding polish. A toggle lets anyone keep the old look. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.0</code>).</p>
@@ -2687,27 +2701,6 @@
                 <li><strong>Polish.</strong> The remaining variable-length boxes (fleet AI anomaly results, saved links grid, AI-prompt list) are capped and scroll; a few leftover off-scale font sizes were folded back onto the canonical scale; and the installer ships/wires the optional SCGI worker, copies the full static tree, and ends with a TLS-setup reminder.</li>
               </ul>
               <p class="hint">A hardening release — every install keeps working exactly as before. See <code>docs/v4.4.0.md</code> and <code>docs/security-review-4.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.3.0 improvementmatters refinement performance single row device read large fleet audit archive download staleness badge posture link clickable settings loading skeleton guardrail test regression unbound data webhook registry firefox sluggish slow dashboard backdrop filter blur gzip compression scgi worker prefork debounce deep link device url accessibility aria dialog focus ring screen reader rollback deploy backup integrity heartbeat rate floor flood e2e playwright browser smoke i18n translation">
-            <summary><strong>What's new — v4.3.0 "ImprovementMatters"</strong> — a refinement release: faster reads on big fleets, self-observability touches, posture UX, and regression guardrails (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.3.0 sharpens what's already there — no new headline subsystems and no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.3.0</code>).</p>
-              <ul>
-                <li><strong>Faster on bigger fleets.</strong> On the SQLite / PostgreSQL backends, endpoints that need just one device — per-host Checks, per-device CVE detail, the heartbeat's host-config and watched-file lookups, and the firewall / compose / RouterOS / OPNsense device actions — now read <strong>one row</strong> instead of reconstructing the whole fleet. Same data, far less work per request on large fleets. The flat-JSON backend is unchanged.</li>
-                <li><strong>A faster dashboard — especially in Firefox.</strong> The sticky header and modal overlay no longer use <code>backdrop-filter</code> blur (Firefox repainted it every frame), all animations are compositor-only, the 60s refresh skips re-rendering anything whose data didn't change, the device grid renders 60 cards and grows via "Show more", table filters are debounced, and the live log viewer appends new lines instead of rebuilding. Big read-only API responses (<code>/api/home</code>, devices, alerts, checks) are gzipped, and the fleet-checks matrix is served from a short scope-safe server cache.</li>
-                <li><strong>Optional persistent API worker.</strong> For installs that want every click faster: <code>api_worker.py</code> keeps the API imported in memory and forks per request, removing the Python-startup tax classic CGI paid on every request. Opt-in via <code>server/conf/remotepower-api.service</code> + the <code>scgi_pass</code> block in the shipped nginx config; the default fcgiwrap setup keeps working unchanged.</li>
-                <li><strong>Friendlier in the hands.</strong> Device views are deep-linkable (<code>#device/&lt;id&gt;</code> while a drawer is open — paste it into a ticket), a persistent banner with a Retry button appears when the server is unreachable (instead of the page silently going stale), and the accessibility floor came up across the app: modals announce as dialogs, filter boxes carry screen-reader labels, and keyboard users get a visible focus ring everywhere.</li>
-                <li><strong>Safer to operate.</strong> Deploys snapshot the previous version automatically (<code>deploy-server.sh --rollback</code> restores it), the database warns loudly if code is rolled back under a newer schema, the diagnostics bundle includes a storage integrity verdict, and an optional <code>heartbeat_min_interval_s</code> floor stops a misbehaving agent from flooding the server.</li>
-                <li><strong>Tested like it's run.</strong> A new browser smoke suite (<code>make e2e</code>) logs into the real app in headless Chromium and fails on any JS error; agent self-update signature verification now has real cryptographic tests; and new guardrails enforce translated page chrome and the typography scale.</li>
-                <li><strong>Download the archived audit log.</strong> The Audit page (and <code>GET /api/audit-log/archive</code>) now lets you download the gzipped archive of evicted entries, so the full retained history is reachable without shell access.</li>
-                <li><strong>Diagnostics bundle.</strong> A button on <em>Server status</em> (and <code>GET /api/diagnostics</code>) downloads one JSON support bundle — versions, storage backend, fleet counts, recurring-job staleness, audit + hash-chain status, optional-dependency presence — with all secrets scrubbed. One attachment instead of a back-and-forth.</li>
-                <li><strong>Staleness at a glance.</strong> Cadence jobs — monitors, the KEV/EPSS refresh, scheduled reports — show a last-ran timestamp and a staleness badge on the <em>Server status</em> page, so a job that quietly stopped is visible.</li>
-                <li><strong>Clickable posture fixes.</strong> Each warning in the security-posture self-check links straight to the Settings section that fixes it, instead of naming a config key.</li>
-                <li><strong>Consistent loading states.</strong> Tables that used to flash empty or show a bare "Loading…" now use the same skeleton-row treatment as the rest of the app.</li>
-                <li><strong>Regression guardrails.</strong> New CI tests catch two recurring bug-classes at commit: a check reading a sysinfo field the sanitizer never persisted (the <code>proc_names</code> / <code>mailq</code> class), and a webhook event that half-registers (fires but never lands in the inbox).</li>
-              </ul>
-              <p class="hint">A refinement release — every install keeps working exactly as before. See <code>docs/v4.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -6975,19 +6968,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.6.0"></script>
-<script defer src="static/js/app.js?v=4.6.0"></script>
+<script defer src="static/js/i18n.js?v=4.6.1"></script>
+<script defer src="static/js/app.js?v=4.6.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.6.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.6.0"></script>
-<script defer src="static/js/app-containers.js?v=4.6.0"></script>
-<script defer src="static/js/app-network.js?v=4.6.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.6.1"></script>
+<script defer src="static/js/app-cmdb.js?v=4.6.1"></script>
+<script defer src="static/js/app-containers.js?v=4.6.1"></script>
+<script defer src="static/js/app-network.js?v=4.6.1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.6.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.6.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.6.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.6.1"></script>
+<script defer src="static/js/app-compliance.js?v=4.6.1"></script>
+<script defer src="static/js/app-integrations.js?v=4.6.1"></script>
 
-<script defer src="static/js/sw-register.js?v=4.6.0"></script>
+<script defer src="static/js/sw-register.js?v=4.6.1"></script>
 </body>
 </html>

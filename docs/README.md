@@ -59,6 +59,10 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.6.1.md](v4.6.1.md)** — a stability + hardening patch on v4.6.0: SCGI-worker
+ fixes (CAP_NET_RAW for agentless ICMP ping, Postgres connection fork-safety), a
+ ReDoS fix in `_valid_tls_host`, a defence-in-depth XSS coercion, and a subtitle
+ reload-flash fix. No breaking changes.
 - **[v4.6.0.md](v4.6.0.md)** — "RepellantMatters": a visual-identity release — the
  new Industrial "New UI" (graphite/steel + blue accent) as default, with a
  CSP-safe New UI / Old UI toggle. No markup/nav/functional changes.
@@ -72,11 +76,8 @@ The five most recent per-release notes are kept here:
  release — a critical admin-gate fix, an independent pentest pass, Windows/macOS
  agent transport parity, login timestamps + clock-skew in the drawer, and
  single-row heartbeat reads. No breaking changes.
-- **[v4.3.0.md](v4.3.0.md)** — "ImprovementMatters": single-row device reads on
- large fleets, audit-archive download, staleness badges, clickable posture
- fixes, and regression guardrails. No breaking changes.
 
-Older release notes (v4.2.0 and earlier) live in
+Older release notes (v4.3.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

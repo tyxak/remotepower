@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '4.6.0'
+VERSION      = '4.6.1'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported

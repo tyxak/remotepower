@@ -2,6 +2,41 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.6.1 — 2026-06-14
+
+A stability-and-hardening patch on top of v4.6.0 "RepellantMatters". It fixes two
+issues that only surface under the optional **SCGI prefork worker**, closes a
+**ReDoS** and a defence-in-depth **XSS** finding, and removes a small **UI flash**
+on page reload. No breaking changes and no schema changes. Full notes in
+[docs/v4.6.1.md](docs/v4.6.1.md).
+
+- **SCGI worker: agentless ICMP devices flapped offline.** The worker runs with
+  `NoNewPrivileges=true`, which blocks `ping`'s setuid / file-capability
+  elevation, so its raw ICMP socket failed and reachability sweeps reported
+  agentless devices down. The unit now grants `AmbientCapabilities=CAP_NET_RAW`,
+  so the spawned `ping` inherits the capability across `exec` with no privilege
+  escalation. Classic fcgiwrap/CGI was never affected.
+- **SCGI worker: Postgres `consuming input failed: EOF detected`.** A forked
+  worker child inherited the parent's `psycopg` connection, and two processes
+  sharing one socket corrupted the protocol stream. The Postgres backend now tags
+  each connection with the PID that opened it and transparently reconnects in a
+  child — the same fork-safety guard the SQLite backend already had.
+- **Security — ReDoS in `_valid_tls_host`.** The hostname validator used a single
+  regex with a nested quantifier that backtracked catastrophically on a long run
+  of letters and hyphens. It now validates **label by label** with a fixed-shape
+  per-label matcher (linear time, identical accept/reject set), removing the
+  denial-of-service surface on input that can reach a certificate SAN.
+- **Security — package "upgradable" count coerced before render.** The per-device
+  update badge coerces the upgradable count to a number (or `'?'`) before it is
+  interpolated into `innerHTML`, so a non-numeric value can never reach the DOM as
+  markup. The strict no-inline CSP is an independent second barrier.
+- **UI — page subtitle no longer flashes as raw text on reload.** In the
+  Industrial (New) UI each page's subtitle is folded into a hover info icon at
+  runtime, but the fold was gated on the `data-ui` attribute JavaScript only sets
+  after first paint. The subtitle is now hidden by default in CSS and revealed
+  inline only in the Old UI, with visibility decided before the icon-attachment
+  logic — so it's never left as orphan text.
+
 ## v4.6.0 — "RepellantMatters" — 2026-06-14
 
 A visual-identity release paired with a project-wide reliability, security and
