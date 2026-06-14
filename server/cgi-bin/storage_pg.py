@@ -63,6 +63,13 @@ _DSN = None        # primary / read-write DSN (configure_dsn; else env RP_PG_DSN
 _READ_DSN = None   # optional read-replica DSN (configure_read_dsn; else env RP_PG_READ_DSN)
 _CONN = None       # cached primary connection
 _READ_CONN = None  # cached read-replica connection (only when a read DSN is set)
+# v4.6.1: PID that opened each cached connection. A psycopg/libpq connection must
+# NEVER be shared across processes — the SCGI prefork worker (api_worker.py)
+# forks per request, so a child that inherited the parent's connection would
+# corrupt the wire protocol ("consuming input failed: EOF detected"). We detect a
+# fork by PID mismatch and reconnect in the child.
+_CONN_PID = None
+_READ_CONN_PID = None
 _ATEXIT = False
 # v3.14.0: a primary failover (or a mid-promotion connect) shouldn't fail the
 # request — retry the connect a few times so libpq can re-resolve hosts and land
@@ -170,7 +177,12 @@ def _connect(data_dir=None):
     transaction). Reconnects if the cached connection was closed or BROKEN
     (psycopg marks a connection broken after a failover killed it), retrying so
     a promotion window doesn't surface as an error."""
-    global _CONN, _ATEXIT
+    global _CONN, _ATEXIT, _CONN_PID
+    # Fork safety: if the cached connection was opened in another process (we've
+    # been forked), abandon the reference WITHOUT closing it — the owning process
+    # still uses that real socket — and open a fresh connection for this process.
+    if _CONN is not None and _CONN_PID != os.getpid():
+        _CONN = None
     if _alive(_CONN):
         return _CONN
     dsn = _dsn()
@@ -180,6 +192,7 @@ def _connect(data_dir=None):
     conn = _new_conn(dsn, read_write=True)
     _ensure_schema(conn)
     _CONN = conn
+    _CONN_PID = os.getpid()
     if not _ATEXIT:
         atexit.register(close_connection)
         _ATEXIT = True
@@ -191,18 +204,22 @@ def _read_conn(data_dir=None):
     one is configured, else the primary. Never used for writes or locked RMW —
     those always go through _connect()/the primary, so replica lag can't cause a
     lost update."""
-    global _READ_CONN
+    global _READ_CONN, _READ_CONN_PID
     rdsn = _read_dsn()
     if not rdsn:
         return _connect(data_dir)
+    # Fork safety (see _connect): never reuse a connection across a fork.
+    if _READ_CONN is not None and _READ_CONN_PID != os.getpid():
+        _READ_CONN = None
     if _alive(_READ_CONN):
         return _READ_CONN
     _READ_CONN = _new_conn(rdsn, read_write=False)
+    _READ_CONN_PID = os.getpid()
     return _READ_CONN
 
 
 def close_connection():
-    global _CONN, _READ_CONN
+    global _CONN, _READ_CONN, _CONN_PID, _READ_CONN_PID
     for c in (_CONN, _READ_CONN):
         if c is not None:
             try:
@@ -211,6 +228,8 @@ def close_connection():
                 pass
     _CONN = None
     _READ_CONN = None
+    _CONN_PID = None
+    _READ_CONN_PID = None
 
 
 def pg_status():
