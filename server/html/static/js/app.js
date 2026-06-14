@@ -17730,7 +17730,9 @@ async function _loadAuditSection(key) {
       case 'packages': {
         const data = await api('GET', `/devices/${id}/sysinfo`);
         const pkg  = data?.sysinfo?.packages || {};
-        const upg  = pkg.upgradable ?? '?';
+        // v4.6.1 (SECURITY): coerce to a number so a malicious agent can't put
+        // markup in `upgradable` and have it land in innerHTML below unescaped.
+        const upg  = (typeof pkg.upgradable === 'number') ? pkg.upgradable : '?';
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
             <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>

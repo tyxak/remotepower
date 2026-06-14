@@ -14940,9 +14940,16 @@ def _valid_tls_host(h):
         return True
     except ValueError:
         pass
-    if '..' in h:
+    # v4.6.1 (SECURITY): validate label-by-label with a fixed-shape per-label
+    # regex. The old single-regex form `([a-z0-9](?:[a-z0-9-]{0,62})\.?)+`
+    # backtracks catastrophically on a long run of letters/hyphens (py/redos) —
+    # the per-label matcher below has no nested-quantifier ambiguity, so it's
+    # linear. A trailing dot (FQDN root) is allowed; empty labels are not.
+    host = h[:-1] if h.endswith('.') else h
+    if not host or '..' in host:
         return False
-    return bool(re.match(r'^([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62})\.?)+$', h))
+    _label = re.compile(r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$')
+    return all(_label.match(lbl) for lbl in host.split('.'))
 
 
 def _tls_gen_self_signed(hosts, out_dir):
