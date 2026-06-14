@@ -295,6 +295,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'process_alert', 'process_recovered',   # v3.14.0 #36
             'secret_exposed',                        # v3.14.0 #35
             'scan_finding',                          # v4.2.0 (B5)
+            'integration_down', 'integration_recovered',  # v4.7.0 integrations
             'mount_recovered',                       # v3.14.0 fix
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew

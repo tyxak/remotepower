@@ -9449,6 +9449,147 @@ async function loadIntegrationsTab() {
   if (samlHint) {
     samlHint.innerHTML = `<strong>SP metadata / ACS URL</strong> to register with your IdP: <code>${location.origin}/api/auth/saml/acs</code> — full metadata at <code>${location.origin}/api/saml/metadata</code>`;
   }
+  try { await loadIntegrations(); } catch (_) { /* non-fatal */ }
+}
+
+// ── v4.7.0: homelab software integrations ────────────────────────────────────
+let _integrations = [];
+let _integrationCatalog = [];
+const _INTEG_BADGE = { ok: 'badge-ok', warning: 'badge-warn', critical: 'badge-crit', unknown: 'badge-muted' };
+
+async function loadIntegrations() {
+  const data = await api('GET', '/integrations');
+  _integrations = (data && data.integrations) || [];
+  _integrationCatalog = (data && data.catalog) || [];
+  const iv = document.getElementById('integrations-interval');
+  if (iv && data && data.interval) iv.value = data.interval;
+  const sel = document.getElementById('integration-add-type');
+  if (sel) {
+    sel.innerHTML = _integrationCatalog.map(c =>
+      `<option value="${escAttr(c.type)}">${escHtml(c.label)} (${escHtml(c.category)})</option>`).join('');
+  }
+  renderIntegrations();
+}
+
+function _integrationFields(type) {
+  const c = _integrationCatalog.find(x => x.type === type);
+  return (c && c.fields) || [];
+}
+
+function renderIntegrations() {
+  const wrap = document.getElementById('integrations-list');
+  if (!wrap) return;
+  if (!_integrations.length) {
+    wrap.innerHTML = '<div class="empty-state">No integrations yet — pick a type below and Add.</div>';
+    return;
+  }
+  wrap.innerHTML = _integrations.map((it, idx) => {
+    const cat = _integrationCatalog.find(x => x.type === it.type);
+    const label = cat ? cat.label : it.type;
+    const fields = _integrationFields(it.type).map(f => {
+      const set = it[f.key + '_set'];
+      const val = f.kind === 'password' ? '' : escAttr(it[f.key] || '');
+      const ph = f.kind === 'password' && set ? '•••••• (set — blank keeps it)' : escAttr(f.placeholder || '');
+      return `<div class="form-group">
+          <label class="form-label">${escHtml(f.label)}${f.optional ? ' <span class="hint">(optional)</span>' : ''}</label>
+          <input type="${f.kind === 'password' ? 'password' : 'text'}" class="form-input" autocomplete="off"
+                 data-ifield="${escAttr(f.key)}" value="${val}" placeholder="${ph}">
+        </div>`;
+    }).join('');
+    const st = it.last_status || 'unknown';
+    const badge = `<span class="badge ${_INTEG_BADGE[st] || 'badge-muted'}">${escHtml(st)}</span>`;
+    const detail = it.last_detail ? `<span class="hint ml-8">${escHtml(it.last_detail)}</span>` : '';
+    const note = cat && cat.notes ? `<p class="hint">${escHtml(cat.notes)}</p>` : '';
+    return `<div class="integration-card audit-scroll" data-idx="${idx}">
+      <div class="integration-card-head">
+        <label class="ff-bold"><input type="checkbox" data-ifield="enabled" ${it.enabled ? 'checked' : ''}> ${escHtml(label)}</label>
+        ${badge}${detail}
+        <span class="spacer"></span>
+        <button class="btn-icon" data-action="testIntegration" data-arg="${idx}" title="Test connection">Test</button>
+        <button class="btn-icon" data-action="removeIntegration" data-arg="${idx}" title="Remove">×</button>
+      </div>
+      ${note}
+      <div class="settings-row">
+        <div class="form-group"><label class="form-label">Name</label>
+          <input type="text" class="form-input" data-ifield="label" value="${escAttr(it.label || '')}"></div>
+        <div class="form-group"><label class="form-label">URL</label>
+          <input type="url" class="form-input mw-260" data-ifield="url" value="${escAttr(it.url || '')}" placeholder="https://service.lan:port"></div>
+      </div>
+      <div class="settings-row">${fields}</div>
+      <div class="settings-row">
+        <label class="form-label"><input type="checkbox" data-ifield="verify_tls" ${it.verify_tls !== false ? 'checked' : ''}> Verify TLS (uncheck for self-signed)</label>
+        <span id="integration-test-${idx}" class="hint ml-8"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Sync the DOM inputs back into the _integrations model before save/test.
+function _readIntegrationCards() {
+  document.querySelectorAll('#integrations-list .integration-card').forEach(card => {
+    const idx = parseInt(card.dataset.idx, 10);
+    const it = _integrations[idx];
+    if (!it) return;
+    card.querySelectorAll('[data-ifield]').forEach(el => {
+      const k = el.dataset.ifield;
+      if (el.type === 'checkbox') it[k] = el.checked;
+      else if (el.value !== '' || el.type !== 'password') {
+        // a blank password keeps the stored secret (don't overwrite with '')
+        if (el.type === 'password' && el.value === '') return;
+        it[k] = el.value;
+      }
+    });
+  });
+}
+
+function addIntegration() {
+  const sel = document.getElementById('integration-add-type');
+  const type = sel ? sel.value : (_integrationCatalog[0] && _integrationCatalog[0].type);
+  if (!type) return;
+  const cat = _integrationCatalog.find(x => x.type === type);
+  _readIntegrationCards();
+  _integrations.push({ type, label: cat ? cat.label : type, url: '', enabled: true, verify_tls: true });
+  renderIntegrations();
+}
+
+function removeIntegration(idx) {
+  _readIntegrationCards();
+  _integrations.splice(idx, 1);
+  renderIntegrations();
+}
+
+async function saveIntegrations() {
+  _readIntegrationCards();
+  const iv = document.getElementById('integrations-interval');
+  const status = document.getElementById('integrations-save-status');
+  if (status) status.textContent = 'Saving…';
+  try {
+    await api('POST', '/integrations', {
+      integrations: _integrations,
+      interval: iv ? parseInt(iv.value, 10) || 300 : 300,
+    });
+    if (status) status.textContent = 'Saved ✓';
+    toast('Integrations saved', 'success');
+    await loadIntegrations();
+  } catch (e) {
+    if (status) status.textContent = '';
+    toast((e && e.message) || 'Save failed', 'error');
+  }
+}
+
+async function testIntegration(idx) {
+  _readIntegrationCards();
+  const out = document.getElementById('integration-test-' + idx);
+  if (out) { out.textContent = 'Testing…'; out.className = 'hint ml-8'; }
+  try {
+    const r = await api('POST', '/integrations/test', _integrations[idx]);
+    if (out) {
+      out.textContent = (r.ok ? '✓ ' : '✗ ') + (r.detail || r.status || '') + (r.version ? ' · v' + r.version : '');
+      out.className = 'hint ml-8 ' + (r.ok ? 'c-green' : 'c-amber');
+    }
+  } catch (e) {
+    if (out) { out.textContent = '✗ ' + ((e && e.message) || 'failed'); out.className = 'hint ml-8 c-red'; }
+  }
 }
 
 async function loadInboundWebhooks() {
@@ -14627,6 +14768,8 @@ function _renderHomeActivity(fleetEvents) {
     'secret_exposed',
     // v4.2.0 (B5): authorized scan high/critical finding
     'scan_finding',
+    // v4.7.0: homelab software integration health
+    'integration_down', 'integration_recovered',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -14797,6 +14940,9 @@ function _homeActivityAttrs(event, p) {
     // v4.2.0 (B5): scan findings route to the Security Scans page
     case 'scan_finding':
       return `${base} data-home-act="scans"`;
+    // v4.7.0: integration health → the Integrations page
+    case 'integration_down': case 'integration_recovered':
+      return `${base} data-home-act="integrations"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -22559,6 +22705,11 @@ function _homeNavAction(btn) {
     case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
+    // v4.7.0: integration health → Settings → Integrations tab
+    case 'integrations':
+      showPage('settings', document.querySelector('.nav-btn[data-page="settings"]'));
+      setTimeout(() => { try { switchSettingsTab('integrations'); loadIntegrationsTab(); } catch (_) {} }, 50);
+      break;
     default:
       if (devId) openDetail(devId, devName);
       else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));

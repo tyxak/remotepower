@@ -135,6 +135,9 @@ Older release notes (v4.3.0 and earlier) live in
  common findings.
 - **[opnsense.md](opnsense.md)** — OPNsense firewall integration (and the
  RouterOS sibling).
+- **[integrations.md](integrations.md)** — Homelab software integrations: poll
+ Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more for
+ health → Alerts (read-only, SSRF-guarded).
 - **[self-monitoring.md](self-monitoring.md)** — The server watching
  itself: status page, DB maintenance, CSP reports.
 - **[sla.md](sla.md)** — Uptime SLA targets and reporting.
