@@ -629,6 +629,7 @@
         <div class="dash-card dash-off" id="home-w-bruteforce" data-widget="bruteforce"><h3>Active brute-force</h3><div id="home-w-bruteforce-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-bandwidth" data-widget="bandwidth"><h3>Top bandwidth</h3><div id="home-w-bandwidth-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-checksrollup" data-widget="checksrollup"><h3>Checks roll-up</h3><div id="home-w-checksrollup-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-integrations" data-widget="integrations"><h3>Integration health</h3><div id="home-w-integrations-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-alertsfeed" data-widget="alertsfeed"><h3>Alerts</h3><div id="home-w-alertsfeed-body" class="dash-mini"></div></div>
         </div><!-- /dash-grid -->
 
@@ -1372,6 +1373,32 @@
 
         <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-integrations">
+          <!-- v4.7.0: homelab software integrations -->
+          <div class="settings-section">
+            <h3>Homelab software integrations</h3>
+            <p class="hint">Poll popular self-hosted software for health and fold it into Alerts. Pick a type, point it at the service on your LAN, add an API token, and Test. The server polls on a cadence (default 5&nbsp;min); an unhealthy or unreachable target raises an <code>integration_down</code> alert that recovers automatically.</p>
+            <div class="settings-row mb-12">
+              <label><input type="checkbox" id="show-homelab" data-action="toggleShowHomelab" checked> Show Homelab software on this instance</label>
+              <span class="hint ml-8">Uncheck on an enterprise instance to hide this section and the <em>Integration health</em> dashboard widget for everyone (reduces noise). Saved with the button below.</span>
+            </div>
+            <div id="homelab-integrations-body">
+              <div id="integrations-list" class="mb-12"></div>
+              <div class="settings-row isl-iadd">
+                <div class="form-group">
+                  <label class="form-label">Add integration</label>
+                  <select id="integration-add-type" class="form-input mw-220"></select>
+                </div>
+                <button class="btn-secondary" data-action="addIntegration">Add</button>
+                <span id="integrations-save-status" class="hint ml-8"></span>
+              </div>
+            </div>
+            <div class="settings-row mt-12">
+              <button class="btn-primary" data-action="saveIntegrations">Save integrations</button>
+              <label class="form-label ml-12">Poll interval (s)
+                <input type="number" id="integrations-interval" class="form-input mw-100" min="60" value="300">
+              </label>
+            </div>
+          </div>
           <!-- v3.14.0 #32: cloud inventory import (AWS EC2) -->
           <div class="settings-section">
             <h3>Cloud import (AWS EC2)</h3>

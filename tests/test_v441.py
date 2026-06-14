@@ -61,7 +61,10 @@ class TestVersionBumps(unittest.TestCase):
                          'v4.0.0.md should have rotated out of the kept set')
 
     def test_security_reviews_keep_three(self):
-        revs = sorted(p.name for p in (_ROOT / 'docs').glob('security-review-*.md'))
+        # Only the PUBLIC (committed) reviews are governed by the keep-3 rule.
+        # *-internal.md reviews are gitignored working-tree docs and don't count.
+        revs = sorted(p.name for p in (_ROOT / 'docs').glob('security-review-*.md')
+                      if '-internal' not in p.name)
         self.assertEqual(len(revs), 3, f'expected exactly 3 security reviews, got {revs}')
 
     def test_whats_new_cards_capped_at_five(self):

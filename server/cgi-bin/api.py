@@ -46,6 +46,7 @@ HISTORY_FILE     = DATA_DIR / 'history.json'
 SCHEDULE_FILE    = DATA_DIR / 'schedule.json'
 UPTIME_FILE      = DATA_DIR / 'uptime.json'
 MON_HIST_FILE    = DATA_DIR / 'monitor_history.json'
+INTEG_STATE_FILE = DATA_DIR / 'integrations_state.json'  # v4.7.0: integration poll results/history
 CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 # v1.10.0: Update output captures from `update` commands (apt/dnf/pacman runs).
 # Stored separately from generic exec output so the Patches page can filter
@@ -447,6 +448,8 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'newports', 'fwchanges', 'sshkeys',
                               # v4.1.0 catalog expansion wave 5 (data-backed):
                               'tls', 'bruteforce', 'bandwidth', 'checksrollup',
+                              # v4.7.0: homelab software integration health rollup
+                              'integrations',
                               # v4.1.0: actionable alerts feed (ack/resolve inline)
                               'alertsfeed',
                               'health', 'heatmap', 'overview', 'roster', 'links',
@@ -555,6 +558,9 @@ import proxmox_client
 # v1.11.0: TLS/DNS expiry monitor. Server-side cron-driven probes; results
 # stored alongside the watchlist for UI rendering and webhook alerting.
 import tls_monitor
+# v4.7.0: homelab software integrations — per-product API connectors. Pure
+# parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
+import integrations as integrations_mod
 
 # v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
 import ai_provider
@@ -784,6 +790,10 @@ WEBHOOK_EVENTS = (
     ('secret_exposed',        'A secret was found exposed on a host filesystem',     True),
     # v4.2.0 (B5): an authorized security scan completed with high/critical findings.
     ('scan_finding',          'An authorized security scan found a high/critical issue', True),
+    # v4.7.0: homelab software integrations — a configured integration target
+    # went unhealthy/unreachable (integration_recovered is the recover event).
+    ('integration_down',      'An integration target is unhealthy or unreachable', True),
+    ('integration_recovered', 'An integration target recovered',                   True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4056,6 +4066,7 @@ _ALERT_RULES = {
     'rogue_uid0':                 ('high', None),        # v3.14.0
     'process_alert':              ('medium', None),      # v3.14.0 #36
     'secret_exposed':             ('high', None),        # v3.14.0 #35
+    'integration_down':           (None, None),          # v4.7.0: severity from payload.severity
 }
 
 # Map recover event → firing event it resolves
@@ -4088,6 +4099,7 @@ _ALERT_RECOVER = {
     'gateway_reachable':       'gateway_unreachable',     # v4.1.0
     'process_recovered':       'process_alert',           # v3.14.0 #36
     'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
+    'integration_recovered':   'integration_down',        # v4.7.0
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -4171,6 +4183,8 @@ CHANNEL_KINDS = [
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
     ('secrets',      'Exposed secrets on disk',  'operational',   ['secret_exposed']),
     ('scan',         'Security scan findings',   'operational',   ['scan_finding']),
+    # v4.7.0: homelab software integration health
+    ('integration',  'Integration health',       'operational',   ['integration_down', 'integration_recovered']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4396,6 +4410,12 @@ def _alert_severity(event, payload):
         if score < 70:
             return 'high'
         return 'medium'
+    # v4.7.0: integration health — severity carried in the payload (crit→high,
+    # warn→medium). Without this branch the event fires a webhook but never lands
+    # in the Alerts inbox (the _ALERT_RULES (None,None) → _alert_severity gap).
+    if event == 'integration_down':
+        s = str(p.get('severity', '')).lower()
+        return s if s in ('low', 'medium', 'high', 'critical') else 'medium'
     return None
 
 
@@ -4427,6 +4447,8 @@ def _alert_title(event, payload):
     if event == 'scan_finding':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'Scan findings on {name}: {c} critical, {h} high'
+    if event == 'integration_down':
+        return f'Integration unhealthy: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
     if event == 'drift_detected':
         # File-integrity drift carries the single watched path that changed.
         path = p.get('path') or '?'
@@ -5294,6 +5316,8 @@ def _webhook_title(event):
         'monitor_up':      'Monitor Recovered',
         'cve_found':       'New CVEs Detected',
         'scan_finding':    'Security Scan Findings',
+        'integration_down':      'Integration Unhealthy',
+        'integration_recovered': 'Integration Recovered',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -11801,6 +11825,338 @@ def ping_healthchecks_if_due():
         # External dependency — never let a hc.io blip break the
         # CGI request. The next request will retry.
         pass
+
+
+# ─── v4.7.0: homelab software integrations ────────────────────────────────────
+# Modeled on the active-monitors subsystem: a list of integration instances is
+# polled on a cadence, each result recorded with flap-dampened up/down alerts.
+# Connectors (the per-product API parsers) live in integrations.py; this section
+# owns config, the SSRF-safe HTTP client, the poll loop, history and alerting.
+
+INTEGRATION_FIELDS = ('id', 'type', 'label', 'url', 'enabled', 'verify_tls',
+                      'username', 'secret', 'slug', 'interval')
+# Per-cycle wall-clock cap for the inline poll loop (security: bound the latency
+# a few slow/hostile targets can add to the request that trips the cadence).
+_INTEGRATIONS_POLL_BUDGET_S = 25
+# Per-request timeout for a single connector HTTP call.
+_INTEGRATION_HTTP_TIMEOUT_S = 8
+
+
+def _no_ctrl(s):
+    """Strip ASCII control chars (incl. CR/LF) from a credential/identifier so it
+    can't attempt HTTP header injection when a connector puts it in a header.
+    The stdlib already rejects CR/LF in header values; this is defence-in-depth."""
+    return ''.join(ch for ch in str(s or '') if ord(ch) >= 0x20 and ord(ch) != 0x7f)
+# Credential fields that must never be echoed back to the UI (a *_set bool is
+# sent instead). 'secret' is also caught by the recursive config scrubber.
+_INTEGRATION_SECRET_FIELDS = ('secret',)
+
+
+class _SSRFIntegrationClient(integrations_mod.HTTPClient):
+    """SSRF-safe HTTP client used by every connector. Re-validates the peer IP
+    at connect time (anti-rebinding) and refuses redirects, loopback and
+    cloud-metadata targets. Honours a per-integration verify_tls toggle (some
+    homelab apps ship self-signed certs) without ever relaxing the IP guard.
+
+    Carries a cookie jar so multi-step auth (qBittorrent/Deluge/UniFi login →
+    session cookie) works across requests within one poll."""
+
+    def __init__(self, base, verify_tls=True, timeout=10):
+        super().__init__(base)
+        self._timeout = timeout
+        import http.cookiejar
+        self._jar = http.cookiejar.CookieJar()
+        if verify_tls:
+            ctx = _get_ssl_context()
+        else:
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        # allow_loopback=False blocks 127.0.0.0/8 + link-local/metadata; RFC1918
+        # LAN is allowed (homelab targets live there).
+        self._opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=ctx,
+                                         no_redirect=True)
+        self._opener.add_handler(urllib.request.HTTPCookieProcessor(self._jar))
+
+    def request(self, method, path, headers=None, params=None, body=None):
+        url = self._full(path, params)
+        # Pre-flight DNS-based SSRF check (the opener re-checks at connect time).
+        if _url_targets_local_or_meta(urllib.parse.urlparse(url), allow_loopback=False):
+            raise integrations_mod.IntegrationError('target is a blocked address')
+        req = urllib.request.Request(url, data=body, method=method)
+        for k, v in (headers or {}).items():
+            req.add_header(k, v)
+        try:
+            with self._opener.open(req, timeout=self._timeout) as resp:
+                text = resp.read(2 * 1024 * 1024).decode('utf-8', 'replace')
+                return integrations_mod.Resp(resp.status, text, dict(resp.headers))
+        except urllib.error.HTTPError as e:
+            # HTTP errors (401/403/409/…) are normal control flow for some
+            # connectors (Transmission's 409 handshake), so return them.
+            try:
+                text = e.read(512 * 1024).decode('utf-8', 'replace')
+            except Exception:
+                text = ''
+            return integrations_mod.Resp(e.code, text, dict(e.headers or {}))
+        except integrations_mod.IntegrationError:
+            raise
+        except Exception as e:
+            raise integrations_mod.IntegrationError(f'{e.__class__.__name__}: {e}'[:160])
+
+
+def _get_integrations(cfg=None):
+    """The configured integration instances (a list of dicts)."""
+    cfg = cfg if cfg is not None else load(CONFIG_FILE)
+    out = cfg.get('integrations')
+    return out if isinstance(out, list) else []
+
+
+def _integration_client(inst):
+    return _SSRFIntegrationClient(inst.get('url', ''),
+                                  verify_tls=bool(inst.get('verify_tls', True)),
+                                  timeout=_INTEGRATION_HTTP_TIMEOUT_S)
+
+
+def _poll_one_integration(inst):
+    """Poll a single instance → normalized result dict (never raises)."""
+    if not inst.get('url'):
+        return {'status': integrations_mod.UNKNOWN, 'detail': 'no URL configured', 'metrics': {}}
+    client = _integration_client(inst)
+    res = integrations_mod.poll_instance(inst, client)
+    res['id'] = inst.get('id')
+    res['label'] = inst.get('label') or inst.get('type')
+    res['type'] = inst.get('type')
+    res['checked'] = int(time.time())
+    return res
+
+
+def run_integrations_if_due():
+    """Poll all enabled integrations when the cadence is due. Cheap when not."""
+    cfg = load(CONFIG_FILE)
+    insts = [i for i in _get_integrations(cfg) if isinstance(i, dict) and i.get('enabled')]
+    if not insts:
+        return
+    interval = max(60, int(cfg.get('integrations_interval', 300) or 300))
+    last_run = int(cfg.get('last_integrations_run', 0) or 0)
+    now = int(time.time())
+    if (now - last_run) < interval:
+        return
+    # Claim the slot before the (slow) network work so concurrent requests skip.
+    cfg['last_integrations_run'] = now
+    save(CONFIG_FILE, cfg)
+    # This runs INLINE in whichever request tripped the cadence, so cap total
+    # wall-clock: a few slow/black-holed targets must not stall that request for
+    # minutes. Whatever doesn't get polled this cycle is picked up next cycle
+    # (its prior result/history is preserved — _persist keys "live" off the
+    # configured list, not this batch).
+    budget = time.monotonic() + _INTEGRATIONS_POLL_BUDGET_S
+    results = []
+    for i in insts:
+        if time.monotonic() > budget:
+            break
+        results.append(_poll_one_integration(i))
+    _persist_integration_results(results)
+
+
+def _persist_integration_results(results):
+    """Record latest result + bounded history; fire flap-dampened up/down alerts.
+
+    fire_webhook is called OUTSIDE any lock (it takes its own); we collect
+    pending alerts first, then fire after saving state."""
+    state = load(INTEG_STATE_FILE) or {}
+    latest = state.get('latest') or {}
+    hist = state.get('history') or {}
+    cfg = load(CONFIG_FILE)
+    notified = cfg.get('integration_notified') or {}
+    pending = []
+    dirty_cfg = False
+
+    for r in results:
+        key = str(r.get('id') or r.get('label'))
+        latest[key] = r
+        hist.setdefault(key, [])
+        hist[key].append({'ts': r['checked'], 'status': r['status'], 'detail': r['detail']})
+        hist[key] = hist[key][-100:]
+
+        was_down = bool(notified.get(key))
+        is_down = r['status'] in (integrations_mod.WARN, integrations_mod.CRIT)
+        if is_down and not was_down:
+            sev = 'high' if r['status'] == integrations_mod.CRIT else 'medium'
+            pending.append(('integration_down', {
+                'label': r['label'], 'type': r['type'], 'detail': r['detail'],
+                'severity': sev, 'integration_id': key,
+            }))
+            notified[key] = True
+            dirty_cfg = True
+        elif (not is_down) and was_down:
+            pending.append(('integration_recovered', {
+                'label': r['label'], 'type': r['type'], 'detail': r['detail'],
+                'integration_id': key,
+            }))
+            notified[key] = False
+            dirty_cfg = True
+
+    # Drop history/notified only for integrations no longer CONFIGURED — keying
+    # off `results` would wrongly purge instances that were merely disabled or
+    # skipped by the per-cycle time budget this round.
+    configured = {str(i.get('id') or i.get('label'))
+                  for i in _get_integrations(cfg) if isinstance(i, dict)}
+    for stale in [k for k in latest if k not in configured]:
+        latest.pop(stale, None); hist.pop(stale, None)
+    state['latest'] = latest
+    state['history'] = hist
+    save(INTEG_STATE_FILE, state)
+    if dirty_cfg:
+        cfg['integration_notified'] = {k: v for k, v in notified.items() if k in configured}
+        save(CONFIG_FILE, cfg)
+    for event, payload in pending:
+        try:
+            fire_webhook(event, payload)
+        except Exception:
+            pass
+
+
+def _redact_integration(inst, admin=True):
+    """A UI-safe copy of an instance: secrets replaced with a *_set boolean.
+
+    The raw `url` is ADMIN-ONLY: an operator could embed credentials in it
+    (https://user:pass@host), so a viewer/mcp gets only a `url_set` flag — the
+    `label` already identifies the target for status purposes."""
+    safe = {k: inst.get(k) for k in INTEGRATION_FIELDS if k in inst}
+    for f in _INTEGRATION_SECRET_FIELDS:
+        safe.pop(f, None)
+        safe[f + '_set'] = bool(inst.get(f))
+    if not admin:
+        safe['url_set'] = bool(inst.get('url'))
+        safe.pop('url', None)
+    return safe
+
+
+def handle_integrations_list():
+    """GET /api/integrations — instances (redacted) + the connector catalog."""
+    require_auth()
+    _il_user, _il_role = verify_token(get_token_from_request())
+    _il_admin = bool(_resolve_role(_il_role).get('admin'))
+    cfg = load(CONFIG_FILE)
+    state = load(INTEG_STATE_FILE) or {}
+    latest = state.get('latest') or {}
+    insts = []
+    for i in _get_integrations(cfg):
+        if not isinstance(i, dict):
+            continue
+        safe = _redact_integration(i, admin=_il_admin)
+        key = str(i.get('id') or i.get('label'))
+        r = latest.get(key)
+        if r:
+            safe['last_status'] = r.get('status')
+            safe['last_detail'] = r.get('detail')
+            safe['last_checked'] = r.get('checked')
+            safe['last_version'] = r.get('version')
+            safe['last_metrics'] = r.get('metrics')
+        insts.append(safe)
+    respond(200, {'integrations': insts,
+                  'catalog': integrations_mod.list_connectors(),
+                  'interval': int(cfg.get('integrations_interval', 300) or 300),
+                  'show_homelab': cfg.get('show_homelab', True) is not False})
+
+
+def handle_integrations_save():
+    """POST /api/integrations — replace the instance list (admin only).
+
+    Body: {integrations: [...], interval?: int}. A blank secret on an existing
+    instance (matched by id) keeps the stored secret, so the UI never has to
+    re-enter it."""
+    require_admin_auth()
+    body = get_json_body() or {}
+    new_list = body.get('integrations')
+    if not isinstance(new_list, list):
+        respond(400, {'error': 'integrations must be a list'})
+    if len(new_list) > 200:
+        respond(400, {'error': 'too many integrations'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        old_by_id = {str(i.get('id')): i for i in _get_integrations(cfg) if isinstance(i, dict)}
+        clean = []
+        seen = set()
+        for raw in new_list:
+            if not isinstance(raw, dict):
+                continue
+            typ = str(raw.get('type', '')).strip()
+            if typ not in integrations_mod.CONNECTORS:
+                respond(400, {'error': f'unknown integration type: {typ}'})
+            iid = str(raw.get('id') or '').strip() or secrets.token_urlsafe(8)
+            if iid in seen:
+                continue
+            seen.add(iid)
+            url = _sanitize_str(raw.get('url', ''), 255).strip()
+            if url and _url_targets_local_or_meta(urllib.parse.urlparse(url), allow_loopback=False):
+                respond(400, {'error': f'URL for {raw.get("label", typ)} targets a blocked address'})
+            inst = {
+                'id': iid, 'type': typ,
+                'label': _sanitize_str(raw.get('label', '') or typ, 80),
+                'url': url,
+                'enabled': bool(raw.get('enabled')),
+                'verify_tls': bool(raw.get('verify_tls', True)),
+                'username': _no_ctrl(_sanitize_str(raw.get('username', ''), 255)),
+                'slug': _no_ctrl(_sanitize_str(raw.get('slug', ''), 120)),
+                'interval': max(60, int(raw.get('interval', 0) or 0)) if raw.get('interval') else 0,
+            }
+            # Preserve an existing secret when the field comes back blank.
+            new_secret = raw.get('secret')
+            if new_secret:
+                inst['secret'] = _no_ctrl(str(new_secret)[:2048])
+            elif iid in old_by_id and old_by_id[iid].get('secret'):
+                inst['secret'] = old_by_id[iid]['secret']
+            clean.append(inst)
+        cfg['integrations'] = clean
+        if 'interval' in body:
+            cfg['integrations_interval'] = max(60, int(body.get('interval', 300) or 300))
+        if 'show_homelab' in body:
+            cfg['show_homelab'] = bool(body.get('show_homelab'))
+        # Force a re-poll on next request.
+        cfg['last_integrations_run'] = 0
+    audit_log('integrations_save', f'{len(clean)} integration(s) configured')
+    respond(200, {'ok': True, 'count': len(clean)})
+
+
+def handle_integration_test():
+    """POST /api/integrations/test — probe one instance without saving (admin).
+
+    Body: a single instance dict (may include a blank secret → falls back to the
+    stored secret matched by id). Returns {ok, status, detail, version?}."""
+    require_admin_auth()
+    raw = get_json_body() or {}
+    typ = str(raw.get('type', '')).strip()
+    if typ not in integrations_mod.CONNECTORS:
+        respond(400, {'error': f'unknown integration type: {typ}'})
+    inst = dict(raw)
+    inst['type'] = typ
+    # Strip control chars from credential/identifier fields used in headers
+    # (defence-in-depth header-injection guard, same as the save path).
+    for _f in ('username', 'slug', 'secret'):
+        if inst.get(_f):
+            inst[_f] = _no_ctrl(inst[_f])
+    if not inst.get('secret') and inst.get('id'):
+        for i in _get_integrations():
+            if str(i.get('id')) == str(inst['id']) and i.get('secret'):
+                inst['secret'] = i['secret']
+                break
+    if not inst.get('url'):
+        respond(400, {'error': 'URL is required'})
+    if _url_targets_local_or_meta(urllib.parse.urlparse(inst['url']), allow_loopback=False):
+        respond(400, {'error': 'URL targets a blocked address'})
+    res = integrations_mod.poll_instance(inst, _integration_client(inst))
+    ok = res.get('status') in (integrations_mod.OK, integrations_mod.WARN)
+    respond(200, {'ok': ok, 'status': res.get('status'), 'detail': res.get('detail'),
+                  'version': res.get('version'), 'metrics': res.get('metrics')})
+
+
+def handle_integrations_status():
+    """GET /api/integrations/status — latest poll result + history per instance."""
+    require_auth()
+    state = load(INTEG_STATE_FILE) or {}
+    respond(200, {'latest': state.get('latest') or {}, 'history': state.get('history') or {}})
 
 
 def run_monitors_if_due():
@@ -25313,6 +25669,18 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             out['checksrollup'] = roll
         except Exception:
             out['checksrollup'] = {}
+    # v4.7.0: homelab software integration health rollup (cheap — one file read).
+    if _g('integrations'):
+        try:
+            latest = (load(INTEG_STATE_FILE) or {}).get('latest') or {}
+            roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0, 'total': len(latest)}
+            for r in latest.values():
+                st = r.get('status', 'unknown')
+                if st in roll:
+                    roll[st] += 1
+            out['integrations'] = roll
+        except Exception:
+            out['integrations'] = {}
     return out
 
 
@@ -25478,6 +25846,9 @@ def handle_home():
         'fleet_events': fleet_events,
         'mailwatch':    mailwatch,
         'links':        links,
+        # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
+        # integration widget in the dashboard.
+        'show_homelab': cfg.get('show_homelab', True) is not False,
         'attention':    _attention_payload(),
         # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
         'upcoming':     _dashboard_upcoming(),
@@ -40889,6 +41260,11 @@ def _build_exact_routes():
         ('GET', '/api/proxmox/status'): handle_proxmox_status,
         ('POST', '/api/proxmox/test'): handle_proxmox_test,
         ('POST', '/api/proxmox/lifecycle'): handle_proxmox_lifecycle,   # v3.14.0 #33
+        # v4.7.0: homelab software integrations
+        ('GET',  '/api/integrations'): handle_integrations_list,
+        ('POST', '/api/integrations'): handle_integrations_save,
+        ('POST', '/api/integrations/test'): handle_integration_test,
+        ('GET',  '/api/integrations/status'): handle_integrations_status,
         ('POST', '/api/cloud/import'): handle_cloud_import,             # v3.14.0 #32
         ('GET', '/api/public-info'): handle_public_info,
         (None, '/api/reboot'): handle_reboot,
@@ -41644,6 +42020,7 @@ def main():
     # heartbeats — typically every 60s, so the gate kicks in and the
     # actual checks happen every interval.
     _safe(run_monitors_if_due, 'run_monitors_if_due')
+    _safe(run_integrations_if_due, 'run_integrations_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
