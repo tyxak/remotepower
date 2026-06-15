@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test format lint typecheck check clean install-dev dist release version scan-demo
+.PHONY: help test format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo
 
 PY      ?= python3
 PIP     ?= pip3
@@ -128,6 +128,30 @@ lint:
 
 typecheck:
 	$(PY) -m mypy $(TYPECHECK_SRC)
+
+# Fast SAST proxy for GitHub Code Scanning: bandit at medium+ severity AND
+# confidence over the shipped server + agent Python. The codebase has a large
+# INTENTIONAL sink surface (a fleet manager runs subprocesses / opens URLs), so
+# this runs against a committed baseline (tools/bandit-baseline.json) and only
+# fails on NEW findings — the "did I just add something" pre-push smoke. NOT a
+# CodeQL substitute (see `make codeql` for the faithful run). Regenerate the
+# baseline after an intentional, triaged change:
+#   make bandit-baseline
+BANDIT_SRC := server/cgi-bin client/remotepower-agent.py \
+              client/remotepower-agent-win.py client/remotepower-agent-mac.py
+bandit:
+	$(PY) -m bandit -ll -ii -b tools/bandit-baseline.json -r $(BANDIT_SRC)
+
+bandit-baseline:
+	$(PY) -m bandit -ll -ii -r $(BANDIT_SRC) -f json -o tools/bandit-baseline.json -q || true
+	@echo "wrote tools/bandit-baseline.json"
+
+# Faithful local reproduction of GitHub's "CodeQL default setup" code scanning
+# (python + javascript, the default code-scanning query suite). First run
+# downloads the CodeQL bundle into .codeql-cache/ (gitignored). Run this before a
+# release push to see exactly what GitHub Code Scanning would flag.
+codeql:
+	tools/codeql-local.sh
 
 check: test-both lint
 

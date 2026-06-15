@@ -28,3 +28,6 @@ deploy/
 # Internal planning / roadmap / scoping notes — kept on disk for the agent and
 # operator, never tracked, so they never reach the public/production repo.
 docs/*-internal.md
+
+# Local CodeQL scan cache (bundle + DBs + SARIF) — see tools/codeql-local.sh
+.codeql-cache/
