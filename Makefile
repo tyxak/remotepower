@@ -189,6 +189,7 @@ dist: clean
 	  --exclude='./dist' \
 	  --exclude='./build' \
 	  --exclude='./.cache' \
+	  --exclude='./.codeql-cache' \
 	  --exclude='./.mypy_cache' \
 	  --exclude='./.pytest_cache' \
 	  --exclude='./.venv' \
