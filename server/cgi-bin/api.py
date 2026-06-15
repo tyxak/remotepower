@@ -4736,6 +4736,12 @@ def _auto_resolve_alerts(event, payload):
         # Per-path: a recovered /mnt/a must not clear the open alert for /mnt/b
         # on the same host. Match the mount path.
         sub_match['path'] = p.get('path')
+    elif event == 'integration_recovered':
+        # v4.7.0: integrations aren't devices (no device_id), so the open
+        # integration_down alert is matched by its integration id. Without this
+        # branch _auto_resolve_alerts bailed at the no-device_id/no-sub_match
+        # guard and the down alert sat open forever after recovery.
+        sub_match['integration_id'] = p.get('integration_id')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -6102,6 +6108,13 @@ def _webhook_message(event, payload):
     elif event == 'rogue_uid0':
         return (f'{name}: account {payload.get("user","?")} has UID 0 '
                 f'(root-equivalent) — verify it is expected')
+    elif event == 'integration_down':
+        # Integrations carry no device name — title off the integration label,
+        # else the message fell through to "integration_down: unknown".
+        return (f'Integration "{payload.get("label", "?")}" is unhealthy'
+                + (f' — {payload.get("detail")}' if payload.get('detail') else ''))
+    elif event == 'integration_recovered':
+        return f'Integration "{payload.get("label", "?")}" recovered'
     return f'{event}: {name}'
 
 

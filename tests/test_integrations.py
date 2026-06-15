@@ -358,6 +358,40 @@ class TestSecurityFixes(unittest.TestCase):
         self.assertIn('TrueNAS', t)
         self.assertNotIn('integration_down', t)   # not the bare event name
 
+    def test_integration_notification_message_not_unknown(self):
+        # Regression: _webhook_message had no integration case → fell through to
+        # the default "integration_recovered: unknown" (no device name in payload).
+        api = self.api
+        rec = api._webhook_message('integration_recovered', {'label': 'Sonarr', 'integration_id': 'i1'})
+        self.assertIn('Sonarr', rec)
+        self.assertNotIn('unknown', rec.lower())
+        self.assertNotIn('integration_recovered', rec)   # not the bare event name
+        down = api._webhook_message('integration_down',
+                                    {'label': 'Sonarr', 'detail': 'connection refused', 'integration_id': 'i1'})
+        self.assertIn('Sonarr', down)
+        self.assertNotIn('unknown', down.lower())
+
+    def test_integration_recovered_resolves_open_alert(self):
+        # Regression: integrations have no device_id, so _auto_resolve_alerts
+        # bailed and the open integration_down alert never resolved on recovery.
+        # It must resolve the matching integration (by integration_id) only.
+        import tempfile
+        from pathlib import Path
+        api = self.api
+        tmp = Path(tempfile.mkdtemp())
+        api.ALERTS_FILE = tmp / 'alerts.json'
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'event': 'integration_down', 'resolved_at': None, 'device_id': None,
+             'payload': {'integration_id': 'i1', 'label': 'Sonarr'}},
+            {'event': 'integration_down', 'resolved_at': None, 'device_id': None,
+             'payload': {'integration_id': 'i2', 'label': 'Radarr'}},
+        ]})
+        api._auto_resolve_alerts('integration_recovered', {'integration_id': 'i1', 'label': 'Sonarr'})
+        alerts = api.load(api.ALERTS_FILE)['alerts']
+        self.assertTrue(alerts[0]['resolved_at'], 'recovered integration alert must resolve')
+        self.assertEqual(alerts[0].get('resolved_by'), 'auto')
+        self.assertFalse(alerts[1]['resolved_at'], 'a different integration must stay open')
+
     def test_no_ctrl_strips_crlf(self):
         # Finding 5: credential fields are stripped of control chars before they
         # reach an HTTP header.
