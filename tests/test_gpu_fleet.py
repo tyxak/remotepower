@@ -69,19 +69,27 @@ class TestFleetGpuEndpoint(unittest.TestCase):
                              "power_w": 18, "fan_pct": 0}]},
             "d2": {"gpus": [{"vendor": "amd", "name": "RX 7900", "util_pct": 90,
                              "mem_used_mb": 8000, "mem_total_mb": 24000, "temp_c": 88}]},
-            "d3": {"gpus": [{"vendor": "nvidia", "name": "should be skipped"}]},  # unmonitored
+            "d3": {"gpus": [{"vendor": "nvidia", "name": "GT 1030"}]},  # unmonitored host
         })
         with self.assertRaises(api.HTTPError) as ctx:
             api.handle_fleet_gpus()
         body = ctx.exception.body
-        self.assertEqual(body["summary"]["gpus"], 2)        # d3 (unmonitored) excluded
-        self.assertEqual(body["summary"]["nvidia"], 1)
+        # GPU inventory is a telemetry view, not an alerting view — the unmonitored
+        # host's GPU is INCLUDED (just flagged monitored:false), not hidden.
+        self.assertEqual(body["summary"]["gpus"], 3)
+        self.assertEqual(body["summary"]["nvidia"], 2)
         self.assertEqual(body["summary"]["amd"], 1)
         self.assertEqual(body["summary"]["hot"], 1)         # the 88°C AMD
         self.assertEqual(body["summary"]["total_power_w"], 18)
         # hottest first
         self.assertEqual(body["gpus"][0]["device"], "render01")
         self.assertEqual(body["gpus"][0]["mem_pct"], round(100 * 8000 / 24000, 1))
+        # the unmonitored host is present and flagged
+        muted = [r for r in body["gpus"] if r["device"] == "muted"]
+        self.assertEqual(len(muted), 1)
+        self.assertFalse(muted[0]["monitored"])
+        # monitored hosts carry the flag too
+        self.assertTrue(body["gpus"][0]["monitored"])
 
 
 class TestGpuPageWiring(unittest.TestCase):

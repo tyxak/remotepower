@@ -35595,8 +35595,9 @@ def handle_fleet_gpus():
     hw_all = load(HARDWARE_FILE) or {}
     rows = []
     for dev_id, d in devices.items():
-        if d.get('monitored') is False:
-            continue
+        # GPU inventory shows EVERY host with a GPU, including unmonitored ones
+        # (e.g. a workstation you don't alert on) — this is a telemetry view, not
+        # an alerting view, so don't hide them the way thermal/storage do.
         hw = hw_all.get(dev_id) or {}
         for g in (hw.get('gpus') or []):
             if not isinstance(g, dict):
@@ -35607,6 +35608,7 @@ def handle_fleet_gpus():
             rows.append({
                 'device_id': dev_id, 'device': d.get('name', dev_id),
                 'online': bool(d.get('online')),
+                'monitored': d.get('monitored') is not False,
                 'vendor': g.get('vendor', ''), 'name': g.get('name', 'GPU'),
                 'util_pct': g.get('util_pct'), 'temp_c': g.get('temp_c'),
                 'power_w': g.get('power_w'), 'fan_pct': g.get('fan_pct'),

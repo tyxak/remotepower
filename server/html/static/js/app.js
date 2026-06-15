@@ -9773,7 +9773,7 @@ function _gpuCard(g) {
       <span class="gpu-vendor gpu-vendor-${escAttr(vend)}">${escHtml(vlabel)}</span>
       <span class="gpu-name" title="${escAttr(g.name || '')}">${escHtml(g.name || 'GPU')}</span>
     </div>
-    <div class="gpu-host hint">${escHtml(g.device || '')}${g.online ? '' : ' · offline'}</div>
+    <div class="gpu-host hint">${escHtml(g.device || '')}${g.online ? '' : ' · offline'}${g.monitored === false ? ' · unmonitored' : ''}</div>
     <div class="gpu-meter"><div class="gpu-meter-h"><span>Utilisation</span><span>${util}</span></div>${bar(g.util_pct, 'gpu-bar-util')}</div>
     <div class="gpu-meter"><div class="gpu-meter-h"><span>Memory</span><span>${g.mem_pct != null ? Math.round(g.mem_pct) + '%' : '—'}</span></div>${bar(g.mem_pct, 'gpu-bar-mem')}<div class="hint gpu-mem-txt">${_gpuMem(g.mem_used_mb)} / ${_gpuMem(g.mem_total_mb)}</div></div>
     <div class="gpu-stats">
