@@ -1011,11 +1011,12 @@ def _deluge(inst, c):
 
 @_register(
     "servarr",
-    "Servarr (Sonarr / Radarr / Prowlarr / Lidarr)",
+    "Servarr (other *arr app)",
     "download",
     [_field("secret", "API key", PASSWORD)],
-    notes="One connector for any *arr app — auto-detects the API version "
-    "(/api/v3 for Sonarr/Radarr, /api/v1 for Prowlarr/Lidarr/Readarr).",
+    notes="Generic *arr connector — auto-detects the API version (/api/v3 for "
+    "Sonarr/Radarr, /api/v1 for Prowlarr/Lidarr/Readarr). The named entries "
+    "(Sonarr, Radarr, …) use this same connector; pick one per instance.",
 )
 def _servarr(inst, c):
     h = {"X-Api-Key": inst.get("secret", "")}
@@ -1051,6 +1052,27 @@ def _servarr(inst, c):
         "detail": detail,
         "metrics": {"app": app, "health_errors": len(errors), "health_warnings": len(warnings)},
     }
+
+
+# Discoverability: list each *arr app by name in the Add dropdown. They all use
+# the one _servarr connector above (which auto-detects /api/v3 vs /api/v1), so
+# the user just picks "Sonarr" / "Radarr" / … instead of having to know it's
+# "Servarr". One integration instance per app.
+for _arr_type, _arr_label in (
+    ("sonarr", "Sonarr"),
+    ("radarr", "Radarr"),
+    ("prowlarr", "Prowlarr"),
+    ("lidarr", "Lidarr"),
+    ("readarr", "Readarr"),
+):
+    _register(
+        _arr_type,
+        _arr_label,
+        "download",
+        [_field("secret", "API key", PASSWORD)],
+        notes=f"{_arr_label} — health-check warnings/errors via its API "
+        "(auto-detects /api/v1 vs /api/v3).",
+    )(_servarr)
 
 
 @_register(
@@ -1166,6 +1188,9 @@ _STATS: dict = {
     "bazarr": [("health_issues", "Issues", "num")],
     "overseerr": [("pending_requests", "Pending", "num"), ("update_available", "Update", "flag")],
 }
+# The named *arr connectors share the servarr stat chips.
+for _arr in ("sonarr", "radarr", "prowlarr", "lidarr", "readarr"):
+    _STATS[_arr] = _STATS["servarr"]
 
 
 def _human(v):
