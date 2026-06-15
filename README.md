@@ -85,9 +85,12 @@ opening firewall ports on them. Each host runs a small Python agent that **polls
 the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-digit
 PIN, like pairing a console controller.
 
-Deliberately small: nginx + Python CGI + flat JSON files. No external database, no
-Node.js, no Redis, no Kubernetes. The whole `/var/lib/remotepower/` directory backs
-up with `tar`. Tested on real homelabs running 5–50 devices, fine up to a few
+Deliberately small and **readable**: nginx + Python CGI + flat JSON files — about
+**60,000 lines** of server Python, one HTML file, one CSS file and a handful of
+hand-written JS files. No external database, no Node.js, no Redis, no Kubernetes,
+**no build step, no bundler, no framework** — you can read every line. The whole
+`/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs
+running 5–50 devices, fine up to a few
 hundred — and for larger or write-heavy fleets you can switch to an optional
 embedded **SQLite** backend, or scale all the way to **PostgreSQL** (failover +
 read replicas), load-balanced **app nodes** and **relay satellites** for segmented
