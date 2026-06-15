@@ -146,6 +146,34 @@ class TestDocAdd(_TestBase):
         self.assertEqual(len(cmdb['dev1']['docs']), 1)
         self.assertEqual(cmdb['dev1']['docs'][0]['id'], c.body['id'])
 
+    def test_list_has_documentation_true_for_docs_list(self):
+        # Regression (visual bug): the CMDB list green "has docs" dot is driven
+        # by has_documentation, which used to check ONLY the legacy
+        # `documentation` blob. Docs added through the new multi-doc editor live
+        # in the `docs` list (and clear the legacy blob), so the dot never lit.
+        self._add_doc(title='Runbook', body='# steps')
+        _set_request('GET')
+        try:
+            api.handle_cmdb_list()
+        except _Captured as c:
+            cap = c
+        else:
+            self.fail("handler should have called respond()")
+        row = next(r for r in cap.body if r['device_id'] == 'dev1')
+        self.assertTrue(row['has_documentation'])      # docs list populated → dot lit
+        # And an asset with no docs stays unlit.
+        api.save(api.DEVICES_FILE, {
+            'dev1': {'name': 'host1', 'token': 't1', 'enrolled_at': int(time.time())},
+            'dev2': {'name': 'host2', 'token': 't2', 'enrolled_at': int(time.time())},
+        })
+        _set_request('GET')
+        try:
+            api.handle_cmdb_list()
+        except _Captured as c:
+            cap = c
+        row2 = next(r for r in cap.body if r['device_id'] == 'dev2')
+        self.assertFalse(row2['has_documentation'])
+
     def test_add_two_docs_keeps_both(self):
         c1 = self._add_doc(title='A', body='aaa')
         c2 = self._add_doc(title='B', body='bbb')

@@ -40034,7 +40034,13 @@ def handle_cmdb_list() -> None:
             'vlan':            rec_safe.get('vlan', ''),
             'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
             'ssh_port':        rec_safe.get('ssh_port', CMDB_DEFAULT_SSH_PORT),
-            'has_documentation': bool(rec_safe.get('documentation')),
+            # True if EITHER the legacy single-blob `documentation` OR the v2.0
+            # multi-doc `docs` list has content. Checking only `documentation`
+            # missed every asset whose docs were written through the new
+            # multi-doc editor (which clears the legacy field on first save) →
+            # the green "has docs" dot never lit despite attached docs.
+            'has_documentation': bool(rec_safe.get('documentation')
+                                      or rec_safe.get('docs')),
             'credential_count': len(rec_safe.get('credentials') or []),
         }
         if func_filter and entry['server_function'].lower() != func_filter:
