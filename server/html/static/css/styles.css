@@ -2325,6 +2325,10 @@ input.form-input[type="text"][data-token],
   padding: 16px 18px;
   margin-bottom: 16px;   /* v4.1.0: consistent 16px inter-box rhythm */
 }
+/* v4.7.0: inside the .dash-cols grid the 18px `gap` already spaces the cards;
+   the card's own 16px margin-bottom stacked ON TOP of it when the grid wraps to
+   one column (18 + 16 = 34px ≈ "double space"). Let the grid gap own it. */
+.dash-cols > .dash-card { margin-bottom: 0; }
 .dash-card h3 {
   font-size: 13px;
   text-transform: uppercase;
