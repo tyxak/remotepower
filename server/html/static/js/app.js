@@ -9795,7 +9795,7 @@ async function loadGpus() {
       ? `${s.gpus} GPU${s.gpus === 1 ? '' : 's'} on ${s.devices} host${s.devices === 1 ? '' : 's'} · ${s.nvidia} NVIDIA, ${s.amd} AMD · ${Math.round(s.total_power_w || 0)} W total${s.hot ? ` · ${s.hot} hot` : ''}`
       : '';
     if (!gpus.length) {
-      grid.innerHTML = '<div class="empty-state">No GPUs reported yet. Hosts report GPU telemetry via nvidia-smi / rocm-smi (or the amdgpu sysfs fallback) on the next heartbeat.</div>';
+      grid.innerHTML = '<div class="empty-state">No GPUs reported yet. Hosts report GPU telemetry via nvidia-smi / rocm-smi (or the amdgpu sysfs fallback) on their next hardware cycle — within a minute for a freshly (re)started agent, otherwise up to ~5&nbsp;min. Hosts without a GPU never appear here.</div>';
       return;
     }
     grid.innerHTML = gpus.map(_gpuCard).join('');

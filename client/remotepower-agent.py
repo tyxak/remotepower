@@ -6446,7 +6446,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # alongside containers rather than every heartbeat. Each is wrapped:
         # a probe failure (missing tool, no root) leaves the key absent and
         # the server keeps the last known value.
-        if poll_count > 1 and poll_count % CONTAINER_CHECK_EVERY == 0:
+        # v4.7.0: also send the hardware/GPU inventory on the FIRST heartbeat so a
+        # freshly enrolled or just-restarted agent shows SMART/GPU/etc. within a
+        # minute instead of waiting a full slow cycle (≈5 min).
+        if poll_count == 1 or (poll_count > 1 and poll_count % CONTAINER_CHECK_EVERY == 0):
             try:
                 smart = get_smart_status()
                 if smart:
