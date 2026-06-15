@@ -106,6 +106,14 @@ MAX_TOTAL_BYTES     = 96 * 1024
 HTTP_TIMEOUT_S      = 300    # 5 min — slow local models can take a while
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow HTTP redirects — a 3xx from a DNS-rebound LLM endpoint
+    must not replay the API key (Authorization header) to an attacker URL."""
+
+    def redirect_request(self, *args, **kwargs):  # noqa: D401
+        return None
+
+
 # ── Redaction ──────────────────────────────────────────────────────────────
 
 # Cheap regex-based redaction for hostnames / IPs / common secret-shaped
@@ -236,7 +244,14 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=Fal
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        # Do NOT follow redirects: an LLM / OpenAI-compatible endpoint never
+        # legitimately 3xx's, and a redirect from a DNS-rebound base_url would
+        # replay the API key (Authorization header) to an attacker-chosen host.
+        # Any 3xx becomes an error. (SSRF hardening — set-time pre-flight already
+        # blocks the obvious local/metadata targets.)
+        opener = urllib.request.build_opener(
+            _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+        with opener.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))  # 2 MB cap
     except urllib.error.HTTPError as e:
         try:

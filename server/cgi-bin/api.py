@@ -2618,11 +2618,15 @@ def get_body():
     return sys.stdin.buffer.read(length) if length > 0 else b''
 
 def get_json_body():
+    # Always return a dict. A top-level JSON array/scalar is truthy, so the
+    # common `body = get_json_body() or {}` guard would pass it through and the
+    # ~180 `.get(...)` callers would 500 on a non-dict. Coerce here.
     try:
         raw = get_body()
         if not raw:
             return {}
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
 
@@ -11939,9 +11943,17 @@ def _integration_client(inst):
 
 
 def _poll_one_integration(inst):
-    """Poll a single instance → normalized result dict (never raises)."""
+    """Poll a single instance → normalized result dict (never raises).
+
+    The result MUST carry the same id/label/type/checked keys as the polled
+    path — `_persist_integration_results` subscripts them unguarded, so an
+    asymmetric early-return (e.g. for a blank URL) would KeyError and abort the
+    whole persist cycle, silently dropping every integration's state + alerts."""
     if not inst.get('url'):
-        return {'status': integrations_mod.UNKNOWN, 'detail': 'no URL configured', 'metrics': {}}
+        return {'status': integrations_mod.UNKNOWN, 'detail': 'no URL configured',
+                'metrics': {}, 'id': inst.get('id'),
+                'label': inst.get('label') or inst.get('type'),
+                'type': inst.get('type'), 'checked': int(time.time())}
     client = _integration_client(inst)
     res = integrations_mod.poll_instance(inst, client)
     res['id'] = inst.get('id')
@@ -32484,12 +32496,15 @@ def handle_syslog_in(token_str):
 # ── v3.2.0 (A1): MCP Stage 4 — write tools + confirmation flow ──────────────
 
 def _prune_confirmations(store):
-    """Drop expired pending confirmations from the ledger in-place.
+    """Drop expired pending confirmations from the ledger in-place and RETURN the
+    list of expired payloads (device_name resolved) so the CALLER can fire
+    `mcp_confirmation_expired` AFTER its _LockedUpdate block exits.
 
-    v3.2.0 follow-up: fires `mcp_confirmation_expired` for each transition
-    pending → expired so the operator sees the silent-timeout case in the
-    Alerts inbox / webhook destinations. Fires before the trim so we don't
-    miss expiries that immediately roll off the count cap.
+    v4.7.0 fix (lock-nesting class): firing fire_webhook() here — while the
+    caller still holds _LockedUpdate(CONFIRMATIONS_FILE) — nests fire_webhook's
+    own _LockedUpdate under the SQLite single-connection backend → OperationalError
+    → the alert/webhook/fleet-event is silently swallowed. A `load()` read is
+    lock-safe, so device_name lookup stays here; only the fire moves out.
     """
     now = int(time.time())
     arr = store.get('confirmations', [])
@@ -32512,14 +32527,18 @@ def _prune_confirmations(store):
     if len(keep) > MAX_CONFIRMATIONS:
         keep = keep[-MAX_CONFIRMATIONS:]
     store['confirmations'] = keep
-    # Fire AFTER mutating in-place so the caller's _LockedUpdate write
-    # commits the status change atomically with the fire. Wrapped so a
-    # webhook hiccup can't block the prune.
-    for payload in expired_payloads:
+    if expired_payloads:
+        devs = load(DEVICES_FILE) or {}
+        for payload in expired_payloads:
+            payload['device_name'] = (devs.get(payload.get('device_id')) or {}).get('name', '')
+    return expired_payloads
+
+
+def _fire_expired_confirmations(expired_payloads):
+    """Fire mcp_confirmation_expired for each pruned confirmation. MUST be called
+    AFTER the _LockedUpdate block exits (see _prune_confirmations)."""
+    for payload in expired_payloads or []:
         try:
-            # Look up device_name for human-friendly title
-            d = (load(DEVICES_FILE).get(payload.get('device_id')) or {})
-            payload['device_name'] = d.get('name', '')
             fire_webhook('mcp_confirmation_expired', payload)
         except Exception as e:
             sys.stderr.write(f'[remotepower] mcp_confirmation_expired fire failed: {e}\n')
@@ -32542,8 +32561,9 @@ def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt):
         'decided_at':    None,
     }
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
-        _prune_confirmations(store)
+        _expired = _prune_confirmations(store)
         store.setdefault('confirmations', []).append(entry)
+    _fire_expired_confirmations(_expired)   # fire AFTER the lock (nesting-safe)
     audit_log(actor, 'mcp_confirmation_requested',
               f'action={action} device={device_id} id={conf_id}',
               ai_host=ai_host, ai_prompt=ai_prompt)
@@ -32767,8 +32787,9 @@ def handle_confirmations_list():
     require_admin_auth()
     # Prune expired while we read
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
-        _prune_confirmations(store)
+        _expired = _prune_confirmations(store)
         arr = list(store.get('confirmations', []))
+    _fire_expired_confirmations(_expired)   # fire AFTER the lock (nesting-safe)
     arr.reverse()
     # Add device_name + script_name for display
     devs = load(DEVICES_FILE)
@@ -32790,8 +32811,9 @@ def handle_confirmation_approve(conf_id):
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     entry = None
+    _expired = []
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
-        _prune_confirmations(store)
+        _expired = _prune_confirmations(store)
         for c in store.get('confirmations', []):
             if c.get('id') == conf_id:
                 entry = c
@@ -32809,6 +32831,7 @@ def handle_confirmation_approve(conf_id):
         entry['status'] = 'approved'
         entry['decided_by'] = actor
         entry['decided_at'] = int(time.time())
+    _fire_expired_confirmations(_expired)   # fire AFTER the lock (nesting-safe)
     # Execute outside the lock
     result = _mcp_execute(
         entry['action'], entry['device_id'], entry.get('params') or {},

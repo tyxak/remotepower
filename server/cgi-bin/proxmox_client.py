@@ -70,6 +70,14 @@ _HTTP_TIMEOUT = 10
 _LISTING_CAP = 500
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow HTTP redirects — a 3xx from a hostile/rebound Proxmox
+    host must not replay the Authorization token to an attacker-chosen URL."""
+
+    def redirect_request(self, *args, **kwargs):  # noqa: D401
+        return None
+
+
 class ProxmoxError(Exception):
     """Raised for any Proxmox interaction failure. The message is
     safe to surface to the UI — it never contains the token."""
@@ -176,8 +184,14 @@ def _request(pc: dict, path: str, method: str = 'GET',
                                  headers=headers)
     ctx = _ssl_context(pc.get('verify_tls', True))
     try:
-        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT,
-                                    context=ctx) as resp:
+        # Do NOT follow redirects: the Proxmox API never legitimately 3xx's, and
+        # a redirect from a hostile / DNS-rebound host would replay the
+        # Authorization token to an attacker-chosen location. Any 3xx is treated
+        # as an error. (SSRF hardening — set-time pre-flight already blocks the
+        # obvious local/meta targets.)
+        _opener = urllib.request.build_opener(
+            _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+        with _opener.open(req, timeout=_HTTP_TIMEOUT) as resp:
             raw = resp.read().decode('utf-8', 'replace')
     except urllib.error.HTTPError as e:
         # Proxmox returns useful status codes — translate the common

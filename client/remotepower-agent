@@ -3595,9 +3595,10 @@ def get_av_status():
         newest = 0
         for d in ('/var/lib/clamav',):
             try:
-                for fn in _os.listdir(d):
+                hd = host_path(d)   # read the HOST's clamav dir when containerized
+                for fn in _os.listdir(hd):
                     if fn.endswith(('.cvd', '.cld')):
-                        newest = max(newest, int(_os.path.getmtime(_os.path.join(d, fn))))
+                        newest = max(newest, int(_os.path.getmtime(_os.path.join(hd, fn))))
             except OSError:
                 pass
         if newest:
@@ -3627,7 +3628,7 @@ def get_av_status():
         if rk:
             r['warnings'] = len(warn)
         try:
-            r['last_run_ts'] = int(_os.path.getmtime('/var/log/rkhunter.log'))
+            r['last_run_ts'] = int(_os.path.getmtime(host_path('/var/log/rkhunter.log')))
         except OSError:
             pass
         out['rkhunter'] = r
@@ -5187,7 +5188,7 @@ def run_netscan(subnet=None):
         pass
     if not hosts:
         try:
-            arp = Path('/proc/net/arp')
+            arp = Path(host_path('/proc/net/arp'))   # host ARP table when containerized
             if arp.exists():
                 method.append('arp')
                 for ln in arp.read_text().splitlines()[1:]:
@@ -5219,7 +5220,9 @@ def run_netscan(subnet=None):
         except Exception:
             pass
 
-    out = sorted(hosts.values(), key=lambda h: tuple(int(x) for x in h['ip'].split('.')))
+    out = sorted(hosts.values(), key=lambda h: tuple(
+        int(x) if x.isdigit() else 0
+        for x in (h['ip'].split('.') + ['0', '0', '0', '0'])[:4]))
     return {'ok': True, 'hosts': out[:512], 'method': '+'.join(method) or 'none',
             'ts': int(time.time())}
 
