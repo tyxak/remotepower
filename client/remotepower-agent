@@ -265,6 +265,13 @@ ACME_CHECK_EVERY = 60
 try:
     import psutil as _psutil
     _PSUTIL = True
+    # Prime the non-blocking CPU sampler once at import so the first heartbeat's
+    # cpu_percent(interval=None) measures against a real baseline instead of
+    # returning 0.0 — and we never pay a blocking 0.5s sample on the hot path.
+    try:
+        _psutil.cpu_percent(interval=None)
+    except Exception:
+        pass
 except ImportError:
     _PSUTIL = False
 
@@ -4523,7 +4530,7 @@ def get_metrics():
     if not _PSUTIL:
         return {}
     try:
-        cpu  = _psutil.cpu_percent(interval=0.5)
+        cpu  = _psutil.cpu_percent(interval=None)   # non-blocking: %CPU since the previous poll
         _vm  = _psutil.virtual_memory()   # v4.6.0: one call, reused for mem_total_mb below
         mem  = _vm.percent
         # Root mount kept for backward compat; per-mount list is the new shape

@@ -2618,15 +2618,14 @@ def get_body():
     return sys.stdin.buffer.read(length) if length > 0 else b''
 
 def get_json_body():
-    # Always return a dict. A top-level JSON array/scalar is truthy, so the
-    # common `body = get_json_body() or {}` guard would pass it through and the
-    # ~180 `.get(...)` callers would 500 on a non-dict. Coerce here.
+    # Returns the raw parsed JSON (which MAY be a non-dict — some handlers, e.g.
+    # handle_ui_prefs_set, deliberately validate `isinstance(body, dict)` and
+    # reject a top-level array with 400, so we must NOT coerce here).
     try:
         raw = get_body()
         if not raw:
             return {}
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else {}
+        return json.loads(raw)
     except Exception:
         return {}
 
