@@ -412,6 +412,54 @@ class TestCspReportThrottle(unittest.TestCase):
         # Different IP: fresh budget.
         self.assertFalse(self.api._csp_report_should_throttle('2.2.2.2', 10))
 
+    def test_extension_origin_reports_dropped(self):
+        # Browser-extension CSP violations (moz-extension://, chrome-extension://)
+        # are noise from the user's extensions, not the app — they must be dropped
+        # (no audit_log write); real app-origin violations must still be logged.
+        import io
+        import json as _json
+        api = self.api
+        logged = []
+        api.audit_log = lambda **kw: logged.append(kw)
+
+        class _Done(Exception):
+            pass
+
+        def _raise_done(*a, **k):
+            raise _Done()
+        api.respond = _raise_done
+        api.CONFIG_FILE = Path(tempfile.mkdtemp()) / 'config.json'   # missing → logging on
+
+        def post(report):
+            body = _json.dumps(report).encode()
+            os.environ['CONTENT_LENGTH'] = str(len(body))
+            os.environ['REMOTE_ADDR'] = '9.9.9.9'
+            api._csp_report_rate.clear()
+            old = sys.stdin
+            sys.stdin = io.TextIOWrapper(io.BytesIO(body))
+            try:
+                api.handle_csp_report()
+            except _Done:
+                pass
+            finally:
+                sys.stdin = old
+
+        # extension via source-file → dropped
+        post({'csp-report': {'violated-directive': 'style-src-elem',
+                             'blocked-uri': 'inline',
+                             'source-file': 'moz-extension://abc/content.js'}})
+        self.assertEqual(len(logged), 0, 'extension source-file must be dropped')
+        # real app violation → logged
+        post({'csp-report': {'violated-directive': 'script-src',
+                             'blocked-uri': 'inline',
+                             'source-file': 'https://remote.example/app.js'}})
+        self.assertEqual(len(logged), 1, 'real app violation must be logged')
+        # extension via blocked-uri (some browsers report it there) → dropped
+        post({'csp-report': {'violated-directive': 'script-src-elem',
+                             'blocked-uri': 'chrome-extension://y/inject.js',
+                             'source-file': ''}})
+        self.assertEqual(len(logged), 1, 'extension blocked-uri must be dropped')
+
 
 # ── Admin-config password fields wrapped to suppress the DOM warning ────────
 

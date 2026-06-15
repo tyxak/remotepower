@@ -6618,6 +6618,12 @@ def handle_security_diag():
 #       only care about avoiding sustained log floods).
 _CSP_REPORT_MAX_BYTES = 16 * 1024     # browser reports are tiny; cap defensively
 _csp_report_rate = {}                 # ip -> [timestamp, …] (last minute)
+# Browser-extension URL schemes — CSP violations sourced here come from the
+# user's extensions, not the app, so they're dropped from the report log.
+_CSP_EXTENSION_SCHEMES = (
+    'moz-extension:', 'chrome-extension:', 'safari-extension:',
+    'safari-web-extension:', 'ms-browser-extension:', 'webkit-masked-url:',
+)
 
 
 def _csp_report_should_throttle(ip: str, per_minute: int) -> bool:
@@ -6706,6 +6712,17 @@ def handle_csp_report():
         line_no    = (r or {}).get('line-number')        or ''
         sample     = (r or {}).get('script-sample')      or ''
         referer    = os.environ.get('HTTP_REFERER', '')[:120]
+        # Browser extensions (ad blockers, dark-mode, password managers,
+        # Grammarly, translators, …) inject inline styles/scripts that our
+        # strict CSP blocks. Those violations originate in the EXTENSION, not the
+        # app — they're pure noise in the security log and not actionable. Drop
+        # them silently (still ack 204) when the source-file or blocked-uri is a
+        # browser-extension scheme. Matches Firefox moz-extension://, Chromium
+        # chrome-extension://, Safari safari(-web)-extension://, legacy Edge.
+        if any(str(source_file).startswith(s) or str(blocked).startswith(s)
+               for s in _CSP_EXTENSION_SCHEMES):
+            respond(204, '')
+            return
         # v3.0.6 fix: write through audit_log (audit_log.json) — NOT
         # log_command (history.json). The diag panel reads audit_log;
         # the previous draft hit history.json and the panel's "reports
