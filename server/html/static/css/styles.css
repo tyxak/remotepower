@@ -4741,7 +4741,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v4.1.0: resizable dashboard grid (size = column span on a 6-col grid) */
 .dash-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
              align-items: start; }
-.dash-grid > .dash-card { margin: 0; }            /* grid gap owns the spacing */
+/* grid gap owns the spacing — reset BOTH the .dash-card widgets and the one
+   .dash-cols widget (home-overview); its margin-bottom otherwise stacked on top
+   of the grid gap, leaving an oversized space under "Needs attention / Recent
+   activity" vs every other widget. */
+.dash-grid > .dash-card,
+.dash-grid > .dash-cols { margin: 0; }
 .dash-w-sm { grid-column: span 2; }
 .dash-w-md { grid-column: span 3; }
 .dash-w-lg { grid-column: span 6; }
