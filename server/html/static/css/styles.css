@@ -2342,6 +2342,10 @@ input.form-input[type="text"][data-token],
   font-size: 13px;
 }
 .dash-feed-item:last-child { border-bottom: none; }
+/* v4.7.0: the first feed item's 8px top-padding stacked on the header's 12px
+   margin made the Needs-attention / Recent-activity gap look doubled vs other
+   widgets. Zero it so the header→content gap is a consistent 12px. */
+.dash-feed-item:first-child { padding-top: 0; }
 .isl-750 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .isl-750 h3 { margin: 0; }
 .isl-751 { font-size: 11px; padding: 2px 8px; opacity: 0.7; }
@@ -5477,11 +5481,10 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .integ-row-pill { flex:none; }
 .integ-row-name { font-size:14px; font-weight:600; color:var(--text);
   white-space:nowrap; flex:none; }
-.integ-row-type { font-size:11px; color:var(--muted); text-transform:uppercase;
-  letter-spacing:.03em; flex:none; }
-.integ-row-stats { display:flex; gap:6px 16px; flex-wrap:wrap; flex:1 1 auto;
-  min-width:0; color:var(--muted); }
+.integ-row-stats { display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  flex:1 1 auto; min-width:0; color:var(--muted); }
 .integ-stat { white-space:nowrap; }
+.integ-sep { color:var(--muted); opacity:.5; }
 .integ-stat b { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
 .integ-row-detail { color:var(--muted); white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; }
