@@ -1014,14 +1014,27 @@ def _deluge(inst, c):
     "Servarr (Sonarr / Radarr / Prowlarr / Lidarr)",
     "download",
     [_field("secret", "API key", PASSWORD)],
-    notes="One connector for any *arr app on the shared /api/v3 (Sonarr, Radarr, Prowlarr, Lidarr, Readarr).",
+    notes="One connector for any *arr app — auto-detects the API version "
+    "(/api/v3 for Sonarr/Radarr, /api/v1 for Prowlarr/Lidarr/Readarr).",
 )
 def _servarr(inst, c):
     h = {"X-Api-Key": inst.get("secret", "")}
-    st = c.get_json("/api/v3/system/status", headers=h)
+    # *arr apps split across API versions: Sonarr/Radarr on /api/v3, but
+    # Prowlarr/Lidarr/Readarr on /api/v1. Probe both for system/status.
+    api = None
+    st = {}
+    for ver_path in ("v3", "v1"):
+        r = c.get(f"/api/{ver_path}/system/status", headers=h)
+        if r.ok:
+            api, st = ver_path, (r.json() or {})
+            break
+    if api is None:
+        raise IntegrationError(
+            "system/status not found on /api/v3 or /api/v1 (check URL + API key)"
+        )
     app = st.get("appName", "Servarr")
     ver = st.get("version", "")
-    health = c.get_json("/api/v3/health", headers=h) or []
+    health = c.get_json(f"/api/{api}/health", headers=h) or []
     errors = [x.get("message", "") for x in health if str(x.get("type", "")).lower() == "error"]
     warnings = [x.get("message", "") for x in health if str(x.get("type", "")).lower() == "warning"]
     status = CRIT if errors else (WARN if warnings else OK)

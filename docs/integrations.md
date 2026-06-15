@@ -71,9 +71,10 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
   must be reachable from the RemotePower server for this to work.
 - **Uptime Kuma** has no official API, so this reads a **published status page**;
   set the page slug rather than a token.
-- **Servarr** is a single connector for any *arr app on the shared `/api/v3`
-  (Sonarr, Radarr, Prowlarr, Lidarr, Readarr). It surfaces the app's own
-  health-check warnings/errors. **Bazarr** uses a different API and is its own type.
+- **Servarr** is a single connector for any *arr app — it **auto-detects the API
+  version** (`/api/v3` for Sonarr/Radarr, `/api/v1` for Prowlarr/Lidarr/Readarr)
+  and surfaces the app's own health-check warnings/errors. **Bazarr** uses a
+  different API and is its own type.
 - **Standalone ESXi** exposes only SOAP; point the vCenter connector at a
   vCenter instance.
 

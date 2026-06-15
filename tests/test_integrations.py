@@ -171,6 +171,27 @@ class TestConnectors(unittest.TestCase):
         self.assertEqual(r['status'], I.CRIT)
         self.assertEqual(r['metrics']['nodes_notready'], 1)
 
+    def test_servarr_detects_api_version(self):
+        # Sonarr/Radarr are on /api/v3; Prowlarr/Lidarr/Readarr on /api/v1. The
+        # connector must probe both (regression: a real Prowlarr 404'd on v3).
+        prowlarr = FakeClient(routes={
+            '/api/v1/system/status': (200, {'appName': 'Prowlarr', 'version': '2.4.0.5397'}),
+            '/api/v1/health': (200, []),
+            # v3 intentionally absent → 404
+        })
+        r = I.poll_instance({'type': 'servarr', 'secret': 'k'}, prowlarr)
+        self.assertEqual(r['status'], I.OK)
+        self.assertIn('Prowlarr', r['detail'])
+        sonarr = FakeClient(routes={
+            '/api/v3/system/status': (200, {'appName': 'Sonarr', 'version': '4.0'}),
+            '/api/v3/health': (200, [{'type': 'error', 'message': 'x'}]),
+        })
+        self.assertEqual(I.poll_instance({'type': 'servarr', 'secret': 'k'}, sonarr)['status'], I.CRIT)
+        # neither version present → critical with a helpful message
+        none = I.poll_instance({'type': 'servarr', 'secret': 'k'}, FakeClient(routes={}))
+        self.assertEqual(none['status'], I.CRIT)
+        self.assertIn('v3 or /api/v1', none['detail'])
+
     def test_overseerr_update_warns(self):
         c = FakeClient(routes={
             '/api/v1/status': (200, {'version': '1.33', 'updateAvailable': True}),
