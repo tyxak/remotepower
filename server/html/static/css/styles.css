@@ -489,10 +489,12 @@
     top: 0;
     bottom: 0;
     /* v3.2.0: widened 200 → 220 — "MCP Confirmations" + green/red count
-       badge was clipping at 200px. Two extra rem of breathing room
-       accommodates the longest visible label without crowding the
-       chevrons on group toggles. */
-    width: 220px;
+       badge was clipping at 200px.
+       v4.7.0: widened 220 → 240 — a touch more room so the longest labels
+       (e.g. "MCP Confirmations") render in full without the ellipsis kicking
+       in, so the installed PWA and the browser look identical (the PWA used to
+       clip a few labels the browser showed whole). Keep .app-content in step. */
+    width: 240px;
     background: var(--surface);
     border-right: 1px solid var(--border);
     padding: 72px 12px 16px;
@@ -932,8 +934,8 @@
     min-height: calc(100vh - 60px);
   }
   .app-content {
-    /* v3.2.0: keep in lockstep with .sidebar width (220px) */
-    margin-left: 220px;
+    /* keep in lockstep with .sidebar width (v4.7.0: 240px) */
+    margin-left: 240px;
     flex: 1;
     min-width: 0;
   }
@@ -2043,6 +2045,11 @@ body.light {
  * alternates that fix the awkward default "1", straight-sided "a", etc.
  * cv02/cv03/cv04/cv11 enable those; harmless on systems without Inter. */
 body {
+  /* Anchor the canonical 14px BODY size once, document-wide. Without this the
+     base inherited the browser default 16px, so any element that didn't set its
+     own size rendered a size off the scale — the root of "body text appears at
+     different sizes". Components with an explicit size are unaffected. */
+  font-size: 14px;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -2494,7 +2501,7 @@ input.form-input[type="text"][data-token],
   font-weight: 500;
 }
 .empty-state-body {
-  font-size: 13px;
+  font-size: 14px;   /* descriptive prose = body (14), not dense-cell 13 */
   margin-bottom: 16px;
   max-width: 480px;
   margin-left: auto;
@@ -2877,8 +2884,12 @@ input.form-input[type="text"][data-token],
  *  2. The "MCP Confirmations" nav row is tight inside the 220px sidebar;
  *     the scrollbar tips its count badge past the edge. Fix: pin the
  *     badge (flex-shrink:0) and let the label ellipsis instead. This one
- *     stays scoped to installed modes (not (display-mode: browser)). */
-@media (not (display-mode: browser)) and (min-width: 721px) {
+ *     v4.7.0: applied in ALL display modes (dropped the display-mode gate) so
+ *     the installed PWA and the plain browser clip nav labels IDENTICALLY — the
+ *     PWA-only scope is exactly what made the PWA truncate labels the browser
+ *     showed in full. With the 240px sidebar, truncation should rarely trigger
+ *     at all; when it must, both modes now behave the same. */
+@media (min-width: 721px) {
   body:not(.sidebar-collapsed) .nav-btn > span:not(.nav-badge) {
     min-width: 0;
     overflow: hidden;
@@ -5012,7 +5023,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-score { text-align: center; }
 .hh-num { font-size: 48px; font-weight: 700; line-height: 1; }
 .hh-grade { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-.hh-sub { font-size: 12px; margin-top: 2px; }
+.hh-sub { font-size: 14px; margin-top: 2px; }   /* widget subtitle = body subtext (14) */
 .hh-bar-track { width: 100%; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .hh-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
 .hh-counts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -5042,7 +5053,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .rep-k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .rep-v { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.1; margin-top: 4px; }
 .rep-unit { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 3px; }
-.rep-sub { font-size: 12px; margin-top: 2px; }
+.rep-sub { font-size: 14px; margin-top: 2px; }   /* widget subtitle = body subtext (14) */
 .rep-compliance { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
 .m-0 { margin: 0; }
@@ -5452,7 +5463,7 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .ui-opt.sel { background:var(--accent); color:#fff; }
 .ui-opt.sel .ui-opt-desc { color:rgba(255,255,255,0.82); }
 .ui-opt-name { font-size:14px; font-weight:600; }
-.ui-opt-desc { font-size:11px; color:var(--muted); }
+.ui-opt-desc { font-size:14px; color:var(--muted); }   /* option description = body prose (14) */
 
 /* v4.7.0: Docker-host enrollment block inside the Enroll modal. */
 .enroll-or { text-align:center; color:var(--muted); font-size:12px;
@@ -5477,7 +5488,9 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 /* v4.7.0: rich integration TILES (Dashy-style) — the dedicated Integrations page
    + the dashboard widget. Theme-token only, so they track every theme incl.
    Industrial light/dark. */
-.integ-tiles { display:flex; flex-direction:column; gap:6px; }
+/* Box-overflow rule: cap the full-fleet integration list (one row per
+   connector, 26+ possible) and scroll internally instead of growing unbounded. */
+.integ-tiles { display:flex; flex-direction:column; gap:6px; max-height:480px; overflow-y:auto; }
 .integ-row { display:flex; align-items:center; gap:10px; padding:8px 12px;
   border:1px solid var(--border); border-radius:8px; background:var(--surface);
   font-size:13px; }
@@ -5499,7 +5512,10 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .integ-tiles-mini { max-height:300px; overflow:auto; }
 
 /* v4.7.0: fleet GPU page (NVIDIA + AMD) — rich cards with util/VRAM meters. */
-.gpu-grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); }
+/* Box-overflow rule: cap the full-fleet GPU card grid and scroll internally
+   (a large GPU fleet would otherwise grow the page unbounded). */
+.gpu-grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));
+            max-height:640px; overflow-y:auto; }
 .gpu-card { border:1px solid var(--border); border-radius:10px; padding:14px 16px;
   background:var(--surface); display:flex; flex-direction:column; gap:10px; }
 .gpu-card.gpu-off { opacity:.6; }

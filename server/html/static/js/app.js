@@ -12463,7 +12463,17 @@ async function loadSecrets() {
   if (!tbody) return;
   tableCtl.wireSortOnly('secrets-thead', 'secrets', () => _renderSecrets());
   const fb = document.getElementById('secrets-filter');
-  if (fb && !fb.dataset.wired) { fb.dataset.wired = '1'; fb.addEventListener('input', () => _renderSecrets()); }
+  // Debounce: _renderSecrets() flattens + sorts + rebuilds the whole tbody
+  // (hundreds of findings on a big fleet); the prior listener fired that on
+  // EVERY keystroke (the data-input-debounce attr was dead — no data-input).
+  if (fb && !fb.dataset.wired) {
+    fb.dataset.wired = '1';
+    let _sft;
+    fb.addEventListener('input', () => {
+      clearTimeout(_sft);
+      _sft = setTimeout(() => _renderSecrets(), 180);
+    });
+  }
   tbody.innerHTML = _skeletonRows(6);
   try {
     _secretsResp = await api('GET', '/fleet/secrets');
