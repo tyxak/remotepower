@@ -359,7 +359,7 @@ def build_devices() -> dict:
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '3.13.0' if not dev['agentless'] else None,
+            'version':     '4.7.0' if not dev['agentless'] else None,
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),
@@ -479,6 +479,14 @@ def build_devices() -> dict:
             if compose:
                 rec['compose_projects'] = compose
                 rec['compose_projects_ts'] = last_seen
+        else:
+            # Agentless network gear is SNMP-polled. device_list only attaches
+            # an snmp_status snapshot when the device record itself has
+            # snmp.enabled (api.py ~7058); the per-device cache lives in
+            # snmp_data.json (build_snmp_data). Without this the SNMP pill and
+            # the SNMP-Metrics page stay blank even with the cache populated.
+            rec['snmp'] = {'enabled': True, 'community': 'public',
+                           'port': 161, 'version': '2c'}
 
         out[dev['id']] = rec
     return out
@@ -1274,8 +1282,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '3.13.0',
-        'agent_version':     '3.13.0',
+        'server_version':    '4.7.0',
+        'agent_version':     '4.7.0',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -1371,6 +1379,30 @@ def build_config() -> dict:
                 {'scope_type': 'device', 'scope_value': 'nc01', 'profile_id': 'dp_db'},
             ],
         },
+
+        # v3.14.0 — exposed-secrets scanning on (so the Secrets page shows the
+        # seeded findings as active rather than "scanning is off").
+        'secrets_scan_enabled': True,
+
+        # v3.4.2 — access watch: events fired outside business hours surface in
+        # Needs-Attention. Window + watched events match build_after_hours_hits.
+        'after_hours': {
+            'enabled':  True,
+            'events':   ['recent_login', 'new_port_detected', 'command_run'],
+            'start':    '09:00',
+            'end':      '17:00',
+            'workdays': [0, 1, 2, 3, 4],
+        },
+
+        # v4.7.0 — homelab software integrations. show_homelab is the enterprise
+        # kill switch (default on). The instances + their last poll results live
+        # in _DEMO_INTEGRATIONS / build_integrations_state; integration_notified
+        # marks the already-down ones so the first real poll doesn't re-alert.
+        'show_homelab':          True,
+        'integrations_interval': 300,
+        'integrations':          _DEMO_INTEGRATIONS,
+        'integration_notified':  {i['id']: True for i in _DEMO_INTEGRATIONS
+                                  if _DEMO_INTEG_RESULTS[i['id']][0] != 'ok'},
     }
 
 
@@ -1421,9 +1453,22 @@ def build_hardware() -> dict:
         'bk01':  [('CPU', 44.0)],
         'gt01':  [('CPU', 88.5), ('Chipset', 63.0)],           # CRITICAL
     }
-    # GPUs report temp + power draw (feeds Thermal + Power).
+    # GPUs report util/memory/temp/power/fan (feeds the fleet GPU page + Thermal
+    # + Power). A rich NVIDIA + AMD spread: a gaming card, a passthrough compute
+    # card running HOT, an idle media-transcode card, and an AMD render card.
     gpus_map = {
-        'gt01':  [{'name': 'NVIDIA GeForce RTX 3060', 'temp_c': 71.0, 'power_w': 142.0}],
+        'gt01':  [{'vendor': 'nvidia', 'name': 'NVIDIA GeForce RTX 3060',
+                   'util_pct': 99, 'mem_used_mb': 9900, 'mem_total_mb': 12288,
+                   'temp_c': 86.0, 'power_w': 168.0, 'fan_pct': 84}],   # HOT (≥85°C)
+        'pmx01': [{'vendor': 'nvidia', 'name': 'NVIDIA RTX A2000',
+                   'util_pct': 88, 'mem_used_mb': 5200, 'mem_total_mb': 6144,
+                   'temp_c': 78.0, 'power_w': 64.0, 'fan_pct': 70}],   # HOT
+        'jf01':  [{'vendor': 'nvidia', 'name': 'NVIDIA Quadro P2000',
+                   'util_pct': 12, 'mem_used_mb': 900, 'mem_total_mb': 5120,
+                   'temp_c': 44.0, 'power_w': 18.0, 'fan_pct': 30}],   # transcode idle
+        'pr01':  [{'vendor': 'amd', 'name': 'AMD Radeon RX 7900 XT',
+                   'util_pct': 35, 'mem_used_mb': 8000, 'mem_total_mb': 20480,
+                   'temp_c': 58.0, 'power_w': 120.0, 'fan_pct': 40}],
     }
     # UPS units (feeds Power + Chargeback). pmx01 is on battery (OB) so the page
     # shows the on-battery state; both report load/runtime/draw.
@@ -1435,7 +1480,14 @@ def build_hardware() -> dict:
     }
     ts = now()
     out = {}
-    for dev_id, (disk_specs, reboot) in specs.items():
+    # Build a record for every host with ANY hardware signal — disks, sensors,
+    # GPUs or UPS — not just the disk owners (e.g. jf01/pr01 have a GPU but no
+    # tracked disk). Disk owners keep their exact _seeded_random draw order so
+    # build_smart_history can re-derive the same serials.
+    all_ids = list(dict.fromkeys(
+        list(specs) + list(temps_map) + list(gpus_map) + list(ups_map)))
+    for dev_id in all_ids:
+        disk_specs, reboot = specs.get(dev_id, ([], False))
         rng = _seeded_random('hardware', dev_id)
         disks = []
         for device, health, model, realloc in disk_specs:
@@ -1983,6 +2035,957 @@ def build_confirmations() -> dict:
     return {'confirmations': confirmations}
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Previously-unseeded subsystems (v3.x → v4.7.0) — so the demo shows EVERY
+# feature populated, not just the recent ones. Each builder was schema-verified
+# against the api.py handler that consumes the file (cited per-builder).
+# ════════════════════════════════════════════════════════════════════════════
+
+# ─── Homelab software integrations (v4.7.0) ─────────────────────────────────
+# Single source of truth: (type, label, url, status, detail, version, metrics).
+# _DEMO_INTEGRATIONS (the instances saved in config.json) and
+# build_integrations_state() (last poll results in integrations_state.json) are
+# both derived from it, so they stay in lockstep. status ∈ ok/warning/critical
+# (integrations.OK/WARN/CRIT); metrics keys match integrations._STATS so
+# format_stats() renders the rich-tile chips. A few are warning/critical so the
+# dashboard roll-up, worst-first ordering, and integration_down alerts populate.
+_DEMO_INTEG_DEFS = [
+    ('pihole', 'Pi-hole', 'https://pihole.lab/admin', 'ok',
+     'blocking 132,418 domains', '6.0.4',
+     {'queries_today': 84213, 'blocked_pct': 18.7, 'domains_blocked': 132418}),
+    ('adguard', 'AdGuard Home', 'https://10.0.2.12', 'ok',
+     'protection enabled', '0.107.52',
+     {'queries': 88210, 'blocked': 15234}),
+    ('truenas', 'TrueNAS', 'https://truenas.lab', 'ok',
+     '2 pools healthy', '24.04.2',
+     {'pools': 2, 'pools_bad': 0, 'alerts_crit': 0}),
+    ('unifi', 'UniFi Network', 'https://10.0.0.50:8443', 'ok',
+     '5 subsystems ok', '8.4.59',
+     {'subsystems': 5, 'subsystems_bad': 0}),
+    ('homeassistant', 'Home Assistant', 'https://home-assistant.lab:8123', 'ok',
+     '412 entities, 3 unavailable', '2024.6.4',
+     {'entities': 412, 'unavailable': 3}),
+    ('pbs', 'Proxmox Backup Server', 'https://10.0.1.30:8007', 'ok',
+     '2 datastores, fullest 71%', '3.2-7',
+     {'datastores': 2, 'fullest_pct': 71}),
+    ('jellyfin', 'Jellyfin', 'https://jellyfin.lab:8096', 'ok',
+     '2 streaming (1 transcoding)', '10.9.6',
+     {'sessions_active': 2, 'transcoding': 1}),
+    ('nextcloud', 'Nextcloud', 'https://nextcloud.lab', 'ok',
+     '14 users — update available', '30.0.1',
+     {'users': 14, 'update_available': True}),
+    ('grafana', 'Grafana', 'https://prometheus.lab:3000', 'ok',
+     'database ok', '11.1.0',
+     {'database_ok': True}),
+    ('uptimekuma', 'Uptime Kuma', 'https://status.lab', 'warning',
+     '1 of 24 monitors down', '1.23.13',
+     {'monitors': 24, 'down': 1}),
+    ('npm', 'Nginx Proxy Manager', 'http://10.0.2.20:81', 'warning',
+     '1 certificate expires within 14 days', '2.11.3',
+     {'proxy_hosts': 12, 'certs_expiring': 1}),
+    ('sabnzbd', 'SABnzbd', 'http://10.0.2.30:8081', 'ok',
+     '3 in queue, 1.8 GB left', '4.3.2',
+     {'queue': 3, 'mb_left': 1840, 'paused': False}),
+    ('qbittorrent', 'qBittorrent', 'http://10.0.2.30:8080', 'critical',
+     'connection refused', None, {}),
+    ('sonarr', 'Sonarr', 'http://10.0.2.30:8989', 'warning',
+     '1 health warning', '4.0.9',
+     {'health_errors': 0, 'health_warnings': 1}),
+    ('radarr', 'Radarr', 'http://10.0.2.30:7878', 'ok',
+     'healthy', '5.7.0',
+     {'health_errors': 0, 'health_warnings': 0}),
+    ('prowlarr', 'Prowlarr', 'http://10.0.2.30:9696', 'warning',
+     '2 health errors', '1.21.2',
+     {'health_errors': 2, 'health_warnings': 1}),
+    ('bazarr', 'Bazarr', 'http://10.0.2.30:6767', 'ok',
+     'no issues', '1.4.3',
+     {'health_issues': 0}),
+    ('overseerr', 'Overseerr', 'https://overseerr.lab', 'ok',
+     '5 pending requests', '1.33.2',
+     {'pending_requests': 5, 'update_available': False}),
+]
+
+_DEMO_INTEGRATIONS = [
+    {
+        'id':         _stable_id('integration', typ, label),
+        'type':       typ,
+        'label':      label,
+        'url':        url,
+        'enabled':    True,
+        'verify_tls': url.startswith('https://'),
+        'username':   '',
+        'slug':       '',
+        'interval':   0,
+        # Placeholder secret — auto-redacted by _scrub_config_secrets; the demo
+        # is read-only so it grants nothing and never drives a real poll.
+        'secret':     'demo-secret-' + _stable_id('integsecret', typ, length=20),
+    }
+    for (typ, label, url, status, detail, version, metrics) in _DEMO_INTEG_DEFS
+]
+
+_DEMO_INTEG_RESULTS = {
+    _stable_id('integration', typ, label): (status, detail, metrics, version)
+    for (typ, label, url, status, detail, version, metrics) in _DEMO_INTEG_DEFS
+}
+
+
+def build_integrations_state() -> dict:
+    """v4.7.0 last integration poll results + short history → integrations_state.json.
+
+    Mirrors what _persist_integration_results writes (api.py ~11968):
+    {'latest': {id: result}, 'history': {id: [{ts,status,detail}]}}. Each result
+    matches the _poll_one_integration shape (id/type/label/status/detail/checked/
+    metrics/version) so handle_integrations_list renders the rich tile chips via
+    format_stats. Derived from _DEMO_INTEG_DEFS to stay in lockstep with config."""
+    latest, history = {}, {}
+    for inst in _DEMO_INTEGRATIONS:
+        key = inst['id']
+        status, detail, metrics, version = _DEMO_INTEG_RESULTS[key]
+        rng = _seeded_random('integ', key)
+        checked = now() - rng.randint(20, 280)   # polled within the last ~5 min
+        latest[key] = {
+            'id': key, 'type': inst['type'], 'label': inst['label'],
+            'status': status, 'detail': detail, 'metrics': metrics,
+            'version': version, 'checked': checked,
+        }
+        hist = []
+        for i in range(7, -1, -1):               # 8 points, oldest → newest
+            ts = checked - i * 300
+            st = status if i == 0 else 'ok'       # only the latest reflects a fault
+            hist.append({'ts': ts, 'status': st,
+                         'detail': detail if i == 0 else 'ok'})
+        history[key] = hist
+    return {'latest': latest, 'history': history}
+
+
+# ─── SNMP poll cache (snmp_data.json) ───────────────────────────────────────
+# Schema verified against _snmp_poll_device (api.py:33310) + the snmp_status
+# summary the Devices/SNMP-Metrics pages read (api.py:7057). The device record's
+# snmp.enabled gate is set in build_devices() (agentless branch). Only the four
+# agentless network devices are SNMP-polled.
+def build_snmp_data() -> dict:
+    """Per-device SNMP poll cache for the agentless switches/APs.
+
+    Keyed by device id; each value mirrors the dict _snmp_poll_device writes:
+    sys-group scalars + hrProcessorTable (per-core load) + hrStorageTable
+    (memory + filesystems) + vendor MIB block."""
+    profiles = {
+        'sw01': {'descr': 'Juniper Networks, Inc. ex3400-24t Ethernet Switch, '
+                          'kernel JUNOS 21.4R3-S4.9',
+                 'oid': '1.3.6.1.4.1.2636.1.1.1.2.82', 'name': 'switch-core',
+                 'location': 'HQ Copenhagen / rack A',
+                 'mem_total_mb': 2048, 'fs': [('/var', 4096, 38)]},
+        'sw02': {'descr': 'USW-Pro-24-PoE, 6.6.55.14934, Linux 3.6.5',
+                 'oid': '1.3.6.1.4.1.41112.1.6', 'name': 'switch-rack',
+                 'location': 'DC Frankfurt / rack 4',
+                 'mem_total_mb': 512, 'fs': [('/persist', 256, 22)]},
+        'ap01': {'descr': 'U6-Pro, 6.6.55.14934, Linux 4.4.153',
+                 'oid': '1.3.6.1.4.1.41112.1.6', 'name': 'ap-living',
+                 'location': 'HQ Copenhagen / living',
+                 'mem_total_mb': 512, 'fs': [('/tmp', 128, 31)]},
+        'ap02': {'descr': 'U6-Lite, 6.6.55.14934, Linux 4.4.153',
+                 'oid': '1.3.6.1.4.1.41112.1.6', 'name': 'ap-office',
+                 'location': 'HQ Copenhagen / office',
+                 'mem_total_mb': 256, 'fs': [('/tmp', 64, 19)]},
+    }
+    out = {}
+    for dev_id, p in profiles.items():
+        rng = _seeded_random('snmp', dev_id)
+        uptime_s = rng.randint(86400 * 5, 86400 * 240)
+        cores = rng.choice([1, 2, 4])
+        processors = [{'index': i + 1, 'load_pct': rng.randint(2, 47)}
+                      for i in range(cores)]
+        mem_total_kb = p['mem_total_mb'] * 1024
+        mem_pct = rng.randint(28, 71)
+        mem_used_kb = int(mem_total_kb * mem_pct / 100)
+        storage = [{'index': 1, 'descr': 'Physical memory',
+                    'size_bytes': mem_total_kb * 1024,
+                    'used_bytes': mem_used_kb * 1024, 'used_pct': mem_pct}]
+        for fi, (mount, size_mb, used_pct) in enumerate(p['fs'], start=2):
+            size_bytes = size_mb * 1024 * 1024
+            storage.append({'index': fi, 'descr': mount, 'size_bytes': size_bytes,
+                            'used_bytes': int(size_bytes * used_pct / 100),
+                            'used_pct': used_pct})
+        out[dev_id] = {
+            'host': next(d['ip'] for d in FAKE_DEVICES if d['id'] == dev_id),
+            'port': 161, 'last_ok': now() - rng.randint(20, 280),
+            'last_error': None, 'consecutive_fails': 0,
+            'sysDescr': p['descr'], 'sysObjectID': p['oid'],
+            'sysUpTime': uptime_s * 100, 'sysContact': 'netops@demo.lab',
+            'sysName': p['name'], 'sysLocation': p['location'],
+            'processors': processors, 'storage': storage,
+            'vendor': {}, 'synology': {},
+        }
+    return out
+
+
+def build_speedtest() -> dict:
+    """Recent speed-test results for the WAN-facing hosts → speedtest.json.
+
+    Schema verified against _ingest_speedtest (api.py:22587): keyed by dev_id →
+    list of {ts, download_mbps, upload_mbps, ping_ms, jitter_ms, server, ok}.
+    Newest entry last (the device-drawer Diagnostics card reads the tail)."""
+    out = {}
+    servers = ['Telia (Copenhagen)', 'init7 (Zurich)', 'Hetzner (Falkenstein)']
+    for dev_id in ('fw01', 'ng01'):
+        rng = _seeded_random('speedtest', dev_id)
+        hist = []
+        n = rng.randint(4, 9)
+        for i in range(n):
+            age_s = (n - 1 - i) * 86400 + rng.randint(60, 3600)
+            down = round(rng.uniform(180, 940), 2)
+            hist.append({'ts': now() - age_s, 'download_mbps': down,
+                         'upload_mbps': round(down * rng.uniform(0.08, 0.55), 2),
+                         'ping_ms': round(rng.uniform(3, 28), 2),
+                         'jitter_ms': round(rng.uniform(0.3, 4.5), 2),
+                         'server': rng.choice(servers), 'ok': True})
+        out[dev_id] = hist
+    return out
+
+
+def build_discovery() -> dict:
+    """LAN-scan results from the scanning hosts → discovery.json.
+
+    Schema verified against _ingest_netscan (api.py:22607) + handle_discovery
+    (api.py:21103): keyed by dev_id → {ts, method, hosts:[{ip, mac, hostname,
+    managed}]}. `managed` is precomputed here the way the server does at ingest
+    (cross-referencing enrolled IPs) so the unmanaged-hosts rollup is non-empty."""
+    known_ips = {d['ip'] for d in FAKE_DEVICES}
+    unmanaged_pool = [
+        ('10.0.3.21', '02:00:5e:00:03:21', 'hp-laserjet'),
+        ('10.0.3.40', '02:00:5e:00:03:40', 'esp-thermostat'),
+        ('10.0.3.41', '02:00:5e:00:03:41', 'esp-garage'),
+        ('10.0.3.55', '02:00:5e:00:03:55', 'android-pixel'),
+        ('10.0.3.70', '02:00:5e:00:03:70', 'shelly-plug'),
+        ('10.0.3.88', '02:00:5e:00:03:88', 'roku-livingroom'),
+        ('10.0.3.99', '02:00:5e:00:03:99', ''),
+        ('10.0.2.110', '02:00:5e:00:02:aa', 'unifi-doorbell'),
+    ]
+    out = {}
+    for dev_id, method in (('fw01', 'arp'), ('pi1', 'nmap-sweep')):
+        rng = _seeded_random('discovery', dev_id)
+        hosts = []
+        for d in FAKE_DEVICES:
+            if d['id'] == dev_id:
+                continue
+            if rng.random() < 0.8:
+                hosts.append({'ip': d['ip'], 'mac': d['mac'],
+                              'hostname': d['name'], 'managed': True})
+        for ip, mac, hostname in rng.sample(unmanaged_pool,
+                                             k=rng.randint(3, len(unmanaged_pool))):
+            hosts.append({'ip': ip, 'mac': mac, 'hostname': hostname,
+                          'managed': ip in known_ips})
+        out[dev_id] = {'ts': now() - rng.randint(300, 86400),
+                       'method': method, 'hosts': hosts}
+    return out
+
+
+def build_tunnels() -> dict:
+    """VPN-style peer tunnels between devices → tunnels.json (Network Map edges).
+
+    Schema verified against handle_tunnels_list/add (api.py:18819) +
+    handle_network_map (api.py:18737): {'tun_<hex>': {endpoints:[id_a,id_b]
+    (sorted), created_at, created_by}}. Both endpoints reference real devices."""
+    pairs = [('fw01', 'pmx01'), ('fw01', 'ng01'), ('ng01', 'nc01')]
+    out = {}
+    for a, b in pairs:
+        endpoints = sorted([a, b])
+        tid = 'tun_' + _stable_hex('tunnel', endpoints[0], endpoints[1], nbytes=6)
+        out[tid] = {'endpoints': endpoints,
+                    'created_at': now() - 86400 * 30, 'created_by': 'alice'}
+    return out
+
+
+def build_satellites() -> dict:
+    """Relay satellites → satellites.json (Settings → Satellites + Scans picker).
+
+    Schema verified against handle_satellites_create/list (api.py:27158/27133):
+    {sid: {name, token_hash (sha256 hex of the token), created, last_seen,
+    last_ip, scanner}}. One plain relay + one scanner-enabled (the Scans page
+    targets scanner:true satellites)."""
+    out = {}
+    defs = [('hq-relay', 'hq-relay', False, 95, '10.0.0.50'),
+            ('dc-scanner', 'dc-scanner', True, 240, '10.0.1.99')]
+    for key, name, scanner, age, last_ip in defs:
+        sid = _stable_hex('satellite', key, nbytes=8)
+        token = _stable_id('satellite-token', key, length=32)
+        out[sid] = {'name': name,
+                    'token_hash': hashlib.sha256(token.encode('utf-8')).hexdigest(),
+                    'created': now() - 86400 * 60, 'last_seen': now() - age,
+                    'last_ip': last_ip, 'scanner': scanner}
+    return out
+
+
+# ─── Security / scan / compliance content ───────────────────────────────────
+def build_secret_findings() -> dict:
+    """Exposed-secrets findings (redacted, per device) → secret_findings.json.
+
+    Schema verified against _ingest_secret_findings (api.py:17079) + the
+    /fleet/secrets reader (api.py:35734): {dev_id: {findings:[{fingerprint,rule,
+    path,preview,muted,line}], ts, _seen}}. Values are never stored — only a
+    masked preview. Needs config secrets_scan_enabled=True (set in build_config)."""
+    catalog = {
+        'ng01': [('aws-access-key-id', '/etc/nginx/.env',
+                  'AWS_ACCESS_KEY_ID=AKIA****************'),
+                 ('generic-api-key', '/opt/app/config/prod.yml',
+                  'api_key: "sk_live_****************"')],
+        'nc01': [('mysql-uri', '/var/www/nextcloud/config/config.php',
+                  "'dbpassword' => '****************'"),
+                 ('private-key', '/home/deploy/.ssh/id_rsa',
+                  '-----BEGIN RSA PRIVATE KEY----- ****')],
+        'gt01': [('github-pat', '/home/git/.netrc',
+                  'password ghp_********************************')],
+        'jf01': [('generic-secret', '/etc/jellyfin/network.xml',
+                  '<ApiKey>****************</ApiKey>')],
+        'vw01': [('admin-token', '/opt/vaultwarden/.env',
+                  'ADMIN_TOKEN=****************')],
+    }
+    out = {}
+    for dev_id, rows in catalog.items():
+        if not any(d['id'] == dev_id for d in FAKE_DEVICES):
+            continue
+        rng = _seeded_random('secrets', dev_id)
+        findings = []
+        for rule, path, preview in rows:
+            findings.append({
+                'fingerprint': _stable_hex('secret', dev_id, rule, path, nbytes=12),
+                'rule': rule, 'path': path, 'preview': preview,
+                'muted': (dev_id == 'vw01'), 'line': rng.randint(3, 240)})
+        out[dev_id] = {'findings': findings,
+                       'ts': now() - rng.randint(1800, 6 * 3600),
+                       '_seen': sorted(f['fingerprint'] for f in findings)}
+    return out
+
+
+def build_after_hours_hits() -> dict:
+    """Off-hours access-watch events (rolling 24h) → after_hours_hits.json.
+
+    Schema verified against _record_after_hours (api.py:4800) + the NA reader
+    (api.py:24497): {'hits': [{ts, event, device}]} where `device` is the host
+    NAME. Events match the after_hours.events config in build_config."""
+    rng = _seeded_random('after_hours', 'fleet')
+    seeds = [('fw01', 'recent_login'), ('pmx01', 'recent_login'),
+             ('nc01', 'new_port_detected'), ('gt01', 'command_run'),
+             ('ng01', 'recent_login'), ('pmx01', 'command_run')]
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    hits = []
+    for dev_id, event in seeds:
+        ts = now() - rng.randint(1, 22) * 3600 - rng.randint(0, 3000)
+        hits.append({'ts': ts, 'event': event, 'device': name_of.get(dev_id, dev_id)})
+    hits.sort(key=lambda h: h['ts'])
+    return {'hits': hits[-500:]}
+
+
+def build_scan_targets() -> dict:
+    """Ownership-verified non-enrolled scan targets → scan_targets.json.
+
+    Schema verified against the scan-target record + _scan_target_public
+    (api.py:27796/27760): {id: {id,target,kind,token,verified,verified_at,
+    method,created,actor}}."""
+    rows = [('status.lab', 'domain', True, 'dns'),
+            ('203.0.113.7', 'ip', True, 'file'),
+            ('legacy.lab', 'domain', False, '')]
+    out = {}
+    for target, kind, verified, method in rows:
+        tid = _stable_hex('scan_target', target)
+        created = now() - _seeded_random('scan_target', target).randint(3, 40) * 86400
+        out[tid] = {'id': tid, 'target': target, 'kind': kind,
+                    'token': 'rpscan-' + _stable_id('scan_token', target, length=32),
+                    'verified': verified,
+                    'verified_at': (created + 3600) if verified else None,
+                    'method': method, 'created': created, 'actor': 'alice'}
+    return out
+
+
+def build_scans() -> dict:
+    """Authorized vulnerability scans + findings → scans.json.
+
+    Schema verified against the scan record + _scan_public + _scan_sev_counts
+    (api.py:27460/27252/27244): {id: {target_device_id,target_name,target,tool,
+    profile,intensity,status,runner,satellite_id,created,actor,claimed_by,
+    claimed_at,finished_at,findings,error,...}}. Findings carry `severity`."""
+    plan = [
+        ('ng01', 'nuclei', 'passive', 'quick', 'done',
+         [('high', 'tls-version: TLS 1.0 enabled', 'https://10.0.2.20:443'),
+          ('medium', 'missing-security-headers: CSP absent', 'https://10.0.2.20/'),
+          ('low', 'http-missing-hsts', 'https://10.0.2.20/'),
+          ('info', 'http-trace-method', 'https://10.0.2.20/')]),
+        ('nc01', 'nikto', 'passive', 'full', 'done',
+         [('medium', 'OSVDB-3092: /backup/ may reveal sensitive info',
+           'http://10.0.2.60/backup/'),
+          ('low', 'X-Frame-Options header not present', 'http://10.0.2.60/')]),
+        ('jf01', 'nmap', 'passive', 'quick', 'done',
+         [('info', '8096/tcp open  http  Jellyfin', '10.0.2.30:8096'),
+          ('info', '22/tcp open  ssh', '10.0.2.30:22')]),
+        ('fw01', 'nuclei', 'active', 'full', 'running', []),
+        ('gt01', 'nikto', 'passive', 'quick', 'queued', []),
+        ('pmx01', 'nuclei', 'passive', 'quick', 'failed', []),
+    ]
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    out = {}
+    for dev_id, tool, profile, intensity, status, finds in plan:
+        sid = _stable_hex('scan', dev_id, tool, profile)
+        rng = _seeded_random('scan', sid)
+        created = now() - rng.randint(1, 9) * 86400 - rng.randint(0, 3600)
+        terminal = status in ('done', 'failed')
+        running = status == 'running'
+        findings = [{'severity': sev, 'name': nm, 'matched-at': where,
+                     'template-id': nm.split(':')[0].strip().lower().replace(' ', '-')}
+                    for sev, nm, where in finds]
+        out[sid] = {
+            'id': sid, 'target_device_id': dev_id,
+            'target_name': name_of.get(dev_id, dev_id),
+            'target': next((d['ip'] for d in FAKE_DEVICES if d['id'] == dev_id), dev_id),
+            'tool': tool, 'profile': profile, 'intensity': intensity,
+            'status': status, 'runner': 'satellite', 'satellite_id': '',
+            'created': created, 'actor': 'alice',
+            'claimed_by': ('dc-scanner' if (terminal or running) else None),
+            'claimed_at': (created + 30) if (terminal or running) else None,
+            'finished_at': (created + rng.randint(60, 1800)) if terminal else None,
+            'findings': findings,
+            'error': ('scanner unreachable (demo)' if status == 'failed' else ''),
+            'attested': (profile == 'active'), 'window_overridden': False,
+        }
+    return out
+
+
+def build_compliance_history() -> dict:
+    """CIS/compliance fleet-% daily samples → compliance_history.json.
+
+    Schema verified against _maybe_sample_compliance + handle_compliance_baseline
+    (api.py:29415/29394): {'fleet': [{date, ts, score}]}. ~90 daily points
+    trending gently upward to today."""
+    rng = _seeded_random('compliance_history', 'fleet')
+    fleet = []
+    base = 71.0
+    for d in range(-89, 1):
+        ts = now() + d * 86400
+        base += rng.uniform(-0.6, 0.9)
+        fleet.append({'date': _iso_in_days(d), 'ts': ts,
+                      'score': round(max(60.0, min(96.0, base)), 1)})
+    return {'fleet': fleet[-180:]}
+
+
+def build_apikeys() -> dict:
+    """API keys → apikeys.json (Settings → API Keys). FAKE placeholder tokens —
+    the demo is public + read-only, so they grant nothing real.
+
+    Schema verified against handle_apikeys_create/list (api.py:28198/28154):
+    {id: {name,key,user,role,created,active,expires_at}}."""
+    rows = [('CI deploy pipeline', 'ci-bot', 'admin', 365, True),
+            ('Grafana read-only', 'grafana', 'viewer', None, True),
+            ('Claude MCP host', 'mcp', 'mcp', 90, True),
+            ('Old laptop (rotate me)', 'jmo', 'admin', -5, True)]
+    out = {}
+    for name, user, role, exp_days, active in rows:
+        kid = _stable_hex('apikey', name, nbytes=8)
+        created = now() - _seeded_random('apikey', name).randint(20, 300) * 86400
+        out[kid] = {'name': name,
+                    'key': 'rpk_demo_' + _stable_id('apikey_value', name, length=40),
+                    'user': user, 'role': role, 'created': created,
+                    'active': active,
+                    'expires_at': (now() + exp_days * 86400) if exp_days is not None else None}
+    return out
+
+
+# ─── Service monitoring / images / stacks / custom scripts / SMART trend ─────
+def build_services() -> dict:
+    """Current systemd service state per device → services.json.
+
+    Schema verified against handle_services_get + _sanitize_service_entry
+    (api.py ~38434/37546): {dev_id: {updated_at, services:[{unit,active,sub,
+    since}]}}. Reuses build_device_services' tag map so the watched list and the
+    failing jellyfin unit stay consistent."""
+    out = {}
+    for dev in FAKE_DEVICES:
+        if dev['agentless']:
+            continue
+        rng = _seeded_random('svc', dev['id'])
+        unit_states = build_device_services(dev, rng)
+        services = []
+        for unit, active in sorted(unit_states.items()):
+            if active == 'failed':
+                sub = 'failed'
+            elif unit.endswith('.timer'):
+                sub = 'waiting'
+            else:
+                sub = 'running'
+            services.append({'unit': unit, 'active': active, 'sub': sub,
+                             'since': now() - rng.randint(3600, 86400 * 21)})
+        out[dev['id']] = {'updated_at': now() - rng.randint(20, 240),
+                          'services': services}
+    return out
+
+
+def build_service_history() -> dict:
+    """Service state transitions per (device,unit) → service_history.json.
+
+    Schema verified against _record_service_transition (api.py ~37569): keyed
+    'dev_id:unit' → [{ts, from, to}] (last 100). Seeds a flap history only for
+    units build_services left 'failed' so the drawer sparkline has content."""
+    out = {}
+    for dev_id, entry in build_services().items():
+        for s in entry['services']:
+            if s['active'] != 'failed':
+                continue
+            key = f"{dev_id}:{s['unit']}"
+            base = now() - 86400 * 4
+            out[key] = [
+                {'ts': base, 'from': 'active', 'to': 'failed'},
+                {'ts': base + 3600, 'from': 'failed', 'to': 'active'},
+                {'ts': s['since'] - 60, 'from': 'active', 'to': 'failed'},
+            ]
+    return out
+
+
+def build_image_updates() -> dict:
+    """Registry-digest cache for container images → image_updates.json.
+
+    Schema verified against _scan_images/_image_update_view (api.py:33520/33667):
+    {'images': {ref: {registry, registry_digest, last_checked, last_error}},
+    'last_full_scan': ts}. Refs are taken from build_containers' catalogue."""
+    refs = ['nginx:1.27', 'jellyfin/jellyfin:latest', 'gitea/gitea:1.22',
+            'postgres:16', 'nextcloud:30-apache', 'mariadb:11', 'redis:7',
+            'vaultwarden/server:latest', 'homeassistant/home-assistant:stable',
+            'eclipse-mosquitto:2', 'zwavejs/zwave-js-ui:latest',
+            'pihole/pihole:latest', 'prom/prometheus:latest',
+            'grafana/grafana:latest', 'prom/node-exporter:latest']
+    images = {}
+    for ref in refs:
+        rng = _seeded_random('imgupd', ref)
+        images[ref] = {'registry': 'registry-1.docker.io',
+                       'registry_digest': 'sha256:' + _stable_hex('imgdig', ref, nbytes=32),
+                       'last_checked': now() - rng.randint(1800, 86400),
+                       'last_error': ''}
+    images['jellyfin/jellyfin:latest']['registry_digest'] = ''
+    images['jellyfin/jellyfin:latest']['last_error'] = 'HTTPError: 429 Too Many Requests'
+    return {'images': images, 'last_full_scan': now() - 3600}
+
+
+def build_compose_stacks() -> dict:
+    """docker-compose stack definitions → compose_stacks.json.
+
+    Schema verified against handle_compose_stacks_list/get/create (api.py:33858):
+    {s-<hex>: {name, device_id, yaml, status, created_by, created_ts,
+    last_action, last_action_ts, last_rc, last_output}}."""
+    plan = [
+        ('nc01', 'nextcloud',
+         "services:\n  app:\n    image: nextcloud:30-apache\n"
+         "    ports:\n      - 8080:80\n  db:\n    image: mariadb:11\n"),
+        ('ha01', 'home-assistant',
+         "services:\n  homeassistant:\n    image: homeassistant/home-assistant:stable\n"
+         "    network_mode: host\n  mqtt:\n    image: eclipse-mosquitto:2\n"),
+        ('pr01', 'monitoring',
+         "services:\n  prometheus:\n    image: prom/prometheus:latest\n"
+         "  grafana:\n    image: grafana/grafana:latest\n    ports:\n      - 3000:3000\n"),
+        ('vw01', 'vaultwarden',
+         "services:\n  vaultwarden:\n    image: vaultwarden/server:latest\n"
+         "    ports:\n      - 8000:80\n"),
+    ]
+    out = {}
+    for dev_id, name, yaml in plan:
+        rng = _seeded_random('compose', dev_id, name)
+        sid = 's-' + _stable_hex('compose', dev_id, name)
+        last_act_ts = now() - rng.randint(3600, 86400 * 14)
+        out[sid] = {'name': name, 'device_id': dev_id, 'yaml': yaml,
+                    'status': 'running', 'created_by': 'alice',
+                    'created_ts': last_act_ts - rng.randint(86400, 86400 * 60),
+                    'last_action': rng.choice(['up', 'redeploy']),
+                    'last_action_ts': last_act_ts, 'last_rc': 0,
+                    'last_output': 'Container started\nContainer started\n'}
+    return out
+
+
+def build_helm() -> dict:
+    """Helm releases per device → helm.json.
+
+    Schema verified against handle_device_helm + _ingest_helm (api.py:21211/22566):
+    {dev_id: {releases:[{name,namespace,revision,status,chart,app_version,
+    updated}], ts}}. Seeded on pmx01 (stands in for a small k3s host)."""
+    rels = [
+        {'name': 'traefik', 'namespace': 'kube-system', 'revision': '3',
+         'status': 'deployed', 'chart': 'traefik-28.3.0', 'app_version': '3.0.4'},
+        {'name': 'cert-manager', 'namespace': 'cert-manager', 'revision': '2',
+         'status': 'deployed', 'chart': 'cert-manager-v1.15.1', 'app_version': '1.15.1'},
+        {'name': 'prometheus', 'namespace': 'monitoring', 'revision': '5',
+         'status': 'deployed', 'chart': 'kube-prometheus-stack-61.3.0',
+         'app_version': '0.75.1'},
+    ]
+    for i, r in enumerate(rels):
+        r['updated'] = _iso_in_days(-(7 + i * 9)) + ' 14:0%d:11 +0000 UTC' % i
+    return {'pmx01': {'releases': rels, 'ts': now() - 1800}}
+
+
+def build_gitops_state() -> dict:
+    """Last GitOps reconcile status → gitops_state.json.
+
+    Schema verified against handle_gitops_get + _gitops_sync (api.py:37091/37039):
+    {last_sync, last_attempt, last_status, last_error, last_summary:{added,
+    updated, removed, assignments, skipped, dry}}."""
+    ts = now() - 540
+    return {'last_sync': ts, 'last_attempt': ts, 'last_status': 'ok',
+            'last_error': '',
+            'last_summary': {'added': 2, 'updated': 1, 'removed': 0,
+                             'assignments': 3, 'skipped': [], 'dry': False}}
+
+
+def build_custom_scripts() -> dict:
+    """Custom-script DEFINITIONS → custom_scripts.json (distinct from scripts.json).
+
+    Schema verified against handle_custom_scripts_list/get/create (api.py:23056):
+    {cs_<id>: {id,name,description,body,assigned_devices,timeout,created_at,
+    updated_at,created_by}}."""
+    plan = [
+        ('Check ZFS scrub age',
+         'Warn if the last completed scrub on tank is older than 35 days.',
+         "#!/bin/sh\nlast=$(zpool status tank | grep -oE 'scrub repaired.*')\n"
+         "echo \"$last\"\n[ -n \"$last\" ] || exit 1\n",
+         ['tnas', 'bk01']),
+        ('Certificate expiry (local)',
+         'Fail when any cert under /etc/ssl/private expires within 14 days.',
+         "#!/bin/sh\nfor c in /etc/ssl/private/*.pem; do\n"
+         "  openssl x509 -checkend 1209600 -noout -in \"$c\" || exit 1\ndone\n",
+         ['ng01', 'nc01']),
+        ('Docker disk pressure',
+         'Alert if /var/lib/docker is over 85% full.',
+         "#!/bin/sh\nuse=$(df --output=pcent /var/lib/docker | tail -1 | tr -dc 0-9)\n"
+         "echo \"docker fs at ${use}%\"\n[ \"$use\" -lt 85 ]\n",
+         ['jf01', 'nc01', 'ha01', 'vw01', 'gt01']),
+        ('Backup repo integrity',
+         'Run a quick restic snapshot count sanity check.',
+         "#!/bin/sh\nn=$(restic snapshots --json 2>/dev/null | grep -c '\"time\"')\n"
+         "echo \"$n snapshots\"\n[ \"$n\" -gt 0 ]\n",
+         ['bk01']),
+    ]
+    out = {}
+    for i, (name, desc, body, assigned) in enumerate(plan):
+        sid = 'cs_' + _stable_id('custom_script', name, length=11)
+        created = now() - 86400 * (40 - i * 7)
+        out[sid] = {'id': sid, 'name': name, 'description': desc, 'body': body,
+                    'assigned_devices': assigned, 'timeout': 30,
+                    'created_at': created, 'updated_at': created + 86400,
+                    'created_by': 'alice' if i % 2 == 0 else 'bob'}
+    return out
+
+
+def build_smart_history() -> dict:
+    """Per-disk SMART attribute trend history → smart_history.json.
+
+    Schema verified against _maybe_sample_smart/_disk_key/_disk_health_view
+    (api.py:22723/22717/22772): {dev_id: {serial: {device, model, samples:[{date,
+    ts, realloc, pending, wear, temp}]}}}. disk_key is the SERIAL — re-derived by
+    replaying build_hardware's _seeded_random('hardware', dev_id) draw order
+    (serial → pending → temp → power_on_hours), so it MUST stay in lockstep with
+    build_hardware. tnas /dev/sdc shows growing reallocated sectors → a high-risk
+    predictive row; the rest trend flat."""
+    import datetime as _dt
+    _UTC = _dt.timezone.utc
+    DAY = 86400
+    specs = {
+        'tnas':  [('/dev/sda', 'PASSED', 'WDC WD40EFRX', 0),
+                  ('/dev/sdb', 'PASSED', 'WDC WD40EFRX', 0),
+                  ('/dev/sdc', 'FAILED', 'WDC WD40EFRX', 24),
+                  ('/dev/sdd', 'PASSED', 'WDC WD40EFRX', 0)],
+        'pmx01': [('/dev/nvme0n1', 'PASSED', 'Samsung SSD 980 1TB', 0)],
+        'nc01':  [('/dev/sda', 'PASSED', 'Crucial MX500', 0)],
+        'bk01':  [('/dev/sda', 'PASSED', 'Seagate IronWolf', 0),
+                  ('/dev/sdb', 'PASSED', 'Seagate IronWolf', 0)],
+        'gt01':  [('/dev/sda', 'PASSED', 'Samsung SSD 870', 0)],
+    }
+    n = 30
+    out = {}
+    for dev_id, disk_specs in specs.items():
+        hw_rng = _seeded_random('hardware', dev_id)
+        rec = {}
+        for device, health, model, realloc in disk_specs:
+            serial = f"S{hw_rng.randint(10**9, 10**10 - 1)}"   # draw 1
+            pending0 = hw_rng.randint(1, 4) if realloc else 0  # draw 2 (only if realloc)
+            hw_rng.randint(30, 44)                             # draw 3: temp (consume)
+            hw_rng.randint(8000, 41000)                        # draw 4: power_on_hours
+            srng = _seeded_random('smarthist', dev_id, serial)
+            samples = []
+            for i in range(n):
+                ts = now() - (n - 1 - i) * DAY
+                day = _dt.datetime.fromtimestamp(ts, _UTC).strftime('%Y-%m-%d')
+                if realloc:
+                    samples.append({'date': day, 'ts': ts,
+                                    'realloc': realloc + int(round((i / (n - 1)) * 14)),
+                                    'pending': pending0 + (1 if i > n // 2 else 0),
+                                    'wear': None, 'temp': srng.randint(36, 44)})
+                else:
+                    samples.append({'date': day, 'ts': ts, 'realloc': 0,
+                                    'pending': 0, 'wear': None,
+                                    'temp': srng.randint(30, 40)})
+            rec[serial] = {'device': device, 'model': model, 'samples': samples}
+        out[dev_id] = rec
+    return out
+
+
+# ─── Runbooks / automation / maintenance / inbound webhooks / misc ──────────
+def build_runbooks() -> dict:
+    """AI-generated per-device runbooks → runbooks.json (Runbook drawer tab).
+
+    Schema verified against handle_runbook_get/generate (api.py ~21742/21831):
+    {dev_id: {content, generated_at, generated_by, model, tokens_in, tokens_out,
+    elapsed_ms}}. Seeded on the critical-infra hosts."""
+    bodies = {
+        'pmx01': ("# Runbook — proxmox.lab\n\n## Overview\n"
+                  "Primary Proxmox VE hypervisor (Debian 12), group `infra`, tags "
+                  "`hypervisor`, `critical`. Hosts the lab's VMs and LXC containers.\n\n"
+                  "## Health checks\n- `systemctl status pve-cluster pvedaemon pveproxy`\n"
+                  "- `pvecm status` — quorum + node membership\n- `zpool status -x`\n\n"
+                  "## Common incidents\n1. **pveproxy 8006 unreachable** — "
+                  "`systemctl restart pveproxy`; check `journalctl -u pveproxy -n 50`.\n"
+                  "2. **High load** — find the noisy guest with `qm list` / `pct list`.\n\n"
+                  "## Escalation\nTagged `critical` — page on-call before rebooting; "
+                  "live-migrate or shut down guests cleanly first."),
+        'tnas': ("# Runbook — truenas.lab\n\n## Overview\n"
+                 "Storage / NAS host (Debian 12), tags `nas`, `critical`, `backup`. "
+                 "Serves the `tank` ZFS pool over NFS/SMB.\n\n## Health checks\n"
+                 "- `zpool status tank` — pool state + last scrub\n"
+                 "- `zfs list -o name,used,avail tank`\n- `smartctl -H /dev/sdX`\n\n"
+                 "## Common incidents\n1. **Pool DEGRADED** — `zpool status -v tank` to "
+                 "find the faulted vdev; `zpool replace` and resilver.\n"
+                 "2. **Scrub overdue** — `zpool scrub tank`.\n\n## Escalation\n"
+                 "Holds fleet backups — never offline the pool without a confirmed "
+                 "second copy on backup.lab."),
+        'fw01': ("# Runbook — opnsense.lab\n\n## Overview\n"
+                 "Edge firewall (Debian 12), tags `firewall`, `critical`. Default "
+                 "gateway 10.0.0.254.\n\n## Health checks\n- `ping 10.0.0.254` from "
+                 "inside\n- `nft list ruleset | head`\n- WAN up + DNS resolving\n\n"
+                 "## Common incidents\n1. **gateway_unreachable** — confirm the box is "
+                 "up before assuming a WAN outage.\n2. **firewall_changed drift** — "
+                 "review the rule diff in the drawer; revert unexpected changes.\n\n"
+                 "## Escalation\nLoss of this host isolates the lab — any reboot is a "
+                 "change-window event."),
+    }
+    out = {}
+    for i, (dev_id, content) in enumerate(bodies.items()):
+        rng = _seeded_random('runbook', dev_id)
+        out[dev_id] = {'content': content,
+                       'generated_at': now() - 86400 * (3 + i) - rng.randint(0, 7200),
+                       'generated_by': rng.choice(['alice', 'bob']),
+                       'model': 'claude-opus-4-8',
+                       'tokens_in': rng.randint(1800, 3200),
+                       'tokens_out': rng.randint(600, 1100),
+                       'elapsed_ms': rng.randint(9000, 42000)}
+    return out
+
+
+def build_automation_rules() -> dict:
+    """Event→action automation rules → automation_rules.json (Automation page).
+
+    Schema verified against handle_automation_rules_list + _validate_rule
+    (api.py:4981/4943): {'rules': [...]}. Events are real WEBHOOK_EVENTS;
+    run_script.script_id references scripts.json ids; notify.dest_id references
+    config.json webhook_urls[].id — all seeded elsewhere here."""
+    base = now() - 86400 * 25
+    return {'rules': [
+        {'id': 'r-' + _stable_hex('autorule', 'svc-restart'),
+         'name': 'Restart nginx when it goes down', 'enabled': True,
+         'match': {'events': ['service_down'], 'severities': ['high', 'critical'],
+                   'device_match': {'device_id': '', 'group': '', 'tags': ['web']}},
+         'actions': [{'type': 'run_script', 'script_id': 'demo-rotate-nginx-logs'}],
+         'cooldown_seconds': 300, 'created': base, 'actor': 'alice',
+         'last_fired': now() - 86400 * 2, 'fire_count': 3},
+        {'id': 'r-' + _stable_hex('autorule', 'crit-notify'),
+         'name': 'Page ops on any critical metric', 'enabled': True,
+         'match': {'events': ['metric_critical', 'device_offline'],
+                   'severities': ['critical'],
+                   'device_match': {'device_id': '', 'group': 'infra', 'tags': []}},
+         'actions': [{'type': 'notify', 'dest_id': 'wh_pushover_demo'}],
+         'cooldown_seconds': 120, 'created': base + 86400 * 4, 'actor': 'bob',
+         'last_fired': now() - 3600 * 9, 'fire_count': 11},
+        {'id': 'r-' + _stable_hex('autorule', 'storage-notify'),
+         'name': 'Notify on storage degradation', 'enabled': True,
+         'match': {'events': ['storage_degraded', 'scrub_overdue', 'smart_failure'],
+                   'severities': [],
+                   'device_match': {'device_id': '', 'group': '',
+                                    'tags': ['storage', 'nas']}},
+         'actions': [{'type': 'notify', 'dest_id': 'wh_discord_demo'}],
+         'cooldown_seconds': 600, 'created': base + 86400 * 9, 'actor': 'alice',
+         'last_fired': 0, 'fire_count': 0},
+        {'id': 'r-' + _stable_hex('autorule', 'cert-prune-disabled'),
+         'name': 'Prune ZFS snapshots when disk fills', 'enabled': False,
+         'match': {'events': ['metric_warning'], 'severities': ['medium', 'high'],
+                   'device_match': {'device_id': 'tnas', 'group': '', 'tags': []}},
+         'actions': [{'type': 'run_script', 'script_id': 'demo-zfs-snapshot-prune'}],
+         'cooldown_seconds': 1800, 'created': base + 86400 * 12, 'actor': 'bob',
+         'last_fired': 0, 'fire_count': 0},
+    ]}
+
+
+def build_maintenance() -> dict:
+    """Maintenance / change windows → maintenance.json.
+
+    Schema verified against handle_maintenance_list/add (api.py:37337/37363):
+    {'windows': [{id, reason, scope, target, start, end, cron, duration, events,
+    gate_exec, created_by, created_at}]}. `active`/`target_name` are reader-added.
+    events ⊆ SUPPRESSIBLE_EVENTS."""
+    base = now() - 86400 * 20
+    return {'windows': [
+        {'id': _stable_hex('maint', 'nightly-storage', nbytes=8),
+         'reason': 'Nightly backup window — suppress storage churn',
+         'scope': 'group', 'target': 'storage', 'start': '', 'end': '',
+         'cron': '0 2 * * *', 'duration': 7200,
+         'events': ['service_down', 'service_up', 'cve_found'],
+         'gate_exec': False, 'created_by': 'alice', 'created_at': base},
+        {'id': _stable_hex('maint', 'pmx-upgrade', nbytes=8),
+         'reason': 'Proxmox kernel upgrade + reboot', 'scope': 'device',
+         'target': 'pmx01', 'start': _iso_in_days(3) + 'T01:00:00Z',
+         'end': _iso_in_days(3) + 'T03:00:00Z', 'cron': '', 'duration': 0,
+         'events': ['device_offline', 'device_online', 'monitor_down', 'monitor_up'],
+         'gate_exec': False, 'created_by': 'bob', 'created_at': base + 86400 * 6},
+        {'id': _stable_hex('maint', 'fw-change', nbytes=8),
+         'reason': 'Firewall change window (exec gated)', 'scope': 'device',
+         'target': 'fw01', 'start': '', 'end': '', 'cron': '0 3 * * 0',
+         'duration': 3600, 'events': [], 'gate_exec': True,
+         'created_by': 'alice', 'created_at': base + 86400 * 11},
+    ]}
+
+
+def build_inbound_webhooks() -> dict:
+    """Inbound webhook / syslog receiver tokens → inbound_webhooks.json.
+
+    Schema verified against handle_inbound_webhooks_list/create (api.py:32084):
+    {'tokens': [{id, label, token (rpwi_…), kind, scope_device_id, scope_tag,
+    enabled, created_by, created_at, last_seen, hit_count}]}. The list handler
+    strips `token` and emits token_preview. syslog kind MUST set scope_device_id."""
+    base = now() - 86400 * 18
+    return {'tokens': [
+        {'id': 'iwh_' + _stable_hex('inwh', 'grafana', nbytes=4),
+         'label': 'Grafana Alertmanager',
+         'token': 'rpwi_' + _stable_hex('intok', 'grafana', nbytes=18),
+         'kind': 'alert', 'scope_device_id': None, 'scope_tag': None,
+         'enabled': True, 'created_by': 'alice', 'created_at': base,
+         'last_seen': now() - 3600 * 5, 'hit_count': 42},
+        {'id': 'iwh_' + _stable_hex('inwh', 'uptimekuma', nbytes=4),
+         'label': 'Uptime Kuma',
+         'token': 'rpwi_' + _stable_hex('intok', 'uptimekuma', nbytes=18),
+         'kind': 'alert', 'scope_tag': 'web', 'scope_device_id': None,
+         'enabled': True, 'created_by': 'bob', 'created_at': base + 86400 * 5,
+         'last_seen': now() - 86400 * 2, 'hit_count': 7},
+        {'id': 'iwh_' + _stable_hex('inwh', 'syslog-fw', nbytes=4),
+         'label': 'opnsense syslog',
+         'token': 'rpwi_' + _stable_hex('intok', 'syslog-fw', nbytes=18),
+         'kind': 'syslog', 'scope_device_id': 'fw01', 'scope_tag': None,
+         'enabled': True, 'created_by': 'alice', 'created_at': base + 86400 * 8,
+         'last_seen': now() - 1800, 'hit_count': 318},
+        {'id': 'iwh_' + _stable_hex('inwh', 'old-disabled', nbytes=4),
+         'label': 'Old Prometheus (disabled)',
+         'token': 'rpwi_' + _stable_hex('intok', 'old-disabled', nbytes=18),
+         'kind': 'alert', 'scope_device_id': None, 'scope_tag': None,
+         'enabled': False, 'created_by': 'bob', 'created_at': base - 86400 * 30,
+         'last_seen': now() - 86400 * 40, 'hit_count': 159},
+    ]}
+
+
+def build_cmd_library() -> dict:
+    """Saved one-liner command library → cmd_library.json.
+
+    Schema verified against handle_cmd_library_list/add (api.py:19093):
+    {'snippets': [{id, name, cmd, description, created}]}."""
+    base = now() - 86400 * 22
+    rows = [
+        ('Disk usage by mount', 'df -hT -x tmpfs -x devtmpfs',
+         'Human-readable filesystem usage, excluding pseudo filesystems'),
+        ('Top 10 memory hogs', 'ps -eo pid,comm,%mem,%cpu --sort=-%mem | head -n 11',
+         'Quickly find what is eating RAM'),
+        ('Listening sockets', 'ss -tulpn',
+         'All listening TCP/UDP sockets with owning process'),
+        ('Failed systemd units', 'systemctl --failed --no-legend',
+         'List units in the failed state'),
+        ('Recent auth failures',
+         "journalctl -u ssh -p warning --since '24h ago' --no-pager",
+         'SSH auth warnings in the last day'),
+        ('Docker disk reclaim', 'docker system df',
+         'Show reclaimable Docker image/volume/build-cache space'),
+    ]
+    snippets = [{'id': _stable_hex('cmdlib', name, nbytes=6), 'name': name,
+                 'cmd': cmd, 'description': desc, 'created': base + i * 3600}
+                for i, (name, cmd, desc) in enumerate(rows)]
+    return {'snippets': snippets}
+
+
+def build_ai_usage() -> dict:
+    """AI per-user-per-day request counter → ai_usage.json (rate-limit ledger).
+
+    Schema verified against _ai_rate_limit_check (api.py:19940): flat dict keyed
+    '<YYYY-MM-DD>:<actor>' → count. Non-today keys are GC'd on the next AI
+    request, so only today's are seeded."""
+    today = datetime.date.today().isoformat()
+    return {f'{today}:alice': 6, f'{today}:bob': 2, f'{today}:demo': 1}
+
+
+def build_rollouts() -> dict:
+    """Staged agent/script rollouts → rollouts.json (canary→pilot→broad).
+
+    Schema verified against handle_rollouts_list/create/_rollout_advance
+    (api.py:29055/29065/28940): {'rollouts': [{id, name, action, script_id,
+    rings:[{name, selector}], rings_state:[{state, dispatched_ids, ...}],
+    auto_promote, verify_minutes, state, current_ring, history:[{ts,msg}],
+    created_by, created_at, updated_at}]}. One in-flight 4.7.0 agent upgrade +
+    one completed script rollout."""
+    t0 = now() - 86400 * 2
+
+    def ring(name, sel_type, sel_val=None, ids=None):
+        s = {'type': sel_type}
+        if sel_type == 'ids':
+            s['ids'] = ids or []
+        else:
+            s['value'] = sel_val or ''
+        return {'name': name, 'selector': s}
+
+    upgrade = {
+        'id': _stable_hex('rollout', 'agent-470', nbytes=8),
+        'name': 'Agent 4.7.0 — fleet upgrade', 'action': 'upgrade', 'script_id': '',
+        'rings': [ring('canary', 'ids', ids=['gt01', 'ha01']),
+                  ring('pilot', 'group', 'services'),
+                  ring('broad', 'group', 'infra')],
+        'rings_state': [
+            {'state': 'done', 'dispatched_ids': ['gt01', 'ha01'],
+             'dispatched_at': t0, 'done_at': t0 + 1800, 'total': 2,
+             'ok_count': 2, 'failed_count': 0, 'queued': 2},
+            {'state': 'verifying', 'dispatched_ids': ['pi1', 'ng01', 'nc01', 'vw01'],
+             'dispatched_at': now() - 1200, 'total': 4, 'ok_count': 3,
+             'failed_count': 0, 'queued': 4},
+            {'state': 'pending', 'dispatched_ids': [], 'total': 0,
+             'ok_count': 0, 'failed_count': 0}],
+        'auto_promote': False, 'verify_minutes': 30, 'state': 'running',
+        'current_ring': 1,
+        'history': [
+            {'ts': t0, 'msg': 'created — upgrade, 3 ring(s), manual promote'},
+            {'ts': t0, 'msg': 'started'},
+            {'ts': t0 + 60, 'msg': 'ring 1/3 "canary" dispatched to 2 device(s)'},
+            {'ts': t0 + 1800, 'msg': 'ring 1 done — 2/2 verified'},
+            {'ts': now() - 1260, 'msg': 'manually promoted to ring 2'},
+            {'ts': now() - 1200, 'msg': 'ring 2/3 "pilot" dispatched to 4 device(s)'}],
+        'created_by': 'alice', 'created_at': t0, 'updated_at': now() - 1200,
+    }
+    script_done = {
+        'id': _stable_hex('rollout', 'logrotate', nbytes=8),
+        'name': 'Rotate nginx logs — web tier', 'action': 'script',
+        'script_id': 'demo-rotate-nginx-logs',
+        'rings': [ring('web', 'tag', 'web')],
+        'rings_state': [
+            {'state': 'done', 'dispatched_ids': ['ng01'],
+             'dispatched_at': now() - 86400 * 5,
+             'done_at': now() - 86400 * 5 + 600, 'total': 1, 'ok_count': 1,
+             'failed_count': 0, 'queued': 1}],
+        'auto_promote': True, 'verify_minutes': 15, 'state': 'done',
+        'current_ring': 0,
+        'history': [
+            {'ts': now() - 86400 * 5 - 120, 'msg': 'created — script, 1 ring(s), auto promote'},
+            {'ts': now() - 86400 * 5 - 60, 'msg': 'started'},
+            {'ts': now() - 86400 * 5, 'msg': 'ring 1/1 "web" dispatched to 1 device(s)'},
+            {'ts': now() - 86400 * 5 + 600, 'msg': 'ring 1 done — 1/1 verified'},
+            {'ts': now() - 86400 * 5 + 600, 'msg': 'rollout complete'}],
+        'created_by': 'bob', 'created_at': now() - 86400 * 5 - 120,
+        'updated_at': now() - 86400 * 5 + 600,
+    }
+    return {'rollouts': [upgrade, script_done]}
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -2032,6 +3035,39 @@ BUILDERS = {
     'health_history.json':         build_health_history,
     # v3.11.0 / v3.13.0 demo content
     'software_violations.json':    build_software_violations,
+    # ── coverage fill: previously-unseeded subsystems (v3.x → v4.7.0) ──
+    # v4.7.0 homelab software integrations
+    'integrations_state.json':     build_integrations_state,
+    # network / agentless
+    'snmp_data.json':              build_snmp_data,
+    'speedtest.json':              build_speedtest,
+    'discovery.json':              build_discovery,
+    'tunnels.json':                build_tunnels,
+    'satellites.json':             build_satellites,
+    # security / scan / compliance
+    'secret_findings.json':        build_secret_findings,
+    'after_hours_hits.json':       build_after_hours_hits,
+    'scans.json':                  build_scans,
+    'scan_targets.json':           build_scan_targets,
+    'compliance_history.json':     build_compliance_history,
+    'apikeys.json':                build_apikeys,
+    # service monitoring / images / stacks / custom scripts / SMART trend
+    'services.json':               build_services,
+    'service_history.json':        build_service_history,
+    'image_updates.json':          build_image_updates,
+    'compose_stacks.json':         build_compose_stacks,
+    'helm.json':                   build_helm,
+    'gitops_state.json':           build_gitops_state,
+    'custom_scripts.json':         build_custom_scripts,
+    'smart_history.json':          build_smart_history,
+    # runbooks / automation / maintenance / inbound webhooks / misc
+    'runbooks.json':               build_runbooks,
+    'automation_rules.json':       build_automation_rules,
+    'maintenance.json':            build_maintenance,
+    'inbound_webhooks.json':       build_inbound_webhooks,
+    'cmd_library.json':            build_cmd_library,
+    'ai_usage.json':               build_ai_usage,
+    'rollouts.json':               build_rollouts,
 }
 
 
