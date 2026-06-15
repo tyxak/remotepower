@@ -22451,7 +22451,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     continue
                 entry = {'vendor': _sanitize_str(str(g.get('vendor', '')), 16),
                          'name':   _sanitize_str(str(g.get('name', '')), 96)}
-                for k in ('util_pct', 'mem_used_mb', 'mem_total_mb', 'temp_c', 'power_w'):
+                for k in ('util_pct', 'mem_used_mb', 'mem_total_mb', 'temp_c', 'power_w', 'fan_pct'):
                     v = g.get(k)
                     if isinstance(v, (int, float)) and -1 < v < 1e9:
                         entry[k] = round(float(v), 1)
@@ -35580,6 +35580,50 @@ def handle_fleet_thermal():
     respond(200, {'hosts': rows, 'count': len(rows), 'hot': hot})
 
 
+# ─── v4.7.0: fleet GPU roll-up (NVIDIA + AMD) ────────────────────────────────
+GPU_HOT_C = 85.0
+
+
+def handle_fleet_gpus():
+    """GET /api/fleet/gpus — every GPU across the fleet, one row per GPU.
+
+    Reads the per-device gpus the agent already reports in hardware.json (NVIDIA
+    via nvidia-smi, AMD via rocm-smi or the amdgpu sysfs fallback) — no schema
+    change. Hottest/busiest first; carries a fleet summary."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    hw_all = load(HARDWARE_FILE) or {}
+    rows = []
+    for dev_id, d in devices.items():
+        if d.get('monitored') is False:
+            continue
+        hw = hw_all.get(dev_id) or {}
+        for g in (hw.get('gpus') or []):
+            if not isinstance(g, dict):
+                continue
+            mu, mt = g.get('mem_used_mb'), g.get('mem_total_mb')
+            mem_pct = (round(100.0 * mu / mt, 1)
+                       if isinstance(mu, (int, float)) and isinstance(mt, (int, float)) and mt else None)
+            rows.append({
+                'device_id': dev_id, 'device': d.get('name', dev_id),
+                'online': bool(d.get('online')),
+                'vendor': g.get('vendor', ''), 'name': g.get('name', 'GPU'),
+                'util_pct': g.get('util_pct'), 'temp_c': g.get('temp_c'),
+                'power_w': g.get('power_w'), 'fan_pct': g.get('fan_pct'),
+                'mem_used_mb': mu, 'mem_total_mb': mt, 'mem_pct': mem_pct,
+            })
+    rows.sort(key=lambda r: (-(r['temp_c'] or 0), -(r['util_pct'] or 0), str(r['device'])))
+    summary = {
+        'gpus': len(rows),
+        'devices': len({r['device_id'] for r in rows}),
+        'nvidia': sum(1 for r in rows if r['vendor'] == 'nvidia'),
+        'amd': sum(1 for r in rows if r['vendor'] == 'amd'),
+        'total_power_w': round(sum(r['power_w'] or 0 for r in rows), 1),
+        'hot': sum(1 for r in rows if (r['temp_c'] or 0) >= GPU_HOT_C),
+    }
+    respond(200, {'gpus': rows, 'summary': summary})
+
+
 def handle_fleet_power():
     """GET /api/fleet/power — UPS status + measured power draw per host.
 
@@ -41339,6 +41383,7 @@ def _build_exact_routes():
         ('GET', '/api/storage'): handle_storage_overview,
         # v3.14.0: fleet thermal roll-up ("hottest hosts")
         ('GET', '/api/fleet/thermal'): handle_fleet_thermal,
+        ('GET', '/api/fleet/gpus'): handle_fleet_gpus,
         # v3.14.0: SSH key audit
         ('GET', '/api/ssh-keys'): handle_ssh_keys_fleet,
         # v3.14.0: fleet power / UPS + energy

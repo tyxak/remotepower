@@ -5490,6 +5490,32 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .integ-tiles-mini { grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
   max-height:300px; overflow:auto; gap:8px; }
 
+/* v4.7.0: fleet GPU page (NVIDIA + AMD) — rich cards with util/VRAM meters. */
+.gpu-grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); }
+.gpu-card { border:1px solid var(--border); border-radius:10px; padding:14px 16px;
+  background:var(--surface); display:flex; flex-direction:column; gap:10px; }
+.gpu-card.gpu-off { opacity:.6; }
+.gpu-card-top { display:flex; align-items:center; gap:8px; }
+.gpu-vendor { font-size:10px; font-weight:700; letter-spacing:.04em; padding:2px 7px;
+  border-radius:4px; text-transform:uppercase; background:var(--surface2); color:var(--muted); }
+.gpu-vendor-nvidia { background:rgba(118,185,0,.16); color:#76b900; }
+.gpu-vendor-amd    { background:rgba(237,28,36,.14); color:#e0313b; }
+.gpu-name { font-size:14px; font-weight:600; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.gpu-host { font-size:12px; margin-top:-4px; }
+.gpu-meter-h { display:flex; justify-content:space-between; font-size:12px;
+  color:var(--muted); margin-bottom:3px; }
+.gpu-bar { height:8px; border-radius:999px; background:var(--surface2);
+  overflow:hidden; border:1px solid var(--border); }
+.gpu-bar-fill { height:100%; border-radius:999px; transition:width .4s ease; }
+.gpu-bar-util { background:var(--accent); }
+.gpu-bar-mem  { background:#9b6dff; }
+.gpu-mem-txt { font-size:11px; margin-top:3px; }
+.gpu-stats { display:flex; gap:18px; border-top:1px solid var(--border); padding-top:9px; }
+.gpu-stat { display:flex; flex-direction:column; line-height:1.2; }
+.gpu-stat-l { font-size:11px; color:var(--muted); }
+.gpu-stat b { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; }
+
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
 .subtitle-hidden { display:none !important; }

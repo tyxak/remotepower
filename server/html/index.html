@@ -212,6 +212,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
           <span>Integrations</span>
         </button>
+        <button class="nav-btn" data-page="gpus" title="GPU state across the fleet — NVIDIA & AMD utilisation, memory, temperature, power">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 18v2M18 18v2M7 10h4M9 10v4"/><circle cx="16" cy="12" r="2"/></svg>
+          <span>GPUs</span>
+        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-scripts" data-pass-btn="1" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Custom Scripts</span>
@@ -4828,6 +4832,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="integrations-page-summary" class="hint"></span>
         </div>
         <div id="integrations-page-tiles" class="integ-tiles"><div class="hint">Loading…</div></div>
+      </div>
+
+      <div id="page-gpus" class="page">
+        <div class="page-title">GPUs</div>
+        <div class="page-subtitle">GPU state across the fleet — NVIDIA and AMD. Utilisation, VRAM, temperature, power and fan for every reporting host, hottest/busiest first. Hosts report via <code>nvidia-smi</code> / <code>rocm-smi</code> (or the amdgpu sysfs fallback). <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadGpus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" class="form-input page-filter" placeholder="Filter device / GPU…" data-input="filterRows" data-input-el="1" data-filter-target="#gpus-grid .gpu-card" aria-label="Filter device / GPU">
+          <span id="gpus-summary" class="hint"></span>
+        </div>
+        <div id="gpus-grid" class="gpu-grid"><div class="hint">Loading…</div></div>
       </div>
 
       <div id="page-storage" class="page">

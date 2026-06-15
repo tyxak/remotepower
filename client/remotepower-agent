@@ -3813,7 +3813,7 @@ def get_gpu_status():
         try:
             r = subprocess.run(
                 [nv, '--query-gpu=name,utilization.gpu,memory.used,memory.total,'
-                     'temperature.gpu,power.draw',
+                     'temperature.gpu,power.draw,fan.speed',
                  '--format=csv,noheader,nounits'],
                 capture_output=True, text=True, timeout=10)
             if r.returncode == 0:
@@ -3824,25 +3824,62 @@ def get_gpu_status():
                     gpus.append({'vendor': 'nvidia', 'name': c[0][:96],
                                  'util_pct': _num(c[1]), 'mem_used_mb': _num(c[2]),
                                  'mem_total_mb': _num(c[3]), 'temp_c': _num(c[4]),
-                                 'power_w': _num(c[5])})
+                                 'power_w': _num(c[5]),
+                                 'fan_pct': _num(c[6]) if len(c) > 6 else None})
         except Exception:
             pass
     amd = _which('rocm-smi')
-    if amd and not gpus:
+    amd_found = False
+    if amd:
         try:
-            r = subprocess.run([amd, '--showproductname', '--showtemp',
-                                '--showuse', '--json'],
+            r = subprocess.run([amd, '--showproductname', '--showtemp', '--showuse',
+                                '--showmeminfo', 'vram', '--showpower', '--showfan',
+                                '--json'],
                                capture_output=True, text=True, timeout=10)
             if r.returncode == 0 and r.stdout.strip().startswith('{'):
                 data = json.loads(r.stdout)
                 for k, v in data.items():
                     if not isinstance(v, dict) or not k.lower().startswith('card'):
                         continue
-                    name = v.get('Card series') or v.get('Card model') or k
-                    temp = next((v[t] for t in v if 'Temperature' in t and 'edge' in t.lower()), None)
-                    use = next((v[u] for u in v if 'GPU use' in u), None)
-                    gpus.append({'vendor': 'amd', 'name': str(name)[:96],
-                                 'util_pct': _num(use), 'temp_c': _num(temp)})
+                    pick = lambda pred: next((v[x] for x in v if pred(x.lower())), None)
+                    name = v.get('Card series') or v.get('Card model') or v.get('Card SKU') or k
+                    used = pick(lambda s: 'vram' in s and 'used' in s)
+                    total = pick(lambda s: 'vram' in s and ('total' in s or 'size' in s))
+                    gpus.append({
+                        'vendor': 'amd', 'name': str(name)[:96],
+                        'util_pct': _num(pick(lambda s: 'gpu use' in s)),
+                        'temp_c': _num(pick(lambda s: 'temperature' in s and 'edge' in s)),
+                        'mem_used_mb': round(_num(used) / 1048576, 1) if _num(used) and _num(used) > 1e6 else _num(used),
+                        'mem_total_mb': round(_num(total) / 1048576, 1) if _num(total) and _num(total) > 1e6 else _num(total),
+                        'power_w': _num(pick(lambda s: 'average graphics package power' in s or ('power' in s and 'socket' in s))),
+                        'fan_pct': _num(pick(lambda s: 'fan speed' in s and '%' in s)),
+                    })
+                    amd_found = True
+        except Exception:
+            pass
+    # AMD fallback — no rocm-smi needed: read the kernel's amdgpu sysfs directly
+    # (works in the containerized agent too, via host_path()). util + VRAM + temp.
+    if not amd_found:
+        try:
+            import glob as _g
+            for dev in sorted(_g.glob(host_path('/sys/class/drm/card[0-9]*/device'))):
+                busy = _safe_read(unhost_path(dev) + '/gpu_busy_percent').strip()
+                if not busy:
+                    continue                      # not an amdgpu card
+                used = _safe_read(unhost_path(dev) + '/mem_info_vram_used').strip()
+                total = _safe_read(unhost_path(dev) + '/mem_info_vram_total').strip()
+                temp = ''
+                for hw in sorted(_g.glob(host_path(unhost_path(dev) + '/hwmon/hwmon*/temp1_input'))):
+                    temp = _safe_read(unhost_path(hw)).strip()
+                    if temp:
+                        break
+                gpus.append({
+                    'vendor': 'amd', 'name': 'AMD GPU (' + dev.rsplit('/', 2)[-2] + ')',
+                    'util_pct': _num(busy),
+                    'mem_used_mb': round(_num(used) / 1048576, 1) if _num(used) else None,
+                    'mem_total_mb': round(_num(total) / 1048576, 1) if _num(total) else None,
+                    'temp_c': round(_num(temp) / 1000, 1) if _num(temp) else None,
+                })
         except Exception:
             pass
     return gpus[:MAX_GPUS]

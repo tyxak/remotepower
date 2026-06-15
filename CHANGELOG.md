@@ -33,6 +33,11 @@ changes. Full notes in [docs/v4.7.0.md](docs/v4.7.0.md).
   Published multi-arch at `ghcr.io/tyxak/remotepower-agent`; standard
   capabilities, no `--privileged` (SMART/DMI and Docker-socket container
   inventory are opt-in).
+- **Fleet GPU page.** A new **Monitoring → GPUs** page shows every GPU across the
+  fleet (NVIDIA + AMD) with utilisation/VRAM meters, temperature, power and fan,
+  hottest-first. AMD gains a tooling-free amdgpu sysfs fallback; NVIDIA gains fan
+  speed. Plus richer Dashy-style integration tiles (a dashboard widget + a
+  dedicated Integrations page) that surface the live stats the connectors pull.
 
 ## v4.6.1 — 2026-06-14
 

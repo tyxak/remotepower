@@ -1440,6 +1440,7 @@ function showPage(name, btn) {
   if (name === 'exposure')   loadExposure();
   if (name === 'storage')    loadStorage();
   if (name === 'integrations') loadIntegrationsPage();
+  if (name === 'gpus')       loadGpus();
   if (name === 'thermal')    loadThermal();
   if (name === 'ssh-keys')   loadSshKeys();
   if (name === 'power')      loadPower();
@@ -3848,6 +3849,7 @@ async function sendExecCmd() { const id = document.getElementById('exec-device-i
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
   "Settings → Integrations can poll the software your homelab already runs — Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more — and raise an alert when one goes unhealthy. Read-only and SSRF-guarded.",
+  "The Monitoring → GPUs page shows every GPU across the fleet — NVIDIA and AMD — with utilisation, VRAM, temperature, power and fan, hottest-first. Hosts report via nvidia-smi / rocm-smi, or the tooling-free amdgpu sysfs fallback.",
   "Running a Docker host? Enroll device → Generate Docker compose gives you a ready-to-run container that monitors the host — no install on the OS, named after the host automatically.",
   "On an enterprise instance that doesn't use homelab software, untick Settings → Integrations → Show Homelab software to hide the whole feature (and stop its polling) in one click.",
   "While a device drawer is open the URL becomes #device/<id> — copy it into a ticket, runbook or bookmark and it opens straight to that host.",
@@ -9750,6 +9752,59 @@ async function loadIntegrationsPage() {
     }
   } catch (e) {
     wrap.innerHTML = '<div class="empty-state">Failed to load integrations.</div>';
+  }
+}
+
+// ── v4.7.0: fleet GPU page (Monitoring → GPUs) — NVIDIA + AMD, rich cards ─────
+function _gpuMem(mb) {
+  if (mb == null) return '—';
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : Math.round(mb) + ' MB';
+}
+function _gpuCard(g) {
+  const vend = String(g.vendor || '').toLowerCase();
+  const vlabel = vend === 'nvidia' ? 'NVIDIA' : vend === 'amd' ? 'AMD' : (g.vendor || 'GPU');
+  const tcls = (g.temp_c >= 85) ? 'c-red' : (g.temp_c >= 75) ? 'c-amber' : 'c-green';
+  const stat = (l, v, cls) => `<div class="gpu-stat"><span class="gpu-stat-l">${l}</span><b class="${cls || ''}">${v}</b></div>`;
+  const bar = (pct, cls) => {
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    return `<div class="gpu-bar"><div class="gpu-bar-fill ${cls}" data-w="${p}"></div></div>`;
+  };
+  const util = g.util_pct == null ? '—' : Math.round(g.util_pct) + '%';
+  return `<div class="gpu-card${g.online ? '' : ' gpu-off'}" data-vendor="${escAttr(vend)}">
+    <div class="gpu-card-top">
+      <span class="gpu-vendor gpu-vendor-${escAttr(vend)}">${escHtml(vlabel)}</span>
+      <span class="gpu-name" title="${escAttr(g.name || '')}">${escHtml(g.name || 'GPU')}</span>
+    </div>
+    <div class="gpu-host hint">${escHtml(g.device || '')}${g.online ? '' : ' · offline'}</div>
+    <div class="gpu-meter"><div class="gpu-meter-h"><span>Utilisation</span><span>${util}</span></div>${bar(g.util_pct, 'gpu-bar-util')}</div>
+    <div class="gpu-meter"><div class="gpu-meter-h"><span>Memory</span><span>${g.mem_pct != null ? Math.round(g.mem_pct) + '%' : '—'}</span></div>${bar(g.mem_pct, 'gpu-bar-mem')}<div class="hint gpu-mem-txt">${_gpuMem(g.mem_used_mb)} / ${_gpuMem(g.mem_total_mb)}</div></div>
+    <div class="gpu-stats">
+      ${stat('Temp', g.temp_c != null ? Math.round(g.temp_c) + '°C' : '—', tcls)}
+      ${stat('Power', g.power_w != null ? Math.round(g.power_w) + ' W' : '—', '')}
+      ${stat('Fan', g.fan_pct != null ? Math.round(g.fan_pct) + '%' : '—', '')}
+    </div>
+  </div>`;
+}
+async function loadGpus() {
+  const grid = document.getElementById('gpus-grid');
+  const sum = document.getElementById('gpus-summary');
+  if (!grid) return;
+  try {
+    const data = await api('GET', '/fleet/gpus');
+    const gpus = (data && data.gpus) || [];
+    const s = (data && data.summary) || {};
+    if (sum) sum.textContent = gpus.length
+      ? `${s.gpus} GPU${s.gpus === 1 ? '' : 's'} on ${s.devices} host${s.devices === 1 ? '' : 's'} · ${s.nvidia} NVIDIA, ${s.amd} AMD · ${Math.round(s.total_power_w || 0)} W total${s.hot ? ` · ${s.hot} hot` : ''}`
+      : '';
+    if (!gpus.length) {
+      grid.innerHTML = '<div class="empty-state">No GPUs reported yet. Hosts report GPU telemetry via nvidia-smi / rocm-smi (or the amdgpu sysfs fallback) on the next heartbeat.</div>';
+      return;
+    }
+    grid.innerHTML = gpus.map(_gpuCard).join('');
+    // CSP-safe: set the meter widths from data-w via JS (no inline style attrs).
+    grid.querySelectorAll('.gpu-bar-fill').forEach(el => { el.style.width = (el.dataset.w || 0) + '%'; });
+  } catch (e) {
+    grid.innerHTML = '<div class="empty-state">Failed to load GPU data.</div>';
   }
 }
 
