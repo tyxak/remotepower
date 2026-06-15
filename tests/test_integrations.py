@@ -190,7 +190,11 @@ class TestConnectors(unittest.TestCase):
         # neither version present → critical with a helpful message
         none = I.poll_instance({'type': 'servarr', 'secret': 'k'}, FakeClient(routes={}))
         self.assertEqual(none['status'], I.CRIT)
-        self.assertIn('v3 or /api/v1', none['detail'])
+        self.assertIn('check the URL', none['detail'])
+        # a wrong API key (401) is reported as such, not "not found"
+        unauth = I.poll_instance({'type': 'servarr', 'secret': 'bad'}, FakeClient(routes={
+            '/api/v3/system/status': (401, ''), '/api/v1/system/status': (401, '')}))
+        self.assertIn('unauthorized', unauth['detail'])
 
     def test_overseerr_update_warns(self):
         c = FakeClient(routes={

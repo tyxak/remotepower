@@ -1024,14 +1024,18 @@ def _servarr(inst, c):
     # Prowlarr/Lidarr/Readarr on /api/v1. Probe both for system/status.
     api = None
     st = {}
+    last = 0
     for ver_path in ("v3", "v1"):
         r = c.get(f"/api/{ver_path}/system/status", headers=h)
         if r.ok:
             api, st = ver_path, (r.json() or {})
             break
+        last = r.status
     if api is None:
+        if last in (401, 403):
+            raise IntegrationError(f"unauthorized (HTTP {last}) — check the API key")
         raise IntegrationError(
-            "system/status not found on /api/v3 or /api/v1 (check URL + API key)"
+            f"system/status not reachable (HTTP {last or 404}) — check the URL + API key"
         )
     app = st.get("appName", "Servarr")
     ver = st.get("version", "")

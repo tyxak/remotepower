@@ -9684,9 +9684,10 @@ async function testIntegration(idx) {
   }
 }
 
-// ── v4.7.0: rich integration tiles (Dashy-style) — shared by the dashboard
-// widget and the dedicated Integrations page. Renders status + the stat chips
-// the connector already pulls from the service API. CSP-safe (escHtml/escAttr).
+// ── v4.7.0: integration rows — ONE compact line per service, shared by the
+// dashboard widget and the Integrations page. Name is prominent; the stat chips
+// the connector pulls from the service API sit inline; version + age on the
+// right. CSP-safe (escHtml/escAttr).
 const _INTEG_TILE_PILL = { ok: 'ok', warning: 'warn', critical: 'critical', unknown: 'neutral' };
 function _integrationTiles(items, opts) {
   opts = opts || {};
@@ -9694,21 +9695,18 @@ function _integrationTiles(items, opts) {
   return items.map(it => {
     const v = _INTEG_TILE_PILL[it.status] || 'neutral';
     const chips = (it.stats || []).map(s =>
-      `<span class="integ-stat"><b>${escHtml(String(s.value))}</b><span class="integ-stat-l">${escHtml(s.label)}</span></span>`).join('');
-    const body = chips ? `<div class="integ-tile-stats">${chips}</div>`
-      : (it.detail ? `<div class="integ-tile-detail">${escHtml(it.detail)}</div>` : '');
+      `<span class="integ-stat"><b>${escHtml(String(s.value))}</b> ${escHtml(s.label)}</span>`).join('');
+    const mid = chips || (it.detail ? `<span class="integ-row-detail">${escHtml(it.detail)}</span>` : '');
     const foot = [];
     if (it.version) foot.push('v' + escHtml(String(it.version)));
     if (it.checked && typeof timeAgo === 'function') foot.push(escHtml(timeAgo(it.checked)));
     const click = opts.link ? ' data-action="goIntegrationsPage" role="button" tabindex="0"' : '';
-    return `<div class="integ-tile${opts.link ? ' integ-tile-link' : ''}"${click}>
-      <div class="integ-tile-top">
-        <span class="status-pill ${v}">${escHtml(it.status || 'unknown')}</span>
-        <span class="integ-tile-name">${escHtml(it.label || it.type || '?')}</span>
-        <span class="integ-tile-type">${escHtml(it.type || '')}</span>
-      </div>
-      ${body}
-      <div class="integ-tile-foot">${foot.join(' · ')}</div>
+    return `<div class="integ-row${opts.link ? ' integ-row-link' : ''}"${click} title="${escAttr((it.label || '') + ' — ' + (it.detail || ''))}">
+      <span class="status-pill ${v} integ-row-pill">${escHtml(it.status || 'unknown')}</span>
+      <span class="integ-row-name">${escHtml(it.label || it.type || '?')}</span>
+      <span class="integ-row-type">${escHtml(it.type || '')}</span>
+      <span class="integ-row-stats">${mid}</span>
+      <span class="integ-row-meta">${foot.join(' · ')}</span>
     </div>`;
   }).join('');
 }
