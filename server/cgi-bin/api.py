@@ -22432,6 +22432,15 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             _hot = [t for t in (safe.get('temps') or [])
                     if isinstance(t.get('current_c'), (int, float))
                     and t['current_c'] >= _t_thresh]
+            # v4.7.0: GPU temperatures participate in the SAME thermal alert — a
+            # hot GPU fires temp_high (sensor labelled "GPU: <name>") and cooling
+            # back down auto-resolves it via temp_normal, exactly like a board
+            # sensor. No separate event/threshold to manage.
+            for _g in (body.get('gpus') or []):
+                if isinstance(_g, dict) and isinstance(_g.get('temp_c'), (int, float)) \
+                        and _g['temp_c'] >= _t_thresh:
+                    _hot.append({'label': 'GPU: ' + str(_g.get('name') or 'GPU'),
+                                 'current_c': _g['temp_c']})
             was_hot = bool(rec.get('_temp_high'))
             if _hot and not was_hot:
                 _h0 = max(_hot, key=lambda t: t['current_c'])
@@ -35584,6 +35593,19 @@ def handle_fleet_thermal():
 GPU_HOT_C = 85.0
 
 
+def _gpu_display_name(g):
+    """GPU name with a redundant leading vendor word stripped. nvidia-smi reports
+    'NVIDIA GeForce RTX 4070 Ti SUPER' and the card already shows a vendor pill,
+    so the raw name would read 'NVIDIA NVIDIA GeForce …'. Falls back to the raw
+    name (or 'GPU') if stripping would leave nothing."""
+    name = str(g.get('name') or 'GPU').strip()
+    for pre in ('NVIDIA ', 'AMD ', 'Advanced Micro Devices, Inc. ',
+                'Advanced Micro Devices ', 'ATI ', 'Intel '):
+        if name.lower().startswith(pre.lower()) and len(name) > len(pre):
+            return name[len(pre):].strip()
+    return name
+
+
 def handle_fleet_gpus():
     """GET /api/fleet/gpus — every GPU across the fleet, one row per GPU.
 
@@ -35593,11 +35615,19 @@ def handle_fleet_gpus():
     require_auth()
     devices = load(DEVICES_FILE) or {}
     hw_all = load(HARDWARE_FILE) or {}
+    now = int(time.time())
+    ttl = get_online_ttl()
     rows = []
     for dev_id, d in devices.items():
         # GPU inventory shows EVERY host with a GPU, including unmonitored ones
         # (e.g. a workstation you don't alert on) — this is a telemetry view, not
         # an alerting view, so don't hide them the way thermal/storage do.
+        # `online` is COMPUTED from last_seen (it's never stored on the record),
+        # the same way device_list / the network map do it.
+        if d.get('agentless'):
+            online = _agentless_online(d)
+        else:
+            online = (now - d.get('last_seen', 0)) < ttl
         hw = hw_all.get(dev_id) or {}
         for g in (hw.get('gpus') or []):
             if not isinstance(g, dict):
@@ -35607,9 +35637,9 @@ def handle_fleet_gpus():
                        if isinstance(mu, (int, float)) and isinstance(mt, (int, float)) and mt else None)
             rows.append({
                 'device_id': dev_id, 'device': d.get('name', dev_id),
-                'online': bool(d.get('online')),
+                'online': online,
                 'monitored': d.get('monitored') is not False,
-                'vendor': g.get('vendor', ''), 'name': g.get('name', 'GPU'),
+                'vendor': g.get('vendor', ''), 'name': _gpu_display_name(g),
                 'util_pct': g.get('util_pct'), 'temp_c': g.get('temp_c'),
                 'power_w': g.get('power_w'), 'fan_pct': g.get('fan_pct'),
                 'mem_used_mb': mu, 'mem_total_mb': mt, 'mem_pct': mem_pct,

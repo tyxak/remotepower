@@ -54,17 +54,27 @@ class TestFleetGpuEndpoint(unittest.TestCase):
 
     def test_aggregation_and_summary(self):
         api = self.api
+        import time
+        now = int(time.time())
         tmp = Path(tempfile.mkdtemp())
         api.DEVICES_FILE = tmp / "devices.json"
         api.HARDWARE_FILE = tmp / "hardware.json"
+        api.CONFIG_FILE = tmp / "config.json"
+        api.save(api.CONFIG_FILE, {})                       # default online TTL (300s)
         api.require_auth = lambda *a, **k: "tester"        # bypass auth for the unit test
+        # `online` is COMPUTED from last_seen, NOT a stored field — fresh hosts
+        # read online, a stale one reads offline (regression: it used to read the
+        # nonexistent d['online'] and every host showed offline).
         api.save(api.DEVICES_FILE, {
-            "d1": {"name": "workstation", "online": True, "monitored": True},
-            "d2": {"name": "render01", "online": True, "monitored": True},
-            "d3": {"name": "muted", "online": True, "monitored": False},
+            "d1": {"name": "workstation", "last_seen": now, "monitored": True},
+            "d2": {"name": "render01", "last_seen": now, "monitored": True},
+            "d3": {"name": "muted", "last_seen": now - 10000, "monitored": False},
         })
         api.save(api.HARDWARE_FILE, {
-            "d1": {"gpus": [{"vendor": "nvidia", "name": "RTX 4070", "util_pct": 23,
+            # name carries the vendor word — the handler must strip it so the card
+            # doesn't read "NVIDIA NVIDIA GeForce …".
+            "d1": {"gpus": [{"vendor": "nvidia", "name": "NVIDIA GeForce RTX 4070",
+                             "util_pct": 23,
                              "mem_used_mb": 1084, "mem_total_mb": 16376, "temp_c": 35,
                              "power_w": 18, "fan_pct": 0}]},
             "d2": {"gpus": [{"vendor": "amd", "name": "RX 7900", "util_pct": 90,
@@ -90,6 +100,29 @@ class TestFleetGpuEndpoint(unittest.TestCase):
         self.assertFalse(muted[0]["monitored"])
         # monitored hosts carry the flag too
         self.assertTrue(body["gpus"][0]["monitored"])
+        # online is computed from last_seen: fresh hosts online, stale one offline
+        by_dev = {r["device"]: r for r in body["gpus"]}
+        self.assertTrue(by_dev["workstation"]["online"])
+        self.assertTrue(by_dev["render01"]["online"])
+        self.assertFalse(by_dev["muted"]["online"])
+        # the redundant leading vendor word is stripped from the display name
+        self.assertEqual(by_dev["workstation"]["name"], "GeForce RTX 4070")
+
+    def test_display_name_strips_vendor(self):
+        api = self.api
+        f = api._gpu_display_name
+        self.assertEqual(f({"name": "NVIDIA GeForce RTX 4070 Ti SUPER"}),
+                         "GeForce RTX 4070 Ti SUPER")
+        self.assertEqual(f({"name": "AMD Radeon RX 7900 XT"}), "Radeon RX 7900 XT")
+        self.assertEqual(f({"name": "Quadro P2000"}), "Quadro P2000")  # no prefix
+        self.assertEqual(f({}), "GPU")                                 # fallback
+
+    def test_gpu_temp_feeds_thermal_alert(self):
+        # A hot GPU must participate in the existing temp_high thermal alert
+        # (folded into the hardware-ingest hot-sensor list, labelled "GPU: …").
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("body.get('gpus')", src)
+        self.assertIn("'GPU: '", src)
 
 
 class TestGpuPageWiring(unittest.TestCase):

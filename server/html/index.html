@@ -4836,7 +4836,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <div id="page-gpus" class="page">
         <div class="page-title">GPUs</div>
-        <div class="page-subtitle">GPU state across the fleet — NVIDIA and AMD. Utilisation, VRAM, temperature, power and fan for every reporting host, hottest/busiest first. Hosts report via <code>nvidia-smi</code> / <code>rocm-smi</code> (or the amdgpu sysfs fallback). <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">GPU state across the fleet — NVIDIA and AMD. Utilisation, VRAM, temperature, power and fan for every reporting host, hottest/busiest first. Hosts report via <code>nvidia-smi</code> / <code>rocm-smi</code> (or the amdgpu sysfs fallback). A GPU at or above the thermal threshold (default 85&nbsp;°C, set in Settings) raises a <strong>High&nbsp;Temperature</strong> alert and auto-resolves when it cools. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadGpus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / GPU…" data-input="filterRows" data-input-el="1" data-filter-target="#gpus-grid .gpu-card" aria-label="Filter device / GPU">
