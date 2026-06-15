@@ -5465,6 +5465,31 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .mw-100 { max-width:100px; } .mw-220 { max-width:220px; } .mw-260 { max-width:260px; }
 .ml-12 { margin-left:12px; }
 
+/* v4.7.0: rich integration TILES (Dashy-style) — the dedicated Integrations page
+   + the dashboard widget. Theme-token only, so they track every theme incl.
+   Industrial light/dark. */
+.integ-tiles { display:grid; gap:12px;
+  grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); }
+.integ-tile { border:1px solid var(--border); border-radius:8px; padding:12px 14px;
+  background:var(--surface); display:flex; flex-direction:column; gap:8px; }
+.integ-tile-link { cursor:pointer; transition:border-color .15s, transform .15s; }
+.integ-tile-link:hover { border-color:var(--accent); transform:translateY(-1px); }
+.integ-tile-top { display:flex; align-items:center; gap:8px; }
+.integ-tile-name { font-size:14px; font-weight:600; color:var(--text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.integ-tile-type { font-size:11px; color:var(--muted); margin-left:auto;
+  text-transform:uppercase; letter-spacing:.03em; }
+.integ-tile-stats { display:flex; flex-wrap:wrap; gap:6px 16px; }
+.integ-stat { display:flex; flex-direction:column; line-height:1.2; }
+.integ-stat b { font-size:16px; font-weight:600; color:var(--text);
+  font-variant-numeric:tabular-nums; }
+.integ-stat-l { font-size:11px; color:var(--muted); }
+.integ-tile-detail { font-size:13px; color:var(--muted); }
+.integ-tile-foot { font-size:11px; color:var(--muted); margin-top:auto; }
+/* Mini grid inside the dashboard widget — capped + scrolled (box-overflow rule). */
+.integ-tiles-mini { grid-template-columns:repeat(auto-fill, minmax(180px, 1fr));
+  max-height:300px; overflow:auto; gap:8px; }
+
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */
 .subtitle-hidden { display:none !important; }

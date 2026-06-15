@@ -78,6 +78,7 @@
     'Query':       { zh: '查询', hi: 'क्वेरी', es: 'Consulta', ar: 'استعلام' },
     // ── monitoring ──
     'Checks':      { zh: '检查', hi: 'जाँच', es: 'Comprobaciones', ar: 'الفحوصات' },
+    'Integrations': { zh: '集成', hi: 'एकीकरण', es: 'Integraciones', ar: 'التكاملات' },
     'Every monitored signal on every host as OK / WARN / CRIT / UNKNOWN, with output. Sort and filter; toggle a check off to silence it on a host.':
         { zh: '每台主机的每个受监控信号，以 OK / WARN / CRIT / UNKNOWN 显示并附带输出。可排序和筛选；关闭某项检查即可在该主机上将其静音。',
           hi: 'हर host पर हर निगरानी किए गए signal को OK / WARN / CRIT / UNKNOWN के रूप में, output सहित। क्रमबद्ध करें और filter करें; किसी check को बंद करके उसे उस host पर म्यूट करें।',

@@ -1094,3 +1094,98 @@ def _overseerr(inst, c):
         "detail": f"{pending} pending requests" + (" · update available" if update else ""),
         "metrics": {"pending_requests": pending, "update_available": update},
     }
+
+
+# ── per-connector headline stat chips (for the rich tiles) ─────────────────────
+# Map each connector type to a few (metric_key, label, kind) the UI shows as
+# labeled chips. kinds: int (humanized 12.3k), pct (18%), num (small count),
+# rate (KB/s, value already in KB/s), mb (123 MB), flag (yes/no), str. Surfaces
+# the metrics the connectors ALREADY collect — no extra API calls.
+_STATS: dict = {
+    "pihole": [
+        ("queries_today", "Queries", "int"),
+        ("blocked_pct", "Blocked", "pct"),
+        ("domains_blocked", "Blocklist", "int"),
+    ],
+    "adguard": [("queries", "Queries", "int"), ("blocked", "Blocked", "int")],
+    "truenas": [
+        ("pools", "Pools", "num"),
+        ("pools_bad", "Degraded", "num"),
+        ("alerts_crit", "Crit alerts", "num"),
+    ],
+    "unifi": [("subsystems", "Subsystems", "num"), ("subsystems_bad", "Degraded", "num")],
+    "homeassistant": [("entities", "Entities", "int"), ("unavailable", "Unavailable", "num")],
+    "pbs": [("datastores", "Datastores", "num"), ("fullest_pct", "Fullest", "pct")],
+    "kubernetes": [
+        ("nodes_notready", "Nodes down", "num"),
+        ("pods_crashloop", "CrashLoop", "num"),
+        ("pods_pending", "Pending", "num"),
+    ],
+    "vcenter": [
+        ("hosts", "Hosts", "num"),
+        ("vms_on", "VMs on", "num"),
+        ("hosts_down", "Down", "num"),
+    ],
+    "unraid": [("array_state", "Array", "str")],
+    "traefik": [
+        ("routers", "Routers", "num"),
+        ("errors", "Errors", "num"),
+        ("warnings", "Warnings", "num"),
+    ],
+    "npm": [("proxy_hosts", "Proxy hosts", "num"), ("certs_expiring", "Certs <14d", "num")],
+    "caddy": [("upstreams", "Upstreams", "num"), ("upstreams_failing", "Failing", "num")],
+    "uptimekuma": [("monitors", "Monitors", "num"), ("down", "Down", "num")],
+    "netdata": [("alarms_critical", "Critical", "num"), ("alarms_warning", "Warning", "num")],
+    "grafana": [("database_ok", "Database", "flag")],
+    "jellyfin": [("sessions_active", "Streaming", "num"), ("transcoding", "Transcode", "num")],
+    "plex": [("sessions_active", "Streaming", "num")],
+    "nextcloud": [("users", "Users", "int"), ("update_available", "Update", "flag")],
+    "sabnzbd": [("queue", "Queue", "num"), ("mb_left", "Left", "mb"), ("paused", "Paused", "flag")],
+    "nzbget": [("download_kbs", "Down", "rate"), ("remaining_mb", "Remaining", "mb")],
+    "qbittorrent": [("torrents", "Torrents", "num"), ("download_kbs", "Down", "rate")],
+    "transmission": [
+        ("torrents", "Torrents", "num"),
+        ("active", "Active", "num"),
+        ("download_kbs", "Down", "rate"),
+    ],
+    "deluge": [("torrents", "Torrents", "num"), ("download_kbs", "Down", "rate")],
+    "servarr": [("health_errors", "Errors", "num"), ("health_warnings", "Warnings", "num")],
+    "bazarr": [("health_issues", "Issues", "num")],
+    "overseerr": [("pending_requests", "Pending", "num"), ("update_available", "Update", "flag")],
+}
+
+
+def _human(v):
+    n = _num(v)
+    if n >= 1_000_000:
+        return f"{n / 1e6:.1f}M"
+    if n >= 1000:
+        return f"{n / 1e3:.1f}k"
+    return str(int(n))
+
+
+def _fmt_stat(kind, v):
+    if kind == "pct":
+        return f"{round(_num(v))}%"
+    if kind == "int":
+        return _human(v)
+    if kind == "rate":  # v is KB/s; roll up to MB/s past 1000
+        kb = _num(v)
+        return f"{kb / 1024:.1f} MB/s" if kb >= 1000 else f"{int(kb)} KB/s"
+    if kind == "mb":
+        return f"{int(_num(v))} MB"
+    if kind == "flag":
+        return "yes" if v else "no"
+    return str(v)
+
+
+def format_stats(type_, metrics):
+    """Render a connector's collected metrics as labeled display chips for the
+    rich tiles. Returns [{label, value}, ...] (empty if the type has no spec or
+    the metric is absent)."""
+    metrics = metrics or {}
+    out = []
+    for key, label, kind in _STATS.get(type_, []):
+        if key in metrics and metrics[key] is not None:
+            out.append({"label": label, "value": _fmt_stat(kind, metrics[key])})
+    return out

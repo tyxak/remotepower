@@ -208,6 +208,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>Checks</span>
         </button>
+        <button class="nav-btn" data-page="integrations" title="Health of integrated homelab/fleet software (Pi-hole, TrueNAS, …)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Integrations</span>
+        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-scripts" data-pass-btn="1" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Custom Scripts</span>
@@ -4815,6 +4819,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- ── v3.11.0: Storage / RAID health ─────────────────────────────── -->
+      <div id="page-integrations" class="page">
+        <div class="page-title">Integrations</div>
+        <div class="page-subtitle">Live health of the homelab/fleet software you've connected — Pi-hole, TrueNAS, the *arr suite, download clients and more. Each tile shows status plus key stats pulled from the service's own API. <a href="docs/integrations.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadIntegrationsPage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-secondary" data-action="openIntegrationsSettings">Manage integrations</button>
+          <span id="integrations-page-summary" class="hint"></span>
+        </div>
+        <div id="integrations-page-tiles" class="integ-tiles"><div class="hint">Loading…</div></div>
+      </div>
+
       <div id="page-storage" class="page">
         <div class="page-title">Storage health</div>
         <div class="page-subtitle">ZFS, mdadm and btrfs pool/array state across the fleet. Degraded or faulted arrays are listed first and raise an alert; ZFS scrub freshness is tracked. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>

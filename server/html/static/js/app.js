@@ -1439,6 +1439,7 @@ function showPage(name, btn) {
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
   if (name === 'storage')    loadStorage();
+  if (name === 'integrations') loadIntegrationsPage();
   if (name === 'thermal')    loadThermal();
   if (name === 'ssh-keys')   loadSshKeys();
   if (name === 'power')      loadPower();
@@ -9681,6 +9682,77 @@ async function testIntegration(idx) {
   }
 }
 
+// ── v4.7.0: rich integration tiles (Dashy-style) — shared by the dashboard
+// widget and the dedicated Integrations page. Renders status + the stat chips
+// the connector already pulls from the service API. CSP-safe (escHtml/escAttr).
+const _INTEG_TILE_PILL = { ok: 'ok', warning: 'warn', critical: 'critical', unknown: 'neutral' };
+function _integrationTiles(items, opts) {
+  opts = opts || {};
+  if (!items || !items.length) return '<div class="empty-state">No integrations configured yet.</div>';
+  return items.map(it => {
+    const v = _INTEG_TILE_PILL[it.status] || 'neutral';
+    const chips = (it.stats || []).map(s =>
+      `<span class="integ-stat"><b>${escHtml(String(s.value))}</b><span class="integ-stat-l">${escHtml(s.label)}</span></span>`).join('');
+    const body = chips ? `<div class="integ-tile-stats">${chips}</div>`
+      : (it.detail ? `<div class="integ-tile-detail">${escHtml(it.detail)}</div>` : '');
+    const foot = [];
+    if (it.version) foot.push('v' + escHtml(String(it.version)));
+    if (it.checked && typeof timeAgo === 'function') foot.push(escHtml(timeAgo(it.checked)));
+    const click = opts.link ? ' data-action="goIntegrationsPage" role="button" tabindex="0"' : '';
+    return `<div class="integ-tile${opts.link ? ' integ-tile-link' : ''}"${click}>
+      <div class="integ-tile-top">
+        <span class="status-pill ${v}">${escHtml(it.status || 'unknown')}</span>
+        <span class="integ-tile-name">${escHtml(it.label || it.type || '?')}</span>
+        <span class="integ-tile-type">${escHtml(it.type || '')}</span>
+      </div>
+      ${body}
+      <div class="integ-tile-foot">${foot.join(' · ')}</div>
+    </div>`;
+  }).join('');
+}
+
+function goIntegrationsPage() {
+  showPage('integrations', document.querySelector('.nav-btn[data-page="integrations"]'));
+}
+
+function openIntegrationsSettings() {
+  showPage('settings', document.querySelector('.nav-btn[data-page="settings"]'));
+  setTimeout(() => { try { switchSettingsTab('integrations'); loadIntegrationsTab(); } catch (_) {} }, 50);
+}
+
+// The dedicated Integrations tiles page (Monitoring → Integrations).
+async function loadIntegrationsPage() {
+  const wrap = document.getElementById('integrations-page-tiles');
+  const sum = document.getElementById('integrations-page-summary');
+  if (!wrap) return;
+  try {
+    const data = await api('GET', '/integrations');
+    if (data && data.show_homelab === false) {
+      wrap.innerHTML = '<div class="empty-state">Homelab software integrations are hidden on this instance (Settings → Integrations → Show Homelab software).</div>';
+      if (sum) sum.textContent = '';
+      return;
+    }
+    const insts = (data && data.integrations) || [];
+    // Build tile items from the per-instance last_* fields.
+    const items = insts.map(i => ({
+      id: i.id, label: i.label, type: i.type,
+      status: i.enabled ? (i.last_status || 'unknown') : 'unknown',
+      detail: i.enabled ? i.last_detail : 'disabled',
+      version: i.last_version, checked: i.last_checked, stats: i.last_stats || [],
+    }));
+    const order = { critical: 0, warning: 1, unknown: 2, ok: 3 };
+    items.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || String(a.label || '').localeCompare(String(b.label || '')));
+    wrap.innerHTML = _integrationTiles(items);
+    if (sum) {
+      const c = { critical: 0, warning: 0, ok: 0 };
+      items.forEach(i => { if (i.status in c) c[i.status]++; });
+      sum.textContent = `${items.length} integration${items.length === 1 ? '' : 's'} · ${c.critical} critical, ${c.warning} warning, ${c.ok} ok`;
+    }
+  } catch (e) {
+    wrap.innerHTML = '<div class="empty-state">Failed to load integrations.</div>';
+  }
+}
+
 async function loadInboundWebhooks() {
   try {
     const data = await api('GET', '/inbound-webhooks');
@@ -14172,16 +14244,21 @@ function _renderHomeWidgets(home) {
         { l: 'OK', r: String(cr.ok || 0), cls: 'c-green' },
       ])
     : '<div class="hint">No checks yet.</div>');
-  // v4.7.0: homelab software integration health rollup.
+  // v4.7.0: homelab software integration health — rich Dashy-style tiles
+  // (status + the stat chips the connectors pull from each service API). Tiles
+  // are worst-first and click through to the dedicated Integrations page.
   const ig = W.integrations || {};
-  _setWidget('home-w-integrations-body', (ig.total)
-    ? _miniRows([
-        { l: 'Critical', r: String(ig.critical || 0), cls: 'c-red' },
-        { l: 'Warning', r: String(ig.warning || 0), cls: 'c-amber' },
-        { l: 'Unknown', r: String(ig.unknown || 0), cls: 'c-muted' },
-        { l: 'OK', r: String(ig.ok || 0), cls: 'c-green' },
-      ])
-    : '<div class="hint">No integrations configured.</div>');
+  const igItems = ig.items || [];
+  if (igItems.length) {
+    const shown = igItems.slice(0, 8);
+    let html = `<div class="integ-tiles integ-tiles-mini">${_integrationTiles(shown, { link: true })}</div>`;
+    if (igItems.length > shown.length) {
+      html += `<div class="hint pointer" data-action="goIntegrationsPage">+${igItems.length - shown.length} more — open the Integrations page →</div>`;
+    }
+    _setWidget('home-w-integrations-body', html);
+  } else {
+    _setWidget('home-w-integrations-body', '<div class="hint">No integrations configured.</div>');
+  }
   // Actionable alerts feed — open alerts with inline ack / resolve / investigate.
   const af = (home.tickets && home.tickets.open) || [];
   _setWidget('home-w-alertsfeed-body', af.length
@@ -14277,7 +14354,7 @@ const DASH_WIDGETS = [
   { key: 'bruteforce',  label: 'Active brute-force',    opt: true, size: 'sm' },
   { key: 'bandwidth',   label: 'Top bandwidth',         opt: true, size: 'sm' },
   { key: 'checksrollup', label: 'Checks roll-up',       opt: true, size: 'sm' },
-  { key: 'integrations', label: 'Integration health',   opt: true, size: 'sm' },
+  { key: 'integrations', label: 'Integration health',   opt: true, size: 'lg' },
   { key: 'alertsfeed',  label: 'Alerts (ack / resolve)', opt: true, size: 'md' },
   { key: 'health',   label: 'Fleet health',                     size: 'lg' },
   { key: 'heatmap',  label: 'Fleet heat map',                   size: 'lg' },
@@ -22813,10 +22890,9 @@ function _homeNavAction(btn) {
     case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
-    // v4.7.0: integration health → Settings → Integrations tab
+    // v4.7.0: integration health → the dedicated Integrations page
     case 'integrations':
-      showPage('settings', document.querySelector('.nav-btn[data-page="settings"]'));
-      setTimeout(() => { try { switchSettingsTab('integrations'); loadIntegrationsTab(); } catch (_) {} }, 50);
+      showPage('integrations', document.querySelector('.nav-btn[data-page="integrations"]'));
       break;
     default:
       if (devId) openDetail(devId, devName);

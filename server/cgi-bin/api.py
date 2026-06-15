@@ -12060,6 +12060,8 @@ def handle_integrations_list():
             safe['last_checked'] = r.get('checked')
             safe['last_version'] = r.get('version')
             safe['last_metrics'] = r.get('metrics')
+            # v4.7.0: formatted headline stat chips for the rich tiles.
+            safe['last_stats'] = integrations_mod.format_stats(i.get('type'), r.get('metrics'))
         insts.append(safe)
     respond(200, {'integrations': insts,
                   'catalog': integrations_mod.list_connectors(),
@@ -25679,10 +25681,20 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
         try:
             latest = (load(INTEG_STATE_FILE) or {}).get('latest') or {}
             roll = {'ok': 0, 'warning': 0, 'critical': 0, 'unknown': 0, 'total': len(latest)}
+            items = []
             for r in latest.values():
                 st = r.get('status', 'unknown')
                 if st in roll:
                     roll[st] += 1
+                # v4.7.0: rich tiles — per-integration card with formatted stats.
+                items.append({'id': r.get('id'), 'label': r.get('label'), 'type': r.get('type'),
+                              'status': st, 'detail': r.get('detail'), 'version': r.get('version'),
+                              'checked': r.get('checked'),
+                              'stats': integrations_mod.format_stats(r.get('type'), r.get('metrics'))})
+            # worst-first so the unhealthy tiles lead.
+            _order = {'critical': 0, 'warning': 1, 'unknown': 2, 'ok': 3}
+            items.sort(key=lambda x: (_order.get(x['status'], 9), str(x.get('label') or '')))
+            roll['items'] = items
             out['integrations'] = roll
         except Exception:
             out['integrations'] = {}

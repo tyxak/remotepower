@@ -190,6 +190,59 @@ def _load_api():
     return m
 
 
+class TestRichTiles(unittest.TestCase):
+    """v4.7.0 rich tiles: format_stats + the widget/page wiring."""
+
+    def test_format_stats_shapes(self):
+        s = dict((x['label'], x['value']) for x in I.format_stats(
+            'pihole', {'queries_today': 12300, 'blocked_pct': 18.4, 'domains_blocked': 990}))
+        self.assertEqual(s['Queries'], '12.3k')
+        self.assertEqual(s['Blocked'], '18%')
+
+    def test_format_stats_rate_rolls_to_mbs(self):
+        s = dict((x['label'], x['value']) for x in I.format_stats(
+            'qbittorrent', {'torrents': 5, 'download_kbs': 2150}))
+        self.assertEqual(s['Torrents'], '5')
+        self.assertEqual(s['Down'], '2.1 MB/s')          # >1000 KB/s → MB/s
+        slow = dict((x['label'], x['value']) for x in I.format_stats(
+            'qbittorrent', {'download_kbs': 300}))
+        self.assertEqual(slow['Down'], '300 KB/s')
+
+    def test_format_stats_flag_and_missing(self):
+        s = I.format_stats('nextcloud', {'users': 12, 'update_available': True})
+        self.assertIn({'label': 'Update', 'value': 'yes'}, s)
+        self.assertEqual(I.format_stats('plex', {}), [])      # absent metric skipped
+        self.assertEqual(I.format_stats('nope', {'x': 1}), [])  # unknown type
+
+    def test_every_connector_has_a_stat_spec(self):
+        # Each registered connector should expose at least one headline chip.
+        for t in I.CONNECTORS:
+            self.assertIn(t, I._STATS, f'{t} has no stat-chip spec')
+            self.assertTrue(I._STATS[t])
+
+    def test_page_and_widget_wired(self):
+        html = (_ROOT / 'server/html/index.html').read_text()
+        js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        i18n = (_ROOT / 'server/html/static/js/i18n.js').read_text()
+        # dedicated page + nav
+        self.assertIn('data-page="integrations"', html)
+        self.assertIn('id="page-integrations"', html)
+        self.assertIn('id="integrations-page-tiles"', html)
+        # shared tile renderer + loaders + activity route
+        self.assertIn('function _integrationTiles(', js)
+        self.assertIn('function loadIntegrationsPage(', js)
+        self.assertIn("if (name === 'integrations') loadIntegrationsPage();", js)
+        # the widget carries the lg tile grid (server provides items+stats)
+        self.assertIn('integ-tiles-mini', js)
+        # i18n gate: nav label + page title need a DICT entry
+        self.assertIn("'Integrations':", i18n)
+
+    def test_server_emits_items_and_stats(self):
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn("roll['items'] = items", src)          # widget per-integration tiles
+        self.assertIn("safe['last_stats'] = integrations_mod.format_stats", src)  # list endpoint
+
+
 class TestApiWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
