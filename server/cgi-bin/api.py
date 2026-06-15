@@ -22821,8 +22821,7 @@ def _disk_health_view():
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     rows = []
     for dev_id, dev in devices.items():
-        if dev.get('monitored') is False:
-            continue
+        # Telemetry view — show unmonitored hosts' disks too (alerting suppressed).
         disks = (hw_all.get(dev_id) or {}).get('smart') or []
         dhist = hist.get(dev_id) or {}
         for d in disks:
@@ -22872,6 +22871,7 @@ def _disk_health_view():
                 continue  # only surface at-risk disks
             rows.append({
                 'device_id': dev_id, 'device': dev.get('name', dev_id),
+                'monitored': dev.get('monitored') is not False,
                 'disk': d.get('device', key), 'model': d.get('model', ''),
                 'serial': d.get('serial', ''),
                 'risk': risk, 'eta_days': eta_days,
@@ -22895,8 +22895,7 @@ def _disk_tracked_view():
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
     rows = []
     for dev_id, dev in devices.items():
-        if dev.get('monitored') is False:
-            continue
+        # Telemetry view — include unmonitored hosts' disks (alerting suppressed).
         disks = (hw_all.get(dev_id) or {}).get('smart') or []
         dhist = hist.get(dev_id) or {}
         for d in disks:
@@ -22905,6 +22904,7 @@ def _disk_tracked_view():
             key = _disk_key(d)
             rows.append({
                 'device_id': dev_id, 'device': dev.get('name', dev_id),
+                'monitored': dev.get('monitored') is not False,
                 'disk': d.get('device', key), 'model': d.get('model', ''),
                 'serial': d.get('serial', ''), 'failed': bool(d.get('failed')),
                 'reallocated': d.get('reallocated_sectors'),
@@ -22925,8 +22925,7 @@ def _unstable_hosts_view(days=7, threshold=3):
     win = now - days * 86400
     rows = []
     for dev_id, dev in devices.items():
-        if dev.get('monitored') is False:
-            continue
+        # Telemetry/inventory view — show unmonitored hosts too (alerting suppressed).
         events = (uptime.get(dev_id) or {}).get('events') or []
         prev_online = None
         returns = 0
@@ -22939,6 +22938,7 @@ def _unstable_hosts_view(days=7, threshold=3):
         if returns >= threshold:
             rows.append({
                 'device_id': dev_id, 'device': dev.get('name', dev_id),
+                'monitored': dev.get('monitored') is not False,
                 'restarts': returns, 'days': days,
                 'last_boot_reason': dev.get('last_boot_reason', ''),
                 'last_boot_reason_at': dev.get('last_boot_reason_at', 0),
@@ -28844,7 +28844,9 @@ def handle_patch_catalog():
     # v3.4.2: aggregate third-party (flatpak/snap/pip/npm) updates by manager.
     third_party = {}   # manager -> {'hosts': set, 'packages': {pkg: set(host)}}
     for dev_id, dev in devices.items():
-        if not isinstance(dev, dict) or dev.get('monitored') is False:
+        # Patch INVENTORY — include unmonitored hosts (the device-level Patches
+        # table already shows them with a 'silent' badge); only alerting is gated.
+        if not isinstance(dev, dict):
             continue
         pkg = (dev.get('sysinfo') or {}).get('packages') or {}
         names = pkg.get('upgradable_names')
@@ -35473,8 +35475,8 @@ def handle_exposure_overview():
     rows = []
     counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0}
     for dev_id, d in (devices or {}).items():
-        if d.get('monitored') is False:
-            continue
+        # Telemetry/inventory view — unmonitored hosts still SHOW their data
+        # (only alerting is suppressed for them), flagged so the UI can badge it.
         for p in ((d.get('sysinfo') or {}).get('listening_ports') or []):
             scope = p.get('scope') or 'unknown'
             counts[scope] = counts.get(scope, 0) + 1
@@ -35482,6 +35484,7 @@ def handle_exposure_overview():
                 continue
             rows.append({
                 'device_id': dev_id, 'device': d.get('name', dev_id),
+                'monitored': d.get('monitored') is not False,
                 'proto': p.get('proto', 'tcp'), 'port': p.get('port'),
                 'process': p.get('process', ''), 'addr': p.get('addr', ''),
                 'scope': scope,
@@ -35545,8 +35548,8 @@ def handle_storage_overview():
     _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
             'suspended', 'error', 'fail')
     for dev_id, d in (devices or {}).items():
-        if d.get('monitored') is False:
-            continue
+        # Telemetry view — show unmonitored hosts' pools too (alerting only is
+        # suppressed for them), flagged for the UI.
         for p in ((d.get('sysinfo') or {}).get('storage_health') or []):
             st = (p.get('state') or '').lower()
             bad = any(b in st for b in _BAD)
@@ -35554,6 +35557,7 @@ def handle_storage_overview():
                 degraded += 1
             rows.append({
                 'device_id': dev_id, 'device': d.get('name', dev_id),
+                'monitored': d.get('monitored') is not False,
                 'pool': p.get('name'), 'kind': p.get('kind', ''),
                 'state': p.get('state', ''), 'capacity': p.get('capacity'),
                 'scrub': p.get('scrub', ''), 'degraded': bad,
@@ -35579,8 +35583,8 @@ def handle_fleet_thermal():
     rows = []
     hot = 0
     for dev_id, d in devices.items():
-        if d.get('monitored') is False:
-            continue
+        # Telemetry view — unmonitored hosts still appear (alerting only is
+        # suppressed for them); the row carries a `monitored` flag for the UI.
         hw = hw_all.get(dev_id) or {}
         hottest = None  # (temp_c, label, kind)
         sensors = 0
@@ -35613,6 +35617,7 @@ def handle_fleet_thermal():
             hot += 1
         rows.append({
             'device_id': dev_id, 'device': d.get('name', dev_id),
+            'monitored': d.get('monitored') is not False,
             'max_temp': max_c, 'sensor_label': hottest[1], 'sensor_type': hottest[2],
             'sensors': sensors,
             'hot': is_hot, 'critical': max_c >= THERMAL_CRIT_C,
@@ -35710,8 +35715,8 @@ def handle_fleet_power():
     total_w = 0.0
     on_battery = 0
     for dev_id, d in devices.items():
-        if d.get('monitored') is False:
-            continue
+        # Telemetry view — unmonitored hosts still show power/UPS data (alerting
+        # only is suppressed for them), flagged for the UI.
         hw = hw_all.get(dev_id) or {}
         ups_list = hw.get('ups') or []
         gpus = hw.get('gpus') or []
@@ -35729,6 +35734,7 @@ def handle_fleet_power():
             total_w += watts
         rows.append({
             'device_id':   dev_id, 'device': d.get('name', dev_id),
+            'monitored':   d.get('monitored') is not False,
             'ups':         bool(ups_list),
             'ups_name':    str(u0.get('name', '')) if ups_list else '',
             'status':      status,
@@ -35753,6 +35759,9 @@ def _chargeback_breakdown(devices, hw_all):
     by_group, by_tag = {}, {}
     total_w, hosts = 0.0, 0
     for dev_id, d in (devices or {}).items():
+        # Cost ALLOCATION deliberately excludes unmonitored hosts (you don't bill
+        # devices you've opted out of managing) — distinct from data visibility:
+        # the raw power telemetry is still shown on the Power page.
         if not isinstance(d, dict) or d.get('monitored') is False:
             continue
         hw = (hw_all or {}).get(dev_id) or {}

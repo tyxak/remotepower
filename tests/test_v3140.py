@@ -242,6 +242,26 @@ class TestFleetThermal(_HandlerBase):
         self.assertEqual(host['sensor_label'], '/dev/nvme0')
         self.assertTrue(host['critical'])          # >= 85
 
+    def test_unmonitored_host_still_shown_flagged(self):
+        # Telemetry view: an UNMONITORED host with sensor data still appears
+        # (data stays visible; only alerting is suppressed) and is flagged so the
+        # UI can badge it. Regression guard for the unmonitored-data-hiding bug.
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web'},
+            'd2': {'name': 'silent', 'monitored': False},
+        })
+        api.save(api.HARDWARE_FILE, {
+            'd1': {'ts': 5, 'temps': [{'label': 'cpu', 'current_c': 50}]},
+            'd2': {'ts': 5, 'temps': [{'label': 'cpu', 'current_c': 60}]},
+        })
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_fleet_thermal)
+        self.assertEqual(r['count'], 2)            # unmonitored NOT hidden
+        by = {h['device']: h for h in r['hosts']}
+        self.assertIn('silent', by)
+        self.assertFalse(by['silent']['monitored'])
+        self.assertTrue(by['web']['monitored'])
+
 
 class TestClientWiring(unittest.TestCase):
     JS = client_js()

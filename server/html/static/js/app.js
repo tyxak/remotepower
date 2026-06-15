@@ -16706,10 +16706,12 @@ async function loadListeningPorts() {
   const devs = await api('GET', '/devices');
   if (!Array.isArray(devs)) { el.textContent = 'Failed to load'; return; }
 
-  const monitored = devs.filter(d => d.monitored !== false && !d.agentless && d.online);
+  // Telemetry view — include unmonitored hosts (they still report data; only
+  // alerting is suppressed). Just needs to be online + agented to have ports.
+  const monitored = devs.filter(d => !d.agentless && d.online);
   if (!monitored.length) {
     _portsGrouped = [];
-    el.textContent = 'No online monitored devices.';
+    el.textContent = 'No online devices.';
     return;
   }
 
@@ -16816,10 +16818,11 @@ async function loadProcesses() {
   const devs = await api('GET', '/devices');
   if (!Array.isArray(devs)) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load.</td></tr>'; return; }
 
-  const monitored = devs.filter(d => d.monitored !== false && !d.agentless && d.online);
+  // Telemetry view — include unmonitored hosts (only alerting is suppressed).
+  const monitored = devs.filter(d => !d.agentless && d.online);
   if (!monitored.length) {
     _processRows = [];
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No online monitored devices.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No online devices.</td></tr>';
     return;
   }
 
