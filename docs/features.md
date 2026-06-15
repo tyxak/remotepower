@@ -9,7 +9,7 @@ Day-to-day fleet operations, without leaving the browser:
 | **SSH from your browser** | Click a device, get a real interactive xterm.js terminal proxied through a hardened daemon. Sessions are recorded as asciinema replayable casts. |
 | **Alert on what matters** | Disk %, memory %, swap %, CPU load — per-device and per-mount thresholds. Service down. Container stopped/restarting. Patches piling up. CVEs found. TLS expiring. Webhooks to Discord, ntfy, Slack, or anything that takes a JSON POST. |
 | **CMDB built in** | Asset metadata, server function, hypervisor URL. Encrypted credentials vault (AES-GCM, shared admin passphrase, audit-logged reveals). Multiple Markdown documents per asset. SSH-link buttons. Network topology map. Agentless devices for switches / APs / printers. |
-| **CVE scanning** | Installed packages cross-checked against [OSV.dev](https://osv.dev) on a schedule. Severity-ranked findings per device with fixed-version hints. Per-CVE ignore list for accepted risk — reversible from Settings → Ignored items. Ubuntu derivatives (Zorin, Mint, Pop!_OS, elementary) map to the Ubuntu ecosystem. |
+| **CVE scanning** | Installed packages cross-checked against [OSV.dev](https://osv.dev) on a schedule. Severity-ranked findings per device with fixed-version hints, re-prioritised by **CISA KEV** (known-exploited) and **FIRST EPSS** (exploit-probability) feeds so exploited-in-the-wild CVEs rank first. Per-CVE ignore list for accepted risk — reversible from Settings → Ignored items. Ubuntu derivatives (Zorin, Mint, Pop!_OS, elementary) map to the Ubuntu ecosystem. |
 | **Auth that scales** | Local users with bcrypt + TOTP 2FA. **Passkeys** (WebAuthn) for phishing-resistant passwordless sign-in. SSO via **OIDC** or **SAML 2.0** (Okta / Entra / OneLogin / Ping / ADFS), plus LDAP/AD and SCIM. Enforce MFA per role, cap sessions, expire keys. Named API keys for automation. Enrolment tokens for cloud-init / Ansible / golden-image stamping. |
 | **Find your holes** | Authorized vulnerability scanning of the hosts and websites you own (the *Pentest* page) — nuclei / nikto / nmap / OWASP ZAP / wapiti / lynis, run from a hardened scanner satellite, with domain-ownership verification and scheduling. |
 | **Time-series, the homelab way** | Every device's CPU/RAM/disk recorded; sparkline for the dashboard, full-size chart on click. Prometheus `/api/metrics` endpoint for Grafana. |
@@ -20,7 +20,7 @@ Day-to-day fleet operations, without leaving the browser:
 
 ---
 
-**It's small.** ~56,000 lines of Python on the server. ~7,000 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
+**It's small.** ~60,000 lines of Python on the server. ~7,000 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
 
 **It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
 
@@ -1373,7 +1373,7 @@ fallback** for AMD hosts that have no ROCm tooling. Each GPU card carries
 alerting:** a GPU at or above the temperature threshold (default 85 °C,
 configurable) raises the standard **high-temperature** alert and auto-resolves
 when it cools — it reuses the existing hardware-temperature alert, so there's no
-new alert type. `GET /api/fleet/gpu`.
+new alert type. `GET /api/fleet/gpus`.
 
 ### Unmonitored devices visible everywhere
 Telemetry and inventory views — thermal, power, storage, exposure,
