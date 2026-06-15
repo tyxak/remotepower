@@ -256,6 +256,8 @@ DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
 # v3.14.0: daily per-disk SMART snapshots → disk-failure trend prediction.
 SMART_HIST_FILE  = DATA_DIR / 'smart_history.json'
+# v4.7.0: per-GPU telemetry samples (temp/util/mem%) → GPU-page trend sparklines.
+GPU_HIST_FILE    = DATA_DIR / 'gpu_history.json'
 HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
 HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
@@ -22466,6 +22468,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                         entry[k] = round(float(v), 1)
                 gpus.append(entry)
             rec['gpus'] = gpus
+            _maybe_sample_gpu(dev_id, gpus, now)   # v4.7.0: trend sparklines
 
         # ── v3.14.0: local x509 cert-file expiry inventory ───────────
         if isinstance(body.get('cert_files'), list):
@@ -22727,6 +22730,36 @@ def _disk_key(d):
     """Stable identity for a disk across samples — serial preferred (device
     path can shuffle across reboots)."""
     return (d.get('serial') or '').strip() or (d.get('device') or '').strip()
+
+
+MAX_GPU_SAMPLES = 288   # ~24h at the ~5-min hardware cadence
+
+
+def _maybe_sample_gpu(dev_id, gpus, now):
+    """Append a per-GPU telemetry sample (temp / util / mem%) for the GPU-page
+    trend sparklines. Keyed by GPU index (the stable nvidia-smi / rocm-smi
+    ordering). One sample per hardware-cycle ingest (~5 min), bounded to
+    MAX_GPU_SAMPLES. Never prunes a GPU key on a single short report — a host
+    can transiently report fewer GPUs — so the trend survives a blip."""
+    if not gpus:
+        return
+    with _locked_update(GPU_HIST_FILE) as store:
+        rec = store.setdefault(dev_id, {})
+        for idx, g in enumerate(gpus):
+            if not isinstance(g, dict):
+                continue
+            mu, mt = g.get('mem_used_mb'), g.get('mem_total_mb')
+            mem_pct = (round(100.0 * mu / mt, 1)
+                       if isinstance(mu, (int, float)) and isinstance(mt, (int, float)) and mt
+                       else None)
+            entry = rec.setdefault(str(idx),
+                                   {'name': g.get('name', ''),
+                                    'vendor': g.get('vendor', ''), 'samples': []})
+            entry['name'] = g.get('name', entry.get('name', ''))
+            entry['vendor'] = g.get('vendor', entry.get('vendor', ''))
+            entry['samples'].append({'ts': now, 'temp': g.get('temp_c'),
+                                     'util': g.get('util_pct'), 'mem': mem_pct})
+            entry['samples'] = entry['samples'][-MAX_GPU_SAMPLES:]
 
 
 def _maybe_sample_smart(dev_id, disks, now):
@@ -35615,6 +35648,7 @@ def handle_fleet_gpus():
     require_auth()
     devices = load(DEVICES_FILE) or {}
     hw_all = load(HARDWARE_FILE) or {}
+    gpu_hist = load(GPU_HIST_FILE) or {}
     now = int(time.time())
     ttl = get_online_ttl()
     rows = []
@@ -35629,12 +35663,18 @@ def handle_fleet_gpus():
         else:
             online = (now - d.get('last_seen', 0)) < ttl
         hw = hw_all.get(dev_id) or {}
-        for g in (hw.get('gpus') or []):
+        dev_hist = gpu_hist.get(dev_id) or {}
+        for gi, g in enumerate(hw.get('gpus') or []):
             if not isinstance(g, dict):
                 continue
             mu, mt = g.get('mem_used_mb'), g.get('mem_total_mb')
             mem_pct = (round(100.0 * mu / mt, 1)
                        if isinstance(mu, (int, float)) and isinstance(mt, (int, float)) and mt else None)
+            # Trend series for the card sparklines — last ~48 samples (~4h) of
+            # temperature and utilisation, matched by GPU index.
+            samples = ((dev_hist.get(str(gi)) or {}).get('samples') or [])[-48:]
+            trend_temp = [s['temp'] for s in samples if isinstance(s.get('temp'), (int, float))]
+            trend_util = [s['util'] for s in samples if isinstance(s.get('util'), (int, float))]
             rows.append({
                 'device_id': dev_id, 'device': d.get('name', dev_id),
                 'online': online,
@@ -35643,6 +35683,7 @@ def handle_fleet_gpus():
                 'util_pct': g.get('util_pct'), 'temp_c': g.get('temp_c'),
                 'power_w': g.get('power_w'), 'fan_pct': g.get('fan_pct'),
                 'mem_used_mb': mu, 'mem_total_mb': mt, 'mem_pct': mem_pct,
+                'trend_temp': trend_temp, 'trend_util': trend_util,
             })
     rows.sort(key=lambda r: (-(r['temp_c'] or 0), -(r['util_pct'] or 0), str(r['device'])))
     summary = {

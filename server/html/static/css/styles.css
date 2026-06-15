@@ -5518,6 +5518,11 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .gpu-stat { display:flex; flex-direction:column; line-height:1.2; }
 .gpu-stat-l { font-size:11px; color:var(--muted); }
 .gpu-stat b { font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; }
+.gpu-trend { display:flex; flex-direction:column; gap:4px; margin-top:9px;
+  border-top:1px solid var(--border); padding-top:9px; }
+.gpu-trend-row { display:flex; align-items:center; gap:8px; }
+.gpu-trend-l { font-size:11px; color:var(--muted); width:34px; flex:none; }
+.gpu-trend .sparkline { display:block; }
 
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */

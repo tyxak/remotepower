@@ -9780,8 +9780,19 @@ function _gpuCard(g) {
       ${stat('Temp', g.temp_c != null ? Math.round(g.temp_c) + '°C' : '—', tcls)}
       ${stat('Power', g.power_w != null ? Math.round(g.power_w) + ' W' : '—', '')}
       ${stat('Fan', g.fan_pct != null ? Math.round(g.fan_pct) + '%' : '—', '')}
-    </div>
+    </div>${_gpuTrend(g)}
   </div>`;
+}
+// v4.7.0: temperature + utilisation trend sparklines (last ~4h of samples).
+// Renders nothing until there are ≥2 points, so a fresh host shows no empty box.
+function _gpuTrend(g) {
+  const tt = (g.trend_temp || []), tu = (g.trend_util || []);
+  if (tt.length < 2 && tu.length < 2) return '';
+  const tcolor = (g.temp_c >= 85) ? 'var(--red)' : (g.temp_c >= 75) ? 'var(--amber)' : 'var(--green)';
+  const row = (label, vals, color) => vals.length >= 2
+    ? `<div class="gpu-trend-row"><span class="gpu-trend-l">${label}</span>${renderSparkline(vals, {width: 120, height: 18, color, fill: true})}</div>`
+    : '';
+  return `<div class="gpu-trend" title="Last ~4h, sampled each hardware cycle (~5 min)">${row('Temp', tt, tcolor)}${row('Util', tu, 'var(--accent)')}</div>`;
 }
 async function loadGpus() {
   const grid = document.getElementById('gpus-grid');

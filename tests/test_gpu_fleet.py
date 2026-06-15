@@ -60,6 +60,7 @@ class TestFleetGpuEndpoint(unittest.TestCase):
         api.DEVICES_FILE = tmp / "devices.json"
         api.HARDWARE_FILE = tmp / "hardware.json"
         api.CONFIG_FILE = tmp / "config.json"
+        api.GPU_HIST_FILE = tmp / "gpu_history.json"
         api.save(api.CONFIG_FILE, {})                       # default online TTL (300s)
         api.require_auth = lambda *a, **k: "tester"        # bypass auth for the unit test
         # `online` is COMPUTED from last_seen, NOT a stored field — fresh hosts
@@ -124,6 +125,41 @@ class TestFleetGpuEndpoint(unittest.TestCase):
         self.assertIn("body.get('gpus')", src)
         self.assertIn("'GPU: '", src)
 
+    def test_gpu_history_sampling_and_trend(self):
+        api = self.api
+        import time
+        now = int(time.time())
+        tmp = Path(tempfile.mkdtemp())
+        api.DEVICES_FILE = tmp / "devices.json"
+        api.HARDWARE_FILE = tmp / "hardware.json"
+        api.CONFIG_FILE = tmp / "config.json"
+        api.GPU_HIST_FILE = tmp / "gpu_history.json"
+        api.save(api.CONFIG_FILE, {})
+        api.require_auth = lambda *a, **k: "t"
+        g1 = [{"vendor": "nvidia", "name": "NVIDIA X", "temp_c": 70, "util_pct": 40,
+               "mem_used_mb": 2000, "mem_total_mb": 8000}]
+        g2 = [{"vendor": "nvidia", "name": "NVIDIA X", "temp_c": 80, "util_pct": 55,
+               "mem_used_mb": 4000, "mem_total_mb": 8000}]
+        api._maybe_sample_gpu("d1", g1, now - 300)
+        api._maybe_sample_gpu("d1", g2, now)
+        s = api.load(api.GPU_HIST_FILE)["d1"]["0"]["samples"]
+        self.assertEqual(len(s), 2)
+        self.assertEqual(s[-1]["temp"], 80)
+        self.assertEqual(s[-1]["mem"], 50.0)            # 4000/8000
+        # bounded to MAX_GPU_SAMPLES
+        for i in range(api.MAX_GPU_SAMPLES + 40):
+            api._maybe_sample_gpu("d1", g2, now + 1 + i)
+        self.assertLessEqual(
+            len(api.load(api.GPU_HIST_FILE)["d1"]["0"]["samples"]), api.MAX_GPU_SAMPLES)
+        # the endpoint attaches the trend series, matched by GPU index
+        api.save(api.DEVICES_FILE, {"d1": {"name": "ws", "last_seen": now, "monitored": True}})
+        api.save(api.HARDWARE_FILE, {"d1": {"gpus": g2}})
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_fleet_gpus()
+        row = ctx.exception.body["gpus"][0]
+        self.assertGreaterEqual(len(row["trend_temp"]), 2)
+        self.assertEqual(row["trend_util"][-1], 55)
+
 
 class TestGpuPageWiring(unittest.TestCase):
     HTML = (_ROOT / "server/html/index.html").read_text()
@@ -141,6 +177,12 @@ class TestGpuPageWiring(unittest.TestCase):
         self.assertIn("function _gpuCard(", self.JS)
         self.assertIn("if (name === 'gpus')", self.JS)
         self.assertIn("'/fleet/gpus'", self.JS)
+
+    def test_trend_sparkline_wired(self):
+        # The card renders trend sparklines from the per-GPU history.
+        self.assertIn("function _gpuTrend(", self.JS)
+        self.assertIn("renderSparkline(", self.JS)
+        self.assertIn(".gpu-trend", self.CSS)
 
     def test_csp_safe_bar_widths(self):
         # Meter widths are set via .style in JS, never inline style= attrs.

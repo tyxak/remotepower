@@ -2986,6 +2986,45 @@ def build_rollouts() -> dict:
     return {'rollouts': [upgrade, script_done]}
 
 
+def build_gpu_history() -> dict:
+    """Per-GPU telemetry trend samples → gpu_history.json (GPU-page sparklines).
+
+    Mirrors what _maybe_sample_gpu writes: {dev_id: {gpu_idx: {name, vendor,
+    samples:[{ts, temp, util, mem}]}}}. ~48 samples (~4h at the 5-min hardware
+    cadence) per GPU, oscillating around the CURRENT reading from build_hardware
+    and ending exactly on it, so the sparkline looks alive and matches the card."""
+    hw = build_hardware()
+    n, step = 48, 300
+    out = {}
+    for dev_id, rec in hw.items():
+        gpus = rec.get('gpus') or []
+        if not gpus:
+            continue
+        g_out = {}
+        for idx, g in enumerate(gpus):
+            rng = _seeded_random('gpuhist', dev_id, idx)
+            cur_t, cur_u = g.get('temp_c'), g.get('util_pct')
+            mu, mt = g.get('mem_used_mb'), g.get('mem_total_mb')
+            cur_m = round(100.0 * mu / mt, 1) if mu and mt else None
+            samples = []
+            for i in range(n):
+                ts = now() - (n - 1 - i) * step
+                if i == n - 1:                      # newest sample == live value
+                    t, u, m = cur_t, cur_u, cur_m
+                else:
+                    t = (round((cur_t or 0) + rng.uniform(-8, 4), 1)
+                         if cur_t is not None else None)
+                    u = (max(0, min(100, round((cur_u or 0) + rng.uniform(-25, 15))))
+                         if cur_u is not None else None)
+                    m = (max(0.0, min(100.0, round((cur_m or 0) + rng.uniform(-10, 8), 1)))
+                         if cur_m is not None else None)
+                samples.append({'ts': ts, 'temp': t, 'util': u, 'mem': m})
+            g_out[str(idx)] = {'name': g.get('name', ''),
+                               'vendor': g.get('vendor', ''), 'samples': samples}
+        out[dev_id] = g_out
+    return out
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -3060,6 +3099,7 @@ BUILDERS = {
     'gitops_state.json':           build_gitops_state,
     'custom_scripts.json':         build_custom_scripts,
     'smart_history.json':          build_smart_history,
+    'gpu_history.json':            build_gpu_history,
     # runbooks / automation / maintenance / inbound webhooks / misc
     'runbooks.json':               build_runbooks,
     'automation_rules.json':       build_automation_rules,
