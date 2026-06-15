@@ -1330,6 +1330,65 @@ the SQLite backend, the device runbook now actually injects its RAG context and
 recent-command history, the `kernel_outdated` device-list filter works again,
 and the CMDB asset modal shows real free-memory / free-disk figures.
 
+## v4.7.0 additions — "IntegrationsMatters"
+
+### Homelab software integrations
+A read-only, server-side **integration subsystem** polls popular self-hosted
+software for health on a cadence and folds the result into the **Alerts** inbox
+and the dashboard — nothing is installed on the target. **26 connectors** across
+DNS (Pi-hole v6, AdGuard Home), storage/NAS (TrueNAS, Unraid),
+virtualization/orchestration (Kubernetes / k3s, VMware vCenter/ESXi, Proxmox
+Backup Server), network (UniFi), reverse-proxy/cert (Traefik, Nginx Proxy
+Manager, Caddy), observability (Netdata, Grafana, Uptime Kuma), media (Jellyfin,
+Plex), apps (Home Assistant, Nextcloud), download clients (qBittorrent,
+Transmission, Deluge, SABnzbd, NZBGet), media automation (one **Servarr**
+connector for Sonarr / Radarr / Prowlarr / Lidarr, plus Bazarr) and requests
+(Overseerr / Jellyseerr). Configure under **Settings → Integrations** (type + URL
++ token + Test). An unhealthy or unreachable target raises an `integration_down`
+alert (severity from the result, auto-resolved on recovery) routed through your
+channels, plus an **Integration health** dashboard widget and live status badges.
+Every outbound call goes through the **SSRF guard** (loopback / link-local /
+cloud-metadata refused, RFC1918 LAN allowed, peer re-validated at connect time,
+redirects refused); credentials are stored server-side and redacted from every
+response, and the raw URL is admin-only. A **Show Homelab software** switch
+(default on) is an instance-wide kill switch for enterprise instances. Reference:
+**[integrations.md](integrations.md)**.
+
+### Containerized agent
+The Linux agent can run **as a container** that monitors its **Docker host** and
+reports to the server with no host install (*Enroll device → Generate Docker
+compose*). It reads the host's facts (shared PID/network namespaces, host rootfs
+mounted read-only), names itself after the host, and persists credentials in a
+volume. Published multi-arch at `ghcr.io/tyxak/remotepower-agent`; standard
+capabilities, no `--privileged` (SMART/DMI and Docker-socket container inventory
+are opt-in). Reference: **[docker-agent.md](docker-agent.md)**.
+
+### Fleet GPU monitoring
+A new **Monitoring → GPUs** page shows every GPU across the fleet in one rich view
+— **NVIDIA and AMD** — with utilisation and VRAM meters, temperature, power and
+fan, hottest-busiest first, plus a fleet summary (count, per-vendor, total power).
+Hosts report via `nvidia-smi` / `rocm-smi`, with a tooling-free **amdgpu sysfs
+fallback** for AMD hosts that have no ROCm tooling. Each GPU card carries
+**temperature + utilisation trend sparklines** (the last ~4 hours). **Thermal
+alerting:** a GPU at or above the temperature threshold (default 85 °C,
+configurable) raises the standard **high-temperature** alert and auto-resolves
+when it cools — it reuses the existing hardware-temperature alert, so there's no
+new alert type. `GET /api/fleet/gpu`.
+
+### Unmonitored devices visible everywhere
+Telemetry and inventory views — thermal, power, storage, exposure,
+predictive-health / SMART, patches, listening ports, processes and the GPU page —
+now display **unmonitored** hosts too, flagged so the UI marks them. Only
+**alerting** stays suppressed for unmonitored devices (the same gate the alert
+pipeline already used), so you can see an unmonitored host's data without it
+paging you.
+
+### CSP report hygiene
+The in-app CSP violation reporter now ignores reports whose source is a **browser
+extension** (`moz-extension://`, `chrome-extension://`, `safari-web-extension://`,
+…), so users' extensions can't pollute the security log with violations the app
+didn't cause.
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

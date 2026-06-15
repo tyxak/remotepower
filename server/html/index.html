@@ -2968,6 +2968,35 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+          <details class="doc-card" data-keywords="integrations homelab software connectors pihole adguard truenas unraid unifi home assistant proxmox backup server kubernetes k3s vcenter esxi traefik nginx proxy manager caddy netdata grafana uptime kuma jellyfin plex nextcloud qbittorrent transmission deluge sabnzbd nzbget sonarr radarr prowlarr lidarr servarr bazarr overseerr jellyseerr ssrf integration_down widget show homelab settings v4.7">
+            <summary><strong>Homelab software integrations</strong> — monitor the self-hosted apps you already run</summary>
+            <div class="doc-body">
+              <p>A read-only, server-side subsystem polls popular self-hosted software for health on a cadence and folds the result into the <strong>Alerts</strong> inbox and the dashboard. Nothing is installed on the target — each connector only reads a service's own health/status API. Set one up under <strong>Settings → Integrations</strong>: pick a type, point it at the service on your LAN, add an API token, and <strong>Test</strong>.</p>
+              <p><strong>26 connectors:</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, vCenter/ESXi, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, and Overseerr/Jellyseerr.</p>
+              <p><strong>Alerts &amp; widget:</strong> an unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</p>
+              <p><strong>Read-only &amp; SSRF-guarded:</strong> every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, with no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only. A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling and hides the section + widget.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="containerized agent docker host compose ghcr container enroll generate namespaces rootfs read-only volume privileged smart dmi socket v4.7">
+            <summary><strong>Containerized agent</strong> — run the agent as a container to watch a Docker host</summary>
+            <div class="doc-body">
+              <p>The Linux agent can run <strong>as a container</strong> that monitors its <strong>Docker host</strong> and reports to the server, with no package install on the host. In the UI choose <strong>Enroll device → Generate Docker compose</strong>, then run <code>docker compose up -d</code> on the host.</p>
+              <p>The agent reads the <em>host's</em> facts (it shares the host PID and network namespaces and mounts the host root filesystem read-only), names itself after the host, and persists its credentials in a volume so a recreate doesn't re-enroll. Published multi-arch at <code>ghcr.io/tyxak/remotepower-agent</code>.</p>
+              <p>It runs with <strong>standard capabilities and no <code>--privileged</code></strong>: SMART/DMI is an opt-in profile, and container inventory via the Docker socket is opt-in (with a host-root warning). Host package inventory and CVE scanning read the host package database directly; host compliance scans and systemd/journal collection are honestly reported as unavailable from inside a container.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="gpu gpus nvidia amd rocm rocm-smi nvidia-smi amdgpu sysfs utilisation utilization vram memory temperature power fan sparkline trend thermal alert high temperature 85 monitoring fleet v4.7">
+            <summary><strong>GPUs page</strong> — fleet-wide GPU state (NVIDIA + AMD)</summary>
+            <div class="doc-body">
+              <p>The <strong>Monitoring → GPUs</strong> page shows every GPU across the fleet in one rich view — <strong>NVIDIA and AMD</strong> — with utilisation and VRAM meters, temperature, power draw and fan speed, ordered hottest-busiest first, plus a fleet summary (count, per-vendor, total power). Hosts report via <code>nvidia-smi</code> / <code>rocm-smi</code>, with a tooling-free <strong>amdgpu sysfs fallback</strong> for AMD hosts that have no ROCm tooling.</p>
+              <p>Each GPU card carries <strong>temperature + utilisation trend sparklines</strong> (about the last four hours), so you can see a card heating up or a job ramping without opening the host.</p>
+              <p><strong>Thermal alerting:</strong> a GPU at or above the temperature threshold (default 85 °C, configurable) raises the <strong>standard high-temperature alert</strong> and auto-resolves when it cools — GPU sensors participate alongside the existing CPU/board sensors, so it reuses the existing hardware-temperature alert with no new alert type.</p>
+              <p><strong>Unmonitored hosts show their data too.</strong> Telemetry and inventory views — thermal, power, storage, exposure, predictive-health/SMART, patches, listening ports, processes and this GPU page — now display unmonitored devices, flagged in the UI; only alerting stays suppressed for them.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="network map topology graph connected_to switch ap">
             <summary><strong>Network page</strong> — topology graph</summary>
             <div class="doc-body">

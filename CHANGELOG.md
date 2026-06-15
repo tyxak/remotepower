@@ -35,9 +35,25 @@ changes. Full notes in [docs/v4.7.0.md](docs/v4.7.0.md).
   inventory are opt-in).
 - **Fleet GPU page.** A new **Monitoring → GPUs** page shows every GPU across the
   fleet (NVIDIA + AMD) with utilisation/VRAM meters, temperature, power and fan,
-  hottest-first. AMD gains a tooling-free amdgpu sysfs fallback; NVIDIA gains fan
-  speed. Plus richer Dashy-style integration tiles (a dashboard widget + a
-  dedicated Integrations page) that surface the live stats the connectors pull.
+  hottest-busiest first. AMD gains a tooling-free amdgpu sysfs fallback; NVIDIA
+  gains fan speed. Each card carries **temperature + utilisation trend sparklines**
+  (last ~4 h of samples). Hosts report via `nvidia-smi` / `rocm-smi` (or the
+  amdgpu sysfs fallback). Plus richer Dashy-style integration tiles (a dashboard
+  widget + a dedicated Integrations page) that surface the live stats the
+  connectors pull.
+- **GPU thermal alerting.** A GPU at or above the temperature threshold (default
+  85 °C, configurable) raises the standard **high-temperature** alert and
+  auto-resolves when it cools — it reuses the existing hardware-temperature alert,
+  so there is no new alert type to wire up.
+- **Unmonitored devices now show their data everywhere.** Telemetry and inventory
+  views — thermal, power, storage, exposure, predictive-health/SMART, patches,
+  listening ports, processes and GPU — now display **unmonitored** hosts too
+  (they're flagged so the UI marks them). Only **alerting** stays suppressed for
+  unmonitored devices, the same gate the alert pipeline already used.
+- **CSP report hygiene.** The in-app CSP violation reporter now ignores reports
+  whose source is a **browser extension** (`moz-extension://`, `chrome-extension://`,
+  `safari-web-extension://`, …), so users' browser extensions can no longer
+  pollute the security log with violations the app didn't cause.
 
 ## v4.6.1 — 2026-06-14
 

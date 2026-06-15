@@ -17,7 +17,17 @@
 ## Independent security testing
 
 Each release is scanned with an external toolchain in addition to the code-level
-review and CI guardrails. **v4.4.0 was independently scanned with [wapiti](https://wapiti-scanner.github.io/),
+review and CI guardrails. **v4.7.0** — the homelab/fleet software integrations +
+containerized-agent release — was independently penetration-tested with
+[wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),
+[nuclei](https://github.com/projectdiscovery/nuclei), [bandit](https://github.com/PyCQA/bandit)
+and [OWASP ZAP](https://www.zaproxy.org/) and **passed clean** (no findings). The
+new outbound integration subsystem reuses the same connect-time SSRF guard
+(loopback / link-local / cloud-metadata refused, peer IP re-validated, no
+redirects) as every other outbound feature, with credentials redacted from API
+responses and the raw URL admin-only.
+
+**v4.4.0 was independently scanned with [wapiti](https://wapiti-scanner.github.io/),
 [nikto](https://github.com/sullo/nikto), [nuclei](https://github.com/projectdiscovery/nuclei),
 [bandit](https://github.com/PyCQA/bandit) and [OWASP ZAP](https://www.zaproxy.org/)
 and passed clean** (no exploitable findings) — see
