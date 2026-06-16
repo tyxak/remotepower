@@ -101,42 +101,41 @@ it. See **[docs/scaling.md](docs/scaling.md)**.
 
 ## Quick start
 
-```bash
-# Server (nginx + fcgiwrap + Python deps; prompts for admin credentials)
-git clone https://github.com/tyxak/remotepower && cd remotepower
-sudo bash install-server.sh
+**Server — one command, HTTPS out of the box:**
 
-# Or: Docker
+```bash
+# Docker (recommended). Self-signed HTTPS on first boot; the one-time admin
+# password is printed to `docker logs remotepower`.
 docker compose up -d
+
+# Or bare-metal: a single wizard installs nginx + the app + TLS + admin.
+# You never edit an nginx file — it writes the vhost and certificate for you.
+git clone https://github.com/tyxak/remotepower && cd remotepower
+sudo bash install.sh
 ```
 
-The installer prompts for an admin username and password, then prints the URL.
+Open the printed URL and log in. HTTPS is automatic — a self-signed CA by
+default (agents pin it), or a real Let's Encrypt cert when you give a public
+domain. No cert wrangling, no nginx editing.
 
-> **Set up TLS before enrolling any agent.** Session tokens and credentials
-> travel in cleartext over plain HTTP. Public hostname:
-> `sudo apt install certbot python3-certbot-nginx && sudo certbot --nginx -d your.domain.com`.
-> Internal-only / no public DNS: `sudo make tls-selfsigned HOST=rp.internal NGINX=1`
-> (a self-signed CA; enrol agents with the printed `--ca-fingerprint`). Full
-> guide: **[docs/tls-selfsigned.md](docs/tls-selfsigned.md)**.
+**Add a device — one line, nothing to configure:**
 
-Log in and enroll your first client:
+In the dashboard, *Add device → Quick install command*, then on the target host:
 
 ```bash
-# On the host you want to manage
-sudo bash install-client.sh
-# Paste the server URL and the 6-digit PIN from the dashboard.
+wget -qO- "https://your-server/install?t=<token>" | sudo sh
 ```
 
-Shows up in the dashboard within ~60 seconds.
+It downloads the **signed** agent, verifies its checksum, enrols with the baked
+one-time token, and the host appears in the dashboard **by its hostname** within
+~60 seconds. Prefer Docker? *Add device → Generate Docker compose*. Onboarding
+many hosts? Push the installer over SSH: `install.sh agent push user@h1 user@h2 …`.
 
-Running a **Docker host** and don't want to install on the OS? Use the
-containerized agent instead — in the UI, *Enroll device → Generate Docker
-compose*, then `docker compose up -d` on the host. It monitors the host with
-standard capabilities, no `--privileged`. See **[docs/docker-agent.md](docs/docker-agent.md)**.
+**Uninstall:** `sudo bash install.sh uninstall` (server — keeps your data;
+`--purge` to wipe it) · `wget -qO- https://your-server/install | sudo sh -s -- --uninstall` (agent).
 
-Browser SSH terminal is one more command: `sudo bash packaging/install-webterm.sh`.
-For longer install paths (Docker, demo vhost, Windows client, Ansible-driven
-enrolment), see **[docs/install.md](docs/install.md)**.
+For longer paths (Windows client, demo vhost, Ansible, advanced TLS), see
+**[docs/install.md](docs/install.md)**.
 
 ### Try the live demo
 

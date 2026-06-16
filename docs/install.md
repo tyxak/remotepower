@@ -1,8 +1,46 @@
 # Installation
 
-The fastest path. Three commands on the server, two on the client.
+## Quickest path
 
-### Server
+**Server — Docker (recommended):**
+
+```bash
+docker compose up -d        # self-signed HTTPS on first boot; admin password printed to `docker logs remotepower`
+```
+
+**Server — bare-metal wizard:**
+
+```bash
+git clone https://github.com/tyxak/remotepower && cd remotepower
+sudo bash install.sh        # one wizard: nginx + app + TLS + admin — you never edit an nginx file
+```
+
+HTTPS is automatic: a self-signed CA by default (agents pin it), or a real
+Let's Encrypt cert when you give a public domain. Open the printed URL and log in.
+
+**Add a device — one line, nothing to configure.** In the dashboard,
+*Add device → Quick install command*, then on the target host:
+
+```bash
+wget -qO- "https://your-server/install?t=<token>" | sudo sh
+```
+
+It downloads the **signed** agent, verifies its checksum, enrols with the baked
+one-time token, and the host appears **by its hostname** within ~60 seconds.
+Push to many hosts over SSH at once: `install.sh agent push user@h1 user@h2 …`.
+
+**Uninstall:** `sudo bash install.sh uninstall` (keeps your data; `--purge` to
+wipe it) · agent: `wget -qO- https://your-server/install | sudo sh -s -- --uninstall`.
+
+---
+
+## Detailed paths
+
+The sections below cover the individual scripts, the Arch/AUR package, Windows /
+macOS clients, advanced TLS and Ansible — reach for them when the quick path
+above isn't enough.
+
+### Server (script)
 
 ```bash
 git clone https://github.com/tyxak/remotepower
