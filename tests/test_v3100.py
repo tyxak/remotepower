@@ -164,7 +164,7 @@ class TestConfigSecretScrub(unittest.TestCase):
     def test_handler_surfaces_booleans_and_runs_scrub(self):
         self.assertIn("safe['ai_configured']", API)
         self.assertIn("safe['registry_credentials_set']", API)
-        self.assertIn('_scrub_config_secrets(safe)', API)
+        self.assertIn('_scrub_config_secrets(safe', API)
 
 
 # ─── F3: TCP monitor + healthchecks SSRF ─────────────────────────────────────

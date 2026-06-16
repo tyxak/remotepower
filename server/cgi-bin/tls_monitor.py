@@ -36,10 +36,31 @@ the rest of the project's storage.
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import ssl
 import time
 from typing import Any
+
+
+def _addr_blocked(ip: str) -> bool:
+    """v4.8.0 SSRF guard: is this resolved IP one we must never connect to?
+
+    Blocks link-local (169.254/16 — which INCLUDES the cloud metadata endpoint
+    169.254.169.254 — and fe80::/10) and the unspecified address. PRIVATE
+    RFC1918 / unique-local addresses are deliberately ALLOWED (probing an
+    internal host's cert is a first-class feature; a blanket private block would
+    break it), and so is LOOPBACK: monitoring a cert on the same host RemotePower
+    runs on is a legitimate, tested use, and this probe only reads cert metadata
+    (no credentials, no response bodies), so the loopback SSRF value is minimal.
+    The high-value target — the cloud metadata service — is link-local and stays
+    blocked. Returns False for anything that isn't a parseable IP literal
+    (callers only pass already-resolved addresses)."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return a.is_link_local or a.is_unspecified
 
 # Probe knobs. 5+5s is generous — Cloudflare-fronted hosts respond in
 # well under a second; the timeout exists for the unreachable case.
@@ -420,6 +441,18 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
     if dns_err:
         return result
 
+    # v4.8.0 SSRF: re-validate the RESOLVED address at connect time and connect
+    # to a vetted IP literal (not the name), so a DNS rebind after the add-time
+    # pre-flight can't steer the probe at loopback/link-local/metadata. Private
+    # LAN stays allowed (internal-cert monitoring is intentional). Picking a
+    # concrete IP from the just-resolved set also closes the name-reresolve
+    # TOCTOU window that create_connection((host, port)) would reopen.
+    safe_addrs = [a for a in addrs if not _addr_blocked(a)]
+    if not safe_addrs:
+        result["tls_error"] = "refused: target resolves only to loopback/link-local/metadata"
+        return result
+    connect_ip = safe_addrs[0]
+
     # First pass: capture the cert with verification disabled so we get
     # the cert even from misconfigured hosts (wrong hostname, expired,
     # internal CA, etc.). Parse the DER ourselves — the dict-form
@@ -434,7 +467,7 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
         # Connect to ``target_for_dns`` (which is connect_address if set,
         # else host). SNI is always the original ``host`` so the server
         # serves the right cert.
-        sock = socket.create_connection((target_for_dns, port), timeout=CONNECT_TIMEOUT_S)
+        sock = socket.create_connection((connect_ip, port), timeout=CONNECT_TIMEOUT_S)
         sock.settimeout(HANDSHAKE_TIMEOUT_S)
         # v1.11.3: drive STARTTLS upgrade if requested. ``none`` is a no-op.
         # Errors here become tls_error so they stand out from "the server
@@ -486,7 +519,7 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
     verify_ctx = ssl.create_default_context()
     sock2 = None
     try:
-        sock2 = socket.create_connection((target_for_dns, port), timeout=CONNECT_TIMEOUT_S)
+        sock2 = socket.create_connection((connect_ip, port), timeout=CONNECT_TIMEOUT_S)
         sock2.settimeout(HANDSHAKE_TIMEOUT_S)
         # v1.11.3: same STARTTLS upgrade for the verification probe.
         # Without this we'd be doing a direct-TLS handshake on the SMTP

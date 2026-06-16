@@ -168,6 +168,66 @@ def _fmt_uptime(secs):
     return f'{m}m'
 
 
+def _port_scope(ip):
+    """Classify a bind address into world / lan / local — matches the server's
+    exposure buckets so macOS listeners render like Linux/Windows ones. Pure."""
+    if not ip or ip in ('127.0.0.1', '::1', 'localhost'):
+        return 'local'
+    if ip in ('0.0.0.0', '::'):
+        return 'world'
+    if ip.startswith(('10.', '192.168.', '169.254.', 'fe80:', 'fc', 'fd')):
+        return 'lan'
+    if ip.startswith('172.'):
+        try:
+            if 16 <= int(ip.split('.')[1]) <= 31:
+                return 'lan'
+        except (ValueError, IndexError):
+            pass
+    return 'world'
+
+
+def collect_listening_ports():
+    """LISTEN sockets via psutil. Returns the same shape the Linux/Windows agents
+    send — [{proto, port, process, addr, scope}] — so the Exposure page and port
+    audit work unchanged for macOS hosts. [] without psutil."""
+    try:
+        import psutil
+    except ImportError:
+        return []
+    try:
+        conns = psutil.net_connections(kind='inet')
+    except Exception:
+        return []
+    ports, seen = [], set()
+    for c in conns:
+        laddr = getattr(c, 'laddr', None)
+        if not laddr:
+            continue
+        is_tcp = (c.type == socket.SOCK_STREAM)
+        # TCP listeners report LISTEN; UDP sockets have no state but no peer.
+        if is_tcp and c.status != getattr(psutil, 'CONN_LISTEN', 'LISTEN'):
+            continue
+        if not is_tcp and getattr(c, 'raddr', None):
+            continue
+        proto = 'tcp' if is_tcp else 'udp'
+        port = getattr(laddr, 'port', 0)
+        key = (proto, port)
+        if not port or key in seen:
+            continue
+        seen.add(key)
+        proc = ''
+        if c.pid:
+            try:
+                proc = psutil.Process(c.pid).name()
+            except Exception:
+                pass
+        ip = getattr(laddr, 'ip', '') or ''
+        ports.append({'proto': proto, 'port': port, 'process': proc,
+                      'addr': ip, 'scope': _port_scope(ip)})
+    ports.sort(key=lambda p: p['port'])
+    return ports[:80]
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available, else a best-effort subset so a
     host without psutil still reports OS / cpu model / hostname."""
@@ -224,6 +284,12 @@ def collect_sysinfo():
             nio = _collect_net_io(psutil)
             if nio:
                 info['network_io'] = nio
+        except Exception:
+            pass
+        try:
+            lp = collect_listening_ports()
+            if lp:
+                info['listening_ports'] = lp
         except Exception:
             pass
     except ImportError:

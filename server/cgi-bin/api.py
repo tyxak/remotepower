@@ -1509,6 +1509,24 @@ def _purge_old_data(cfg=None):
                     removed['metric_samples'] = n
             except Exception:
                 pass
+    # v4.8.0: prune API keys long past expiry. They already fail auth at verify
+    # time (verify_token skips expired keys); this just stops dead keys piling up
+    # in apikeys.json forever. 30-day grace so a freshly-expired key still shows
+    # (flagged by expires_at) in the list for a while before it's cleaned out.
+    try:
+        now_ts = int(time.time())
+        grace = 30 * 86400
+        with _locked_update(APIKEYS_FILE) as store:
+            if isinstance(store, dict):
+                dead = [k for k, v in store.items()
+                        if isinstance(v, dict) and v.get('expires_at')
+                        and int(v.get('expires_at') or 0) + grace < now_ts]
+                for k in dead:
+                    store.pop(k, None)
+                if dead:
+                    removed['apikeys.json'] = len(dead)
+    except Exception:
+        pass
     return removed
 
 
@@ -2367,6 +2385,27 @@ def verify_token(token):
             # v3.14.0 (SCIM): a deprovisioned/disabled user's sessions die at once.
             if u.get('disabled'):
                 return None, None
+            # v4.8.0 (#S6): enforce the session cap at VALIDATION, not only at
+            # mint time. Login-time eviction is advisory — if the cap is lowered
+            # afterward (or an evicted token lingers), the over-cap session stays
+            # usable until TTL. Re-check that this session is among the user's
+            # newest `cap`; if not, it's effectively evicted — kill it and deny.
+            try:
+                _scap = int((load(CONFIG_FILE) or {}).get('max_sessions_per_user') or 0)
+            except (TypeError, ValueError):
+                _scap = 0
+            if _scap > 0:
+                _mine = sorted(
+                    ((k, v) for k, v in tokens.items()
+                     if isinstance(v, dict) and v.get('user') == username),
+                    key=lambda kv: kv[1].get('created', 0), reverse=True)
+                if tkey not in {k for k, _ in _mine[:_scap]}:
+                    try:
+                        del tokens[tkey]
+                        save(TOKENS_FILE, tokens)
+                    except Exception:
+                        pass
+                    return None, None
             role = u.get('role', 'admin')
             # v3.14.0: throttled activity stamp for the session-management UI —
             # update last_seen at most once/min so we don't write tokens.json on
@@ -5074,20 +5113,23 @@ def fire_webhook(event, payload):
     # event firing path.
     try:
         _record_fleet_event(event, payload)
-    except Exception:
-        pass
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] fleet-event record failed {event}: {e}\n')
 
     # v3.2.0 (B1): alerts inbox — for actionable events, append to the
     # mutable ledger; for recover events, auto-resolve matching alerts.
     # Both wrapped so a ledger bug can never break the event firing path.
+    # v4.8.0: log instead of swallowing silently — a serialization bug here
+    # used to drop alerts/auto-resolves with zero trace (SIEM/webpush below
+    # already log their failures; these two were the silent holes).
     try:
         _record_alert(event, payload)
-    except Exception:
-        pass
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] alert ledger record failed {event}: {e}\n')
     try:
         _auto_resolve_alerts(event, payload)
-    except Exception:
-        pass
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] alert auto-resolve failed {event}: {e}\n')
 
     cfg = load(CONFIG_FILE)
 
@@ -12022,25 +12064,34 @@ def _persist_integration_results(results):
     dirty_cfg = False
 
     for r in results:
+        if not isinstance(r, dict):
+            continue
         key = str(r.get('id') or r.get('label'))
+        # Use .get() throughout: one result missing a key must not KeyError and
+        # abort the WHOLE persist batch (silent loss of every other
+        # integration's state + alerts). Early-return paths can be asymmetric.
+        status = r.get('status')
+        label = r.get('label', key)
+        rtype = r.get('type', '')
+        detail = r.get('detail', '')
         latest[key] = r
         hist.setdefault(key, [])
-        hist[key].append({'ts': r['checked'], 'status': r['status'], 'detail': r['detail']})
+        hist[key].append({'ts': r.get('checked'), 'status': status, 'detail': detail})
         hist[key] = hist[key][-100:]
 
         was_down = bool(notified.get(key))
-        is_down = r['status'] in (integrations_mod.WARN, integrations_mod.CRIT)
+        is_down = status in (integrations_mod.WARN, integrations_mod.CRIT)
         if is_down and not was_down:
-            sev = 'high' if r['status'] == integrations_mod.CRIT else 'medium'
+            sev = 'high' if status == integrations_mod.CRIT else 'medium'
             pending.append(('integration_down', {
-                'label': r['label'], 'type': r['type'], 'detail': r['detail'],
+                'label': label, 'type': rtype, 'detail': detail,
                 'severity': sev, 'integration_id': key,
             }))
             notified[key] = True
             dirty_cfg = True
         elif (not is_down) and was_down:
             pending.append(('integration_recovered', {
-                'label': r['label'], 'type': r['type'], 'detail': r['detail'],
+                'label': label, 'type': rtype, 'detail': detail,
                 'integration_id': key,
             }))
             notified[key] = False
@@ -12118,7 +12169,7 @@ def handle_integrations_save():
     Body: {integrations: [...], interval?: int}. A blank secret on an existing
     instance (matched by id) keeps the stored secret, so the UI never has to
     re-enter it."""
-    require_admin_auth()
+    actor = require_admin_auth()
     body = get_json_body() or {}
     new_list = body.get('integrations')
     if not isinstance(new_list, list):
@@ -12166,7 +12217,7 @@ def handle_integrations_save():
             cfg['show_homelab'] = bool(body.get('show_homelab'))
         # Force a re-poll on next request.
         cfg['last_integrations_run'] = 0
-    audit_log('integrations_save', f'{len(clean)} integration(s) configured')
+    audit_log(actor, 'integrations_save', f'{len(clean)} integration(s) configured')
     respond(200, {'ok': True, 'count': len(clean)})
 
 
@@ -12298,17 +12349,23 @@ _SECRET_KEY_RE = re.compile(
     r'refresh_token|private_key|credentials|token)$', re.I)
 
 
-def _scrub_config_secrets(obj):
-    """Recursively remove secret-valued keys from a config payload in place."""
+def _scrub_config_secrets(obj, stripped=None):
+    """Recursively remove secret-valued keys from a config payload in place.
+
+    If `stripped` (a set) is passed, the names of removed keys are collected into
+    it — callers use this to audit-log *what* was redacted (see handle_config_get).
+    """
     if isinstance(obj, dict):
         for k in list(obj.keys()):
             if isinstance(k, str) and _SECRET_KEY_RE.search(k):
                 obj.pop(k, None)
+                if stripped is not None:
+                    stripped.add(k)
             else:
-                _scrub_config_secrets(obj[k])
+                _scrub_config_secrets(obj[k], stripped)
     elif isinstance(obj, list):
         for item in obj:
-            _scrub_config_secrets(item)
+            _scrub_config_secrets(item, stripped)
 
 
 def handle_config_get():
@@ -12542,7 +12599,15 @@ def handle_config_get():
     # Defense-in-depth backstop: drop any secret-named key at any depth that the
     # explicit redaction above didn't catch (keeps every *_set / *_from_env
     # indicator and non-secret *_id fields intact). See _scrub_config_secrets.
-    _scrub_config_secrets(safe)
+    _stripped = set()
+    _scrub_config_secrets(safe, _stripped)
+    # v4.8.0: a non-admin (viewer / MCP / custom operator) reading the config
+    # endpoint while it carried secret-bearing keys is security-relevant — leave
+    # a trace (keys only, never values) so "someone fished for secrets" isn't
+    # silent. Admins legitimately receive the raw values, so don't audit them.
+    if _stripped and not _cfg_is_admin:
+        audit_log(_cfg_user or 'unknown', 'config_get_redacted',
+                  detail='redacted=' + ','.join(sorted(_stripped)))
     respond(200, safe)
 
 
@@ -36155,12 +36220,63 @@ def handle_cve_realert():
 CVE_SCAN_STATUS_FILE = DATA_DIR / 'cve_scan_status.json'
 
 
+def _close_inherited_fds(keep=(0, 1, 2)):
+    """Close every inherited file descriptor except `keep` (default: stdio).
+
+    The detached-worker grandchild must NOT hold the parent's open fds — above
+    all the live client connection socket. Under the SCGI prefork worker
+    (`api_worker.py`) the HTTP response travels over a socket on an fd >= 3
+    (`conn.makefile()`), NOT stdout, so redirecting only 0/1/2 leaves the client
+    socket open for the entire background job; nginx then keeps the browser
+    request hanging until the worker exits (the long-standing "Scan all devices
+    hangs the browser" bug — the old dup2-only path was written for plain CGI,
+    where the response IS stdout, and silently failed under SCGI). Closing
+    fds >= 3 here severs the client socket, the worker's listen socket, and any
+    stale DB/file handles deterministically under every server model.
+
+    `keep` must be a low, contiguous-from-0 set (the lone caller uses stdio); the
+    /proc path honours it exactly, the closerange fallback closes above max(keep).
+    """
+    keep = set(keep)
+    try:
+        names = os.listdir('/proc/self/fd')
+    except OSError:
+        names = None
+    if names is not None:
+        # listdir's own dir fd is already closed by the time it returns; a stale
+        # entry naming it just yields EBADF on close, which we ignore.
+        for name in names:
+            try:
+                fd = int(name)
+            except ValueError:
+                continue
+            if fd in keep:
+                continue
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        return
+    # No /proc (non-Linux / restricted): bounded closerange fallback.
+    try:
+        import resource
+        soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        maxfd = soft if 0 < soft < 65536 else 4096
+    except Exception:
+        maxfd = 4096
+    try:
+        os.closerange((max(keep) + 1) if keep else 0, maxfd)
+    except OSError:
+        pass
+
+
 def _run_detached(fn):
     """Run fn() in a fully-detached background process (double-fork + setsid),
     so a long job (e.g. a fleet-wide CVE scan) doesn't block the CGI worker.
     Falls back to running inline if fork isn't available. The grandchild drops
-    the response socket and the inherited per-request load cache + DB connection
-    (sharing an inherited SQLite fd across a fork corrupts the DB)."""
+    EVERY inherited fd (the response/client socket included — see
+    _close_inherited_fds) and the inherited per-request load cache + DB
+    connection (sharing an inherited SQLite fd across a fork corrupts the DB)."""
     try:
         pid = os.fork()
     except (OSError, AttributeError):
@@ -36183,6 +36299,20 @@ def _run_detached(fn):
     try:
         dn = os.open(os.devnull, os.O_RDWR)
         os.dup2(dn, 0); os.dup2(dn, 1); os.dup2(dn, 2)
+        if dn > 2:
+            os.close(dn)
+    except OSError:
+        pass
+    # Sever EVERY other inherited fd — above all the live client connection
+    # socket (SCGI worker) — so the response completes immediately instead of
+    # nginx hanging the browser until this background job finishes.
+    _close_inherited_fds()
+    # Repoint Python's std streams at /dev/null so a stray write in the worker
+    # can't reach a now-closed fd or the former client-socket object.
+    try:
+        sys.stdin = open(os.devnull, 'r')
+        sys.stdout = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, 'w')
     except OSError:
         pass
     try:
