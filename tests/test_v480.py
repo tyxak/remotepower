@@ -135,6 +135,20 @@ class TestNativeConfirmMigrated(unittest.TestCase):
             self.assertEqual(re.findall(r"!confirm\(", src), [],
                              f"{name} still uses native confirm() — use uiConfirm")
 
+    def test_no_native_prompt_calls(self):
+        # #U3 phase 2: native prompt() is also gone (uiPrompt everywhere). Skip
+        # full-line comments (which mention prompt() in prose) and ignore
+        # uiPrompt( (capital P — excluded by the negative lookbehind anyway).
+        for name, src in (("app.js", self.APP), ("app-calendar.js", self.CAL)):
+            bad = []
+            for line in src.split("\n"):
+                s = line.lstrip()
+                if s.startswith("//") or s.startswith("*"):
+                    continue
+                if re.search(r"(?<![\w.])prompt\(", line):
+                    bad.append(line.strip()[:80])
+            self.assertEqual(bad, [], f"{name} still calls native prompt(): {bad}")
+
 
 class TestMacAgentParity(unittest.TestCase):
     """#A1/#A2: the macOS agent gains listening-ports + saturation-metric parity

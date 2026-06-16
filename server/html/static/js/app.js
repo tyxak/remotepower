@@ -4963,10 +4963,10 @@ async function vncConnect() {
         rfb.addEventListener('disconnect', (e) => {
           statusEl.textContent = 'disconnected';
         });
-        rfb.addEventListener('credentialsrequired', () => {
+        rfb.addEventListener('credentialsrequired', async () => {
           // Loopback VNC servers are commonly password-less behind SSH; if one
           // demands a password, prompt for it (kept client-side only).
-          const pw = prompt('VNC server password:') || '';
+          const pw = (await uiPrompt({message: 'VNC server password:', type: 'password'})) || '';
           rfb.sendCredentials({ password: pw });
         });
         rfb.addEventListener('securityfailure', (e) => {
@@ -5174,7 +5174,7 @@ async function _sftpDelBtn(btn) {
   catch (e) { toast('Delete failed: ' + e.message, 'error'); }
 }
 async function sftpMkdir() {
-  const dir = prompt('New folder name:'); if (!dir) return;
+  const dir = await uiPrompt({message: 'New folder name:'}); if (!dir) return;
   try { await _sftpReq({ op: 'mkdir', path: _sftpJoin(_sftpSession.cwd, dir) }); _sftpList(_sftpSession.cwd); }
   catch (e) { toast('mkdir failed: ' + e.message, 'error'); }
 }
@@ -5233,7 +5233,7 @@ async function loadSatellites() {
   }).join('');
 }
 async function createSatellite() {
-  const name = prompt('Satellite name (e.g. dmz-relay):');
+  const name = await uiPrompt({message: 'Satellite name (e.g. dmz-relay):'});
   if (!name) return;
   const r = await api('POST', '/satellites', { name: name.trim() });
   if (r && r.ok) {
@@ -8828,7 +8828,7 @@ async function addPasskey() {
   let cred;
   try { cred = await navigator.credentials.create({ publicKey: opts }); }
   catch (e) { toast('Passkey registration cancelled.', 'info'); return; }
-  const name = (prompt('Name this passkey (e.g. "YubiKey", "Phone"):') || 'passkey').slice(0, 64);
+  const name = ((await uiPrompt({message: 'Name this passkey (e.g. "YubiKey", "Phone"):'})) || 'passkey').slice(0, 64);
   const payload = { id: cred.id, rawId: _bufToB64u(cred.rawId), type: cred.type,
     response: { attestationObject: _bufToB64u(cred.response.attestationObject),
                 clientDataJSON: _bufToB64u(cred.response.clientDataJSON) } };
@@ -9237,7 +9237,7 @@ async function ackGroup(key) {
   if (!ids.length) { toast('Nothing to acknowledge on this host', 'info'); return; }
   const body = { ids };
   if (_alertsAckCommentEnabled) {
-    const note = prompt(`Add a comment to ${ids.length} acknowledgement(s) (optional):`, '');
+    const note = await uiPrompt({message: `Add a comment to ${ids.length} acknowledgement(s) (optional):`, value: ''});
     if (note === null) return;
     if (note.trim()) body.note = note.trim();
   }
@@ -9271,7 +9271,7 @@ async function ackAlert(id) {
   const body = {};
   // v4.1.0 (#56): optional comment on ack (can be turned off in Settings).
   if (_alertsAckCommentEnabled) {
-    const note = prompt('Add a comment to this acknowledgement (optional):', '');
+    const note = await uiPrompt({message: 'Add a comment to this acknowledgement (optional):', value: ''});
     if (note === null) return;   // cancelled
     if (note.trim()) body.note = note.trim();
   }
@@ -9287,7 +9287,7 @@ async function bulkAckAlerts() {
   if (!ids.length) return;
   const body = { ids };
   if (_alertsAckCommentEnabled) {
-    const note = prompt(`Add a comment to ${ids.length} acknowledgement(s) (optional):`, '');
+    const note = await uiPrompt({message: `Add a comment to ${ids.length} acknowledgement(s) (optional):`, value: ''});
     if (note === null) return;   // cancelled
     if (note.trim()) body.note = note.trim();
   }
@@ -14652,14 +14652,14 @@ function dashShareExport() {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(code)
       .then(() => toast('Layout code copied to clipboard', 'success'))
-      .catch(() => prompt('Copy this dashboard layout code:', code));
+      .catch(() => uiPrompt({message: 'Copy this dashboard layout code:', value: code}));
   } else {
-    prompt('Copy this dashboard layout code:', code);
+    uiPrompt({message: 'Copy this dashboard layout code:', value: code});
   }
 }
 
-function dashShareImport() {
-  const code = prompt('Paste a dashboard layout code to apply:', '');
+async function dashShareImport() {
+  const code = await uiPrompt({message: 'Paste a dashboard layout code to apply:', value: ''});
   if (!code) return;
   let parsed;
   try { parsed = JSON.parse(atob(code.trim())); } catch (e) { parsed = null; }
@@ -20072,8 +20072,8 @@ function _renderSavedQueries() {
     `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}">${escHtml(q.name)}</span>`
     + `<button class="btn-icon fs-11" data-action="deleteFleetQuery" data-arg="${i}" title="Delete saved query">✕</button>`).join('');
 }
-function saveFleetQuery() {
-  const name = prompt('Name this query:');
+async function saveFleetQuery() {
+  const name = await uiPrompt({message: 'Name this query:'});
   if (!name) return;
   const qs = _savedQueries();
   qs.push({ name: name.slice(0, 40), f: _fqFields() });
