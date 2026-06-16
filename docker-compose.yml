@@ -1,32 +1,36 @@
+# RemotePower — one command:
+#
+#     docker compose up -d
+#
+# Then open the URL and grab the one-time admin password from:
+#
+#     docker logs remotepower
+#
+# HTTPS works out of the box with a self-signed CA (the CA fingerprint is in the
+# logs — agents pin it). Point RP_TLS_HOST at the address your agents/browsers
+# actually use so the certificate matches it, e.g.:
+#
+#     RP_TLS_HOST=rp.lan docker compose up -d
+#
 services:
   remotepower:
-    build: .
-    # Or use the prebuilt image instead of building locally — comment out
-    # `build:` above and uncomment this (published on every release):
-    # image: ghcr.io/tyxak/remotepower:latest
+    image: ghcr.io/tyxak/remotepower:latest   # or `build: .` to build locally
     container_name: remotepower
+    restart: unless-stopped
     ports:
-      # Host port defaults to 8085 (8080 clashes on many machines). Override
-      # with:  RP_HOST_PORT=NNNN docker compose up -d
-      - "${RP_HOST_PORT:-8085}:8080"
-      # In-container self-signed TLS (v4.5.0): uncomment to map host 443 -> the
-      # container's HTTPS port, and set RP_TLS_SELFSIGNED=1 below. Prefer a real
-      # cert / reverse proxy for production — see docs/tls-selfsigned.md.
-      # - "443:8443"
+      - "443:8443"   # HTTPS — self-signed by default
+      - "80:8080"    # HTTP  — health, /ca.crt, redirects to HTTPS
     environment:
-      - RP_ADMIN_USER=admin
-      - RP_ADMIN_PASS=changeme          # Change this! Only used on first run.
-      # Self-signed TLS in the container (off by default). On first boot the
-      # entrypoint generates a CA+leaf into the data volume and prints the CA
-      # fingerprint to `docker logs`. Enroll agents with --ca-fingerprint.
-      # - RP_TLS_SELFSIGNED=1
-      # - RP_TLS_HOST=rp.internal       # the hostname/IP agents will use
+      # HTTPS on first boot, no cert wrangling. Set RP_TLS_HOST to your address:
+      RP_TLS_SELFSIGNED: "1"
+      RP_TLS_HOST: "${RP_TLS_HOST:-localhost}"
+      # Admin password is GENERATED and printed ONCE to `docker logs` on first
+      # boot — no insecure default to remember to change. Override if you must:
+      # RP_ADMIN_PASS: "your-strong-password"
     volumes:
       - remotepower_data:/var/lib/remotepower
-    restart: unless-stopped
     healthcheck:
-      # curl is not installed in the image — use Python (always present).
-      # Probes /api/health (lightweight JSON) instead of the full SPA root.
+      # curl isn't in the image — probe /api/health with Python (always present).
       test: ["CMD", "python3", "-c",
              "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/api/health',timeout=4).status==200 else 1)"]
       interval: 60s

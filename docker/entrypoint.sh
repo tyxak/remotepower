@@ -117,6 +117,16 @@ chmod 660 /run/fcgiwrap.socket
 chown www-data:www-data /run/fcgiwrap.socket
 echo "[+] fcgiwrap started"
 
+# First-greeting to the logs — the address to open.
+_scheme=http
+if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; then _scheme=https; fi
+echo ""
+echo "  ──────────────────────────────────────────────"
+echo "   RemotePower is live  →  ${_scheme}://${RP_TLS_HOST:-localhost}"
+echo "   Log in as 'admin' (one-time password printed above on first boot)."
+echo "  ──────────────────────────────────────────────"
+echo ""
+
 # Start nginx in foreground
 echo "[*] Starting nginx..."
 exec nginx -g 'daemon off;'
