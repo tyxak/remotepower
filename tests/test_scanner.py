@@ -20,6 +20,33 @@ sc = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sc)
 
 
+class TestReportWorkdirPerms(unittest.TestCase):
+    """CWE-732 regression: the world-writable scan work dir must sit inside a
+    0700 parent so local users can't reach it. On the OLD code (a 0777 dir
+    directly in /tmp, whose parent is 1777) the parent-mode assertion fails."""
+
+    def test_workdir_under_0700_parent(self):
+        captured = {}
+
+        def fake_argv(target, profile, intensity, workdir, report):
+            captured['workdir_mode'] = os.stat(workdir).st_mode & 0o777
+            captured['parent_mode'] = os.stat(os.path.dirname(workdir)).st_mode & 0o777
+            with open(os.path.join(workdir, report), 'w') as fh:
+                fh.write('{}')
+            return ['true']
+
+        orig_run = sc._run
+        sc._run = lambda argv: ('', '', '')
+        try:
+            sc._run_report_tool(fake_argv, lambda text: [], 'example.com', 'passive', 'quick')
+        finally:
+            sc._run = orig_run
+        self.assertEqual(captured.get('parent_mode'), 0o700,
+                         'work-dir parent must be 0700 (local users blocked)')
+        self.assertEqual(captured.get('workdir_mode'), 0o777,
+                         'inner work dir stays 0777 so the container uid can write')
+
+
 class TestNucleiParser(unittest.TestCase):
     def test_jsonl(self):
         text = ('{"template-id":"tls-version","info":{"name":"Old TLS",'

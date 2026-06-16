@@ -404,7 +404,15 @@ def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
     (e.g. ZAP's uid 1000) can write into it."""
     import shutil
     import tempfile
-    workdir = tempfile.mkdtemp(prefix='rp-scan-')
+    # CWE-732: the work dir must be world-writable so a non-root *container* uid
+    # (e.g. ZAP's 1000) can write its report into the bind mount — but a 0777 dir
+    # directly in shared /tmp lets any local user read it or race a symlink at the
+    # report path. Nest it under a 0700 parent that only we can traverse: the
+    # Docker bind-mount still maps the inner dir straight into the container
+    # (the daemon resolves it as root), while local users can't reach it.
+    parent = tempfile.mkdtemp(prefix='rp-scan-')   # 0700, unique, owned by us
+    workdir = os.path.join(parent, 'wrk')
+    os.mkdir(workdir)
     try:
         try:
             os.chmod(workdir, 0o777)
@@ -426,7 +434,7 @@ def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
             return [], 'no report produced' + (f': {tail}' if tail else '')
         return parse_fn(text), ''
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        shutil.rmtree(parent, ignore_errors=True)
 
 
 def _run_tool(tool, target, profile='passive', intensity='quick'):
