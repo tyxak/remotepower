@@ -234,9 +234,54 @@ cmd_install() {
   summary_card
 }
 
+# ── agent: print the enrol one-liner, or push it over SSH ────────────────────
+# `remotepower agent push --server URL --token T user@host …` runs the served
+# one-line installer on each host over SSH. Operator-side (uses YOUR ssh), so the
+# server never has to hold SSH keys to every box. Bootstrap is agent-only.
+cmd_agent() {
+  local sub="print"
+  if [ "${1:-}" = "push" ]; then sub="push"; shift; fi
+  if [ "$sub" = "push" ]; then
+    local server="" token="" sudo="sudo"; local hosts=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --server) server="${2:-}"; shift 2;;
+        --token) token="${2:-}"; shift 2;;
+        --no-sudo) sudo=""; shift;;
+        --sudo) sudo="sudo"; shift;;
+        --dry-run) DRY=1; shift;;
+        -*) printf "${RED}unknown option: %s${RST}\n" "$1"; return 2;;
+        *) hosts+=("$1"); shift;;
+      esac
+    done
+    if [ -z "$server" ] || [ -z "$token" ] || [ "${#hosts[@]}" -eq 0 ]; then
+      echo "usage: $SELF agent push --server URL --token T [--no-sudo] user@host [user@host …]"
+      return 2
+    fi
+    banner; section "Pushing agent over SSH"
+    [ "${#hosts[@]}" -gt 1 ] && note "one enrolment token enrols ONE host — mint one token per host in the dashboard."
+    local one="curl -fsSL '${server}/install' | ${sudo:+$sudo }sh -s -- --token '${token}'"
+    local h rc=0
+    for h in "${hosts[@]}"; do
+      if [ "$DRY" = 1 ]; then step_ok "$h"; note "ssh $h \"$one\""; continue; fi
+      printf "   ${DOT}  %s …\n" "$h"
+      if ssh -o ConnectTimeout=10 -o BatchMode=yes "$h" "$one"; then step_ok "$h — agent installed"
+      else step_no "$h — failed (check SSH access / sudo)"; rc=1; fi
+    done
+    echo; return $rc
+  fi
+  # default: just show the one-liner(s)
+  banner; section "Add a device"
+  note "Generate an enrolment token in the dashboard, then run on the target host:"
+  echo; printf "   curl -fsSL %s/install | sudo sh -s -- --token <token>\n\n" "${HOST:+https://$HOST}"
+  note "…or push it from here over SSH:"
+  printf "   %s agent push --server https://<server> --token <token> user@host …\n\n" "$SELF"
+}
+
 # ── arg parsing / dispatch ───────────────────────────────────────────────────
 CMD="install"
 case "${1:-}" in install|tls|passwd|update|doctor|agent) CMD="$1"; shift;; esac
+if [ "$CMD" = "agent" ]; then cmd_agent "$@"; exit $?; fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) HOST="${2:-}"; shift 2;;
@@ -255,6 +300,6 @@ done
 case "$CMD" in
   install) cmd_install;;
   doctor)  banner; preflight; echo;;
-  tls|passwd|update|agent)
+  tls|passwd|update)
     banner; note "'$CMD' is part of the unified tool — wiring lands with the real install steps."; echo;;
 esac
