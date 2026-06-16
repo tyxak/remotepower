@@ -8,6 +8,7 @@ Covers:
 """
 import importlib.util
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -115,6 +116,24 @@ class TestTlsMonitorSSRF(unittest.TestCase):
     def test_probe_refuses_linklocal_ip(self):
         res = tls_monitor._probe_tls("ll", 443, connect_address="169.254.1.2")
         self.assertIn("refused", res.get("tls_error", ""))
+
+
+class TestNativeConfirmMigrated(unittest.TestCase):
+    """#U3 (phase 1): every confirmation goes through the styled, never-throttled
+    uiConfirm modal instead of native confirm() (which browsers suppress after a
+    few in a row — the documented "UI looks locked" bug). Ratchet so it can't
+    creep back. (prompt() migration is a later phase and not pinned here.)"""
+
+    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    CAL = (_ROOT / "server/html/static/js/app-calendar.js").read_text()
+
+    def test_uiconfirm_helper_exists(self):
+        self.assertIn("function uiConfirm(", self.APP)
+
+    def test_no_native_confirm_calls(self):
+        for name, src in (("app.js", self.APP), ("app-calendar.js", self.CAL)):
+            self.assertEqual(re.findall(r"!confirm\(", src), [],
+                             f"{name} still uses native confirm() — use uiConfirm")
 
 
 class TestMacAgentParity(unittest.TestCase):

@@ -228,7 +228,7 @@ async function deleteCurrentEvent() {
   const msg = isRecurring
     ? 'Delete this recurring event and all its occurrences?'
     : 'Delete this event?';
-  if (!confirm(msg)) return;
+  if (!await uiConfirm(msg)) return;
   const result = await api('DELETE', `/calendar/${calEditingId}`);
   if (result && result.ok) {
     toast(isRecurring ? 'All occurrences deleted' : 'Event deleted', 'success');
@@ -416,7 +416,7 @@ async function saveTask() {
 
 async function deleteCurrentTask() {
   if (!taskEditingId) return;
-  if (!confirm('Delete this task?')) return;
+  if (!await uiConfirm('Delete this task?')) return;
   const result = await api('DELETE', `/tasks/${taskEditingId}`);
   if (result && result.ok) {
     toast('Task deleted', 'success');

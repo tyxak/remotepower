@@ -1961,7 +1961,7 @@ async function confirmShutdown() { closeModal('shutdown-modal'); const data = aw
 function requestReboot(id, name) { rebootTarget = id; document.getElementById('reboot-name').textContent = name; openModal('reboot-modal'); }
 async function confirmReboot() { closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget}); if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
 async function sendWol(id, name) { const data = await api('POST', '/wol', {device_id: id}); if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success'); else toast(data?.error || 'WoL failed', 'error'); }
-async function removeDevice(id) { if (!confirm('Remove this device from RemotePower?')) return; const data = await api('DELETE', '/devices/' + id); if (data?.ok) { toast('Device removed', 'info'); loadDevices(); } else toast(data?.error || 'Error', 'error'); }
+async function removeDevice(id) { if (!await uiConfirm('Remove this device from RemotePower?')) return; const data = await api('DELETE', '/devices/' + id); if (data?.ok) { toast('Device removed', 'info'); loadDevices(); } else toast(data?.error || 'Error', 'error'); }
 // v3.3.0: device-icon palette is now Lucide SVG names from _ICONS.
 // Legacy emoji values stored on devices still render — _renderDeviceIcon
 // returns the raw value when it's not a known icon name.
@@ -1990,8 +1990,8 @@ function onReachabilityModeChange() {
   const row = document.getElementById('ds-manual-status-row');
   if (row) row.classList.toggle('d-none', mode !== 'manual');
 }
-async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
-async function clearWebhookLog() { if (!confirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearMonitorAlerts() { if (!await uiConfirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
+async function clearWebhookLog() { if (!await uiConfirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
 function openDetail(id, name) {
   // v2.9.0: replaced by device drawer
   openDeviceDrawer(id, name, 'audit');
@@ -2348,7 +2348,7 @@ async function saveRole() {
 }
 
 async function deleteRole(name) {
-  if (!confirm(`Delete role "${name}"?`)) return;
+  if (!await uiConfirm(`Delete role "${name}"?`)) return;
   const r = await api('DELETE', `/roles/${encodeURIComponent(name)}`).catch(() => null);
   if (r?.ok) { toast('Role deleted', 'info'); loadRoles(); }
   else toast(r?.error || 'Failed to delete role', 'error');
@@ -2368,7 +2368,7 @@ async function openUserAdd() {
   openModal('user-add-modal');
 }
 async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await api('POST', '/users', {username, password, role}); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
-async function deleteUser(username) { if (!confirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
+async function deleteUser(username) { if (!await uiConfirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: flip a user between admin and viewer without delete+recreate.
 // Server refuses to demote the last admin.
@@ -2377,7 +2377,7 @@ async function editUserRole(username, currentRole) {
   const msg = currentRole === 'admin'
     ? `Demote "${username}" from admin to viewer?\n\nViewers can read everything but cannot mutate.`
     : `Promote "${username}" from viewer to admin?\n\nAdmins can run commands, delete devices, and change settings.`;
-  if (!confirm(msg)) return;
+  if (!await uiConfirm(msg)) return;
   const data = await api('PATCH', '/users/' + username, { role: newRole });
   if (data?.ok) { toast(`${username} is now ${newRole}`, 'success'); loadUsers(); }
   else toast(data?.error || 'Failed', 'error');
@@ -3329,11 +3329,41 @@ function closeModal(id) {
 // One modal, consistent with the rest of the UI; opts: {title, message, value,
 // placeholder, type:'text'|'password', confirmText, danger, multiline}.
 let _uiPromptResolve = null;
+// v4.8.0 (#U3): styled confirm() replacement. Native confirm()/prompt() get
+// THROTTLED by browsers after a few in a row (e.g. a fleet-wide sweep) — they
+// then return false/null with no dialog, the handler silently bails, and the UI
+// "looks locked" (the documented prompt()-suppression bug). uiConfirm reuses the
+// in-page ui-prompt modal (never throttled) and resolves a boolean. Accepts a
+// bare message string or an {title,message,confirmText,danger} options object,
+// so call sites convert by a plain confirm( -> await uiConfirm( swap.
+let _uiPromptConfirmMode = false;
+function uiConfirm(opts = {}) {
+  if (typeof opts === 'string') opts = { message: opts };
+  return new Promise(resolve => {
+    if (_uiPromptResolve) { const r = _uiPromptResolve; _uiPromptResolve = null; r(null); }
+    _uiPromptResolve = resolve;
+    _uiPromptConfirmMode = true;
+    const { title = '', message = '', confirmText = 'OK', danger = false } = opts;
+    document.getElementById('ui-prompt-title').textContent = title;
+    const msg = document.getElementById('ui-prompt-message');
+    msg.textContent = message; msg.classList.toggle('d-none', !message);
+    // Confirm mode has no input — hide both fields.
+    document.getElementById('ui-prompt-input').classList.add('d-none');
+    document.getElementById('ui-prompt-textarea').classList.add('d-none');
+    const btn = document.getElementById('ui-prompt-confirm');
+    btn.textContent = confirmText;
+    btn.classList.toggle('btn-shutdown', !!danger);
+    btn.classList.toggle('btn-primary', !danger);
+    openModal('ui-prompt-modal');
+    setTimeout(() => { btn.focus(); }, 50);
+  });
+}
 function uiPrompt(opts = {}) {
   return new Promise(resolve => {
     // If a prompt is somehow already open, cancel it first (resolve null).
     if (_uiPromptResolve) { const r = _uiPromptResolve; _uiPromptResolve = null; r(null); }
     _uiPromptResolve = resolve;
+    _uiPromptConfirmMode = false;
     const { title = '', message = '', value = '', placeholder = '',
             type = 'text', confirmText = 'OK', danger = false,
             multiline = false } = opts;
@@ -3357,10 +3387,18 @@ function uiPrompt(opts = {}) {
   });
 }
 function _uiPromptFinish(ok) {
-  const ta = document.getElementById('ui-prompt-textarea');
-  const multiline = !ta.classList.contains('d-none');
-  const field = document.getElementById(multiline ? 'ui-prompt-textarea' : 'ui-prompt-input');
-  const val = ok ? field.value : null;
+  // Confirm mode resolves a boolean; prompt mode resolves the field value / null.
+  const confirmMode = _uiPromptConfirmMode;
+  _uiPromptConfirmMode = false;
+  let val;
+  if (confirmMode) {
+    val = !!ok;
+  } else {
+    const ta = document.getElementById('ui-prompt-textarea');
+    const multiline = !ta.classList.contains('d-none');
+    const field = document.getElementById(multiline ? 'ui-prompt-textarea' : 'ui-prompt-input');
+    val = ok ? field.value : null;
+  }
   closeModal('ui-prompt-modal');
   const r = _uiPromptResolve; _uiPromptResolve = null;
   if (r) r(val);
@@ -4035,7 +4073,7 @@ function nextAboutTip() { _renderAboutTip(); }
 async function loadAbout() { _renderAboutTip(); try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
-async function sendUpdate(id, name) { if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
+async function sendUpdate(id, name) { if (!await uiConfirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.0: operator-triggered agent removal. Server queues an 'uninstall'
 // command; on next heartbeat (~60s) the agent stops + disables the
@@ -4051,7 +4089,7 @@ async function uninstallAgent(id, name) {
               `  • remove /usr/local/bin/remotepower-agent\n\n` +
               `The device record stays here so you can re-enroll later.\n` +
               `Continue?`;
-  if (!confirm(msg)) return;
+  if (!await uiConfirm(msg)) return;
   const r = await api('POST', `/devices/${id}/uninstall-agent`, {});
   if (r && r.ok) {
     toast(`Uninstall queued for ${name} — completes on next heartbeat`, 'success');
@@ -4065,7 +4103,7 @@ async function uninstallAgent(id, name) {
 // require selecting the device first, then clicking the toolbar batch
 // button — now available directly from the ⋯ menu on each row.
 async function upgradePackages(id, name) {
-  if (!confirm(`Upgrade packages on "${name}"?\nThis will run apt / dnf / pacman upgrade on the device. Output arrives on the next heartbeat after the run completes (typically 30–120s for apt upgrade, longer for big upgrade sets). View progress under "Update history".`)) return;
+  if (!await uiConfirm(`Upgrade packages on "${name}"?\nThis will run apt / dnf / pacman upgrade on the device. Output arrives on the next heartbeat after the run completes (typically 30–120s for apt upgrade, longer for big upgrade sets). View progress under "Update history".`)) return;
   const data = await api('POST', '/upgrade-device', {device_ids: [id]});
   if (data?.ok) toast(`Package upgrade queued for ${name}. Output will appear in Update history shortly.`, 'success');
   else toast(data?.error || 'Failed', 'error');
@@ -4230,7 +4268,7 @@ async function saveMetricThresholds() {
 async function resetMetricThresholds() {
   const id = _currentMetricThresholdsDevice;
   if (!id) return;
-  if (!confirm('Reset all metric thresholds for this device to fleet defaults?\n\nPer-device overrides AND per-mount disk overrides will be cleared.')) return;
+  if (!await uiConfirm('Reset all metric thresholds for this device to fleet defaults?\n\nPer-device overrides AND per-mount disk overrides will be cleared.')) return;
   const resp = await api('DELETE', `/devices/${id}/metric-thresholds`);
   if (resp?.ok) {
     toast('Reset to defaults', 'success');
@@ -4973,7 +5011,7 @@ async function userAction(action) {
     body.sshkey = document.getElementById('usermgmt-sshkey').value.trim();
     if (!body.sshkey) { toast('Paste an SSH public key', 'error'); return; }
   }
-  if (action === 'delete' && !confirm(`Queue deletion of user "${username}"? (home dir is kept)`)) return;
+  if (action === 'delete' && !await uiConfirm(`Queue deletion of user "${username}"? (home dir is kept)`)) return;
   const r = await api('POST', `/devices/${id}/user-action`, body);
   if (r?.ok) { toast(`Queued: ${action} ${username} (runs on next heartbeat)`, 'success'); }
   else toast(r?.error || 'Failed', 'error');
@@ -5131,7 +5169,7 @@ async function _sftpDlBtn(btn) {
   } catch (e) { toast('Download failed: ' + e.message, 'error'); }
 }
 async function _sftpDelBtn(btn) {
-  if (!confirm('Delete ' + btn.dataset.path + '?')) return;
+  if (!await uiConfirm('Delete ' + btn.dataset.path + '?')) return;
   try { await _sftpReq({ op: 'delete', path: btn.dataset.path, is_dir: btn.dataset.dir === '1' }); _sftpList(_sftpSession.cwd); }
   catch (e) { toast('Delete failed: ' + e.message, 'error'); }
 }
@@ -5158,7 +5196,7 @@ function filesDisconnect() {
   closeModal('files-browser');
 }
 
-async function clearHistory() { if (!confirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
+async function clearHistory() { if (!await uiConfirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
 let selectedDevices = new Set();
 function toggleSelect(id) { if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id); updateBatchBar(); renderDevices(); }
 function clearSelection() { selectedDevices.clear(); updateBatchBar(); renderDevices(); }
@@ -5209,7 +5247,7 @@ async function createSatellite() {
   } else { toast('Create failed: ' + (r && r.error || ''), 'error'); }
 }
 async function deleteSatellite(id) {
-  if (!confirm('Revoke this satellite? Agents relaying through it will stop reaching the server.')) return;
+  if (!await uiConfirm('Revoke this satellite? Agents relaying through it will stop reaching the server.')) return;
   const r = await api('DELETE', '/satellites/' + id);
   if (r && r.ok) { toast('Satellite revoked', 'info'); loadSatellites(); }
   else { toast('Revoke failed', 'error'); }
@@ -5451,14 +5489,14 @@ async function loadSessions() {
 }
 
 async function revokeSession(sid) {
-  if (!confirm('Revoke this session? That browser/device will be signed out.')) return;
+  if (!await uiConfirm('Revoke this session? That browser/device will be signed out.')) return;
   const r = await api('DELETE', `/me/sessions/${encodeURIComponent(sid)}`);
   if (r && r.ok) { toast('Session revoked', 'success'); loadSessions(); }
   else toast((r && r.error) || 'Failed to revoke session', 'error');
 }
 
 async function revokeOtherSessions() {
-  if (!confirm('Sign out all other sessions? Only this browser will stay signed in.')) return;
+  if (!await uiConfirm('Sign out all other sessions? Only this browser will stay signed in.')) return;
   const r = await api('POST', '/me/sessions/revoke-others');
   if (r && r.ok) { toast(`Signed out ${r.revoked} other session${r.revoked === 1 ? '' : 's'}`, 'success'); loadSessions(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -5525,7 +5563,7 @@ function _downscaleImage(file, size) {
 }
 
 function updateBatchBar() { const bar = document.getElementById('batch-bar'); const cnt = document.getElementById('batch-count'); if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; } else bar.classList.remove('visible'); }
-async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
+async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!await uiConfirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
 async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 function openGroupModal(id, current) { document.getElementById('group-device-id').value = id; document.getElementById('group-input').value = current || ''; openModal('group-modal'); }
@@ -5677,7 +5715,7 @@ async function restoreBackup() {
   const inp = document.getElementById('restore-file-input');
   const file = inp && inp.files && inp.files[0];
   if (!file) return;
-  if (!confirm(`Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`)) { inp.value = ''; return; }
+  if (!await uiConfirm(`Restore from "${file.name}"?\n\nThis OVERWRITES the current RemotePower data (devices, config, all state, the credentials vault). A safety snapshot of the current data is taken automatically first. Continue?`)) { inp.value = ''; return; }
   const res = document.getElementById('backup-result');
   if (res) { res.hidden = false; res.textContent = 'Uploading & restoring…'; }
   try {
@@ -5784,10 +5822,10 @@ async function _runStorageMigrate(opts) {
 
 function migrateStoragePreview() { _runStorageMigrate({ dry_run: true }); }
 
-function migrateStorage() {
+async function migrateStorage() {
   const sel = document.getElementById('storage-backend-target');
   const target = sel ? sel.value : 'sqlite';
-  if (!confirm(`Migrate all data and switch the active storage backend to "${target}"?\n\nA rollback snapshot is taken first and the data is verified before the switch. This can take a moment on large fleets — prefer a low-traffic window, as writes that land mid-migration are caught by a re-scan but a busy fleet leaves a small residual window.`)) return;
+  if (!await uiConfirm(`Migrate all data and switch the active storage backend to "${target}"?\n\nA rollback snapshot is taken first and the data is verified before the switch. This can take a moment on large fleets — prefer a low-traffic window, as writes that land mid-migration are caught by a re-scan but a busy fleet leaves a small residual window.`)) return;
   _runStorageMigrate({ dry_run: false });
 }
 
@@ -5816,7 +5854,7 @@ async function saveRetention() {
   if (res) toast('Retention settings saved', 'success');
 }
 async function runMaintenance() {
-  if (!confirm('Run database maintenance now?\n\nThis purges records older than your retention limits (resolved alerts only — open alerts are kept) and compacts the database. Pruned data cannot be recovered.')) return;
+  if (!await uiConfirm('Run database maintenance now?\n\nThis purges records older than your retention limits (resolved alerts only — open alerts are kept) and compacts the database. Pruned data cannot be recovered.')) return;
   const out = document.getElementById('maintenance-result');
   if (out) { out.hidden = false; out.textContent = 'Running maintenance…'; }
   const res = await api('POST', '/db-maintenance');
@@ -5975,25 +6013,25 @@ function _renderCommandQueue() {
   body.innerHTML = pendingHeader + pendingHtml + recentHtml;
 }
 async function cancelQueuedCommand(devId, index) {
-  if (!confirm('Cancel this queued command? It will not be delivered to the agent.')) return;
+  if (!await uiConfirm('Cancel this queued command? It will not be delivered to the agent.')) return;
   const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue?index=${encodeURIComponent(index)}`).catch(() => null);
   if (r?.ok) { toast('Queued command cancelled', 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to cancel', 'error');
 }
 async function clearDeviceQueue(devId, name) {
-  if (!confirm(`Clear ALL pending commands for ${name}? None of them will be delivered.`)) return;
+  if (!await uiConfirm(`Clear ALL pending commands for ${name}? None of them will be delivered.`)) return;
   const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue`).catch(() => null);
   if (r?.ok) { toast(`Cleared ${r.removed} queued command(s)`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearAllQueues() {
-  if (!confirm('Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.')) return;
+  if (!await uiConfirm('Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.')) return;
   const r = await api('DELETE', '/command-queue').catch(() => null);
   if (r?.ok) { toast(`Cleared ${r.removed} queued command(s) across ${r.devices} device(s)`, 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 async function clearDispatchLog() {
-  if (!confirm('Clear the dispatched-command log? This clears the command history shown here and on the Command History page.')) return;
+  if (!await uiConfirm('Clear the dispatched-command log? This clears the command history shown here and on the Command History page.')) return;
   const r = await api('DELETE', '/history').catch(() => null);
   if (r?.ok) { toast('Command history cleared', 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
@@ -6007,7 +6045,7 @@ async function loadApiKeys() {
 }
 function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
 async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const body = {name, role}; const exVal = (document.getElementById('apikey-expires')?.value || '').trim(); if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } body.expires_at = ts; } const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
-async function deleteApiKey(id) { if (!confirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+async function deleteApiKey(id) { if (!await uiConfirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 
 // ─── v3.5.0: sites/teams ─────────────────────────────────────────────────────
 let _sitesRegistered = false;
@@ -6081,7 +6119,7 @@ async function saveSite() {
   else toast(data?.error || 'Failed', 'error');
 }
 async function deleteSite(id, name) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!confirm(`Delete site "${name}"? Devices in it become unassigned.`)) return;
+  if (!await uiConfirm(`Delete site "${name}"? Devices in it become unassigned.`)) return;
   const data = await api('DELETE', '/sites/' + encodeURIComponent(id));
   if (data?.ok) { toast(`Site deleted (${data.unassigned} device(s) unassigned)`, 'info'); loadSites(); }
   else toast(data?.error || 'Failed', 'error');
@@ -6170,13 +6208,13 @@ async function saveAutopatch() {
   else toast(d?.error || 'Failed', 'error');
 }
 async function _autopatchRunBtn(btn) {
-  if (!confirm('Apply this policy now (queue upgrades to all targeted devices)?')) return;
+  if (!await uiConfirm('Apply this policy now (queue upgrades to all targeted devices)?')) return;
   const d = await api('POST', '/autopatch/' + encodeURIComponent(btn.dataset.id) + '/run', {});
   if (d?.ok) toast(`Queued upgrade on ${d.queued} device(s)`, 'success');
   else toast(d?.error || 'Failed', 'error');
 }
 async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!confirm('Delete this policy?')) return;
+  if (!await uiConfirm('Delete this policy?')) return;
   const d = await api('DELETE', '/autopatch/' + encodeURIComponent(id));
   if (d?.ok) { toast('Policy deleted', 'info'); loadAutopatch(); } else toast(d?.error || 'Failed', 'error');
 }
@@ -6254,7 +6292,7 @@ async function _backupRunBtn(btn) {
   else toast(d?.error || 'Failed', 'error');
 }
 async function deleteBackupJob(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!confirm('Delete this backup job?')) return;
+  if (!await uiConfirm('Delete this backup job?')) return;
   const d = await api('DELETE', '/backup-jobs/' + encodeURIComponent(id));
   if (d?.ok) { toast('Job deleted', 'info'); loadBackupJobs(); } else toast(d?.error || 'Failed', 'error');
 }
@@ -6364,7 +6402,7 @@ async function saveAnsiblePlaybook() {
   else toast(d?.error || 'Failed', 'error');
 }
 async function deleteAnsiblePlaybook(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!confirm('Delete this playbook?')) return;
+  if (!await uiConfirm('Delete this playbook?')) return;
   const d = await api('DELETE', '/ansible/playbooks/' + encodeURIComponent(id));
   if (d?.ok) { toast('Playbook deleted', 'info'); loadAnsible(); } else toast(d?.error || 'Failed', 'error');
 }
@@ -7592,7 +7630,7 @@ async function loadMaintSuppressions() {
 }
 
 async function deleteMaintenance(winId) {
-  if (!confirm('Delete this maintenance window?')) return;
+  if (!await uiConfirm('Delete this maintenance window?')) return;
   const result = await api('DELETE', `/maintenance/${winId}`);
   if (result && result.ok) { toast('Window deleted', 'success'); loadMaintenance(); }
 }
@@ -7798,7 +7836,7 @@ function toggleJobDetail(id) {
 }
 
 async function clearBatchJobs() {
-  if (!confirm('Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.')) return;
+  if (!await uiConfirm('Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.')) return;
   const r = await api('DELETE', '/exec/batch').catch(() => null);
   if (r?.ok) { _batchExpanded.clear(); clearTimeout(_batchPollTimer); loadBatchJobs(); toast('Jobs cleared', 'info'); }
   else toast(r?.error || 'Failed to clear', 'error');
@@ -7911,14 +7949,14 @@ async function saveRollout() {
 }
 
 async function rolloutAction(id, action) {
-  if (action === 'cancel' && !confirm('Cancel this rollout? Already-dispatched rings keep running on their devices.')) return;
+  if (action === 'cancel' && !await uiConfirm('Cancel this rollout? Already-dispatched rings keep running on their devices.')) return;
   const r = await api('POST', `/rollouts/${id}/${action}`, {}).catch(() => null);
   if (r?.ok) { toast(`Rollout ${action} ok`, 'success'); loadRollouts(); }
   else toast(r?.error || `Failed to ${action}`, 'error');
 }
 
 async function deleteRollout(id) {
-  if (!confirm('Delete this rollout? This removes its record only; it does not undo dispatched changes.')) return;
+  if (!await uiConfirm('Delete this rollout? This removes its record only; it does not undo dispatched changes.')) return;
   const r = await api('DELETE', `/rollouts/${id}`).catch(() => null);
   if (r?.ok) { toast('Rollout deleted', 'success'); loadRollouts(); }
   else toast(r?.error || 'Failed to delete', 'error');
@@ -8540,7 +8578,7 @@ function _toggleLogRuleSource() {
 }
 
 async function deleteLogRule(devId, unit, pattern) {
-  if (!confirm(`Remove per-device rule for ${unit}?\n\nPattern: ${pattern}`)) return;
+  if (!await uiConfirm(`Remove per-device rule for ${unit}?\n\nPattern: ${pattern}`)) return;
   const existing = await api('GET', `/devices/${devId}/services/config`);
   if (!existing) return;
   const log_watch = (existing.log_watch || []).filter(r => !(r.unit === unit && r.pattern === pattern));
@@ -8552,7 +8590,7 @@ async function deleteLogRule(devId, unit, pattern) {
 }
 
 async function deleteGlobalLogRule(ruleId) {
-  if (!confirm('Remove fleet-wide rule?')) return;
+  if (!await uiConfirm('Remove fleet-wide rule?')) return;
   const result = await api('DELETE', `/logs/rules/global/${ruleId}`);
   if (result && result.ok) { toast('Fleet-wide rule removed', 'success'); loadGlobalLogRules(); }
 }
@@ -8632,7 +8670,7 @@ function renderAuditLog() {
     : _auditLogCache;
   tableCtl.render('audit', rows);
 }
-async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
+async function revokeAllSessions() { if (!await uiConfirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() {
   // v4.6.0: use the in-app password modal (uiPrompt type:'password') — the native
   // prompt() shows the typed password in clear text and can't be masked.
@@ -9211,7 +9249,7 @@ async function resolveGroup(key) {
   const ids = (_alertsCache || []).filter(a =>
     _alertHostKey(a) === key && !a.resolved_at).map(a => a.id);
   if (!ids.length) return;
-  if (!confirm(`Resolve ${ids.length} alert(s) on this host?`)) return;
+  if (!await uiConfirm(`Resolve ${ids.length} alert(s) on this host?`)) return;
   const r = await api('POST', '/alerts/bulk-resolve', { ids });
   if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -9265,7 +9303,7 @@ async function unackAlert(id) {
 }
 
 async function resolveAlert(id) {
-  if (!confirm('Mark this alert resolved?')) return;
+  if (!await uiConfirm('Mark this alert resolved?')) return;
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
   if (r && r.ok) { toast('Alert resolved', 'success'); loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -9321,7 +9359,7 @@ async function bulkResolveAlerts() {
   const ids = Array.from(document.querySelectorAll('.alerts-row-cb:checked'))
     .map(cb => cb.dataset.id);
   if (!ids.length) return;
-  if (!confirm(`Resolve ${ids.length} alert(s)?`)) return;
+  if (!await uiConfirm(`Resolve ${ids.length} alert(s)?`)) return;
   const r = await api('POST', '/alerts/bulk-resolve', { ids });
   if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -9329,7 +9367,7 @@ async function bulkResolveAlerts() {
 
 // v3.2.0 follow-up: bulk-purge resolved or all alerts
 async function clearResolvedAlerts() {
-  if (!confirm('Remove every alert in "resolved" state? Open and acknowledged rows stay.')) return;
+  if (!await uiConfirm('Remove every alert in "resolved" state? Open and acknowledged rows stay.')) return;
   const r = await api('DELETE', '/alerts?scope=resolved');
   if (r && r.ok) {
     toast(`Cleared ${r.removed} resolved alert(s)`, 'success');
@@ -9338,7 +9376,7 @@ async function clearResolvedAlerts() {
 }
 
 async function clearAllAlerts() {
-  if (!confirm('Remove EVERY alert — including open and acknowledged ones?\n\nThis cannot be undone. Use "Clear resolved" if you only want to purge resolved.')) return;
+  if (!await uiConfirm('Remove EVERY alert — including open and acknowledged ones?\n\nThis cannot be undone. Use "Clear resolved" if you only want to purge resolved.')) return;
   const r = await api('DELETE', '/alerts?scope=all');
   if (r && r.ok) {
     toast(`Cleared ${r.removed} alert(s)`, 'success');
@@ -9428,7 +9466,7 @@ function _renderConfirmations(arr) {
 }
 
 async function approveConfirmation(id) {
-  if (!confirm('Approve this MCP write action? The server will execute it now.')) return;
+  if (!await uiConfirm('Approve this MCP write action? The server will execute it now.')) return;
   const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/approve`, {});
   if (r && r.ok) { toast('Approved — action queued', 'success'); loadConfirmations(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -9445,7 +9483,7 @@ async function rejectConfirmation(id) {
 }
 
 async function clearConfirmations() {
-  if (!confirm('Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.')) return;
+  if (!await uiConfirm('Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.')) return;
   const r = await api('DELETE', '/confirmations', {});
   if (r && r.ok) { toast(`Cleared ${r.removed} entr${r.removed === 1 ? 'y' : 'ies'}`, 'success'); loadConfirmations(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -9989,7 +10027,7 @@ async function toggleInboundWebhook(id, enabledStr) {
 }
 
 async function revokeInboundWebhook(id, label) {
-  if (!confirm(`Revoke inbound webhook "${label}"? The URL will stop working immediately.`)) return;
+  if (!await uiConfirm(`Revoke inbound webhook "${label}"? The URL will stop working immediately.`)) return;
   const r = await api('DELETE', `/inbound-webhooks/${encodeURIComponent(id)}`);
   if (r && r.ok) { toast('Token revoked', 'success'); loadInboundWebhooks(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -10376,7 +10414,7 @@ async function dryRunScript(id) {
 }
 
 async function deleteScript(id, name) {
-  if (!confirm(`Delete script ${name || id}?`)) return;
+  if (!await uiConfirm(`Delete script ${name || id}?`)) return;
   const data = await api('DELETE', '/scripts/' + encodeURIComponent(id));
   if (data?.ok) { toast('Script deleted', 'info'); loadScripts(); }
   else toast(data?.error || 'Failed', 'error');
@@ -10552,7 +10590,7 @@ async function runCompose(action) {
   const dir = document.getElementById('compose-project-pick').value;
   if (!dir) { toast('Pick a project first', 'error'); return; }
   // Down is the most disruptive — confirm explicitly.
-  if (action === 'down' && !confirm(`Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`)) return;
+  if (action === 'down' && !await uiConfirm(`Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`)) return;
   const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
                          {action, dir});
   if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
@@ -10756,7 +10794,7 @@ async function switchRagIndexBackend() {
   if (!target) return;
   const toPg = target === 'postgres';
   const where = toPg ? 'Postgres / pgvector' : 'the bundled JSON index';
-  if (!confirm(toPg
+  if (!await uiConfirm(toPg
       ? 'Move the AI retrieval index into Postgres (pgvector) and rebuild it there now?\n\n'
         + 'It rebuilds the whole index; with embeddings enabled this can take a while on '
         + 'large fleets. Keep this tab open until it finishes.'
@@ -11684,8 +11722,8 @@ function aiPageInputKey(ev) {
   }
 }
 
-function aiPageClear() {
-  if (_aiPageConv.length && !confirm('Clear the conversation? This wipes the local history; the audit log on the server is untouched.')) {
+async function aiPageClear() {
+  if (_aiPageConv.length && !await uiConfirm('Clear the conversation? This wipes the local history; the audit log on the server is untouched.')) {
     return;
   }
   _aiPageConv = [];
@@ -11939,7 +11977,7 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
     return;
   }
 
-  if (!confirm(
+  if (!await uiConfirm(
         `No upgrade listing recorded for ${devName} yet.\n\n`
       + `Queue "${listingCmd}" on the device now?\n\n`
       + `Output arrives in ~60s. Click again after that to get the `
@@ -12009,9 +12047,9 @@ function runbookModalCopy() {
 
 let _runbookCurrentDevice = null;   // {id, name} for the Regenerate button
 
-function runbookModalRegen() {
+async function runbookModalRegen() {
   if (!_runbookCurrentDevice) return;
-  if (!confirm('Regenerate the runbook? Sends the device snapshot to the configured AI provider again.')) return;
+  if (!await uiConfirm('Regenerate the runbook? Sends the device snapshot to the configured AI provider again.')) return;
   aiGenerateRunbook(_runbookCurrentDevice.id, _runbookCurrentDevice.name);
 }
 
@@ -12090,7 +12128,7 @@ async function aiViewRunbook(devId, deviceName) {
 }
 
 async function aiDeleteRunbook(devId) {
-  if (!confirm('Delete the stored runbook? You can always regenerate.')) return;
+  if (!await uiConfirm('Delete the stored runbook? You can always regenerate.')) return;
   const resp = await aiApi('DELETE', `/devices/${encodeURIComponent(devId)}/runbook`);
   if (resp.ok) {
     toast('Runbook deleted', 'success');
@@ -12277,7 +12315,7 @@ async function saveDriftProfile() {
 }
 
 async function deleteDriftProfile(pid, name) {
-  if (!confirm(`Delete drift profile "${name}"? Devices assigned to it fall back to their group/global watched-file set.`)) return;
+  if (!await uiConfirm(`Delete drift profile "${name}"? Devices assigned to it fall back to their group/global watched-file set.`)) return;
   const r = await api('DELETE', `/drift/profiles/${encodeURIComponent(pid)}`);
   if (!r || r.error) { toast('Delete failed: ' + (r?.error || 'unknown'), 'error'); return; }
   toast('Profile deleted', 'success');
@@ -12357,7 +12395,7 @@ async function unassignDriftProfile(scope_type, scope_value) {
 
 // v3.13.0: fleet-wide host-config collect + export (Drift page).
 async function collectAllHostConfigs() {
-  if (!confirm('Ask every agent to re-collect and send its live host config now?\nResults arrive over the next poll cycle (~60s).')) return;
+  if (!await uiConfirm('Ask every agent to re-collect and send its live host config now?\nResults arrive over the next poll cycle (~60s).')) return;
   const r = await api('POST', '/host-config/collect-all', {});
   if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
   toast(`Queued on ${r.queued} device(s) — current configs arrive in ~60s`, 'success');
@@ -12535,7 +12573,7 @@ async function unmuteSecret(fp) {
 // v4.1.0 (#55): mute / unmute every secret finding on a whole host.
 async function muteSecretHost(devId) {
   if (!devId) return;
-  if (!confirm('Mute every secret finding on this host? It stops alerting and counting until you unmute.')) return;
+  if (!await uiConfirm('Mute every secret finding on this host? It stops alerting and counting until you unmute.')) return;
   const r = await api('POST', '/secrets/host-mute', { device_id: devId });
   if (r?.ok) { toast('Host muted', 'info'); loadSecrets(); } else toast(r?.error || 'Failed', 'error');
 }
@@ -12602,7 +12640,7 @@ function _renderExposure() {
 // v3.12.0: surgical exposure mutes (by process) from the Exposure table.
 async function muteExposureProcess(process) {
   if (!process) return;
-  if (!confirm(`Mute new-port and world-exposed alerts for "${process}" across the fleet?\n\nAny matching open alerts will be resolved. The Exposure page still lists these sockets.`)) return;
+  if (!await uiConfirm(`Mute new-port and world-exposed alerts for "${process}" across the fleet?\n\nAny matching open alerts will be resolved. The Exposure page still lists these sockets.`)) return;
   const r = await api('POST', '/exposure/mute', { action: 'add', process });
   if (r && r.ok) {
     toast(`Muted ${process}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
@@ -12613,7 +12651,7 @@ async function muteExposureProcess(process) {
 async function muteExposureHost(deviceId, deviceName) {
   if (!deviceId) return;
   const nm = deviceName || deviceId;
-  if (!confirm(`Mute new-port and world-exposed alerts for EVERY service on "${nm}"?\n\nUseful for an appliance or jump host you've accepted. Any matching open alerts are resolved; the sockets still appear here.`)) return;
+  if (!await uiConfirm(`Mute new-port and world-exposed alerts for EVERY service on "${nm}"?\n\nUseful for an appliance or jump host you've accepted. Any matching open alerts are resolved; the sockets still appear here.`)) return;
   const r = await api('POST', '/exposure/mute', { action: 'add', device_id: deviceId });
   if (r && r.ok) {
     toast(`Muted all exposure from ${nm}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
@@ -13374,7 +13412,7 @@ async function openDriftDetail(devId, devName) {
 
 async function driftAcceptPath(path) {
   if (!_driftCurrentDevice) return;
-  if (!confirm(`Accept current hash as new baseline for:\n${path}\n\nFuture changes from this hash will count as drift.`)) return;
+  if (!await uiConfirm(`Accept current hash as new baseline for:\n${path}\n\nFuture changes from this hash will count as drift.`)) return;
   try {
     await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
               {paths: [path]});
@@ -13411,7 +13449,7 @@ async function driftSetIgnore(path, ignored) {
 
 async function driftAcceptAll() {
   if (!_driftCurrentDevice) return;
-  if (!confirm('Accept current hashes as new baseline for all drifted files on this device?\n\nFuture changes from these new baselines will count as drift.')) return;
+  if (!await uiConfirm('Accept current hashes as new baseline for all drifted files on this device?\n\nFuture changes from these new baselines will count as drift.')) return;
   try {
     await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
               {all: true});
@@ -14350,7 +14388,7 @@ function _renderHomeWidgets(home) {
     : '<div class="hint">No open alerts.</div>');
 }
 async function quickResolveAlert(id) {
-  if (!confirm('Mark this alert resolved?')) return;
+  if (!await uiConfirm('Mark this alert resolved?')) return;
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
   if (r && r.ok) { toast('Alert resolved', 'success'); loadHome(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -14589,8 +14627,8 @@ function dashSize(key, size) {
   _dashSave(layout);
 }
 
-function dashReset() {
-  if (!confirm('Reset the dashboard to its default layout?')) return;
+async function dashReset() {
+  if (!await uiConfirm('Reset the dashboard to its default layout?')) return;
   _uiPrefs.dashboard = [];          // empty → _dashLayout() rebuilds defaults
   applyDashboardLayout();
   _renderDashEditPanel();
@@ -15774,7 +15812,7 @@ async function proxmoxLifecycle(guestType, vmid, action, name) {
     params.newid = parseInt(newid.trim(), 10);
     if (!(params.newid > 0)) { toast('VMID must be a number', 'error'); return; }
   } else {
-    if (!confirm(`${action} ${name} (#${vmid})? This acts directly on the VM.`)) return;
+    if (!await uiConfirm(`${action} ${name} (#${vmid})? This acts directly on the VM.`)) return;
   }
   const r = await api('POST', '/proxmox/lifecycle',
     { guest_type: guestType, vmid, action, params }).catch(() => null);
@@ -16038,7 +16076,7 @@ async function submitVmCreate() {
 // Perform a guest action then refresh whichever view is showing.
 async function proxmoxAction(kind, vmid, action, name) {
   const verb = action === 'shutdown' ? 'Shut down' : 'Start';
-  if (!confirm(`${verb} ${kind.toUpperCase()} ${vmid} (${name})?`)) return;
+  if (!await uiConfirm(`${verb} ${kind.toUpperCase()} ${vmid} (${name})?`)) return;
   try {
     await api('POST', `/proxmox/${kind}/${vmid}/${action}`, {});
     toast(`${verb} sent to ${name}`, 'success');
@@ -16274,7 +16312,7 @@ async function snapshotRollback(name) {
 
 async function snapshotDelete(name) {
   if (!_snapCtx) return;
-  if (!confirm(`Delete snapshot "${name}"?\n\nThis is irreversible, but it ` +
+  if (!await uiConfirm(`Delete snapshot "${name}"?\n\nThis is irreversible, but it ` +
                `does not affect the running guest.`)) return;
   try {
     await api('POST', '/proxmox/snapshot', {
@@ -16668,7 +16706,7 @@ async function forcePackageScan(devId, name, btn) {
 
 // v2.4.7: status endpoint token management.
 async function generateStatusToken() {
-  if (!confirm('Generate a status token? Any previous token stops working.')) return;
+  if (!await uiConfirm('Generate a status token? Any previous token stops working.')) return;
   try {
     const r = await api('POST', '/status-token', {enabled: true});
     if (r && r.status_token) _renderStatusToken(r.status_token);
@@ -16679,7 +16717,7 @@ async function generateStatusToken() {
 }
 
 async function revokeStatusToken() {
-  if (!confirm('Disable the status endpoint? External dashboards will stop working.')) return;
+  if (!await uiConfirm('Disable the status endpoint? External dashboards will stop working.')) return;
   try {
     await api('POST', '/status-token', {enabled: false});
     const box = document.getElementById('status-token-box');
@@ -19982,7 +20020,7 @@ async function toggleAutomationRule(id) {
 }
 
 async function deleteAutomationRule(id) {
-  if (!confirm('Delete this automation rule?')) return;
+  if (!await uiConfirm('Delete this automation rule?')) return;
   const r = await api('DELETE', '/automation/rules/' + encodeURIComponent(id)).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Delete failed', 'error'); return; }
   toast('Rule deleted', 'success');
@@ -20192,7 +20230,7 @@ async function signingGenerate(force) {
   const msg = force === 'force'
     ? 'Regenerate the server signing key? Agents pinned to the OLD public key will reject updates until you redistribute the new key.'
     : 'Generate a server-held signing key? The private key is stored on this server (convenient, but weaker than CI signing — see the note above).';
-  if (!confirm(msg)) return;
+  if (!await uiConfirm(msg)) return;
   const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Generating…';
   const r = await api('POST', '/signing/generate', force === 'force' ? { force: true } : {}).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
@@ -20411,7 +20449,7 @@ async function saveReportDef() {
   loadReportDefs();
 }
 async function deleteReportDef(id) {
-  if (!confirm('Delete this custom report?')) return;
+  if (!await uiConfirm('Delete this custom report?')) return;
   const r = await api('DELETE', `/report/definitions/${encodeURIComponent(id)}`).catch(() => null);
   if (r && r.ok) { toast('Report deleted', 'info'); loadReportDefs(); }
   else toast((r && r.error) || 'Delete failed', 'error');
@@ -21539,7 +21577,7 @@ if (_origSwitchSettingsTab2) {
 
 // v3.0.1: per-item ignores ────────────────────────────────────────────────
 async function ignoreContainerDevice(deviceId, name) {
-  if (!confirm(`Hide "${name}" from the Containers page?\n\nRestore from Settings → Ignored items.`)) return;
+  if (!await uiConfirm(`Hide "${name}" from the Containers page?\n\nRestore from Settings → Ignored items.`)) return;
   // Use the 'devices' category — it's a fleet-wide ignore of the device on
   // the Containers page, regardless of stale state.
   const r = await api('POST', '/ignored', {
@@ -21620,7 +21658,7 @@ async function loadIgnoredItems() {
 }
 
 async function unignoreCVE(vulnId) {
-  if (!confirm(`Stop ignoring ${vulnId}? It will count as a finding again.`)) return;
+  if (!await uiConfirm(`Stop ignoring ${vulnId}? It will count as a finding again.`)) return;
   const r = await api('DELETE', '/cve/ignore/' + encodeURIComponent(vulnId)).catch(() => null);
   if (r && r.ok) { toast(`No longer ignoring ${vulnId}`, 'success'); loadIgnoredItems(); }
   else toast((r && r.error) || 'Failed to remove ignore', 'error');
@@ -21642,7 +21680,7 @@ async function restoreIgnored(category, entry) {
 //   - recovery after a corrupt/truncated previous update
 //   - testing the self-update path
 async function forceAgentUpgrade(deviceId, name) {
-  if (!confirm(`Force-upgrade agent on "${name}"?\n\nThe agent will re-download and replace its binary on the next heartbeat, even if it already reports the current version. Use this for corrupt-binary recovery or to push a rebuild.`)) return;
+  if (!await uiConfirm(`Force-upgrade agent on "${name}"?\n\nThe agent will re-download and replace its binary on the next heartbeat, even if it already reports the current version. Use this for corrupt-binary recovery or to push a rebuild.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/agent/force-upgrade`, {});
   if (r?.ok) toast(r.message || 'Force-upgrade scheduled', 'success');
   else toast(r?.error || 'Failed', 'error');
@@ -21791,7 +21829,7 @@ async function saveAcmeDnsCreds(providerKey) {
 }
 
 async function clearAcmeDnsCreds(providerKey) {
-  if (!confirm(`Clear ALL stored credentials for ${providerKey}?\n\nFuture issuances/renewals will fall back to whatever the agent has in ~/.acme.sh/account.conf.`)) return;
+  if (!await uiConfirm(`Clear ALL stored credentials for ${providerKey}?\n\nFuture issuances/renewals will fall back to whatever the agent has in ~/.acme.sh/account.conf.`)) return;
   // Send explicit nulls for every field this provider declares so the
   // server clears them all in one call.
   const block = document.querySelector(`[data-provider="${providerKey}"]`);
@@ -21948,7 +21986,7 @@ function _acmeRenderTable() {
 
 // ── Force renew ──────────────────────────────────────────────────────────
 async function acmeForceRenew(devId, domain) {
-  if (!confirm(`Force-renew cert for ${domain}?\n\nLet's Encrypt rate-limits to 5 duplicates per week. Use sparingly.`)) return;
+  if (!await uiConfirm(`Force-renew cert for ${domain}?\n\nLet's Encrypt rate-limits to 5 duplicates per week. Use sparingly.`)) return;
   const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/renew`);
   if (r?.ok) {
     toast(`Renew queued — output in detail view (Logs tab)`, 'success');
@@ -21961,7 +21999,7 @@ async function acmeForceRenew(devId, domain) {
 
 // ── Revoke ───────────────────────────────────────────────────────────────
 async function acmeRevoke(devId, domain) {
-  if (!confirm(`Revoke and remove cert for ${domain}?\n\nThis tells Let's Encrypt the cert is no longer trusted, then deletes the local files. To issue a fresh one afterwards, use the "Issue new cert" wizard.`)) return;
+  if (!await uiConfirm(`Revoke and remove cert for ${domain}?\n\nThis tells Let's Encrypt the cert is no longer trusted, then deletes the local files. To issue a fresh one afterwards, use the "Issue new cert" wizard.`)) return;
   const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/revoke`);
   if (r?.ok) {
     toast('Revoke + remove queued', 'success');
@@ -22867,7 +22905,7 @@ function _cveScanBtn(btn) {
   triggerCVEScan(btn.dataset.devId || undefined, btn);
 }
 async function cveRealert() {
-  if (!confirm('Re-raise alerts for the current CVE backlog? This fires cve_found '
+  if (!await uiConfirm('Re-raise alerts for the current CVE backlog? This fires cve_found '
     + 'now for every host with critical/high findings (already-known CVEs don\'t '
     + 're-alert on their own).')) return;
   const r = await api('POST', '/cve/realert', {});
@@ -23168,7 +23206,7 @@ async function _mitigatePollFix() {
 // v3.0.1: Cancel a pending ACME action (still in queue or already dispatched)
 async function acmeCancelAction(actionId) {
   if (!_acmeDetailContext) return;
-  if (!confirm(`Cancel pending action ${actionId}?\n\nIf the agent hasn't picked it up yet, it'll be removed from the queue. If it's already running, the cancel only stops RemotePower from waiting — the agent may still finish what it started.`)) return;
+  if (!await uiConfirm(`Cancel pending action ${actionId}?\n\nIf the agent hasn't picked it up yet, it'll be removed from the queue. If it's already running, the cancel only stops RemotePower from waiting — the agent may still finish what it started.`)) return;
   const r = await api('POST',
     `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/cancel/${encodeURIComponent(actionId)}`);
   if (!r) { toast('Cancel request failed', 'error'); return; }
@@ -23185,7 +23223,7 @@ async function acmeCancelAction(actionId) {
 // + meta files from disk so the row disappears.
 async function acmeIgnoreAction(actionId) {
   if (!_acmeDetailContext) return;
-  if (!confirm(`Remove this action row from the log list?\n\nThis deletes the captured output (if any) and the meta file. The actual cert state on the device is unaffected — this is purely a UI cleanup. Use Cancel instead if you want to stop a pending action from running.`)) return;
+  if (!await uiConfirm(`Remove this action row from the log list?\n\nThis deletes the captured output (if any) and the meta file. The actual cert state on the device is unaffected — this is purely a UI cleanup. Use Cancel instead if you want to stop a pending action from running.`)) return;
   const r = await api('POST',
     `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/ignore/${encodeURIComponent(actionId)}`);
   if (!r) { toast('Ignore request failed', 'error'); return; }
@@ -23413,7 +23451,7 @@ function downloadDiagnostics() {
 
 async function runBackupNow() {
   const btn = document.getElementById('self-backup-btn');
-  if (!confirm('Run a backup snapshot of /var/lib/remotepower now? This may take a few seconds depending on data size.')) return;
+  if (!await uiConfirm('Run a backup snapshot of /var/lib/remotepower now? This may take a few seconds depending on data size.')) return;
   btn.disabled = true;
   btn.textContent = 'Running…';
   const r = await api('POST', '/self/backup-now');
@@ -23427,7 +23465,7 @@ async function runBackupNow() {
 
 async function clearBackupState() {
   const btn = document.getElementById('self-backup-clear-btn');
-  if (!confirm('Delete all backup archives (remotepower_data_*.tar.gz) and reset backup state?\n\nThis cannot be undone. The next scheduled or manual backup will create a fresh archive.')) return;
+  if (!await uiConfirm('Delete all backup archives (remotepower_data_*.tar.gz) and reset backup state?\n\nThis cannot be undone. The next scheduled or manual backup will create a fresh archive.')) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Clearing…'; }
   const r = await api('DELETE', '/self/backup-state');
   if (btn) { btn.disabled = false; btn.textContent = '✕ Clear backup archives'; }
@@ -23438,7 +23476,7 @@ async function clearBackupState() {
 
 // v3.0.2: Force ACME rescan — bypasses the hourly scan cadence.
 async function acmeForceRescan(devId) {
-  if (!confirm('Force the agent to rescan ~/.acme.sh on its next heartbeat?\n\nUseful after renewing/issuing via the CLI when you don\'t want to wait an hour for RemotePower to catch up.')) return;
+  if (!await uiConfirm('Force the agent to rescan ~/.acme.sh on its next heartbeat?\n\nUseful after renewing/issuing via the CLI when you don\'t want to wait an hour for RemotePower to catch up.')) return;
   const r = await api('POST', `/devices/${encodeURIComponent(devId)}/acme/force-rescan`);
   if (!r) { toast('Force-rescan request failed', 'error'); return; }
   if (r.error) { toast(r.error, 'error'); return; }
@@ -23902,7 +23940,7 @@ async function runBulkAction() {
       placeholder: 'RUN', confirmText: action, danger: true});
     if (word !== 'RUN') { toast('Cancelled', 'info'); return; }
   } else {
-    if (!confirm(`Run ${action} on ${targets.length} device(s)?`)) return;
+    if (!await uiConfirm(`Run ${action} on ${targets.length} device(s)?`)) return;
   }
   const ids = targets.map(d => d.id);
   let endpoint, payload;
@@ -24063,8 +24101,8 @@ function addWebhookDest() {
   });
   renderWebhookDests();
 }
-function removeWebhookDest(idx) {
-  if (!confirm('Remove this destination?')) return;
+async function removeWebhookDest(idx) {
+  if (!await uiConfirm('Remove this destination?')) return;
   _webhookDests.splice(idx, 1);
   renderWebhookDests();
 }
