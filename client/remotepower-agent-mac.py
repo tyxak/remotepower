@@ -239,6 +239,22 @@ def collect_sysinfo():
     cpu = _sysctl('machdep.cpu.brand_string') or platform.processor()
     if cpu:
         info['cpu'] = cpu
+    # v4.8.0: saturation-metric parity with the Linux agent (same field names so
+    # the server checks/UI light up unchanged). macOS has both portable signals;
+    # netfilter conntrack is Linux-only and has no macOS equivalent, so it's
+    # intentionally omitted. Both are os-level — collected outside the psutil
+    # block so they report even on a host without psutil.
+    try:
+        info['loadavg_1m'] = round(os.getloadavg()[0], 2)
+    except (AttributeError, OSError):
+        pass
+    try:
+        # open files vs system max — exhaustion → "too many open files" outages.
+        _nf, _mf = _sysctl('kern.num_files'), _sysctl('kern.maxfiles')
+        if _nf and _mf and int(_mf) > 0:
+            info['fd_percent'] = round(int(_nf) / int(_mf) * 100, 1)
+    except (ValueError, TypeError):
+        pass
     try:
         import psutil
         info['cpu_percent'] = round(psutil.cpu_percent(interval=0.3), 1)

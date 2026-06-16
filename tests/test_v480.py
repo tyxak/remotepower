@@ -117,5 +117,24 @@ class TestTlsMonitorSSRF(unittest.TestCase):
         self.assertIn("refused", res.get("tls_error", ""))
 
 
+class TestMacAgentParity(unittest.TestCase):
+    """#A1/#A2: the macOS agent gains listening-ports + saturation-metric parity
+    with Linux/Windows, using the same sysinfo field names so server checks/UI
+    work unchanged."""
+
+    MAC = (_ROOT / "client" / "remotepower-agent-mac.py").read_text()
+
+    def test_mac_collects_listening_ports(self):
+        self.assertIn("def collect_listening_ports", self.MAC)
+        self.assertIn("def _port_scope", self.MAC)
+        self.assertIn("info['listening_ports']", self.MAC)
+
+    def test_mac_emits_saturation_metrics(self):
+        self.assertIn("info['loadavg_1m']", self.MAC)
+        self.assertIn("info['fd_percent']", self.MAC)
+        # conntrack is Linux-only — must NOT be faked on macOS.
+        self.assertNotIn("conntrack_percent", self.MAC)
+
+
 if __name__ == "__main__":
     unittest.main()
