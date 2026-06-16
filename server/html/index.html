@@ -5266,7 +5266,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <!-- Reusable promise-based prompt (replaces native window.prompt()). Driven by
      uiPrompt({title, message, value, placeholder, type, confirmText, danger,
      multiline}) in app.js, which resolves to the entered string or null. -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="ui-prompt-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ui-prompt-title" id="ui-prompt-modal"><div class="modal">
   <div class="modal-title" id="ui-prompt-title"></div>
   <div class="modal-subtitle" id="ui-prompt-message"></div>
   <div class="form-group">
@@ -5278,23 +5278,23 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-primary" id="ui-prompt-confirm" data-action="_uiPromptOk">OK</button>
   </div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="ldap-test-user-modal"><div class="modal">
-  <div class="modal-title">Test LDAP user login</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ldap-test-user-modal-title" id="ldap-test-user-modal"><div class="modal">
+  <div class="modal-title" id="ldap-test-user-modal-title">Test LDAP user login</div>
   <div class="modal-subtitle">Enter credentials to verify the full authentication path. No session is created — this is purely a test.</div>
   <div class="form-group"><label class="form-label">Username</label><input type="text" id="ldap-test-user-name" class="form-input" autocomplete="off" placeholder="alice"></div>
   <div class="form-group"><label class="form-label">Password</label><form autocomplete="off" data-csp-pw-form><input type="password" id="ldap-test-user-pw" class="form-input" autocomplete="off" placeholder=""></form></div>
   <div id="ldap-test-user-result" class="isl-191"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ldap-test-user-modal" >Close</button><button class="btn-primary" data-action="runLdapTestUser" >Test</button></div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="enroll-modal"><div class="modal"><div class="modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="enroll-or">— or monitor a Docker host —</div><div class="enroll-docker"><div class="modal-subtitle">No install needed — run the agent as a container. This mints a one-time enrollment token and a ready-to-run <code>docker compose</code> file; the host is named automatically and credentials persist in a volume.</div><button class="btn-secondary" data-action="generateDockerEnroll">Generate Docker compose</button><div id="enroll-docker-result" class="mt-12"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="enroll-modal" >Close</button><button class="btn-primary" data-action="generateNewPin" >Generate new PIN</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="shutdown-modal"><div class="modal"><div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></div><div class="modal-title">Shut down device?</div><div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="shutdown-modal" >Cancel</button><button class="btn-shutdown flex-1" data-action="confirmShutdown" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="reboot-modal"><div class="modal"><div class="confirm-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg></div><div class="modal-title">Reboot device?</div><div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="reboot-modal" >Cancel</button><button class="btn-reboot flex-1" data-action="confirmReboot" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="detail-modal"><div class="modal modal-wide"><div class="modal-title" id="detail-title">Device details</div><div id="detail-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="detail-modal" >Close</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="tag-modal"><div class="modal"><div class="modal-title">Edit tags</div><div class="modal-subtitle">Comma-separated. Use tags like: servers, homelab, workstations</div><input type="hidden" id="tag-device-id"><div class="form-group"><label class="form-label">Tags</label><input type="text" id="tag-input" class="form-input" placeholder="servers, homelab, workstations"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="tag-modal" >Cancel</button><button class="btn-primary" data-action="saveTags" >Save</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="monitor-add-modal"><div class="modal"><div class="modal-title">Add monitor target</div><div class="form-group"><label class="form-label">Label</label><input type="text" id="mon-label" class="form-input" placeholder="My Router"></div><div class="form-group"><label class="form-label">Type</label><select id="mon-type" class="form-input" data-change="monTypeChanged"><option value="ping">Ping (up/down)</option><option value="icmp">ICMP (latency + packet loss)</option><option value="tcp">TCP port</option><option value="http">HTTP / HTTPS</option><option value="dns">DNS resolution</option><option value="db">Database liveness</option></select></div><div class="form-group hidden" id="mon-dbkind-grp"><label class="form-label">Database</label><select id="mon-dbkind" class="form-input"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option><option value="redis">Redis / Valkey</option></select><span class="hint">Credential-less protocol liveness — confirms the server answers, no password stored. Target is host:port.</span></div><div class="form-group" id="mon-kind-grp"><label class="form-label">Target kind</label><select id="mon-kind" class="form-input" data-change="monTypeChanged"><option value="host">Single host</option><option value="tag">Every host with tag</option><option value="group">Every host in group</option></select><span class="hint">Tag/group expands to one check per matching device (ping/ICMP/TCP only).</span></div><div class="form-group"><label class="form-label">Target</label><input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…"></div><div class="form-group hidden" id="mon-port-grp"><label class="form-label">Port</label><input type="number" id="mon-port" class="form-input" min="1" max="65535" placeholder="22"><span class="hint">Port to test on every host in the tag/group.</span></div><div class="form-group hidden" id="mon-expect-grp"><label class="form-label">Expected address (optional)</label><input type="text" id="mon-expect" class="form-input" placeholder="93.184.216.34" maxlength="128"><span class="hint">DNS only: mark DOWN unless the name resolves to (or contains) this address.</span></div><div class="form-group hidden" id="mon-status-grp"><label class="form-label">Expected HTTP status (optional)</label><input type="number" id="mon-status" class="form-input" min="100" max="599" placeholder="200"></div><div class="form-group hidden" id="mon-latency-grp"><label class="form-label">Max latency ms (optional)</label><input type="number" id="mon-latency" class="form-input" min="1" max="600000" placeholder="500"><span class="hint">Mark DOWN if the response is slower than this SLA.</span></div><div class="form-group hidden" id="mon-loss-grp"><label class="form-label">Max packet loss % (optional)</label><input type="number" id="mon-loss" class="form-input" min="0" max="100" placeholder="50"></div><div class="form-group"><label class="form-label">Alert after consecutive failures</label><input type="number" id="mon-failures-before-alert" class="form-input" min="1" max="10" value="1" placeholder="1"><span class="hint">Flap dampening: only raise a <em>monitor down</em> alert after this many consecutive failed checks. 1 = alert on the first failure (default).</span></div><div class="form-group hidden" id="mon-body-grp"><label class="form-label">HTTP body check (optional)</label><div class="sb-controls"><select id="mon-body-mode" class="form-input"><option value="">No body check</option><option value="contains">Body must contain</option><option value="not_contains">Body must NOT contain</option></select><input type="text" id="mon-body-value" class="form-input" placeholder="text to look for (HTTP only)" maxlength="200"></div><span class="hint">For HTTP monitors only: marks the check DOWN if the response body doesn't match — catches a 200 OK that's actually an error page.</span></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="monitor-add-modal" >Cancel</button><button class="btn-primary" data-action="addMonitor" >Add</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="user-add-modal"><form class="modal" id="user-add-form" autocomplete="on"><div class="modal-title">Add admin user</div><div class="form-group"><label class="form-label" for="new-username">Username</label><input type="text" id="new-username" name="username" class="form-input" autocomplete="username"></div><div class="form-group"><label class="form-label" for="new-password">Password</label><input type="password" id="new-password" name="new_password" class="form-input" autocomplete="new-password"></div><div class="form-group"><label class="form-label" for="new-role">Role</label><select id="new-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option></select></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="user-add-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="createUser" >Create</button></div></form></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="enroll-modal-title" id="enroll-modal"><div class="modal"><div class="modal-title" id="enroll-modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="enroll-or">— or monitor a Docker host —</div><div class="enroll-docker"><div class="modal-subtitle">No install needed — run the agent as a container. This mints a one-time enrollment token and a ready-to-run <code>docker compose</code> file; the host is named automatically and credentials persist in a volume.</div><button class="btn-secondary" data-action="generateDockerEnroll">Generate Docker compose</button><div id="enroll-docker-result" class="mt-12"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="enroll-modal" >Close</button><button class="btn-primary" data-action="generateNewPin" >Generate new PIN</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="shutdown-modal-title" id="shutdown-modal"><div class="modal"><div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></div><div class="modal-title" id="shutdown-modal-title">Shut down device?</div><div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="shutdown-modal" >Cancel</button><button class="btn-shutdown flex-1" data-action="confirmShutdown" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="reboot-modal-title" id="reboot-modal"><div class="modal"><div class="confirm-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg></div><div class="modal-title" id="reboot-modal-title">Reboot device?</div><div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="reboot-modal" >Cancel</button><button class="btn-reboot flex-1" data-action="confirmReboot" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title" id="detail-modal"><div class="modal modal-wide"><div class="modal-title" id="detail-title">Device details</div><div id="detail-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="detail-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tag-modal-title" id="tag-modal"><div class="modal"><div class="modal-title" id="tag-modal-title">Edit tags</div><div class="modal-subtitle">Comma-separated. Use tags like: servers, homelab, workstations</div><input type="hidden" id="tag-device-id"><div class="form-group"><label class="form-label">Tags</label><input type="text" id="tag-input" class="form-input" placeholder="servers, homelab, workstations"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="tag-modal" >Cancel</button><button class="btn-primary" data-action="saveTags" >Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="monitor-add-modal-title" id="monitor-add-modal"><div class="modal"><div class="modal-title" id="monitor-add-modal-title">Add monitor target</div><div class="form-group"><label class="form-label">Label</label><input type="text" id="mon-label" class="form-input" placeholder="My Router"></div><div class="form-group"><label class="form-label">Type</label><select id="mon-type" class="form-input" data-change="monTypeChanged"><option value="ping">Ping (up/down)</option><option value="icmp">ICMP (latency + packet loss)</option><option value="tcp">TCP port</option><option value="http">HTTP / HTTPS</option><option value="dns">DNS resolution</option><option value="db">Database liveness</option></select></div><div class="form-group hidden" id="mon-dbkind-grp"><label class="form-label">Database</label><select id="mon-dbkind" class="form-input"><option value="postgres">PostgreSQL</option><option value="mysql">MySQL / MariaDB</option><option value="redis">Redis / Valkey</option></select><span class="hint">Credential-less protocol liveness — confirms the server answers, no password stored. Target is host:port.</span></div><div class="form-group" id="mon-kind-grp"><label class="form-label">Target kind</label><select id="mon-kind" class="form-input" data-change="monTypeChanged"><option value="host">Single host</option><option value="tag">Every host with tag</option><option value="group">Every host in group</option></select><span class="hint">Tag/group expands to one check per matching device (ping/ICMP/TCP only).</span></div><div class="form-group"><label class="form-label">Target</label><input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…"></div><div class="form-group hidden" id="mon-port-grp"><label class="form-label">Port</label><input type="number" id="mon-port" class="form-input" min="1" max="65535" placeholder="22"><span class="hint">Port to test on every host in the tag/group.</span></div><div class="form-group hidden" id="mon-expect-grp"><label class="form-label">Expected address (optional)</label><input type="text" id="mon-expect" class="form-input" placeholder="93.184.216.34" maxlength="128"><span class="hint">DNS only: mark DOWN unless the name resolves to (or contains) this address.</span></div><div class="form-group hidden" id="mon-status-grp"><label class="form-label">Expected HTTP status (optional)</label><input type="number" id="mon-status" class="form-input" min="100" max="599" placeholder="200"></div><div class="form-group hidden" id="mon-latency-grp"><label class="form-label">Max latency ms (optional)</label><input type="number" id="mon-latency" class="form-input" min="1" max="600000" placeholder="500"><span class="hint">Mark DOWN if the response is slower than this SLA.</span></div><div class="form-group hidden" id="mon-loss-grp"><label class="form-label">Max packet loss % (optional)</label><input type="number" id="mon-loss" class="form-input" min="0" max="100" placeholder="50"></div><div class="form-group"><label class="form-label">Alert after consecutive failures</label><input type="number" id="mon-failures-before-alert" class="form-input" min="1" max="10" value="1" placeholder="1"><span class="hint">Flap dampening: only raise a <em>monitor down</em> alert after this many consecutive failed checks. 1 = alert on the first failure (default).</span></div><div class="form-group hidden" id="mon-body-grp"><label class="form-label">HTTP body check (optional)</label><div class="sb-controls"><select id="mon-body-mode" class="form-input"><option value="">No body check</option><option value="contains">Body must contain</option><option value="not_contains">Body must NOT contain</option></select><input type="text" id="mon-body-value" class="form-input" placeholder="text to look for (HTTP only)" maxlength="200"></div><span class="hint">For HTTP monitors only: marks the check DOWN if the response body doesn't match — catches a 200 OK that's actually an error page.</span></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="monitor-add-modal" >Cancel</button><button class="btn-primary" data-action="addMonitor" >Add</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="user-add-modal-title" id="user-add-modal"><form class="modal" id="user-add-form" autocomplete="on"><div class="modal-title" id="user-add-modal-title">Add admin user</div><div class="form-group"><label class="form-label" for="new-username">Username</label><input type="text" id="new-username" name="username" class="form-input" autocomplete="username"></div><div class="form-group"><label class="form-label" for="new-password">Password</label><input type="password" id="new-password" name="new_password" class="form-input" autocomplete="new-password"></div><div class="form-group"><label class="form-label" for="new-role">Role</label><select id="new-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option></select></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="user-add-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="createUser" >Create</button></div></form></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="role-add-modal"><div class="modal"><div class="modal-title" id="role-modal-title">Add custom role</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="role-modal-title" id="role-add-modal"><div class="modal"><div class="modal-title" id="role-modal-title">Add custom role</div>
   <div class="form-group"><label class="form-label" for="role-name">Name</label><input type="text" id="role-name" class="form-input" placeholder="ops-staging" maxlength="32"><div class="page-subtitle mt-4">Lowercase letters, digits, <code>_</code> or <code>-</code>. Not renamable once created.</div></div>
   <div class="form-group"><label class="form-label">Permissions</label>
     <div class="page-subtitle mt-4 mb-6">Grant exactly the actions this role may take. Hover for what each covers.</div>
@@ -5318,10 +5318,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="role-add-modal">Cancel</button><button type="button" class="btn-primary" data-action="saveRole">Save</button></div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="passwd-modal"><form class="modal" id="passwd-form" autocomplete="on"><div class="modal-title">Change password</div><input type="text" id="passwd-username" class="visually-hidden" autocomplete="username" tabindex="-1" aria-hidden="true" readonly><div class="form-group" id="passwd-old-wrap"><label class="form-label" for="passwd-old">Current password</label><input type="password" id="passwd-old" name="current_password" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label" for="passwd-new">New password</label><input type="password" id="passwd-new" name="new_password" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="passwd-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="submitPasswd" >Update</button></div></form></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="schedule-add-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="passwd-modal-title" id="passwd-modal"><form class="modal" id="passwd-form" autocomplete="on"><div class="modal-title" id="passwd-modal-title">Change password</div><input type="text" id="passwd-username" class="visually-hidden" autocomplete="username" tabindex="-1" aria-hidden="true" readonly><div class="form-group" id="passwd-old-wrap"><label class="form-label" for="passwd-old">Current password</label><input type="password" id="passwd-old" name="current_password" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label" for="passwd-new">New password</label><input type="password" id="passwd-new" name="new_password" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="passwd-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="submitPasswd" >Update</button></div></form></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="schedule-add-modal-title" id="schedule-add-modal">
   <div class="modal">
-    <div class="modal-title">Schedule command</div>
+    <div class="modal-title" id="schedule-add-modal-title">Schedule command</div>
     <div class="form-group">
       <label class="form-label">Device</label>
       <select id="sched-device" class="form-input device-combo"></select>
@@ -5388,10 +5388,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
   </div>
 </div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="exec-modal"><div class="modal"><div class="modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" data-change="pickFromLibrary" ><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="exec-modal" >Cancel</button><button class="btn-primary" data-action="sendExecCmd" >Run</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="exec-modal-title" id="exec-modal"><div class="modal"><div class="modal-title" id="exec-modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" data-change="pickFromLibrary" ><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="exec-modal" >Cancel</button><button class="btn-primary" data-action="sendExecCmd" >Run</button></div></div></div>
 
 <!-- v1.12.0: per-device metric thresholds editor -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="metric-thresholds-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="metric-thresholds-title" id="metric-thresholds-modal">
   <div class="modal isl-193">
     <div class="modal-title" id="metric-thresholds-title">Metric thresholds</div>
     <div class="modal-subtitle">When a metric crosses a threshold, RemotePower fires the corresponding webhook event. Hysteresis: a metric must drop 5 points below "warn" before "recovered" fires.</div>
@@ -5464,7 +5464,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div>
 
 <!-- v1.11.11: web terminal modal — phase 1 (auth dialog) -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="webterm-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="webterm-modal-title" id="webterm-modal">
   <div class="modal isl-203">
     <div class="modal-title" id="webterm-modal-title">Open web terminal</div>
     <div class="modal-subtitle">SSH directly to the device. Credentials are not stored — you'll need to enter them again next session.</div>
@@ -5493,7 +5493,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div>
 
 <!-- v1.11.11: full-screen terminal view (xterm.js renders inside #webterm-xterm) -->
-<div class="modal-overlay isl-205" role="dialog" aria-modal="true" id="webterm-screen">
+<div class="modal-overlay isl-205" role="dialog" aria-modal="true" aria-label="Web terminal" id="webterm-screen">
   <div class="modal isl-206">
     <div class="isl-207">
       <div id="webterm-screen-title" class="isl-208"></div>
@@ -5506,7 +5506,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.5.0: VNC (graphical remote access) — connect modal. Tunnels the host's
      loopback VNC server over SSH; credentials are never stored. -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="vnc-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vnc-modal-title" id="vnc-modal">
   <div class="modal isl-203">
     <div class="modal-title" id="vnc-modal-title">Remote desktop (VNC)</div>
     <div class="modal-subtitle">Tunnels a loopback-bound VNC server over SSH — the VNC port is never exposed to the network. Credentials are not stored.</div>
@@ -5536,7 +5536,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div>
 <!-- v3.5.0: full-screen VNC view (noVNC renders inside #vnc-canvas) -->
-<div class="modal-overlay isl-205" role="dialog" aria-modal="true" id="vnc-screen">
+<div class="modal-overlay isl-205" role="dialog" aria-modal="true" aria-label="VNC session" id="vnc-screen">
   <div class="modal isl-206">
     <div class="isl-207">
       <div id="vnc-screen-title" class="isl-208"></div>
@@ -5548,8 +5548,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div>
 
 <!-- v3.6.0: host user & SSH-key management -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="usermgmt-modal"><div class="modal">
-  <div class="modal-title">Users &amp; keys</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="usermgmt-modal-title" id="usermgmt-modal"><div class="modal">
+  <div class="modal-title" id="usermgmt-modal-title">Users &amp; keys</div>
   <div class="modal-subtitle">Queue an account operation on the host (runs via the agent, gated on the exec permission, audited).</div>
   <input type="hidden" id="usermgmt-devid">
   <div class="form-group"><label class="form-label">Username</label><input type="text" id="usermgmt-username" class="form-input" placeholder="deploy" maxlength="32"></div>
@@ -5568,8 +5568,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.6.0: host firewall rule management -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="firewall-modal"><div class="modal">
-  <div class="modal-title">Firewall</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="firewall-modal-title" id="firewall-modal"><div class="modal">
+  <div class="modal-title" id="firewall-modal-title">Firewall</div>
   <div class="modal-subtitle">Queue a host firewall change (ufw or firewalld). Runs via the agent, exec-gated, audited.</div>
   <input type="hidden" id="firewall-devid">
   <div class="row-8">
@@ -5586,8 +5586,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.6.0: AV / malware posture + on-demand scan -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="avscan-modal"><div class="modal">
-  <div class="modal-title">AV / malware</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="avscan-modal-title" id="avscan-modal"><div class="modal">
+  <div class="modal-title" id="avscan-modal-title">AV / malware</div>
   <div class="modal-subtitle">ClamAV / rkhunter posture. Scans run on the host and report output to the device command history.</div>
   <input type="hidden" id="avscan-devid">
   <div id="avscan-status" class="mb-12"></div>
@@ -5599,8 +5599,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.6.0: file manager — connect modal -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="files-modal"><div class="modal isl-203">
-  <div class="modal-title">Files</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="files-modal-title" id="files-modal"><div class="modal isl-203">
+  <div class="modal-title" id="files-modal-title">Files</div>
   <div class="modal-subtitle">Browse and transfer files over SFTP, tunnelled through the same SSH path as the web terminal. Credentials are not stored.</div>
   <input type="hidden" id="files-device-id">
   <div class="form-group"><label class="form-label">SSH host</label><input type="text" id="files-host" class="form-input" placeholder="10.0.0.4"></div>
@@ -5614,7 +5614,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="files-modal">Cancel</button><button class="btn-primary" id="files-connect-btn" data-action="filesConnect">Connect</button></div>
 </div></div>
 <!-- v3.6.0: file manager — browser -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="files-browser"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-label="File browser" id="files-browser"><div class="modal modal-wide">
   <div class="isl-207">
     <div id="files-browser-title" class="isl-208"></div>
     <div class="row-6">
@@ -5628,7 +5628,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="table-card"><table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody id="files-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
 </div></div>
 <!-- v3.6.0: auto-patch policy create/edit -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="autopatch-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="autopatch-modal-title" id="autopatch-modal"><div class="modal">
   <div class="modal-title" id="autopatch-modal-title">New auto-patch policy</div>
   <input type="hidden" id="autopatch-edit-id">
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="autopatch-name" class="form-input" placeholder="Weekly prod security updates" maxlength="80"></div>
@@ -5642,7 +5642,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.6.0: backup job create/edit -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="backupjob-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="backupjob-modal-title" id="backupjob-modal"><div class="modal">
   <div class="modal-title" id="backupjob-modal-title">New backup job</div>
   <input type="hidden" id="backupjob-edit-id">
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="backupjob-name" class="form-input" placeholder="Nightly restic to B2" maxlength="80"></div>
@@ -5653,7 +5653,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.7.0: Ansible playbook create/edit -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="ansible-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ansible-modal-title" id="ansible-modal"><div class="modal modal-wide">
   <div class="modal-title" id="ansible-modal-title">New playbook</div>
   <input type="hidden" id="ansible-edit-id">
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="ansible-name" class="form-input" placeholder="Install nginx" maxlength="80"></div>
@@ -5661,8 +5661,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-modal">Cancel</button><button class="btn-primary" id="ansible-save-btn" data-action="saveAnsiblePlaybook">Create</button></div>
 </div></div>
 <!-- v3.7.0: Ansible run -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="ansible-run-modal"><div class="modal modal-wide">
-  <div class="modal-title">Run playbook</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ansible-run-modal-title" id="ansible-run-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="ansible-run-modal-title">Run playbook</div>
   <div class="modal-subtitle">Runs on the server against the target devices over SSH. The playbook may run as root — exec permission required. Credentials are not stored.</div>
   <input type="hidden" id="ansible-run-id">
   <div class="hc-grid-2">
@@ -5678,18 +5678,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="ansible-run-output" class="mt-8"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-run-modal">Close</button><button class="btn-primary" id="ansible-run-btn" data-action="runAnsiblePlaybook">Run</button></div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="custom-checks-modal"><div class="modal modal-wide"><div class="modal-title">Custom checks</div><div class="page-subtitle">Operator-defined checks evaluated from what the agent already reports, assignable to a host, tag, group, or the whole fleet. They appear per-host in the Checks view.</div><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input type="text" id="cc-name" class="form-input" placeholder="nginx must run"></div><div class="form-group"><label class="form-label">Type</label><select id="cc-type" class="form-input" data-change="ccTypeChanged"><optgroup label="Evaluated on the server"><option value="process">Process running</option><option value="port_open">Port open</option><option value="port_closed">Port closed</option></optgroup><optgroup label="Evaluated on the host (agent)"><option value="file_present">File present</option><option value="file_absent">File absent</option><option value="job_fresh">Job freshness (file age)</option><option value="log_errors">Log error rate</option></optgroup></select></div></div><div class="form-row"><div class="form-group"><label class="form-label" id="cc-param-label">Process name</label><input type="text" id="cc-param" class="form-input" placeholder="nginx"></div><div class="form-group"><label class="form-label">Apply to</label><select id="cc-kind" class="form-input" data-change="ccKindChanged"><option value="all">Whole fleet</option><option value="host">A host</option><option value="tag">A tag</option><option value="group">A group</option></select></div><div class="form-group hidden" id="cc-target-grp"><label class="form-label" id="cc-target-label">Target</label><input type="text" id="cc-target" class="form-input" placeholder=""></div></div><div class="form-row hidden" id="cc-log-grp"><div class="form-group"><label class="form-label">Window (min)</label><input type="number" id="cc-window" class="form-input" min="1" max="1440" placeholder="15"></div><div class="form-group"><label class="form-label">Warn at</label><input type="number" id="cc-warn" class="form-input" min="1" placeholder="1"></div><div class="form-group"><label class="form-label">Crit at</label><input type="number" id="cc-crit" class="form-input" min="1" placeholder="10"></div><div class="form-group"><label class="form-label">Unit (optional)</label><input type="text" id="cc-unit" class="form-input" placeholder="nginx.service"></div></div><div class="form-row hidden" id="cc-job-grp"><div class="form-group"><label class="form-label">Max age (hours)</label><input type="number" id="cc-maxage" class="form-input" min="1" max="8760" placeholder="24"></div></div><div class="modal-actions"><button class="btn-primary" data-action="saveCustomCheck">Add check</button></div><div id="cc-list" class="mt-16"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="custom-checks-modal">Close</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="custom-checks-modal-title" id="custom-checks-modal"><div class="modal modal-wide"><div class="modal-title" id="custom-checks-modal-title">Custom checks</div><div class="page-subtitle">Operator-defined checks evaluated from what the agent already reports, assignable to a host, tag, group, or the whole fleet. They appear per-host in the Checks view.</div><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input type="text" id="cc-name" class="form-input" placeholder="nginx must run"></div><div class="form-group"><label class="form-label">Type</label><select id="cc-type" class="form-input" data-change="ccTypeChanged"><optgroup label="Evaluated on the server"><option value="process">Process running</option><option value="port_open">Port open</option><option value="port_closed">Port closed</option></optgroup><optgroup label="Evaluated on the host (agent)"><option value="file_present">File present</option><option value="file_absent">File absent</option><option value="job_fresh">Job freshness (file age)</option><option value="log_errors">Log error rate</option></optgroup></select></div></div><div class="form-row"><div class="form-group"><label class="form-label" id="cc-param-label">Process name</label><input type="text" id="cc-param" class="form-input" placeholder="nginx"></div><div class="form-group"><label class="form-label">Apply to</label><select id="cc-kind" class="form-input" data-change="ccKindChanged"><option value="all">Whole fleet</option><option value="host">A host</option><option value="tag">A tag</option><option value="group">A group</option></select></div><div class="form-group hidden" id="cc-target-grp"><label class="form-label" id="cc-target-label">Target</label><input type="text" id="cc-target" class="form-input" placeholder=""></div></div><div class="form-row hidden" id="cc-log-grp"><div class="form-group"><label class="form-label">Window (min)</label><input type="number" id="cc-window" class="form-input" min="1" max="1440" placeholder="15"></div><div class="form-group"><label class="form-label">Warn at</label><input type="number" id="cc-warn" class="form-input" min="1" placeholder="1"></div><div class="form-group"><label class="form-label">Crit at</label><input type="number" id="cc-crit" class="form-input" min="1" placeholder="10"></div><div class="form-group"><label class="form-label">Unit (optional)</label><input type="text" id="cc-unit" class="form-input" placeholder="nginx.service"></div></div><div class="form-row hidden" id="cc-job-grp"><div class="form-group"><label class="form-label">Max age (hours)</label><input type="number" id="cc-maxage" class="form-input" min="1" max="8760" placeholder="24"></div></div><div class="modal-actions"><button class="btn-primary" data-action="saveCustomCheck">Add check</button></div><div id="cc-list" class="mt-16"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="custom-checks-modal">Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mon-history-title" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="notes-modal-title" id="notes-modal"><div class="modal"><div class="modal-title" id="notes-modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
 <!-- v3.5.0: create-site + assign-device-to-site modals -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="site-create-modal"><div class="modal"><div class="modal-title" id="site-create-title">New site</div><div class="modal-subtitle">A site groups devices by location, team, or customer.</div><input type="hidden" id="site-edit-id"><div class="form-group"><label class="form-label">Site name</label><input type="text" id="site-name-input" class="form-input" placeholder="London DC, Team Platform, Acme Corp…" maxlength="64"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="site-create-modal" >Cancel</button><button class="btn-primary" id="site-save-btn" data-action="saveSite" >Create</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="device-site-modal"><div class="modal"><div class="modal-title">Assign site</div><div class="modal-subtitle">Move this device into a site, or unassign it.</div><input type="hidden" id="device-site-devid"><div class="form-group"><label class="form-label">Site</label><select id="device-site-select" class="form-input"><option value="">— Unassigned —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-site-modal" >Cancel</button><button class="btn-primary" data-action="saveDeviceSite" >Save</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="group-modal"><div class="modal"><div class="modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="group-modal" >Cancel</button><button class="btn-primary" data-action="saveGroup" >Save</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="poll-modal"><div class="modal"><div class="modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea isl-211" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named keys for scripts and CI. The key is shown once — save it now. Set an optional expiry so forgotten keys don't live forever.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option><option value="mcp">MCP (AI assistant — allow-listed actions only)</option></select></div><div class="form-group"><label class="form-label">Expires (optional)</label><input type="date" id="apikey-expires" class="form-input"><span class="hint">Leave blank for a non-expiring key. After this date the key is rejected at auth.</span></div><div id="apikey-result" class="isl-212"><div class="form-label mb-6">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="site-create-title" id="site-create-modal"><div class="modal"><div class="modal-title" id="site-create-title">New site</div><div class="modal-subtitle">A site groups devices by location, team, or customer.</div><input type="hidden" id="site-edit-id"><div class="form-group"><label class="form-label">Site name</label><input type="text" id="site-name-input" class="form-input" placeholder="London DC, Team Platform, Acme Corp…" maxlength="64"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="site-create-modal" >Cancel</button><button class="btn-primary" id="site-save-btn" data-action="saveSite" >Create</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-site-modal-title" id="device-site-modal"><div class="modal"><div class="modal-title" id="device-site-modal-title">Assign site</div><div class="modal-subtitle">Move this device into a site, or unassign it.</div><input type="hidden" id="device-site-devid"><div class="form-group"><label class="form-label">Site</label><select id="device-site-select" class="form-input"><option value="">— Unassigned —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-site-modal" >Cancel</button><button class="btn-primary" data-action="saveDeviceSite" >Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="group-modal-title" id="group-modal"><div class="modal"><div class="modal-title" id="group-modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="group-modal" >Cancel</button><button class="btn-primary" data-action="saveGroup" >Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="poll-modal-title" id="poll-modal"><div class="modal"><div class="modal-title" id="poll-modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="allowlist-modal-title" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title" id="allowlist-modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea isl-211" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="apikey-create-modal-title" id="apikey-create-modal"><div class="modal"><div class="modal-title" id="apikey-create-modal-title">Create API key</div><div class="modal-subtitle">Named keys for scripts and CI. The key is shown once — save it now. Set an optional expiry so forgotten keys don't live forever.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option><option value="mcp">MCP (AI assistant — allow-listed actions only)</option></select></div><div class="form-group"><label class="form-label">Expires (optional)</label><input type="date" id="apikey-expires" class="form-input"><span class="hint">Leave blank for a non-expiring key. After this date the key is rejected at auth.</span></div><div id="apikey-result" class="isl-212"><div class="form-label mb-6">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
 <!-- v3.2.0 (B2/B6): inbound webhook create modal -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="inbound-webhook-create-modal"><div class="modal"><div class="modal-title">New inbound token</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="inbound-webhook-create-modal-title" id="inbound-webhook-create-modal"><div class="modal"><div class="modal-title" id="inbound-webhook-create-modal-title">New inbound token</div>
   <div class="form-group"><label class="form-label">Type</label><select id="inbound-wh-kind" class="form-input" data-change="updateInboundWebhookKindHint">
     <option value="alert">Alert webhook (Grafana, Alertmanager, n8n, …)</option>
     <option value="syslog">Syslog ingestion (rsyslog omhttp, fluent-bit, curl)</option>
@@ -5700,7 +5700,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.2.0 (B2/B6): inbound token display modal (shown ONCE after create) -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="inbound-webhook-show-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="inbound-wh-show-title" id="inbound-webhook-show-modal"><div class="modal">
   <div class="modal-title" id="inbound-wh-show-title">Inbound token created</div>
   <p class="hint">Copy this URL now — the secret is shown only once.</p>
   <pre id="inbound-wh-url" class="code-pill ff-mono inbound-wh-url-pre"></pre>
@@ -5712,10 +5712,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input ff-mono" placeholder="apt-get clean"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdlib-add-modal-title" id="cmdlib-add-modal"><div class="modal"><div class="modal-title" id="cmdlib-add-modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input ff-mono" placeholder="apt-get clean"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>
 
 <!-- v2.1.0: script editor modal (handles both add + edit; mode flag in script-edit-id) -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="script-edit-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="script-edit-title" id="script-edit-modal"><div class="modal modal-wide">
   <div class="modal-title" id="script-edit-title">New script</div>
   <div class="modal-subtitle">Bash script. Runs as root on the target device. <code>bash -n</code> syntax-checked + scanned for dangerous patterns before save.</div>
   <input type="hidden" id="script-edit-id">
@@ -5744,8 +5744,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v2.1.0: pre-flight run-script modal (single device or current batch selection) -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="script-run-modal"><div class="modal modal-wide">
-  <div class="modal-title">Run script</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="script-run-modal-title" id="script-run-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="script-run-modal-title">Run script</div>
   <div class="modal-subtitle" id="script-run-target">Pick a script to queue.</div>
   <input type="hidden" id="script-run-device-id">
   <input type="hidden" id="script-run-mode"><!-- 'single' | 'batch' -->
@@ -5766,7 +5766,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v2.1.0: batch job status — polled while a /api/exec/batch is in flight -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="batch-job-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="batch-job-title" id="batch-job-modal"><div class="modal modal-wide">
   <div class="modal-title" id="batch-job-title">Batch script run</div>
   <div class="modal-subtitle" id="batch-job-sub">Polling for results…</div>
   <input type="hidden" id="batch-job-id">
@@ -5778,7 +5778,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v2.1.0: docker-compose action modal on device cards -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="compose-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="compose-title" id="compose-modal"><div class="modal modal-wide">
   <div class="modal-title" id="compose-title">docker compose</div>
   <div class="modal-subtitle" id="compose-sub">Choose a project, then an action. Output appears below.</div>
   <input type="hidden" id="compose-device-id">
@@ -5797,12 +5797,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-secondary" data-action="closeModal" data-arg="compose-modal" >Close</button>
   </div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="metrics-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="metrics-title" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="metrics-modal" >Close</button></div></div></div>
 <!-- v3.4.0: AI insight result (runbook / doc draft). Body holds rendered Markdown. -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="ai-insight-modal"><div class="modal modal-wide"><div class="modal-title" id="ai-insight-title">AI</div><div id="ai-insight-body" class="ai-insight-body"><div class="empty-state">Generating…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="aiInsightCopy">Copy Markdown</button><button class="btn-secondary" data-action="closeModal" data-arg="ai-insight-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ai-insight-title" id="ai-insight-modal"><div class="modal modal-wide"><div class="modal-title" id="ai-insight-title">AI</div><div id="ai-insight-body" class="ai-insight-body"><div class="empty-state">Generating…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="aiInsightCopy">Copy Markdown</button><button class="btn-secondary" data-action="closeModal" data-arg="ai-insight-modal" >Close</button></div></div></div>
 <!-- v3.4.0: Proxmox LXC create wizard -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="lxc-create-modal"><div class="modal modal-wide">
-  <div class="modal-title">Create LXC container</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="lxc-create-modal-title" id="lxc-create-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="lxc-create-modal-title">Create LXC container</div>
   <div class="modal-subtitle">Creates a new container on the Proxmox node via the API. <span id="lxc-create-node" class="c-muted"></span></div>
   <div id="lxc-create-loading" class="empty-state">Loading options from Proxmox…</div>
   <div id="lxc-create-form" class="d-none">
@@ -5843,8 +5843,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.7.0: Proxmox QEMU VM create wizard -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="vm-create-modal"><div class="modal modal-wide">
-  <div class="modal-title">Create virtual machine</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vm-create-modal-title" id="vm-create-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="vm-create-modal-title">Create virtual machine</div>
   <div class="modal-subtitle">Creates a new QEMU/KVM VM on the Proxmox node via the API. <span id="vm-create-node" class="c-muted"></span></div>
   <div id="vm-create-loading" class="empty-state">Loading options from Proxmox…</div>
   <div id="vm-create-form" class="d-none">
@@ -5875,9 +5875,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 <!-- v3.4.0: Proxmox LXC delete (type-to-confirm, auto-stop, no purge) -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="lxc-delete-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="lxc-delete-modal-title" id="lxc-delete-modal"><div class="modal">
   <div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></div>
-  <div class="modal-title">Delete LXC container?</div>
+  <div class="modal-title" id="lxc-delete-modal-title">Delete LXC container?</div>
   <div class="modal-subtitle">This permanently deletes <strong id="lxc-del-name"></strong> (VMID <span id="lxc-del-vmid"></span>) and its disk on Proxmox. <strong>This cannot be undone.</strong> A running container is force-stopped first.</div>
   <div class="form-group">
     <label class="form-label">Type <code id="lxc-del-confirm-target"></code> to confirm</label>
@@ -5893,12 +5893,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      for several releases but the element itself was missing from the HTML,
      so clicking Detail on the Patches page threw "can't access property
      textContent, document.getElementById(...) is null". Restored here. -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-patch-title" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-detail-title" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>
 <!-- v3.14.0: on-demand container logs -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="container-logs-modal"><div class="modal modal-wide"><div class="modal-title" id="container-logs-title">Container logs</div><pre id="container-logs-body" class="log-pre">…</pre><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="container-logs-modal" >Close</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cve-ignore-modal"><div class="modal">
-  <div class="modal-title">Ignore CVE</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="container-logs-title" id="container-logs-modal"><div class="modal modal-wide"><div class="modal-title" id="container-logs-title">Container logs</div><pre id="container-logs-body" class="log-pre">…</pre><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="container-logs-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-ignore-modal-title" id="cve-ignore-modal"><div class="modal">
+  <div class="modal-title" id="cve-ignore-modal-title">Ignore CVE</div>
   <div class="modal-subtitle isl-224">Mark <code id="cve-ignore-vuln" class="c-accent"></code> as an accepted risk. It stays recorded but stops counting as a finding or raising attention.</div>
   <div class="form-group">
     <label class="form-label">Reason <span class="meta-sm-nm">(optional — e.g. false positive, accepted risk)</span></label>
@@ -5918,12 +5918,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-primary" id="cve-ignore-confirm" data-action="_confirmCveIgnore" >Ignore CVE</button>
   </div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" data-action="closeModal" data-arg="service-detail-modal" >Close</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div class="isl-224">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service" class="isl-226"></textarea><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="service-edit-modal" >Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="service-detail-title" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" data-action="closeModal" data-arg="service-detail-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="service-edit-modal-title" id="service-edit-modal"><div class="modal"><div class="modal-title" id="service-edit-modal-title">Configure watched services</div><div class="isl-224">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service" class="isl-226"></textarea><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="service-edit-modal" >Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
 
 <!-- ── v1.9.0: CMDB modals ───────────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-vault-setup-modal"><div class="modal">
-  <div class="modal-title">Set up CMDB vault</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-vault-setup-modal-title" id="cmdb-vault-setup-modal"><div class="modal">
+  <div class="modal-title" id="cmdb-vault-setup-modal-title">Set up CMDB vault</div>
   <div class="modal-subtitle">Choose a passphrase that will encrypt every credential stored in the CMDB. <strong>This passphrase is never stored on the server</strong> — losing it permanently destroys access to the credentials. All admins share this passphrase.</div>
   <div class="form-group">
     <label class="form-label">Vault passphrase (min 12 chars, mixed character classes)</label>
@@ -5939,8 +5939,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-vault-unlock-modal"><div class="modal">
-  <div class="modal-title">Unlock CMDB vault</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-vault-unlock-modal-title" id="cmdb-vault-unlock-modal"><div class="modal">
+  <div class="modal-title" id="cmdb-vault-unlock-modal-title">Unlock CMDB vault</div>
   <div class="modal-subtitle">The derived key is held only in this browser tab and cleared on logout or page reload.</div>
   <div class="form-group">
     <label class="form-label">Passphrase</label>
@@ -5952,8 +5952,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-vault-rotate-modal"><div class="modal">
-  <div class="modal-title">Rotate CMDB vault passphrase</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-vault-rotate-modal-title" id="cmdb-vault-rotate-modal"><div class="modal">
+  <div class="modal-title" id="cmdb-vault-rotate-modal-title">Rotate CMDB vault passphrase</div>
   <div class="modal-subtitle">All stored credentials will be re-encrypted under the new passphrase.</div>
   <div class="form-group">
     <label class="form-label">Current passphrase</label>
@@ -5973,7 +5973,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-asset-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-asset-title" id="cmdb-asset-modal"><div class="modal modal-wide">
   <div class="modal-title" id="cmdb-asset-title">Asset</div>
   <div class="isl-227">
     <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
@@ -6135,7 +6135,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      doc id are stashed in hidden fields so cmdbDocSave() knows whether
      to POST or PUT. Tabs let the user flip between the Markdown source
      and a rendered preview without leaving the modal. -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-doc-edit-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-doc-modal-title" id="cmdb-doc-edit-modal"><div class="modal modal-wide">
   <div class="modal-title" id="cmdb-doc-modal-title">Add document</div>
   <input type="hidden" id="cmdb-doc-modal-mode" value="add">
   <input type="hidden" id="cmdb-doc-modal-deviceid">
@@ -6158,7 +6158,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-cred-add-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-cred-modal-title" id="cmdb-cred-add-modal"><div class="modal">
   <div class="modal-title" id="cmdb-cred-modal-title">Add credential</div>
   <input type="hidden" id="cmdb-cred-modal-mode" value="add">
   <input type="hidden" id="cmdb-cred-modal-deviceid">
@@ -6191,7 +6191,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v1.10.0: Update logs viewer ─────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="update-logs-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="update-logs-title" id="update-logs-modal"><div class="modal modal-wide">
   <div class="modal-title" id="update-logs-title">Update history</div>
   <div class="modal-subtitle">Last <span id="update-logs-capacity">10</span> package-upgrade runs from this device. Output is captured by the agent and sent on the next heartbeat after the run completes.</div>
   <div id="update-logs-body" class="isl-236">
@@ -6203,8 +6203,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cmdb-cred-reveal-modal"><div class="modal">
-  <div class="modal-title">Revealed credential</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-cred-reveal-modal-title" id="cmdb-cred-reveal-modal"><div class="modal">
+  <div class="modal-title" id="cmdb-cred-reveal-modal-title">Revealed credential</div>
   <div class="modal-subtitle">This reveal has been recorded in the audit log. The values below are not stored in the page after this modal closes.</div>
   <div class="form-group">
     <label class="form-label">Label</label>
@@ -6228,8 +6228,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.0: TLS target add ─────────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="tls-add-modal"><div class="modal">
-  <div class="modal-title">Add TLS / DNS watch target</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tls-add-modal-title" id="tls-add-modal"><div class="modal">
+  <div class="modal-title" id="tls-add-modal-title">Add TLS / DNS watch target</div>
   <div class="modal-subtitle">The server will probe this host periodically (cron) and on demand. Empty cert / connection errors show as red regardless of expiry.</div>
   <div class="form-group">
     <label class="form-label">Hostname (SNI / cert name)</label>
@@ -6284,7 +6284,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.0: TLS detail (read-only) ──────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="tls-detail-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tls-detail-title" id="tls-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="tls-detail-title">Certificate detail</div>
   <div id="tls-detail-body" class="fs-13"></div>
   <div class="modal-actions">
@@ -6293,8 +6293,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v3.0.1: ACME — Issue new cert wizard (3 steps) ───────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="acme-dns-creds-modal"><div class="modal modal-wide">
-  <div class="modal-title">DNS provider credentials</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="acme-dns-creds-modal-title" id="acme-dns-creds-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="acme-dns-creds-modal-title">DNS provider credentials</div>
   <div class="modal-subtitle">Centrally-managed API tokens for ACME DNS-01 challenges. Stored in <code>config.json</code> on the server (admin-only readable, redacted from backup exports); injected into the queued <code>acme.sh</code> command at issuance time so the agent doesn't need its own <code>account.conf</code>. Blank values leave the existing token unchanged.</div>
   <div id="acme-dns-creds-body" class="isl-87"><div class="isl-78">Loading…</div></div>
   <div class="modal-actions">
@@ -6302,8 +6302,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="acme-issue-modal"><div class="modal modal-wide">
-  <div class="modal-title">Issue new Let's Encrypt cert</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="acme-issue-modal-title" id="acme-issue-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="acme-issue-modal-title">Issue new Let's Encrypt cert</div>
   <div class="modal-subtitle" id="acme-issue-subtitle">acme.sh with DNS-01 challenge. Wildcards supported.</div>
 
   <!-- step indicator -->
@@ -6372,7 +6372,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v3.0.1: ACME — Cert detail (overview + timeline + logs) ──────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="acme-detail-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="acme-detail-title" id="acme-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="acme-detail-title">Certificate detail</div>
   <div class="modal-subtitle" id="acme-detail-subtitle"></div>
   <div class="isl-250">
@@ -6389,7 +6389,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v3.0.1: Mitigation runner — diagnostic + AI + fix ──────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="mitigate-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mitigate-title" id="mitigate-modal"><div class="modal modal-wide">
   <div class="modal-title" id="mitigate-title">Investigate alert</div>
   <div class="modal-subtitle" id="mitigate-subtitle"></div>
 
@@ -6448,8 +6448,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.0: Agentless device add ────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="agentless-add-modal"><div class="modal">
-  <div class="modal-title">Add agentless device</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="agentless-add-modal-title" id="agentless-add-modal"><div class="modal">
+  <div class="modal-title" id="agentless-add-modal-title">Add agentless device</div>
   <div class="modal-subtitle">For devices that can't run the agent — switches, APs, printers, IPMI, cameras, smart plugs. They appear in the device list, get CMDB metadata + vault credentials, and show on the Network map. Status is whatever you set it to.</div>
   <div class="form-group">
     <label class="form-label">Name</label>
@@ -6516,8 +6516,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.0: Network map link editor ─────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="netmap-edit-modal"><div class="modal modal-wide">
-  <div class="modal-title">Edit network links</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="netmap-edit-modal-title" id="netmap-edit-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="netmap-edit-modal-title">Edit network links</div>
   <div class="modal-subtitle">Set <code>connected_to</code> for each device — what it plugs into upstream (typically a switch or AP). Leave blank for devices with no parent (the internet gateway, root switch, etc.).</div>
   <div id="netmap-edit-body" class="isl-266"></div>
   <div class="modal-actions">
@@ -6527,7 +6527,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.2: Link add / edit ───────────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="link-edit-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="link-edit-title" id="link-edit-modal"><div class="modal">
   <div class="modal-title" id="link-edit-title">Add link</div>
   <input type="hidden" id="link-edit-mode" value="add">
   <input type="hidden" id="link-edit-id">
@@ -6566,8 +6566,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.1: Tunnels (peer links) ──────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="netmap-tunnels-modal"><div class="modal modal-wide">
-  <div class="modal-title">Tunnels</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="netmap-tunnels-modal-title" id="netmap-tunnels-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="netmap-tunnels-modal-title">Tunnels</div>
   <div class="modal-subtitle">Peer links between devices, drawn as dashed amber lines on the map. Use these for VPN tunnels, site-to-site links, or anything else that isn't physical wiring.</div>
   <div class="isl-268">
     <div class="isl-269">
@@ -6588,8 +6588,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- ── v1.11.0: Container detail (per-device drilldown) ─────────────────── -->
 <!-- v3.3.4: create a compose stack -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="compose-create-modal"><div class="modal modal-wide">
-  <div class="modal-title">New compose stack</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="compose-create-modal-title" id="compose-create-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="compose-create-modal-title">New compose stack</div>
   <div class="form-group">
     <label class="form-label">Stack name</label>
     <input type="text" id="compose-create-name" class="form-input" placeholder="lowercase, e.g. media-stack" maxlength="64">
@@ -6610,7 +6610,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.3.4: view a compose stack (YAML + last run output) -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="compose-view-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="compose-view-title" id="compose-view-modal"><div class="modal modal-wide">
   <div class="modal-title" id="compose-view-title">Stack</div>
   <div id="compose-view-body" class="isl-266"></div>
   <div class="modal-actions">
@@ -6619,7 +6619,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- v3.3.4: full-width RouterOS console -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="routeros-console-modal"><div class="modal modal-xwide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="routeros-console-title" id="routeros-console-modal"><div class="modal modal-xwide">
   <div class="modal-header row-between">
     <div class="modal-title" id="routeros-console-title">RouterOS</div>
     <button class="btn-icon isl-44" data-action="closeModal" data-arg="routeros-console-modal" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
@@ -6627,7 +6627,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="routeros-console-body" class="isl-266"></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="opnsense-console-modal"><div class="modal modal-xwide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="opnsense-console-title" id="opnsense-console-modal"><div class="modal modal-xwide">
   <div class="modal-header row-between">
     <div class="modal-title" id="opnsense-console-title">OPNsense</div>
     <button class="btn-icon isl-44" data-action="closeModal" data-arg="opnsense-console-modal" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
@@ -6635,7 +6635,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="opnsense-console-body" class="isl-266"></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="containers-detail-modal"><div class="modal modal-wide">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="containers-detail-title" id="containers-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="containers-detail-title">Containers</div>
   <div id="containers-detail-body" class="isl-266"></div>
   <div class="modal-actions">
@@ -6649,7 +6649,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 
 <!-- ── v1.8.3: Calendar event modal ──────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="event-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="event-modal-title" id="event-modal"><div class="modal">
   <div class="modal-title" id="event-modal-title">New event</div>
   <div class="form-group"><label>Title</label><input type="text" id="event-title" maxlength="120" placeholder="e.g. Prod DB backup"></div>
   <div class="form-group"><label>Description</label><textarea id="event-description" rows="3" maxlength="2000" placeholder="Optional notes…" class="isl-271"></textarea></div>
@@ -6690,7 +6690,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.8.3: Task modal ──────────────────────────────────────────── -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="task-modal"><div class="modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="task-modal-title" id="task-modal"><div class="modal">
   <div class="modal-title" id="task-modal-title">New task</div>
   <div class="form-group"><label>Title</label><input type="text" id="task-title" maxlength="200" placeholder="What needs doing?"></div>
   <div class="form-group"><label>Description</label><textarea id="task-description" rows="5" maxlength="4000" placeholder="Optional details…" class="isl-271"></textarea></div>
@@ -6717,7 +6717,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="log-rule-modal"><div class="modal"><div class="modal-title" id="log-rule-modal-title">Add per-device log alert rule</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="log-rule-modal-title" id="log-rule-modal"><div class="modal"><div class="modal-title" id="log-rule-modal-title">Add per-device log alert rule</div>
   <div class="isl-224">Matching log lines fire a <code>log_alert</code> webhook when the threshold is reached within a single agent submission (~5 min window).</div>
   <div class="form-group" id="log-rule-device-row"><label>Device</label><select id="log-rule-device" class="device-combo"></select></div>
   <div class="form-group isl-282" id="log-rule-global-hint">
@@ -6759,7 +6759,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="log-rule-modal" >Cancel</button><button class="btn-primary" data-action="saveLogRule" >Add</button></div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" id="new-maint-modal"><div class="modal"><div class="modal-title">New maintenance window</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-maint-modal-title" id="new-maint-modal"><div class="modal"><div class="modal-title" id="new-maint-modal-title">New maintenance window</div>
   <div class="form-group"><label>Reason</label><input type="text" id="maint-reason" placeholder="Monthly patching" maxlength="120"></div>
   <div class="form-group"><label>Scope</label>
     <select id="maint-scope" data-change="onMaintScopeChange" >
@@ -6805,7 +6805,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-maint-modal" >Cancel</button><button class="btn-primary" data-action="saveMaintenance" >Create</button></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="new-rollout-modal"><div class="modal"><div class="modal-title">New rollout</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="new-rollout-modal-title" id="new-rollout-modal"><div class="modal"><div class="modal-title" id="new-rollout-modal-title">New rollout</div>
   <div class="form-group"><label>Name</label><input type="text" id="ro-name" placeholder="May security patches" maxlength="80"></div>
   <div class="form-group"><label>Action</label>
     <select id="ro-action" data-change="onRolloutActionChange">
@@ -6828,7 +6828,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-rollout-modal">Cancel</button><button class="btn-primary" data-action="saveRollout">Create</button></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="one-time-install-modal"><div class="modal"><div class="modal-title">One-time install</div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="one-time-install-modal-title" id="one-time-install-modal"><div class="modal"><div class="modal-title" id="one-time-install-modal-title">One-time install</div>
   <div class="modal-subtitle">Install a package immediately via each target's own package manager (apt / dnf / yum / zypper / pacman / apk). Not staged — it runs as soon as the target heartbeats.</div>
   <div class="form-group"><label>Package(s)</label><input type="text" id="oti-pkgs" class="form-input" placeholder="e.g. nginx htop"><div class="page-subtitle mt-4">Package names only (no shell). Space- or comma-separated, up to 30.</div></div>
   <div class="form-group"><label>Target</label>
@@ -6845,10 +6845,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="one-time-install-modal">Cancel</button><button class="btn-primary" data-action="runOneTimeInstall">Install now</button></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="icon-modal-title" id="icon-modal"><div class="modal"><div class="modal-title" id="icon-modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="custom-script-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cs-modal-title" id="custom-script-modal">
   <div class="modal modal-wide">
     <div class="modal-title" id="cs-modal-title">New custom script</div>
     <input type="hidden" id="cs-modal-id">
@@ -6901,7 +6901,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div>
 
 <!-- v2.6.0: Custom script output detail modal -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="cs-output-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cs-output-title" id="cs-output-modal">
   <div class="modal modal-wide">
     <div class="modal-title" id="cs-output-title">Script output</div>
     <div id="cs-output-body" class="isl-293"></div>
@@ -6912,9 +6912,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div>
 
 <!-- v2.6.0: Host Configuration modal -->
-<div class="modal-overlay" role="dialog" aria-modal="true" id="host-config-modal">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="host-config-modal-title" id="host-config-modal">
   <div class="modal modal-wide isl-294">
-    <div class="modal-title">Host Configuration — <span id="hc-device-name"></span></div>
+    <div class="modal-title" id="host-config-modal-title">Host Configuration — <span id="hc-device-name"></span></div>
     <input type="hidden" id="hc-device-id">
 
     <!-- Info banner: shown when no desired config exists yet -->

@@ -68,6 +68,27 @@ class TestModalsAnnounced(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertIn('role="dialog"', m.group(0))
 
+    def test_every_modal_overlay_is_labelled(self):
+        # v4.8.0 (#U1): every dialog must also carry an accessible NAME — either
+        # aria-labelledby (pointing at its visible title) or aria-label.
+        overlays = re.findall(r'<div class="modal-overlay[^"]*"[^>]*>', INDEX)
+        missing = [o for o in overlays
+                   if 'aria-labelledby="' not in o and 'aria-label="' not in o]
+        self.assertEqual(missing, [],
+                         f"modal overlays without an accessible name: {missing}")
+
+    def test_labelledby_targets_exist_and_are_unique(self):
+        # An aria-labelledby that points at a missing or duplicated id is worse
+        # than none — assert referential integrity for every reference.
+        refs = re.findall(r'aria-labelledby="([^"]+)"', INDEX)
+        self.assertGreater(len(refs), 50)
+        id_counts = {}
+        for i in re.findall(r'\bid="([^"]+)"', INDEX):
+            id_counts[i] = id_counts.get(i, 0) + 1
+        broken = [r for r in refs if id_counts.get(r, 0) != 1]
+        self.assertEqual(broken, [],
+                         f"aria-labelledby refs with missing/duplicate id: {broken}")
+
 
 class TestFilterInputsLabeled(unittest.TestCase):
     # NOTE: the `<input\b[^>]*>` scan stops at the first `>` — including a
