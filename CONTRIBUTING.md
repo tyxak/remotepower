@@ -7,10 +7,19 @@ By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## Ways to contribute
 
-- **Bug reports** and **feature requests** — open an issue (templates provided).
+- **Feature requests** — open a
+  [Feature request](https://github.com/tyxak/remotepower/issues/new?template=feature_request.yml)
+  (labelled `enhancement`).
+- **Bug reports** — open a
+  [Bug report](https://github.com/tyxak/remotepower/issues/new?template=bug_report.yml).
+- **Questions & ideas** — start a
+  [Discussion](https://github.com/tyxak/remotepower/discussions).
 - **Code** — fixes, features, docs, tests.
 - **Security issues** — please do **not** open a public issue; see
   [SECURITY.md](SECURITY.md).
+
+Full documentation is published in the
+[Wiki](https://github.com/tyxak/remotepower/wiki) (generated from `docs/`).
 
 ## Project layout
 

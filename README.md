@@ -15,8 +15,10 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
 [![Version](https://img.shields.io/badge/version-4.7.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
+[![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
-[Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
+[Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Wiki](https://github.com/tyxak/remotepower/wiki) · [Discussions](https://github.com/tyxak/remotepower/discussions)
 
 ![RemotePower dashboard](docs/screenshots/Index.png)
 
@@ -184,7 +186,9 @@ model, review history and an operator hardening checklist:
 
 ## Documentation
 
-Everything lives in **[docs/](docs/)** — start with the index there. The essentials:
+Browse the full docs in the **[Wiki](https://github.com/tyxak/remotepower/wiki)**
+(generated from `docs/`, organised by topic). Prefer the source? Everything lives
+in **[docs/](docs/)** — start with the index there. The essentials:
 
 | Topic | Where |
 |---|---|
@@ -204,6 +208,14 @@ alerting, CMDB, docs with **RAG**, CVE scanning, authorized pentesting, patching
 compliance, and full remote management (browser SSH, Proxmox, files) — push-based
 agents, **zero inbound ports**, optional **local or cloud AI** that answers from
 *your* hosts. One tool instead of six.
+
+## Contributing & community
+
+- **Request a feature** — open a [Feature request](https://github.com/tyxak/remotepower/issues/new?template=feature_request.yml); it's labelled `enhancement` and triaged from there.
+- **Report a bug** — open a [Bug report](https://github.com/tyxak/remotepower/issues/new?template=bug_report.yml).
+- **Ask a question or float an idea** — head to [Discussions](https://github.com/tyxak/remotepower/discussions).
+- **Found a security issue?** — please report it privately per [SECURITY.md](SECURITY.md); don't open a public issue.
+- **Contributing code or docs?** — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
