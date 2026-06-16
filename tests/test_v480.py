@@ -150,6 +150,44 @@ class TestNativeConfirmMigrated(unittest.TestCase):
             self.assertEqual(bad, [], f"{name} still calls native prompt(): {bad}")
 
 
+class TestAuditClearDiagnostics(unittest.TestCase):
+    """v4.8.0: the clear-audit-log gate reports WHY it failed (missing / wrong /
+    no-local-password) instead of one ambiguous 'password required' that read as
+    'the button did nothing' when a password WAS given. All three are still 403."""
+
+    def _call(self, actor, user_rec, body):
+        api.require_admin_auth = lambda: actor
+        api.method = lambda: 'DELETE'
+        api.get_json_body = lambda: body
+        api.save(api.USERS_FILE, {actor: user_rec})
+        try:
+            api.handle_audit_log_clear()
+            return 200, ""
+        except api.HTTPError as e:
+            return e.status, (e.body or {}).get("error", "")
+
+    def test_missing_password(self):
+        s, err = self._call("admin",
+                            {"role": "admin", "password_hash": api.hash_password("pw")}, {})
+        self.assertEqual(s, 403)
+        self.assertIn("Enter your admin password", err)
+
+    def test_no_local_password_sso(self):
+        # Sentinel hash ('!...') = SSO/passkey-provisioned admin, no local password.
+        s, err = self._call("admin",
+                            {"role": "admin", "password_hash": "!" + "a" * 64},
+                            {"password": "whatever"})
+        self.assertEqual(s, 403)
+        self.assertIn("no local password", err)
+
+    def test_wrong_password(self):
+        s, err = self._call("admin",
+                            {"role": "admin", "password_hash": api.hash_password("right")},
+                            {"password": "wrong"})
+        self.assertEqual(s, 403)
+        self.assertIn("Incorrect admin password", err)
+
+
 class TestWinAgentGpu(unittest.TestCase):
     """#A3 (Windows GPU): nvidia-smi telemetry on the slow cadence, emitting the
     SAME `gpus` schema the Linux agent does (zero server change)."""

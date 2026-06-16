@@ -31208,8 +31208,21 @@ def handle_audit_log_clear():
     # immutable pre-wipe archive so a clear can never silently destroy evidence.
     pw = str((get_json_body() or {}).get('password', ''))
     u = (load(USERS_FILE) or {}).get(actor) or {}
-    if not pw or not verify_password(pw, u.get('password_hash', '')):
-        respond(403, {'error': 'admin password required to clear the audit log'})
+    stored = u.get('password_hash', '') or ''
+    # v4.8.0: report the precise reason instead of a single ambiguous
+    # "password required" that read as "the button did nothing" when a password
+    # WAS given but didn't match. A local password is one we can actually verify
+    # (bcrypt / PBKDF2); an SSO/OIDC- or passkey-provisioned admin carries a
+    # sentinel hash that never matches, so call that case out specifically.
+    has_local_pw = stored.startswith('$2') or stored.startswith('pbkdf2$')
+    if not pw:
+        respond(403, {'error': 'Enter your admin password to confirm clearing the audit log.'})
+    if not has_local_pw:
+        respond(403, {'error': 'This account has no local password — you sign in via SSO or a passkey. '
+                               'Clearing the audit log requires a local admin password: set one under '
+                               'My Account, or use an admin account that has one.'})
+    if not verify_password(pw, stored):
+        respond(403, {'error': 'Incorrect admin password.'})
     try:
         import gzip
         cur = load(AUDIT_LOG_FILE) or {}
