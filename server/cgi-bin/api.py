@@ -2567,6 +2567,7 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/enroll/token',
     '/api/agent/version',
     '/api/agent/download',
+    '/api/agent/install',
     '/api/csp-report',
     '/api/health',
     '/api/public-info',
@@ -14961,6 +14962,99 @@ def handle_agent_download():
     print("Content-Disposition: attachment; filename=remotepower-agent")
     print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store"); print()
     sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
+
+
+# v4.8.0: a one-line, self-hosted agent installer with THIS server's URL baked
+# in. The whole point of the rewrite — "Add device" hands the operator one line:
+#     curl -fsSL <server>/install | sh -s -- --token <enrollment-token>
+# and SSH-push just runs that same line on a remote host. POSIX sh (dash-safe).
+# @@SERVER@@ is replaced per-request. No secret is embedded — the caller supplies
+# the one-time --token; the server URL is public — so this stays auth-exempt like
+# the agent binary download it pulls.
+_AGENT_INSTALL_SH = r'''#!/bin/sh
+# RemotePower agent installer  ·  served by @@SERVER@@
+#   curl -fsSL @@SERVER@@/install | sh -s -- --token <enrollment-token> [--ca-fingerprint FP] [--name NAME]
+set -eu
+RP_SERVER="@@SERVER@@"
+TOKEN=""; CA_FP=""; NAME=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --token) TOKEN="${2:-}"; shift 2;;
+    --ca-fingerprint) CA_FP="${2:-}"; shift 2;;
+    --name) NAME="${2:-}"; shift 2;;
+    -h|--help) echo "usage: ... | sh -s -- --token <t> [--ca-fingerprint FP] [--name NAME]"; exit 0;;
+    *) echo "unknown arg: $1" >&2; exit 2;;
+  esac
+done
+[ "$(id -u)" = "0" ] || { echo "[!] run as root (use sudo)"; exit 1; }
+[ -n "$TOKEN" ] || { echo "[!] missing --token — generate one in the dashboard (Add device)"; exit 1; }
+_fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi; }
+
+mkdir -p /etc/remotepower
+# Optional self-signed CA pin: fetch over the same server, verify the SHA-256
+# BEFORE trusting it (so a plain-HTTP fetch can't be substituted by a MITM).
+if [ -n "$CA_FP" ]; then
+  echo "[*] Pinning server CA ..."
+  _fetch "$RP_SERVER/ca.crt" /etc/remotepower/ca.crt
+  got="$(openssl x509 -in /etc/remotepower/ca.crt -noout -fingerprint -sha256 | sed 's/^.*=//;s/://g' | tr 'A-F' 'a-f')"
+  want="$(printf '%s' "$CA_FP" | sed 's/://g' | tr 'A-F' 'a-f')"
+  [ "$got" = "$want" ] || { echo "[!] CA fingerprint mismatch — refusing"; exit 1; }
+  echo "RP_CA_BUNDLE=/etc/remotepower/ca.crt" > /etc/remotepower/agent.env
+fi
+
+BIN=/usr/local/bin/remotepower-agent
+echo "[*] Downloading agent from $RP_SERVER ..."
+_fetch "$RP_SERVER/api/agent/download" "$BIN"
+chmod 755 "$BIN"
+
+echo "[*] Enrolling ..."
+if [ -n "$NAME" ]; then "$BIN" enroll-token --server "$RP_SERVER" --name "$NAME" --token "$TOKEN"
+else "$BIN" enroll-token --server "$RP_SERVER" --token "$TOKEN"; fi
+
+cat > /etc/systemd/system/remotepower-agent.service <<UNIT
+[Unit]
+Description=RemotePower agent
+After=network-online.target
+Wants=network-online.target
+[Service]
+ExecStart=$BIN run
+EnvironmentFile=-/etc/remotepower/agent.env
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable --now remotepower-agent 2>/dev/null || "$BIN" run &
+echo "[+] Done — this host appears in the dashboard within ~60s."
+'''
+
+
+def _render_agent_install(environ):
+    """Build the agent-install script with the server URL derived from the
+    request environment. Pure — unit-testable without the CGI plumbing."""
+    host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
+    host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]   # defensive
+    proto = (environ.get('HTTP_X_FORWARDED_PROTO')
+             or environ.get('REQUEST_SCHEME')
+             or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
+    if proto not in ('http', 'https'):
+        proto = 'https'
+    return _AGENT_INSTALL_SH.replace('@@SERVER@@', f"{proto}://{host}")
+
+
+def handle_agent_install():
+    """GET /api/agent/install (and /install) — serve the one-line agent
+    installer with this server's URL baked in. Auth-exempt: it embeds no secret
+    (the caller passes a one-time --token) and the server URL is public, exactly
+    like the agent binary it downloads."""
+    body = _render_agent_install(os.environ).encode()
+    print("Status: 200 OK")
+    print("Content-Type: text/x-shellscript; charset=utf-8")
+    print(f"Content-Length: {len(body)}")
+    print("Cache-Control: no-store")
+    print()
+    sys.stdout.flush(); sys.stdout.buffer.write(body); sys.stdout.buffer.flush(); sys.exit(0)
 
 
 def handle_self_status():
@@ -41414,6 +41508,7 @@ def _build_exact_routes():
         ('GET', '/api/acme/dns-credentials'): handle_acme_dns_credentials_get,
         ('POST', '/api/acme/dns-credentials'): handle_acme_dns_credentials_set,
         ('GET', '/api/agent/download'): handle_agent_download,
+        ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
         ('GET', '/api/agent/signature'): handle_agent_signature,
         ('GET', '/api/signing/status'): handle_signing_status,

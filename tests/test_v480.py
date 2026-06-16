@@ -150,6 +150,44 @@ class TestNativeConfirmMigrated(unittest.TestCase):
             self.assertEqual(bad, [], f"{name} still calls native prompt(): {bad}")
 
 
+class TestServedAgentInstaller(unittest.TestCase):
+    """v4.8.0: GET /api/agent/install (alias /install) serves a one-line agent
+    installer with the requesting server's URL baked in — the foundation for the
+    'Add device' one-liner and SSH-push."""
+
+    def test_url_baked_from_request(self):
+        s = api._render_agent_install({"HTTP_HOST": "rp.lan", "REQUEST_SCHEME": "https"})
+        self.assertIn('RP_SERVER="https://rp.lan"', s)
+        self.assertNotIn("@@SERVER@@", s)
+        self.assertIn("/api/agent/download", s)   # downloads the binary
+        self.assertIn("enroll-token", s)          # enrols with --token
+        self.assertIn("--token", s)
+
+    def test_https_default(self):
+        s = api._render_agent_install({"HTTP_HOST": "h"})
+        self.assertIn('RP_SERVER="https://h"', s)
+
+    def test_host_sanitized_no_shell_break(self):
+        s = api._render_agent_install({"HTTP_HOST": 'a";id;`x` $y', "REQUEST_SCHEME": "https"})
+        line = [l for l in s.splitlines() if l.startswith("RP_SERVER=")][0]
+        self.assertEqual(line.count('"'), 2)               # only the wrapping quotes
+        for bad in (";", "$", "`", " "):
+            self.assertNotIn(bad, line)
+
+    def test_script_is_valid_posix_sh(self):
+        import subprocess
+        s = api._render_agent_install({"HTTP_HOST": "h"})
+        p = Path(tempfile.gettempdir()) / "rp_install_test.sh"
+        p.write_text(s)
+        r = subprocess.run(["sh", "-n", str(p)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_endpoint_registered_and_exempt(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("'/api/agent/install'", src)         # route + exempt list
+        self.assertIn("def handle_agent_install", src)
+
+
 class TestAuditClearDiagnostics(unittest.TestCase):
     """v4.8.0: the clear-audit-log gate reports WHY it failed (missing / wrong /
     no-local-password) instead of one ambiguous 'password required' that read as
