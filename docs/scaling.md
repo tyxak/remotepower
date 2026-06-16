@@ -1,9 +1,15 @@
-# Scaling RemotePower to large fleets (1000+ agents)
+# Advanced: scaling RemotePower to a heavy fleet (1000+ agents)
 
-RemotePower runs fine on a single small box for a typical homelab or a few
-hundred hosts. This guide is for **large fleets — roughly 1,000 agents and up**,
-where the defaults start to strain. It explains *what actually limits scale*,
-then the levers, in the order you should pull them.
+> **ADVANCED — you do NOT need any of this for a normal install.** A single box
+> with the default SQLite backend comfortably runs a typical homelab / SMB fleet
+> (up to a few hundred hosts). Postgres, HA, satellites, app nodes and load
+> balancers below are a separate **heavy-fleet** track — ignore them unless you
+> are genuinely at large scale. The [installer](install.md) never asks about any
+> of it.
+
+This guide is for **large fleets — roughly 1,000 agents and up**, where the
+defaults start to strain. It explains *what actually limits scale*, then the
+levers, in the order you should pull them.
 
 > TL;DR for 1000+: **(1) move the storage backend to PostgreSQL, (2) raise the
 > agent poll interval, (3) widen the fcgiwrap worker pool, and only then (4) go

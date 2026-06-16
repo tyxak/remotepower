@@ -96,7 +96,8 @@ running 5–50 devices, fine up to a few
 hundred — and for larger or write-heavy fleets you can switch to an optional
 embedded **SQLite** backend, or scale all the way to **PostgreSQL** (failover +
 read replicas), load-balanced **app nodes** and **relay satellites** for segmented
-networks. See **[docs/scaling.md](docs/scaling.md)**.
+networks. That's an **advanced, heavy-fleet** track — most installs never touch
+it. See **[docs/scaling.md](docs/scaling.md)**.
 
 ## Quick start
 
