@@ -647,6 +647,43 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
     return findings
 
 
+def get_gpu_status():
+    """v4.8.0 (#A3): NVIDIA GPU telemetry via nvidia-smi. Emits the SAME CSV the
+    Linux agent parses into the SAME `gpus` schema, so the fleet GPU page renders
+    Windows GPU boxes (ML / CAD / render rigs) with no server change. Empty list
+    when nvidia-smi isn't on PATH (no driver / non-NVIDIA). NVIDIA is the common
+    Windows GPU-telemetry tool; AMD/Intel live metrics aren't covered here.
+    Runs only on the slow cadence (see build_heartbeat) — the 10s timeout keeps a
+    hung driver query off the heartbeat hot path."""
+    def _num(x):
+        try:
+            return round(float(x), 1)
+        except (ValueError, TypeError):
+            return None
+    gpus = []
+    try:
+        r = subprocess.run(
+            ['nvidia-smi',
+             '--query-gpu=name,utilization.gpu,memory.used,memory.total,'
+             'temperature.gpu,power.draw,fan.speed',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return gpus
+    if r.returncode != 0:
+        return gpus
+    for ln in r.stdout.splitlines():
+        c = [x.strip() for x in ln.split(',')]
+        if len(c) < 6:
+            continue
+        gpus.append({'vendor': 'nvidia', 'name': c[0][:96],
+                     'util_pct': _num(c[1]), 'mem_used_mb': _num(c[2]),
+                     'mem_total_mb': _num(c[3]), 'temp_c': _num(c[4]),
+                     'power_w': _num(c[5]),
+                     'fan_pct': _num(c[6]) if len(c) > 6 else None})
+    return gpus
+
+
 def build_heartbeat(creds, poll_count, pending_output=None):
     """Assemble the heartbeat payload. Pure (no network) — unit-testable."""
     payload = {
@@ -666,6 +703,9 @@ def build_heartbeat(creds, poll_count, pending_output=None):
         accounts = get_local_accounts()        # local users → account audit card
         if accounts:
             payload['accounts'] = accounts
+        gpus = get_gpu_status()                 # NVIDIA GPU telemetry → fleet GPU page
+        if gpus:
+            payload['gpus'] = gpus
     # v3.14.0 #35: opt-in secrets scan on its own ~6h cadence (config from the
     # previous heartbeat response, stashed in _secrets_cfg by heartbeat_once).
     if _secrets_cfg.get('on') and (poll_count <= 1 or poll_count % SECRETS_SCAN_EVERY == 0):

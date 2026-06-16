@@ -150,6 +150,30 @@ class TestNativeConfirmMigrated(unittest.TestCase):
             self.assertEqual(bad, [], f"{name} still calls native prompt(): {bad}")
 
 
+class TestWinAgentGpu(unittest.TestCase):
+    """#A3 (Windows GPU): nvidia-smi telemetry on the slow cadence, emitting the
+    SAME `gpus` schema the Linux agent does (zero server change)."""
+
+    WIN = (_ROOT / "client" / "remotepower-agent-win.py").read_text()
+
+    def test_win_has_nvidia_gpu_collector(self):
+        self.assertIn("def get_gpu_status", self.WIN)
+        self.assertIn("nvidia-smi", self.WIN)
+        self.assertIn("payload['gpus']", self.WIN)
+
+    def test_win_gpu_schema_matches_linux(self):
+        # Same keys the Linux agent emits + the fleet GPU page consumes.
+        for key in ("'vendor'", "util_pct", "mem_used_mb", "mem_total_mb",
+                    "temp_c", "power_w", "fan_pct"):
+            self.assertIn(key, self.WIN, f"win GPU entry missing {key}")
+
+    def test_win_gpu_is_slow_cadence(self):
+        # Must ride the existing slow gate (poll_count % 12), not every heartbeat.
+        i = self.WIN.index("payload['gpus']")
+        window = self.WIN[max(0, i - 1200):i]
+        self.assertIn("poll_count % 12", window)
+
+
 class TestMacAgentParity(unittest.TestCase):
     """#A1/#A2: the macOS agent gains listening-ports + saturation-metric parity
     with Linux/Windows, using the same sysinfo field names so server checks/UI
