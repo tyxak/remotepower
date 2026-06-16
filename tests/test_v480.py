@@ -159,9 +159,29 @@ class TestServedAgentInstaller(unittest.TestCase):
         s = api._render_agent_install({"HTTP_HOST": "rp.lan", "REQUEST_SCHEME": "https"})
         self.assertIn('RP_SERVER="https://rp.lan"', s)
         self.assertNotIn("@@SERVER@@", s)
+        self.assertNotIn("@@TOKEN@@", s)
         self.assertIn("/api/agent/download", s)   # downloads the binary
         self.assertIn("enroll-token", s)          # enrols with --token
         self.assertIn("--token", s)
+
+    def test_token_baked_from_query(self):
+        s = api._render_agent_install({"HTTP_HOST": "rp.lan", "REQUEST_SCHEME": "https",
+                                       "QUERY_STRING": "t=rp_TOK12345"})
+        self.assertIn('RP_TOKEN="rp_TOK12345"', s)   # one-line wget|sh, no args
+        self.assertNotIn("@@TOKEN@@", s)
+
+    def test_token_sanitized(self):
+        s = api._render_agent_install({"HTTP_HOST": "h", "QUERY_STRING": "t=a;b`c$d e"})
+        line = [l for l in s.splitlines() if l.startswith("RP_TOKEN=")][0]
+        val = line.split('"')[1]                 # the value between the quotes
+        for bad in (";", "$", "`", " ", '"'):
+            self.assertNotIn(bad, val)
+
+    def test_integrity_and_uninstall_present(self):
+        s = api._render_agent_install({"HTTP_HOST": "h"})
+        self.assertIn("/api/agent/version", s)     # fetches the published sha256
+        self.assertIn("checksum mismatch", s)      # refuses a tampered binary
+        self.assertIn("--uninstall", s)            # supports uninstall
 
     def test_https_default(self):
         s = api._render_agent_install({"HTTP_HOST": "h"})

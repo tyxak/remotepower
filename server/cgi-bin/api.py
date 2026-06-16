@@ -14976,6 +14976,7 @@ _AGENT_INSTALL_SH = r'''#!/bin/sh
 #   curl -fsSL @@SERVER@@/install | sh -s -- --token <enrollment-token> [--ca-fingerprint FP] [--name NAME]
 set -eu
 RP_SERVER="@@SERVER@@"
+RP_TOKEN="@@TOKEN@@"   # baked one-time enrolment token (empty if not a baked link)
 # Uninstall:  curl -fsSL @@SERVER@@/install | sudo sh -s -- --uninstall
 if [ "${1:-}" = "--uninstall" ]; then
   [ "$(id -u)" = "0" ] || { echo "[!] run as root (use sudo)"; exit 1; }
@@ -14998,8 +14999,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$(id -u)" = "0" ] || { echo "[!] run as root (use sudo)"; exit 1; }
-[ -n "$TOKEN" ] || { echo "[!] missing --token — generate one in the dashboard (Add device)"; exit 1; }
+[ -n "$TOKEN" ] || TOKEN="$RP_TOKEN"   # fall back to the baked token
+[ -n "$TOKEN" ] || { echo "[!] no enrolment token — use a baked link (Add device → Quick install) or pass --token"; exit 1; }
 _fetch() { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"; else wget -qO "$2" "$1"; fi; }
+_get()   { if command -v curl >/dev/null 2>&1; then curl -fsSL "$1"; else wget -qO- "$1"; fi; }
 
 mkdir -p /etc/remotepower
 # Optional self-signed CA pin: fetch over the same server, verify the SHA-256
@@ -15017,6 +15020,17 @@ BIN=/usr/local/bin/remotepower-agent
 echo "[*] Downloading agent from $RP_SERVER ..."
 _fetch "$RP_SERVER/api/agent/download" "$BIN"
 chmod 755 "$BIN"
+
+# Integrity: verify the binary against the SHA-256 the server publishes (over the
+# same trusted HTTPS) before running it — refuse a tampered/corrupt download.
+_want="$(_get "$RP_SERVER/api/agent/version" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]\{64\}\)".*/\1/p' | head -1)"
+if [ -n "$_want" ]; then
+  if command -v sha256sum >/dev/null 2>&1; then _got="$(sha256sum "$BIN" | awk '{print $1}')"
+  else _got="$(shasum -a 256 "$BIN" | awk '{print $1}')"; fi
+  [ "$(printf '%s' "$_got" | tr 'A-F' 'a-f')" = "$(printf '%s' "$_want" | tr 'A-F' 'a-f')" ] || {
+    echo "[!] agent checksum mismatch — refusing to run a tampered binary"; rm -f "$BIN"; exit 1; }
+  echo "[+] integrity verified (sha256)"
+fi
 
 echo "[*] Enrolling ..."
 if [ -n "$NAME" ]; then "$BIN" enroll-token --server "$RP_SERVER" --name "$NAME" --token "$TOKEN"
@@ -15042,8 +15056,8 @@ echo "[+] Done — this host appears in the dashboard within ~60s."
 
 
 def _render_agent_install(environ):
-    """Build the agent-install script with the server URL derived from the
-    request environment. Pure — unit-testable without the CGI plumbing."""
+    """Build the agent-install script with the server URL (and optionally a baked
+    enrolment token from `?t=`) derived from the request. Pure — unit-testable."""
     host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
     host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]   # defensive
     proto = (environ.get('HTTP_X_FORWARDED_PROTO')
@@ -15051,7 +15065,15 @@ def _render_agent_install(environ):
              or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
     if proto not in ('http', 'https'):
         proto = 'https'
-    return _AGENT_INSTALL_SH.replace('@@SERVER@@', f"{proto}://{host}")
+    # Baked token: "Add device" mints a one-time token and links
+    # <server>/install?t=<token>, so the operator runs a SINGLE wget|sh with NO
+    # args — the device enrols itself and shows up by hostname.
+    qs = urllib.parse.parse_qs(environ.get('QUERY_STRING', ''))
+    token = (qs.get('t') or qs.get('token') or [''])[0]
+    token = re.sub(r'[^A-Za-z0-9._\-]', '', token)[:128]
+    return (_AGENT_INSTALL_SH
+            .replace('@@SERVER@@', f"{proto}://{host}")
+            .replace('@@TOKEN@@', token))
 
 
 def handle_agent_install():

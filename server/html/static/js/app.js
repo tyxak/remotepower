@@ -2066,6 +2066,48 @@ function copyDockerEnroll() {
   navigator.clipboard.writeText(pre.dataset.rawText || pre.textContent || '');
   toast('Compose copied to clipboard', 'success');
 }
+// v4.8.0: one-line "baked" install. Mints a one-time token and hands the
+// operator a single command — the served installer downloads the agent, VERIFIES
+// its sha256, enrols with the baked token and the host appears by its hostname.
+async function generateQuickInstall() {
+  const box = document.getElementById('enroll-quick-result');
+  if (!box) return;
+  box.textContent = '';
+  const minting = document.createElement('div');
+  minting.className = 'c-muted'; minting.textContent = 'Minting one-time token…';
+  box.appendChild(minting);
+  let data;
+  try {
+    data = await api('POST', '/enrollment-tokens', { label: 'quick-install', expires_in: 86400 });
+  } catch (e) {
+    box.textContent = '';
+    toast('Could not mint enrollment token (admin only)', 'error');
+    return;
+  }
+  const token = (data && data.token) || '';
+  const server = window.location.origin;
+  const cmd = `wget -qO- "${server}/install?t=${token}" | sudo sh`;
+  box.textContent = '';
+  const hint = document.createElement('div');
+  hint.className = 'hint mb-6';
+  hint.textContent = 'Run on the target host (as root). Downloads the signed agent, verifies it, enrols, and the host appears by its hostname. One-time token, expires in 24h.';
+  const pre = document.createElement('pre');
+  pre.id = 'enroll-quick-pre';
+  pre.className = 'ff-mono fs-12 enroll-docker-pre';
+  pre.textContent = cmd;
+  pre.dataset.rawText = cmd;
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn-secondary mt-12';
+  copyBtn.textContent = 'Copy command';
+  copyBtn.dataset.action = 'copyQuickEnroll';
+  box.appendChild(hint); box.appendChild(pre); box.appendChild(copyBtn);
+}
+function copyQuickEnroll() {
+  const pre = document.getElementById('enroll-quick-pre');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.dataset.rawText || pre.textContent || '');
+  toast('Command copied to clipboard', 'success');
+}
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
 function updatePinDisplay() { const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0'); const s = (pinSeconds % 60).toString().padStart(2, '0'); document.getElementById('pin-countdown').textContent = `${m}:${s}`; }
 let monitorTargets = [];
