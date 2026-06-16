@@ -305,6 +305,10 @@ IMAGE_SCAN_BUDGET_SEC  = 20
 IMAGE_SCAN_HTTP_TIMEOUT = 4.0
 TLS_TARGETS_FILE = DATA_DIR / 'tls_targets.json'
 TLS_RESULTS_FILE = DATA_DIR / 'tls_results.json'
+# v4.8.0: DMARC posture monitor (DNS-only — SPF / DKIM / DMARC records).
+DMARC_TARGETS_FILE = DATA_DIR / 'dmarc_targets.json'
+DMARC_RESULTS_FILE = DATA_DIR / 'dmarc_results.json'
+MAX_DMARC_TARGETS = 200
 # Agentless devices live in the regular devices.json with a special marker
 # (`agentless: True`). Network map is rendered from the existing devices
 # data plus a new `connected_to: <device_id>` field on each record. No
@@ -560,6 +564,8 @@ import proxmox_client
 # v1.11.0: TLS/DNS expiry monitor. Server-side cron-driven probes; results
 # stored alongside the watchlist for UI rendering and webhook alerting.
 import tls_monitor
+# v4.8.0: DMARC posture monitor — DNS-only SPF/DKIM/DMARC record grading.
+import dmarc_monitor
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
@@ -18731,6 +18737,103 @@ def handle_tls_scan() -> None:
     save(TLS_RESULTS_FILE, results)
     audit_log(actor, 'tls_scan', detail=f'targets={len(targets)}')
     respond(200, {'ok': True, 'scanned': len(results)})
+
+
+# ─── v4.8.0: DMARC posture monitor (DNS-only) ────────────────────────────────
+
+def _dmarc_targets() -> dict:
+    s = load(DMARC_TARGETS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _dmarc_results() -> dict:
+    s = load(DMARC_RESULTS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def handle_dmarc_list() -> None:
+    """``GET /api/dmarc/targets`` — domains + last posture result in one round-trip."""
+    require_auth()
+    targets = _dmarc_targets()
+    results = _dmarc_results()
+    out = []
+    for tid, t in targets.items():
+        if not isinstance(t, dict):
+            continue
+        r = results.get(tid) or {}
+        out.append({
+            'id':            tid,
+            'domain':        t.get('domain', ''),
+            'dkim_selector': t.get('dkim_selector', ''),
+            'label':         t.get('label', ''),
+            'status':        r.get('status', 'unknown'),
+            'reasons':       r.get('reasons', []),
+            'dmarc':         r.get('dmarc', {}),
+            'spf':           r.get('spf', {}),
+            'dkim':          r.get('dkim', {}),
+            'errors':        r.get('errors', {}),
+            'checked_at':    r.get('checked_at', 0),
+        })
+    rank = {'fail': 0, 'weak': 1, 'unknown': 2, 'ok': 3}
+    out.sort(key=lambda x: (rank.get(x['status'], 2), x['domain']))
+    respond(200, out)
+
+
+def handle_dmarc_add() -> None:
+    """``POST /api/dmarc/targets`` — add a domain to the watchlist. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    parsed = dmarc_monitor.parse_target(get_json_body())
+    if parsed is None:
+        respond(400, {'error': 'invalid — a valid domain is required'})
+    targets = _dmarc_targets()
+    if len(targets) >= MAX_DMARC_TARGETS:
+        respond(400, {'error': f'max {MAX_DMARC_TARGETS} DMARC domains'})
+    new_id = 'dmarc_' + secrets.token_hex(6)
+    targets[new_id] = parsed
+    save(DMARC_TARGETS_FILE, targets)
+    audit_log(actor, 'dmarc_target_add', detail=f'domain={parsed["domain"]}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_dmarc_delete(target_id: str) -> None:
+    """``DELETE /api/dmarc/targets/{id}`` — remove a domain. Admin only."""
+    actor = require_admin_auth()
+    if not target_id.startswith('dmarc_'):
+        respond(404, {'error': 'target not found'})
+    targets = _dmarc_targets()
+    if target_id not in targets:
+        respond(404, {'error': 'target not found'})
+    domain = targets[target_id].get('domain', '?')
+    del targets[target_id]
+    save(DMARC_TARGETS_FILE, targets)
+    results = _dmarc_results()
+    results.pop(target_id, None)
+    save(DMARC_RESULTS_FILE, results)
+    audit_log(actor, 'dmarc_target_delete', detail=f'domain={domain}')
+    respond(200, {'ok': True})
+
+
+def handle_dmarc_scan() -> None:
+    """``POST /api/dmarc/scan`` — re-check every domain now (synchronous; DNS is
+    fast). Admin only because it makes outbound DNS queries from the server."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    targets = _dmarc_targets()
+    results = _dmarc_results()
+    for tid, t in targets.items():
+        if not isinstance(t, dict):
+            continue
+        try:
+            results[tid] = dmarc_monitor.check_domain(
+                t.get('domain', ''), t.get('dkim_selector', ''))
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] dmarc check failed {t.get("domain")}: {e}\n')
+    save(DMARC_RESULTS_FILE, results)
+    audit_log(actor, 'dmarc_scan', detail=f'domains={len(targets)}')
+    respond(200, {'ok': True, 'scanned': len(targets)})
 
 
 # ─── v1.11.0: agentless devices + network map ────────────────────────────────
@@ -41812,6 +41915,9 @@ def _build_exact_routes():
         ('POST', '/api/tasks'): handle_tasks_add,
         ('GET', '/api/tls/targets'): handle_tls_list,
         ('POST', '/api/tls/targets'): handle_tls_add,
+        ('GET', '/api/dmarc/targets'): handle_dmarc_list,
+        ('POST', '/api/dmarc/targets'): handle_dmarc_add,
+        ('POST', '/api/dmarc/scan'): handle_dmarc_scan,
         ('POST', '/api/totp/confirm'): handle_totp_confirm,
         ('POST', '/api/totp/disable'): handle_totp_disable,
         ('POST', '/api/totp/setup'): handle_totp_setup,
@@ -42423,6 +42529,8 @@ def _dispatch(pi, m):
         handle_tls_update(pi[len('/api/tls/targets/'):])
     elif pi.startswith('/api/tls/targets/') and m == 'DELETE':
         handle_tls_delete(pi[len('/api/tls/targets/'):])
+    elif pi.startswith('/api/dmarc/targets/') and m == 'DELETE':
+        handle_dmarc_delete(pi[len('/api/dmarc/targets/'):])
     elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
 
     # ── v1.11.0: network map + agentless device link ──────────────────────

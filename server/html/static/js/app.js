@@ -1442,6 +1442,7 @@ function showPage(name, btn) {
   if (name === 'integrations') loadIntegrationsPage();
   if (name === 'gpus')       loadGpus();
   if (name === 'thermal')    loadThermal();
+  if (name === 'dmarc')      loadDmarc();
   if (name === 'ssh-keys')   loadSshKeys();
   if (name === 'power')      loadPower();
   if (name === 'disk-health') loadDiskHealth();
@@ -12833,6 +12834,63 @@ function _renderStorage() {
 
 // ─── v3.14.0: Fleet thermal roll-up ("hottest hosts") ───────────────────────
 let _thermalResp = null;
+// ─── v4.8.0: DMARC posture monitor ───────────────────────────────────────────
+let _dmarcRegistered = false;
+function _registerDmarcTable() {
+  if (_dmarcRegistered) return;
+  _dmarcRegistered = true;
+  tableCtl.register({
+    name: 'dmarc', tbody: 'dmarc-tbody', filterInput: 'dmarc-filter',
+    sortHeaders: 'dmarc-thead', colspan: 8,
+    columns: ['domain', 'status', 'dmarc', 'spf', 'dkim', 'checked'],
+    getColumns: (d) => ({
+      domain: d.domain || '',
+      status: ({ fail: 0, weak: 1, unknown: 2, ok: 3 })[d.status] ?? 2,
+      dmarc:  (d.dmarc && d.dmarc.policy) || '',
+      spf:    (d.spf && d.spf.all) || '',
+      dkim:   d.dkim && d.dkim.present ? 1 : 0,
+      checked: d.checked_at || 0,
+    }),
+    row: (d) => {
+      const cls = { ok: 'c-green', weak: 'c-amber', fail: 'c-red', unknown: 'c-muted' }[d.status] || 'c-muted';
+      const pol = (d.dmarc && d.dmarc.policy) ? escHtml(d.dmarc.policy) : '—';
+      const spf = (d.spf && d.spf.all) ? escHtml(d.spf.all + 'all') : '—';
+      const dkim = d.dkim_selector ? (d.dkim && d.dkim.present ? 'ok' : 'missing') : '—';
+      const reasons = (d.reasons || []).map(escHtml).join('; ') || (d.status === 'ok' ? 'enforcing + reporting' : '');
+      const when = d.checked_at ? new Date(d.checked_at * 1000).toLocaleString() : 'never';
+      return `<tr><td class="fw-500">${escHtml(d.domain)}</td><td class="${cls}">${escHtml(d.status)}</td><td>${pol}</td><td>${spf}</td><td>${dkim}</td><td class="hint">${reasons}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteDmarc" data-arg="${escAttr(d.id)}" title="Remove domain">Remove</button></td></tr>`;
+    },
+    emptyMsg: 'No domains yet. Add one to monitor its SPF / DKIM / DMARC posture.',
+    emptyMsgFiltered: 'No domains match the filter.',
+  });
+}
+async function loadDmarc() {
+  _registerDmarcTable();
+  const data = await api('GET', '/dmarc/targets');
+  if (!data) return;
+  tableCtl.render('dmarc', data || []);
+}
+async function dmarcAdd() {
+  const domain = await uiPrompt({ title: 'Add domain', message: 'Domain to monitor (e.g. example.com):', confirmText: 'Add' });
+  if (!domain) return;
+  const selector = await uiPrompt({ title: 'DKIM selector (optional)', message: 'DKIM selector to check (e.g. "google", "default"), or leave blank:', confirmText: 'Add' });
+  const r = await api('POST', '/dmarc/targets', { domain: domain, dkim_selector: selector || '' });
+  if (r && r.ok) { toast('Domain added — checking…', 'success'); await dmarcScan(); }
+  else toast((r && r.error) || 'Could not add domain', 'error');
+}
+async function dmarcScan() {
+  toast('Checking DNS records…', 'info');
+  const r = await api('POST', '/dmarc/scan', {});
+  if (r && r.ok) { toast(`Scanned ${r.scanned} domain(s)`, 'success'); loadDmarc(); }
+  else toast((r && r.error) || 'Scan failed', 'error');
+}
+async function deleteDmarc(id) {
+  if (!await uiConfirm('Remove this domain from the DMARC monitor?')) return;
+  const r = await api('DELETE', '/dmarc/targets/' + encodeURIComponent(id));
+  if (r && r.ok) { toast('Removed', 'info'); loadDmarc(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
 async function loadThermal() {
   const tbody = document.getElementById('thermal-tbody');
   const summary = document.getElementById('thermal-summary');
@@ -23045,6 +23103,7 @@ function _homeNavAction(btn) {
     case 'scans':    showPage('scans',            document.querySelector('.nav-btn[data-page="scans"]')); break;
     case 'storage':  showPage('storage',         document.querySelector('.nav-btn[data-page="storage"]')); break;
     case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
+    case 'dmarc':    showPage('dmarc',           document.querySelector('.nav-btn[data-page="dmarc"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
     // v4.7.0: integration health → the dedicated Integrations page

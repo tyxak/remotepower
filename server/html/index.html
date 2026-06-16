@@ -327,6 +327,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           <span>TLS / DNS Expiry</span>
         </button>
+        <button class="nav-btn" data-page="dmarc" title="DMARC / SPF / DKIM email-authentication posture for your domains">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+          <span>DMARC</span>
+        </button>
       </div>
     </div>
 
@@ -5046,6 +5050,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
+      <div id="page-dmarc" class="page">
+        <div class="page-title">DMARC</div>
+        <div class="page-subtitle">Email-authentication posture for your domains — SPF, DKIM and DMARC records, checked over DNS. No mailbox needed.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="dmarcAdd">+ Add domain</button>
+          <button class="btn-icon" data-action="dmarcScan">Scan now</button>
+          <button class="btn-icon" data-action="loadDmarc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" id="dmarc-filter" class="form-input isl-177" placeholder="Filter by domain or status…" aria-label="Filter by domain or status">
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="dmarc-thead"><tr>
+                <th data-col="domain">Domain</th>
+                <th data-col="status">Status</th>
+                <th data-col="dmarc">DMARC</th>
+                <th data-col="spf">SPF</th>
+                <th data-col="dkim">DKIM</th>
+                <th>Findings</th>
+                <th data-col="checked">Checked</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="dmarc-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       <div id="page-tls" class="page">
         <!-- v3.2.0 follow-up: page-title moved inside the expiry panel so
              it disappears when viewing the ACME panel (which has its own
