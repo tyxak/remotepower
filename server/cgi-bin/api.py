@@ -14976,6 +14976,17 @@ _AGENT_INSTALL_SH = r'''#!/bin/sh
 #   curl -fsSL @@SERVER@@/install | sh -s -- --token <enrollment-token> [--ca-fingerprint FP] [--name NAME]
 set -eu
 RP_SERVER="@@SERVER@@"
+# Uninstall:  curl -fsSL @@SERVER@@/install | sudo sh -s -- --uninstall
+if [ "${1:-}" = "--uninstall" ]; then
+  [ "$(id -u)" = "0" ] || { echo "[!] run as root (use sudo)"; exit 1; }
+  echo "[*] Uninstalling RemotePower agent ..."
+  systemctl disable --now remotepower-agent 2>/dev/null || true
+  rm -f /etc/systemd/system/remotepower-agent.service /usr/local/bin/remotepower-agent
+  rm -rf /etc/remotepower
+  systemctl daemon-reload 2>/dev/null || true
+  echo "[+] Agent uninstalled (this host stops reporting; remove it from the dashboard)."
+  exit 0
+fi
 TOKEN=""; CA_FP=""; NAME=""
 while [ $# -gt 0 ]; do
   case "$1" in

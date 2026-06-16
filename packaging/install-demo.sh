@@ -66,6 +66,29 @@ if [[ $# -eq 0 ]] || [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+# ─── Uninstall (sudo bash install-demo.sh --uninstall [--data-dir DIR]) ──────
+if [[ "${1:-}" == "--uninstall" ]]; then
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in --data-dir) DEMO_DATA_DIR="$2"; shift 2 ;; *) shift ;; esac
+  done
+  [[ "$EUID" -ne 0 ]] && { echo "Run as root: sudo bash $0 --uninstall"; exit 1; }
+  [[ "$DEMO_DATA_DIR" == "/var/lib/remotepower" ]] && { echo "✗ refusing to touch the PRODUCTION data dir"; exit 1; }
+  echo "── Uninstalling RemotePower demo…"
+  # Safety: only remove a dir that carries the demo marker (never real data).
+  if [[ -e "$DEMO_DATA_DIR/.rp-demo-marker" ]]; then
+    rm -rf "$DEMO_DATA_DIR" && echo "  removed demo data: $DEMO_DATA_DIR"
+  else
+    echo "  (no .rp-demo-marker at $DEMO_DATA_DIR — left it alone)"
+  fi
+  rm -f "$NGINX_SITES_AVAIL/remotepower-demo" "$NGINX_SITES_ENABL/remotepower-demo" \
+        /etc/nginx/conf.d/remotepower-demo.conf 2>/dev/null || true
+  echo "  removed demo nginx vhost"
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
+  echo "✓ Demo uninstalled."
+  exit 0
+fi
+
 DEMO_HOST="$1"; shift
 while [[ $# -gt 0 ]]; do
   case "$1" in

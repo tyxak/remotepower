@@ -79,7 +79,7 @@ note()      { printf "${DIM}   %s${RST}\n" "$1"; }
 # ── state ────────────────────────────────────────────────────────────────────
 MODE="interactive"; DRY=0
 HOST=""; TLS_MODE=""; ADMIN_USER="admin"; ADMIN_PASS=""; PORT=""
-PREFIX=""; SANDBOX=0; PKG_MGR=""; NGINX_USER=""; CA_FP=""
+PREFIX=""; SANDBOX=0; PKG_MGR=""; NGINX_USER=""; CA_FP=""; PURGE=0
 
 usage() {
   cat <<EOF
@@ -89,6 +89,7 @@ ${B}RemotePower installer ${VERSION}${RST}
 
 Commands:
   install        Interactive setup wizard (default)
+  uninstall      Remove the server (keeps data; --purge to wipe it too)
   tls            (Re)issue or renew TLS certificates
   passwd         Manage admin accounts
   update         Update an existing install in place
@@ -102,6 +103,7 @@ Options:
   --admin-pass P Admin password (else prompted, or generated)
   --port N       HTTPS port (default: 443)
   --unattended   No prompts, no eye candy (CI / Ansible)
+  --purge        (uninstall) also delete /var/lib/remotepower data
   --demo         Show the full visual flow without changing anything
   --dry-run      Print actions instead of running them
   -h, --help     This help
@@ -357,6 +359,30 @@ cmd_install() {
   summary_card
 }
 
+# ── uninstall the server (data-safe by default) ──────────────────────────────
+cmd_uninstall() {
+  banner; section "Uninstalling RemotePower server"
+  if [ "$SANDBOX" = 0 ]; then
+    systemctl disable --now remotepower-api 2>/dev/null || true   # our SCGI worker (fcgiwrap is generic — left alone)
+  fi
+  rm -f "$(_p "$NGX")/sites-available/remotepower" \
+        "$(_p "$NGX")/sites-enabled/remotepower" \
+        "$(_p "$NGX")/conf.d/remotepower.conf" \
+        "$(_p "$NGX")/snippets/remotepower-locations.conf" \
+        "$(_p "$NGX")/snippets/remotepower-ssl.conf" 2>/dev/null || true
+  step_ok "nginx config removed"
+  [ "$SANDBOX" = 0 ] && { nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true; }
+  rm -f "$(_p /etc/systemd/system/remotepower-api.service)" 2>/dev/null || true
+  rm -rf "$(_p "$WWW")"; step_ok "web + backend removed (${WWW})"
+  rm -rf "$(_p "$RPETC")/tls"; step_ok "TLS certs removed (${RPETC}/tls)"
+  if [ "$PURGE" = 1 ]; then
+    rm -rf "$(_p "$DATA")"; step_no "DATA PURGED (${DATA}) — users / devices / history are gone"
+  else
+    step_wait "kept your data: ${DATA} (users / devices / history) — re-run with --purge to wipe it"
+  fi
+  echo; note "RemotePower server uninstalled."; echo
+}
+
 # ── agent: print the enrol one-liner, or push it over SSH ────────────────────
 # `remotepower agent push --server URL --token T user@host …` runs the served
 # one-line installer on each host over SSH. Operator-side (uses YOUR ssh), so the
@@ -403,7 +429,7 @@ cmd_agent() {
 
 # ── arg parsing / dispatch ───────────────────────────────────────────────────
 CMD="install"
-case "${1:-}" in install|tls|passwd|update|doctor|agent) CMD="$1"; shift;; esac
+case "${1:-}" in install|uninstall|tls|passwd|update|doctor|agent) CMD="$1"; shift;; esac
 if [ "$CMD" = "agent" ]; then cmd_agent "$@"; exit $?; fi
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -415,6 +441,7 @@ while [ $# -gt 0 ]; do
     --unattended) MODE="unattended"; shift;;
     --demo) MODE="demo"; HOST="${HOST:-rp.lan}"; TLS_MODE="${TLS_MODE:-self-signed}"; shift;;
     --dry-run) DRY=1; shift;;
+    --purge) PURGE=1; shift;;
     --sandbox) PREFIX="${2:-}"; SANDBOX=1; MODE="unattended"; shift 2;;
     -h|--help) usage; exit 0;;
     *) printf "${RED}unknown option: %s${RST}\n" "$1"; usage; exit 2;;
@@ -423,6 +450,7 @@ done
 
 case "$CMD" in
   install) cmd_install;;
+  uninstall) cmd_uninstall;;
   doctor)  banner; preflight; echo;;
   tls|passwd|update)
     banner; note "'$CMD' is part of the unified tool — wiring lands with the real install steps."; echo;;
