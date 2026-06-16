@@ -50,7 +50,6 @@ holds long-form docs that don't fit there.
  mitigation-route scope guards, shell-quoting the drift/ACME command builders,
  the RouterOS SSRF guard, metrics-scrape resilience, and Windows/macOS agent
  transport parity.
-- **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes
 

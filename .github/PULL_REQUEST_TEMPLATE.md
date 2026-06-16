@@ -17,7 +17,7 @@
 - [ ] New tables wire `tableCtl.wireSortOnly` + `sortRows` + `data-col`; variable-length panels are scroll-capped
 - [ ] Any always-on CSS animation uses `opacity`/`transform` only (no `box-shadow`/`background`/`width`)
 - [ ] If the Linux agent changed: `cp client/remotepower-agent.py client/remotepower-agent`
-- [ ] User-facing change is documented (in-app docs, README, `docs/Manual.html`, `docs/vX.Y.Z.md`)
+- [ ] User-facing change is documented (in-app docs, README, `docs/vX.Y.Z.md`)
 - [ ] No secrets, tokens, or real hostnames added to the repo
 
 ## Notes for reviewers

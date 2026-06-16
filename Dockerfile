@@ -33,8 +33,6 @@ COPY server/html/                   /var/www/remotepower/
 COPY server/cgi-bin/                /var/www/remotepower/cgi-bin/
 COPY server/remotepower-passwd      /var/www/remotepower/cgi-bin/remotepower-passwd
 COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
-# Long-form Manual.html — linked from the in-app Documentation page as /Manual.html.
-COPY docs/Manual.html               /var/www/remotepower/Manual.html
 # Publish product docs under the web root so the in-app "Documentation" links
 # (href="docs/<name>.md") resolve. (Also indexed for RAG from the data dir.)
 COPY docs/                          /var/www/remotepower/docs/

@@ -171,7 +171,6 @@ class TestSecurityAssets(unittest.TestCase):
     _SHIPPED_HTML = [
         ('server/html/index.html',   'index.html'),
         ('server/html/swagger.html', 'swagger.html'),
-        ('docs/Manual.html',         'Manual.html'),
     ]
 
     def test_no_inline_scripts_in_html(self):
@@ -274,12 +273,10 @@ class TestCSPMigrationFidelity(unittest.TestCase):
     HTML_FILES = [
         'server/html/index.html',
         'server/html/swagger.html',
-        'docs/Manual.html',
     ]
     CSS_FILES = [
         'server/html/static/css/styles.css',
         'server/html/static/css/swagger.css',
-        'server/html/static/css/manual.css',
     ]
 
     # Every DOM event that the browser will dispatch from an inline `on…=`

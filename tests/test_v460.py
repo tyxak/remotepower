@@ -63,9 +63,6 @@ class TestVersionBumps(unittest.TestCase):
     def test_whats_new_card_present(self):
         self.assertRegex(_HTML, r"What's new — v\d+\.\d+\.\d+")
 
-    def test_manual_version(self):
-        self.assertRegex((_ROOT / 'docs/Manual.html').read_text(), r'Version \d+\.\d+\.\d+ —')
-
 
 class TestIndustrialTheme(unittest.TestCase):
     """The New UI = body[data-ui="industrial"] design system, keeping the blue accent."""

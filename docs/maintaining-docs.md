@@ -11,14 +11,12 @@ effectively invisible, and a half-updated set of docs is worse than none.
    Documentation cards, including the "What's new — vX.Y.Z" card.
 2. **README.md** — the project overview and the "What you can do with it"
    feature list.
-3. **Manual.html** — `docs/Manual.html`, the long-form reference: the "what's
-   new" list at the top *and* the relevant topic section further down.
-4. **Release notes** — `docs/vX.Y.Z.md` for the version that introduces the
+3. **Release notes** — `docs/vX.Y.Z.md` for the version that introduces the
    feature.
-5. **"Did you know?" tips** — the `_DYK_TIPS` array in
+4. **"Did you know?" tips** — the `_DYK_TIPS` array in
    `server/html/static/js/app.js`. Add a one-line, capability-style tip for any
    feature a user would want to discover.
-6. **Full feature inventory** — `docs/features.md`. The detailed, grouped list
+5. **Full feature inventory** — `docs/features.md`. The detailed, grouped list
    (a per-version section) that README's "Full feature inventory" link points
    to; this is where a feature gets its longer write-up.
 

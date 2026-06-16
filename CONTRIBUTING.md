@@ -79,7 +79,7 @@ These rules exist because each has been broken and patched before:
   run `cp client/remotepower-agent.py client/remotepower-agent`
   (a test enforces byte-identity).
 - **Document user-facing changes** across the doc surfaces (in-app docs page,
-  README, `docs/Manual.html`, the per-version `docs/vX.Y.Z.md`).
+  README, the per-version `docs/vX.Y.Z.md`).
 - **One typography scale, one set of colors** — reuse the existing CSS literals;
   don't introduce new body sizes or ad-hoc colors.
 

@@ -197,7 +197,6 @@ in **[docs/](docs/)** — start with the index there. The essentials:
 | **Full feature inventory** | [docs/features.md](docs/features.md) |
 | **Architecture + on-disk layout** | [docs/architecture.md](docs/architecture.md) |
 | **API reference** (endpoints + OpenAPI) | [docs/api.md](docs/api.md) — interactive: `/swagger.html` |
-| **Reference manual** | [docs/Manual.html](docs/Manual.html) |
 | **Security notes** | [docs/security.md](docs/security.md) |
 | **Scaling & deployment** | [docs/scaling.md](docs/scaling.md) |
 | **Troubleshooting / Upgrading** | [docs/troubleshooting.md](docs/troubleshooting.md) · [docs/upgrading.md](docs/upgrading.md) |

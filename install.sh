@@ -204,7 +204,6 @@ _copy_files() {
   for f in "$SRC"/server/html/favicon.* "$SRC"/server/html/robots.txt "$SRC"/server/html/manifest.json "$SRC"/server/html/sw.js; do
     [ -f "$f" ] && install -m644 "$f" "$(_p "$WWW")/$(basename "$f")" || true
   done
-  [ -f "$SRC/docs/Manual.html" ] && install -m644 "$SRC/docs/Manual.html" "$(_p "$WWW")/Manual.html" || true
   [ -d "$SRC/server/html/static" ] && cp -rp "$SRC/server/html/static/." "$(_p "$WWW")/static/" || true
   for f in "$SRC"/server/cgi-bin/*.py; do
     if [ "$(basename "$f")" = "api.py" ]; then install -m755 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")"

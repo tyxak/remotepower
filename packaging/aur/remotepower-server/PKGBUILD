@@ -61,7 +61,6 @@ package() {
   cp -r server/html/static/. "$web/static/"
   find "$web/static" -type d -exec chmod 755 {} +
   find "$web/static" -type f -exec chmod 644 {} +
-  [ -f docs/Manual.html ] && install -m644 docs/Manual.html "$web/Manual.html"
   install -m644 docs/*.md   "$web/docs/" 2>/dev/null || true
   install -m644 docs/*.html "$web/docs/" 2>/dev/null || true
 

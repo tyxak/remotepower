@@ -197,11 +197,6 @@ for f in "$SCRIPT_DIR"/server/html/favicon.* \
     [[ -f "$f" ]] || continue
     install -m 644 "$f" /var/www/remotepower/"$(basename "$f")"
 done
-# Long-form Manual lives in docs/ but is linked from the dashboard as
-# /Manual.html — copy it to the web root.
-if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
-    install -m 644 "$SCRIPT_DIR/docs/Manual.html" /var/www/remotepower/Manual.html
-fi
 # v3.4.0: product Markdown docs into the data dir for the RAG indexer
 # (RAG_DOCS_DIR = /var/lib/remotepower/docs).
 if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null; then

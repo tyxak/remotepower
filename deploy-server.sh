@@ -95,14 +95,6 @@ for f in "$SCRIPT_DIR"/server/html/favicon.* \
     echo "      → $name"
 done
 
-# Long-form Manual.html lives in docs/ in the repo (developer-facing tree)
-# but is linked from the in-app Documentation page as /Manual.html — copy it
-# to the web root so that link works in production.
-if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
-    install -m 644 "$SCRIPT_DIR/docs/Manual.html" /var/www/remotepower/Manual.html
-    echo "      → Manual.html"
-fi
-
 # v3.4.0: deploy product Markdown docs into the DATA dir so the RAG indexer can
 # read them at runtime — RAG_DOCS_DIR defaults to /var/lib/remotepower/docs.
 RP_DATA_DIR_DEPLOY="${RP_DATA_DIR:-/var/lib/remotepower}"

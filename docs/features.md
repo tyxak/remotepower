@@ -1258,7 +1258,7 @@ primitive), making the intent explicit.
 
 ### Documentation coverage
 A full pass to keep every user-facing surface — README, the in-app
-Documentation page, `Manual.html`, the per-version docs and the "did-you-know"
+Documentation page, the per-version docs and the "did-you-know"
 tips — describing the current feature set.
 
 ## v4.5.0 additions — "TrustMatters"

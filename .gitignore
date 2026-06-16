@@ -4,6 +4,11 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 dist/
+.env
+.env.*
+*.pem
+*.key
+AGENTS.md
 
 # Local security-scan artifacts (Bandit/ZAP/Nikto/Nuclei/Wapiti bundles).
 # Kept on disk for the operator, never tracked.

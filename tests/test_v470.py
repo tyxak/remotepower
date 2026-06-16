@@ -64,9 +64,6 @@ class TestVersionBumps(unittest.TestCase):
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}", _HTML)
 
-    def test_manual_version(self):
-        self.assertIn(f'Version {self.V} —', (_ROOT / 'docs/Manual.html').read_text())
-
 
 class TestFeaturePresence(unittest.TestCase):
     """The two v4.7.0 features are wired into the build (deep tests elsewhere)."""

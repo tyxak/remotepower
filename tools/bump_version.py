@@ -17,8 +17,8 @@ Edits, in place (or just prints with --dry-run):
 
 It does NOT do the judgment steps — it prints them as a checklist instead:
 new tests/test_vXYZ.py strict pins, loosening the previous release's pins,
-the in-app Docs page + Manual.html "What's new" cards, and the docs
-housekeeping rule (keep the 5 most recent docs/vX.Y.Z.md).
+the in-app Docs page "What's new" cards, and the docs housekeeping rule
+(keep the 5 most recent docs/vX.Y.Z.md).
 
 The existing guardrail (test_vXYZ.TestVersionBumps) still verifies the
 result — this script removes the typo-prone editing, not the review.
@@ -115,7 +115,6 @@ Mechanical edits done. STILL MANUAL (judgment steps):
   [ ] loosen the previous release's strict pins to regex
   [ ] fill in CHANGELOG.md + docs/v{new}.md templates (codename, content)
   [ ] in-app Docs page "What's new" card (server/html/index.html ~Documentation)
-  [ ] docs/Manual.html changelog entry
   [ ] docs housekeeping: keep only the 5 most recent docs/vX.Y.Z.md
   [ ] run: make check   (the TestVersionBumps guardrail verifies this script's work)
 """)

@@ -2648,8 +2648,7 @@
       <!-- ── Documentation page (v2.0) ────────────────────────────────────── -->
       <!-- Self-contained help pages, organised as expandable cards. The
            content is curated for the most common questions a new user
-           hits — full reference manual is still in Manual.html (linked
-           from the About page). -->
+           hits — full reference is the in-app Documentation page. -->
       <div id="page-docs" class="page">
         <div class="page-title">Documentation</div>
         <div class="page-subtitle">How to use RemotePower — quick reference for the common tasks</div>
@@ -2904,7 +2903,7 @@
               <p><strong>Web terminal fails with 502:</strong> nginx is correctly trying the daemon but the daemon isn't running. <code>sudo systemctl status remotepower-webterm</code> and <code>journalctl -u remotepower-webterm</code>.</p>
               <p><strong>Per-mount disk thresholds aren't taking effect:</strong> Agent must be v1.11.10+ to report per-mount data. Push an agent self-update from the toolbar.</p>
               <p><strong>Update history is empty for old agents:</strong> Pre-v1.11.7 had a bug where command output never reached the server. Push agent self-updates; the next upgrade will populate history.</p>
-              <p>Full reference: <a href="/Manual.html" target="_blank" class="c-accent">Manual.html</a>.</p>
+
             </div>
           </details>
 
@@ -3791,7 +3790,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v3.4.0: Compliance report page ───────────────────────────────── -->
       <div id="page-compliance" class="page">
         <div class="page-title">Compliance</div>
-        <div class="page-subtitle">Control-mapped PCI&nbsp;DSS / HIPAA / SOC&nbsp;2 checklist, scored from data RemotePower already collects. An audit-prep aid — never a formal attestation. <a href="docs/Manual.html" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Control-mapped PCI&nbsp;DSS / HIPAA / SOC&nbsp;2 checklist, scored from data RemotePower already collects. An audit-prep aid — never a formal attestation. <a href="docs/security.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
           <label class="click-row-6"><input type="checkbox" class="compliance-fw" value="pci" checked> <span class="fs-12">PCI DSS</span></label>
           <label class="click-row-6"><input type="checkbox" class="compliance-fw" value="hipaa" checked> <span class="fs-12">HIPAA</span></label>
