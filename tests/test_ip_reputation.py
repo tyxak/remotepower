@@ -94,7 +94,15 @@ class TestCheckIp(unittest.TestCase):
         out = ipr.check_ip('1.2.3.4', ZONES, res)
         self.assertEqual(out['listed_count'], 0)
         self.assertIn('bl.test', out['errors'])
+        # the error is surfaced in human terms, not a raw status code
+        self.assertIn('public/open resolver', out['errors']['bl.test'])
         self.assertFalse(out['ok'])
+
+    def test_status_messages_are_human(self):
+        self.assertIn('public/open resolver', ipr._status_message(['127.255.255.254']))
+        self.assertIn('rate-limited', ipr._status_message(['127.255.255.255']))
+        # an unknown sentinel falls back to the raw code
+        self.assertIn('127.255.255.99', ipr._status_message(['127.255.255.99']))
 
     def test_is_listing_code(self):
         self.assertTrue(ipr._is_listing_code('127.0.0.2'))

@@ -90,6 +90,24 @@ def _is_listing_code(code):
     return a in _LISTING_NET and a not in _DNSBL_ERROR_NET
 
 
+# Friendly text for the well-known DNSBL status/error sentinels (127.255.255.x).
+# These are NOT listings — they tell you the query itself was rejected. Spamhaus
+# documents these; other zones reuse the convention loosely.
+_DNSBL_STATUS_MSG = {
+    '127.255.255.252': 'blocked / typing error in the DNSBL name',
+    '127.255.255.254': 'query via a public/open resolver — use a private recursive resolver',
+    '127.255.255.255': 'rate-limited / daily query volume exceeded',
+}
+
+
+def _status_message(codes):
+    """Turn a list of 127.255.255.x status codes into a human reason."""
+    msgs = [_DNSBL_STATUS_MSG[c] for c in codes if c in _DNSBL_STATUS_MSG]
+    if msgs:
+        return '; '.join(dict.fromkeys(msgs))  # dedupe, keep order
+    return 'query refused / status code ' + ','.join(codes)[:80]
+
+
 def _query(name, resolver):
     """Return ``(codes, txt)`` — the A-record return codes + matching TXT reasons.
     NXDOMAIN/NoAnswer -> ``([], [])`` (not listed). Lookup failures
@@ -149,6 +167,6 @@ def check_ip(ip, zones=None, resolver=None):
             # All codes are status/error (e.g. a public-resolver refusal) — the
             # listing status is unknown, so record a zone error rather than a
             # false 'listed' or a false 'clean'.
-            errors[zone] = 'query refused / status code ' + ','.join(codes)[:80]
+            errors[zone] = _status_message(codes)
     return {'ip': norm, 'listed_on': listed_on, 'errors': errors,
             'listed_count': len(listed_on), 'ok': not errors}

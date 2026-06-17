@@ -23,17 +23,46 @@ All three are read-only — RemotePower never sends mail or changes a DNS record
 
 Add an IPv4 address (your MX / smarthost / outbound mail IP) under **IP
 reputation** and click **Check reputation now**, or let the periodic re-scan run.
-For each IP the table shows whether it is **Clean** or **Listed on N** blocklists,
-which lists, and when it was last checked. A newly-listed IP fires the
-`ip_blacklisted` webhook/alert; clearing fires `ip_blacklist_cleared` and
-auto-resolves the alert.
+For each IP the table shows whether it is **Clean**, **Listed on N** blocklists,
+or **Partial — N unreachable** (some lists could not be queried, so the result is
+neither a confirmed clean nor a listing). Which lists, the return codes, and the
+reason (hover a listing) are shown, along with when it was last checked. A
+newly-listed IP fires the `ip_blacklisted` webhook/alert; clearing fires
+`ip_blacklist_cleared` and auto-resolves the alert. A *partial* result never
+fires or clears an alert — it only reports that those lists couldn't answer.
 
 Endpoints: `GET /api/reputation/targets`, `POST /api/reputation/targets`,
 `DELETE /api/reputation/targets/<id>`, `POST /api/reputation/scan`.
 
-> **Resolver note:** some blocklists (Spamhaus in particular) refuse queries that
-> arrive via large public DNS resolvers. For reliable results, the server should
-> use its own or a private recursive resolver rather than a public one.
+> **Resolver note (important).** Most public DNSBLs — Spamhaus, Barracuda,
+> SpamCop, SORBS, UCEPROTECT — **refuse free queries that arrive via large public
+> or shared DNS resolvers** (a cloud VM's default resolver usually forwards to
+> one). When that happens the row shows **Partial — N unreachable** with a reason
+> like *"query via a public/open resolver"* (Spamhaus code `127.255.255.254`) or
+> *"rate-limited / daily query volume exceeded"* (`127.255.255.255`) — these mean
+> the **query** was rejected, not that the IP is dirty.
+>
+> Two things matter, and both are about the **host that runs the scan** (the
+> RemotePower server itself):
+>
+> 1. **It must use a resolver it can actually reach.** A LAN resolver (e.g. an
+>    AdGuard/Pi-hole box at a private `10.x`/`192.168.x` address) is unreachable
+>    from a cloud server unless you route to it over a VPN/tunnel.
+> 2. **That resolver must do its own recursion, not forward to a public resolver.**
+>    A *forwarding* resolver — which is what AdGuard Home and Pi-hole are by default
+>    (they forward to Cloudflare / Quad9 / Google) — doesn't help: the DNSBL still
+>    sees the query arrive from that public upstream and rejects it. DNSSEC doesn't
+>    change this; it authenticates answers, it doesn't change who the query comes
+>    from.
+>
+> The reliable fix is a **recursive resolver that talks straight to the
+> authoritative nameservers** — e.g. run `unbound` (in recursive mode, *not*
+> forwarding) on the RemotePower server and point its `/etc/resolv.conf` /
+> systemd-resolved at `127.0.0.1`. You can also point AdGuard at a recursive
+> upstream, but the simplest is unbound on the scanning host itself. For Spamhaus
+> specifically, the free **Data Query Service (DQS)** works through any resolver:
+> sign up for a key and query the `*.dq.spamhaus.net` zones. With recursion in
+> place the lists answer normally and rows resolve to Clean / Listed.
 
 ## What it checks
 
