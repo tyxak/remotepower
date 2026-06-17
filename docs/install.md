@@ -27,7 +27,16 @@ wget -qO- "https://your-server/install?t=<token>" | sudo sh
 
 It downloads the **signed** agent, verifies its checksum, enrols with the baked
 one-time token, and the host appears **by its hostname** within ~60 seconds.
-Push to many hosts over SSH at once: `install.sh agent push user@h1 user@h2 …`.
+
+**Push to many hosts over SSH at once.** From the server checkout, name the hosts
+to enrol:
+
+```bash
+sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2 ...]
+```
+
+Each invocation enrols exactly the hosts you name (using the `--token` you pass),
+SSHing in to install and start the agent on each.
 
 **Uninstall:** `sudo bash install.sh uninstall` (keeps your data; `--purge` to
 wipe it) · agent: `wget -qO- https://your-server/install | sudo sh -s -- --uninstall`.
@@ -171,7 +180,7 @@ This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo
 **Pull the prebuilt image** (published to the GitHub Container Registry on every release; multi-arch — `amd64` and `arm64`, so it runs on x86 servers and ARM SBCs alike):
 
 ```bash
-docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :4.6.0
+docker pull ghcr.io/tyxak/remotepower:latest      # or pin a version, e.g. :4.8.0
 docker run -d --name remotepower -p 8085:8080 -v remotepower-data:/var/lib/remotepower \
   ghcr.io/tyxak/remotepower:latest
 ```

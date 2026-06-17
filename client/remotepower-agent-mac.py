@@ -26,7 +26,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '4.7.0'
+VERSION = '4.8.0'
 DEFAULT_POLL = 60
 HTTP_TIMEOUT = 20
 EXEC_TIMEOUT = 300
@@ -88,7 +88,13 @@ def save_creds(creds):
         d = os.path.dirname(p) or '.'
         os.makedirs(d, exist_ok=True)
         tmp = p + '.tmp'
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # O_NOFOLLOW | O_EXCL: never follow a planted symlink and never reuse a
+        # pre-existing temp file — matches the Linux agent's symlink guard.
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_EXCL, 0o600)
         try:
             os.write(fd, json.dumps(creds).encode())
         finally:

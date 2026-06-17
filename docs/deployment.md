@@ -1,5 +1,39 @@
 # Deployment guide — install everything
 
+## Recommended: the unified `install.sh` wizard
+
+For almost every deployment, you don't need the individual scripts below — the
+turnkey path covers server, agents, and teardown:
+
+```bash
+# Server — bare-metal wizard (nginx + app + TLS + admin, HTTPS by default):
+git clone https://github.com/tyxak/remotepower && cd remotepower
+sudo bash install.sh
+
+# Server — one-command Docker (self-signed HTTPS on first boot, no insecure
+# default password — the admin password is printed to the container log):
+docker compose up -d
+
+# Agent — one line on the target host (self-hosted installer endpoint):
+wget -qO- "https://your-server/install?t=<token>" | sudo sh
+
+# Agent — bootstrap many hosts over SSH from the server checkout:
+sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2 ...]
+
+# Clean uninstall (server, agent, or demo; keeps data unless --purge):
+sudo bash install.sh uninstall
+```
+
+The agent one-liner downloads the **signed** agent with the server URL, token and
+integrity baked in, verifies its checksum, enrols, and the host appears by its
+hostname within ~60 s. See [install.md](install.md) for the full quick-start.
+
+The component map below remains the **advanced** reference — the individual
+scripts still exist and are what you reach for on bigger / segmented / HA
+deployments (the explicit heavy-fleet track), or when the wizard isn't a fit.
+
+---
+
 A map of every RemotePower component, the script that installs it, and when you
 need it. Start at the top; most installs only need the first two rows.
 

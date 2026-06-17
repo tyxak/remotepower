@@ -32,9 +32,35 @@ nginx, and a CGI runner (`fcgiwrap`). The agent needs only Python 3.
 
 ## 2. Installing the server
 
-### 2.1 Quick path
+### 2.1 Quick path (recommended): the unified wizard
 
-On the host that will run the dashboard:
+On the host that will run the dashboard, the turnkey wizard provisions
+everything — nginx, the app, TLS and the admin account — in one run, with
+**HTTPS on by default** and **no insecure default password**:
+
+```
+git clone https://github.com/tyxak/remotepower && cd remotepower
+sudo bash install.sh
+```
+
+Prefer containers? One command brings the server up over self-signed HTTPS and
+prints the generated admin password to the container log:
+
+```
+docker compose up -d
+```
+
+Open the printed URL and log in. To add hosts, use the self-hosted one-line agent
+installer (`wget -qO- "https://your-server/install?t=<token>" | sudo sh`) or push
+agents over SSH with
+`sudo bash install.sh agent push --server https://your-server --token <token> user@host1 [user@host2 ...]`.
+Tear any of it down with `sudo bash install.sh uninstall` (server, agent or demo;
+add `--purge` to also remove data). See [install.md](install.md) for the full
+quick-start.
+
+**Advanced — the individual scripts.** The component scripts still exist for
+bigger / segmented / HA deployments (the explicit heavy-fleet track) or when you
+want to wire each piece yourself. On the host that will run the dashboard:
 
 ```
 sudo bash install-server.sh

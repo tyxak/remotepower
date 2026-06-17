@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.7.0'
+SERVER_VERSION = '4.8.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -3749,6 +3749,9 @@ def _webpush_send_all(title, body_text, url_hint=''):
                           'url': url_hint[:200]})
     dead = []   # (user, endpoint)
     sent = 0
+    # v4.8.0 (SSRF): connect-time peer-IP recheck + no redirects on every push,
+    # so a rebinding/redirect can't defeat the subscribe-time endpoint preflight.
+    _wp_opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True)
     for user, slist in list(subs.items()):
         for s in list(slist or []):
             try:
@@ -3756,7 +3759,7 @@ def _webpush_send_all(title, body_text, url_hint=''):
                 if _url_targets_local_or_meta(
                         urllib.parse.urlparse(s.get('endpoint', '')), allow_loopback=False):
                     continue
-                code = _wp.send(s, payload, pem, subject)
+                code = _wp.send(s, payload, pem, subject, opener=_wp_opener)
                 if code in (404, 410):
                     dead.append((user, s.get('endpoint')))
                 elif 200 <= code < 300:
@@ -3856,9 +3859,10 @@ def handle_push_test():
     import webpush as _wp
     payload = json.dumps({'title': 'RemotePower', 'body': 'Test notification — push is working.', 'url': ''})
     ok = 0
+    _wp_opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True)
     for s in subs:
         try:
-            if 200 <= _wp.send(s, payload, pem, subject) < 300:
+            if 200 <= _wp.send(s, payload, pem, subject, opener=_wp_opener) < 300:
                 ok += 1
         except Exception:
             pass
@@ -9418,6 +9422,8 @@ def handle_heartbeat():
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
     # touches devices[dev_id] (guarded by tests/test_heartbeat_contract.py).
+    # v4.8.0: metric_* webhooks are buffered inside the lock and fired below it.
+    metric_pending = []
     with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
@@ -9915,7 +9921,7 @@ def handle_heartbeat():
             # traceback to stderr (visible in journalctl -u fcgiwrap)
             # while still keeping the heartbeat path resilient.
             try:
-                process_metric_thresholds(dev_id, dev, safe_si)
+                metric_pending = process_metric_thresholds(dev_id, dev, safe_si, defer=True)
             except Exception as exc:
                 sys.stderr.write(
                     f"[remotepower] process_metric_thresholds failed for "
@@ -10059,6 +10065,12 @@ def handle_heartbeat():
     # are no cpu/mem/disk/swap values.
     if 'sysinfo' in saved_dev:
         _record_metrics(dev_id, saved_dev['sysinfo'])
+
+    # v4.8.0: fire the metric_* webhooks collected inside the DEVICES lock now
+    # that it has released (fire_webhook takes its own lock; nesting it under the
+    # held lock silently drops the alert under SQLite — the B2 lock-nesting class).
+    for _mev, _mpl in metric_pending:
+        fire_webhook(_mev, _mpl)
 
     # v1.8.0: process service report
     if 'services' in body and isinstance(body['services'], list):
@@ -17001,6 +17013,13 @@ def handle_proxmox_test() -> None:
         pc['token_secret'] = str(body['proxmox_token_secret'])
     if 'proxmox_verify_tls' in body:
         pc['verify_tls'] = bool(body['proxmox_verify_tls'])
+    # v4.8.0 (SSRF): the Test path accepts a fresh host straight from the form.
+    # Preflight it exactly like the save path so it can't be turned into an
+    # internal port-scan oracle (loopback / link-local / cloud-metadata).
+    _host = str(pc.get('host') or '').strip()
+    if _host and _url_targets_local_or_meta(
+            urllib.parse.urlparse('https://' + _host), allow_loopback=False):
+        respond(400, {'error': 'Refusing to probe a loopback, link-local or metadata address.'})
     result = proxmox_client.test_connection(pc)
     respond(200, result)
 
@@ -18906,8 +18925,8 @@ def _fetch_dmarc_reports() -> dict:
     ingested = 0
     M = None
     try:
-        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ssl.create_default_context())
-             if use_ssl else imaplib.IMAP4(host, port))
+        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ssl.create_default_context(), timeout=20)
+             if use_ssl else imaplib.IMAP4(host, port, timeout=20))
         M.login(str(c.get('username') or ''), str(c.get('password') or ''))
         M.select(folder, readonly=False)
         try:
@@ -27376,7 +27395,10 @@ def handle_device_drift_get(dev_id):
 def handle_device_drift_baseline(dev_id):
     """POST /api/devices/<id>/drift/baseline — accept current as new baseline.
     Body: {"paths": ["/etc/..."]} or {"all": true}."""
-    actor = require_auth()
+    # v4.8.0 (authz): accepting a file-integrity baseline silences future tamper
+    # alerts — a mutation, not a read. Gate on 'mitigate' + device scope so a
+    # read-only viewer can't re-baseline (was require_auth, CWE-862).
+    actor = require_perm('mitigate', [dev_id])
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body() or {}
@@ -27408,7 +27430,9 @@ def handle_device_drift_baseline(dev_id):
 def handle_device_drift_reset(dev_id):
     """DELETE /api/devices/<id>/drift — wipe drift state for a device.
     Used when re-baselining or removing a device from drift monitoring."""
-    actor = require_auth()
+    # v4.8.0 (authz): wiping drift state clears tamper history — gate on
+    # 'mitigate' + device scope, not bare require_auth (CWE-862).
+    actor = require_perm('mitigate', [dev_id])
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     existed = False
@@ -38523,9 +38547,9 @@ def _below_recovery(value, warn):
     return value < recovery_point
 
 
-def _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold,
-                         extra=None):
-    """Wrapper to fire metric_* webhooks with consistent payload shape.
+def _metric_webhook_payload(event, dev_id, dev, kind, target, value, threshold,
+                            extra=None):
+    """Build the (event, payload) tuple for a metric_* webhook.
 
     Payload uses both `kind` (legacy webhook payload key) and `metric`
     (the canonical name the alerts inbox + alert-title formatter expect).
@@ -38547,10 +38571,18 @@ def _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold,
     }
     if extra:
         payload.update(extra)
-    fire_webhook(event, payload)
+    return event, payload
 
 
-def process_metric_thresholds(dev_id, dev, safe_si):
+def _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold,
+                         extra=None):
+    """Fire a metric_* webhook immediately. In-lock callers must instead buffer
+    via process_metric_thresholds and fire after the lock (see B2/lock-nesting)."""
+    ev, payload = _metric_webhook_payload(event, dev_id, dev, kind, target, value, threshold, extra)
+    fire_webhook(ev, payload)
+
+
+def process_metric_thresholds(dev_id, dev, safe_si, defer=False):
     """Check each resource against its threshold and fire webhooks on transitions.
 
     Called from handle_heartbeat after sysinfo storage. Updates
@@ -38581,6 +38613,23 @@ def process_metric_thresholds(dev_id, dev, safe_si):
         streaks = {}
     need = _metric_failures_before_alert()
 
+    # v4.8.0: buffer metric webhooks and return them so the caller fires them
+    # AFTER its _DeviceUpdate lock releases. fire_webhook() takes its own
+    # _LockedUpdate; nesting it inside the held DEVICES lock raises
+    # OperationalError under the SQLite backend and the alert silently vanishes.
+    # Shadowing the module-level firer keeps the call sites below unchanged.
+    pending_webhooks = []
+
+    def _emit(event, dev_id, dev, kind, target, value, threshold, extra=None):
+        # Buffer when deferring (the caller fires after its lock releases);
+        # otherwise fire immediately via the module-level helper (which callers
+        # and tests may patch).
+        if defer:
+            pending_webhooks.append(
+                _metric_webhook_payload(event, dev_id, dev, kind, target, value, threshold, extra))
+        else:
+            _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold, extra)
+
     def _check(kind, target, value):
         """Check one metric and fire webhooks on transition."""
         if value is None:
@@ -38598,7 +38647,7 @@ def process_metric_thresholds(dev_id, dev, safe_si):
             # This happens if the metric oscillates: it briefly went above
             # warn, came back. Standard hysteresis.
             if prev_level != 'ok' and _below_recovery(value, warn):
-                _fire_metric_webhook('metric_recovered', dev_id, dev, kind, target,
+                _emit('metric_recovered', dev_id, dev, kind, target,
                                      value, warn)
                 state[key] = 'ok'
                 streaks.pop(key, None)
@@ -38614,17 +38663,17 @@ def process_metric_thresholds(dev_id, dev, safe_si):
 
         # Transition. Fire the appropriate event.
         if new_level == 'critical':
-            _fire_metric_webhook('metric_critical', dev_id, dev, kind, target,
+            _emit('metric_critical', dev_id, dev, kind, target,
                                  value, crit)
         elif new_level == 'warning':
-            _fire_metric_webhook('metric_warning', dev_id, dev, kind, target,
+            _emit('metric_warning', dev_id, dev, kind, target,
                                  value, warn)
         else:  # new_level == 'ok'
             # Only fire recovered if we're below the buffer; otherwise stay
             # in 'warning' until value drops further. This is the classic
             # hysteresis: don't bounce between ok/warning.
             if _below_recovery(value, warn):
-                _fire_metric_webhook('metric_recovered', dev_id, dev, kind, target,
+                _emit('metric_recovered', dev_id, dev, kind, target,
                                      value, warn)
             else:
                 # Don't transition to 'ok' yet — the value is below warn but
@@ -38655,13 +38704,13 @@ def process_metric_thresholds(dev_id, dev, safe_si):
             if _metric_damp_hold(streaks, key, prev_level, new_level, need):
                 transitioned = False
             elif new_level == 'critical':
-                _fire_metric_webhook('metric_critical', dev_id, dev, 'cpu', '',
+                _emit('metric_critical', dev_id, dev, 'cpu', '',
                                      round(load, 2), crit, {'cpu_count': cpu_count})
             elif new_level == 'warning':
-                _fire_metric_webhook('metric_warning', dev_id, dev, 'cpu', '',
+                _emit('metric_warning', dev_id, dev, 'cpu', '',
                                      round(load, 2), warn, {'cpu_count': cpu_count})
             elif _below_recovery(ratio, warn):
-                _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
+                _emit('metric_recovered', dev_id, dev, 'cpu', '',
                                      round(load, 2), warn, {'cpu_count': cpu_count})
             else:
                 # Below warn but inside the recovery buffer — stay in the
@@ -38672,7 +38721,7 @@ def process_metric_thresholds(dev_id, dev, safe_si):
             if transitioned:
                 state[key] = new_level
         elif prev_level != 'ok' and _below_recovery(ratio, warn):
-            _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
+            _emit('metric_recovered', dev_id, dev, 'cpu', '',
                                  round(load, 2), warn, {'cpu_count': cpu_count})
             state[key] = 'ok'
             streaks.pop(key, None)
@@ -38715,6 +38764,11 @@ def process_metric_thresholds(dev_id, dev, safe_si):
         dev['metric_breach_streak'] = streaks
     else:
         dev.pop('metric_breach_streak', None)
+    # When defer=True the caller fires `pending_webhooks` AFTER releasing the
+    # DEVICES lock (fire_webhook self-locks; nesting it drops the alert under
+    # SQLite — the B2 lock-nesting class). When defer=False _emit already fired
+    # each one inline, so this list is empty.
+    return pending_webhooks
 
 
 # ── v3.2.0 (B5 follow-up): threshold check for SNMP-polled devices ─────────

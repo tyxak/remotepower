@@ -2,6 +2,41 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.8.0 — "OnboardingMatters" — 2026-06-17
+
+An onboarding release: standing the server up — and adding the hosts you manage —
+is now a single command, with HTTPS on by default and no insecure default
+password. Plus a full DMARC monitor, accessibility work, and agent parity. No
+breaking changes. Full notes in [docs/v4.8.0.md](docs/v4.8.0.md).
+
+- **Turnkey onboarding.** A unified **`install.sh`** wizard provisions server +
+  TLS + admin in one run. **One-command Docker** (`docker compose up -d`) serves
+  HTTPS by default with no insecure default password (the admin password is
+  printed to the container log). A self-hosted **`/install`** endpoint serves a
+  "Quick install" agent with the server URL, token and integrity baked in — the
+  operator just downloads and runs it and the host appears by its hostname.
+  `install.sh agent push --server <url> --token <token> user@host …` bootstraps
+  agents over SSH; `install.sh uninstall` cleanly removes the server, agent or
+  demo. Heavy-fleet scaling is reframed as an explicit advanced track, and the old
+  `Manual.html` is folded into the docs.
+- **DMARC / SPF / DKIM monitor.** A new DMARC page grades your domains' published
+  SPF/DKIM/DMARC DNS records **and** ingests the aggregate (RUA) reports your
+  receivers send back: point it at an IMAP mailbox and it polls (scheduled +
+  on-demand), parses the gzip/zip XML, and shows per-source SPF/DKIM pass/fail
+  tallies plus mailbox health. New endpoints `GET /api/dmarc/reports`,
+  `POST /api/dmarc/fetch`, `GET /api/dmarc/imap`, `POST /api/dmarc/imap`.
+- **Accessibility.** Every modal dialog now has an accessible name, and every
+  native `confirm()`/`prompt()` is replaced with a styled, accessible in-app
+  dialog.
+- **Agent parity.** macOS reports saturation metrics (1-minute load average +
+  file-descriptor utilisation %); Windows reports NVIDIA GPU telemetry.
+- **Reliability.** The CVE "Scan all devices" action no longer hangs the browser;
+  the audit-log clear action now explains why it was denied.
+- **Security hardening.** Tighter scanner temp-workdir permissions, corrected
+  containerized-agent host reads, macOS/Windows credential-file hardening, and
+  internal lock-safety fixes. Independently tested with wapiti, nikto, nuclei,
+  bandit and OWASP ZAP — passed clean.
+
 ## v4.7.0 — "IntegrationsMatters" — 2026-06-15
 
 A reach-outward release: monitor the popular software your homelab/fleet already

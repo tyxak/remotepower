@@ -58,6 +58,11 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.8.0.md](v4.8.0.md)** — "OnboardingMatters": turnkey onboarding (unified
+ `install.sh` wizard, one-command Docker with HTTPS-by-default, a self-hosted
+ one-line agent installer, SSH agent-push, clean uninstall) + a DMARC / SPF / DKIM
+ monitor with IMAP aggregate-report ingestion, accessibility work, and macOS/Windows
+ agent parity. No breaking changes.
 - **[v4.7.0.md](v4.7.0.md)** — homelab/fleet software integrations (26 read-only
  connectors → Alerts + dashboard, SSRF-guarded) + a containerized agent that
  monitors a Docker host with no install. No breaking changes.
@@ -71,11 +76,8 @@ The five most recent per-release notes are kept here:
 - **[v4.5.0.md](v4.5.0.md)** — "TrustMatters": TLS onboarding — a one-command
  self-signed CA, fingerprint-verified rollout to agents, Docker opt-in TLS, and a
  server-only self-signed → real migration. No breaking changes.
-- **[v4.4.1.md](v4.4.1.md)** — "DocumentationMatters": triage of the open CodeQL
- code-scanning alerts (all false positives), a documentation-coverage pass, and
- two no-behaviour weak-hash annotations. No code-behaviour changes.
 
-Older release notes (v4.4.0 and earlier) live in
+Older release notes (v4.4.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

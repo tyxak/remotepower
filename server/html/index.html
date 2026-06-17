@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.7.0-dev1">
+<link rel="stylesheet" href="static/css/styles.css?v=4.8.0">
 
 </head>
 <body>
@@ -2666,7 +2666,24 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.7.0 integrations homelab software pihole adguard truenas unifi home assistant proxmox backup server kubernetes k3s vcenter esxi unraid traefik nginx proxy manager caddy netdata grafana uptime kuma jellyfin plex nextcloud qbittorrent transmission deluge sabnzbd nzbget sonarr radarr prowlarr lidarr servarr bazarr overseerr jellyseerr connector ssrf integration_down widget show homelab containerized agent docker host compose ghcr">
+          <details class="doc-card" open data-keywords="release notes changelog v4.8.0 onboardingmatters install installer wizard one command docker compose quick install agent token baked /install endpoint ssh agent push bootstrap uninstall server agent demo dmarc spf dkim email authentication imap rua aggregate report mailbox monitor accessibility modal dialog aria confirm prompt macos loadavg fd_percent windows nvidia gpu cve scan all devices hang fix security hardening pentest wapiti nikto nuclei bandit zap host_path container">
+            <summary><strong>What's new — v4.8.0 "OnboardingMatters"</strong> — turnkey onboarding (a unified one-command installer, a self-hosted one-line agent install, SSH agent bootstrap and clean uninstall), a new DMARC / SPF / DKIM email-auth monitor, and an accessibility + security polish pass (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.8.0 makes RemotePower <strong>turnkey to stand up</strong>: one command brings up the server, one line installs an agent, and you can bootstrap agents over SSH or hand someone a baked installer that enrols their host on first run. It also adds an <strong>email-authentication monitor</strong> and a round of accessibility and security polish. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.8.0</code>).</p>
+              <ul>
+                <li><strong>One-command install + guided wizard.</strong> A unified <code>install.sh</code> stands up the server (and a <code>docker compose</code> path that serves HTTPS by default with no insecure default password). Run it with no arguments for an interactive wizard.</li>
+                <li><strong>Self-hosted one-line agent install.</strong> Your server now serves its own agent installer at <code>/install</code>, and a <strong>baked "Quick install" agent</strong> carries the server URL + an enrolment token (with an integrity check) so the operator just downloads and runs it — the host then appears in the device list by its hostname, nothing else to configure.</li>
+                <li><strong>Bootstrap agents over SSH.</strong> <code>install.sh agent push --server &lt;url&gt; --token &lt;token&gt; user@host …</code> installs the agent on remote hosts you can already SSH to.</li>
+                <li><strong>Clean uninstall.</strong> First-class uninstall for the server, the agent and the demo data — no leftover units, users or files.</li>
+                <li><strong>DMARC / SPF / DKIM monitor.</strong> A new page checks your domains' email-authentication posture over DNS, and can also connect to a mailbox over <strong>IMAP</strong> to ingest DMARC aggregate (RUA) reports — showing who is sending as your domains and whether they pass, with per-source pass/fail tallies and mailbox health.</li>
+                <li><strong>Accessibility.</strong> Every modal dialog now carries an accessible name, and all native browser <code>confirm()</code> / <code>prompt()</code> pop-ups are replaced with styled, focus-managed in-app dialogs.</li>
+                <li><strong>Agent parity.</strong> macOS now reports saturation metrics (load average + file-descriptor pressure) and the Windows agent reports NVIDIA GPU telemetry.</li>
+                <li><strong>Reliability &amp; security.</strong> The CVE <em>Scan all devices</em> action no longer hangs the browser; containerized-agent host reads, credential-file permissions on macOS/Windows, and internal lock-safety were all hardened. Independently pentested with <strong>wapiti, nikto, nuclei, bandit and OWASP ZAP</strong> — clean.</li>
+              </ul>
+              <p class="hint">See <code>docs/install.md</code>, <code>docs/dmarc.md</code> and <code>docs/v4.8.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.7.0 integrations homelab software pihole adguard truenas unifi home assistant proxmox backup server kubernetes k3s vcenter esxi unraid traefik nginx proxy manager caddy netdata grafana uptime kuma jellyfin plex nextcloud qbittorrent transmission deluge sabnzbd nzbget sonarr radarr prowlarr lidarr servarr bazarr overseerr jellyseerr connector ssrf integration_down widget show homelab containerized agent docker host compose ghcr">
             <summary><strong>What's new — v4.7.0 "IntegrationsMatters"</strong> — monitor the popular homelab/fleet software you already run (26 integrations), plus run the agent as a container to watch a Docker host (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.7.0 reaches outward: a new server-side <strong>integration subsystem</strong> polls popular self-hosted software for health and folds it into Alerts, and the Linux agent can now run <strong>as a container</strong> to monitor a Docker host with no install. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.7.0</code>).</p>
@@ -2724,22 +2741,7 @@
               <p class="hint">A TLS-onboarding release — HTTP-only and real-cert installs are untouched. See <code>docs/v4.5.0.md</code> and <code>docs/tls-selfsigned.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.4.1 documentationmatters codeql code scanning alert triage false positive xss dom innerhtml eschtml escattr sanitizer ssrf same origin fetch api client weak hash hmac sha256 audit chain md5 cache fingerprint usedforsecurity cleartext logging storage diagnostics bundle stderr documentation coverage pass webhook events widgets mcp tools">
-            <summary><strong>What's new — v4.4.1 "DocumentationMatters"</strong> — a documentation + triage release: every open CodeQL code-scanning alert triaged (all false positives), a documentation-coverage pass, and two no-behaviour weak-hash annotations (no code-behaviour changes)</summary>
-            <div class="doc-body">
-              <p>v4.4.1 resolves the open <strong>CodeQL</strong> code-scanning alerts and runs a documentation-coverage sweep. No runtime behaviour changed. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.4.1</code>).</p>
-              <ul>
-                <li><strong>All 13 CodeQL alerts are false positives.</strong> Each (1 Critical, 12 High) was read against the actual code path and the feature that governs it — none is an exploitable vulnerability. The full write-up, mapping every alert to the feature/function that already covers it, is in <code>docs/security-review-4.4.1.md</code>.</li>
-                <li><strong>XSS / DOM-as-HTML (7).</strong> Every flagged <code>innerHTML</code> assignment interpolates only values that pass through the project's <code>escHtml()</code> / <code>escAttr()</code> sanitizers, which CodeQL's default model doesn't recognise; the strict no-inline CSP is an independent second barrier.</li>
-                <li><strong>SSRF (1, Critical).</strong> <code>fetch('/api' + path)</code> is the same-origin front-end API client — an origin-pinned relative path, never a user-supplied host. Not request forgery.</li>
-                <li><strong>Weak hashing (2).</strong> One points at the audit-log chain, which is <strong>HMAC-SHA256</strong> (strong); the other is a non-security dedup key already marked <code>usedforsecurity=False</code>. The two MD5 cache-key fingerprints now carry <code>usedforsecurity=False</code> too — the signal the scanner honours.</li>
-                <li><strong>Clear-text logging / storage (3).</strong> The admin-gated diagnostics download (by design, <code>no-store</code>), a non-sensitive <code>stderr</code> diagnostic, and the app's own atomic <code>chmod 0600</code> data-file write — none is a secret-disclosure path.</li>
-                <li><strong>Documentation pass.</strong> A sweep across the in-app docs, README, Manual and per-version notes confirmed every shipped feature/function is documented and the headline counts are accurate (65 webhook events, the 66-widget dashboard catalog, 18 MCP tools).</li>
-              </ul>
-              <p class="hint">A documentation + triage release — every install keeps working exactly as before. See <code>docs/v4.4.1.md</code> and <code>docs/security-review-4.4.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -7139,19 +7141,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.7.0-dev1"></script>
-<script defer src="static/js/app.js?v=4.7.0-dev1"></script>
+<script defer src="static/js/i18n.js?v=4.8.0"></script>
+<script defer src="static/js/app.js?v=4.8.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.7.0-dev1"></script>
-<script defer src="static/js/app-cmdb.js?v=4.7.0-dev1"></script>
-<script defer src="static/js/app-containers.js?v=4.7.0-dev1"></script>
-<script defer src="static/js/app-network.js?v=4.7.0-dev1"></script>
+<script defer src="static/js/app-calendar.js?v=4.8.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.8.0"></script>
+<script defer src="static/js/app-containers.js?v=4.8.0"></script>
+<script defer src="static/js/app-network.js?v=4.8.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.7.0-dev1"></script>
-<script defer src="static/js/app-compliance.js?v=4.7.0-dev1"></script>
-<script defer src="static/js/app-integrations.js?v=4.7.0-dev1"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.8.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.8.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.8.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.7.0-dev1"></script>
+<script defer src="static/js/sw-register.js?v=4.8.0"></script>
 </body>
 </html>

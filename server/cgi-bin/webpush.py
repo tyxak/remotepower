@@ -143,11 +143,17 @@ def encrypt(payload, p256dh_b64, auth_b64):
     return encrypt_aes128gcm(payload, as_priv, salt, ua_pub_bytes, auth_secret)
 
 
-def send(subscription, payload, vapid_priv_pem, subject, ttl=2419200, timeout=10):
+def send(subscription, payload, vapid_priv_pem, subject, ttl=2419200, timeout=10,
+         opener=None):
     """POST an encrypted notification to one subscription. `subscription` is the
     browser PushSubscription dict {endpoint, keys:{p256dh, auth}}. Returns the
     HTTP status; raises on transport error. 404/410 mean the subscription is
-    gone and the caller should drop it."""
+    gone and the caller should drop it.
+
+    `opener`: optional SSRF-safe urllib opener injected by the caller — it
+    rechecks the resolved peer IP at connect time and refuses redirects, closing
+    the DNS-rebinding / redirect-to-metadata gap the (browser-supplied) endpoint
+    preflight alone can't. Falls back to urlopen when not injected."""
     endpoint = subscription['endpoint']
     keys = subscription.get('keys') or {}
     body = encrypt(payload if isinstance(payload, bytes) else payload.encode(),
@@ -161,7 +167,8 @@ def send(subscription, payload, vapid_priv_pem, subject, ttl=2419200, timeout=10
     headers.update(vapid_headers(endpoint, vapid_priv_pem, subject))
     req = urllib.request.Request(endpoint, data=body, headers=headers, method='POST')
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        _open = opener.open if opener is not None else urllib.request.urlopen
+        with _open(req, timeout=timeout) as resp:
             return resp.status
     except urllib.error.HTTPError as e:
         return e.code

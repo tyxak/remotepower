@@ -39,7 +39,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '4.7.0'
+VERSION = '4.8.0'
 DEFAULT_POLL = 60
 
 
@@ -100,24 +100,31 @@ def load_creds():
 def save_creds(creds):
     d = _data_dir()
     os.makedirs(d, exist_ok=True)
-    tmp = _creds_path() + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(creds, f)
-    os.replace(tmp, _creds_path())
+
     # v4.6.0 (SECURITY): agent.json holds the device bearer token. Under
     # C:\ProgramData it inherits ACLs that let the local Users group read it,
     # so any non-admin user could read the token and impersonate this host.
-    # Strip inheritance and grant only SYSTEM + Administrators on both the
-    # data dir and the creds file. Best-effort (icacls ships with Windows).
-    try:
-        for path in (d, _creds_path()):
+    # Strip inheritance and grant only SYSTEM + Administrators. Best-effort
+    # (icacls ships with Windows).
+    def _harden_acl(path):
+        try:
             subprocess.run(
                 ['icacls', path, '/inheritance:r',
                  '/grant:r', 'SYSTEM:(OI)(CI)F', '/grant:r', 'Administrators:(OI)(CI)F'],
                 capture_output=True, timeout=15,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-    except Exception:
-        pass
+        except Exception:
+            pass
+
+    # v4.8.0 (SECURITY): lock the data dir down BEFORE the first token write so
+    # the creds file inherits the restricted ACL from creation — closes the
+    # window where the freshly-written token briefly carried Users-readable ACLs.
+    _harden_acl(d)
+    tmp = _creds_path() + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(creds, f)
+    os.replace(tmp, _creds_path())
+    _harden_acl(_creds_path())
 
 
 # ─── host facts ────────────────────────────────────────────────────────────--

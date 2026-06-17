@@ -99,6 +99,9 @@ no applicable rules reports why and what to install.
 
 Items in Needs Attention that have a mitigation playbook show an **Investigate**
 button: it queues a read-only diagnostic on the device, then runs an AI analysis
-that proposes a fix command (which you confirm before it runs). Covered kinds:
-disk, memory, swap, cpu, pending patches, config drift, service down, reboot
-required, brute-force attempts, CVE findings, and stopped/restarting containers.
+that proposes a fix command (which you confirm before it runs). Roughly 21 kinds
+are covered: disk, memory, swap, cpu, pending patches, config drift, service
+down, reboot required, brute-force attempts, CVE findings, and stopped/restarting
+containers — plus malware / antivirus posture, stale agent version, end-of-life
+OS, hardware health, stale/missing backup, a new SSH key, a new listening port,
+agent integrity, log-pattern alerts, and failed systemd units.

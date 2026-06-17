@@ -52,6 +52,7 @@ def _capture_respond():
 def _stub_auth(username='admin'):
     api.require_auth = lambda **kw: username
     api.require_admin_auth = lambda: username
+    api.require_perm = lambda *a, **k: username
 
 
 class _DriftBase(unittest.TestCase):

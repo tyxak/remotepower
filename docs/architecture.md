@@ -101,11 +101,14 @@ remotepower/
 ├── server/
 │   ├── html/index.html            # Dashboard (vanilla HTML/CSS/JS, no framework)
 │   ├── cgi-bin/api.py             # REST API (Python 3, CGI via fcgiwrap)
+│   ├── cgi-bin/integrations.py    # Homelab software integration connectors
 │   ├── conf/remotepower.conf      # Nginx site config
 │   └── remotepower-passwd         # User management utility
 ├── client/
-│   ├── remotepower-agent          # Linux polling daemon (Python 3)
-│   ├── remotepower-agent.py       # Windows polling daemon (Python 3)
+│   ├── remotepower-agent.py       # Linux polling daemon (Python 3)
+│   ├── remotepower-agent          # Linux daemon, byte-identical to the .py above
+│   ├── remotepower-agent-win.py   # Windows polling daemon (Python 3)
+│   ├── remotepower-agent-mac.py   # macOS polling daemon (Python 3)
 │   └── remotepower-agent.service  # systemd unit (Linux)
 ├── tests/
 │   ├── test_api.py

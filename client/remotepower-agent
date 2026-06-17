@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '4.7.0'
+VERSION      = '4.8.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ── Containerized-agent support (v4.7.0) ─────────────────────────────────────
@@ -2348,7 +2348,7 @@ def get_services(watched_units):
     """
     if not watched_units:
         return []
-    if not Path('/bin/systemctl').exists() and not Path('/usr/bin/systemctl').exists():
+    if not Path(host_path('/bin/systemctl')).exists() and not Path(host_path('/usr/bin/systemctl')).exists():
         return []
 
     out = []
@@ -4170,7 +4170,7 @@ def _eval_one_agent_check(c):
     param = str(c.get('param', ''))
     if ctype in ('file_present', 'file_absent'):
         try:
-            exists = os.path.exists(param)
+            exists = os.path.exists(host_path(param))
         except Exception:
             return 'unknown', 'stat failed'
         if ctype == 'file_present':
@@ -4179,7 +4179,7 @@ def _eval_one_agent_check(c):
     if ctype == 'job_fresh':
         max_age = int(c.get('max_age_hours', 24)) * 3600
         try:
-            age = time.time() - os.stat(param).st_mtime
+            age = time.time() - os.stat(host_path(param)).st_mtime
         except FileNotFoundError:
             return 'critical', 'file missing'
         except Exception:
@@ -5663,8 +5663,10 @@ def collect_host_config():
     import pwd as _pwd
 
     def _read(path):
+        # host_path(): in a container this reads the bind-mounted host rootfs,
+        # not the slim image. Idempotent — an already-mapped path passes through.
         try:
-            return Path(path).read_text(errors='replace')
+            return Path(host_path(path)).read_text(errors='replace')
         except OSError:
             return ''
 
@@ -5679,24 +5681,24 @@ def collect_host_config():
     current = {}
 
     # ── repos ────────────────────────────────────────────────────────────────
-    if Path('/etc/apt/sources.list').exists():
+    if Path(host_path('/etc/apt/sources.list')).exists():
         current['repos'] = _read('/etc/apt/sources.list')
-    elif Path('/etc/yum.repos.d').is_dir():
+    elif Path(host_path('/etc/yum.repos.d')).is_dir():
         # Concatenate all .repo files
         parts = []
-        for f in sorted(Path('/etc/yum.repos.d').glob('*.repo')):
+        for f in sorted(Path(host_path('/etc/yum.repos.d')).glob('*.repo')):
             parts.append(f'# {f.name}\n' + _read(str(f)))
         current['repos'] = '\n'.join(parts)
 
     # ── netplan ──────────────────────────────────────────────────────────────
-    netplan_dir = Path('/etc/netplan')
+    netplan_dir = Path(host_path('/etc/netplan'))
     if netplan_dir.is_dir():
         for f in sorted(netplan_dir.glob('*.yaml')):
             current['netplan'] = _read(str(f))
             break  # first file only; apply writes 01-remotepower.yaml
 
     # ── nmcli ────────────────────────────────────────────────────────────────
-    nm_conn = Path('/etc/NetworkManager/system-connections/remotepower-managed.nmconnection')
+    nm_conn = Path(host_path('/etc/NetworkManager/system-connections/remotepower-managed.nmconnection'))
     if nm_conn.exists():
         current['nmcli'] = _read(str(nm_conn))
 
@@ -5747,14 +5749,14 @@ def collect_host_config():
         current['groups'] = []
 
     # ── sudoers ──────────────────────────────────────────────────────────────
-    sudoers_f = Path('/etc/sudoers.d/remotepower')
+    sudoers_f = Path(host_path('/etc/sudoers.d/remotepower'))
     current['sudoers'] = _read(str(sudoers_f)) if sudoers_f.exists() else ''
 
     # ── motd ─────────────────────────────────────────────────────────────────
     current['motd'] = _read('/etc/motd')
 
     # ── logrotate ────────────────────────────────────────────────────────────
-    lr_path = Path('/etc/logrotate.d/remotepower')
+    lr_path = Path(host_path('/etc/logrotate.d/remotepower'))
     current['logrotate'] = _read(str(lr_path)) if lr_path.exists() else ''
 
     # ── cron (root crontab) ──────────────────────────────────────────────────
@@ -5776,6 +5778,13 @@ def apply_host_config(desired):
     """
     import grp as _grp
     import pwd as _pwd
+
+    # Containerized agents monitor a Docker HOST read-only; applying host
+    # config from inside a container would mutate the slim image (or, via a
+    # bind-mounted rootfs, the host) with no operator expectation of it. Disable
+    # apply in-container, matching self-update / lynis / oscap.
+    if IN_CONTAINER:
+        return {'_disabled': 'apply-host-config is disabled in containerized mode'}
 
     results = {}
 

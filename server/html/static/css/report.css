@@ -19,7 +19,7 @@ body {
 .toolbar button:hover { background: #e9e9e9; }
 .head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
 .head img { height: 40px; width: auto; }
-h1 { font-size: 22px; margin: 0; }
+h1 { font-size: 28px; margin: 0; }
 h2 { font-size: 16px; margin: 26px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }
 .meta { color: #555; font-size: 12px; margin-bottom: 18px; }
 .cards { display: flex; gap: 12px; flex-wrap: wrap; }

@@ -541,7 +541,12 @@ def _http_get_json(url, headers=None, timeout=10, insecure_ssl=False):
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        # v4.8.0 (SSRF): refuse 3xx redirects (matches _http_post_json) so a
+        # provider base_url that passed the set-time preflight can't 302 us to
+        # loopback / cloud-metadata and replay the Authorization header there.
+        opener = urllib.request.build_opener(
+            _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+        with opener.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))
     except urllib.error.HTTPError as e:
         try:

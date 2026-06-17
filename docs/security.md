@@ -33,9 +33,11 @@ responses and the raw URL admin-only.
 and passed clean** (no exploitable findings) — see
 [security-review-4.4.0.md](security-review-4.4.0.md), the security-themed release
 (authorized scanning, passkeys, SAML, the audit hash-chain, and the CRITICAL
-admin-gate escalation fix). The most recent pass,
-[security-review-4.4.1.md](security-review-4.4.1.md), triages the open CodeQL
-code-scanning alerts (all confirmed false positives). The strict Content-Security-Policy
+admin-gate escalation fix). The most recent full review,
+[security-review-4.6.0.md](security-review-4.6.0.md), re-audited the server and
+agent (SSRF parity, resolved-role checks, agent credential-storage hardening).
+v4.8.0 was likewise scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP and
+passed clean. The strict Content-Security-Policy
 (`default-src 'self'`, no `unsafe-inline`), full security-header set (HSTS,
 X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
 COOP/CORP), same-origin enforcement on state-changing requests, and the SSRF-safe
@@ -95,7 +97,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-4.4.1.md](security-review-4.4.1.md).
+summarised in the latest, [security-review-4.6.0.md](security-review-4.6.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
 OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -268,7 +270,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every few releases
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-4.4.1.md](security-review-4.4.1.md)).
+  [security-review-4.6.0.md](security-review-4.6.0.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
   Python codebase.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
@@ -281,6 +283,8 @@ only informational results and tool false positives (e.g. a metadata-SSRF
 probe against a path that simply returns a 404, and benign timestamp/internal-IP
 disclosures inherent to a fleet dashboard). The few static-analysis nits it did
 surface (e.g. non-cryptographic fingerprint hashes) were annotated or fixed.
+**v4.8.0** was independently tested with wapiti, nikto, nuclei, bandit and OWASP
+ZAP and passed clean.
 
 If you find a security issue, please report it privately rather than opening a
 public issue.

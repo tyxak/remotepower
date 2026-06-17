@@ -6831,10 +6831,12 @@ async function loadPatchCatalog() {
   let tpHtml = '';
   if (r.third_party && r.third_party.length) {
     tpHtml = '<div class="mt-16 mb-8 fw-500 fs-13">Third-party updates (non-OS)</div>'
+      + '<div class="scroll-cap">'
       + r.third_party.map(m => {
         const pk = (m.packages || []).slice(0, 30).map(p => `${escHtml(p.package)} <span class="c-muted">×${p.count}</span>`).join(', ');
         return `<div class="mb-8"><span class="ro-badge rs-paused">${escHtml(m.manager)}</span> <span class="c-muted fs-12">${m.hosts} host(s)</span><div class="fs-12 mt-4">${pk || '<span class="c-muted">—</span>'}</div></div>`;
-      }).join('');
+      }).join('')
+      + '</div>';
   }
   if (!r.packages.length) { body.innerHTML = (tpHtml || '<div class="c-muted fs-13">No pending updates across the fleet.</div>'); return; }
   const sorted = tableCtl.sortRows('patch_catalog', r.packages.slice(), p => ({
@@ -15589,7 +15591,7 @@ function aiThinkingHtml() {
 
 function openLogsForDevice(devId, devName) {
   // Click the Logs nav button so showPage's sidebar-expand logic fires
-  const navBtn = document.querySelector('.nav-btn[data-page=\"logs\\"]');
+  const navBtn = document.querySelector('.nav-btn[data-page="logs"]');
   if (navBtn) {
     showPage('logs', navBtn);
   } else {
@@ -18095,7 +18097,7 @@ async function _loadAuditSection(key) {
         if (Array.isArray(si.failed_units) && si.failed_units.length) {
           const failIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
           h += `<div class="fs-12 mt-8 c-red">${failIco} <strong>${si.failed_units.length} failed unit${si.failed_units.length===1?'':'s'}</strong> ` +
-            `<button class="btn-icon cell-sm" data-action="aiDiagnoseUnits" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" data-arg3="${escAttr(si.failed_units.join(','))}" title="AI: diagnose these failed units">${_icon('sparkles',12)} AI diagnose</button></div>` +
+            `<button class="btn-icon cell-sm" data-action="aiDiagnoseUnits" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName)}" data-arg3="${escAttr(si.failed_units.join(','))}" title="AI: diagnose these failed units">${_icon('sparkles',12)} AI diagnose</button></div>` +
             `<div class="mb-8 mt-4 scroll-cap-sm">` + si.failed_units.map(u=>
               `<span class="cmd-badge fs-11">${escHtml(String(u))}</span> `
             ).join('') + `</div>`;
@@ -18249,7 +18251,7 @@ async function _loadAuditSection(key) {
               ${_icon('sparkles',14)} Find the problem
             </button>
             <button class="btn-secondary fs-12"
-              data-action="aiInvestigateDevice" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" >
+              data-action="aiInvestigateDevice" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName)}" >
               ${_icon('sparkles',14)} Full investigation
             </button>`;
           body.appendChild(aiDiv);
@@ -18608,7 +18610,7 @@ async function _loadAuditSection(key) {
                 age = _fmtDur(Math.floor(Date.now() / 1000) - c.started_at);
               }
               const unhealthy = !up || /unhealthy|restart/.test((c.health||'') + ' ' + stat);
-              const ctrAi = unhealthy ? ` <button class="btn-icon cell-sm" data-action="aiDiagnoseContainer" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" data-arg3="${escAttr(c.name||c.Names||'?')}" title="AI: diagnose this container">${_icon('sparkles',12)}</button>` : '';
+              const ctrAi = unhealthy ? ` <button class="btn-icon cell-sm" data-action="aiDiagnoseContainer" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName)}" data-arg3="${escAttr(c.name||c.Names||'?')}" title="AI: diagnose this container">${_icon('sparkles',12)}</button>` : '';
               // v3.14.0: on-demand container log fetch (queues `container:…:logs:…`).
               const cName = c.name || c.Names || '';
               const ctrLogs = cName ? ` <button class="btn-icon cell-sm" data-action="fetchContainerLogs" data-arg="${escAttr(id)}" data-arg2="${escAttr(cName)}" data-arg3="${escAttr(c.runtime||'docker')}" title="Fetch this container's recent logs">${_icon('terminal',12)}</button>` : '';

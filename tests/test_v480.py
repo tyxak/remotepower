@@ -289,5 +289,98 @@ class TestMacAgentParity(unittest.TestCase):
         self.assertNotIn("conntrack_percent", self.MAC)
 
 
+class TestMetricWebhookFiresPostLock(unittest.TestCase):
+    """B2 (lock-nesting): process_metric_thresholds must BUFFER metric_* webhooks
+    and return them for the caller to fire after the _DeviceUpdate lock releases —
+    never fire_webhook() inline (nesting drops the alert under SQLite)."""
+
+    def test_buffers_instead_of_firing_inline(self):
+        fired = []
+        orig = api.fire_webhook
+        api.fire_webhook = lambda ev, pl: fired.append((ev, pl))
+        try:
+            # warning -> critical is an escalation (never flap-held), so it fires
+            # deterministically on the first call.
+            dev = {'name': 'h1', 'metric_state': {'memory:': 'warning'}}
+            pending = api.process_metric_thresholds('d1', dev, {'mem_percent': 99.0},
+                                                    defer=True)
+        finally:
+            api.fire_webhook = orig
+        self.assertEqual(fired, [], 'defer=True must not fire inline (heartbeat fires post-lock)')
+        self.assertTrue(any(ev == 'metric_critical' for ev, _ in pending),
+                        f'expected a buffered metric_critical, got {pending}')
+
+
+class TestSecurityGates(unittest.TestCase):
+    """Source-level guards for the v4.8.0 security fixes."""
+
+    def test_proxmox_test_preflights_host(self):
+        import inspect
+        self.assertIn('_url_targets_local_or_meta',
+                      inspect.getsource(api.handle_proxmox_test))
+
+    def test_drift_mutations_require_mitigate(self):
+        import inspect
+        self.assertIn("require_perm('mitigate'",
+                      inspect.getsource(api.handle_device_drift_baseline))
+        self.assertIn("require_perm('mitigate'",
+                      inspect.getsource(api.handle_device_drift_reset))
+
+    def test_webpush_send_accepts_injected_opener(self):
+        import importlib
+        import inspect
+        sys.path.insert(0, str(_CGI))
+        webpush = importlib.import_module('webpush')
+        self.assertIn('opener', inspect.signature(webpush.send).parameters)
+
+
+class TestVersionBumps(unittest.TestCase):
+    """Strict version-surface pins for v4.8.0 — loosen to regex on the next bump
+    (see tests/test_v470.py for the loosened pattern)."""
+    V = '4.8.0'
+
+    def test_server_version(self):
+        self.assertEqual(api.SERVER_VERSION, self.V)
+
+    def test_agent_versions(self):
+        self.assertIn(f"VERSION      = '{self.V}'",
+                      (_ROOT / 'client/remotepower-agent.py').read_text())
+        for rel in ('client/remotepower-agent-win.py', 'client/remotepower-agent-mac.py'):
+            self.assertIn(f"VERSION = '{self.V}'", (_ROOT / rel).read_text(), rel)
+
+    def test_agent_extensionless_in_sync(self):
+        self.assertEqual((_ROOT / 'client/remotepower-agent.py').read_bytes(),
+                         (_ROOT / 'client/remotepower-agent').read_bytes())
+
+    def test_sw_and_cachebust(self):
+        self.assertIn(f'remotepower-shell-v{self.V}',
+                      (_ROOT / 'server/html/sw.js').read_text())
+        self.assertIn(f'?v={self.V}', (_ROOT / 'server/html/index.html').read_text())
+
+    def test_no_stale_cachebust(self):
+        html = (_ROOT / 'server/html/index.html').read_text()
+        self.assertEqual(set(re.findall(r'\?v=(4\.7\.0[^"&]*)', html)), set(),
+                         'stale ?v=4.7.0 cache-busts left')
+
+    def test_readme_and_changelog(self):
+        self.assertIn(f'version-{self.V}-blue', (_ROOT / 'README.md').read_text())
+        self.assertIn(f'v{self.V}', (_ROOT / 'CHANGELOG.md').read_text()[:2000])
+
+    def test_version_doc_exists(self):
+        self.assertTrue((_ROOT / f'docs/v{self.V}.md').exists())
+
+    def test_old_version_doc_pruned(self):
+        self.assertFalse((_ROOT / 'docs/v4.4.1.md').exists(),
+                         'docs/v4.4.1.md should be pruned to keep last 5')
+
+    def test_doc_set_keeps_five_versions(self):
+        vdocs = sorted(p.name for p in (_ROOT / 'docs').glob('v*.md'))
+        self.assertEqual(len(vdocs), 5, f'expected exactly 5 version docs, got {vdocs}')
+
+    def test_whats_new_card_present(self):
+        self.assertIn(f"What's new — v{self.V}",
+                      (_ROOT / 'server/html/index.html').read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

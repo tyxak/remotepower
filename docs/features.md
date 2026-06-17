@@ -149,7 +149,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
 | **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
-| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 66 event types, per-event toggles, test-event button |
+| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 68 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
 | **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
 | **Patch alerts** | Webhook when pending updates exceed configurable threshold |
@@ -1131,7 +1131,7 @@ credential-less **database-liveness** probe (PostgreSQL / MySQL / Redis), and
 **tag/group** target fan-out for ping/ICMP/TCP monitors.
 
 ### Composable dashboard
-A resizable widget grid with a **66-widget catalog** (alphabetical add-dropdown):
+A resizable widget grid with a **67-widget catalog** (alphabetical add-dropdown):
 per-widget **size** (S/M/L), **reorder**, **show/hide**, **reset**, **align**,
 and a shareable **import/export layout code**, saved per account. New
 **Upcoming** (calendar + scheduler), **Tickets** (open quick-ack + recently
@@ -1388,6 +1388,52 @@ The in-app CSP violation reporter now ignores reports whose source is a **browse
 extension** (`moz-extension://`, `chrome-extension://`, `safari-web-extension://`,
 …), so users' extensions can't pollute the security log with violations the app
 didn't cause.
+
+---
+
+## v4.8.0 additions — "OnboardingMatters"
+
+### Turnkey onboarding
+Getting RemotePower running is now a single command. A unified **`install.sh`**
+wizard provisions server, TLS and the admin account in one run; **one-command
+Docker** (`docker compose up -d`) serves **HTTPS by default with no insecure
+default password** (the generated admin password is printed to the container
+log). Adding a host is one line — a self-hosted **`/install`** endpoint serves a
+**"Quick install" agent** with the server URL, enrolment token and integrity
+baked in, so the operator just downloads and runs it and the host appears in the
+device list **by its hostname**. `install.sh agent push --server <url> --token
+<token> user@host …` bootstraps agents over SSH to the hosts you name, and a clean
+**`install.sh uninstall`** tears down server, agent or demo. Heavy-fleet scaling
+(Postgres, HA, satellites, load balancing) is reframed as an explicit **advanced
+track**. Reference: **[install.md](install.md)**, **[deployment.md](deployment.md)**.
+
+### DMARC / SPF / DKIM monitor
+A new **DMARC** page (under Security) tracks the email-authentication posture of
+your domains — published **SPF / DKIM / DMARC** DNS records, graded ok / weak /
+fail — *and* ingests the **aggregate (RUA) reports** your receivers send back. Point
+it at the IMAP mailbox that receives those reports; RemotePower polls it on a
+schedule and on demand, parses the gzip/zip XML, and shows **per-source SPF/DKIM
+pass/fail tallies** plus a **mailbox health** view (message + unseen counts).
+`GET /api/dmarc/reports`, `POST /api/dmarc/fetch`, `GET /api/dmarc/imap`,
+`POST /api/dmarc/imap`. Reference: **[dmarc.md](dmarc.md)**.
+
+### Accessibility
+Every modal dialog now carries an **accessible name**, and every native
+`confirm()` / `prompt()` has been replaced with a **styled, accessible in-app
+dialog** — consistent look, keyboard-navigable, screen-reader friendly.
+
+### Agent parity
+The **macOS** agent now reports the saturation metrics the Linux agent already
+sends — **1-minute load average** and **file-descriptor utilisation %** — and the
+**Windows** agent now reports **NVIDIA GPU telemetry**, so those hosts appear on
+the fleet GPU page alongside Linux.
+
+### Reliability & hardening
+The CVE **"Scan all devices"** action no longer hangs the browser; the audit-log
+**clear** action now explains *why* it was denied when it is. Plus a round of
+security hardening: tighter scanner temp-workdir permissions, corrected
+containerized-agent host reads, credential-file hardening on macOS/Windows, and
+internal lock-safety fixes.
 
 ---
 
