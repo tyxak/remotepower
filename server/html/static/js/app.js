@@ -5307,7 +5307,7 @@ async function loadRisk() {
   if (!data) { tbody.innerHTML = '<tr><td colspan="4" class="c-red">Failed to load.</td></tr>'; return; }
   _riskResp = data;
   const s = document.getElementById('risk-summary');
-  if (s) { const c = data.counts || {}; s.textContent = `${data.total} assets · avg ${data.avg} · critical ${c.critical||0} · high ${c.high||0} · medium ${c.medium||0}`; }
+  if (s) { const c = data.counts || {}; s.innerHTML = `${data.total} assets · avg ${data.avg} · critical <span class="${(c.critical||0) > 0 ? 'c-red fw-600' : ''}">${c.critical||0}</span> · high <span class="${(c.high||0) > 0 ? 'c-amber' : ''}">${c.high||0}</span> · medium ${c.medium||0}`; }
   _renderRisk();
 }
 function _riskColor(level) {
@@ -9829,7 +9829,7 @@ async function loadIntegrationsPage() {
     if (sum) {
       const c = { critical: 0, warning: 0, ok: 0 };
       items.forEach(i => { if (i.status in c) c[i.status]++; });
-      sum.textContent = `${items.length} integration${items.length === 1 ? '' : 's'} · ${c.critical} critical, ${c.warning} warning, ${c.ok} ok`;
+      sum.innerHTML = `${items.length} integration${items.length === 1 ? '' : 's'} · <span class="${c.critical > 0 ? 'c-red fw-600' : ''}">${c.critical}</span> critical, <span class="${c.warning > 0 ? 'c-amber' : ''}">${c.warning}</span> warning, ${c.ok} ok`;
     }
   } catch (e) {
     wrap.innerHTML = '<div class="empty-state">Failed to load integrations.</div>';
@@ -13243,7 +13243,7 @@ async function loadDiskHealth() {
   tbody.innerHTML = _skeletonRows(6);
   try {
     _diskHealthResp = await api('GET', '/fleet/disk-health');
-    if (summary) summary.textContent = `${_diskHealthResp.count} disk(s) at risk · ${_diskHealthResp.critical} critical · ${_diskHealthResp.high} high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
+    if (summary) summary.innerHTML = `${_diskHealthResp.count} disk(s) at risk · <span class="${_diskHealthResp.critical > 0 ? 'c-red fw-600' : ''}">${_diskHealthResp.critical}</span> critical · <span class="${_diskHealthResp.high > 0 ? 'c-amber' : ''}">${_diskHealthResp.high}</span> high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
     _renderDiskHealth();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
@@ -18559,12 +18559,14 @@ async function _loadAuditSection(key) {
             badge.textContent = 'none'; return;
           }
           const c = devCve.counts || {};
-          badge.textContent = c.critical > 0 ? `${c.critical} critical` : c.high > 0 ? `${c.high} high` : 'clean';
+          badge.innerHTML = c.critical > 0 ? `<span class="c-red fw-600">${c.critical} critical</span>` : c.high > 0 ? `<span class="c-amber">${c.high} high</span>` : 'clean';
           body.innerHTML = `<div class="sysinfo-row">` +
-            ['critical','high','medium','low'].map(s =>
-              `<div class="sysinfo-pill"><div class="label">${s}</div>
-               <div class="value isl-644">${c[s]||0}</div></div>`
-            ).join('') + '</div>';
+            ['critical','high','medium','low'].map(s => {
+              const n = c[s]||0;
+              const vc = n > 0 ? (s === 'critical' ? 'c-red fw-600' : s === 'high' ? 'c-amber' : '') : '';
+              return `<div class="sysinfo-pill"><div class="label">${s}</div>
+               <div class="value isl-644 ${vc}">${n}</div></div>`;
+            }).join('') + '</div>';
           break;
         }
         const findings = data.findings || [];
@@ -18577,15 +18579,17 @@ async function _loadAuditSection(key) {
         }
         const crit = (bySev.critical||[]).length;
         const high = (bySev.high||[]).length;
-        badge.textContent = crit > 0 ? `${crit} critical` : high > 0 ? `${high} high` : findings.length ? `${findings.length} total` : 'clean';
+        badge.innerHTML = crit > 0 ? `<span class="c-red fw-600">${crit} critical</span>` : high > 0 ? `<span class="c-amber">${high} high</span>` : findings.length ? `${findings.length} total` : 'clean';
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
-            ${['critical','high','medium','low'].map(sev =>
-              `<div class="sysinfo-pill">
+            ${['critical','high','medium','low'].map(sev => {
+              const n = (bySev[sev]||[]).length;
+              const vc = n > 0 ? (sev === 'critical' ? 'c-red fw-600' : sev === 'high' ? 'c-amber' : '') : '';
+              return `<div class="sysinfo-pill">
                 <div class="label">${sev}</div>
-                <div class="value isl-645">${(bySev[sev]||[]).length}</div>
-              </div>`
-            ).join('')}
+                <div class="value isl-645 ${vc}">${n}</div>
+              </div>`;
+            }).join('')}
           </div>` +
           ['critical','high','medium','low'].filter(s => bySev[s]?.length).map(sev => {
             const col = sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'var(--muted)';
