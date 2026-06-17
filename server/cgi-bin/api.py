@@ -318,6 +318,7 @@ IP_REP_MIN_RECHECK   = 60         # manual scan: skip IPs checked within 60s (an
 IP_REP_MAX_PER_RUN   = 20         # cap IPs checked per scan run (anti-burst + bounded heartbeat)
 IP_REP_QUERY_DELAY   = 0.2        # inter-IP pause on manual scans (DNSBL politeness, seconds)
 IP_REP_RUN_BUDGET    = 20         # wall-clock seconds cap per scan run (bounded heartbeat)
+IP_REP_CONFIRM       = 2          # consecutive listed scans before alerting (flap dampening)
 # Agentless devices live in the regular devices.json with a special marker
 # (`agentless: True`). Network map is rendered from the existing devices
 # data plus a new `connected_to: <device_id>` field on each record. No
@@ -4520,6 +4521,11 @@ def _alert_title(event, payload):
         return f'Scan findings on {name}: {c} critical, {h} high'
     if event == 'integration_down':
         return f'Integration unhealthy: {p.get("label", "?")} — {p.get("detail", "")}'[:200]
+    if event == 'ip_blacklisted':
+        return (f'IP blocklisted: {p.get("ip", "?")} on '
+                f'{p.get("listed_count", "?")} list(s) ({p.get("blocklists", "?")})')[:200]
+    if event == 'ip_blacklist_cleared':
+        return f'IP reputation cleared: {p.get("ip", "?")}'
     if event == 'drift_detected':
         # File-integrity drift carries the single watched path that changed.
         path = p.get('path') or '?'
@@ -18940,6 +18946,7 @@ def _fetch_dmarc_reports() -> dict:
     sources = state.get('sources') or {}
     seen_ids = {r.get('report_id') for r in reports if isinstance(r, dict)}
     use_ssl = c.get('use_ssl', True) is not False
+    verify_tls = c.get('verify_tls', True) is not False
     host = str(c.get('host'))[:255]
     port = int(c.get('port') or (993 if use_ssl else 143))
     folder = str(c.get('folder') or 'INBOX')[:128]
@@ -18947,7 +18954,13 @@ def _fetch_dmarc_reports() -> dict:
     ingested = 0
     M = None
     try:
-        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ssl.create_default_context(), timeout=20)
+        _ctx = _ssl.create_default_context()
+        if not verify_tls:
+            # operator opted out — internal / self-signed IMAP cert (e.g. a
+            # Dovecot box with a private CA). Skips hostname + chain verification.
+            _ctx.check_hostname = False
+            _ctx.verify_mode = _ssl.CERT_NONE
+        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ctx, timeout=20)
              if use_ssl else imaplib.IMAP4(host, port, timeout=20))
         M.login(str(c.get('username') or ''), str(c.get('password') or ''))
         M.select(folder, readonly=False)
@@ -19048,6 +19061,7 @@ def handle_dmarc_imap_get() -> None:
         'username': c.get('username', ''),
         'folder':   c.get('folder', 'INBOX'),
         'use_ssl':  c.get('use_ssl', True) is not False,
+        'verify_tls': c.get('verify_tls', True) is not False,
         'interval': int(c.get('interval', 900) or 900),
         'password_set': bool(c.get('password')),
     })
@@ -19080,6 +19094,7 @@ def handle_dmarc_imap_save() -> None:
             'username': _no_ctrl(_sanitize_str(body.get('username', ''), 255)),
             'folder':   _no_ctrl(_sanitize_str(body.get('folder', 'INBOX') or 'INBOX', 128)),
             'use_ssl':  body.get('use_ssl', True) is not False,
+            'verify_tls': body.get('verify_tls', True) is not False,
             'interval': interval,
             'password': (str(new_pw)[:512] if new_pw else cur.get('password', '')),
         }
@@ -19158,27 +19173,46 @@ def _scan_ip_reputation(targets, results, min_recheck=0, max_ips=None,
         if scanned and delay:
             time.sleep(delay)
         ip = t.get('ip', '')
-        prev_listed = int((results.get(tid) or {}).get('listed_count', 0) or 0)
+        prev = results.get(tid) or {}
+        was_alerted = bool(prev.get('alerted'))
+        streak = int(prev.get('listed_streak', 0) or 0)
         try:
             res = ip_reputation.check_ip(ip, zones)
         except Exception as e:
             sys.stderr.write(f'[remotepower] ip reputation check failed {ip}: {e}\n')
             continue
         res['checked_at'] = int(time.time())
-        results[tid] = res
         scanned += 1
         if 'error' in res:
+            res['alerted'], res['listed_streak'] = was_alerted, streak
+            results[tid] = res
             continue
         new_listed = int(res.get('listed_count', 0) or 0)
+        ok = bool(res.get('ok'))
+        # Flap dampening: only a CONFIRMED listing (>= IP_REP_CONFIRM consecutive
+        # scans) raises an alert, and we only CLEAR on a fully-successful clean
+        # scan. A scan with zone errors (e.g. a public-resolver refusal) leaves the
+        # streak/alerted state untouched — so transient DNS errors never fire or
+        # clear an alert (the source of the earlier spam). No 'name' in the payload
+        # (it's not a device) so the inbox/feed don't render the IP twice.
+        if new_listed > 0:
+            streak += 1
+        elif ok:
+            streak = 0
+        res['listed_streak'] = streak
+        res['alerted'] = was_alerted
         names = ', '.join(z['name'] for z in res.get('listed_on', [])) or '—'
-        if prev_listed == 0 and new_listed > 0:
+        if new_listed > 0 and not was_alerted and streak >= IP_REP_CONFIRM:
+            res['alerted'] = True
             pending.append(('ip_blacklisted', {
-                'ip': ip, 'name': ip, 'label': t.get('label', ''),
+                'ip': ip, 'label': t.get('label', ''),
                 'listed_count': new_listed, 'blocklists': names}))
-        elif prev_listed > 0 and new_listed == 0:
+        elif new_listed == 0 and ok and was_alerted:
+            res['alerted'] = False
             pending.append(('ip_blacklist_cleared', {
-                'ip': ip, 'name': ip, 'label': t.get('label', ''),
+                'ip': ip, 'label': t.get('label', ''),
                 'listed_count': 0, 'blocklists': '—'}))
+        results[tid] = res
     return pending, scanned
 
 

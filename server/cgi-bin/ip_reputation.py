@@ -73,15 +73,33 @@ def _make_resolver():
     return r
 
 
+_LISTING_NET = ipaddress.ip_network("127.0.0.0/8")
+_DNSBL_ERROR_NET = ipaddress.ip_network("127.255.255.0/24")
+
+
+def _is_listing_code(code):
+    """A DNSBL answer is a real LISTING only when it's in 127.0.0.0/8 AND not in
+    the 127.255.255.0/24 status/error range. The error range means the query was
+    REFUSED, not that the IP is listed — e.g. 127.255.255.254 = 'query came via a
+    public/open resolver', 127.255.255.252 = blocked, 127.255.255.255 = volume
+    limit. Counting those as listings is a false positive (and flaps → alert spam)."""
+    try:
+        a = ipaddress.ip_address(str(code))
+    except ValueError:
+        return False
+    return a in _LISTING_NET and a not in _DNSBL_ERROR_NET
+
+
 def _query(name, resolver):
-    """Return ``(listed, codes, txt)``. NXDOMAIN/NoAnswer -> not listed. Other
-    lookup failures (timeout/SERVFAIL) raise so the caller records a zone error
-    rather than a false 'clean'."""
+    """Return ``(codes, txt)`` — the A-record return codes + matching TXT reasons.
+    NXDOMAIN/NoAnswer -> ``([], [])`` (not listed). Lookup failures
+    (timeout/SERVFAIL) raise so the caller records a zone error, not a false
+    'clean'. The caller classifies codes into real listings vs status/error codes."""
     import dns.resolver
     try:
         ans = resolver.resolve(name, 'A')
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
-        return False, [], []
+        return [], []
     codes = [str(r) for r in ans]
     txt = []
     try:
@@ -92,7 +110,7 @@ def _query(name, resolver):
                 txt.append(str(r).strip('"'))
     except Exception:
         pass  # TXT reason is best-effort; absence doesn't change the listing
-    return True, codes, txt
+    return codes, txt
 
 
 def check_ip(ip, zones=None, resolver=None):
@@ -117,12 +135,20 @@ def check_ip(ip, zones=None, resolver=None):
         if not zone or not valid_zone(zone):
             continue
         try:
-            listed, codes, txt = _query(f'{rev}.{zone}', resolver)
+            codes, txt = _query(f'{rev}.{zone}', resolver)
         except Exception as e:
             errors[zone] = str(e)[:120]
             continue
-        if listed:
-            listed_on.append({'name': name, 'zone': zone, 'codes': codes,
+        if not codes:
+            continue  # NXDOMAIN — not listed by this zone
+        listing_codes = [c for c in codes if _is_listing_code(c)]
+        if listing_codes:
+            listed_on.append({'name': name, 'zone': zone, 'codes': listing_codes,
                               'reason': '; '.join(txt)[:300]})
+        else:
+            # All codes are status/error (e.g. a public-resolver refusal) — the
+            # listing status is unknown, so record a zone error rather than a
+            # false 'listed' or a false 'clean'.
+            errors[zone] = 'query refused / status code ' + ','.join(codes)[:80]
     return {'ip': norm, 'listed_on': listed_on, 'errors': errors,
             'listed_count': len(listed_on), 'ok': not errors}

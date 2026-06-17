@@ -12967,6 +12967,7 @@ async function dmarcImapOpen() {
   document.getElementById('dmarc-imap-folder').value = c.folder || 'INBOX';
   document.getElementById('dmarc-imap-interval').value = c.interval || 900;
   document.getElementById('dmarc-imap-ssl').checked = c.use_ssl !== false;
+  document.getElementById('dmarc-imap-verify').checked = c.verify_tls !== false;
   openModal('dmarc-imap-modal');
 }
 async function dmarcImapSave() {
@@ -12978,6 +12979,7 @@ async function dmarcImapSave() {
     folder:   document.getElementById('dmarc-imap-folder').value.trim() || 'INBOX',
     interval: parseInt(document.getElementById('dmarc-imap-interval').value, 10) || 900,
     use_ssl:  document.getElementById('dmarc-imap-ssl').checked,
+    verify_tls: document.getElementById('dmarc-imap-verify').checked,
   };
   const pw = document.getElementById('dmarc-imap-pass').value;
   if (pw) body.password = pw;
@@ -15366,6 +15368,10 @@ function _renderHomeActivity(fleetEvents) {
         detail = p.path || p.unit || ''; break;
       case 'config_drift':
         detail = (p.sections||[]).slice(0,3).join(', '); break;
+      case 'ip_blacklisted':
+        detail = `${p.ip || ''}${p.blocklists ? ' — ' + p.blocklists : ''}`; break;
+      case 'ip_blacklist_cleared':
+        detail = `${p.ip || ''} cleared`; break;
       default:
         detail = p.path || p.unit || p.metric || p.cve_id || p.pattern || '';
         if (!detail && p.upgradable) detail = `${p.upgradable} updates`;

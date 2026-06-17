@@ -6959,6 +6959,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label" for="dmarc-imap-folder">Folder</label><input type="text" id="dmarc-imap-folder" class="form-input" placeholder="INBOX" maxlength="255"></div>
   <div class="form-group"><label class="form-label" for="dmarc-imap-interval">Poll interval (seconds)</label><input type="number" id="dmarc-imap-interval" class="form-input" placeholder="900" min="300" max="86400"></div>
   <div class="form-group"><label class="form-row"><input type="checkbox" id="dmarc-imap-ssl"> <span class="form-label">Use SSL/TLS (IMAPS, port 993)</span></label></div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="dmarc-imap-verify"> <span class="form-label">Verify TLS certificate (uncheck for an internal / self-signed IMAP server)</span></label></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dmarc-imap-modal">Cancel</button><button class="btn-primary" data-action="dmarcImapSave">Save settings</button></div>
 </div></div>
 

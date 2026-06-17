@@ -88,6 +88,22 @@ class TestCheckIp(unittest.TestCase):
         self.assertEqual(out['listed_on'], [])
         self.assertTrue(out['ok'])
 
+    def test_error_code_not_counted_as_listed(self):
+        # 127.255.255.254 = "query via a public resolver" — refused, NOT a listing.
+        res = FakeResolver({'4.3.2.1.bl.test': (['127.255.255.254'], [])})
+        out = ipr.check_ip('1.2.3.4', ZONES, res)
+        self.assertEqual(out['listed_count'], 0)
+        self.assertIn('bl.test', out['errors'])
+        self.assertFalse(out['ok'])
+
+    def test_is_listing_code(self):
+        self.assertTrue(ipr._is_listing_code('127.0.0.2'))
+        self.assertTrue(ipr._is_listing_code('127.0.1.5'))
+        self.assertFalse(ipr._is_listing_code('127.255.255.254'))
+        self.assertFalse(ipr._is_listing_code('127.255.255.252'))
+        self.assertFalse(ipr._is_listing_code('10.0.0.1'))
+        self.assertFalse(ipr._is_listing_code('not-ip'))
+
     def test_invalid_ip(self):
         out = ipr.check_ip('999.1.1.1', ZONES, FakeResolver({}))
         self.assertIn('error', out)

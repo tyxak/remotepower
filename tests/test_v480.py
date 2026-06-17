@@ -357,11 +357,15 @@ class TestIpReputationMonitor(unittest.TestCase):
         try:
             targets = {'iprep_x': {'ip': '1.2.3.4', 'label': ''}}
             results = {}
-            pending, scanned = api._scan_ip_reputation(targets, results)
+            # flap dampening: 1st confirmed listing is below the threshold (no
+            # alert); the 2nd consecutive listing fires it exactly once.
+            pending1, _ = api._scan_ip_reputation(targets, results)
+            pending2, _ = api._scan_ip_reputation(targets, results)
         finally:
             api.ip_reputation.check_ip = orig
-        self.assertEqual([e for e, _ in pending], ['ip_blacklisted'])
-        self.assertEqual(scanned, 1)
+        self.assertEqual([e for e, _ in pending1], [])
+        self.assertEqual([e for e, _ in pending2], ['ip_blacklisted'])
+        self.assertTrue(results['iprep_x']['alerted'])
         self.assertEqual(results['iprep_x']['listed_count'], 1)
 
     def test_scan_rate_limit_skips_fresh_and_caps(self):
