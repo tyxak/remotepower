@@ -310,6 +310,10 @@ DMARC_TARGETS_FILE = DATA_DIR / 'dmarc_targets.json'
 DMARC_RESULTS_FILE = DATA_DIR / 'dmarc_results.json'
 DMARC_REPORTS_FILE = DATA_DIR / 'dmarc_reports.json'   # ingested RUA reports + mailbox status
 MAX_DMARC_TARGETS = 200
+IP_REP_TARGETS_FILE = DATA_DIR / 'ip_reputation_targets.json'
+IP_REP_RESULTS_FILE = DATA_DIR / 'ip_reputation_results.json'
+MAX_IP_REP_TARGETS  = 200
+IP_REP_SCAN_INTERVAL = 6 * 3600   # auto re-scan cadence (6h)
 # Agentless devices live in the regular devices.json with a special marker
 # (`agentless: True`). Network map is rendered from the existing devices
 # data plus a new `connected_to: <device_id>` field on each record. No
@@ -567,6 +571,7 @@ import proxmox_client
 import tls_monitor
 # v4.8.0: DMARC posture monitor — DNS-only SPF/DKIM/DMARC record grading.
 import dmarc_monitor
+import ip_reputation
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
@@ -803,6 +808,9 @@ WEBHOOK_EVENTS = (
     # went unhealthy/unreachable (integration_recovered is the recover event).
     ('integration_down',      'An integration target is unhealthy or unreachable', True),
     ('integration_recovered', 'An integration target recovered',                   True),
+    # v4.8.0: IP reputation — a monitored IP appeared on / left a DNS blocklist.
+    ('ip_blacklisted',        'A monitored IP is listed on a DNS blocklist (DNSBL)', True),
+    ('ip_blacklist_cleared',  'A monitored IP is no longer blocklisted',             True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4123,6 +4131,7 @@ _ALERT_RULES = {
     'process_alert':              ('medium', None),      # v3.14.0 #36
     'secret_exposed':             ('high', None),        # v3.14.0 #35
     'integration_down':           (None, None),          # v4.7.0: severity from payload.severity
+    'ip_blacklisted':             ('high', None),        # v4.8.0
 }
 
 # Map recover event → firing event it resolves
@@ -4156,6 +4165,7 @@ _ALERT_RECOVER = {
     'process_recovered':       'process_alert',           # v3.14.0 #36
     'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
     'integration_recovered':   'integration_down',        # v4.7.0
+    'ip_blacklist_cleared':    'ip_blacklisted',          # v4.8.0
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -4241,6 +4251,7 @@ CHANNEL_KINDS = [
     ('scan',         'Security scan findings',   'operational',   ['scan_finding']),
     # v4.7.0: homelab software integration health
     ('integration',  'Integration health',       'operational',   ['integration_down', 'integration_recovered']),
+    ('reputation',   'IP reputation (DNSBL)',    'operational',   ['ip_blacklisted', 'ip_blacklist_cleared']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -5383,6 +5394,8 @@ def _webhook_title(event):
         'scan_finding':    'Security Scan Findings',
         'integration_down':      'Integration Unhealthy',
         'integration_recovered': 'Integration Recovered',
+        'ip_blacklisted':        'IP Blocklisted',
+        'ip_blacklist_cleared':  'IP Reputation Cleared',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -6169,6 +6182,11 @@ def _webhook_message(event, payload):
                 + (f' — {payload.get("detail")}' if payload.get('detail') else ''))
     elif event == 'integration_recovered':
         return f'Integration "{payload.get("label", "?")}" recovered'
+    elif event == 'ip_blacklisted':
+        return (f'IP {payload.get("ip","?")} is listed on '
+                f'{payload.get("listed_count","?")} blocklist(s): {payload.get("blocklists","?")}')
+    elif event == 'ip_blacklist_cleared':
+        return f'IP {payload.get("ip","?")} is no longer blocklisted'
     return f'{event}: {name}'
 
 
@@ -19076,6 +19094,156 @@ def handle_dmarc_clear() -> None:
     audit_log(actor, 'dmarc_reports_clear',
               detail='cleared ingested DMARC reports + sources + mailbox state')
     respond(200, {'ok': True})
+
+
+# ─── v4.8.0: IP reputation (DNSBL / blocklist) monitor ───────────────────────
+
+def _ip_rep_targets() -> dict:
+    s = load(IP_REP_TARGETS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _ip_rep_results() -> dict:
+    s = load(IP_REP_RESULTS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _ip_rep_dnsbls():
+    """Configured blocklist zones, or the built-in defaults."""
+    z = (load(CONFIG_FILE) or {}).get('ip_reputation_dnsbls')
+    out = []
+    if isinstance(z, list):
+        for e in z:
+            if isinstance(e, dict) and e.get('zone'):
+                out.append({'name': str(e.get('name') or e['zone'])[:60],
+                            'zone': str(e['zone'])[:120]})
+    return out or ip_reputation.DEFAULT_DNSBLS
+
+
+def _scan_ip_reputation(targets, results):
+    """Check every IP target, update `results` in place, and return a list of
+    pending (event, payload) tuples for newly-listed / newly-cleared IPs. Fire
+    them AFTER this returns — never while holding a lock."""
+    zones = _ip_rep_dnsbls()
+    now = int(time.time())
+    pending = []
+    for tid, t in targets.items():
+        if not isinstance(t, dict):
+            continue
+        ip = t.get('ip', '')
+        prev_listed = int((results.get(tid) or {}).get('listed_count', 0) or 0)
+        try:
+            res = ip_reputation.check_ip(ip, zones)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] ip reputation check failed {ip}: {e}\n')
+            continue
+        res['checked_at'] = now
+        results[tid] = res
+        if 'error' in res:
+            continue
+        new_listed = int(res.get('listed_count', 0) or 0)
+        names = ', '.join(z['name'] for z in res.get('listed_on', [])) or '—'
+        if prev_listed == 0 and new_listed > 0:
+            pending.append(('ip_blacklisted', {
+                'ip': ip, 'name': ip, 'label': t.get('label', ''),
+                'listed_count': new_listed, 'blocklists': names}))
+        elif prev_listed > 0 and new_listed == 0:
+            pending.append(('ip_blacklist_cleared', {
+                'ip': ip, 'name': ip, 'label': t.get('label', ''),
+                'listed_count': 0, 'blocklists': '—'}))
+    return pending
+
+
+def handle_reputation_list() -> None:
+    """``GET /api/reputation/targets`` — IP targets + last DNSBL result."""
+    require_auth()
+    targets = _ip_rep_targets()
+    results = _ip_rep_results()
+    out = []
+    for tid, t in targets.items():
+        if not isinstance(t, dict):
+            continue
+        r = results.get(tid) or {}
+        out.append({
+            'id': tid, 'ip': t.get('ip', ''), 'label': t.get('label', ''),
+            'listed_count': r.get('listed_count', 0), 'listed_on': r.get('listed_on', []),
+            'errors': r.get('errors', {}), 'error': r.get('error', ''),
+            'checked_at': r.get('checked_at', 0),
+        })
+    out.sort(key=lambda x: (-(x['listed_count'] or 0), x['ip']))
+    respond(200, {'targets': out, 'dnsbls': _ip_rep_dnsbls()})
+
+
+def handle_reputation_add() -> None:
+    """``POST /api/reputation/targets`` — monitor an IPv4 address. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    parsed = ip_reputation.parse_target(get_json_body())
+    if parsed is None:
+        respond(400, {'error': 'invalid — a valid IPv4 address is required'})
+    targets = _ip_rep_targets()
+    if any(isinstance(t, dict) and t.get('ip') == parsed['ip'] for t in targets.values()):
+        respond(400, {'error': 'that IP is already monitored'})
+    if len(targets) >= MAX_IP_REP_TARGETS:
+        respond(400, {'error': f'max {MAX_IP_REP_TARGETS} IP targets'})
+    new_id = 'iprep_' + secrets.token_hex(6)
+    targets[new_id] = parsed
+    save(IP_REP_TARGETS_FILE, targets)
+    audit_log(actor, 'ip_reputation_add', detail=f'ip={parsed["ip"]}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_reputation_delete(target_id: str) -> None:
+    """``DELETE /api/reputation/targets/{id}`` — stop monitoring an IP. Admin only."""
+    actor = require_admin_auth()
+    if not target_id.startswith('iprep_'):
+        respond(404, {'error': 'target not found'})
+    targets = _ip_rep_targets()
+    if target_id not in targets:
+        respond(404, {'error': 'target not found'})
+    ip = targets[target_id].get('ip', '?')
+    del targets[target_id]
+    save(IP_REP_TARGETS_FILE, targets)
+    results = _ip_rep_results()
+    results.pop(target_id, None)
+    save(IP_REP_RESULTS_FILE, results)
+    audit_log(actor, 'ip_reputation_delete', detail=f'ip={ip}')
+    respond(200, {'ok': True})
+
+
+def handle_reputation_scan() -> None:
+    """``POST /api/reputation/scan`` — re-check every IP against the DNSBLs now.
+    Admin only (outbound DNS). Fires ip_blacklisted / ip_blacklist_cleared on
+    transitions, AFTER the results are saved (no lock held)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    targets = _ip_rep_targets()
+    results = _ip_rep_results()
+    pending = _scan_ip_reputation(targets, results)
+    save(IP_REP_RESULTS_FILE, results)
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
+    audit_log(actor, 'ip_reputation_scan', detail=f'ips={len(targets)} alerts={len(pending)}')
+    respond(200, {'ok': True, 'scanned': len(targets)})
+
+
+def run_reputation_scan_if_due() -> None:
+    """Periodic DNSBL re-scan so the page is a real monitor. Cheap when there are
+    no targets / the cadence isn't due."""
+    targets = _ip_rep_targets()
+    if not targets:
+        return
+    results = _ip_rep_results()
+    last = max((r.get('checked_at', 0) for r in results.values() if isinstance(r, dict)),
+               default=0)
+    if int(time.time()) - int(last or 0) < IP_REP_SCAN_INTERVAL:
+        return
+    pending = _scan_ip_reputation(targets, results)
+    save(IP_REP_RESULTS_FILE, results)
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
 
 
 # ─── v1.11.0: agentless devices + network map ────────────────────────────────
@@ -42198,6 +42366,9 @@ def _build_exact_routes():
         ('GET', '/api/dmarc/reports'): handle_dmarc_reports,
         ('POST', '/api/dmarc/fetch'): handle_dmarc_fetch,
         ('DELETE', '/api/dmarc/reports'): handle_dmarc_clear,
+        ('GET', '/api/reputation/targets'): handle_reputation_list,
+        ('POST', '/api/reputation/targets'): handle_reputation_add,
+        ('POST', '/api/reputation/scan'): handle_reputation_scan,
         ('GET', '/api/dmarc/imap'): handle_dmarc_imap_get,
         ('POST', '/api/dmarc/imap'): handle_dmarc_imap_save,
         ('POST', '/api/totp/confirm'): handle_totp_confirm,
@@ -42813,6 +42984,8 @@ def _dispatch(pi, m):
         handle_tls_delete(pi[len('/api/tls/targets/'):])
     elif pi.startswith('/api/dmarc/targets/') and m == 'DELETE':
         handle_dmarc_delete(pi[len('/api/dmarc/targets/'):])
+    elif pi.startswith('/api/reputation/targets/') and m == 'DELETE':
+        handle_reputation_delete(pi[len('/api/reputation/targets/'):])
     elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
 
     # ── v1.11.0: network map + agentless device link ──────────────────────
@@ -42886,6 +43059,8 @@ def main():
     _safe(run_integrations_if_due, 'run_integrations_if_due')
     # v4.8.0: poll the DMARC RUA mailbox over IMAP when due (no-op unless enabled).
     _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
+    # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
+    _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).

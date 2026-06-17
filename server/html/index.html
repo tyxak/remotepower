@@ -279,9 +279,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           <span>CVEs</span>
         </button>
-        <button class="nav-btn" data-page="dmarc" title="DMARC / SPF / DKIM email-auth posture + aggregate (RUA) reports">
+        <button class="nav-btn" data-page="dmarc" title="IP reputation (DNSBL/blocklist) monitor + DMARC / SPF / DKIM email-auth posture and aggregate (RUA) reports">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-          <span>DMARC</span>
+          <span>Reputation/DMARC</span>
         </button>
         <button class="nav-btn" data-page="drift" title="Watched config files — alerts when a file hash diverges from its baseline">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
@@ -2675,7 +2675,7 @@
                 <li><strong>Self-hosted one-line agent install.</strong> Your server now serves its own agent installer at <code>/install</code>, and a <strong>baked "Quick install" agent</strong> carries the server URL + an enrolment token (with an integrity check) so the operator just downloads and runs it — the host then appears in the device list by its hostname, nothing else to configure.</li>
                 <li><strong>Bootstrap agents over SSH.</strong> <code>install.sh agent push --server &lt;url&gt; --token &lt;token&gt; user@host …</code> installs the agent on remote hosts you can already SSH to.</li>
                 <li><strong>Clean uninstall.</strong> First-class uninstall for the server, the agent and the demo data — no leftover units, users or files.</li>
-                <li><strong>DMARC / SPF / DKIM monitor.</strong> A new page checks your domains' email-authentication posture over DNS, and can also connect to a mailbox over <strong>IMAP</strong> to ingest DMARC aggregate (RUA) reports — showing who is sending as your domains and whether they pass, with per-source pass/fail tallies and mailbox health.</li>
+                <li><strong>Reputation/DMARC monitor.</strong> A new page for mail-deliverability posture. It checks the <strong>IP reputation</strong> of your sending IPs against DNS blocklists (DNSBLs) and alerts when one gets listed; grades your domains' SPF / DKIM / DMARC over DNS; and can connect to a mailbox over <strong>IMAP</strong> to ingest DMARC aggregate (RUA) reports — who is sending as your domains and whether they pass, with per-source pass/fail tallies and mailbox health.</li>
                 <li><strong>Accessibility.</strong> Every modal dialog now carries an accessible name, and all native browser <code>confirm()</code> / <code>prompt()</code> pop-ups are replaced with styled, focus-managed in-app dialogs.</li>
                 <li><strong>Agent parity.</strong> macOS now reports saturation metrics (load average + file-descriptor pressure) and the Windows agent reports NVIDIA GPU telemetry.</li>
                 <li><strong>Reliability &amp; security.</strong> The CVE <em>Scan all devices</em> action no longer hangs the browser; containerized-agent host reads, credential-file permissions on macOS/Windows, and internal lock-safety were all hardened. Independently pentested with <strong>wapiti, nikto, nuclei, bandit and OWASP ZAP</strong> — clean.</li>
@@ -5053,8 +5053,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-dmarc" class="page">
-        <div class="page-title">DMARC</div>
-        <div class="page-subtitle">Email-authentication posture for your domains — SPF, DKIM and DMARC records over DNS — plus aggregate (RUA) reports fetched from your DMARC mailbox over IMAP.</div>
+        <div class="page-title">Reputation/DMARC</div>
+        <div class="page-subtitle">Mail-deliverability posture: IP reputation against DNS blocklists (DNSBLs), plus your domains' SPF / DKIM / DMARC records over DNS and aggregate (RUA) reports fetched from your DMARC mailbox over IMAP.</div>
+
+        <div class="section-title">IP reputation (DNS blocklists)</div>
+        <div class="page-subtitle">Watch whether your mail-sending IPs are listed on DNS blocklists (DNSBLs). Auto-rescans periodically; raises an alert when a monitored IP gets listed.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="reputationAdd">+ Add IP</button>
+          <button class="btn-icon" data-action="reputationScan">Check reputation now</button>
+          <button class="btn-icon" data-action="loadReputation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="reputation-dnsbls" class="hint"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead><tr>
+                <th>IP</th>
+                <th>Label</th>
+                <th>Status</th>
+                <th>Blocklists</th>
+                <th>Checked</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="reputation-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-title mt-16">DMARC / SPF / DKIM posture</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="dmarcAdd">+ Add domain</button>
           <button class="btn-icon" data-action="dmarcScan">Scan now</button>

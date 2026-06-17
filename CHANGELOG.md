@@ -19,12 +19,18 @@ breaking changes. Full notes in [docs/v4.8.0.md](docs/v4.8.0.md).
   agents over SSH; `install.sh uninstall` cleanly removes the server, agent or
   demo. Heavy-fleet scaling is reframed as an explicit advanced track, and the old
   `Manual.html` is folded into the docs.
-- **DMARC / SPF / DKIM monitor.** A new DMARC page grades your domains' published
-  SPF/DKIM/DMARC DNS records **and** ingests the aggregate (RUA) reports your
-  receivers send back: point it at an IMAP mailbox and it polls (scheduled +
-  on-demand), parses the gzip/zip XML, and shows per-source SPF/DKIM pass/fail
-  tallies plus mailbox health. New endpoints `GET /api/dmarc/reports`,
-  `POST /api/dmarc/fetch`, `GET /api/dmarc/imap`, `POST /api/dmarc/imap`.
+- **Reputation/DMARC monitor.** A new page for mail-deliverability posture.
+  - **IP reputation (DNSBL).** Add your mail-sending IPs and RemotePower checks
+    each against DNS blocklists (Spamhaus, SpamCop, Barracuda, SORBS, UCEPROTECT,
+    PSBL), re-scans periodically, and fires `ip_blacklisted` / `ip_blacklist_cleared`
+    alerts on transitions. Endpoints `GET/POST /api/reputation/targets`,
+    `DELETE /api/reputation/targets/<id>`, `POST /api/reputation/scan`.
+  - **DMARC / SPF / DKIM.** Grades your domains' published SPF/DKIM/DMARC DNS
+    records **and** ingests the aggregate (RUA) reports your receivers send back:
+    point it at an IMAP mailbox and it polls (scheduled + on-demand), parses the
+    gzip/zip XML, and shows per-source SPF/DKIM pass/fail tallies plus mailbox
+    health. Endpoints `GET /api/dmarc/reports`, `POST /api/dmarc/fetch`,
+    `GET /api/dmarc/imap`, `POST /api/dmarc/imap`.
 - **Accessibility.** Every modal dialog now has an accessible name, and every
   native `confirm()`/`prompt()` is replaced with a styled, accessible in-app
   dialog.

@@ -340,6 +340,34 @@ class TestSecurityGates(unittest.TestCase):
         self.assertIn('opener', inspect.signature(webpush.send).parameters)
 
 
+class TestIpReputationMonitor(unittest.TestCase):
+    """v4.8.0 IP reputation (DNSBL) monitor under Reputation/DMARC."""
+
+    def test_handlers_admin_gated(self):
+        import inspect
+        for fn in (api.handle_reputation_add, api.handle_reputation_scan,
+                   api.handle_reputation_delete):
+            self.assertIn('require_admin_auth', inspect.getsource(fn))
+
+    def test_scan_fires_blacklisted_on_new_listing(self):
+        orig = api.ip_reputation.check_ip
+        api.ip_reputation.check_ip = lambda ip, zones=None: {
+            'ip': ip, 'listed_on': [{'name': 'BL', 'zone': 'bl.test'}],
+            'errors': {}, 'listed_count': 1, 'ok': True}
+        try:
+            targets = {'iprep_x': {'ip': '1.2.3.4', 'label': ''}}
+            results = {}
+            pending = api._scan_ip_reputation(targets, results)
+        finally:
+            api.ip_reputation.check_ip = orig
+        self.assertEqual([e for e, _ in pending], ['ip_blacklisted'])
+        self.assertEqual(results['iprep_x']['listed_count'], 1)
+
+    def test_reputation_events_registered(self):
+        self.assertIn('ip_blacklisted', api.WEBHOOK_EVENT_NAMES)
+        self.assertIn('ip_blacklist_cleared', api.WEBHOOK_EVENT_NAMES)
+
+
 class TestVersionBumps(unittest.TestCase):
     """Strict version-surface pins for v4.8.0 — loosen to regex on the next bump
     (see tests/test_v470.py for the loosened pattern)."""

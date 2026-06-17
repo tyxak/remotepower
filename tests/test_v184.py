@@ -296,6 +296,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'secret_exposed',                        # v3.14.0 #35
             'scan_finding',                          # v4.2.0 (B5)
             'integration_down', 'integration_recovered',  # v4.7.0 integrations
+            'ip_blacklisted', 'ip_blacklist_cleared',  # v4.8.0 IP reputation
             'mount_recovered',                       # v3.14.0 fix
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew

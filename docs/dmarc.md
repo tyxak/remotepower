@@ -1,9 +1,13 @@
-# DMARC monitor
+# Reputation/DMARC monitor
 
-Track the email-authentication posture of your domains — **SPF**, **DKIM** and
-**DMARC** — from the **DMARC** page (under Security in the sidebar). The monitor
-has two complementary halves:
+Track your mail-deliverability posture from the **Reputation/DMARC** page (under
+Security in the sidebar). The page has three complementary halves:
 
+- **IP reputation (DNSBL)** — add the IPv4 addresses you send mail from and
+  RemotePower checks each against a set of **DNS blocklists** (DNSBLs such as
+  Spamhaus, SpamCop, Barracuda). It shows which lists, if any, name each IP,
+  re-scans periodically, and raises an **`ip_blacklisted`** alert when a
+  monitored IP gets listed (auto-resolved when it clears).
 - **DNS posture checks** — RemotePower reads each domain's published TXT records
   (`_dmarc`, SPF, optionally a DKIM selector) and grades them. Fast and
   synchronous; no mailbox required.
@@ -13,7 +17,23 @@ has two complementary halves:
   SPF/DKIM pass/fail tallies plus a lightweight **mailbox health** view (message
   and unseen counts).
 
-Both halves are read-only — RemotePower never sends mail or changes a DNS record.
+All three are read-only — RemotePower never sends mail or changes a DNS record.
+
+## IP reputation (DNS blocklists)
+
+Add an IPv4 address (your MX / smarthost / outbound mail IP) under **IP
+reputation** and click **Check reputation now**, or let the periodic re-scan run.
+For each IP the table shows whether it is **Clean** or **Listed on N** blocklists,
+which lists, and when it was last checked. A newly-listed IP fires the
+`ip_blacklisted` webhook/alert; clearing fires `ip_blacklist_cleared` and
+auto-resolves the alert.
+
+Endpoints: `GET /api/reputation/targets`, `POST /api/reputation/targets`,
+`DELETE /api/reputation/targets/<id>`, `POST /api/reputation/scan`.
+
+> **Resolver note:** some blocklists (Spamhaus in particular) refuse queries that
+> arrive via large public DNS resolvers. For reliable results, the server should
+> use its own or a private recursive resolver rather than a public one.
 
 ## What it checks
 

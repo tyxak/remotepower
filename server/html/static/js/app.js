@@ -12870,7 +12870,48 @@ async function loadDmarc() {
   _registerDmarcTable();
   const data = await api('GET', '/dmarc/targets');
   if (data) tableCtl.render('dmarc', data || []);
+  loadReputation();
   loadDmarcReports();
+}
+async function loadReputation() {
+  const data = await api('GET', '/reputation/targets');
+  if (!data) return;
+  const dn = document.getElementById('reputation-dnsbls');
+  if (dn) dn.textContent = `Checking ${(data.dnsbls || []).length} blocklist(s): `
+    + (data.dnsbls || []).map(z => z.name).join(', ');
+  const tb = document.getElementById('reputation-tbody');
+  if (!tb) return;
+  const rows = data.targets || [];
+  tb.innerHTML = rows.length ? rows.map(t => {
+    let status, cls;
+    if (t.error) { status = escHtml(t.error); cls = 'c-muted'; }
+    else if (!t.checked_at) { status = 'not checked'; cls = 'c-muted'; }
+    else if ((t.listed_count || 0) > 0) { status = `Listed on ${t.listed_count}`; cls = 'c-red'; }
+    else { status = 'Clean'; cls = 'c-green'; }
+    const lists = (t.listed_on || []).map(z => escHtml(z.name)).join(', ') || '<span class="c-muted">—</span>';
+    const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
+    return `<tr><td class="ff-mono fw-500">${escHtml(t.ip)}</td><td>${escHtml(t.label || '')}</td><td class="${cls}">${status}</td><td class="hint">${lists}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteReputation" data-arg="${escAttr(t.id)}" title="Stop monitoring this IP">Remove</button></td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="hint">No IPs monitored yet. Add one to watch its blocklist status.</td></tr>';
+}
+async function reputationAdd() {
+  const ip = await uiPrompt({ title: 'Add IP', message: "IPv4 address to monitor (e.g. your mail server's public IP):", confirmText: 'Add' });
+  if (!ip) return;
+  const label = await uiPrompt({ title: 'Label (optional)', message: 'A label for this IP (e.g. "mx1"), or leave blank:', confirmText: 'Add' });
+  const r = await api('POST', '/reputation/targets', { ip: ip.trim(), label: (label || '').trim() });
+  if (r && r.ok) { toast('IP added — checking…', 'success'); await reputationScan(); }
+  else toast((r && r.error) || 'Could not add IP', 'error');
+}
+async function reputationScan() {
+  toast('Checking blocklists…', 'info');
+  const r = await api('POST', '/reputation/scan', {});
+  if (r && r.ok) { toast(`Checked ${r.scanned} IP(s)`, 'success'); loadReputation(); }
+  else toast((r && r.error) || 'Scan failed', 'error');
+}
+async function deleteReputation(id) {
+  if (!await uiConfirm("Stop monitoring this IP's reputation?")) return;
+  const r = await api('DELETE', '/reputation/targets/' + encodeURIComponent(id));
+  if (r && r.ok) { toast('Removed', 'info'); loadReputation(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 async function loadDmarcReports() {
   const data = await api('GET', '/dmarc/reports');
@@ -15241,6 +15282,8 @@ function _renderHomeActivity(fleetEvents) {
     'scan_finding',
     // v4.7.0: homelab software integration health
     'integration_down', 'integration_recovered',
+    // v4.8.0: IP reputation (DNSBL) monitor
+    'ip_blacklisted', 'ip_blacklist_cleared',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -15414,6 +15457,8 @@ function _homeActivityAttrs(event, p) {
     // v4.7.0: integration health → the Integrations page
     case 'integration_down': case 'integration_recovered':
       return `${base} data-home-act="integrations"`;
+    case 'ip_blacklisted': case 'ip_blacklist_cleared':
+      return `${base} data-home-act="dmarc"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }

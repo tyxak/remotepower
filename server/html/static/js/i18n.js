@@ -64,6 +64,7 @@
     'Storage health':         { zh: '存储健康', hi: 'स्टोरेज स्वास्थ्य', es: 'Salud del almacenamiento', ar: 'سلامة التخزين' },
     'TLS / DNS':              { zh: 'TLS / DNS', hi: 'TLS / DNS', es: 'TLS / DNS', ar: 'TLS / DNS' },
     'DMARC':                  { zh: 'DMARC', hi: 'DMARC', es: 'DMARC', ar: 'DMARC' },
+    'Reputation/DMARC':       { zh: '信誉/DMARC', hi: 'प्रतिष्ठा/DMARC', es: 'Reputación/DMARC', ar: 'السمعة/DMARC' },
     'Thermal health':         { zh: '温度健康', hi: 'थर्मल स्वास्थ्य', es: 'Salud térmica', ar: 'الحالة الحرارية' },
     'Users & Roles':          { zh: '用户与角色', hi: 'उपयोगकर्ता और भूमिकाएँ', es: 'Usuarios y roles', ar: 'المستخدمون والأدوار' },
     // ── top-level nav ──
