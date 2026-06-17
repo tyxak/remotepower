@@ -12907,6 +12907,12 @@ async function dmarcFetch() {
   if (r && r.ok) { toast(`Ingested ${r.ingested || 0} report(s)`, 'success'); loadDmarcReports(); }
   else toast((r && r.error) || 'Fetch failed — check IMAP settings', 'error');
 }
+async function dmarcClearReports() {
+  if (!await uiConfirm('Clear all ingested DMARC reports, sending sources and mailbox status? Your IMAP settings are kept; a later fetch re-ingests from scratch.')) return;
+  const r = await api('DELETE', '/dmarc/reports');
+  if (r && r.ok) { toast('Reports cleared', 'info'); loadDmarcReports(); }
+  else toast((r && r.error) || 'Clear failed', 'error');
+}
 async function dmarcImapOpen() {
   const c = await api('GET', '/dmarc/imap');
   if (!c) return;

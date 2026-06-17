@@ -19065,6 +19065,19 @@ def handle_dmarc_imap_save() -> None:
     respond(200, {'ok': True})
 
 
+def handle_dmarc_clear() -> None:
+    """``DELETE /api/dmarc/reports`` — wipe ingested RUA reports, per-source
+    tallies and mailbox state, and reset the IMAP UID cursor so a later fetch
+    re-ingests from scratch. Admin only. The IMAP *config* is left untouched."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    save(DMARC_REPORTS_FILE, {})
+    audit_log(actor, 'dmarc_reports_clear',
+              detail='cleared ingested DMARC reports + sources + mailbox state')
+    respond(200, {'ok': True})
+
+
 # ─── v1.11.0: agentless devices + network map ────────────────────────────────
 
 
@@ -42184,6 +42197,7 @@ def _build_exact_routes():
         ('POST', '/api/dmarc/scan'): handle_dmarc_scan,
         ('GET', '/api/dmarc/reports'): handle_dmarc_reports,
         ('POST', '/api/dmarc/fetch'): handle_dmarc_fetch,
+        ('DELETE', '/api/dmarc/reports'): handle_dmarc_clear,
         ('GET', '/api/dmarc/imap'): handle_dmarc_imap_get,
         ('POST', '/api/dmarc/imap'): handle_dmarc_imap_save,
         ('POST', '/api/totp/confirm'): handle_totp_confirm,

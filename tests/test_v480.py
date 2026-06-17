@@ -326,6 +326,12 @@ class TestSecurityGates(unittest.TestCase):
         self.assertIn("require_perm('mitigate'",
                       inspect.getsource(api.handle_device_drift_reset))
 
+    def test_dmarc_clear_is_admin_gated(self):
+        import inspect
+        src = inspect.getsource(api.handle_dmarc_clear)
+        self.assertIn('require_admin_auth', src)
+        self.assertIn('DMARC_REPORTS_FILE', src)
+
     def test_webpush_send_accepts_injected_opener(self):
         import importlib
         import inspect
