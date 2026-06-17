@@ -313,7 +313,11 @@ MAX_DMARC_TARGETS = 200
 IP_REP_TARGETS_FILE = DATA_DIR / 'ip_reputation_targets.json'
 IP_REP_RESULTS_FILE = DATA_DIR / 'ip_reputation_results.json'
 MAX_IP_REP_TARGETS  = 200
-IP_REP_SCAN_INTERVAL = 6 * 3600   # auto re-scan cadence (6h)
+IP_REP_SCAN_INTERVAL = 6 * 3600   # per-IP auto re-scan cadence (6h)
+IP_REP_MIN_RECHECK   = 60         # manual scan: skip IPs checked within 60s (anti-spam/burst)
+IP_REP_MAX_PER_RUN   = 20         # cap IPs checked per scan run (anti-burst + bounded heartbeat)
+IP_REP_QUERY_DELAY   = 0.2        # inter-IP pause on manual scans (DNSBL politeness, seconds)
+IP_REP_RUN_BUDGET    = 20         # wall-clock seconds cap per scan run (bounded heartbeat)
 # Agentless devices live in the regular devices.json with a special marker
 # (`agentless: True`). Network map is rendered from the existing devices
 # data plus a new `connected_to: <device_id>` field on each record. No
@@ -19114,22 +19118,45 @@ def _ip_rep_dnsbls():
     out = []
     if isinstance(z, list):
         for e in z:
-            if isinstance(e, dict) and e.get('zone'):
+            if isinstance(e, dict) and e.get('zone') and ip_reputation.valid_zone(e['zone']):
                 out.append({'name': str(e.get('name') or e['zone'])[:60],
                             'zone': str(e['zone'])[:120]})
     return out or ip_reputation.DEFAULT_DNSBLS
 
 
-def _scan_ip_reputation(targets, results):
-    """Check every IP target, update `results` in place, and return a list of
-    pending (event, payload) tuples for newly-listed / newly-cleared IPs. Fire
-    them AFTER this returns — never while holding a lock."""
+def _scan_ip_reputation(targets, results, min_recheck=0, max_ips=None,
+                        delay=0.0, budget=None):
+    """Check the DUE IP targets and return ``(pending, scanned)``.
+
+    Rate-limit safeguards so the server's resolver is never hammered (DNSBLs
+    rate-limit / block bursty queriers):
+      - oldest-checked (and never-checked) IPs first, so a large fleet rotates;
+      - skip an IP whose last check is younger than ``min_recheck`` seconds;
+      - check at most ``max_ips`` IPs per call;
+      - stop after ``budget`` wall-clock seconds (keeps a big fleet off the
+        heartbeat's back);
+      - pause ``delay`` seconds between IPs (politeness spacing).
+    Updates ``results`` in place. ``pending`` are (event, payload) tuples to fire
+    AFTER this returns — never while holding a lock.
+    """
     zones = _ip_rep_dnsbls()
-    now = int(time.time())
-    pending = []
-    for tid, t in targets.items():
+    order = sorted(targets.items(),
+                   key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
+    pending, scanned = [], 0
+    start = time.monotonic()
+    for tid, t in order:
         if not isinstance(t, dict):
             continue
+        now = int(time.time())
+        last = int((results.get(tid) or {}).get('checked_at', 0) or 0)
+        if min_recheck and now - last < min_recheck:
+            continue
+        if max_ips is not None and scanned >= max_ips:
+            break
+        if budget is not None and time.monotonic() - start > budget:
+            break
+        if scanned and delay:
+            time.sleep(delay)
         ip = t.get('ip', '')
         prev_listed = int((results.get(tid) or {}).get('listed_count', 0) or 0)
         try:
@@ -19137,8 +19164,9 @@ def _scan_ip_reputation(targets, results):
         except Exception as e:
             sys.stderr.write(f'[remotepower] ip reputation check failed {ip}: {e}\n')
             continue
-        res['checked_at'] = now
+        res['checked_at'] = int(time.time())
         results[tid] = res
+        scanned += 1
         if 'error' in res:
             continue
         new_listed = int(res.get('listed_count', 0) or 0)
@@ -19151,7 +19179,7 @@ def _scan_ip_reputation(targets, results):
             pending.append(('ip_blacklist_cleared', {
                 'ip': ip, 'name': ip, 'label': t.get('label', ''),
                 'listed_count': 0, 'blocklists': '—'}))
-    return pending
+    return pending, scanned
 
 
 def handle_reputation_list() -> None:
@@ -19221,12 +19249,14 @@ def handle_reputation_scan() -> None:
         respond(405, {'error': 'Method not allowed'})
     targets = _ip_rep_targets()
     results = _ip_rep_results()
-    pending = _scan_ip_reputation(targets, results)
+    pending, scanned = _scan_ip_reputation(
+        targets, results, min_recheck=IP_REP_MIN_RECHECK, max_ips=IP_REP_MAX_PER_RUN,
+        delay=IP_REP_QUERY_DELAY, budget=IP_REP_RUN_BUDGET)
     save(IP_REP_RESULTS_FILE, results)
     for ev, payload in pending:
         fire_webhook(ev, payload)
-    audit_log(actor, 'ip_reputation_scan', detail=f'ips={len(targets)} alerts={len(pending)}')
-    respond(200, {'ok': True, 'scanned': len(targets)})
+    audit_log(actor, 'ip_reputation_scan', detail=f'ips={scanned} alerts={len(pending)}')
+    respond(200, {'ok': True, 'scanned': scanned, 'total': len(targets)})
 
 
 def run_reputation_scan_if_due() -> None:
@@ -19236,11 +19266,15 @@ def run_reputation_scan_if_due() -> None:
     if not targets:
         return
     results = _ip_rep_results()
-    last = max((r.get('checked_at', 0) for r in results.values() if isinstance(r, dict)),
-               default=0)
-    if int(time.time()) - int(last or 0) < IP_REP_SCAN_INTERVAL:
+    # Per-IP cadence: only (re)check IPs whose last check is older than the
+    # interval, oldest first, bounded per run — cheap when nothing is due and it
+    # never bursts the DNSBLs or blocks a heartbeat. No inter-IP sleep here (the
+    # cadence rides a heartbeat); the manual scan adds the politeness delay.
+    pending, scanned = _scan_ip_reputation(
+        targets, results, min_recheck=IP_REP_SCAN_INTERVAL,
+        max_ips=IP_REP_MAX_PER_RUN, budget=IP_REP_RUN_BUDGET)
+    if not scanned:
         return
-    pending = _scan_ip_reputation(targets, results)
     save(IP_REP_RESULTS_FILE, results)
     for ev, payload in pending:
         fire_webhook(ev, payload)

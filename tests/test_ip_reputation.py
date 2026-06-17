@@ -58,6 +58,21 @@ class TestHelpers(unittest.TestCase):
         self.assertIsNone(ipr.parse_target('nope'))
 
 
+class TestZoneValidation(unittest.TestCase):
+    def test_valid_and_invalid_zones(self):
+        self.assertTrue(ipr.valid_zone('zen.spamhaus.org'))
+        self.assertTrue(ipr.valid_zone('bl.test'))
+        for bad in ('', 'nodot', 'has space.org', 'bad;zone.org', 'a..b', '.leading'):
+            self.assertFalse(ipr.valid_zone(bad), bad)
+
+    def test_invalid_zone_is_skipped(self):
+        # A malformed zone is ignored rather than queried with a bad name.
+        out = ipr.check_ip('1.2.3.4', [{'name': 'Bad', 'zone': 'no good'}],
+                           FakeResolver({}))
+        self.assertEqual(out['listed_count'], 0)
+        self.assertEqual(out['errors'], {})
+
+
 class TestCheckIp(unittest.TestCase):
     def test_listed_on_one_zone(self):
         res = FakeResolver({'4.3.2.1.bl.test': (['127.0.0.2'], ['spam source'])})

@@ -357,11 +357,33 @@ class TestIpReputationMonitor(unittest.TestCase):
         try:
             targets = {'iprep_x': {'ip': '1.2.3.4', 'label': ''}}
             results = {}
-            pending = api._scan_ip_reputation(targets, results)
+            pending, scanned = api._scan_ip_reputation(targets, results)
         finally:
             api.ip_reputation.check_ip = orig
         self.assertEqual([e for e, _ in pending], ['ip_blacklisted'])
+        self.assertEqual(scanned, 1)
         self.assertEqual(results['iprep_x']['listed_count'], 1)
+
+    def test_scan_rate_limit_skips_fresh_and_caps(self):
+        import time as _t
+        calls = []
+        orig = api.ip_reputation.check_ip
+        api.ip_reputation.check_ip = lambda ip, zones=None: calls.append(ip) or {
+            'ip': ip, 'listed_on': [], 'errors': {}, 'listed_count': 0, 'ok': True}
+        try:
+            now = int(_t.time())
+            targets = {f'iprep_{i}': {'ip': f'10.0.0.{i}', 'label': ''} for i in range(5)}
+            # all checked 1s ago -> min_recheck=60 skips every one
+            results = {tid: {'checked_at': now - 1, 'listed_count': 0} for tid in targets}
+            _, scanned = api._scan_ip_reputation(targets, results, min_recheck=60)
+            self.assertEqual(scanned, 0)
+            self.assertEqual(calls, [])
+            # stale -> due, but max_ips caps the burst at 2
+            results = {tid: {'checked_at': now - 99999, 'listed_count': 0} for tid in targets}
+            _, scanned = api._scan_ip_reputation(targets, results, min_recheck=60, max_ips=2)
+            self.assertEqual(scanned, 2)
+        finally:
+            api.ip_reputation.check_ip = orig
 
     def test_reputation_events_registered(self):
         self.assertIn('ip_blacklisted', api.WEBHOOK_EVENT_NAMES)

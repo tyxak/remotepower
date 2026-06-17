@@ -13,8 +13,19 @@ public resolvers — for reliable results the server should query its own / a
 private recursive resolver, not 8.8.8.8.
 """
 import ipaddress
+import re
 
 DNS_TIMEOUT = 5.0
+
+# A syntactically valid DNS zone name (labels of [A-Za-z0-9-], dotted, <=253).
+# Used to reject a malformed/whitespace zone so the reversed-IP query name can
+# never be injected or sent malformed.
+_ZONE_RE = re.compile(r'^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})+$')
+
+
+def valid_zone(zone):
+    """True if `zone` is a syntactically valid DNS zone name."""
+    return bool(_ZONE_RE.match(str(zone or '')))
 
 # Default IPv4 blocklist zones. Operators can override the set in config.
 DEFAULT_DNSBLS = [
@@ -103,7 +114,7 @@ def check_ip(ip, zones=None, resolver=None):
     for z in zones:
         zone = z.get('zone')
         name = z.get('name', zone)
-        if not zone:
+        if not zone or not valid_zone(zone):
             continue
         try:
             listed, codes, txt = _query(f'{rev}.{zone}', resolver)
