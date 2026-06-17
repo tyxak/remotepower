@@ -10147,7 +10147,15 @@ def handle_heartbeat():
             n = len(ns.get('hosts') or [])
             co = {'cmd': 'netscan', 'rc': 0,
                   'output': f"discovered {n} host(s) via {ns.get('method','?')}"}
-        outputs = load(CMD_OUTPUT_FILE)
+        # v4.8.0 sweep (perf): single-row read-append-write on the DB backend.
+        # cmd_output.json is an ENTITY file, so the old load() reconstructed
+        # EVERY device's window (json.loads per device) on every command-result
+        # heartbeat just to touch one device's list. Mirrors the metrics path.
+        _cob = _dbmod()
+        if _cob is not None:
+            outputs = {dev_id: (_cob.entity_get(CMD_OUTPUT_FILE, dev_id) or [])}
+        else:
+            outputs = load(CMD_OUTPUT_FILE)
         if dev_id not in outputs:
             outputs[dev_id] = []
         # Enforce per-entry output size cap
@@ -10241,7 +10249,11 @@ def handle_heartbeat():
             'rc':     int(co['rc']) if isinstance(co.get('rc'), int) else -1,
         })
         outputs[dev_id] = outputs[dev_id][-MAX_CMD_OUTPUT:]
-        _save_nb(CMD_OUTPUT_FILE, outputs)
+        if _cob is not None:
+            _cob.entity_set(CMD_OUTPUT_FILE, dev_id, outputs[dev_id])
+            _invalidate_load_cache(CMD_OUTPUT_FILE)
+        else:
+            _save_nb(CMD_OUTPUT_FILE, outputs)
         _resolve_longpoll(dev_id, body['cmd_output'])
 
         # v1.10.0: if this output is from a package-upgrade run, also archive

@@ -60,8 +60,9 @@ The five most recent per-release notes are kept here:
 
 - **[v4.8.0.md](v4.8.0.md)** — "OnboardingMatters": turnkey onboarding (unified
  `install.sh` wizard, one-command Docker with HTTPS-by-default, a self-hosted
- one-line agent installer, SSH agent-push, clean uninstall) + a DMARC / SPF / DKIM
- monitor with IMAP aggregate-report ingestion, accessibility work, and macOS/Windows
+ one-line agent installer, SSH agent-push, clean uninstall) + a Reputation/DMARC
+ monitor (IP reputation against DNS blocklists, plus SPF / DKIM / DMARC posture
+ with IMAP aggregate-report ingestion), accessibility work, and macOS/Windows
  agent parity. No breaking changes.
 - **[v4.7.0.md](v4.7.0.md)** — homelab/fleet software integrations (26 read-only
  connectors → Alerts + dashboard, SSRF-guarded) + a containerized agent that

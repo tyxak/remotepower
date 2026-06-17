@@ -12883,12 +12883,27 @@ async function loadReputation() {
   if (!tb) return;
   const rows = data.targets || [];
   tb.innerHTML = rows.length ? rows.map(t => {
+    const errs = t.errors && typeof t.errors === 'object' ? t.errors : {};
+    const errCount = Object.keys(errs).length;
     let status, cls;
     if (t.error) { status = escHtml(t.error); cls = 'c-muted'; }
     else if (!t.checked_at) { status = 'not checked'; cls = 'c-muted'; }
     else if ((t.listed_count || 0) > 0) { status = `Listed on ${t.listed_count}`; cls = 'c-red'; }
+    else if (errCount) { status = `Partial — ${errCount} unreachable`; cls = 'c-amber'; }
     else { status = 'Clean'; cls = 'c-green'; }
-    const lists = (t.listed_on || []).map(z => escHtml(z.name)).join(', ') || '<span class="c-muted">—</span>';
+    // Show each listing's return codes + the DNSBL's TXT reason (delisting URL) on
+    // hover. Both come from DNS, so escape them. Unreachable blocklists are surfaced
+    // as an amber chip rather than being folded into a false "Clean".
+    const listed = (t.listed_on || []).map(z => {
+      const codes = (z.codes || []).join(',');
+      const title = z.reason ? ` title="${escAttr(z.reason)}"` : '';
+      return `<span${title}>${escHtml(z.name)}${codes ? ' (' + escHtml(codes) + ')' : ''}</span>`;
+    });
+    if (errCount) {
+      const detail = Object.entries(errs).map(([z, m]) => z + ': ' + m).join('\n');
+      listed.push(`<span class="c-amber" title="${escAttr(detail)}">${errCount} unreachable</span>`);
+    }
+    const lists = listed.join(', ') || '<span class="c-muted">—</span>';
     const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
     return `<tr><td class="ff-mono fw-500">${escHtml(t.ip)}</td><td>${escHtml(t.label || '')}</td><td class="${cls}">${status}</td><td class="hint">${lists}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteReputation" data-arg="${escAttr(t.id)}" title="Stop monitoring this IP">Remove</button></td></tr>`;
   }).join('') : '<tr><td colspan="6" class="hint">No IPs monitored yet. Add one to watch its blocklist status.</td></tr>';

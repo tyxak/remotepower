@@ -1146,11 +1146,16 @@ _STATS: dict = {
         ("blocked_pct", "Blocked", "pct"),
         ("domains_blocked", "Blocklist", "int"),
     ],
-    "adguard": [("queries", "Queries", "int"), ("blocked", "Blocked", "int")],
+    "adguard": [
+        ("queries", "Queries", "int"),
+        ("blocked", "Blocked", "int"),
+        ("protection", "Filtering", "flag"),
+    ],
     "truenas": [
         ("pools", "Pools", "num"),
         ("pools_bad", "Degraded", "num"),
         ("alerts_crit", "Crit alerts", "num"),
+        ("alerts_warn", "Warn alerts", "num"),
     ],
     "unifi": [("subsystems", "Subsystems", "num"), ("subsystems_bad", "Degraded", "num")],
     "homeassistant": [("entities", "Entities", "int"), ("unavailable", "Unavailable", "num")],

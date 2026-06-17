@@ -1407,13 +1407,24 @@ device list **by its hostname**. `install.sh agent push --server <url> --token
 (Postgres, HA, satellites, load balancing) is reframed as an explicit **advanced
 track**. Reference: **[install.md](install.md)**, **[deployment.md](deployment.md)**.
 
-### DMARC / SPF / DKIM monitor
-A new **DMARC** page (under Security) tracks the email-authentication posture of
-your domains — published **SPF / DKIM / DMARC** DNS records, graded ok / weak /
-fail — *and* ingests the **aggregate (RUA) reports** your receivers send back. Point
-it at the IMAP mailbox that receives those reports; RemotePower polls it on a
-schedule and on demand, parses the gzip/zip XML, and shows **per-source SPF/DKIM
-pass/fail tallies** plus a **mailbox health** view (message + unseen counts).
+### Reputation / DMARC monitor
+A new **Reputation/DMARC** page (under Security) covers your mail-deliverability
+posture in one place.
+
+**IP reputation (DNSBL).** Add your mail-sending IPs and RemotePower checks each
+against DNS blocklists (Spamhaus, SpamCop, Barracuda, SORBS, UCEPROTECT, PSBL),
+re-scans periodically, and raises an `ip_blacklisted` alert (cleared with
+`ip_blacklist_cleared`) when a monitored IP gets listed. A blocklist that can't
+be reached is surfaced as a *partial* check, never folded into a false "Clean".
+`GET/POST /api/reputation/targets`, `DELETE /api/reputation/targets/<id>`,
+`POST /api/reputation/scan`.
+
+**DMARC / SPF / DKIM.** Tracks the email-authentication posture of your domains —
+published **SPF / DKIM / DMARC** DNS records, graded ok / weak / fail — *and*
+ingests the **aggregate (RUA) reports** your receivers send back. Point it at the
+IMAP mailbox that receives those reports; RemotePower polls it on a schedule and
+on demand, parses the gzip/zip XML, and shows **per-source SPF/DKIM pass/fail
+tallies** plus a **mailbox health** view (message + unseen counts).
 `GET /api/dmarc/reports`, `POST /api/dmarc/fetch`, `GET /api/dmarc/imap`,
 `POST /api/dmarc/imap`. Reference: **[dmarc.md](dmarc.md)**.
 
