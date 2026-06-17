@@ -279,6 +279,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           <span>CVEs</span>
         </button>
+        <button class="nav-btn" data-page="dmarc" title="DMARC / SPF / DKIM email-auth posture + aggregate (RUA) reports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+          <span>DMARC</span>
+        </button>
         <button class="nav-btn" data-page="drift" title="Watched config files — alerts when a file hash diverges from its baseline">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
           <span>Drift</span>
@@ -326,10 +330,6 @@
         <button class="nav-btn" data-action="showTLSSection" data-arg="tls-panel-expiry" data-pass-btn="1" data-section-page="tls" title="Server-side cert and DNS expiry watchlist — warn at 14 days, critical at 3">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           <span>TLS / DNS Expiry</span>
-        </button>
-        <button class="nav-btn" data-page="dmarc" title="DMARC / SPF / DKIM email-authentication posture for your domains">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-          <span>DMARC</span>
         </button>
       </div>
     </div>
@@ -5052,7 +5052,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-dmarc" class="page">
         <div class="page-title">DMARC</div>
-        <div class="page-subtitle">Email-authentication posture for your domains — SPF, DKIM and DMARC records, checked over DNS. No mailbox needed.</div>
+        <div class="page-subtitle">Email-authentication posture for your domains — SPF, DKIM and DMARC records over DNS — plus aggregate (RUA) reports fetched from your DMARC mailbox over IMAP.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="dmarcAdd">+ Add domain</button>
           <button class="btn-icon" data-action="dmarcScan">Scan now</button>
@@ -5073,6 +5073,47 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th></th>
               </tr></thead>
               <tbody id="dmarc-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-title mt-16">Aggregate reports (RUA)</div>
+        <div class="page-subtitle">Who is sending mail as your domains, and whether it passes DMARC — parsed from reports in your DMARC mailbox.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="dmarcFetch">Fetch reports now</button>
+          <button class="btn-icon" data-action="dmarcImapOpen">IMAP settings</button>
+          <span id="dmarc-mailbox" class="hint"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead><tr>
+                <th>Reporter</th>
+                <th>Domain</th>
+                <th>Policy</th>
+                <th>Window</th>
+                <th>Messages</th>
+                <th>Pass</th>
+                <th>Fail</th>
+              </tr></thead>
+              <tbody id="dmarc-reports-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-title mt-16">Sending sources</div>
+        <div class="page-subtitle">IP addresses seen sending as your domains across all ingested reports.</div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead><tr>
+                <th>Source IP</th>
+                <th>Pass</th>
+                <th>Fail</th>
+                <th>From domains</th>
+                <th>Last seen</th>
+              </tr></thead>
+              <tbody id="dmarc-sources-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -6876,6 +6917,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="icon-modal-title" id="icon-modal"><div class="modal"><div class="modal-title" id="icon-modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
+
+<!-- v4.8.0: DMARC report mailbox (IMAP) settings -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dmarc-imap-modal-title" id="dmarc-imap-modal"><div class="modal">
+  <div class="modal-title" id="dmarc-imap-modal-title">DMARC report mailbox (IMAP)</div>
+  <div class="modal-subtitle">RemotePower polls this mailbox over IMAP, ingests DMARC aggregate (RUA) reports, and tracks the mailbox's own health (message count / unseen).</div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="dmarc-imap-enabled"> <span class="form-label">Enabled — poll this mailbox on a schedule</span></label></div>
+  <div class="form-group"><label class="form-label" for="dmarc-imap-host">IMAP host</label><input type="text" id="dmarc-imap-host" class="form-input" placeholder="imap.example.com" maxlength="253"></div>
+  <div class="form-group"><label class="form-label" for="dmarc-imap-port">Port</label><input type="number" id="dmarc-imap-port" class="form-input" placeholder="993" min="1" max="65535"></div>
+  <div class="form-group"><label class="form-label" for="dmarc-imap-user">Username</label><input type="text" id="dmarc-imap-user" class="form-input" placeholder="dmarc@example.com" maxlength="320"></div>
+  <div class="form-group"><label class="form-label" for="dmarc-imap-pass">Password</label><input type="password" id="dmarc-imap-pass" class="form-input" placeholder="Password" maxlength="512" autocomplete="new-password"></div>
+  <div class="form-group"><label class="form-label" for="dmarc-imap-folder">Folder</label><input type="text" id="dmarc-imap-folder" class="form-input" placeholder="INBOX" maxlength="255"></div>
+  <div class="form-group"><label class="form-label" for="dmarc-imap-interval">Poll interval (seconds)</label><input type="number" id="dmarc-imap-interval" class="form-input" placeholder="900" min="300" max="86400"></div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="dmarc-imap-ssl"> <span class="form-label">Use SSL/TLS (IMAPS, port 993)</span></label></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dmarc-imap-modal">Cancel</button><button class="btn-primary" data-action="dmarcImapSave">Save settings</button></div>
+</div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cs-modal-title" id="custom-script-modal">

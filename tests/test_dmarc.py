@@ -93,5 +93,55 @@ class TestParseTarget(unittest.TestCase):
         self.assertIsNone(dm.parse_target("nope"))
 
 
+class TestAggregateReport(unittest.TestCase):
+    SAMPLE = (b'<?xml version="1.0"?><feedback>'
+              b'<report_metadata><org_name>google.com</org_name><report_id>12345</report_id>'
+              b'<date_range><begin>1000</begin><end>2000</end></date_range></report_metadata>'
+              b'<policy_published><domain>example.com</domain><p>reject</p></policy_published>'
+              b'<record><row><source_ip>1.2.3.4</source_ip><count>5</count>'
+              b'<policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>fail</spf>'
+              b'</policy_evaluated></row><identifiers><header_from>example.com</header_from>'
+              b'</identifiers></record>'
+              b'<record><row><source_ip>9.9.9.9</source_ip><count>3</count>'
+              b'<policy_evaluated><disposition>reject</disposition><dkim>fail</dkim><spf>fail</spf>'
+              b'</policy_evaluated></row><identifiers><header_from>example.com</header_from>'
+              b'</identifiers></record></feedback>')
+
+    def test_parse(self):
+        r = dm.parse_aggregate_report(self.SAMPLE)
+        self.assertEqual(r['meta']['domain'], 'example.com')
+        self.assertEqual(r['meta']['policy'], 'reject')
+        self.assertEqual(r['meta']['org_name'], 'google.com')
+        self.assertEqual(r['summary'], {'total': 8, 'pass': 5, 'fail': 3, 'sources': 2})
+        self.assertTrue(r['records'][0]['pass'])      # 1.2.3.4 dkim=pass
+        self.assertFalse(r['records'][1]['pass'])      # 9.9.9.9 both fail
+
+    def test_doctype_rejected(self):
+        bad = b'<?xml version="1.0"?><!DOCTYPE feedback [<!ENTITY x "boom">]><feedback></feedback>'
+        self.assertIsNone(dm.parse_aggregate_report(bad))
+
+    def test_non_feedback_and_empty_rejected(self):
+        self.assertIsNone(dm.parse_aggregate_report(b'<?xml version="1.0"?><other/>'))
+        self.assertIsNone(dm.parse_aggregate_report(b''))
+        self.assertIsNone(dm.parse_aggregate_report(b'not xml at all'))
+
+    def test_extract_gz(self):
+        import gzip, io
+        buf = io.BytesIO()
+        with gzip.GzipFile(fileobj=buf, mode='wb') as g:
+            g.write(self.SAMPLE)
+        self.assertIn(b'<feedback>', dm.extract_report_xml(buf.getvalue(), 'r.xml.gz'))
+
+    def test_extract_zip(self):
+        import zipfile, io
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('r.xml', self.SAMPLE)
+        self.assertIn(b'<feedback>', dm.extract_report_xml(buf.getvalue(), 'r.zip'))
+
+    def test_extract_plain_xml(self):
+        self.assertIn(b'<feedback>', dm.extract_report_xml(self.SAMPLE, 'r.xml'))
+
+
 if __name__ == "__main__":
     unittest.main()

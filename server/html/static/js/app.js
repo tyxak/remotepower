@@ -12867,8 +12867,74 @@ function _registerDmarcTable() {
 async function loadDmarc() {
   _registerDmarcTable();
   const data = await api('GET', '/dmarc/targets');
+  if (data) tableCtl.render('dmarc', data || []);
+  loadDmarcReports();
+}
+async function loadDmarcReports() {
+  const data = await api('GET', '/dmarc/reports');
   if (!data) return;
-  tableCtl.render('dmarc', data || []);
+  const mb = data.mailbox || {};
+  const mbEl = document.getElementById('dmarc-mailbox');
+  if (mbEl) {
+    if (mb.error) mbEl.textContent = 'Mailbox: ' + mb.error;
+    else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${new Date(mb.checked_at * 1000).toLocaleString()}`;
+    else mbEl.textContent = 'Mailbox: not polled yet — configure IMAP and fetch.';
+  }
+  const rtb = document.getElementById('dmarc-reports-tbody');
+  if (rtb) {
+    const rows = data.reports || [];
+    rtb.innerHTML = rows.length ? rows.map(r => {
+      const s = r.summary || {};
+      const win = r.date_begin ? `${new Date(r.date_begin * 1000).toLocaleDateString()} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString()}` : '—';
+      const fail = s.fail || 0;
+      return `<tr><td>${escHtml(r.org_name || '—')}</td><td class="fw-500">${escHtml(r.domain || '')}</td><td>${escHtml(r.policy || '—')}</td><td class="hint">${win}</td><td>${s.total || 0}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="hint">No reports ingested yet.</td></tr>';
+  }
+  const stb = document.getElementById('dmarc-sources-tbody');
+  if (stb) {
+    const rows = data.sources || [];
+    stb.innerHTML = rows.length ? rows.map(s => {
+      const fail = s.fail || 0;
+      return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? new Date(s.last_seen * 1000).toLocaleDateString() : '—'}</td></tr>`;
+    }).join('') : '<tr><td colspan="5" class="hint">No sending sources seen yet.</td></tr>';
+  }
+}
+async function dmarcFetch() {
+  toast('Fetching reports from IMAP…', 'info');
+  const r = await api('POST', '/dmarc/fetch', {});
+  if (r && r.ok) { toast(`Ingested ${r.ingested || 0} report(s)`, 'success'); loadDmarcReports(); }
+  else toast((r && r.error) || 'Fetch failed — check IMAP settings', 'error');
+}
+async function dmarcImapOpen() {
+  const c = await api('GET', '/dmarc/imap');
+  if (!c) return;
+  document.getElementById('dmarc-imap-enabled').checked = !!c.enabled;
+  document.getElementById('dmarc-imap-host').value = c.host || '';
+  document.getElementById('dmarc-imap-port').value = c.port || 993;
+  document.getElementById('dmarc-imap-user').value = c.username || '';
+  const pwEl = document.getElementById('dmarc-imap-pass');
+  pwEl.value = '';
+  pwEl.placeholder = c.password_set ? 'Password (stored — blank keeps it)' : 'Password';
+  document.getElementById('dmarc-imap-folder').value = c.folder || 'INBOX';
+  document.getElementById('dmarc-imap-interval').value = c.interval || 900;
+  document.getElementById('dmarc-imap-ssl').checked = c.use_ssl !== false;
+  openModal('dmarc-imap-modal');
+}
+async function dmarcImapSave() {
+  const body = {
+    enabled:  document.getElementById('dmarc-imap-enabled').checked,
+    host:     document.getElementById('dmarc-imap-host').value.trim(),
+    port:     parseInt(document.getElementById('dmarc-imap-port').value, 10) || 993,
+    username: document.getElementById('dmarc-imap-user').value,
+    folder:   document.getElementById('dmarc-imap-folder').value.trim() || 'INBOX',
+    interval: parseInt(document.getElementById('dmarc-imap-interval').value, 10) || 900,
+    use_ssl:  document.getElementById('dmarc-imap-ssl').checked,
+  };
+  const pw = document.getElementById('dmarc-imap-pass').value;
+  if (pw) body.password = pw;
+  const r = await api('POST', '/dmarc/imap', body);
+  if (r && r.ok) { toast('IMAP settings saved', 'success'); closeModal('dmarc-imap-modal'); loadDmarcReports(); }
+  else toast((r && r.error) || 'Save failed', 'error');
 }
 async function dmarcAdd() {
   const domain = await uiPrompt({ title: 'Add domain', message: 'Domain to monitor (e.g. example.com):', confirmText: 'Add' });

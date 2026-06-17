@@ -308,6 +308,7 @@ TLS_RESULTS_FILE = DATA_DIR / 'tls_results.json'
 # v4.8.0: DMARC posture monitor (DNS-only — SPF / DKIM / DMARC records).
 DMARC_TARGETS_FILE = DATA_DIR / 'dmarc_targets.json'
 DMARC_RESULTS_FILE = DATA_DIR / 'dmarc_results.json'
+DMARC_REPORTS_FILE = DATA_DIR / 'dmarc_reports.json'   # ingested RUA reports + mailbox status
 MAX_DMARC_TARGETS = 200
 # Agentless devices live in the regular devices.json with a special marker
 # (`agentless: True`). Network map is rendered from the existing devices
@@ -18834,6 +18835,215 @@ def handle_dmarc_scan() -> None:
     save(DMARC_RESULTS_FILE, results)
     audit_log(actor, 'dmarc_scan', detail=f'domains={len(targets)}')
     respond(200, {'ok': True, 'scanned': len(targets)})
+
+
+# ── DMARC aggregate-report (RUA) ingestion via IMAP + mailbox monitor ────────
+# The IMAP creds are admin-configured; the report XML is SEMI-UNTRUSTED (anyone
+# can email the RUA address), so the parse is DOCTYPE/ENTITY-guarded and the
+# decompression is capped in dmarc_monitor. The password is stored under the
+# `password` key so _scrub_config_secrets auto-redacts it from /api/config.
+
+def _dmarc_imap_cfg() -> dict:
+    c = (load(CONFIG_FILE) or {}).get('dmarc_imap')
+    return c if isinstance(c, dict) else {}
+
+
+def _dmarc_reports_state() -> dict:
+    s = load(DMARC_REPORTS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _accumulate_dmarc_report(rep, reports, sources, seen_ids) -> bool:
+    """Fold one parsed aggregate report into the running list + per-source
+    pass/fail tallies. Skips a report_id already ingested. Returns True if new."""
+    m = rep['meta']
+    rid = m.get('report_id') or ''
+    if rid and rid in seen_ids:
+        return False
+    if rid:
+        seen_ids.add(rid)
+    reports.append({
+        'org_name': m.get('org_name', ''), 'domain': m.get('domain', ''),
+        'report_id': rid, 'policy': m.get('policy', ''),
+        'date_begin': m.get('date_begin', 0), 'date_end': m.get('date_end', 0),
+        'summary': rep.get('summary', {}), 'received_at': int(time.time()),
+    })
+    now = int(time.time())
+    for r in rep.get('records', []):
+        ip = r.get('source_ip') or ''
+        if not ip:
+            continue
+        src = sources.setdefault(ip, {'pass': 0, 'fail': 0, 'domains': [], 'last_seen': 0})
+        src['pass' if r.get('pass') else 'fail'] += r.get('count', 0)
+        src['last_seen'] = now
+        hf = r.get('header_from') or ''
+        if hf and hf not in src.get('domains', []):
+            src['domains'] = (src.get('domains', []) + [hf])[:10]
+    return True
+
+
+def _fetch_dmarc_reports() -> dict:
+    """Connect to the configured IMAP mailbox, ingest NEW RUA reports, and record
+    mailbox health. Never raises — failures land in the stored mailbox status."""
+    import imaplib
+    import email as _email
+    import ssl as _ssl
+    c = _dmarc_imap_cfg()
+    state = _dmarc_reports_state()
+    mb = {'checked_at': int(time.time()), 'error': '', 'messages': 0, 'unseen': 0}
+    if not c.get('enabled') or not c.get('host'):
+        state['mailbox'] = {**mb, 'error': 'IMAP not configured'}
+        save(DMARC_REPORTS_FILE, state)
+        return {'ok': False, 'error': 'IMAP not configured', 'ingested': 0}
+    reports = state.get('reports') or []
+    sources = state.get('sources') or {}
+    seen_ids = {r.get('report_id') for r in reports if isinstance(r, dict)}
+    use_ssl = c.get('use_ssl', True) is not False
+    host = str(c.get('host'))[:255]
+    port = int(c.get('port') or (993 if use_ssl else 143))
+    folder = str(c.get('folder') or 'INBOX')[:128]
+    last_uid = int(state.get('last_uid') or 0)
+    ingested = 0
+    M = None
+    try:
+        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ssl.create_default_context())
+             if use_ssl else imaplib.IMAP4(host, port))
+        M.login(str(c.get('username') or ''), str(c.get('password') or ''))
+        M.select(folder, readonly=False)
+        try:
+            typ, sd = M.status(folder, '(MESSAGES UNSEEN)')
+            if typ == 'OK' and sd and sd[0]:
+                txt = sd[0].decode('utf-8', 'replace')
+                _mm = re.search(r'MESSAGES\s+(\d+)', txt)
+                _uu = re.search(r'UNSEEN\s+(\d+)', txt)
+                mb['messages'] = int(_mm.group(1)) if _mm else 0
+                mb['unseen'] = int(_uu.group(1)) if _uu else 0
+        except Exception:
+            pass
+        typ, data = M.uid('search', None, 'ALL')
+        uids = [int(x) for x in data[0].split() if x.isdigit()] if (typ == 'OK' and data and data[0]) else []
+        for uid in [u for u in sorted(uids) if u > last_uid][:300]:
+            try:
+                typ, md = M.uid('fetch', str(uid), '(RFC822)')
+                raw = next((it[1] for it in (md or []) if isinstance(it, tuple) and len(it) == 2), None)
+                if raw:
+                    for part in _email.message_from_bytes(raw).walk():
+                        fn = (part.get_filename() or '').lower()
+                        if not (fn.endswith('.gz') or fn.endswith('.zip') or fn.endswith('.xml')):
+                            continue
+                        payload = part.get_payload(decode=True)
+                        if not payload:
+                            continue
+                        rep = dmarc_monitor.parse_aggregate_report(
+                            dmarc_monitor.extract_report_xml(payload, fn))
+                        if rep and _accumulate_dmarc_report(rep, reports, sources, seen_ids):
+                            ingested += 1
+            except Exception as e:
+                sys.stderr.write(f'[remotepower] dmarc report uid {uid} failed: {e}\n')
+            last_uid = max(last_uid, uid)
+    except Exception as e:
+        mb['error'] = str(e)[:160]
+    finally:
+        try:
+            if M is not None:
+                M.logout()
+        except Exception:
+            pass
+    state.update({'reports': reports[-300:], 'sources': sources, 'mailbox': mb,
+                  'last_uid': last_uid, 'last_fetch': int(time.time()),
+                  'updated': int(time.time())})
+    save(DMARC_REPORTS_FILE, state)
+    return {'ok': not mb['error'], 'ingested': ingested, 'mailbox': mb}
+
+
+def run_dmarc_imap_if_due() -> None:
+    """Periodic RUA-report poll (modeled on the integrations cadence). Cheap when
+    disabled / not due."""
+    c = _dmarc_imap_cfg()
+    if not c.get('enabled') or not c.get('host'):
+        return
+    s = _dmarc_reports_state()
+    if int(time.time()) - int(s.get('last_fetch', 0) or 0) < max(300, int(c.get('interval', 900) or 900)):
+        return
+    try:
+        _fetch_dmarc_reports()
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] dmarc imap poll failed: {e}\n')
+
+
+def handle_dmarc_reports() -> None:
+    """``GET /api/dmarc/reports`` — ingested RUA reports + per-source tallies +
+    mailbox status."""
+    require_auth()
+    s = _dmarc_reports_state()
+    reports = sorted((s.get('reports') or []),
+                     key=lambda r: r.get('received_at', 0), reverse=True)[:100]
+    src = s.get('sources') or {}
+    sources = sorted(([{'ip': ip, **v} for ip, v in src.items() if isinstance(v, dict)]),
+                     key=lambda x: x.get('fail', 0) + x.get('pass', 0), reverse=True)[:200]
+    respond(200, {'reports': reports, 'sources': sources,
+                  'mailbox': s.get('mailbox') or {}, 'updated': s.get('updated', 0)})
+
+
+def handle_dmarc_fetch() -> None:
+    """``POST /api/dmarc/fetch`` — pull new RUA reports from IMAP now. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    res = _fetch_dmarc_reports()
+    audit_log(actor, 'dmarc_fetch',
+              detail=f"ingested={res.get('ingested', 0)} err={res.get('error') or 'none'}")
+    respond(200, res)
+
+
+def handle_dmarc_imap_get() -> None:
+    """``GET /api/dmarc/imap`` — IMAP config, password redacted. Admin only."""
+    require_admin_auth()
+    c = _dmarc_imap_cfg()
+    respond(200, {
+        'enabled':  bool(c.get('enabled')),
+        'host':     c.get('host', ''),
+        'port':     int(c.get('port') or 993),
+        'username': c.get('username', ''),
+        'folder':   c.get('folder', 'INBOX'),
+        'use_ssl':  c.get('use_ssl', True) is not False,
+        'interval': int(c.get('interval', 900) or 900),
+        'password_set': bool(c.get('password')),
+    })
+
+
+def handle_dmarc_imap_save() -> None:
+    """``POST /api/dmarc/imap`` — save IMAP config (admin). A blank password keeps
+    the stored one."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    host = _no_ctrl(_sanitize_str(body.get('host', ''), 255)).strip()
+    try:
+        port = int(body.get('port') or 993)
+    except (TypeError, ValueError):
+        port = 993
+    if not (1 <= port <= 65535):
+        respond(400, {'error': 'port must be 1-65535'})
+    try:
+        interval = max(300, int(body.get('interval', 900) or 900))
+    except (TypeError, ValueError):
+        interval = 900
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cur = cfg.get('dmarc_imap') if isinstance(cfg.get('dmarc_imap'), dict) else {}
+        new_pw = body.get('password')
+        cfg['dmarc_imap'] = {
+            'enabled':  bool(body.get('enabled')),
+            'host':     host, 'port': port,
+            'username': _no_ctrl(_sanitize_str(body.get('username', ''), 255)),
+            'folder':   _no_ctrl(_sanitize_str(body.get('folder', 'INBOX') or 'INBOX', 128)),
+            'use_ssl':  body.get('use_ssl', True) is not False,
+            'interval': interval,
+            'password': (str(new_pw)[:512] if new_pw else cur.get('password', '')),
+        }
+    audit_log(actor, 'dmarc_imap_save', detail=f'host={host} enabled={bool(body.get("enabled"))}')
+    respond(200, {'ok': True})
 
 
 # ─── v1.11.0: agentless devices + network map ────────────────────────────────
@@ -41918,6 +42128,10 @@ def _build_exact_routes():
         ('GET', '/api/dmarc/targets'): handle_dmarc_list,
         ('POST', '/api/dmarc/targets'): handle_dmarc_add,
         ('POST', '/api/dmarc/scan'): handle_dmarc_scan,
+        ('GET', '/api/dmarc/reports'): handle_dmarc_reports,
+        ('POST', '/api/dmarc/fetch'): handle_dmarc_fetch,
+        ('GET', '/api/dmarc/imap'): handle_dmarc_imap_get,
+        ('POST', '/api/dmarc/imap'): handle_dmarc_imap_save,
         ('POST', '/api/totp/confirm'): handle_totp_confirm,
         ('POST', '/api/totp/disable'): handle_totp_disable,
         ('POST', '/api/totp/setup'): handle_totp_setup,
@@ -42602,6 +42816,8 @@ def main():
     # actual checks happen every interval.
     _safe(run_monitors_if_due, 'run_monitors_if_due')
     _safe(run_integrations_if_due, 'run_integrations_if_due')
+    # v4.8.0: poll the DMARC RUA mailbox over IMAP when due (no-op unless enabled).
+    _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).

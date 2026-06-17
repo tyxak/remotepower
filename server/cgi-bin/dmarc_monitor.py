@@ -156,6 +156,104 @@ _DOMAIN_RE = re.compile(r'^(?=.{1,253}$)([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z
 _SELECTOR_RE = re.compile(r'^[A-Za-z0-9._-]{1,128}$')
 
 
+# ── DMARC aggregate (RUA) report ingestion ───────────────────────────────────
+# Reports arrive as email attachments (.xml.gz / .zip / .xml). They are
+# SEMI-UNTRUSTED — anyone can email the RUA address — so the XML parse is
+# DOCTYPE/ENTITY-guarded (XXE / billion-laughs) and the decompression is capped.
+
+MAX_REPORT_XML_BYTES = 50 * 1024 * 1024   # decompression-bomb cap
+
+
+def extract_report_xml(data, filename=''):
+    """Decompress a DMARC report attachment → XML bytes. Handles .gz / .zip /
+    plain .xml; caps the decompressed size. Returns b'' on anything unexpected."""
+    import gzip as _gzip
+    import io as _io
+    import zipfile as _zipfile
+    name = (filename or '').lower()
+    try:
+        if name.endswith('.gz') or data[:2] == b'\x1f\x8b':
+            with _gzip.GzipFile(fileobj=_io.BytesIO(data)) as gz:
+                return gz.read(MAX_REPORT_XML_BYTES + 1)[:MAX_REPORT_XML_BYTES]
+        if name.endswith('.zip') or data[:2] == b'PK':
+            with _zipfile.ZipFile(_io.BytesIO(data)) as zf:
+                for zi in zf.infolist():
+                    if zi.filename.lower().endswith('.xml'):
+                        if zi.file_size > MAX_REPORT_XML_BYTES:   # declared size guard
+                            return b''
+                        with zf.open(zi) as f:
+                            return f.read(MAX_REPORT_XML_BYTES + 1)[:MAX_REPORT_XML_BYTES]
+                return b''
+        if name.endswith('.xml') or data.lstrip()[:5] == b'<?xml' or b'<feedback' in data[:256]:
+            return data[:MAX_REPORT_XML_BYTES]
+    except Exception:
+        return b''
+    return b''
+
+
+def parse_aggregate_report(xml_bytes):
+    """Parse a DMARC aggregate (RUA) report → {meta, records, summary} or None.
+    Refuses XML carrying a DOCTYPE/ENTITY (XXE / entity-expansion) before parsing,
+    since the bytes came from an email attachment."""
+    if not xml_bytes:
+        return None
+    import xml.etree.ElementTree as ET
+    if b'<!doctype' in xml_bytes[:4096].lower() or b'<!entity' in xml_bytes[:4096].lower():
+        return None
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return None
+    if root.tag.rsplit('}', 1)[-1] != 'feedback':
+        return None
+
+    def _t(el, tag, default=''):
+        if el is None:
+            return default
+        f = el.find(tag)
+        return (f.text or '').strip() if (f is not None and f.text) else default
+
+    meta_el = root.find('report_metadata')
+    pol_el = root.find('policy_published')
+    dr = meta_el.find('date_range') if meta_el is not None else None
+    meta = {
+        'org_name':   _t(meta_el, 'org_name')[:128],
+        'report_id':  _t(meta_el, 'report_id')[:128],
+        'domain':     _t(pol_el, 'domain')[:253],
+        'policy':     _t(pol_el, 'p').lower(),
+        'date_begin': _int(_t(dr, 'begin'), 0),
+        'date_end':   _int(_t(dr, 'end'), 0),
+    }
+    records = []
+    total = passed = failed = 0
+    for rec in root.findall('record')[:5000]:
+        row = rec.find('row')
+        pe = row.find('policy_evaluated') if row is not None else None
+        cnt = _int(_t(row, 'count'), 0)
+        dkim = _t(pe, 'dkim').lower()
+        spf = _t(pe, 'spf').lower()
+        aligned = (dkim == 'pass' or spf == 'pass')   # DMARC passes if either aligns
+        records.append({
+            'source_ip':   _t(row, 'source_ip')[:45],
+            'count':       cnt,
+            'disposition': _t(pe, 'disposition').lower(),
+            'dkim':        dkim,
+            'spf':         spf,
+            'header_from': _t(rec.find('identifiers'), 'header_from')[:253],
+            'pass':        aligned,
+        })
+        total += cnt
+        if aligned:
+            passed += cnt
+        else:
+            failed += cnt
+    return {
+        'meta': meta,
+        'records': records,
+        'summary': {'total': total, 'pass': passed, 'fail': failed, 'sources': len(records)},
+    }
+
+
 def parse_target(body):
     """Validate an add request → ``{domain, dkim_selector, label}`` or ``None``."""
     if not isinstance(body, dict):
