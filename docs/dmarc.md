@@ -64,6 +64,63 @@ Endpoints: `GET /api/reputation/targets`, `POST /api/reputation/targets`,
 > sign up for a key and query the `*.dq.spamhaus.net` zones. With recursion in
 > place the lists answer normally and rows resolve to Clean / Listed.
 
+### Setting up `unbound` for DNSBL lookups
+
+Run `unbound` as a **recursive, validating** resolver (not a forwarder) and make
+the host that runs RemotePower resolve through it. On Debian/Ubuntu
+`apt install unbound`, on Arch `pacman -S unbound expat` (then fetch the root
+hints / trust anchor as below).
+
+`/etc/unbound/unbound.conf` — minimal recursive + DNSSEC config:
+
+```
+server:
+    interface: 127.0.0.1
+    access-control: 127.0.0.0/8 allow
+    # DNSSEC validation (unbound-anchor seeds /var/lib/unbound/root.key)
+    auto-trust-anchor-file: "/var/lib/unbound/root.key"
+    harden-dnssec-stripped: yes
+    prefetch: yes
+    hide-identity: yes
+    hide-version: yes
+    # NOTE: do NOT add a `forward-zone:` — forwarding to a public resolver is
+    # exactly what the DNSBLs reject. Unbound must recurse to the roots itself.
+```
+
+Enable it and point the host's resolver at it:
+
+```
+unbound-anchor -a /var/lib/unbound/root.key   # one-time DNSSEC anchor (ok if it warns)
+systemctl enable --now unbound
+
+# If systemd-resolved manages /etc/resolv.conf, stop it forwarding: in
+# /etc/systemd/resolved.conf set  DNS=127.0.0.1  and  DNSStubListener=no ,
+# then  systemctl restart systemd-resolved
+# Otherwise just point resolv.conf straight at unbound:
+printf 'nameserver 127.0.0.1\n' > /etc/resolv.conf
+```
+
+Verify recursion actually works (Spamhaus publishes a permanent test entry at
+`127.0.0.2`, so the reversed query must return a `127.0.0.x` answer):
+
+```
+dig +short 2.0.0.127.zen.spamhaus.org @127.0.0.1   # -> 127.0.0.2 (and friends)
+```
+
+If it returns an answer, RemotePower's next scan will resolve the rows to
+**Clean / Listed** instead of *Partial — N unreachable*.
+
+**Already have unbound on another box** (e.g. a LAN resolver)? Point the scanning
+host at *that* IP instead of `127.0.0.1` — but the scanning host must be able to
+reach it (same LAN, or a VPN/tunnel for a cloud server), and that unbound must
+listen on the shared interface and allow the scanner's network:
+
+```
+server:
+    interface: 0.0.0.0                 # or the specific LAN/tunnel IP
+    access-control: 10.0.0.0/24 allow  # the network the scanner is on
+```
+
 ## What it checks
 
 For each domain you add:
