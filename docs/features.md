@@ -1391,6 +1391,45 @@ didn't cause.
 
 ---
 
+## v4.9.0 additions — "ResolutionMatters"
+
+### DNS dashboard
+A new **Admin → DNS** page reads and writes DNS records directly through your
+provider's API — list, create, edit and delete A / AAAA / CNAME / TXT / MX / NS /
+SRV / CAA records (TTL, MX/SRV priority, Cloudflare proxied flag) without leaving
+RemotePower. Five providers: **Cloudflare, DigitalOcean, Hetzner DNS, deSEC,
+Porkbun** (plain token-REST; deSEC's RRset model and Porkbun's subdomain/body-auth
+are normalised behind one record shape). Credentials reuse the scoped API tokens
+already stored for ACME DNS-01 issuance (`config['acme_dns_credentials']`) — set a
+token once and it drives both certificates and this dashboard — or store them
+encrypted in the CMDB vault, or import them on-demand from a device's `acme.sh`.
+Admin-only, audit-logged, delete-confirmed, SSRF-guarded.
+`GET /api/dns/providers|zones|records`, `POST /api/dns/records[/update|/delete]`.
+
+### Live resolve / dig + propagation
+Below the records table, a **Resolve / dig** panel queries a name live and shows
+what the zone's **authoritative** nameservers serve next to what **public
+resolvers** (Cloudflare, Google, Quad9, OpenDNS) return — surfacing drift between
+provider state and what actually resolves. A per-record **propagation** check
+polls the public resolvers and reports **propagated X/N** after an edit. Read-only;
+queries only a fixed resolver allowlist and the zone's authoritative NS
+(private / loopback / link-local / metadata addresses filtered).
+`GET /api/dns/resolve`, `GET /api/dns/propagation`.
+
+### Resolver health monitor
+Turn a name into an ongoing check: it is re-resolved across the public resolvers
+on a rate-limited cadence, tracking **latency** and **NXDOMAIN / failure** rates.
+When a name stops resolving for two consecutive checks it raises a flap-dampened
+`resolver_unhealthy` alert; when it resolves again `resolver_recovered` clears it.
+`GET/POST /api/resolver-health/targets`, `DELETE …/<id>`, `POST …/scan`.
+
+### Alert-resolution timeline (MTTR)
+The **Alerts** page gains a **Resolution timeline (MTTR)** section: time-to-
+resolution and time-to-ack across recently-resolved alerts (mean / median over
+7 / 30 / 90 days), a per-host breakdown, and a timeline classifying how each alert
+was closed — auto (recover event), manual (operator), or muted — with who and the
+note. Pairs with the ack-webhook. `GET /api/alerts/resolution-stats`.
+
 ## v4.8.0 additions — "OnboardingMatters"
 
 ### Turnkey onboarding

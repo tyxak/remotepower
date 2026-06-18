@@ -4770,7 +4770,13 @@ def _record_alert(event, payload):
                     'age_hours', 'vm_name', 'snap_name', 'days_old',
                     # v3.3.4: image-update events — image/tag identify the
                     # alert so image_updated can auto-resolve it.
-                    'image', 'tag', 'registry', 'hosts_count'):
+                    'image', 'tag', 'registry', 'hosts_count',
+                    # v4.9.0 fix: keys the matching recover events
+                    # (integration_recovered / ip_blacklist_cleared /
+                    # resolver_recovered) need stored on the open alert so
+                    # _auto_resolve_alerts can find and close it. Without these
+                    # the down/listed/unhealthy alert sat open forever.
+                    'integration_id', 'ip', 'rtype'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -4844,6 +4850,14 @@ def _auto_resolve_alerts(event, payload):
         # branch _auto_resolve_alerts bailed at the no-device_id/no-sub_match
         # guard and the down alert sat open forever after recovery.
         sub_match['integration_id'] = p.get('integration_id')
+    elif event == 'ip_blacklist_cleared':
+        # v4.8.0: IP-reputation events aren't devices — match the open
+        # ip_blacklisted alert by the IP (now stored in the alert payload).
+        sub_match['ip'] = p.get('ip')
+    elif event == 'resolver_recovered':
+        # v4.9.0: resolver-health events aren't devices — match the open
+        # resolver_unhealthy alert by the monitored name (stored as 'target').
+        sub_match['target'] = p.get('target')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):

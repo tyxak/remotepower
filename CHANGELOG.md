@@ -25,6 +25,15 @@ this dashboard. No breaking changes, no schema changes.
   `resolver_recovered` alert events (flap-dampened — a name must stay down for
   two consecutive checks before alerting) wired through the full webhook/alert/
   channel/feed routing. WEBHOOK_EVENTS is now 72.
+- **Alert-resolution timeline (MTTR).** A new section on the Alerts page reports
+  time-to-resolution (MTTR) and time-to-ack across recently-resolved alerts —
+  overall mean/median, a per-host breakdown, and a timeline classifying how each
+  alert was closed (auto recover event / manual operator / muted) with who and
+  the note. Pairs with the ack-webhook.
+- **Fix:** recover events (`integration_recovered`, `ip_blacklist_cleared`,
+  `resolver_recovered`) now reliably auto-resolve their open alert — the matching
+  keys (`integration_id` / `ip` / `target`) are persisted on the alert so the
+  recovery can find and close it instead of leaving it open.
 - **Five providers.** Cloudflare, DigitalOcean, Hetzner DNS, deSEC and Porkbun —
   plain token-REST APIs. deSEC's RRset model and Porkbun's subdomain/body-auth
   form are normalised behind one record shape.

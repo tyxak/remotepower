@@ -133,6 +133,46 @@ class TestScanFlapDampening(unittest.TestCase):
         self.assertFalse(results['rslv_a']['alerted'])
 
 
+class TestAutoResolveRealPath(unittest.TestCase):
+    """Exercise _record_alert -> _auto_resolve_alerts via the REAL payload
+    whitelist (the existing integration test hand-builds the alert, which hid the
+    bug where recover events couldn't find the open alert to close)."""
+
+    def _open_ids(self):
+        store = api.load(api.ALERTS_FILE) or {}
+        return [a for a in store.get('alerts', [])
+                if not a.get('resolved_at')]
+
+    def test_resolver_recovered_resolves_open_alert(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api._record_alert('resolver_unhealthy',
+                          {'target': 'mail.example.com', 'rtype': 'A', 'label': 'mx'})
+        # The match key (target) must actually be stored on the alert.
+        opened = self._open_ids()
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0]['payload'].get('target'), 'mail.example.com')
+        api._auto_resolve_alerts('resolver_recovered', {'target': 'mail.example.com'})
+        self.assertEqual(len(self._open_ids()), 0)   # now resolved
+
+    def test_ip_blacklist_cleared_resolves_open_alert(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api._record_alert('ip_blacklisted',
+                          {'ip': '203.0.113.7', 'label': '', 'listed_count': 2,
+                           'blocklists': 'zen'})
+        self.assertEqual(self._open_ids()[0]['payload'].get('ip'), '203.0.113.7')
+        api._auto_resolve_alerts('ip_blacklist_cleared', {'ip': '203.0.113.7'})
+        self.assertEqual(len(self._open_ids()), 0)
+
+    def test_integration_recovered_resolves_open_alert(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api._record_alert('integration_down',
+                          {'integration_id': 'pihole1', 'label': 'Pi-hole',
+                           'severity': 'high', 'detail': 'unreachable'})
+        self.assertEqual(self._open_ids()[0]['payload'].get('integration_id'), 'pihole1')
+        api._auto_resolve_alerts('integration_recovered', {'integration_id': 'pihole1'})
+        self.assertEqual(len(self._open_ids()), 0)
+
+
 class TestApiWiring(unittest.TestCase):
     def test_routes_registered(self):
         routes = api._build_exact_routes()

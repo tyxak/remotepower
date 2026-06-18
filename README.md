@@ -165,9 +165,9 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
+- **v4.9 — ResolutionMatters** — an **Admin → DNS** dashboard that reads and writes DNS records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), plus a live **resolve/dig + propagation** panel, a **resolver-health** monitor (latency / NXDOMAIN alerts), and an **alert-resolution timeline (MTTR)** on the Alerts page.
 - **v4.8 — OnboardingMatters** — turnkey onboarding: a unified one-command **`install.sh`** wizard, one-command Docker with HTTPS by default, a self-hosted one-line **agent install**, SSH agent bootstrap and clean uninstall. Plus a new **Reputation/DMARC** monitor (mail-sending IPs checked against DNS blocklists, SPF/DKIM/DMARC posture, and IMAP RUA-report ingestion), accessibility work and agent parity.
 - **v4.7 — IntegrationsMatters** — 26 read-only homelab software integrations, a **containerized agent** (monitor a Docker host with no OS install), and a fleet **GPU** page (NVIDIA + AMD, trend sparklines + thermal alerting).
-- **v4.6.1** — a stability + hardening patch (SCGI-worker ICMP / Postgres fixes, ReDoS, XSS, subtitle flash-of-text).
 - **v4.6 — RepellantMatters** — the distinctive **Industrial** UI becomes the default, alongside a project-wide reliability, security and performance pass.
 
 Full release history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.

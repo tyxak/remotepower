@@ -26,6 +26,10 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
+    // ── DNS dashboard / ResolutionMatters section headings (v4.9.0) ──
+    "Resolve / dig": { "zh": "解析 / dig", "hi": "रिज़ॉल्व / dig", "es": "Resolver / dig", "ar": "حلّ الاسم / dig" },
+    "Resolver health monitor": { "zh": "解析器健康监控", "hi": "रिज़ॉल्वर हेल्थ मॉनिटर", "es": "Monitor de salud del resolutor", "ar": "مراقبة صحة محلِّل DNS" },
+    "Resolution timeline (MTTR)": { "zh": "解决时间线 (MTTR)", "hi": "समाधान टाइमलाइन (MTTR)", "es": "Cronología de resolución (MTTR)", "ar": "الجدول الزمني للحل (MTTR)" },
     // ── Reputation/DMARC page section headings (v4.8.0) ──
     "IP reputation (DNS blocklists)": { "zh": "IP 信誉（DNS 黑名单）", "hi": "IP प्रतिष्ठा (DNS ब्लॉकलिस्ट)", "es": "Reputación de IP (listas de bloqueo DNS)", "ar": "سمعة عنوان IP (قوائم حظر DNS)" },
     "DMARC / SPF / DKIM posture": { "zh": "DMARC / SPF / DKIM 态势", "hi": "DMARC / SPF / DKIM स्थिति", "es": "Estado DMARC / SPF / DKIM", "ar": "وضع DMARC / SPF / DKIM" },
