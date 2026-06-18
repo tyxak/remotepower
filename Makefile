@@ -201,6 +201,12 @@ dist: clean
 	  --exclude='./deploy' \
 	  --exclude='./docs/*-internal.md' \
 	  --exclude='./CLAUDE.md' \
+	  --exclude='./packaging/aur/*/src' \
+	  --exclude='./packaging/aur/*/pkg' \
+	  --exclude='*.tar.gz' \
+	  --exclude='*.tar.gz.asc' \
+	  --exclude='*.tar.xz' \
+	  --exclude='*.pkg.tar.zst' \
 	  .
 	@# Verify the smoke test passes against the staged tree. Extract into
 	@# a scratch dir, run the tests, then nuke it. This catches the kind
