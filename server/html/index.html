@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.8.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.9.0">
 
 </head>
 <body>
@@ -413,6 +413,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>Confirmations</span>
           <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending confirmations">0</span>
+        </button>
+        <button class="nav-btn" data-page="dns" title="Manage DNS zones and records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span>DNS</span>
         </button>
         <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
@@ -2666,7 +2670,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.8.0 onboardingmatters install installer wizard one command docker compose quick install agent token baked /install endpoint ssh agent push bootstrap uninstall server agent demo dmarc spf dkim email authentication imap rua aggregate report mailbox monitor accessibility modal dialog aria confirm prompt macos loadavg fd_percent windows nvidia gpu cve scan all devices hang fix security hardening pentest wapiti nikto nuclei bandit zap host_path container">
+          <details class="doc-card" open data-keywords="release notes changelog v4.9.0 dns dashboard zones records cloudflare digitalocean hetzner desec porkbun provider api token rwx create edit delete record a aaaa cname txt mx ns srv caa ttl proxied rrset acme dns credentials reuse admin audit ssrf">
+            <summary><strong>What's new — v4.9.0 "DNSMatters"</strong> — a DNS dashboard: view, add, edit and delete DNS records directly through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun) (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.9.0 adds an <strong>Admin → DNS</strong> page that manages DNS records over your provider's API — no more jumping to each registrar's console. It reuses the scoped API tokens you already configured for ACME DNS-01, so there is nothing new to set up if you issue certs by DNS. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.9.0</code>).</p>
+              <ul>
+                <li><strong>Five providers.</strong> Cloudflare, DigitalOcean, Hetzner DNS, deSEC and Porkbun. Pick a provider and zone, and the records load straight from the provider's API.</li>
+                <li><strong>Full read/write.</strong> List, create, edit and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records, with TTL, MX/SRV priority, and Cloudflare's proxied flag. deSEC's RRset model and Porkbun's subdomain form are normalised for you.</li>
+                <li><strong>Reuses your ACME tokens.</strong> Credentials come from the same <em>ACME → DNS credentials</em> store — set a scoped token once and it drives both certificate issuance and this dashboard. No second secret store.</li>
+                <li><strong>Admin-only &amp; audited.</strong> Every endpoint is admin-gated; creates, edits and deletes are written to the audit log, and deletes require an explicit confirmation (DNS changes are live and can take services offline).</li>
+                <li><strong>SSRF-guarded outbound.</strong> Provider calls reuse the hardened HTTP client (no loopback / link-local / cloud-metadata, connect-time re-validation, no redirects).</li>
+              </ul>
+              <p class="hint">Set provider tokens under <em>ACME → DNS credentials</em>, then open <em>Admin → DNS</em>. See <code>docs/v4.9.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.8.0 onboardingmatters install installer wizard one command docker compose quick install agent token baked /install endpoint ssh agent push bootstrap uninstall server agent demo dmarc spf dkim email authentication imap rua aggregate report mailbox monitor accessibility modal dialog aria confirm prompt macos loadavg fd_percent windows nvidia gpu cve scan all devices hang fix security hardening pentest wapiti nikto nuclei bandit zap host_path container">
             <summary><strong>What's new — v4.8.0 "OnboardingMatters"</strong> — turnkey onboarding (a unified one-command installer, a self-hosted one-line agent install, SSH agent bootstrap and clean uninstall), a new DMARC / SPF / DKIM email-auth monitor, and an accessibility + security polish pass (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.8.0 makes RemotePower <strong>turnkey to stand up</strong>: one command brings up the server, one line installs an agent, and you can bootstrap agents over SSH or hand someone a baked installer that enrols their host on first run. It also adds an <strong>email-authentication monitor</strong> and a round of accessibility and security polish. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.8.0</code>).</p>
@@ -2727,21 +2745,7 @@
               <p class="hint">Switch the look any time under <em>Settings → Interface</em>. See <code>docs/v4.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.5.0 trustmatters tls https self-signed ca certificate authority gen-ca openssl ecdsa leaf fingerprint sha256 rp_ca_bundle install-client ca-fingerprint nginx snippet lets encrypt certbot acme docker rp_tls_selfsigned renew rotate internal airgapped trust">
-            <summary><strong>What's new — v4.5.0 "TrustMatters"</strong> — TLS onboarding: a one-command self-signed CA, fingerprint-verified rollout to agents, Docker opt-in TLS, and a server-only self-signed → real migration (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.5.0 makes TLS easy to stand up where a real cert is hard — internal / airgapped / no-public-DNS instances. A real cert is still recommended. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.5.0</code>). Full guide: <code>docs/tls-selfsigned.md</code>.</p>
-              <ul>
-                <li><strong>Self-signed CA, not a bare cert.</strong> <code>make tls-selfsigned HOST=rp.internal</code> (<code>tools/gen-ca.sh</code>) generates a private <strong>CA</strong> + a server leaf (ECDSA P-256, SAN, serverAuth), installs the leaf for nginx, and prints the CA's SHA-256 fingerprint. Agents trust the <em>CA</em>, so <code>make tls-renew</code> re-issues the server cert <strong>without touching any client</strong>.</li>
-                <li><strong>Fingerprint-verified rollout.</strong> <code>install-client.sh --server https://rp.internal --ca-fingerprint &lt;sha256&gt;</code> (and the macOS / Windows installers) fetch <code>/ca.crt</code> over HTTP and <strong>refuse to trust it on a fingerprint mismatch</strong> — a safe bootstrap with no TLS yet. The CA is wired in via <code>RP_CA_BUNDLE</code>; full verification (hostname + TLS 1.2 floor) is never weakened.</li>
-                <li><strong>One nginx routing snippet.</strong> The HTTP and HTTPS server blocks now <code>include</code> the same <code>remotepower-locations.conf</code> (and serve <code>/ca.crt</code>) so they can't drift — HTTPS is a clean uncomment.</li>
-                <li><strong>Docker opt-in TLS.</strong> <code>RP_TLS_SELFSIGNED=1</code> makes the container generate a CA+leaf into the data volume on first boot and serve HTTPS on :8443, printing the fingerprint to <code>docker logs</code>.</li>
-                <li><strong>Self-signed → real is server-only.</strong> Agents trust the system roots <em>and</em> the CA simultaneously, so you point nginx at a real (Let's Encrypt) cert and reload — agents keep working with no redeploy.</li>
-              </ul>
-              <p class="hint">A TLS-onboarding release — HTTP-only and real-cert installs are untouched. See <code>docs/v4.5.0.md</code> and <code>docs/tls-selfsigned.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -5051,6 +5055,35 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── v4.9.0: DNS dashboard — manage zones/records via provider APIs ── -->
+      <div id="page-dns" class="page">
+        <div class="page-title">DNS</div>
+        <div class="page-subtitle">View and edit DNS records directly through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun). Credentials are the scoped API tokens you already configured under ACME → DNS credentials — set them there once and they drive both certificate issuance and this dashboard.</div>
+
+        <div class="toolbar">
+          <select id="dns-provider" class="form-input isl-177" aria-label="DNS provider"></select>
+          <select id="dns-zone" class="form-input isl-177" aria-label="DNS zone"></select>
+          <button class="btn-icon" data-action="openDnsRecord">+ New record</button>
+          <button class="btn-icon" data-action="loadDnsRecords"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="dns-status" class="hint"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="dns-thead"><tr>
+                <th data-col="name">Name</th>
+                <th data-col="type">Type</th>
+                <th data-col="content">Content</th>
+                <th data-col="ttl">TTL</th>
+                <th>Flags</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="dns-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-dmarc" class="page">
         <div class="page-title">Reputation/DMARC</div>
@@ -5377,6 +5410,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-secondary" data-action="_uiPromptCancel">Cancel</button>
     <button class="btn-primary" id="ui-prompt-confirm" data-action="_uiPromptOk">OK</button>
   </div>
+</div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dns-record-title" id="dns-record-modal"><div class="modal">
+  <div class="modal-title" id="dns-record-title">New record</div>
+  <div class="modal-subtitle" id="dns-record-zone"></div>
+  <div class="form-group"><label class="form-label" for="dns-rec-type">Type</label><select id="dns-rec-type" class="form-input"></select></div>
+  <div class="form-group"><label class="form-label" for="dns-rec-name">Name</label><input type="text" id="dns-rec-name" class="form-input" autocomplete="off" placeholder="@ for the zone apex, or a host like www"></div>
+  <div class="form-group"><label class="form-label" for="dns-rec-content">Content</label><textarea id="dns-rec-content" class="form-input" rows="3" autocomplete="off" placeholder="e.g. 203.0.113.10"></textarea><div class="hint" id="dns-rec-content-hint"></div></div>
+  <div class="form-group"><label class="form-label" for="dns-rec-ttl">TTL (seconds)</label><input type="number" id="dns-rec-ttl" class="form-input" autocomplete="off" min="0" placeholder="0 = provider default"></div>
+  <div class="form-group d-none" id="dns-rec-prio-row"><label class="form-label" for="dns-rec-prio">Priority</label><input type="number" id="dns-rec-prio" class="form-input" autocomplete="off" min="0" placeholder="10"></div>
+  <div class="form-group d-none" id="dns-rec-proxied-row"><label class="form-label"><input type="checkbox" id="dns-rec-proxied"> Proxied through Cloudflare</label></div>
+  <div id="dns-record-result" class="hint"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dns-record-modal">Cancel</button><button class="btn-primary" data-action="dnsRecordSave">Save</button></div>
 </div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ldap-test-user-modal-title" id="ldap-test-user-modal"><div class="modal">
   <div class="modal-title" id="ldap-test-user-modal-title">Test LDAP user login</div>
@@ -7169,19 +7214,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.8.0"></script>
-<script defer src="static/js/app.js?v=4.8.0"></script>
+<script defer src="static/js/i18n.js?v=4.9.0"></script>
+<script defer src="static/js/app.js?v=4.9.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.8.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.8.0"></script>
-<script defer src="static/js/app-containers.js?v=4.8.0"></script>
-<script defer src="static/js/app-network.js?v=4.8.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.9.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.9.0"></script>
+<script defer src="static/js/app-containers.js?v=4.9.0"></script>
+<script defer src="static/js/app-network.js?v=4.9.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.8.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.8.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.8.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.9.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.9.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.9.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.8.0"></script>
+<script defer src="static/js/sw-register.js?v=4.9.0"></script>
 </body>
 </html>

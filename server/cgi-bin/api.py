@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.8.0'
+SERVER_VERSION = '4.9.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -580,6 +580,7 @@ import ip_reputation
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
+import dns_zones as dns_zones_mod
 
 # v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
 import ai_provider
@@ -42168,6 +42169,12 @@ def _build_exact_routes():
         ('GET', '/api/acme'): handle_acme_list,
         ('GET', '/api/acme/dns-credentials'): handle_acme_dns_credentials_get,
         ('POST', '/api/acme/dns-credentials'): handle_acme_dns_credentials_set,
+        ('GET', '/api/dns/providers'): handle_dns_providers,
+        ('GET', '/api/dns/zones'): handle_dns_zones,
+        ('GET', '/api/dns/records'): handle_dns_records,
+        ('POST', '/api/dns/records'): handle_dns_record_create,
+        ('POST', '/api/dns/records/update'): handle_dns_record_update,
+        ('POST', '/api/dns/records/delete'): handle_dns_record_delete,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
@@ -44767,6 +44774,160 @@ def handle_acme_dns_credentials_set():
     audit_log(actor, 'acme_dns_credentials_set',
               detail=f'provider={provider} fields={",".join(changed) or "(none)"}')
     respond(200, {'ok': True, 'updated_fields': changed})
+
+
+# ══ v4.9.0: DNS dashboard — read/write DNS records via provider APIs ══════════
+# Reuses the ACME DNS-01 credential store (config['acme_dns_credentials']) so a
+# single scoped API token drives both cert issuance and this dashboard. Every
+# endpoint is admin-only; writes are audit-logged. The provider clients live in
+# dns_zones.py; api.py owns the SSRF-safe HTTP client (the same one integrations
+# use — allow_loopback=False, no_redirect=True) + credential resolution.
+
+def _dns_make_provider(provider_key):
+    """Build a live provider client from the shared ACME credential store, or
+    short-circuit with a 400 (unknown provider / no credentials)."""
+    spec = dns_zones_mod.PROVIDERS.get(provider_key)
+    if not spec:
+        respond(400, {'error': f'unknown provider {provider_key!r}'})
+    cfg = load(CONFIG_FILE) or {}
+    creds = (cfg.get('acme_dns_credentials') or {}).get(spec.acme_provider) or {}
+    if not creds:
+        respond(400, {'error': f'No API credentials configured for {spec.label}. '
+                               f'Set them under ACME → DNS credentials.',
+                      'cred_hint': spec.cred_hint, 'acme_provider': spec.acme_provider})
+    client = _SSRFIntegrationClient(spec.base_url, verify_tls=True,
+                                    timeout=_INTEGRATION_HTTP_TIMEOUT_S)
+    return spec(client, creds)
+
+
+def _dns_target(body):
+    """Resolve (provider, zone_id, zone_name) from a write request body."""
+    prov = _dns_make_provider(str(body.get('provider', '')).strip())
+    zone = str(body.get('zone', '')).strip()
+    zone_name = str(body.get('zone_name', '')).strip()
+    if not zone:
+        respond(400, {'error': 'zone required'})
+    return prov, zone, zone_name
+
+
+def _dns_record_from_body(body):
+    """Build + validate a normalised record dict from a write request body."""
+    rtype = str(body.get('type', '')).strip().upper()
+    if rtype not in dns_zones_mod.RECORD_TYPES:
+        respond(400, {'error': f'unsupported record type {rtype!r}'})
+    rec = {
+        'type': rtype,
+        'name': _sanitize_str(str(body.get('name', '')), 253, allow_empty=True).strip(),
+        'content': _sanitize_str(str(body.get('content', '')), 8192, allow_empty=True).strip(),
+        'ttl': dns_zones_mod._int(body.get('ttl'), 0),
+    }
+    if not rec['content']:
+        respond(400, {'error': 'content required'})
+    if body.get('priority') not in (None, ''):
+        rec['priority'] = dns_zones_mod._int(body.get('priority'), 0)
+    if 'proxied' in body:
+        rec['proxied'] = bool(body.get('proxied'))
+    return rec
+
+
+def handle_dns_providers():
+    """GET /api/dns/providers — provider catalog + whether each has credentials."""
+    require_admin_auth()
+    cfg = load(CONFIG_FILE) or {}
+    saved = cfg.get('acme_dns_credentials') or {}
+    out = []
+    for p in dns_zones_mod.list_providers():
+        out.append({**p, 'creds_set': bool(saved.get(p['acme_provider']))})
+    respond(200, {'providers': out})
+
+
+def handle_dns_zones():
+    """GET /api/dns/zones?provider=cloudflare — list a provider's zones."""
+    require_admin_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    prov = _dns_make_provider((qs.get('provider', [''])[0] or '').strip())
+    try:
+        zones = prov.list_zones()
+    except dns_zones_mod.DNSError as e:
+        respond(502, {'error': str(e)})
+    respond(200, {'zones': zones})
+
+
+def handle_dns_records():
+    """GET /api/dns/records?provider=&zone=&zone_name= — records in one zone."""
+    require_admin_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    prov = _dns_make_provider((qs.get('provider', [''])[0] or '').strip())
+    zone = (qs.get('zone', [''])[0] or '').strip()
+    zone_name = (qs.get('zone_name', [''])[0] or '').strip()
+    if not zone:
+        respond(400, {'error': 'zone required'})
+    try:
+        records = prov.list_records(zone, zone_name)
+    except dns_zones_mod.DNSError as e:
+        respond(502, {'error': str(e)})
+    respond(200, {'records': records, 'zone': zone, 'zone_name': zone_name})
+
+
+def handle_dns_record_create():
+    """POST /api/dns/records — create a record. Admin-only, audit-logged."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    prov, zone, zone_name = _dns_target(body)
+    rec = _dns_record_from_body(body)
+    try:
+        prov.create_record(zone, zone_name, rec)
+    except dns_zones_mod.DNSError as e:
+        respond(502, {'error': str(e)})
+    audit_log(actor, 'dns_record_create',
+              detail=f'provider={body.get("provider")} zone={zone_name or zone} '
+                     f'{rec["type"]} {rec["name"]}')
+    respond(200, {'ok': True})
+
+
+def handle_dns_record_update():
+    """POST /api/dns/records/update — edit a record. Admin-only, audit-logged."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    prov, zone, zone_name = _dns_target(body)
+    rec_id = str(body.get('id', '')).strip()
+    if not rec_id:
+        respond(400, {'error': 'record id required'})
+    rec = _dns_record_from_body(body)
+    try:
+        prov.update_record(zone, zone_name, rec_id, rec)
+    except dns_zones_mod.DNSError as e:
+        respond(502, {'error': str(e)})
+    audit_log(actor, 'dns_record_update',
+              detail=f'provider={body.get("provider")} zone={zone_name or zone} '
+                     f'{rec["type"]} {rec["name"]} id={rec_id}')
+    respond(200, {'ok': True})
+
+
+def handle_dns_record_delete():
+    """POST /api/dns/records/delete — delete a record. Admin-only, audit-logged."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    prov, zone, zone_name = _dns_target(body)
+    rec_id = str(body.get('id', '')).strip()
+    if not rec_id:
+        respond(400, {'error': 'record id required'})
+    rtype = str(body.get('type', '')).strip().upper()
+    name = str(body.get('name', '')).strip()
+    try:
+        prov.delete_record(zone, zone_name, rec_id, name=name, rtype=rtype)
+    except dns_zones_mod.DNSError as e:
+        respond(502, {'error': str(e)})
+    audit_log(actor, 'dns_record_delete',
+              detail=f'provider={body.get("provider")} zone={zone_name or zone} '
+                     f'{rtype} {name} id={rec_id}')
+    respond(200, {'ok': True})
 
 
 def handle_acme_detail(dev_id, domain):

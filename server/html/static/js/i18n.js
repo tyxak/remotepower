@@ -146,6 +146,7 @@
     'Automation':  { zh: '自动化', hi: 'स्वचालन', es: 'Automatización', ar: 'الأتمتة' },
     'Release Signing': { zh: '发布签名', hi: 'रिलीज़ हस्ताक्षर', es: 'Firma de versiones', ar: 'توقيع الإصدارات' },
     'Confirmations': { zh: '确认', hi: 'पुष्टि', es: 'Confirmaciones', ar: 'التأكيدات' },
+    'DNS':         { zh: 'DNS', hi: 'DNS', es: 'DNS', ar: 'DNS' },
     'AI Assistant': { zh: 'AI 助手', hi: 'AI सहायक', es: 'Asistente de IA', ar: 'مساعد الذكاء الاصطناعي' },
     // ── help ──
     'About':       { zh: '关于', hi: 'परिचय', es: 'Acerca de', ar: 'حول' },

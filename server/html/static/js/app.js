@@ -1443,6 +1443,7 @@ function showPage(name, btn) {
   if (name === 'gpus')       loadGpus();
   if (name === 'thermal')    loadThermal();
   if (name === 'dmarc')      loadDmarc();
+  if (name === 'dns')        loadDns();
   if (name === 'ssh-keys')   loadSshKeys();
   if (name === 'power')      loadPower();
   if (name === 'disk-health') loadDiskHealth();
@@ -12866,6 +12867,190 @@ function _registerDmarcTable() {
     emptyMsgFiltered: 'No domains match the filter.',
   });
 }
+// ── v4.9.0: DNS dashboard — read/write DNS records via provider APIs ─────────
+let _dnsProviders = [];
+let _dnsRecords = [];
+let _dnsEditId = null;
+
+async function loadDns() {
+  _registerDnsTable();
+  const sel = document.getElementById('dns-provider');
+  const data = await api('GET', '/dns/providers');
+  _dnsProviders = (data && data.providers) || [];
+  if (sel) {
+    sel.innerHTML = _dnsProviders.map(p =>
+      `<option value="${escAttr(p.key)}">${escHtml(p.label)}${p.creds_set ? '' : ' — no credentials'}</option>`).join('');
+    sel.onchange = loadDnsZones;
+  }
+  const zsel = document.getElementById('dns-zone');
+  if (zsel) zsel.onchange = loadDnsRecords;
+  await loadDnsZones();
+}
+
+function _registerDnsTable() {
+  tableCtl.wireSortOnly('dns-thead', 'dns', _renderDnsRecords);
+}
+
+function _dnsCurrentProvider() {
+  const sel = document.getElementById('dns-provider');
+  const key = sel ? sel.value : '';
+  return _dnsProviders.find(p => p.key === key) || null;
+}
+
+function _dnsCurrentZone() {
+  const zsel = document.getElementById('dns-zone');
+  if (!zsel || !zsel.value) return null;
+  const opt = zsel.options[zsel.selectedIndex];
+  return { id: zsel.value, name: (opt && opt.dataset.name) || '' };
+}
+
+async function loadDnsZones() {
+  const prov = _dnsCurrentProvider();
+  const zsel = document.getElementById('dns-zone');
+  const tb = document.getElementById('dns-tbody');
+  const status = document.getElementById('dns-status');
+  if (zsel) zsel.innerHTML = '';
+  if (tb) tb.innerHTML = '';
+  if (!prov) return;
+  if (!prov.creds_set) {
+    if (status) status.textContent = prov.cred_hint || 'No API credentials configured for this provider.';
+    return;
+  }
+  if (status) status.textContent = 'Loading zones…';
+  const data = await api('GET', '/dns/zones?provider=' + encodeURIComponent(prov.key));
+  if (!data || data.error) {
+    if (status) status.textContent = (data && data.error) || 'Could not load zones.';
+    return;
+  }
+  const zones = data.zones || [];
+  if (zsel) zsel.innerHTML = zones.map(z =>
+    `<option value="${escAttr(String(z.id))}" data-name="${escAttr(z.name)}">${escHtml(z.name)}</option>`).join('');
+  if (status) status.textContent = zones.length ? `${zones.length} zone(s)` : 'No zones visible to this token.';
+  await loadDnsRecords();
+}
+
+async function loadDnsRecords() {
+  const prov = _dnsCurrentProvider();
+  const zone = _dnsCurrentZone();
+  const tb = document.getElementById('dns-tbody');
+  const status = document.getElementById('dns-status');
+  if (!prov || !zone) { if (tb) tb.innerHTML = ''; return; }
+  if (tb) tb.innerHTML = _skeletonRows(5);
+  const data = await api('GET', `/dns/records?provider=${encodeURIComponent(prov.key)}&zone=${encodeURIComponent(zone.id)}&zone_name=${encodeURIComponent(zone.name)}`);
+  if (!data || data.error) {
+    if (tb) tb.innerHTML = `<tr><td colspan="6" class="isl-533">${escHtml((data && data.error) || 'Failed to load records')}</td></tr>`;
+    return;
+  }
+  _dnsRecords = data.records || [];
+  if (status) status.textContent = `${zone.name} · ${_dnsRecords.length} record(s)`;
+  _renderDnsRecords();
+}
+
+function _renderDnsRecords() {
+  const tb = document.getElementById('dns-tbody');
+  if (!tb) return;
+  let rows = (_dnsRecords || []).slice();
+  rows = tableCtl.sortRows('dns', rows, r => ({
+    name: (r.name || '').toLowerCase(),
+    type: r.type || '',
+    content: (r.content || '').toLowerCase(),
+    ttl: r.ttl || 0,
+  }));
+  if (!rows.length) { tb.innerHTML = `<tr><td colspan="6" class="isl-533">No records in this zone.</td></tr>`; return; }
+  tb.innerHTML = rows.map(r => {
+    const flags = [];
+    if (r.proxied) flags.push('proxied');
+    if (r.priority !== null && r.priority !== undefined && r.priority !== '') flags.push('prio ' + escHtml(String(r.priority)));
+    const rid = escAttr(String(r.id));
+    return `<tr>
+      <td>${escHtml(r.name || '')}</td>
+      <td>${escHtml(r.type || '')}</td>
+      <td><code>${escHtml(r.content || '')}</code></td>
+      <td>${escHtml(String(r.ttl || 0))}</td>
+      <td>${flags.join(' · ')}</td>
+      <td class="ta-right">
+        <button class="btn-icon" data-action="openDnsRecord" data-arg="${rid}">Edit</button>
+        <button class="btn-icon" data-action="deleteDnsRecord" data-arg="${rid}">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function _dnsSyncModalFields() {
+  const t = (document.getElementById('dns-rec-type') || {}).value;
+  document.getElementById('dns-rec-prio-row').classList.toggle('d-none', !(t === 'MX' || t === 'SRV'));
+}
+
+function openDnsRecord(id) {
+  const prov = _dnsCurrentProvider();
+  const zone = _dnsCurrentZone();
+  if (!prov || !zone) { toast('Pick a provider and zone first', 'error'); return; }
+  const typeSel = document.getElementById('dns-rec-type');
+  typeSel.innerHTML = (prov.record_types || []).map(t => `<option value="${escAttr(t)}">${escHtml(t)}</option>`).join('');
+  document.getElementById('dns-record-zone').textContent = `${prov.label} · ${zone.name}`;
+  document.getElementById('dns-record-result').textContent = '';
+  document.getElementById('dns-rec-proxied-row').classList.toggle('d-none', !prov.supports_proxied);
+  document.getElementById('dns-rec-content-hint').textContent =
+    prov.key === 'desec' ? 'deSEC groups records into RRsets — one value per line; minimum TTL 3600.' : '';
+  let rec = null;
+  if (id !== undefined && id !== null && id !== '') {
+    rec = (_dnsRecords || []).find(r => String(r.id) === String(id)) || null;
+  }
+  _dnsEditId = rec ? rec.id : null;
+  document.getElementById('dns-record-title').textContent = rec ? 'Edit record' : 'New record';
+  typeSel.value = rec ? rec.type : (prov.record_types[0] || 'A');
+  document.getElementById('dns-rec-name').value = rec ? (rec.name || '') : '';
+  document.getElementById('dns-rec-content').value = rec ? (rec.content || '') : '';
+  document.getElementById('dns-rec-ttl').value = rec ? (rec.ttl || 0) : 0;
+  document.getElementById('dns-rec-prio').value = (rec && rec.priority != null) ? rec.priority : '';
+  document.getElementById('dns-rec-proxied').checked = !!(rec && rec.proxied);
+  _dnsSyncModalFields();
+  typeSel.onchange = _dnsSyncModalFields;
+  openModal('dns-record-modal');
+}
+
+async function dnsRecordSave() {
+  const prov = _dnsCurrentProvider();
+  const zone = _dnsCurrentZone();
+  if (!prov || !zone) return;
+  const result = document.getElementById('dns-record-result');
+  const rec = {
+    provider: prov.key, zone: zone.id, zone_name: zone.name,
+    type: document.getElementById('dns-rec-type').value,
+    name: document.getElementById('dns-rec-name').value.trim(),
+    content: document.getElementById('dns-rec-content').value.trim(),
+    ttl: parseInt(document.getElementById('dns-rec-ttl').value, 10) || 0,
+  };
+  const prio = document.getElementById('dns-rec-prio').value;
+  if (prio !== '') rec.priority = parseInt(prio, 10) || 0;
+  if (prov.supports_proxied) rec.proxied = document.getElementById('dns-rec-proxied').checked;
+  if (!rec.content) { if (result) result.textContent = 'Content is required.'; return; }
+  let r;
+  if (_dnsEditId !== null && _dnsEditId !== undefined) {
+    rec.id = _dnsEditId;
+    r = await api('POST', '/dns/records/update', rec);
+  } else {
+    r = await api('POST', '/dns/records', rec);
+  }
+  if (r && r.ok) { closeModal('dns-record-modal'); toast('Saved', 'success'); loadDnsRecords(); }
+  else if (result) result.textContent = (r && r.error) || 'Save failed';
+}
+
+async function deleteDnsRecord(id) {
+  const rec = (_dnsRecords || []).find(r => String(r.id) === String(id));
+  if (!rec) return;
+  if (!await uiConfirm({ title: 'Delete DNS record', message: `Permanently delete ${rec.type} ${rec.name || ''} (${rec.content || ''})? This changes live DNS immediately and can take services offline.`, confirmText: 'Delete', danger: true })) return;
+  const prov = _dnsCurrentProvider();
+  const zone = _dnsCurrentZone();
+  if (!prov || !zone) return;
+  const r = await api('POST', '/dns/records/delete', {
+    provider: prov.key, zone: zone.id, zone_name: zone.name,
+    id: rec.id, type: rec.type, name: rec.name,
+  });
+  if (r && r.ok) { toast('Deleted', 'info'); loadDnsRecords(); }
+  else toast((r && r.error) || 'Delete failed', 'error');
+}
+
 async function loadDmarc() {
   _registerDmarcTable();
   const data = await api('GET', '/dmarc/targets');

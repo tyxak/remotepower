@@ -2,6 +2,28 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v4.9.0 — "DNSMatters" — unreleased (test)
+
+Adds an **Admin → DNS dashboard** that reads and writes DNS records directly
+through your provider's API, so you can manage zones without leaving RemotePower
+or opening each registrar's console. It reuses the scoped API tokens already
+stored for ACME DNS-01 issuance — set a token once and it drives both certs and
+this dashboard. No breaking changes, no schema changes.
+
+- **DNS dashboard (Admin → DNS).** Pick a provider and zone; list, create, edit
+  and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records with TTL,
+  MX/SRV priority and Cloudflare's proxied flag.
+- **Five providers.** Cloudflare, DigitalOcean, Hetzner DNS, deSEC and Porkbun —
+  plain token-REST APIs. deSEC's RRset model and Porkbun's subdomain/body-auth
+  form are normalised behind one record shape.
+- **Credential reuse.** Tokens come from the existing
+  `config['acme_dns_credentials']` store (CF_Token, DO_API_KEY, HETZNER_Token,
+  DEDYN_TOKEN, PORKBUN_API_KEY/SECRET) — no second secret store.
+- **Admin-only + audited + SSRF-guarded.** Every endpoint is admin-gated; writes
+  are audit-logged; deletes require explicit confirmation. Outbound calls reuse
+  the hardened opener (no loopback / link-local / cloud-metadata, connect-time
+  re-validation, no redirects).
+
 ## v4.8.0 — "OnboardingMatters" — 2026-06-17
 
 An onboarding release: standing the server up — and adding the hosts you manage —

@@ -39,7 +39,7 @@ import sys
 import time
 import urllib.request
 
-VERSION = '4.8.0'
+VERSION = '4.9.0'
 DEFAULT_POLL = 60
 
 

@@ -58,6 +58,11 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.9.0.md](v4.9.0.md)** — "DNSMatters": an Admin → DNS dashboard that views,
+ adds, edits and deletes DNS records directly through your provider's API
+ (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), reusing the scoped API
+ tokens already stored for ACME DNS-01. Admin-only, audited, SSRF-guarded. No
+ breaking changes.
 - **[v4.8.0.md](v4.8.0.md)** — "OnboardingMatters": turnkey onboarding (unified
  `install.sh` wizard, one-command Docker with HTTPS-by-default, a self-hosted
  one-line agent installer, SSH agent-push, clean uninstall) + a Reputation/DMARC
@@ -74,11 +79,8 @@ The five most recent per-release notes are kept here:
 - **[v4.6.0.md](v4.6.0.md)** — "RepellantMatters": a visual-identity release — the
  new Industrial "New UI" (graphite/steel + blue accent) as default, with a
  CSP-safe New UI / Old UI toggle. No markup/nav/functional changes.
-- **[v4.5.0.md](v4.5.0.md)** — "TrustMatters": TLS onboarding — a one-command
- self-signed CA, fingerprint-verified rollout to agents, Docker opt-in TLS, and a
- server-only self-signed → real migration. No breaking changes.
 
-Older release notes (v4.4.1 and earlier) live in
+Older release notes (v4.5.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
