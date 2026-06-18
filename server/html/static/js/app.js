@@ -7342,28 +7342,34 @@ async function triggerCVEScan(devId, btn) {
     if (btn) { btn.disabled = false; btn.textContent = origText; }
     return;
   }
-  toast(`Scan queued${r.total ? ` (${r.total} device${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
-  // Poll progress; refresh the report when done. Bounded so a stuck scan can't
-  // poll forever.
+  toast(`Scan started${r.total ? ` (${r.total} device${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
+  // Poll progress with a NON-OVERLAPPING self-scheduling loop: the next request
+  // is queued only AFTER the previous one resolves. A plain setInterval fires
+  // every 2s regardless, so a slow/blocked server piles up hundreds of pending
+  // fetches and Firefox flags the page as "slowing the browser". Bounded by a
+  // wall-clock cap so a stuck scan can't poll forever.
   let ticks = 0;
-  const poll = setInterval(async () => {
+  const MAX_TICKS = 600;
+  const finish = (st) => {
+    if (btn) {
+      btn.disabled = false;
+      btn.style.color = (st && st.errors) ? 'var(--red)' : 'var(--green)';
+      setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
+    }
+    if (st && !st.running) {
+      toast(`Scan complete: ${st.scanned || 0} scanned, ${st.skipped || 0} skipped, ${st.errors || 0} errors`,
+            st.errors ? 'error' : 'success');
+      loadCVEReport();
+    }
+  };
+  const tick = async () => {
     ticks++;
     const st = await api('GET', '/cve/scan-status').catch(() => null);
     if (st && btn && st.total) btn.textContent = st.running ? `Scanning ${st.done}/${st.total}…` : 'Done';
-    if (!st || !st.running || ticks > 600) {
-      clearInterval(poll);
-      if (btn) {
-        btn.disabled = false;
-        btn.style.color = (st && st.errors) ? 'var(--red)' : 'var(--green)';
-        setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
-      }
-      if (st && !st.running) {
-        toast(`Scan complete: ${st.scanned || 0} scanned, ${st.skipped || 0} skipped, ${st.errors || 0} errors`,
-              st.errors ? 'error' : 'success');
-        loadCVEReport();
-      }
-    }
-  }, 2000);
+    if (!st || !st.running || ticks > MAX_TICKS) { finish(st); return; }
+    setTimeout(tick, 2000);              // schedule the next poll only now
+  };
+  setTimeout(tick, 2000);
 }
 async function openDeviceCVE(devId, devName) {
   document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
