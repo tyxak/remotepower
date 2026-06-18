@@ -130,13 +130,23 @@ class Cloudflare(DNSProvider):
     acme_provider = 'dns_cf'
     base_url = 'https://api.cloudflare.com/client/v4'
     supports_proxied = True
-    cred_hint = 'Set a Cloudflare API Token (CF_Token) with Zone:Read + DNS:Edit under ACME → DNS credentials.'
+    cred_hint = ('Set a Cloudflare API Token (CF_Token) with Zone:Read + DNS:Edit under '
+                 'ACME → DNS credentials (recommended), or the legacy Global API Key '
+                 '(CF_Key + CF_Email).')
 
     def _auth(self):
+        # Prefer the scoped token; fall back to the legacy Global API Key
+        # (CF_Key + CF_Email), which acme.sh stores as SAVED_CF_Key/SAVED_CF_Email.
+        # The global key is all-powerful — a scoped token is strongly preferred.
         tok = self.creds.get('CF_Token')
-        if not tok:
-            raise DNSError('Cloudflare needs an API Token (CF_Token). A legacy Global Key is not supported here.')
-        return {'Authorization': 'Bearer ' + tok}
+        if tok:
+            return {'Authorization': 'Bearer ' + tok}
+        key = self.creds.get('CF_Key')
+        email = self.creds.get('CF_Email')
+        if key and email:
+            return {'X-Auth-Key': key, 'X-Auth-Email': email}
+        raise DNSError('Cloudflare needs an API Token (CF_Token), or the legacy '
+                       'Global API Key (CF_Key + CF_Email).')
 
     def _ok(self, j, ctx):
         if not j.get('success'):

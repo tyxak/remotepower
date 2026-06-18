@@ -76,6 +76,23 @@ class TestCloudflare(unittest.TestCase):
         with self.assertRaises(dz.DNSError):
             p.list_zones()
 
+    def test_legacy_global_key_auth(self):
+        # acme.sh's SAVED_CF_Key + SAVED_CF_Email (legacy Global API Key) must
+        # authenticate via X-Auth-Key / X-Auth-Email when no scoped token is set.
+        c = FakeClient(lambda m, pa, b: (200, {"success": True, "result": []}))
+        dz.Cloudflare(c, {"CF_Key": "globalkey", "CF_Email": "jmo@x.com"}).list_zones()
+        h = c.calls[0]["headers"]
+        self.assertEqual(h.get("X-Auth-Key"), "globalkey")
+        self.assertEqual(h.get("X-Auth-Email"), "jmo@x.com")
+        self.assertNotIn("Authorization", h)
+
+    def test_token_preferred_over_legacy_key(self):
+        c = FakeClient(lambda m, pa, b: (200, {"success": True, "result": []}))
+        dz.Cloudflare(c, {"CF_Token": "tok", "CF_Key": "k", "CF_Email": "e"}).list_zones()
+        h = c.calls[0]["headers"]
+        self.assertEqual(h.get("Authorization"), "Bearer tok")
+        self.assertNotIn("X-Auth-Key", h)
+
     def test_list_records_normalized_and_authed(self):
         c = FakeClient(lambda m, pa, b: (200, {"success": True, "result": [
             {"id": "r1", "type": "A", "name": "www.ex.com", "content": "1.2.3.4",
