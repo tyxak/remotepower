@@ -21593,12 +21593,28 @@ async function _dbgFlush() {
 // api_key (OPNsense), password (RouterOS, login, vault), community (SNMP),
 // token, passphrase, private_key, etc. — case-insensitive, recursive.
 const _DBG_SECRET_RX = /(password|passwd|secret|api_?key|token|passphrase|private_key|community|credential)/i;
-function _dbgScrub(v, depth) {
+// budget = {n} shared across the recursion: stop expanding after ~200 nodes.
+// Without this the wrapper deep-cloned AND JSON.stringified the ENTIRE response
+// (megabytes for fleet endpoints like /cve/findings or /patches) just to keep
+// 300 chars — seconds of main-thread work per api() call, which froze the page
+// during a multi-request fleet scan. Bounding the node count makes both the
+// clone and the stringify O(200) regardless of payload size.
+function _dbgScrub(v, depth, budget) {
   if (depth > 6 || v == null || typeof v !== 'object') return v;
-  if (Array.isArray(v)) return v.map(x => _dbgScrub(x, depth + 1));
+  budget = budget || { n: 200 };
+  if (budget.n <= 0) return '…';
+  if (Array.isArray(v)) {
+    const out = [];
+    for (const x of v) {
+      if (--budget.n <= 0) { out.push('…'); break; }
+      out.push(_dbgScrub(x, depth + 1, budget));
+    }
+    return out;
+  }
   const out = {};
   for (const k in v) {
-    out[k] = _DBG_SECRET_RX.test(k) ? '<redacted>' : _dbgScrub(v[k], depth + 1);
+    if (--budget.n <= 0) { out['…'] = '…'; break; }
+    out[k] = _DBG_SECRET_RX.test(k) ? '<redacted>' : _dbgScrub(v[k], depth + 1, budget);
   }
   return out;
 }
