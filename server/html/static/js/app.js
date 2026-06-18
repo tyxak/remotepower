@@ -8977,6 +8977,43 @@ async function loadAlerts() {
   }
 }
 
+// ── v4.9.0 ResolutionMatters #4: alert-resolution timeline (MTTR) ────────────
+async function loadAlertMttr() {
+  const daysEl = document.getElementById('mttr-days');
+  const days = (daysEl && daysEl.value) || '30';
+  const summary = document.getElementById('mttr-summary');
+  const hostsBox = document.getElementById('mttr-hosts');
+  const tb = document.getElementById('mttr-tbody');
+  if (summary) summary.textContent = 'Loading…';
+  const data = await api('GET', `/alerts/resolution-stats?days=${encodeURIComponent(days)}`);
+  if (!data) { if (summary) summary.textContent = 'Failed to load'; return; }
+  if (summary) summary.textContent =
+    `${data.resolved_count} resolved · MTTR mean ${_fmtDuration(data.mttr_mean)} · median ${_fmtDuration(data.mttr_median)} · MTTA ${_fmtDuration(data.mtta_mean)}`;
+  if (hostsBox) {
+    const hosts = (data.hosts || []).slice(0, 12);
+    hostsBox.innerHTML = hosts.length
+      ? '<div class="hint mb-8">Per host:</div>' + hosts.map(h =>
+          `<span class="group-badge" title="${escAttr(h.host)} · ${h.count} resolved · mean MTTR ${_fmtDuration(h.mttr_mean)}">${escHtml(h.host)} ${h.count} · ${escHtml(_fmtDuration(h.mttr_mean))}</span>`).join(' ')
+      : '';
+  }
+  if (!tb) return;
+  const sevCls = { critical: 'c-red', high: 'c-red', medium: 'c-amber', low: 'c-muted', info: 'c-muted' };
+  const howBadge = { auto: 'c-green', manual: 'c-accent', muted: 'c-muted', unknown: 'c-muted' };
+  const rows = data.timeline || [];
+  tb.innerHTML = rows.length ? rows.map(t => {
+    const when = t.resolved_at ? new Date(t.resolved_at * 1000).toLocaleString() : '—';
+    const by = t.how === 'manual' ? (t.resolved_by || t.acknowledged_by || '—') : (t.how === 'auto' ? 'recover event' : (t.resolved_by || '—'));
+    const note = t.note ? `<div class="hint">${escHtml(t.note)}</div>` : '';
+    return `<tr><td class="meta-sm-nm">${escHtml(when)}</td>`
+      + `<td class="${sevCls[t.severity] || 'c-muted'}">${escHtml(t.severity || '')}</td>`
+      + `<td>${escHtml(t.title || t.event || '')}${note}</td>`
+      + `<td>${escHtml(t.host || '')}</td>`
+      + `<td class="meta-sm-nm">${t.mttr != null ? escHtml(_fmtDuration(t.mttr)) : '—'}</td>`
+      + `<td class="${howBadge[t.how] || 'c-muted'}">${escHtml(t.how || '')}</td>`
+      + `<td>${escHtml(by)}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" class="hint">No resolved alerts in this window.</td></tr>';
+}
+
 // ── v4.1.0: Checks page (CheckMK-style per-host service status) ──────────────
 let _checksRows = [];
 async function loadChecks() {
@@ -13108,6 +13145,7 @@ async function loadDns() {
   const zsel = document.getElementById('dns-zone');
   if (zsel) zsel.onchange = loadDnsRecords;
   _dnsEnsureResolveTypes();
+  loadResolverHealth();
   await loadDnsZones();
 }
 
@@ -13192,6 +13230,66 @@ function dnsCheckRecordProp(id) {
   if (typeEl && rec.type) typeEl.value = rec.type;
   dnsPropagation(rec.name || '', rec.type || 'A', rec.content || '');
   document.getElementById('dns-resolve-results')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── v4.9.0 ResolutionMatters #3: resolver health monitor ────────────────────
+async function loadResolverHealth() {
+  const sel = document.getElementById('rslv-type');
+  if (sel && !sel.options.length) {
+    sel.innerHTML = _DNS_RESOLVE_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+  const data = await api('GET', '/resolver-health/targets');
+  const tb = document.getElementById('rslv-tbody');
+  if (!tb || !data) return;
+  const rows = data.targets || [];
+  tb.innerHTML = rows.length ? rows.map(t => {
+    let status, cls;
+    if (!t.checked_at) { status = 'not checked'; cls = 'c-muted'; }
+    else if (t.down) { status = `Not resolving (${t.fail_count} fail / ${t.nxdomain_count} NXDOMAIN)`; cls = 'c-red'; }
+    else if (t.healthy === false) { status = `Degraded ${t.ok_count}/${t.total}`; cls = 'c-amber'; }
+    else { status = `Healthy ${t.ok_count}/${t.total}`; cls = 'c-green'; }
+    const lat = t.checked_at ? `${t.latency_ms || 0} ms<span class="hint"> · max ${t.max_latency_ms || 0}</span>` : '—';
+    const per = (t.per_resolver || []).map(r => {
+      const dot = r.status === 'ok' ? 'c-green' : (r.status === 'nxdomain' ? 'c-amber' : 'c-red');
+      const title = `${r.resolver} (${r.ip}): ${r.status}${r.error ? ' — ' + r.error : ''} · ${r.latency_ms}ms`;
+      return `<span class="${dot}" title="${escAttr(title)}">●</span>`;
+    }).join(' ') || '<span class="hint">—</span>';
+    const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
+    return `<tr><td class="fw-500">${escHtml(t.name)}${t.label ? `<div class="hint">${escHtml(t.label)}</div>` : ''}</td>`
+      + `<td>${escHtml(t.type || 'A')}</td><td class="${cls}">${status}</td>`
+      + `<td class="meta-sm-nm">${lat}</td><td>${per}</td><td class="meta-sm-nm">${escHtml(when)}</td>`
+      + `<td><button class="btn-icon cell-sm" data-action="resolverHealthDelete" data-arg="${escAttr(t.id)}" title="Stop monitoring this name">Remove</button></td></tr>`;
+  }).join('') : '<tr><td colspan="7" class="hint">No names monitored yet. Add one to watch its resolution health.</td></tr>';
+}
+
+async function resolverHealthAdd() {
+  const name = (document.getElementById('rslv-name')?.value || '').trim();
+  const type = document.getElementById('rslv-type')?.value || 'A';
+  const label = (document.getElementById('rslv-label')?.value || '').trim();
+  if (!name) { toast('Enter a name to monitor', 'error'); return; }
+  const r = await api('POST', '/resolver-health/targets', { name, type, label });
+  if (r && r.ok) {
+    toast('Monitoring — checking…', 'success');
+    const n = document.getElementById('rslv-name'); if (n) n.value = '';
+    const l = document.getElementById('rslv-label'); if (l) l.value = '';
+    await resolverHealthScan();
+  } else toast((r && r.error) || 'Could not add', 'error');
+}
+
+async function resolverHealthScan() {
+  const status = document.getElementById('rslv-status');
+  if (status) status.textContent = 'Checking…';
+  const r = await api('POST', '/resolver-health/scan', {});
+  if (status) status.textContent = '';
+  if (r && r.ok) { toast(`Checked ${r.scanned} name(s)`, 'success'); loadResolverHealth(); }
+  else toast((r && r.error) || 'Scan failed', 'error');
+}
+
+async function resolverHealthDelete(id) {
+  if (!await uiConfirm('Stop monitoring this name?')) return;
+  const r = await api('DELETE', '/resolver-health/targets/' + encodeURIComponent(id));
+  if (r && r.ok) { toast('Removed', 'info'); loadResolverHealth(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 function _registerDnsTable() {
@@ -15800,6 +15898,8 @@ function _renderHomeActivity(fleetEvents) {
     'integration_down', 'integration_recovered',
     // v4.8.0: IP reputation (DNSBL) monitor
     'ip_blacklisted', 'ip_blacklist_cleared',
+    // v4.9.0: DNS resolver health monitor
+    'resolver_unhealthy', 'resolver_recovered',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -15886,6 +15986,10 @@ function _renderHomeActivity(fleetEvents) {
         detail = `${p.ip || ''}${p.blocklists ? ' — ' + p.blocklists : ''}`; break;
       case 'ip_blacklist_cleared':
         detail = `${p.ip || ''} cleared`; break;
+      case 'resolver_unhealthy':
+        detail = `${p.rtype || ''} ${p.target || ''}`.trim(); break;
+      case 'resolver_recovered':
+        detail = `${p.rtype || ''} ${p.target || ''} recovered`.trim(); break;
       default:
         detail = p.path || p.unit || p.metric || p.cve_id || p.pattern || '';
         if (!detail && p.upgradable) detail = `${p.upgradable} updates`;
@@ -15979,6 +16083,9 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="integrations"`;
     case 'ip_blacklisted': case 'ip_blacklist_cleared':
       return `${base} data-home-act="dmarc"`;
+    // v4.9.0: resolver health → the DNS page
+    case 'resolver_unhealthy': case 'resolver_recovered':
+      return `${base} data-home-act="dns"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }

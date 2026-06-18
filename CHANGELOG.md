@@ -19,6 +19,12 @@ this dashboard. No breaking changes, no schema changes.
   propagation check polls the public resolvers and reports "propagated X/N" after
   an edit. Read-only; queries only the fixed resolver allowlist + authoritative
   NS (private/loopback/link-local/metadata filtered).
+- **Resolver health monitor.** Watch names for resolution failures: each is
+  re-checked across the public resolvers on a rate-limited cadence, tracking
+  latency and NXDOMAIN/failure rates. New `resolver_unhealthy` /
+  `resolver_recovered` alert events (flap-dampened — a name must stay down for
+  two consecutive checks before alerting) wired through the full webhook/alert/
+  channel/feed routing. WEBHOOK_EVENTS is now 72.
 - **Five providers.** Cloudflare, DigitalOcean, Hetzner DNS, deSEC and Porkbun —
   plain token-REST APIs. deSEC's RRset model and Porkbun's subdomain/body-auth
   form are normalised behind one record shape.

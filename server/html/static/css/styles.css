@@ -2053,6 +2053,15 @@ body {
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* v4.9.0 ResolutionMatters #5: crisper kerning/ligatures on high-DPI displays. */
+  text-rendering: optimizeLegibility;
+}
+
+/* v4.9.0 ResolutionMatters #5: render the inline Lucide-style SVG icons with
+ * geometric precision so their strokes/curves stay sharp at every device pixel
+ * ratio (the default 'auto' can round curve control points on fractional DPRs). */
+svg {
+  shape-rendering: geometricPrecision;
 }
 
 /* Apply mono font to anywhere code/hash/path-like content lives.

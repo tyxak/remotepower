@@ -5098,6 +5098,35 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="dns-resolve-status" class="hint"></span>
         </div>
         <div id="dns-resolve-results"></div>
+
+        <!-- v4.9.0 ResolutionMatters #3: resolver health monitor -->
+        <div class="section-title mt-16">Resolver health monitor</div>
+        <div class="page-subtitle">Track whether monitored names keep resolving across public resolvers, with per-resolver latency and NXDOMAIN/failure rates. Auto-rechecks periodically and raises an alert when a name stops resolving.</div>
+        <div class="toolbar">
+          <input type="text" id="rslv-name" class="form-input isl-177" placeholder="name e.g. mail.example.com" aria-label="name to monitor">
+          <select id="rslv-type" class="form-input" aria-label="record type"></select>
+          <input type="text" id="rslv-label" class="form-input isl-177" placeholder="label (optional)" aria-label="label">
+          <button class="btn-icon" data-action="resolverHealthAdd">+ Monitor name</button>
+          <button class="btn-icon" data-action="resolverHealthScan">Check now</button>
+          <button class="btn-icon" data-action="loadResolverHealth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="rslv-status" class="hint"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead><tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Health</th>
+                <th>Latency</th>
+                <th>Resolvers</th>
+                <th>Checked</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="rslv-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
@@ -5325,6 +5354,30 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tbody>
           </table>
         </div>
+
+        <!-- v4.9.0 ResolutionMatters #4: alert-resolution timeline (MTTR) -->
+        <details class="mt-16" id="alerts-mttr-details">
+          <summary class="section-title pointer" data-action="loadAlertMttr">Resolution timeline (MTTR)</summary>
+          <div class="page-subtitle">Time-to-resolution (MTTR) and time-to-ack across recently-resolved alerts, with who resolved each and how — auto (a recover event), manual (an operator), or muted.</div>
+          <div class="toolbar">
+            <select id="mttr-days" class="form-input isl-68" data-change="loadAlertMttr" aria-label="time range">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+            <button class="btn-icon" data-action="loadAlertMttr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <span id="mttr-summary" class="hint"></span>
+          </div>
+          <div id="mttr-hosts" class="mb-16"></div>
+          <div class="table-card">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table>
+                <thead><tr><th>Resolved</th><th>Severity</th><th>Title</th><th>Host</th><th>MTTR</th><th>How</th><th>By</th></tr></thead>
+                <tbody id="mttr-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
       </div>
 
       <!-- v3.2.0 (A1): MCP Confirmations queue -->

@@ -319,6 +319,17 @@ IP_REP_MAX_PER_RUN   = 20         # cap IPs checked per scan run (anti-burst + b
 IP_REP_QUERY_DELAY   = 0.2        # inter-IP pause on manual scans (DNSBL politeness, seconds)
 IP_REP_RUN_BUDGET    = 20         # wall-clock seconds cap per scan run (bounded heartbeat)
 IP_REP_CONFIRM       = 2          # consecutive listed scans before alerting (flap dampening)
+# v4.9.0 ResolutionMatters #3: resolver health monitor. Same rate-limited /
+# flap-dampened cadence shape as the DNSBL reputation scanner above.
+RESOLVER_HEALTH_TARGETS_FILE = DATA_DIR / 'resolver_health_targets.json'
+RESOLVER_HEALTH_RESULTS_FILE = DATA_DIR / 'resolver_health_results.json'
+MAX_RESOLVER_TARGETS    = 200
+RESOLVER_HEALTH_INTERVAL = 15 * 60   # per-target auto re-check cadence (15 min)
+RESOLVER_HEALTH_MIN_RECHECK = 30     # manual scan: skip targets checked within 30s
+RESOLVER_HEALTH_MAX_PER_RUN = 25     # cap targets checked per run (bounded heartbeat)
+RESOLVER_HEALTH_QUERY_DELAY = 0.1    # inter-target pause on manual scans (politeness)
+RESOLVER_HEALTH_RUN_BUDGET  = 20     # wall-clock seconds cap per scan run
+RESOLVER_HEALTH_CONFIRM     = 2      # consecutive down scans before alerting (flap dampening)
 # Agentless devices live in the regular devices.json with a special marker
 # (`agentless: True`). Network map is rendered from the existing devices
 # data plus a new `connected_to: <device_id>` field on each record. No
@@ -584,6 +595,9 @@ import dns_zones as dns_zones_mod
 # v4.9.0 ResolutionMatters: live resolve/dig + propagation over public +
 # authoritative resolvers (SSRF-safe — fixed resolver allowlist, no user IPs).
 import dns_resolve as dns_resolve_mod
+# v4.9.0 ResolutionMatters #3: resolver health monitor (latency / NXDOMAIN /
+# failure tracking with rate-limited cadence + flap-dampened alerts).
+import resolver_health as resolver_health_mod
 
 # v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
 import ai_provider
@@ -820,6 +834,9 @@ WEBHOOK_EVENTS = (
     # v4.8.0: IP reputation — a monitored IP appeared on / left a DNS blocklist.
     ('ip_blacklisted',        'A monitored IP is listed on a DNS blocklist (DNSBL)', True),
     ('ip_blacklist_cleared',  'A monitored IP is no longer blocklisted',             True),
+    # v4.9.0: resolver health — a monitored name stopped resolving / recovered.
+    ('resolver_unhealthy',    'A monitored DNS name stopped resolving',              True),
+    ('resolver_recovered',    'A monitored DNS name resolves again',                 True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4141,6 +4158,7 @@ _ALERT_RULES = {
     'secret_exposed':             ('high', None),        # v3.14.0 #35
     'integration_down':           (None, None),          # v4.7.0: severity from payload.severity
     'ip_blacklisted':             ('high', None),        # v4.8.0
+    'resolver_unhealthy':         ('high', None),        # v4.9.0
 }
 
 # Map recover event → firing event it resolves
@@ -4175,6 +4193,7 @@ _ALERT_RECOVER = {
     'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
     'integration_recovered':   'integration_down',        # v4.7.0
     'ip_blacklist_cleared':    'ip_blacklisted',          # v4.8.0
+    'resolver_recovered':      'resolver_unhealthy',      # v4.9.0
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -4261,6 +4280,7 @@ CHANNEL_KINDS = [
     # v4.7.0: homelab software integration health
     ('integration',  'Integration health',       'operational',   ['integration_down', 'integration_recovered']),
     ('reputation',   'IP reputation (DNSBL)',    'operational',   ['ip_blacklisted', 'ip_blacklist_cleared']),
+    ('resolver',     'DNS resolver health',      'operational',   ['resolver_unhealthy', 'resolver_recovered']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4528,6 +4548,12 @@ def _alert_title(event, payload):
     if event == 'ip_blacklisted':
         return (f'IP blocklisted: {p.get("ip", "?")} on '
                 f'{p.get("listed_count", "?")} list(s) ({p.get("blocklists", "?")})')[:200]
+    if event == 'resolver_unhealthy':
+        return (f'DNS resolution failing: {p.get("rtype", "?")} {p.get("target", "?")} '
+                f'({p.get("fail_count", 0)} fail / {p.get("nxdomain_count", 0)} NXDOMAIN '
+                f'of {p.get("total", 0)} resolvers)')[:200]
+    if event == 'resolver_recovered':
+        return f'DNS resolution recovered: {p.get("rtype", "?")} {p.get("target", "?")}'[:200]
     if event == 'ip_blacklist_cleared':
         return f'IP reputation cleared: {p.get("ip", "?")}'
     if event == 'drift_detected':
@@ -5410,6 +5436,8 @@ def _webhook_title(event):
         'integration_recovered': 'Integration Recovered',
         'ip_blacklisted':        'IP Blocklisted',
         'ip_blacklist_cleared':  'IP Reputation Cleared',
+        'resolver_unhealthy':    'DNS Resolution Failing',
+        'resolver_recovered':    'DNS Resolution Recovered',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -6201,6 +6229,12 @@ def _webhook_message(event, payload):
                 f'{payload.get("listed_count","?")} blocklist(s): {payload.get("blocklists","?")}')
     elif event == 'ip_blacklist_cleared':
         return f'IP {payload.get("ip","?")} is no longer blocklisted'
+    elif event == 'resolver_unhealthy':
+        return (f'DNS name {payload.get("rtype","?")} {payload.get("target","?")} stopped '
+                f'resolving ({payload.get("fail_count",0)} fail / '
+                f'{payload.get("nxdomain_count",0)} NXDOMAIN of {payload.get("total",0)})')
+    elif event == 'resolver_recovered':
+        return f'DNS name {payload.get("rtype","?")} {payload.get("target","?")} resolves again'
     return f'{event}: {name}'
 
 
@@ -19360,6 +19394,193 @@ def run_reputation_scan_if_due() -> None:
         fire_webhook(ev, payload)
 
 
+# ─── v4.9.0 ResolutionMatters #3: resolver health monitor ────────────────────
+
+def _resolver_targets() -> dict:
+    s = load(RESOLVER_HEALTH_TARGETS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _resolver_results() -> dict:
+    s = load(RESOLVER_HEALTH_RESULTS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _scan_resolver_health(targets, results, min_recheck=0, max_targets=None,
+                          delay=0.0, budget=None):
+    """Re-check the DUE resolver-health targets; return ``(pending, scanned)``.
+
+    Same rate-limit safeguards as the DNSBL scanner (oldest-checked first, skip
+    youngerthan ``min_recheck``, cap ``max_targets`` per run, ``budget`` wall-clock
+    cap, ``delay`` spacing) so a big target set never bursts public resolvers or
+    blocks a heartbeat. ``pending`` are (event, payload) tuples to fire AFTER this
+    returns (never under a lock). Flap-dampened: a name must be DOWN for
+    RESOLVER_HEALTH_CONFIRM consecutive scans before resolver_unhealthy fires, and
+    only a scan that resolves again clears it.
+    """
+    order = sorted(targets.items(),
+                   key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
+    pending, scanned = [], 0
+    start = time.monotonic()
+    for tid, t in order:
+        if not isinstance(t, dict):
+            continue
+        now = int(time.time())
+        last = int((results.get(tid) or {}).get('checked_at', 0) or 0)
+        if min_recheck and now - last < min_recheck:
+            continue
+        if max_targets is not None and scanned >= max_targets:
+            break
+        if budget is not None and time.monotonic() - start > budget:
+            break
+        if scanned and delay:
+            time.sleep(delay)
+        name = t.get('name', '')
+        rtype = t.get('type', 'A')
+        prev = results.get(tid) or {}
+        was_alerted = bool(prev.get('alerted'))
+        streak = int(prev.get('down_streak', 0) or 0)
+        try:
+            res = resolver_health_mod.check_target(name, rtype)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] resolver health check failed {name}: {e}\n')
+            continue
+        res['checked_at'] = int(time.time())
+        scanned += 1
+        down = bool(res.get('down'))
+        if down:
+            streak += 1
+        else:
+            streak = 0
+        res['down_streak'] = streak
+        res['alerted'] = was_alerted
+        if down and not was_alerted and streak >= RESOLVER_HEALTH_CONFIRM:
+            res['alerted'] = True
+            pending.append(('resolver_unhealthy', {
+                'target': name, 'rtype': rtype, 'label': t.get('label', ''),
+                'fail_count': res.get('fail_count', 0),
+                'nxdomain_count': res.get('nxdomain_count', 0),
+                'total': res.get('total', 0)}))
+        elif not down and was_alerted:
+            res['alerted'] = False
+            pending.append(('resolver_recovered', {
+                'target': name, 'rtype': rtype, 'label': t.get('label', ''),
+                'latency_ms': res.get('latency_ms', 0)}))
+        results[tid] = res
+    return pending, scanned
+
+
+def handle_resolver_health_list() -> None:
+    """``GET /api/resolver-health/targets`` — monitored names + last health result."""
+    require_auth()
+    targets = _resolver_targets()
+    results = _resolver_results()
+    out = []
+    for tid, t in targets.items():
+        if not isinstance(t, dict):
+            continue
+        r = results.get(tid) or {}
+        out.append({
+            'id': tid, 'name': t.get('name', ''), 'type': t.get('type', 'A'),
+            'label': t.get('label', ''),
+            'healthy': r.get('healthy'), 'down': r.get('down'),
+            'ok_count': r.get('ok_count', 0), 'total': r.get('total', 0),
+            'nxdomain_count': r.get('nxdomain_count', 0),
+            'fail_count': r.get('fail_count', 0),
+            'latency_ms': r.get('latency_ms', 0), 'max_latency_ms': r.get('max_latency_ms', 0),
+            'per_resolver': r.get('per_resolver', []),
+            'checked_at': r.get('checked_at', 0),
+        })
+    out.sort(key=lambda x: (0 if x.get('down') else (1 if x.get('healthy') is False else 2),
+                            x['name']))
+    respond(200, {'targets': out, 'resolvers': [
+        {'name': n, 'ip': ip} for n, ip in dns_resolve_mod.PUBLIC_RESOLVERS]})
+
+
+def handle_resolver_health_add() -> None:
+    """``POST /api/resolver-health/targets`` {name, type?, label?} — monitor a name.
+    Admin only (outbound DNS)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    name = str(body.get('name', '')).strip()
+    rtype = str(body.get('type', 'A')).strip().upper() or 'A'
+    if not dns_resolve_mod.valid_name(name):
+        respond(400, {'error': 'a valid DNS name is required'})
+    if not dns_resolve_mod.valid_type(rtype):
+        respond(400, {'error': f'unsupported record type {rtype!r}'})
+    label = _sanitize_str(str(body.get('label', '')), 80, allow_empty=True).strip()
+    targets = _resolver_targets()
+    if any(isinstance(t, dict) and t.get('name') == name and t.get('type') == rtype
+           for t in targets.values()):
+        respond(400, {'error': 'that name + type is already monitored'})
+    if len(targets) >= MAX_RESOLVER_TARGETS:
+        respond(400, {'error': f'max {MAX_RESOLVER_TARGETS} targets'})
+    new_id = 'rslv_' + secrets.token_hex(6)
+    targets[new_id] = {'name': name, 'type': rtype, 'label': label}
+    save(RESOLVER_HEALTH_TARGETS_FILE, targets)
+    audit_log(actor, 'resolver_health_add', detail=f'{rtype} {name}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_resolver_health_delete(target_id: str) -> None:
+    """``DELETE /api/resolver-health/targets/{id}`` — stop monitoring. Admin only."""
+    actor = require_admin_auth()
+    if not target_id.startswith('rslv_'):
+        respond(404, {'error': 'target not found'})
+    targets = _resolver_targets()
+    if target_id not in targets:
+        respond(404, {'error': 'target not found'})
+    name = targets[target_id].get('name', '?')
+    del targets[target_id]
+    save(RESOLVER_HEALTH_TARGETS_FILE, targets)
+    results = _resolver_results()
+    results.pop(target_id, None)
+    save(RESOLVER_HEALTH_RESULTS_FILE, results)
+    audit_log(actor, 'resolver_health_delete', detail=f'name={name}')
+    respond(200, {'ok': True})
+
+
+def handle_resolver_health_scan() -> None:
+    """``POST /api/resolver-health/scan`` — re-check every monitored name now.
+    Admin only. Fires resolver_unhealthy / resolver_recovered on transitions
+    AFTER results are saved (no lock held)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    targets = _resolver_targets()
+    results = _resolver_results()
+    pending, scanned = _scan_resolver_health(
+        targets, results, min_recheck=RESOLVER_HEALTH_MIN_RECHECK,
+        max_targets=RESOLVER_HEALTH_MAX_PER_RUN,
+        delay=RESOLVER_HEALTH_QUERY_DELAY, budget=RESOLVER_HEALTH_RUN_BUDGET)
+    save(RESOLVER_HEALTH_RESULTS_FILE, results)
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
+    audit_log(actor, 'resolver_health_scan', detail=f'targets={scanned} alerts={len(pending)}')
+    respond(200, {'ok': True, 'scanned': scanned, 'total': len(targets)})
+
+
+def run_resolver_health_if_due() -> None:
+    """Periodic resolver-health re-check so the page is a real monitor. Cheap when
+    there are no targets / the cadence isn't due."""
+    targets = _resolver_targets()
+    if not targets:
+        return
+    results = _resolver_results()
+    pending, scanned = _scan_resolver_health(
+        targets, results, min_recheck=RESOLVER_HEALTH_INTERVAL,
+        max_targets=RESOLVER_HEALTH_MAX_PER_RUN, budget=RESOLVER_HEALTH_RUN_BUDGET)
+    if not scanned:
+        return
+    save(RESOLVER_HEALTH_RESULTS_FILE, results)
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
+
+
 # ─── v1.11.0: agentless devices + network map ────────────────────────────────
 
 
@@ -32439,6 +32660,87 @@ def handle_alert_unack(alert_id):
     respond(200, {'ok': True})
 
 
+def _alert_resolution_how(a):
+    """Classify how a resolved alert was closed (for the MTTR timeline)."""
+    rb = a.get('resolved_by')
+    if rb == 'auto':
+        return 'auto'           # a recover event auto-resolved it
+    if rb == 'exposure-mute':
+        return 'muted'
+    if rb:
+        return 'manual'         # an operator resolved it (rb is a username)
+    return 'unknown'
+
+
+def handle_alert_resolution_stats():
+    """GET /api/alerts/resolution-stats?days=N — time-to-resolution (MTTR) and
+    time-to-ack (MTTA) analytics over recently-resolved alerts: overall mean /
+    median, a per-host breakdown, and a timeline of how each was resolved
+    (auto / manual / muted, by whom, with the ack/resolve note). Read-only.
+
+    Pairs with the ack-webhook: 'manual' rows carry the operator who acked /
+    resolved, so you can see who closed what and how fast."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        days = int(qs.get('days', ['30'])[0] or '30')
+    except ValueError:
+        days = 30
+    days = max(1, min(365, days))
+    cutoff = int(time.time()) - days * 86400
+    store = load(ALERTS_FILE) or {}
+    alerts = store.get('alerts', []) if isinstance(store, dict) else []
+    resolved = [a for a in alerts if isinstance(a, dict) and a.get('resolved_at')
+                and int(a.get('resolved_at') or 0) >= cutoff]
+    mttrs, mttas, per_host, timeline = [], [], {}, []
+    for a in resolved:
+        ts = int(a.get('ts') or 0)
+        rat = int(a.get('resolved_at') or 0)
+        aat = int(a.get('acknowledged_at') or 0)
+        mttr = max(0, rat - ts) if ts else None
+        mtta = max(0, aat - ts) if (ts and aat) else None
+        if mttr is not None:
+            mttrs.append(mttr)
+        if mtta is not None:
+            mttas.append(mtta)
+        host = a.get('device_name') or a.get('device_id') or 'fleet'
+        h = per_host.setdefault(host, {'host': host, 'count': 0, '_sum': 0, '_n': 0})
+        h['count'] += 1
+        if mttr is not None:
+            h['_sum'] += mttr
+            h['_n'] += 1
+        timeline.append({
+            'id': a.get('id'), 'alertid': a.get('alertid'), 'title': a.get('title'),
+            'severity': a.get('severity'), 'event': a.get('event'), 'host': host,
+            'ts': ts, 'resolved_at': rat, 'mttr': mttr,
+            'how': _alert_resolution_how(a), 'resolved_by': a.get('resolved_by'),
+            'acknowledged_by': a.get('acknowledged_by'),
+            'note': a.get('resolve_note') or a.get('ack_note') or '',
+        })
+    timeline.sort(key=lambda x: x['resolved_at'], reverse=True)
+
+    def _mean(xs):
+        return int(sum(xs) / len(xs)) if xs else 0
+
+    def _median(xs):
+        if not xs:
+            return 0
+        s = sorted(xs)
+        n = len(s)
+        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) // 2
+
+    hosts = sorted(per_host.values(), key=lambda x: -x['count'])
+    for h in hosts:
+        h['mttr_mean'] = int(h['_sum'] / h['_n']) if h['_n'] else 0
+        h.pop('_sum', None)
+        h.pop('_n', None)
+    respond(200, {
+        'days': days, 'resolved_count': len(resolved),
+        'mttr_mean': _mean(mttrs), 'mttr_median': _median(mttrs), 'mtta_mean': _mean(mttas),
+        'hosts': hosts[:50], 'timeline': timeline[:100],
+    })
+
+
 def handle_alert_resolve(alert_id):
     """POST /api/alerts/<id>/resolve — manual close (auto-resolve runs via recover events)."""
     user = _check_alert_mutation_perm()
@@ -42259,6 +42561,7 @@ def _build_exact_routes():
         ('POST', '/api/ai/test'): handle_ai_test,
         ('DELETE', '/api/alerts'): handle_alerts_clear,
         ('GET', '/api/alerts'): handle_alerts_list,
+        ('GET', '/api/alerts/resolution-stats'): handle_alert_resolution_stats,
         ('GET', '/api/checks'): handle_fleet_checks,                  # v4.1.0 CheckMK view
         ('POST', '/api/checks/toggle'): handle_checks_toggle,         # v4.1.0
         ('GET', '/api/checks/custom'): handle_custom_checks_list,     # v4.1.0
@@ -42517,6 +42820,9 @@ def _build_exact_routes():
         ('GET', '/api/reputation/targets'): handle_reputation_list,
         ('POST', '/api/reputation/targets'): handle_reputation_add,
         ('POST', '/api/reputation/scan'): handle_reputation_scan,
+        ('GET', '/api/resolver-health/targets'): handle_resolver_health_list,
+        ('POST', '/api/resolver-health/targets'): handle_resolver_health_add,
+        ('POST', '/api/resolver-health/scan'): handle_resolver_health_scan,
         ('GET', '/api/dmarc/imap'): handle_dmarc_imap_get,
         ('POST', '/api/dmarc/imap'): handle_dmarc_imap_save,
         ('POST', '/api/totp/confirm'): handle_totp_confirm,
@@ -43134,6 +43440,8 @@ def _dispatch(pi, m):
         handle_dmarc_delete(pi[len('/api/dmarc/targets/'):])
     elif pi.startswith('/api/reputation/targets/') and m == 'DELETE':
         handle_reputation_delete(pi[len('/api/reputation/targets/'):])
+    elif pi.startswith('/api/resolver-health/targets/') and m == 'DELETE':
+        handle_resolver_health_delete(pi[len('/api/resolver-health/targets/'):])
     elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
 
     # ── v1.11.0: network map + agentless device link ──────────────────────
@@ -43209,6 +43517,8 @@ def main():
     _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
+    # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
+    _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
