@@ -2671,7 +2671,7 @@
 
         <div id="docs-container" class="isl-102">
           <details class="doc-card" open data-keywords="release notes changelog v4.9.0 dns dashboard zones records cloudflare digitalocean hetzner desec porkbun provider api token rwx create edit delete record a aaaa cname txt mx ns srv caa ttl proxied rrset acme dns credentials reuse admin audit ssrf">
-            <summary><strong>What's new — v4.9.0 "DNSMatters"</strong> — a DNS dashboard: view, add, edit and delete DNS records directly through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun) (no breaking changes)</summary>
+            <summary><strong>What's new — v4.9.0 "ResolutionMatters"</strong> — a DNS dashboard: view, add, edit and delete DNS records directly through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), plus live resolve/dig and propagation checks (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.9.0 adds an <strong>Admin → DNS</strong> page that manages DNS records over your provider's API — no more jumping to each registrar's console. It reuses the scoped API tokens you already configured for ACME DNS-01, so there is nothing new to set up if you issue certs by DNS. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.9.0</code>).</p>
               <ul>
@@ -5086,6 +5086,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </table>
           </div>
         </div>
+
+        <!-- v4.9.0 ResolutionMatters: live resolve/dig + propagation -->
+        <div class="section-title mt-16">Resolve / dig</div>
+        <div class="page-subtitle">Query a name live and compare what the zone's authoritative nameservers serve against public resolvers — surfacing drift between provider state and what actually resolves. After an edit, check how far the change has propagated across resolvers.</div>
+        <div class="toolbar">
+          <input type="text" id="dns-resolve-name" class="form-input isl-177" placeholder="name e.g. www.example.com" aria-label="DNS name to resolve">
+          <select id="dns-resolve-type" class="form-input" aria-label="record type"></select>
+          <button class="btn-icon" data-action="dnsResolve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Resolve</button>
+          <button class="btn-icon" data-action="dnsPropagation">Check propagation</button>
+          <span id="dns-resolve-status" class="hint"></span>
+        </div>
+        <div id="dns-resolve-results"></div>
       </div>
 
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->

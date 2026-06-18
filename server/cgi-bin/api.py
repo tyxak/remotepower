@@ -581,6 +581,9 @@ import ip_reputation
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
 import dns_zones as dns_zones_mod
+# v4.9.0 ResolutionMatters: live resolve/dig + propagation over public +
+# authoritative resolvers (SSRF-safe — fixed resolver allowlist, no user IPs).
+import dns_resolve as dns_resolve_mod
 
 # v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
 import ai_provider
@@ -42224,6 +42227,8 @@ def _build_exact_routes():
         ('GET', '/api/dns/providers'): handle_dns_providers,
         ('GET', '/api/dns/zones'): handle_dns_zones,
         ('GET', '/api/dns/records'): handle_dns_records,
+        ('GET', '/api/dns/resolve'): handle_dns_resolve,
+        ('GET', '/api/dns/propagation'): handle_dns_propagation,
         ('POST', '/api/dns/records'): handle_dns_record_create,
         ('POST', '/api/dns/records/update'): handle_dns_record_update,
         ('POST', '/api/dns/records/delete'): handle_dns_record_delete,
@@ -45190,6 +45195,49 @@ def handle_dns_records():
     except dns_zones_mod.DNSError as e:
         respond(502, {'error': str(e)})
     respond(200, {'records': records, 'zone': zone, 'zone_name': zone_name})
+
+
+def _dns_resolve_args():
+    """Validate the shared name/type query args for the resolve endpoints."""
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    name = (qs.get('name', [''])[0] or '').strip()
+    rtype = (qs.get('type', ['A'])[0] or 'A').strip().upper()
+    if not dns_resolve_mod.valid_name(name):
+        respond(400, {'error': 'invalid DNS name'})
+    if not dns_resolve_mod.valid_type(rtype):
+        respond(400, {'error': f'unsupported record type {rtype!r}',
+                      'types': list(dns_resolve_mod.RECORD_TYPES)})
+    return qs, name, rtype
+
+
+def handle_dns_resolve():
+    """GET /api/dns/resolve?name=&type= — resolve a name live and show what the
+    zone's authoritative nameservers serve vs. what public recursive resolvers
+    return (surfaces drift between provider state and reality). Admin-only;
+    read-only DNS queries against a fixed resolver allowlist (no user IPs)."""
+    require_admin_auth()
+    _qs, name, rtype = _dns_resolve_args()
+    try:
+        authoritative = dns_resolve_mod.resolve_authoritative(name, rtype)
+        public = dns_resolve_mod.resolve_public(name, rtype)
+    except Exception as e:                       # noqa: BLE001 — never 500 the page
+        respond(502, {'error': f'resolution failed: {str(e)[:120]}'})
+    respond(200, {'name': name, 'type': rtype,
+                  'authoritative': authoritative, 'public': public})
+
+
+def handle_dns_propagation():
+    """GET /api/dns/propagation?name=&type=&expected= — poll public resolvers and
+    report how many already serve the expected value ("propagated X/N"), e.g.
+    right after editing a record. Admin-only; fixed resolver allowlist."""
+    require_admin_auth()
+    qs, name, rtype = _dns_resolve_args()
+    expected = (qs.get('expected', [''])[0] or '').strip()[:512] or None
+    try:
+        result = dns_resolve_mod.propagation(name, rtype, expected)
+    except Exception as e:                       # noqa: BLE001
+        respond(502, {'error': f'propagation check failed: {str(e)[:120]}'})
+    respond(200, {'name': name, 'type': rtype, 'expected': expected, **result})
 
 
 def handle_dns_record_create():

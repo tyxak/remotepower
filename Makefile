@@ -18,6 +18,7 @@ LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/openapi_spec.py \
             server/cgi-bin/api_worker.py \
             server/cgi-bin/integrations.py \
+            server/cgi-bin/dns_resolve.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_v430_worker.py
@@ -25,7 +26,8 @@ TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/openapi_spec.py \
                  server/cgi-bin/integrations.py \
                  server/cgi-bin/dmarc_monitor.py \
-                 server/cgi-bin/ip_reputation.py
+                 server/cgi-bin/ip_reputation.py \
+                 server/cgi-bin/dns_resolve.py
 PIP_FLAGS ?= --break-system-packages
 
 # v2.1.0: extract the canonical version from api.py so `make dist` and the

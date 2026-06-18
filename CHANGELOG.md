@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v4.9.0 — "DNSMatters" — unreleased (test)
+## v4.9.0 — "ResolutionMatters" — unreleased (test)
 
 Adds an **Admin → DNS dashboard** that reads and writes DNS records directly
 through your provider's API, so you can manage zones without leaving RemotePower
@@ -13,6 +13,12 @@ this dashboard. No breaking changes, no schema changes.
 - **DNS dashboard (Admin → DNS).** Pick a provider and zone; list, create, edit
   and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records with TTL,
   MX/SRV priority and Cloudflare's proxied flag.
+- **Resolve / dig + propagation.** A live panel resolves a name and shows the
+  zone's authoritative answer next to public resolvers (Cloudflare/Google/Quad9/
+  OpenDNS) — surfacing drift between provider state and reality. A per-record
+  propagation check polls the public resolvers and reports "propagated X/N" after
+  an edit. Read-only; queries only the fixed resolver allowlist + authoritative
+  NS (private/loopback/link-local/metadata filtered).
 - **Five providers.** Cloudflare, DigitalOcean, Hetzner DNS, deSEC and Porkbun —
   plain token-REST APIs. deSEC's RRset model and Porkbun's subdomain/body-auth
   form are normalised behind one record shape.

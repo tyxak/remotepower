@@ -13107,7 +13107,91 @@ async function loadDns() {
   }
   const zsel = document.getElementById('dns-zone');
   if (zsel) zsel.onchange = loadDnsRecords;
+  _dnsEnsureResolveTypes();
   await loadDnsZones();
+}
+
+// ── v4.9.0 ResolutionMatters: live resolve/dig + propagation ────────────────
+const _DNS_RESOLVE_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'CAA', 'SRV', 'PTR'];
+
+function _dnsEnsureResolveTypes() {
+  const sel = document.getElementById('dns-resolve-type');
+  if (sel && !sel.options.length) {
+    sel.innerHTML = _DNS_RESOLVE_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+}
+
+function _dnsAnswerList(answers, error) {
+  if (error) return `<span class="hint c-amber">${escHtml(error)}</span>`;
+  if (!answers || !answers.length) return '<span class="hint">(no records)</span>';
+  return answers.map(a => `<code class="dns-content-cell">${escHtml(a)}</code>`).join('<br>');
+}
+
+async function dnsResolve() {
+  const name = (document.getElementById('dns-resolve-name')?.value || '').trim();
+  const type = document.getElementById('dns-resolve-type')?.value || 'A';
+  const status = document.getElementById('dns-resolve-status');
+  const box = document.getElementById('dns-resolve-results');
+  if (!name) { toast('Enter a name to resolve', 'error'); return; }
+  if (status) status.textContent = 'Resolving…';
+  if (box) box.innerHTML = '';
+  const data = await api('GET', `/dns/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`);
+  if (!data || data.error) { if (status) status.textContent = (data && data.error) || 'Resolution failed'; return; }
+  if (status) status.textContent = '';
+  const authRows = (data.authoritative || []).map(r =>
+    `<tr><td class="fw-500">${escHtml(r.ns)}<div class="hint">${escHtml(r.ip)}</div></td><td>${_dnsAnswerList(r.answers, r.error)}</td></tr>`).join('')
+    || '<tr><td colspan="2" class="hint">No authoritative nameservers found.</td></tr>';
+  const pubRows = (data.public || []).map(r =>
+    `<tr><td class="fw-500">${escHtml(r.resolver)}<div class="hint">${escHtml(r.ip)}</div></td><td>${_dnsAnswerList(r.answers, r.error)}</td></tr>`).join('');
+  if (box) box.innerHTML =
+    `<div class="dns-resolve-grid">
+       <div class="dash-card"><div class="section-title">Authoritative · ${escHtml(data.name)} ${escHtml(data.type)}</div>
+         <div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Nameserver</th><th>Answer</th></tr></thead><tbody>${authRows}</tbody></table></div></div>
+       <div class="dash-card"><div class="section-title">Public resolvers</div>
+         <div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Resolver</th><th>Answer</th></tr></thead><tbody>${pubRows}</tbody></table></div></div>
+     </div>`;
+}
+
+async function dnsPropagation(name, type, expected) {
+  name = (name !== undefined ? name : (document.getElementById('dns-resolve-name')?.value || '')).trim();
+  type = type || document.getElementById('dns-resolve-type')?.value || 'A';
+  const status = document.getElementById('dns-resolve-status');
+  const box = document.getElementById('dns-resolve-results');
+  if (!name) { toast('Enter a name to check', 'error'); return; }
+  if (status) status.textContent = 'Checking propagation…';
+  if (box) box.innerHTML = '';
+  let url = `/dns/propagation?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`;
+  if (expected) url += `&expected=${encodeURIComponent(expected)}`;
+  const data = await api('GET', url);
+  if (!data || data.error) { if (status) status.textContent = (data && data.error) || 'Propagation check failed'; return; }
+  if (status) status.textContent = '';
+  const full = data.propagated === data.total;
+  const chipCls = full ? 'c-green' : (data.propagated ? 'c-amber' : 'c-red');
+  const rows = (data.resolvers || []).map(r =>
+    `<tr><td class="fw-500">${escHtml(r.resolver)}<div class="hint">${escHtml(r.ip)}</div></td>`
+    + `<td>${r.match ? '<span class="c-green">●</span>' : '<span class="c-muted">○</span>'}</td>`
+    + `<td>${_dnsAnswerList(r.answers, r.error)}</td></tr>`).join('');
+  if (box) box.innerHTML =
+    `<div class="dash-card">
+       <div class="section-title">Propagation · ${escHtml(data.name)} ${escHtml(data.type)}
+         <span class="${chipCls}">propagated ${data.propagated}/${data.total}</span></div>
+       ${data.expected ? `<div class="hint mb-8">Expecting: <code>${escHtml(data.expected)}</code></div>` : ''}
+       <div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Resolver</th><th>Match</th><th>Answer</th></tr></thead><tbody>${rows}</tbody></table></div>
+     </div>`;
+}
+
+// Per-record "check propagation" — pre-fills the panel from the row and runs it
+// against that record's expected content (the "after an edit" workflow).
+function dnsCheckRecordProp(id) {
+  const rec = (_dnsRecords || []).find(r => String(r.id) === String(id));
+  if (!rec) return;
+  const nameEl = document.getElementById('dns-resolve-name');
+  const typeEl = document.getElementById('dns-resolve-type');
+  if (nameEl) nameEl.value = rec.name || '';
+  _dnsEnsureResolveTypes();
+  if (typeEl && rec.type) typeEl.value = rec.type;
+  dnsPropagation(rec.name || '', rec.type || 'A', rec.content || '');
+  document.getElementById('dns-resolve-results')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function _registerDnsTable() {
@@ -13198,6 +13282,7 @@ function _renderDnsRecords() {
       <td>${escHtml(String(r.ttl || 0))}</td>
       <td>${flags.join(' · ')}</td>
       <td class="ta-right">
+        <button class="btn-icon" data-action="dnsCheckRecordProp" data-arg="${rid}" title="Check how far this record has propagated across public resolvers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg></button>
         <button class="btn-icon" data-action="openDnsRecord" data-arg="${rid}">Edit</button>
         <button class="btn-icon" data-action="deleteDnsRecord" data-arg="${rid}">Delete</button>
       </td>

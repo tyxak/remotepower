@@ -2754,6 +2754,14 @@ input.form-input[type="text"][data-token],
   vertical-align: top;
 }
 
+/* v4.9.0 ResolutionMatters: authoritative-vs-public resolve panel — two columns
+ * that stack on narrow viewports. */
+.dns-resolve-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
 /* v4.9.0: DNS "import from agent" device typeahead (never a dropdown — device
  * pickers are always a search box at fleet scale). Results float under the input. */
 .dns-agent-search-wrap { position: relative; display: inline-block; }

@@ -58,8 +58,9 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v4.9.0.md](v4.9.0.md)** — "DNSMatters": an Admin → DNS dashboard that views,
- adds, edits and deletes DNS records directly through your provider's API
+- **[v4.9.0.md](v4.9.0.md)** — "ResolutionMatters": an Admin → DNS dashboard that
+ views, adds, edits and deletes DNS records directly through your provider's API,
+ plus live resolve/dig + propagation checks
  (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), reusing the scoped API
  tokens already stored for ACME DNS-01. Admin-only, audited, SSRF-guarded. No
  breaking changes.
