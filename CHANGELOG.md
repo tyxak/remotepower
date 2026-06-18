@@ -28,7 +28,13 @@ this dashboard. No breaking changes, no schema changes.
   of clear text. The DNS page unlocks the vault on demand, decrypts the token
   per-request via the `X-RP-Vault-Key` header, and never writes plaintext to
   disk. Plaintext `acme_dns_credentials` stays as the fallback for unattended
-  ACME automation, which can't supply a passphrase.
+  ACME automation, which can't supply a passphrase. **Import from config** moves
+  credentials you've already entered under ACME → DNS into the vault (encrypting
+  them) with no re-typing, and can remove the plaintext copy afterwards.
+- **Fix:** the debug-logging `api()` wrapper dropped the 4th argument, so when
+  debug logging was on, per-call options (the `X-RP-Vault-Key` header, an
+  AbortController `signal`) were silently lost — e.g. vault-keyed DNS writes
+  failed with a spurious "vault locked". The wrapper now forwards all arguments.
 
 ## v4.8.0 — "OnboardingMatters" — 2026-06-17
 

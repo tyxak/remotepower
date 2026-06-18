@@ -12893,7 +12893,8 @@ function _renderDnsVaultBar() {
   }
   const unlocked = !!_dnsVaultKey;
   const btns = unlocked
-    ? '<button class="btn-icon" data-action="dnsVaultStore">Store token in vault</button>'
+    ? '<button class="btn-icon" data-action="dnsVaultImport">Import from config</button>'
+      + '<button class="btn-icon" data-action="dnsVaultStore">Enter token manually</button>'
       + '<button class="btn-icon" data-action="dnsVaultLock">Lock</button>'
     : '<button class="btn-icon" data-action="dnsVaultUnlock">Unlock vault</button>';
   el.innerHTML = `<span class="hint">Vault ${unlocked ? 'unlocked' : 'locked'} ·</span> ` + btns;
@@ -12918,6 +12919,25 @@ function dnsVaultLock() {
   toast('Vault locked', 'info');
   _renderDnsVaultBar();
   loadDnsZones();
+}
+
+async function dnsVaultImport() {
+  const prov = _dnsCurrentProvider();
+  if (!prov) { toast('Pick a provider first', 'error'); return; }
+  if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
+  if (!prov.creds_set) {
+    toast(`No ${prov.label} credentials in config to import — set them under ACME → DNS credentials first`, 'error');
+    return;
+  }
+  if (!await uiConfirm({ title: 'Import into vault', message: `Encrypt ${prov.label}'s existing API credentials (from ACME → DNS credentials) into the vault?`, confirmText: 'Import' })) return;
+  const clear = await uiConfirm({ title: 'Remove plaintext copy?', message: 'Also remove the plaintext copy from config so the credentials exist ONLY encrypted in the vault? Recommended — but skip this if RemotePower drives automated ACME issuance with them (the vault needs a passphrase it cannot supply unattended).', confirmText: 'Remove plaintext', danger: true });
+  const r = await api('POST', '/dns/vault-credentials/import', { provider: prov.key, clear_plaintext: !!clear }, _dnsExtra());
+  if (r && r.ok) {
+    toast(`Imported ${(r.imported || []).length} field(s) into the vault${r.cleared_plaintext ? ' · plaintext removed' : ''}`, 'success');
+    loadDns();
+  } else {
+    toast((r && r.error) || 'Import failed', 'error');
+  }
 }
 
 async function dnsVaultStore() {
@@ -21444,11 +21464,13 @@ function _dbgScrub(v, depth) {
 // Instrument api() — wrap it to log every request and response
 const _origApi = window.api;
 if (typeof _origApi === 'function') {
-  window.api = async function(method, path, body) {
+  window.api = async function(method, path, body, ...rest) {
     const t0 = performance.now();
     dbg(`→ ${method} ${path}` + (body ? ' body=' + JSON.stringify(_dbgScrub(body, 0)).slice(0,200) : ''), 'api');
     try {
-      const r = await _origApi(method, path, body);
+      // Forward ALL args (incl. the 4th `extra` carrying signal / custom headers
+      // like X-RP-Vault-Key) — dropping it silently broke vault-keyed DNS calls.
+      const r = await _origApi(method, path, body, ...rest);
       const dt = Math.round(performance.now() - t0);
       const resp = JSON.stringify(_dbgScrub(r || {}, 0)).slice(0, 300);
       dbg(`← ${method} ${path} (${dt}ms) ${resp}`, 'api');

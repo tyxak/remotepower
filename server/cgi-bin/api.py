@@ -42176,6 +42176,7 @@ def _build_exact_routes():
         ('POST', '/api/dns/records/update'): handle_dns_record_update,
         ('POST', '/api/dns/records/delete'): handle_dns_record_delete,
         ('POST', '/api/dns/vault-credentials'): handle_dns_vault_creds_set,
+        ('POST', '/api/dns/vault-credentials/import'): handle_dns_vault_import,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
@@ -44950,6 +44951,54 @@ def handle_dns_vault_creds_set():
     audit_log(actor, 'dns_vault_credentials_set',
               detail=f'provider={provider} fields={",".join(changed) or "(none)"}')
     respond(200, {'ok': True, 'updated_fields': changed})
+
+
+def handle_dns_vault_import():
+    """POST /api/dns/vault-credentials/import — encrypt a provider's EXISTING
+    plaintext acme_dns_credentials into the vault, no re-typing. Body
+    {provider, clear_plaintext?:bool}. With clear_plaintext the plaintext copy is
+    removed afterwards so the credentials then exist ONLY encrypted. Requires an
+    unlocked vault. Admin-only, audit-logged."""
+    actor = require_admin_auth()
+    meta = _cmdb_get_vault_meta()
+    if not cmdb_vault.is_configured(meta):
+        respond(409, {'error': 'vault not configured — set up the CMDB vault first',
+                      'code': 'vault_not_configured'})
+    try:
+        key = cmdb_vault.parse_key_header(os.environ.get('HTTP_X_RP_VAULT_KEY', ''))
+    except cmdb_vault.VaultError:
+        respond(409, {'error': 'vault locked — unlock to import credentials',
+                      'code': 'vault_locked'})
+    if not cmdb_vault.verify_key(key, meta):
+        respond(409, {'error': 'invalid vault key — unlock the vault', 'code': 'vault_locked'})
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    provider = str(body.get('provider', '')).strip()
+    spec = dns_zones_mod.PROVIDERS.get(provider)
+    if not spec:
+        respond(400, {'error': f'unknown provider {provider!r}'})
+    clear_plain = bool(body.get('clear_plaintext'))
+    imported = []
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        plain = (cfg.get('acme_dns_credentials') or {}).get(spec.acme_provider) or {}
+        if plain:
+            store = cfg.setdefault('dns_vault_creds', {})
+            pstore = store.setdefault(provider, {})
+            for fname, val in plain.items():
+                if val is None or val == '':
+                    continue
+                pstore[fname] = cmdb_vault.encrypt(key, str(val))
+                imported.append(fname)
+            if clear_plain:
+                cfg['acme_dns_credentials'].pop(spec.acme_provider, None)
+    if not imported:
+        respond(400, {'error': f'No plaintext ACME credentials to import for {spec.label}. '
+                               f'Add them under ACME → DNS credentials first.'})
+    audit_log(actor, 'dns_vault_credentials_import',
+              detail=f'provider={provider} fields={",".join(imported)} '
+                     f'cleared_plaintext={clear_plain}')
+    respond(200, {'ok': True, 'imported': imported, 'cleared_plaintext': clear_plain})
 
 
 def handle_dns_zones():

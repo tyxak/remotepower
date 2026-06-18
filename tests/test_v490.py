@@ -310,6 +310,44 @@ class TestDnsVault(unittest.TestCase):
         self.assertNotIn("supersecret", json.dumps(cfg))   # never in clear on disk
         self.assertEqual(api.cmdb_vault.decrypt(self.key, blob), "supersecret")
 
+    def test_import_route_registered(self):
+        self.assertIn(("POST", "/api/dns/vault-credentials/import"), api._build_exact_routes())
+
+    def test_import_encrypts_plaintext_and_can_clear(self):
+        api.save(api.CONFIG_FILE, {"acme_dns_credentials": {"dns_cf": {"CF_Token": "plainsecret"}}})
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"provider": "cloudflare", "clear_plaintext": True}
+        os.environ["HTTP_X_RP_VAULT_KEY"] = self.key.hex()
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_vault_import()
+        self.assertEqual(ctx.exception.status, 200, (ctx.exception.body or {}))
+        self.assertIn("CF_Token", (ctx.exception.body or {}).get("imported", []))
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertNotIn("dns_cf", cfg.get("acme_dns_credentials", {}))  # plaintext removed
+        blob = cfg["dns_vault_creds"]["cloudflare"]["CF_Token"]
+        self.assertEqual(api.cmdb_vault.decrypt(self.key, blob), "plainsecret")
+        self.assertNotIn("plainsecret", json.dumps(cfg))   # only ciphertext on disk
+
+    def test_import_keeps_plaintext_by_default(self):
+        api.save(api.CONFIG_FILE, {"acme_dns_credentials": {"dns_cf": {"CF_Token": "tok"}}})
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"provider": "cloudflare"}  # no clear_plaintext
+        os.environ["HTTP_X_RP_VAULT_KEY"] = self.key.hex()
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_vault_import()
+        self.assertEqual(ctx.exception.status, 200)
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg["acme_dns_credentials"]["dns_cf"]["CF_Token"], "tok")  # kept
+
+    def test_import_nothing_to_import_400(self):
+        api.save(api.CONFIG_FILE, {})
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"provider": "cloudflare"}
+        os.environ["HTTP_X_RP_VAULT_KEY"] = self.key.hex()
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_vault_import()
+        self.assertEqual(ctx.exception.status, 400)
+
     def test_store_handler_locked_409_not_401(self):
         # 401 would log the operator out via the generic api() client — vault
         # state must be 409 so the UI can prompt to unlock instead.
