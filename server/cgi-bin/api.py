@@ -9356,6 +9356,13 @@ _HEARTBEAT_PASSTHROUGH_FIELDS = {
     'services_watched': list,
     'log_watch':        list,
     'mailbox_paths':    list,
+    # v4.9.0: one-shot "Import from agent" DNS-credential harvest. NOT cleared
+    # here — unlike the force_* one-shots it stays set until the creds actually
+    # arrive (_ingest_dns_creds_harvest clears it), so a missed/failed harvest
+    # retries on the next heartbeat. Pass-through is what feeds the
+    # `harvest_dns_creds` directive in the response builder below; without this
+    # row the read there was dead and the agent was never told to harvest.
+    'dns_harvest_pending': lambda: False,
 }
 
 
@@ -10646,8 +10653,12 @@ def handle_heartbeat():
 
     # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
     # credentials on the next poll (admin clicked "Import from agent"). Cleared
-    # when the creds arrive in _ingest_dns_creds_harvest.
-    if saved_dev.get('dns_harvest_pending'):
+    # when the creds arrive in _ingest_dns_creds_harvest. Suppress the directive
+    # on the heartbeat that is *delivering* the harvest (the pending flag is only
+    # cleared post-lock, so the projection above still sees it True) — otherwise
+    # we'd ask for a redundant second harvest that re-populates the already-
+    # consumed dns_harvest_result marker.
+    if saved_dev.get('dns_harvest_pending') and 'dns_creds_harvest' not in body:
         common_resp['harvest_dns_creds'] = True
 
     # v4.2.0 (B5 P3): agent-side host scan (lynis). Post-lock, own file lock.
