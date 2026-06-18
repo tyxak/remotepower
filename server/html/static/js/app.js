@@ -13028,8 +13028,13 @@ async function loadDns() {
   _renderDnsVaultBar();
   _renderDnsAgentBar();
   if (sel) {
-    sel.innerHTML = _dnsProviders.map(p =>
-      `<option value="${escAttr(p.key)}">${escHtml(p.label)}${p.creds_set ? '' : ' — no credentials'}</option>`).join('');
+    sel.innerHTML = _dnsProviders.map(p => {
+      // Credentials may live in the plaintext ACME store (creds_set) OR encrypted
+      // in the vault (vault_set) — the latter is the intended end state after a
+      // vault import clears the plaintext. Either counts as "configured".
+      const suffix = p.creds_set ? '' : (p.vault_set ? ' — vault' : ' — no credentials');
+      return `<option value="${escAttr(p.key)}">${escHtml(p.label)}${suffix}</option>`;
+    }).join('');
     sel.onchange = loadDnsZones;
   }
   const zsel = document.getElementById('dns-zone');
@@ -13062,8 +13067,14 @@ async function loadDnsZones() {
   if (zsel) zsel.innerHTML = '';
   if (tb) tb.innerHTML = '';
   if (!prov) return;
-  if (!prov.creds_set) {
+  if (!prov.creds_set && !prov.vault_set) {
     if (status) status.textContent = prov.cred_hint || 'No API credentials configured for this provider.';
+    return;
+  }
+  // Vault-only creds need the vault unlocked to decrypt; give a clear hint
+  // instead of firing a request the server would reject with a 409.
+  if (prov.vault_set && !prov.creds_set && !_dnsVaultKey) {
+    if (status) status.textContent = `${prov.label} credentials are stored in the vault — unlock the vault above to load zones.`;
     return;
   }
   if (status) status.textContent = 'Loading zones…';
