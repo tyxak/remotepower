@@ -359,6 +359,74 @@ class TestDnsVault(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 409)
 
 
+class TestDnsAgentHarvest(unittest.TestCase):
+    """On-demand import: an admin flags a device, the agent harvests its acme.sh
+    account.conf SAVED_* creds on the next heartbeat, the server maps + stores
+    them into acme_dns_credentials."""
+
+    def setUp(self):
+        self._orig_admin = api.require_admin_auth
+        self._orig_body = api.get_json_body
+
+    def tearDown(self):
+        api.require_admin_auth = self._orig_admin
+        api.get_json_body = self._orig_body
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {})
+
+    def test_route_registered(self):
+        self.assertIn(("POST", "/api/dns/import-from-agent"), api._build_exact_routes())
+
+    def test_handler_admin_gated_and_audited(self):
+        src = inspect.getsource(api.handle_dns_import_from_agent)
+        self.assertIn("require_admin_auth", src)
+        self.assertIn("audit_log", src)
+
+    def test_request_sets_pending_flag(self):
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "host1"}})
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"device_id": "dev1"}
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_import_from_agent()
+        self.assertEqual(ctx.exception.status, 200, (ctx.exception.body or {}))
+        self.assertTrue(api.load(api.DEVICES_FILE)["dev1"].get("dns_harvest_pending"))
+
+    def test_request_unknown_device_404(self):
+        api.save(api.DEVICES_FILE, {})
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"device_id": "nope"}
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_import_from_agent()
+        self.assertEqual(ctx.exception.status, 404)
+
+    def test_ingest_maps_names_to_providers_and_clears_flag(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "h", "dns_harvest_pending": True}})
+        stored = api._ingest_dns_creds_harvest(
+            "dev1", {"CF_Key": "k", "CF_Email": "e@x", "BOGUS": "z"})
+        self.assertIn(("dns_cf", "CF_Key"), stored)
+        self.assertIn(("dns_cf", "CF_Email"), stored)
+        self.assertNotIn("BOGUS", [n for _, n in stored])   # unknown name dropped
+        creds = api.load(api.CONFIG_FILE)["acme_dns_credentials"]["dns_cf"]
+        self.assertEqual(creds["CF_Key"], "k")
+        self.assertEqual(creds["CF_Email"], "e@x")
+        self.assertNotIn("dns_harvest_pending", api.load(api.DEVICES_FILE)["dev1"])
+
+    def test_agent_collect_reads_account_conf(self):
+        import importlib.util as _u
+        from pathlib import Path as _P
+        spec = _u.spec_from_file_location("rp_agent_harvest", _ROOT / "client/remotepower-agent.py")
+        agent = _u.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        d = tempfile.mkdtemp()
+        (_P(d) / "account.conf").write_text(
+            "SAVED_CF_Key='blah'\nSAVED_CF_Email='jmo@x.com'\nUSER_PATH='/usr/bin'\n"
+            "UPGRADE_HASH='abc'\n")
+        agent.ACME_HOME_CANDIDATES = (_P(d),)
+        self.assertEqual(agent.collect_acme_dns_creds(),
+                         {"CF_Key": "blah", "CF_Email": "jmo@x.com"})
+
+
 class TestVersionBumps(unittest.TestCase):
     """Strict version-surface pins for v4.9.0 — loosen to regex on the next bump
     (see tests/test_v480.py for the loosened pattern)."""

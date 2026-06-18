@@ -2837,6 +2837,31 @@ def _acme_parse_conf(conf_path):
         out[k] = v
     return out
 
+
+def collect_acme_dns_creds():
+    """Read acme.sh's account.conf and return the saved DNS-provider API
+    credentials as {ENV_NAME: value} (e.g. {'CF_Token': '...'}). acme.sh stores
+    them as SAVED_<ENV_NAME>='...'. One-shot: only sent when the server asks
+    (admin-triggered "Import from agent"); the secrets stay on-host otherwise.
+    Returns {} when acme.sh / account.conf is absent."""
+    home = None
+    for candidate in ACME_HOME_CANDIDATES:
+        try:
+            if candidate.is_dir() and (candidate / 'account.conf').is_file():
+                home = candidate
+                break
+        except (OSError, PermissionError):
+            continue
+    if home is None:
+        return {}
+    conf = _acme_parse_conf(home / 'account.conf') or {}
+    creds = {}
+    for k, v in conf.items():
+        if k.startswith('SAVED_') and v:
+            creds[k[len('SAVED_'):]] = v
+    return creds
+
+
 def collect_acme_state():
     """Walk acme.sh home and return per-cert metadata. Returns:
         {'available': bool, 'home': str|None, 'version': str|None, 'certs': [...]}
@@ -6133,6 +6158,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v3.0.2: one-shot ACME rescan request from server (operator clicked
     # "Force rescan" after renewing via CLI; skips the hourly cadence).
     force_acme_rescan = False
+    # v4.9.0: one-shot DNS-credential harvest from acme.sh's account.conf
+    # (admin clicked "Import from agent" on the DNS page).
+    force_dns_harvest = False
     # v3.14.0 #35: secrets-on-disk scan. Opt-in — stays off until the server
     # pushes secrets_scan_enabled; paths come from the server too (defaults if
     # unset). force flag skips the 6h cadence for an on-demand rescan.
@@ -6385,6 +6413,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'ACME scan error: {e}')
             force_acme_rescan = False
 
+        # v4.9.0: one-shot DNS-credential harvest (admin-triggered import). Read
+        # acme.sh's account.conf and send the SAVED_* provider creds ONCE, over
+        # the authenticated heartbeat — never via the command-output channel.
+        if force_dns_harvest:
+            try:
+                payload['dns_creds_harvest'] = collect_acme_dns_creds()
+                log.info('Reporting acme.sh DNS credentials for server-side import')
+            except Exception as e:
+                log.debug(f'DNS cred harvest error: {e}')
+            force_dns_harvest = False
+
         # v3.14.0 #35: secrets-on-disk scan — opt-in, bounded, redacting. Only
         # runs once the server has enabled it; every ~6h or on a force request.
         if secrets_scan_on and (poll_count % SECRETS_SCAN_EVERY == 0
@@ -6625,6 +6664,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_acme_rescan'):
                 force_acme_rescan = True
                 log.info('Server requested an ACME rescan')
+            # v4.9.0: one-shot DNS-credential harvest request (admin clicked
+            # "Import from agent"). Read acme.sh's account.conf next poll.
+            if resp.get('harvest_dns_creds'):
+                force_dns_harvest = True
+                log.info('Server requested a DNS-credential harvest from acme.sh')
             # v3.14.0 #35: secrets scan opt-in + paths pushed by the server.
             secrets_scan_on = bool(resp.get('secrets_scan_enabled'))
             _ssp = resp.get('secrets_scan_paths')

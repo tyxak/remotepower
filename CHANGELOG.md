@@ -31,6 +31,13 @@ this dashboard. No breaking changes, no schema changes.
   ACME automation, which can't supply a passphrase. **Import from config** moves
   credentials you've already entered under ACME → DNS into the vault (encrypting
   them) with no re-typing, and can remove the plaintext copy afterwards.
+- **Import from agent.** If your provider tokens live in acme.sh's
+  `account.conf` on a host (e.g. `SAVED_CF_Token` / `SAVED_CF_Key`), the agent on
+  that device can harvest them on demand: an admin clicks **Import from agent**,
+  the server flags the device for a one-shot harvest, and the agent reads
+  `account.conf` and returns the `SAVED_*` credentials over the authenticated
+  heartbeat (never via the command-output log) for import into
+  `acme_dns_credentials` — from there, encrypt them into the vault.
 - **Fix:** the debug-logging `api()` wrapper dropped the 4th argument, so when
   debug logging was on, per-call options (the `X-RP-Vault-Key` header, an
   AbortController `signal`) were silently lost — e.g. vault-keyed DNS writes

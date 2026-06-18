@@ -30,7 +30,14 @@ API_SRC = (ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
 # Reads that are intentionally satisfied somewhere other than the handler's own
 # assignments / the contract table. Keep this EMPTY unless there's a genuine
 # reason; every entry is a hole in the guarantee, so document each one.
-_ALLOWED_UNWRITTEN: set[str] = set()
+_ALLOWED_UNWRITTEN: set[str] = {
+    # v4.9.0: a one-shot server→agent directive flag. Written by the admin
+    # endpoint handle_dns_import_from_agent and cleared in
+    # _ingest_dns_creds_harvest (when the creds arrive) — both via _DeviceUpdate
+    # OUTSIDE handle_heartbeat, so there's no in-handler assignment to match. The
+    # heartbeat only READS it to emit the harvest directive.
+    'dns_harvest_pending',
+}
 
 
 def _heartbeat_body() -> str:

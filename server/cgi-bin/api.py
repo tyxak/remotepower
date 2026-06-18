@@ -10392,6 +10392,19 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] acme ingest failed dev={dev_id}: {e}\n")
 
+    # v4.9.0: one-shot DNS-credential harvest the agent read from acme.sh's
+    # account.conf after an admin "Import from agent". Map each SAVED_* env name
+    # to its provider and store into acme_dns_credentials (post-lock; own locks).
+    if 'dns_creds_harvest' in body:
+        try:
+            _stored = _ingest_dns_creds_harvest(dev_id, body['dns_creds_harvest'])
+            if _stored:
+                audit_log(f'agent:{dev_id}', 'dns_creds_harvested',
+                          detail='providers=' + ','.join(sorted({p for p, _ in _stored})) +
+                                 ' fields=' + ','.join(n for _, n in _stored))
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] dns harvest ingest failed dev={dev_id}: {e}\n")
+
     # v2.6.1: fire reboot_required webhook (edge-triggered, set inside lock above)
     if _reboot_webhook_pending:
         try:
@@ -10630,6 +10643,12 @@ def handle_heartbeat():
     ]
     if _agent_checks:
         common_resp['agent_checks'] = _agent_checks
+
+    # v4.9.0: one-shot directive — tell the agent to harvest its acme.sh DNS
+    # credentials on the next poll (admin clicked "Import from agent"). Cleared
+    # when the creds arrive in _ingest_dns_creds_harvest.
+    if saved_dev.get('dns_harvest_pending'):
+        common_resp['harvest_dns_creds'] = True
 
     # v4.2.0 (B5 P3): agent-side host scan (lynis). Post-lock, own file lock.
     # (1) Ingest a finished result the agent reported in this heartbeat, then
@@ -42177,6 +42196,7 @@ def _build_exact_routes():
         ('POST', '/api/dns/records/delete'): handle_dns_record_delete,
         ('POST', '/api/dns/vault-credentials'): handle_dns_vault_creds_set,
         ('POST', '/api/dns/vault-credentials/import'): handle_dns_vault_import,
+        ('POST', '/api/dns/import-from-agent'): handle_dns_import_from_agent,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
@@ -44892,8 +44912,16 @@ def handle_dns_providers():
                     'vault_set': bool(vault.get(p['key'])),
                     'cred_fields': [{'name': f['name'], 'label': f['label'],
                                      'secret': bool(f.get('secret'))} for f in fields]})
+    # Devices reporting an acme.sh install — candidates for "Import from agent".
+    acme_state = load(ACME_STATE_FILE) or {}
+    devs = load(DEVICES_FILE) or {}
+    acme_devices = [{'id': did, 'name': devs.get(did, {}).get('name', did)}
+                    for did, rec in acme_state.items()
+                    if isinstance(rec, dict) and rec.get('available') and did in devs]
+    acme_devices.sort(key=lambda d: d['name'].lower())
     respond(200, {'providers': out,
-                  'vault_configured': cmdb_vault.is_configured(_cmdb_get_vault_meta())})
+                  'vault_configured': cmdb_vault.is_configured(_cmdb_get_vault_meta()),
+                  'acme_devices': acme_devices})
 
 
 def handle_dns_vault_creds_set():
@@ -44951,6 +44979,66 @@ def handle_dns_vault_creds_set():
     audit_log(actor, 'dns_vault_credentials_set',
               detail=f'provider={provider} fields={",".join(changed) or "(none)"}')
     respond(200, {'ok': True, 'updated_fields': changed})
+
+
+def _ingest_dns_creds_harvest(dev_id, harvest):
+    """Store the DNS provider credentials an agent harvested from its acme.sh
+    account.conf. ``harvest`` = {<ENV_NAME>: <value>} (e.g. {'CF_Token': '…'}).
+    Each name is mapped to its provider via ACME_DNS_CREDENTIAL_FIELDS and saved
+    into acme_dns_credentials (0600). The per-device pending flag is cleared
+    either way (so a harvest that found nothing doesn't loop). Runs POST-lock —
+    takes its own CONFIG/device locks. Returns a (provider, field) list for the
+    caller's audit log (names only — never the secret values)."""
+    field_to_provider = {}
+    for prov, fields in ACME_DNS_CREDENTIAL_FIELDS.items():
+        for f in fields:
+            field_to_provider.setdefault(f['name'], prov)
+    stored = []
+    if isinstance(harvest, dict) and harvest:
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            store = cfg.setdefault('acme_dns_credentials', {})
+            for name, val in harvest.items():
+                prov = field_to_provider.get(str(name))
+                if not prov or val in (None, ''):
+                    continue
+                sval = _sanitize_str(str(val), 4096, allow_empty=True).strip()
+                if not sval:
+                    continue
+                store.setdefault(prov, {})[str(name)] = sval
+                stored.append((prov, str(name)))
+    with _DeviceUpdate(dev_id) as devices:
+        dev = devices.get(dev_id)
+        if isinstance(dev, dict) and dev.pop('dns_harvest_pending', None) is not None:
+            devices[dev_id] = dev
+    return stored
+
+
+def handle_dns_import_from_agent():
+    """POST /api/dns/import-from-agent {device_id} — flag a device to harvest its
+    acme.sh DNS credentials (SAVED_* in account.conf) on its next heartbeat and
+    import them into acme_dns_credentials. The agent reads the secrets locally
+    and returns them over the authenticated heartbeat — never via the
+    command-output channel. One-shot, admin-only, audit-logged. From there, use
+    'Import from config' to encrypt them into the vault and drop the plaintext."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    dev_id = str(body.get('device_id', '')).strip()
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+    if not device_get(dev_id):
+        respond(404, {'error': 'unknown device'})
+    with _DeviceUpdate(dev_id) as devices:
+        dev = devices.get(dev_id)
+        if not isinstance(dev, dict):
+            respond(404, {'error': 'unknown device'})
+        dev['dns_harvest_pending'] = True
+        devices[dev_id] = dev
+    audit_log(actor, 'dns_import_from_agent_requested', detail=f'device={dev_id}')
+    respond(200, {'ok': True, 'queued': True,
+                  'message': 'Queued — the device will report its DNS credentials on its '
+                             'next heartbeat. Refresh in a moment.'})
 
 
 def handle_dns_vault_import():

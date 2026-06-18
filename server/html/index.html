@@ -2681,6 +2681,7 @@
                 <li><strong>Admin-only &amp; audited.</strong> Every endpoint is admin-gated; creates, edits and deletes are written to the audit log, and deletes require an explicit confirmation (DNS changes are live and can take services offline).</li>
                 <li><strong>SSRF-guarded outbound.</strong> Provider calls reuse the hardened HTTP client (no loopback / link-local / cloud-metadata, connect-time re-validation, no redirects).</li>
                 <li><strong>Optional encrypted-vault storage.</strong> Instead of clear text, you can keep provider tokens in the existing CMDB vault (PBKDF2 + AES-256-GCM, passphrase never stored). The DNS page unlocks on demand, decrypts the token per-request, and writes no plaintext to disk — the same zero-knowledge model as the CMDB credential vault.</li>
+                <li><strong>Import from config or from the agent.</strong> Move credentials you already have into the vault with no re-typing — either from RemotePower's own ACME store, or harvested on demand from a device's acme.sh <code>account.conf</code> (the agent reads the <code>SAVED_*</code> tokens locally and returns them over the authenticated heartbeat).</li>
               </ul>
               <p class="hint">Set provider tokens under <em>ACME → DNS credentials</em>, then open <em>Admin → DNS</em>. See <code>docs/v4.9.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -5069,6 +5070,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="dns-status" class="hint"></span>
         </div>
         <div id="dns-vault-bar" class="toolbar"></div>
+        <div id="dns-agent-bar" class="toolbar"></div>
         <div class="table-card">
           <div class="scrollable-table-wrap audit-scroll">
             <table>
