@@ -991,6 +991,10 @@ async function api(method, path, body, extra) {
     for (const k of ['signal']) {
       if (extra[k] !== undefined) opts[k] = extra[k];
     }
+    // Optional per-call extra headers (e.g. X-RP-Vault-Key for the DNS vault).
+    if (extra.headers && typeof extra.headers === 'object') {
+      Object.assign(opts.headers, extra.headers);
+    }
   }
   let r;
   try {
@@ -12871,12 +12875,75 @@ function _registerDmarcTable() {
 let _dnsProviders = [];
 let _dnsRecords = [];
 let _dnsEditId = null;
+let _dnsVaultKey = null;          // hex derived vault key while unlocked (this page only)
+let _dnsVaultConfigured = false;
+
+// Send the in-browser vault key on DNS calls so the server can decrypt any
+// vault-stored provider token for THIS request only (never persisted in clear).
+function _dnsExtra() {
+  return _dnsVaultKey ? { headers: { 'X-RP-Vault-Key': _dnsVaultKey } } : undefined;
+}
+
+function _renderDnsVaultBar() {
+  const el = document.getElementById('dns-vault-bar');
+  if (!el) return;
+  if (!_dnsVaultConfigured) {
+    el.innerHTML = '<span class="hint">Vault not set up — provider tokens are stored in clear text in config. Set up the CMDB vault (Admin → CMDB) to store them encrypted instead.</span>';
+    return;
+  }
+  const unlocked = !!_dnsVaultKey;
+  const btns = unlocked
+    ? '<button class="btn-icon" data-action="dnsVaultStore">Store token in vault</button>'
+      + '<button class="btn-icon" data-action="dnsVaultLock">Lock</button>'
+    : '<button class="btn-icon" data-action="dnsVaultUnlock">Unlock vault</button>';
+  el.innerHTML = `<span class="hint">Vault ${unlocked ? 'unlocked' : 'locked'} ·</span> ` + btns;
+}
+
+async function dnsVaultUnlock() {
+  const pw = await uiPrompt({ title: 'Unlock vault', message: 'CMDB vault passphrase:', type: 'password', confirmText: 'Unlock' });
+  if (!pw) return;
+  const r = await api('POST', '/cmdb/vault/unlock', { passphrase: pw });
+  if (r && r.ok && r.key) {
+    _dnsVaultKey = r.key;
+    toast('Vault unlocked', 'success');
+    _renderDnsVaultBar();
+    loadDnsZones();
+  } else {
+    toast((r && r.error) || 'Unlock failed', 'error');
+  }
+}
+
+function dnsVaultLock() {
+  _dnsVaultKey = null;
+  toast('Vault locked', 'info');
+  _renderDnsVaultBar();
+  loadDnsZones();
+}
+
+async function dnsVaultStore() {
+  const prov = _dnsCurrentProvider();
+  if (!prov) { toast('Pick a provider first', 'error'); return; }
+  if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
+  const fields = prov.cred_fields || [];
+  if (!fields.length) { toast('No credential fields for this provider', 'error'); return; }
+  const creds = {};
+  for (const f of fields) {
+    const v = await uiPrompt({ title: `Store ${prov.label} credential`, message: `${f.label} (${f.name}) — leave blank to skip:`, type: f.secret ? 'password' : 'text', confirmText: 'Next' });
+    if (v && v.trim()) creds[f.name] = v.trim();
+  }
+  if (!Object.keys(creds).length) { toast('Nothing entered', 'info'); return; }
+  const r = await api('POST', '/dns/vault-credentials', { provider: prov.key, credentials: creds }, _dnsExtra());
+  if (r && r.ok) { toast('Stored in vault (encrypted)', 'success'); loadDns(); }
+  else toast((r && r.error) || 'Could not store', 'error');
+}
 
 async function loadDns() {
   _registerDnsTable();
   const sel = document.getElementById('dns-provider');
   const data = await api('GET', '/dns/providers');
   _dnsProviders = (data && data.providers) || [];
+  _dnsVaultConfigured = !!(data && data.vault_configured);
+  _renderDnsVaultBar();
   if (sel) {
     sel.innerHTML = _dnsProviders.map(p =>
       `<option value="${escAttr(p.key)}">${escHtml(p.label)}${p.creds_set ? '' : ' — no credentials'}</option>`).join('');
@@ -12917,7 +12984,7 @@ async function loadDnsZones() {
     return;
   }
   if (status) status.textContent = 'Loading zones…';
-  const data = await api('GET', '/dns/zones?provider=' + encodeURIComponent(prov.key));
+  const data = await api('GET', '/dns/zones?provider=' + encodeURIComponent(prov.key), undefined, _dnsExtra());
   if (!data || data.error) {
     if (status) status.textContent = (data && data.error) || 'Could not load zones.';
     return;
@@ -12936,7 +13003,7 @@ async function loadDnsRecords() {
   const status = document.getElementById('dns-status');
   if (!prov || !zone) { if (tb) tb.innerHTML = ''; return; }
   if (tb) tb.innerHTML = _skeletonRows(5);
-  const data = await api('GET', `/dns/records?provider=${encodeURIComponent(prov.key)}&zone=${encodeURIComponent(zone.id)}&zone_name=${encodeURIComponent(zone.name)}`);
+  const data = await api('GET', `/dns/records?provider=${encodeURIComponent(prov.key)}&zone=${encodeURIComponent(zone.id)}&zone_name=${encodeURIComponent(zone.name)}`, undefined, _dnsExtra());
   if (!data || data.error) {
     if (tb) tb.innerHTML = `<tr><td colspan="6" class="isl-533">${escHtml((data && data.error) || 'Failed to load records')}</td></tr>`;
     return;
@@ -13028,9 +13095,9 @@ async function dnsRecordSave() {
   let r;
   if (_dnsEditId !== null && _dnsEditId !== undefined) {
     rec.id = _dnsEditId;
-    r = await api('POST', '/dns/records/update', rec);
+    r = await api('POST', '/dns/records/update', rec, _dnsExtra());
   } else {
-    r = await api('POST', '/dns/records', rec);
+    r = await api('POST', '/dns/records', rec, _dnsExtra());
   }
   if (r && r.ok) { closeModal('dns-record-modal'); toast('Saved', 'success'); loadDnsRecords(); }
   else if (result) result.textContent = (r && r.error) || 'Save failed';
@@ -13046,7 +13113,7 @@ async function deleteDnsRecord(id) {
   const r = await api('POST', '/dns/records/delete', {
     provider: prov.key, zone: zone.id, zone_name: zone.name,
     id: rec.id, type: rec.type, name: rec.name,
-  });
+  }, _dnsExtra());
   if (r && r.ok) { toast('Deleted', 'info'); loadDnsRecords(); }
   else toast((r && r.error) || 'Delete failed', 'error');
 }

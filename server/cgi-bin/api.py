@@ -42175,6 +42175,7 @@ def _build_exact_routes():
         ('POST', '/api/dns/records'): handle_dns_record_create,
         ('POST', '/api/dns/records/update'): handle_dns_record_update,
         ('POST', '/api/dns/records/delete'): handle_dns_record_delete,
+        ('POST', '/api/dns/vault-credentials'): handle_dns_vault_creds_set,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
@@ -44783,17 +44784,61 @@ def handle_acme_dns_credentials_set():
 # dns_zones.py; api.py owns the SSRF-safe HTTP client (the same one integrations
 # use — allow_loopback=False, no_redirect=True) + credential resolution.
 
+def _dns_vault_key_optional():
+    """A verified 32-byte vault key from the X-RP-Vault-Key request header, or
+    None when no/invalid header or the vault isn't configured. Never raises —
+    the vault is OPTIONAL for DNS: plaintext acme_dns_credentials is the fallback,
+    and not every request carries (or needs) a vault key."""
+    raw = os.environ.get('HTTP_X_RP_VAULT_KEY', '')
+    if not raw:
+        return None
+    meta = _cmdb_get_vault_meta()
+    if not cmdb_vault.is_configured(meta):
+        return None
+    try:
+        key = cmdb_vault.parse_key_header(raw)
+    except cmdb_vault.VaultError:
+        return None
+    return key if cmdb_vault.verify_key(key, meta) else None
+
+
+def _dns_resolve_creds(spec, cfg, vault_key):
+    """A provider's effective credentials: the plaintext acme_dns_credentials as
+    a base, with any vault-encrypted dns_vault_creds decrypted ON TOP (vault
+    wins) when an unlocked key is supplied. Returns (creds_dict, has_vault_blobs)."""
+    creds = dict((cfg.get('acme_dns_credentials') or {}).get(spec.acme_provider) or {})
+    vstore = (cfg.get('dns_vault_creds') or {}).get(spec.key) or {}
+    if vstore and vault_key:
+        for field, blob in vstore.items():
+            if isinstance(blob, dict) and blob.get('ct'):
+                try:
+                    creds[field] = cmdb_vault.decrypt(vault_key, blob)
+                except cmdb_vault.VaultError:
+                    pass   # bad key/blob → fall through to whatever plaintext exists
+    return creds, bool(vstore)
+
+
 def _dns_make_provider(provider_key):
-    """Build a live provider client from the shared ACME credential store, or
-    short-circuit with a 400 (unknown provider / no credentials)."""
+    """Build a live provider client. Credentials come from the plaintext ACME
+    store and/or the CMDB vault (decrypted per-request with the X-RP-Vault-Key
+    header — never persisted in clear). Short-circuits with 400/401 on unknown
+    provider / missing creds / locked vault."""
     spec = dns_zones_mod.PROVIDERS.get(provider_key)
     if not spec:
         respond(400, {'error': f'unknown provider {provider_key!r}'})
     cfg = load(CONFIG_FILE) or {}
-    creds = (cfg.get('acme_dns_credentials') or {}).get(spec.acme_provider) or {}
+    vault_key = _dns_vault_key_optional()
+    creds, has_vault = _dns_resolve_creds(spec, cfg, vault_key)
     if not creds:
-        respond(400, {'error': f'No API credentials configured for {spec.label}. '
-                               f'Set them under ACME → DNS credentials.',
+        if has_vault and not vault_key:
+            # 409 (not 401): the generic api() client logs out on 401 — a locked
+            # vault is not an auth failure, so the UI must get the body instead.
+            respond(409, {'error': f'{spec.label} credentials are stored in the vault — '
+                                   f'unlock the vault to use them.',
+                          'code': 'vault_locked', 'vault_locked': True})
+        respond(400, {'error': f'No API credentials configured for {spec.label}. Set them '
+                               f'under ACME → DNS credentials, or store them encrypted in '
+                               f'the vault.',
                       'cred_hint': spec.cred_hint, 'acme_provider': spec.acme_provider})
     client = _SSRFIntegrationClient(spec.base_url, verify_tls=True,
                                     timeout=_INTEGRATION_HTTP_TIMEOUT_S)
@@ -44831,14 +44876,80 @@ def _dns_record_from_body(body):
 
 
 def handle_dns_providers():
-    """GET /api/dns/providers — provider catalog + whether each has credentials."""
+    """GET /api/dns/providers — provider catalog + where each provider's
+    credentials live (plaintext ACME store and/or the encrypted CMDB vault) +
+    the credential fields each provider accepts (for the vault-store form)."""
     require_admin_auth()
     cfg = load(CONFIG_FILE) or {}
     saved = cfg.get('acme_dns_credentials') or {}
+    vault = cfg.get('dns_vault_creds') or {}
     out = []
     for p in dns_zones_mod.list_providers():
-        out.append({**p, 'creds_set': bool(saved.get(p['acme_provider']))})
-    respond(200, {'providers': out})
+        fields = ACME_DNS_CREDENTIAL_FIELDS.get(p['acme_provider'], [])
+        out.append({**p,
+                    'creds_set': bool(saved.get(p['acme_provider'])),
+                    'vault_set': bool(vault.get(p['key'])),
+                    'cred_fields': [{'name': f['name'], 'label': f['label'],
+                                     'secret': bool(f.get('secret'))} for f in fields]})
+    respond(200, {'providers': out,
+                  'vault_configured': cmdb_vault.is_configured(_cmdb_get_vault_meta())})
+
+
+def handle_dns_vault_creds_set():
+    """POST /api/dns/vault-credentials — encrypt + store a provider's DNS API
+    credentials in the CMDB vault, so NO plaintext is written to disk. Requires
+    an unlocked vault (the X-RP-Vault-Key header). Body
+    {provider, credentials:{<field>:<value>,...}}; a blank value leaves a field
+    unchanged, an explicit null clears it. Admin-only, audit-logged."""
+    actor = require_admin_auth()
+    # Don't use _cmdb_require_unlocked here: it responds 401 on a locked vault,
+    # and the generic api() client logs the user out on 401. Use 409 for vault
+    # state so the UI gets the body and can prompt to unlock.
+    meta = _cmdb_get_vault_meta()
+    if not cmdb_vault.is_configured(meta):
+        respond(409, {'error': 'vault not configured — set up the CMDB vault first',
+                      'code': 'vault_not_configured'})
+    try:
+        key = cmdb_vault.parse_key_header(os.environ.get('HTTP_X_RP_VAULT_KEY', ''))
+    except cmdb_vault.VaultError:
+        respond(409, {'error': 'vault locked — unlock to store credentials',
+                      'code': 'vault_locked'})
+    if not cmdb_vault.verify_key(key, meta):
+        respond(409, {'error': 'invalid vault key — unlock the vault',
+                      'code': 'vault_locked'})
+    body = get_json_body()
+    if not isinstance(body, dict):
+        body = {}
+    provider = str(body.get('provider', '')).strip()
+    spec = dns_zones_mod.PROVIDERS.get(provider)
+    if not spec:
+        respond(400, {'error': f'unknown provider {provider!r}'})
+    new_creds = body.get('credentials') or {}
+    if not isinstance(new_creds, dict):
+        respond(400, {'error': 'credentials must be an object'})
+    allowed = {f['name'] for f in ACME_DNS_CREDENTIAL_FIELDS.get(spec.acme_provider, [])}
+    changed = []
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        store = cfg.setdefault('dns_vault_creds', {})
+        pstore = store.setdefault(provider, {})
+        for fname, val in new_creds.items():
+            if fname not in allowed:
+                continue  # silently drop unknown keys
+            if val is None:
+                if fname in pstore:
+                    del pstore[fname]; changed.append(fname)
+                continue
+            sval = _sanitize_str(str(val), 4096, allow_empty=True).strip()
+            if not sval:
+                continue  # blank = leave unchanged
+            # encrypt() is pure crypto (no I/O, no nested lock) — safe in here
+            pstore[fname] = cmdb_vault.encrypt(key, sval)
+            changed.append(fname)
+        if not pstore:
+            store.pop(provider, None)
+    audit_log(actor, 'dns_vault_credentials_set',
+              detail=f'provider={provider} fields={",".join(changed) or "(none)"}')
+    respond(200, {'ok': True, 'updated_fields': changed})
 
 
 def handle_dns_zones():

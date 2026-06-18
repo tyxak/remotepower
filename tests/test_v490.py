@@ -234,6 +234,93 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn("cred_hint", ctx.exception.body)
 
 
+def _has_crypto():
+    try:
+        import cryptography  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+@unittest.skipUnless(_has_crypto(), "cryptography not installed")
+class TestDnsVault(unittest.TestCase):
+    """Optional vault path: provider tokens encrypted at rest in the CMDB vault,
+    decrypted per-request with the X-RP-Vault-Key header, never persisted clear."""
+
+    def setUp(self):
+        self.passphrase = "Vault-Pass-123"
+        meta = api.cmdb_vault.setup_vault(self.passphrase)
+        api.save(api.CMDB_VAULT_FILE, meta)
+        self.key = api.cmdb_vault.derive_key_from_meta(self.passphrase, meta)
+        self._orig_admin = api.require_admin_auth
+        self._orig_body = api.get_json_body
+        os.environ.pop("HTTP_X_RP_VAULT_KEY", None)
+
+    def tearDown(self):
+        api.require_admin_auth = self._orig_admin
+        api.get_json_body = self._orig_body
+        os.environ.pop("HTTP_X_RP_VAULT_KEY", None)
+        api.save(api.CONFIG_FILE, {})
+
+    def test_route_and_handler_gated(self):
+        self.assertIn(("POST", "/api/dns/vault-credentials"), api._build_exact_routes())
+        src = inspect.getsource(api.handle_dns_vault_creds_set)
+        self.assertIn("require_admin_auth", src)
+        self.assertIn("audit_log", src)
+        self.assertIn("cmdb_vault.encrypt", src)
+
+    def test_resolve_prefers_vault_over_plaintext(self):
+        blob = api.cmdb_vault.encrypt(self.key, "vaulttoken")
+        cfg = {"acme_dns_credentials": {"dns_cf": {"CF_Token": "plain"}},
+               "dns_vault_creds": {"cloudflare": {"CF_Token": blob}}}
+        spec = api.dns_zones_mod.PROVIDERS["cloudflare"]
+        creds, has_vault = api._dns_resolve_creds(spec, cfg, self.key)
+        self.assertTrue(has_vault)
+        self.assertEqual(creds["CF_Token"], "vaulttoken")
+        creds2, _ = api._dns_resolve_creds(spec, cfg, None)  # locked → plaintext base
+        self.assertEqual(creds2["CF_Token"], "plain")
+
+    def test_make_provider_decrypts_with_header(self):
+        blob = api.cmdb_vault.encrypt(self.key, "tok-xyz")
+        api.save(api.CONFIG_FILE, {"dns_vault_creds": {"cloudflare": {"CF_Token": blob}}})
+        os.environ["HTTP_X_RP_VAULT_KEY"] = self.key.hex()
+        prov = api._dns_make_provider("cloudflare")
+        self.assertEqual(prov.creds.get("CF_Token"), "tok-xyz")
+
+    def test_make_provider_locked_returns_409(self):
+        blob = api.cmdb_vault.encrypt(self.key, "tok-xyz")
+        api.save(api.CONFIG_FILE, {"dns_vault_creds": {"cloudflare": {"CF_Token": blob}}})
+        with self.assertRaises(api.HTTPError) as ctx:
+            api._dns_make_provider("cloudflare")
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertEqual((ctx.exception.body or {}).get("code"), "vault_locked")
+
+    def test_store_handler_encrypts_no_plaintext_on_disk(self):
+        api.save(api.CONFIG_FILE, {})
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"provider": "cloudflare",
+                                     "credentials": {"CF_Token": "supersecret"}}
+        os.environ["HTTP_X_RP_VAULT_KEY"] = self.key.hex()
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_vault_creds_set()
+        self.assertEqual(ctx.exception.status, 200, (ctx.exception.body or {}))
+        cfg = api.load(api.CONFIG_FILE)
+        blob = cfg["dns_vault_creds"]["cloudflare"]["CF_Token"]
+        self.assertIn("ct", blob)
+        self.assertNotIn("supersecret", json.dumps(cfg))   # never in clear on disk
+        self.assertEqual(api.cmdb_vault.decrypt(self.key, blob), "supersecret")
+
+    def test_store_handler_locked_409_not_401(self):
+        # 401 would log the operator out via the generic api() client — vault
+        # state must be 409 so the UI can prompt to unlock instead.
+        api.require_admin_auth = lambda: "admin"
+        api.get_json_body = lambda: {"provider": "cloudflare", "credentials": {"CF_Token": "x"}}
+        os.environ.pop("HTTP_X_RP_VAULT_KEY", None)
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_vault_creds_set()
+        self.assertEqual(ctx.exception.status, 409)
+
+
 class TestVersionBumps(unittest.TestCase):
     """Strict version-surface pins for v4.9.0 — loosen to regex on the next bump
     (see tests/test_v480.py for the loosened pattern)."""

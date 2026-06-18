@@ -23,6 +23,12 @@ this dashboard. No breaking changes, no schema changes.
   are audit-logged; deletes require explicit confirmation. Outbound calls reuse
   the hardened opener (no loopback / link-local / cloud-metadata, connect-time
   re-validation, no redirects).
+- **Optional encrypted-vault storage.** Provider tokens can be stored in the
+  existing CMDB vault (PBKDF2 + AES-256-GCM, passphrase never persisted) instead
+  of clear text. The DNS page unlocks the vault on demand, decrypts the token
+  per-request via the `X-RP-Vault-Key` header, and never writes plaintext to
+  disk. Plaintext `acme_dns_credentials` stays as the fallback for unattended
+  ACME automation, which can't supply a passphrase.
 
 ## v4.8.0 — "OnboardingMatters" — 2026-06-17
 

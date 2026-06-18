@@ -2680,6 +2680,7 @@
                 <li><strong>Reuses your ACME tokens.</strong> Credentials come from the same <em>ACME → DNS credentials</em> store — set a scoped token once and it drives both certificate issuance and this dashboard. No second secret store.</li>
                 <li><strong>Admin-only &amp; audited.</strong> Every endpoint is admin-gated; creates, edits and deletes are written to the audit log, and deletes require an explicit confirmation (DNS changes are live and can take services offline).</li>
                 <li><strong>SSRF-guarded outbound.</strong> Provider calls reuse the hardened HTTP client (no loopback / link-local / cloud-metadata, connect-time re-validation, no redirects).</li>
+                <li><strong>Optional encrypted-vault storage.</strong> Instead of clear text, you can keep provider tokens in the existing CMDB vault (PBKDF2 + AES-256-GCM, passphrase never stored). The DNS page unlocks on demand, decrypts the token per-request, and writes no plaintext to disk — the same zero-knowledge model as the CMDB credential vault.</li>
               </ul>
               <p class="hint">Set provider tokens under <em>ACME → DNS credentials</em>, then open <em>Admin → DNS</em>. See <code>docs/v4.9.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -5067,6 +5068,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="loadDnsRecords"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <span id="dns-status" class="hint"></span>
         </div>
+        <div id="dns-vault-bar" class="toolbar"></div>
         <div class="table-card">
           <div class="scrollable-table-wrap audit-scroll">
             <table>
