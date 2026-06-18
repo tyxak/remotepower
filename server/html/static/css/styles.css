@@ -2741,6 +2741,38 @@ input.form-input[type="text"][data-token],
   background: var(--muted);
 }
 
+/* v4.9.0: DNS record content cell — TXT records (DKIM/SPF/DMARC keys) can run
+ * to hundreds of chars and would otherwise blow out the table width/height.
+ * Cap it to a scrollable box; full value is on the title= tooltip. */
+.dns-content-cell {
+  display: inline-block;
+  max-width: 460px;
+  max-height: 88px;
+  overflow: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+  vertical-align: top;
+}
+
+/* v4.9.0: DNS "import from agent" device typeahead (never a dropdown — device
+ * pickers are always a search box at fleet scale). Results float under the input. */
+.dns-agent-search-wrap { position: relative; display: inline-block; }
+.dns-agent-results {
+  position: absolute;
+  z-index: 60;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 280px;
+  max-height: 300px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
 /* v2.2.5: card-grid scroll wrap (companion to .scrollable-table-wrap).
  * Same threshold logic in JS — only applied when device count > 20. */
 .scrollable-grid-wrap {

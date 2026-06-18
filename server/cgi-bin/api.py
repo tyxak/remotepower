@@ -37098,6 +37098,28 @@ def _run_detached(fn):
     os._exit(0)
 
 
+def _spawn_cve_scan(actor, target):
+    """Launch the fleet CVE scan as a fully independent OS process.
+
+    Uses subprocess.Popen with start_new_session=True so the scan is detached
+    from the web worker's session/process-group and shares none of its fds or DB
+    connection — it cannot run inline (the fork-fallback failure mode that froze
+    the UI) and cannot keep the client socket open. Falls back to the in-process
+    double-fork only if Popen genuinely can't start the child."""
+    runner = str(Path(__file__).resolve().parent / 'cve_scan_runner.py')
+    try:
+        subprocess.Popen(
+            [sys.executable, runner, str(actor or 'system'), str(target or '')],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True,
+            env=dict(os.environ),            # carry RP_DATA_DIR + backend config
+            cwd=str(Path(__file__).resolve().parent))
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] cve-scan subprocess spawn failed, "
+                         f"falling back to fork: {e}\n")
+        _run_detached(lambda: _cve_scan_worker(actor, target))
+
+
 def _cve_scan_worker(actor, target):
     """The fleet-wide CVE scan body — runs in the detached worker. Writes
     progress to CVE_SCAN_STATUS_FILE and the findings to CVE_FINDINGS_FILE."""
@@ -37161,7 +37183,7 @@ def handle_cve_scan():
                                     'scanned': 0, 'skipped': 0, 'errors': 0,
                                     'updated': int(time.time()),
                                     'started_at': int(time.time())}, non_blocking=True)
-    _run_detached(lambda: _cve_scan_worker(actor, target))
+    _spawn_cve_scan(actor, target)
     respond(202, {'queued': True, 'total': total,
                   'message': 'Scan queued — running in the background.'})
 

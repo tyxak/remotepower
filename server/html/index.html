@@ -5427,6 +5427,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="dns-record-result" class="hint"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dns-record-modal">Cancel</button><button class="btn-primary" data-action="dnsRecordSave">Save</button></div>
 </div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="dns-vault-creds-title" id="dns-vault-creds-modal"><div class="modal">
+  <div class="modal-title" id="dns-vault-creds-title">Store credentials in vault</div>
+  <div class="modal-subtitle">Encrypted into the vault — no plaintext is written to disk. Leave a field blank to skip it.</div>
+  <div id="dns-vault-creds-body"></div>
+  <div id="dns-vault-creds-result" class="hint"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dns-vault-creds-modal">Cancel</button><button class="btn-primary" data-action="dnsVaultStoreSave">Store</button></div>
+</div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ldap-test-user-modal-title" id="ldap-test-user-modal"><div class="modal">
   <div class="modal-title" id="ldap-test-user-modal-title">Test LDAP user login</div>
   <div class="modal-subtitle">Enter credentials to verify the full authentication path. No session is created — this is purely a test.</div>

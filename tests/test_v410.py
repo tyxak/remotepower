@@ -1833,6 +1833,10 @@ class TestCveScanAsync(_HandlerBase):
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self._det = api._run_detached
         api._run_detached = lambda fn: fn()            # run inline for the test
+        # handle_cve_scan now spawns the scan as a detached subprocess; run it
+        # inline here so the test can assert the worker's output deterministically.
+        self._spawn = api._spawn_cve_scan
+        api._spawn_cve_scan = lambda actor, target: api._cve_scan_worker(actor, target)
         self._scan = api.cve_scanner.scan_device
         api.cve_scanner.scan_device = lambda dev, pkgs, eco, dd, cache_ttl=0: {
             'findings': [{'vuln_id': 'CVE-1', 'package': 'p', 'severity': 'high'}]}
@@ -1845,6 +1849,7 @@ class TestCveScanAsync(_HandlerBase):
 
     def tearDown(self):
         api._run_detached = self._det
+        api._spawn_cve_scan = self._spawn
         api.cve_scanner.scan_device = self._scan
         api.get_cve_cache_seconds = self._ccs
         api._detect_new_cve_and_fire_webhook = self._fire

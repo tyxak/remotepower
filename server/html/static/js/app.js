@@ -7334,7 +7334,7 @@ async function triggerCVEScan(devId, btn) {
   // immediately ("Queued"), so the page never blocks. We poll scan-status for
   // progress and refresh the report when it finishes.
   const origText = btn?.textContent || '';
-  if (btn) { btn.disabled = true; btn.textContent = 'Queued…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
   const r = await api('POST', '/cve/scan', devId ? { device_id: devId } : {});
   if (!r || !(r.queued || r.ok)) {
     const msg = (r && r.error) || 'Could not queue the scan';
@@ -12901,6 +12901,12 @@ function _renderDnsVaultBar() {
   el.innerHTML = `<span class="hint">Vault ${unlocked ? 'unlocked' : 'locked'} ·</span> ` + btns;
 }
 
+// Device selection is a SEARCH typeahead, never a dropdown (it would pile up at
+// fleet scale — same rule as the scan picker / global omnisearch). Type → match
+// → pick. Backed by _dnsAcmeDevices (agent-capable, non-agentless hosts).
+let _dnsSelectedAgent = null;
+let _dnsAgentOutsideWired = false;
+
 function _renderDnsAgentBar() {
   const el = document.getElementById('dns-agent-bar');
   if (!el) return;
@@ -12909,21 +12915,58 @@ function _renderDnsAgentBar() {
     el.innerHTML = '<span class="hint">No agent devices enrolled — install the agent (running as root) on the host that holds your acme.sh DNS credentials.</span>';
     return;
   }
+  _dnsSelectedAgent = null;
   el.innerHTML = '<span class="hint">Import token from a device\'s acme.sh into the vault:</span> '
-    + '<select id="dns-agent-device" class="form-input isl-177" aria-label="agent device">'
-    + devs.map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}${d.acme ? ' · acme.sh' : ''}</option>`).join('')
-    + '</select> <button class="btn-icon" data-action="dnsImportFromAgent">Import from agent</button>'
+    + '<span class="dns-agent-search-wrap">'
+    + '<input id="dns-agent-search" class="form-input isl-177" type="text" autocomplete="off" placeholder="Search devices…" aria-label="search agent device">'
+    + '<div id="dns-agent-results" class="dns-agent-results hidden"></div>'
+    + '</span> <button class="btn-icon" data-action="dnsImportFromAgent">Import from agent</button>'
     + ' <span id="dns-agent-status" class="hint"></span>';
+  const inp = document.getElementById('dns-agent-search');
+  if (inp) {
+    inp.addEventListener('input', () => { _dnsSelectedAgent = null; _renderDnsAgentResults(inp.value); });
+    inp.addEventListener('focus', () => _renderDnsAgentResults(inp.value));
+  }
+  if (!_dnsAgentOutsideWired) {
+    _dnsAgentOutsideWired = true;
+    document.addEventListener('click', (e) => {
+      const cur = document.getElementById('dns-agent-search');
+      if (!e.target.closest('#dns-agent-results') && e.target !== cur) {
+        document.getElementById('dns-agent-results')?.classList.add('hidden');
+      }
+    });
+  }
+}
+
+function _renderDnsAgentResults(term) {
+  const box = document.getElementById('dns-agent-results');
+  if (!box) return;
+  const q = (term || '').toLowerCase().trim();
+  let matches = _dnsAcmeDevices || [];
+  if (q) matches = matches.filter(d =>
+    (d.name || '').toLowerCase().includes(q) || (d.id || '').toLowerCase().includes(q));
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d =>
+        `<div class="pointer mb-8" data-action="pickDnsAgent" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.online ? '' : ' <span class="hint">(offline)</span>'}${d.acme ? ' <span class="hint">· acme.sh</span>' : ''}</div>`).join('')
+    : '<div class="empty-state">No matching devices.</div>';
+  box.classList.remove('hidden');
+}
+
+function pickDnsAgent(id, name) {
+  _dnsSelectedAgent = { id, name };
+  const inp = document.getElementById('dns-agent-search');
+  if (inp) inp.value = name;
+  document.getElementById('dns-agent-results')?.classList.add('hidden');
 }
 
 // Full flow: trigger the one-shot harvest, poll until the agent's next check-in
 // delivers the creds, then encrypt them straight into the vault. Vault must be
 // unlocked first (the encrypt step needs the in-browser key).
 async function dnsImportFromAgent() {
-  const sel = document.getElementById('dns-agent-device');
-  const did = sel ? sel.value : '';
-  const dname = (sel && sel.options[sel.selectedIndex]) ? sel.options[sel.selectedIndex].text : did;
-  if (!did) { toast('Pick a device', 'error'); return; }
+  const did = _dnsSelectedAgent ? _dnsSelectedAgent.id : '';
+  const dname = _dnsSelectedAgent ? _dnsSelectedAgent.name : did;
+  if (!did) { toast('Search for and pick a device', 'error'); return; }
   if (!_dnsVaultConfigured) { toast('Set up the CMDB vault first (Admin → CMDB), then unlock it here.', 'error'); return; }
   if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
   if (!await uiConfirm({ title: 'Import from agent', message: `Ask ${dname}'s agent to read its acme.sh DNS credentials and import them into the vault (encrypted)? The agent reads account.conf locally and returns them over the authenticated heartbeat.`, confirmText: 'Import' })) return;
@@ -13007,15 +13050,34 @@ async function dnsVaultStore() {
   if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
   const fields = prov.cred_fields || [];
   if (!fields.length) { toast('No credential fields for this provider', 'error'); return; }
+  // One modal with all fields (was a chain of one-prompt-per-field dialogs).
+  document.getElementById('dns-vault-creds-title').textContent = `Store ${prov.label} credentials in vault`;
+  document.getElementById('dns-vault-creds-result').textContent = '';
+  const body = document.getElementById('dns-vault-creds-body');
+  body.innerHTML = fields.map(f =>
+    `<div class="form-group">`
+    + `<label class="form-label" for="dns-vc-${escAttr(f.name)}">${escHtml(f.label)} <span class="hint">(${escHtml(f.name)})</span></label>`
+    + `<input id="dns-vc-${escAttr(f.name)}" class="form-input" type="${f.secret ? 'password' : 'text'}" autocomplete="off" placeholder="leave blank to skip">`
+    + `</div>`).join('');
+  openModal('dns-vault-creds-modal');
+  const first = body.querySelector('input');
+  if (first) first.focus();
+}
+
+async function dnsVaultStoreSave() {
+  const prov = _dnsCurrentProvider();
+  if (!prov) { closeModal('dns-vault-creds-modal'); return; }
+  const result = document.getElementById('dns-vault-creds-result');
   const creds = {};
-  for (const f of fields) {
-    const v = await uiPrompt({ title: `Store ${prov.label} credential`, message: `${f.label} (${f.name}) — leave blank to skip:`, type: f.secret ? 'password' : 'text', confirmText: 'Next' });
-    if (v && v.trim()) creds[f.name] = v.trim();
+  for (const f of (prov.cred_fields || [])) {
+    const el = document.getElementById('dns-vc-' + f.name);
+    const v = el ? el.value.trim() : '';
+    if (v) creds[f.name] = v;
   }
-  if (!Object.keys(creds).length) { toast('Nothing entered', 'info'); return; }
+  if (!Object.keys(creds).length) { if (result) result.textContent = 'Enter at least one field.'; return; }
   const r = await api('POST', '/dns/vault-credentials', { provider: prov.key, credentials: creds }, _dnsExtra());
-  if (r && r.ok) { toast('Stored in vault (encrypted)', 'success'); loadDns(); }
-  else toast((r && r.error) || 'Could not store', 'error');
+  if (r && r.ok) { closeModal('dns-vault-creds-modal'); toast('Stored in vault (encrypted)', 'success'); loadDns(); }
+  else if (result) result.textContent = (r && r.error) || 'Could not store';
 }
 
 async function loadDns() {
@@ -13126,7 +13188,7 @@ function _renderDnsRecords() {
     return `<tr>
       <td>${escHtml(r.name || '')}</td>
       <td>${escHtml(r.type || '')}</td>
-      <td><code>${escHtml(r.content || '')}</code></td>
+      <td><code class="dns-content-cell" title="${escAttr(r.content || '')}">${escHtml(r.content || '')}</code></td>
       <td>${escHtml(String(r.ttl || 0))}</td>
       <td>${flags.join(' · ')}</td>
       <td class="ta-right">
