@@ -12906,23 +12906,59 @@ function _renderDnsAgentBar() {
   if (!el) return;
   const devs = _dnsAcmeDevices || [];
   if (!devs.length) {
-    el.innerHTML = '<span class="hint">No enrolled device is reporting an acme.sh install — install the agent on the host that holds your DNS API credentials to import them from there.</span>';
+    el.innerHTML = '<span class="hint">No agent devices enrolled — install the agent (running as root) on the host that holds your acme.sh DNS credentials.</span>';
     return;
   }
-  el.innerHTML = '<span class="hint">Import API credentials from a device\'s acme.sh:</span> '
-    + '<select id="dns-agent-device" class="form-input isl-177" aria-label="acme.sh device">'
-    + devs.map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}</option>`).join('')
-    + '</select> <button class="btn-icon" data-action="dnsImportFromAgent">Import from agent</button>';
+  el.innerHTML = '<span class="hint">Import token from a device\'s acme.sh into the vault:</span> '
+    + '<select id="dns-agent-device" class="form-input isl-177" aria-label="agent device">'
+    + devs.map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}${d.acme ? ' · acme.sh' : ''}</option>`).join('')
+    + '</select> <button class="btn-icon" data-action="dnsImportFromAgent">Import from agent</button>'
+    + ' <span id="dns-agent-status" class="hint"></span>';
 }
 
+// Full flow: trigger the one-shot harvest, poll until the agent's next check-in
+// delivers the creds, then encrypt them straight into the vault. Vault must be
+// unlocked first (the encrypt step needs the in-browser key).
 async function dnsImportFromAgent() {
   const sel = document.getElementById('dns-agent-device');
   const did = sel ? sel.value : '';
-  if (!did) return;
-  if (!await uiConfirm({ title: 'Import from agent', message: "Ask this device's agent to read its acme.sh DNS API credentials (from account.conf) and send them to the server over the authenticated heartbeat for import? This pulls secret API keys off that host into RemotePower; they land in config, after which you can encrypt them into the vault and remove the plaintext.", confirmText: 'Request import' })) return;
+  const dname = (sel && sel.options[sel.selectedIndex]) ? sel.options[sel.selectedIndex].text : did;
+  if (!did) { toast('Pick a device', 'error'); return; }
+  if (!_dnsVaultConfigured) { toast('Set up the CMDB vault first (Admin → CMDB), then unlock it here.', 'error'); return; }
+  if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
+  if (!await uiConfirm({ title: 'Import from agent', message: `Ask ${dname}'s agent to read its acme.sh DNS credentials and import them into the vault (encrypted)? The agent reads account.conf locally and returns them over the authenticated heartbeat.`, confirmText: 'Import' })) return;
+  const setSt = (m) => { const st = document.getElementById('dns-agent-status'); if (st) st.textContent = m; };
+  setSt('Asking the agent…');
   const r = await api('POST', '/dns/import-from-agent', { device_id: did });
-  if (r && r.ok) toast('Queued — the device will report its DNS credentials on its next heartbeat. Refresh in a moment.', 'success');
-  else toast((r && r.error) || 'Request failed', 'error');
+  if (!r || !r.ok) { setSt(''); toast((r && r.error) || 'Request failed', 'error'); return; }
+  setSt("Waiting for the agent's next check-in…");
+  _dnsImportPoll(did, 0);
+}
+
+async function _dnsImportPoll(did, tries) {
+  const MAX = 60;   // ~5 min at 5s intervals
+  const setSt = (m) => { const st = document.getElementById('dns-agent-status'); if (st) st.textContent = m; };
+  let s = null;
+  try { s = await api('GET', '/dns/import-from-agent/status?device_id=' + encodeURIComponent(did)); } catch (e) { s = null; }
+  if (s && s.state === 'ready' && (s.providers || []).length) {
+    setSt('Agent delivered — encrypting into the vault…');
+    const names = [];
+    for (const prov of s.providers) {
+      const ir = await api('POST', '/dns/vault-credentials/import', { provider: prov, clear_plaintext: true }, _dnsExtra());
+      if (ir && ir.ok) names.push(prov);
+    }
+    setSt('');
+    toast(names.length ? `Imported ${names.join(', ')} into the vault — pick it below to load zones` : 'Agent delivered, but the vault import failed', names.length ? 'success' : 'error');
+    loadDns();
+    return;
+  }
+  if (s && s.state === 'empty') {
+    setSt('');
+    toast('The agent ran but found no DNS credentials in acme.sh on that host.', 'error');
+    return;
+  }
+  if (tries >= MAX) { setSt(''); toast('Timed out waiting for the agent — is it online and on the latest build?', 'error'); return; }
+  setTimeout(() => _dnsImportPoll(did, tries + 1), 5000);
 }
 
 async function dnsVaultUnlock() {
@@ -12988,7 +13024,7 @@ async function loadDns() {
   const data = await api('GET', '/dns/providers');
   _dnsProviders = (data && data.providers) || [];
   _dnsVaultConfigured = !!(data && data.vault_configured);
-  _dnsAcmeDevices = (data && data.acme_devices) || [];
+  _dnsAcmeDevices = (data && data.agent_devices) || [];
   _renderDnsVaultBar();
   _renderDnsAgentBar();
   if (sel) {

@@ -371,11 +371,43 @@ class TestDnsAgentHarvest(unittest.TestCase):
     def tearDown(self):
         api.require_admin_auth = self._orig_admin
         api.get_json_body = self._orig_body
+        os.environ.pop("QUERY_STRING", None)
         api.save(api.CONFIG_FILE, {})
         api.save(api.DEVICES_FILE, {})
 
     def test_route_registered(self):
-        self.assertIn(("POST", "/api/dns/import-from-agent"), api._build_exact_routes())
+        routes = api._build_exact_routes()
+        self.assertIn(("POST", "/api/dns/import-from-agent"), routes)
+        self.assertIn(("GET", "/api/dns/import-from-agent/status"), routes)
+
+    def test_status_pending_then_ready_then_consumed(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "h", "dns_harvest_pending": True}})
+        api.require_admin_auth = lambda: "admin"
+        os.environ["QUERY_STRING"] = "device_id=dev1"
+
+        def _state():
+            with self.assertRaises(api.HTTPError) as ctx:
+                api.handle_dns_import_status()
+            return ctx.exception.body or {}
+
+        self.assertEqual(_state().get("state"), "pending")     # flag still set
+        api._ingest_dns_creds_harvest("dev1", {"CF_Key": "k", "CF_Email": "e"})
+        ready = _state()
+        self.assertEqual(ready.get("state"), "ready")
+        # marker exposes the DASHBOARD key (cloudflare), not the ACME key (dns_cf)
+        self.assertIn("cloudflare", ready.get("providers", []))
+        self.assertEqual(_state().get("state"), "pending")     # marker consumed
+
+    def test_status_empty_when_agent_finds_nothing(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "h"}})
+        api.require_admin_auth = lambda: "admin"
+        api._ingest_dns_creds_harvest("dev1", {})              # delivered nothing
+        os.environ["QUERY_STRING"] = "device_id=dev1"
+        with self.assertRaises(api.HTTPError) as ctx:
+            api.handle_dns_import_status()
+        self.assertEqual((ctx.exception.body or {}).get("state"), "empty")
 
     def test_handler_admin_gated_and_audited(self):
         src = inspect.getsource(api.handle_dns_import_from_agent)

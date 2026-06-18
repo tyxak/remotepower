@@ -42197,6 +42197,7 @@ def _build_exact_routes():
         ('POST', '/api/dns/vault-credentials'): handle_dns_vault_creds_set,
         ('POST', '/api/dns/vault-credentials/import'): handle_dns_vault_import,
         ('POST', '/api/dns/import-from-agent'): handle_dns_import_from_agent,
+        ('GET', '/api/dns/import-from-agent/status'): handle_dns_import_status,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/install'): handle_agent_install,
         ('GET', '/api/agent/version'): handle_agent_version,
@@ -44912,16 +44913,23 @@ def handle_dns_providers():
                     'vault_set': bool(vault.get(p['key'])),
                     'cred_fields': [{'name': f['name'], 'label': f['label'],
                                      'secret': bool(f.get('secret'))} for f in fields]})
-    # Devices reporting an acme.sh install — candidates for "Import from agent".
+    # Agent devices — candidates for "Import from agent". List every device with
+    # an agent (NOT agentless), regardless of whether the slow acme.sh scan has
+    # reported yet (the harvest reads account.conf on demand). Flag which report
+    # an acme.sh install + which are online, so the picker can hint.
     acme_state = load(ACME_STATE_FILE) or {}
     devs = load(DEVICES_FILE) or {}
-    acme_devices = [{'id': did, 'name': devs.get(did, {}).get('name', did)}
-                    for did, rec in acme_state.items()
-                    if isinstance(rec, dict) and rec.get('available') and did in devs]
-    acme_devices.sort(key=lambda d: d['name'].lower())
+    now = int(time.time())
+    agent_devices = [{'id': did,
+                      'name': d.get('name', did),
+                      'online': (now - int(d.get('last_seen') or 0)) < 600,
+                      'acme': bool((acme_state.get(did) or {}).get('available'))}
+                     for did, d in devs.items()
+                     if isinstance(d, dict) and d.get('group') != 'agentless']
+    agent_devices.sort(key=lambda x: x['name'].lower())
     respond(200, {'providers': out,
                   'vault_configured': cmdb_vault.is_configured(_cmdb_get_vault_meta()),
-                  'acme_devices': acme_devices})
+                  'agent_devices': agent_devices})
 
 
 def handle_dns_vault_creds_set():
@@ -44994,8 +45002,8 @@ def _ingest_dns_creds_harvest(dev_id, harvest):
         for f in fields:
             field_to_provider.setdefault(f['name'], prov)
     stored = []
-    if isinstance(harvest, dict) and harvest:
-        with _LockedUpdate(CONFIG_FILE) as cfg:
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        if isinstance(harvest, dict) and harvest:
             store = cfg.setdefault('acme_dns_credentials', {})
             for name, val in harvest.items():
                 prov = field_to_provider.get(str(name))
@@ -45006,11 +45014,45 @@ def _ingest_dns_creds_harvest(dev_id, harvest):
                     continue
                 store.setdefault(prov, {})[str(name)] = sval
                 stored.append((prov, str(name)))
+        # Transient result marker (provider NAMES only — no secrets) so the UI's
+        # import poll can tell "delivered" from "still waiting" and react. Map the
+        # ACME provider keys (dns_cf) to the DASHBOARD keys (cloudflare) the vault
+        # import + dashboard use — only providers the dashboard supports.
+        _acme_to_dash = {p.acme_provider: p.key for p in dns_zones_mod.PROVIDERS.values()}
+        cfg.setdefault('dns_harvest_result', {})[dev_id] = {
+            'ts': int(time.time()),
+            'providers': sorted({_acme_to_dash[p] for p, _ in stored if p in _acme_to_dash}),
+        }
     with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if isinstance(dev, dict) and dev.pop('dns_harvest_pending', None) is not None:
             devices[dev_id] = dev
     return stored
+
+
+def handle_dns_import_status():
+    """GET /api/dns/import-from-agent/status?device_id=X — poll the one-shot
+    harvest. Returns state: 'pending' (still waiting on the agent's next
+    check-in), 'ready' (the agent delivered creds into acme_dns_credentials;
+    `providers` lists them — the UI then encrypts them into the vault), or
+    'empty' (the agent ran but found no DNS credentials). Reading a finished
+    result consumes the marker. Admin-only."""
+    require_admin_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    dev_id = (qs.get('device_id', [''])[0] or '').strip()
+    dev = device_get(dev_id) or {}
+    if dev.get('dns_harvest_pending'):
+        respond(200, {'state': 'pending'})
+    cfg = load(CONFIG_FILE) or {}
+    result = (cfg.get('dns_harvest_result') or {}).get(dev_id)
+    if not result:
+        respond(200, {'state': 'pending'})    # not triggered yet / not delivered
+    providers = result.get('providers') or []
+    with _LockedUpdate(CONFIG_FILE) as c:      # consume the marker
+        marks = c.get('dns_harvest_result')
+        if isinstance(marks, dict):
+            marks.pop(dev_id, None)
+    respond(200, {'state': 'ready' if providers else 'empty', 'providers': providers})
 
 
 def handle_dns_import_from_agent():
