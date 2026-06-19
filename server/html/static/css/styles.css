@@ -2340,7 +2340,7 @@ input.form-input[type="text"][data-token],
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px 18px;
-  margin-bottom: 16px;   /* v4.1.0: consistent 16px inter-box rhythm */
+  margin-bottom: 22px;   /* v4.10.0: roomier inter-card rhythm (was 16px) */
 }
 /* v4.7.0: inside the .dash-cols grid the 18px `gap` already spaces the cards;
    the card's own 16px margin-bottom stacked ON TOP of it when the grid wraps to
@@ -5258,7 +5258,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .form-row-wrap > .form-input { width: auto; flex: 1 1 160px; min-width: 120px; }
 /* v3.12.0 fix: space between stacked cards (e.g. Software policy's rules card
    and the Current-violations card, which previously touched). */
-.table-card + .table-card { margin-top: 16px; }
+.table-card + .table-card { margin-top: 22px; }   /* v4.10.0: match the roomier card rhythm */
 .cmdb-list-row { margin-bottom: 6px; }
 
 /* ── v3.12.0: uniform toolbar control height ──────────────────────────────────
