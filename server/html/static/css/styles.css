@@ -1072,7 +1072,7 @@
   .devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px;
+    gap: 20px;
   }
   /* Full-width "+N more devices" notice when the card grid is capped on a
      very large fleet — spans every column so it reads as a footer, not a card. */
@@ -2329,8 +2329,8 @@ input.form-input[type="text"][data-token],
   /* minmax(0,…) lets columns shrink below their content so nowrap rows
      (e.g. open-ticket titles) clip with an ellipsis instead of overflowing. */
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px;
-  margin-bottom: 18px;
+  gap: 22px;
+  margin-bottom: 22px;
 }
 @media (max-width: 900px) {
   .dash-cols { grid-template-columns: 1fr; }
@@ -4834,7 +4834,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .alert-rc-badge.rc-symptom { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
 .alerts-row.alert-symptom .alert-symptom-cell { padding-left: 22px; border-left: 2px solid var(--border); }
 /* v4.1.0: resizable dashboard grid (size = column span on a 6-col grid) */
-.dash-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px;
+.dash-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 22px;
              align-items: start; }
 /* grid gap owns the spacing — reset BOTH the .dash-card widgets and the one
    .dash-cols widget (home-overview); its margin-bottom otherwise stacked on top
