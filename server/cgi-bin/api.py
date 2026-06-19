@@ -10158,8 +10158,10 @@ def handle_heartbeat():
                         for rr in rl[:200]:
                             if isinstance(rr, dict) and rr.get('text'):
                                 safe_rl.append({
-                                    'text': _sanitize_str(rr.get('text', ''), 400),
-                                    'ref':  _sanitize_str(rr.get('ref', ''), 200),
+                                    'text':  _sanitize_str(rr.get('text', ''), 400),
+                                    'ref':   _sanitize_str(rr.get('ref', ''), 200),
+                                    'table': _sanitize_str(rr.get('table', ''), 80),
+                                    'chain': _sanitize_str(rr.get('chain', ''), 80),
                                 })
                         if safe_rl:
                             sb['rule_list'] = safe_rl

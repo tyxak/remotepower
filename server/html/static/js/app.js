@@ -12632,6 +12632,37 @@ function _renderFirewall() {
   }).join('');
 }
 
+function _fwRuleRow(devId, backend, r, editable) {
+  const del = (editable && r.ref)
+    ? `<button class="btn-icon cell-sm" data-action="firewallRuleDelete" data-arg="${escAttr(devId)}" data-arg2="${escAttr(backend)}" data-arg3="${escAttr(r.ref)}" title="Delete this rule">Delete</button>`
+    : '';
+  return `<div class="fw-rule-row"><code>${escHtml(r.text)}</code>${del}</div>`;
+}
+
+// Render a backend's rules grouped by table/chain (like `nft list ruleset` /
+// `iptables -S` per chain) instead of a flat, counter-laden dump.
+function _fwRenderRules(devId, backend, rl, editable) {
+  if (!rl.length) return '<div class="hint mt-4">No rules listed (or not readable without root).</div>';
+  const hasChains = rl.some(r => r.chain);
+  let html = '<div class="scroll-cap mt-8 fw-rules">';
+  if (hasChains) {
+    const order = [], groups = new Map();
+    for (const r of rl) {
+      const key = (r.table || '') + '␟' + (r.chain || '');
+      if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+      groups.get(key).push(r);
+    }
+    for (const key of order) {
+      const parts = key.split('␟'), tbl = parts[0], chain = parts[1];
+      html += `<div class="fw-chain-hdr">${tbl ? escHtml(tbl) + ' · ' : ''}chain ${escHtml(chain || '—')}</div>`;
+      html += groups.get(key).map(r => _fwRuleRow(devId, backend, r, editable)).join('');
+    }
+  } else {
+    html += rl.map(r => _fwRuleRow(devId, backend, r, editable)).join('');
+  }
+  return html + '</div>';
+}
+
 async function firewallDetail(devId, devName) {
   const panel = document.getElementById('firewall-detail');
   if (!panel) return;
@@ -12647,16 +12678,10 @@ async function firewallDetail(devId, devName) {
   for (const be of (dev.backends || [])) {
     if (!be.present) continue;
     any = true;
+    const ed = editable.has(be.name);
     html += `<div class="mt-12"><strong>${escHtml(be.name)}</strong> ${_fwStateBadge(be.active)} <span class="hint">${be.rules || 0} rule(s)${be.policy ? (' · policy ' + escHtml(be.policy)) : ''}${be.default ? (' · ' + escHtml(be.default)) : ''}</span></div>`;
-    const rl = be.rule_list || [];
-    if (rl.length) {
-      html += '<div class="scroll-cap mt-8"><table class="data-table w-full"><tbody>';
-      html += rl.map(rr => `<tr><td class="hint"><code>${escHtml(rr.text)}</code></td><td class="cell-sm">${editable.has(be.name) && rr.ref ? `<button class="btn-icon cell-sm" data-action="firewallRuleDelete" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(be.name)}" data-arg3="${escAttr(rr.ref)}" title="Delete this rule">Delete</button>` : ''}</td></tr>`).join('');
-      html += '</tbody></table></div>';
-    } else {
-      html += '<div class="hint mt-4">No rules listed (or not readable without root).</div>';
-    }
-    if (editable.has(be.name)) {
+    html += _fwRenderRules(dev.device_id, be.name, be.rule_list || [], ed);
+    if (ed) {
       html += `<div class="mt-8"><button class="btn-icon cell-sm" data-action="firewallRuleAdd" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(be.name)}">+ Add ${escHtml(be.name)} rule</button></div>`;
     }
   }
@@ -12755,15 +12780,15 @@ async function fail2banDetail(devId, devName) {
   let html = `<div class="dash-card"><div class="section-title">fail2ban — ${escHtml(devName || dev.device)}</div>`;
   if (!(dev.jails || []).length) html += '<div class="hint mt-8">No jails configured.</div>';
   for (const j of (dev.jails || [])) {
-    html += `<div class="mt-12"><strong>${escHtml(j.name)}</strong> <span class="hint">${j.banned_count || 0} banned · ${j.total_failed || 0} failed</span>
-      <button class="btn-icon cell-sm" data-action="fail2banBan" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" title="Ban an IP in this jail">Ban IP</button>
-      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" data-arg3="enable" title="Start this jail">Start</button>
-      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" data-arg3="disable" title="Stop this jail">Stop</button></div>`;
+    const did = escAttr(dev.device_id), jn = escAttr(j.name);
+    html += `<div class="fw-jail-hdr"><strong>${escHtml(j.name)}</strong> <span class="hint">${j.banned_count || 0} banned · ${j.total_failed || 0} failed</span>
+      <button class="btn-icon cell-sm" data-action="fail2banBan" data-arg="${did}" data-arg2="${jn}" title="Ban an IP in this jail">Ban IP</button>
+      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${did}" data-arg2="${jn}" data-arg3="enable" title="Start this jail">Start</button>
+      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${did}" data-arg2="${jn}" data-arg3="disable" title="Stop this jail">Stop</button></div>`;
     const banned = j.banned || [];
     if (banned.length) {
-      html += '<div class="scroll-cap mt-8"><table class="data-table w-full"><tbody>';
-      html += banned.map(ip => `<tr><td class="hint"><code>${escHtml(ip)}</code></td><td class="cell-sm"><button class="btn-icon cell-sm" data-action="fail2banUnban" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" data-arg3="${escAttr(ip)}">Unban</button></td></tr>`).join('');
-      html += '</tbody></table></div>';
+      html += '<div class="scroll-cap mt-8 fw-rules">' + banned.map(ip =>
+        `<div class="fw-ban-row"><code>${escHtml(ip)}</code><button class="btn-icon cell-sm" data-action="fail2banUnban" data-arg="${did}" data-arg2="${jn}" data-arg3="${escAttr(ip)}">Unban</button></div>`).join('') + '</div>';
     } else {
       html += '<div class="hint mt-4">No banned IPs.</div>';
     }

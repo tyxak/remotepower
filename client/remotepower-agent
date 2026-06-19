@@ -3099,8 +3099,13 @@ def _parse_nft_rules(txt, cap=MAX_FW_RULES):
             hm = re.search(r'# handle (\d+)', sline)
             if not hm or not (family and table and chain):
                 continue
-            out.append({'text': sline.split(' # handle ')[0].strip(),
-                        'ref': '%s %s %s handle %s' % (family, table, chain, hm.group(1))})
+            text = sline.split(' # handle ')[0].strip()
+            # Strip the volatile per-rule packet/byte counters — they're noise
+            # that changes every second and make the ruleset unreadable.
+            text = re.sub(r'\s*counter packets \d+ bytes \d+', '', text).strip()
+            out.append({'text': text,
+                        'ref': '%s %s %s handle %s' % (family, table, chain, hm.group(1)),
+                        'table': '%s %s' % (family, table), 'chain': chain})
             if len(out) >= cap:
                 break
     return out
@@ -3114,7 +3119,8 @@ def _parse_ipt_rules(txt, cap=MAX_FW_RULES):
         ls = line.strip()
         if ls.startswith('-A '):
             spec = ls[3:].strip()
-            out.append({'text': '-A ' + spec, 'ref': spec})
+            out.append({'text': '-A ' + spec, 'ref': spec,
+                        'chain': spec.split(' ', 1)[0]})
             if len(out) >= cap:
                 break
     return out

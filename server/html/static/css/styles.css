@@ -4563,6 +4563,15 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
  * instead of growing unbounded. `-sm` for chip rows / short lists. */
 .scroll-cap    { max-height: 340px; overflow-y: auto; }
 .scroll-cap-sm { max-height: 132px; overflow-y: auto; }
+
+/* v4.10.0: Firewall / fail2ban detail panels — rules grouped by chain, banned
+   IPs with an inline action. */
+.fw-rules { padding: 0 2px; }
+.fw-chain-hdr { margin: 10px 0 2px; font-weight: 600; font-size: 12px; color: var(--muted); }
+.fw-rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+.fw-ban-row  { display: flex; align-items: center; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); }
+.fw-rule-row code, .fw-ban-row code { font-size: 12px; word-break: break-all; }
+.fw-jail-hdr { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 /* v3.13.0: drift profiles panel */
 .drift-prof-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .drift-prof-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
