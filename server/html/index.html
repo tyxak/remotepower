@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.9.0">
+<link rel="stylesheet" href="static/css/styles.css?v=4.10.0">
 
 </head>
 <body>
@@ -735,7 +735,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="device-search-input" class="form-input input-search" placeholder="Search devices…" data-input="filterDevices" data-input-debounce="180" aria-label="Search devices">
           </div>
-          <select id="device-status-filter" class="form-input input-auto" data-change="filterDevices">
+          <select id="device-status-filter" aria-label="Filter devices by status" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All status</option>
             <option value="online">Online only</option>
             <option value="offline">Offline only</option>
@@ -746,11 +746,11 @@
             <option value="ok">SNMP polling OK</option>
             <option value="fail">SNMP failing</option>
           </select>
-          <select id="device-group-filter" class="form-input input-auto" data-change="filterDevices">
+          <select id="device-group-filter" aria-label="Filter devices by group" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All groups</option>
           </select>
           <!-- v3.5.0: site/team filter -->
-          <select id="device-site-filter" class="form-input input-auto" data-change="filterDevices">
+          <select id="device-site-filter" aria-label="Filter devices by site" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All sites</option>
           </select>
           <!-- v1.11.5: density toggle. Rendered programmatically so the
@@ -883,7 +883,7 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input type="text" id="cs-filter" class="form-input isl-15" placeholder="Filter…" data-input="renderCustomScriptsPage" data-input-debounce="180" aria-label="Filter">
             </div>
-            <select id="cs-status-filter" class="form-input isl-16" data-change="renderCustomScriptsPage">
+            <select id="cs-status-filter" aria-label="Filter custom scripts by status" class="form-input isl-16" data-change="renderCustomScriptsPage">
               <option value="all">All</option>
               <option value="fail">Failing</option>
               <option value="ok">OK</option>
@@ -2677,7 +2677,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.9.0 dns dashboard zones records cloudflare digitalocean hetzner desec porkbun provider api token rwx create edit delete record a aaaa cname txt mx ns srv caa ttl proxied rrset acme dns credentials reuse admin audit ssrf">
+          <details class="doc-card" open data-keywords="release notes changelog v4.10.0 perimetermatters firewall fail2ban nftables iptables ufw firewalld rules jails ban unban ai insights hub reports advisors rag corpus sources backups integrations">
+            <summary><strong>What's new — v4.10.0 "PerimeterMatters"</strong> — a fleet-wide Firewall + fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails), an AI Insights hub of 20 one-click AI reports and advisors, and three new AI-knowledge sources (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v4.10.0 adds a <strong>Security → Firewall</strong> page that shows every host's firewall posture and lets you edit rules and fail2ban jails fleet-wide, plus an <strong>AI Insights</strong> hub on the AI Assistant page. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.10.0</code>).</p>
+              <ul>
+                <li><strong>Firewall + fail2ban.</strong> One sortable table of every host's firewall (nftables/iptables/ufw/firewalld — backend, policy, active state, rule count, drift fingerprint). Open a host to view its ruleset grouped by chain and <strong>add/delete rules</strong>; manage fail2ban jails and <strong>ban/unban</strong> IPs. Every edit is permission-gated, audited, server-validated and quarantine-aware.</li>
+                <li><strong>AI Insights — 20 features.</strong> One-click reports and advisors grouped into Proactive, Incident, Planning, Natural-language and Advisors — daily briefing, incident RCA, CVE/compliance plans, capacity forecast, firewall auditor, DNS hygiene, supply-chain Q&amp;A, host one-pager and more. Each is a tunable, rate-limited, redaction-aware prompt.</li>
+                <li><strong>Smarter "Ask my fleet".</strong> The AI knowledge index now also covers firewall/fail2ban posture, homelab integration health and backup freshness — so it can answer "which hosts have no firewall?" or "are db01's backups current?" directly.</li>
+                <li><strong>UI polish.</strong> Grouped/iconed AI cards, firewall detail panels with selected-row highlight + close + queued-edit feedback, more scroll-capped lists, and accessibility/theming fixes.</li>
+              </ul>
+              <p class="hint">Open <em>Security → Firewall</em> and the <em>AI Assistant</em> page. See <code>docs/v4.10.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.9.0 dns dashboard zones records cloudflare digitalocean hetzner desec porkbun provider api token rwx create edit delete record a aaaa cname txt mx ns srv caa ttl proxied rrset acme dns credentials reuse admin audit ssrf">
             <summary><strong>What's new — v4.9.0 "ResolutionMatters"</strong> — a DNS dashboard: view, add, edit and delete DNS records directly through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), plus live resolve/dig and propagation checks (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.9.0 adds an <strong>Admin → DNS</strong> page that manages DNS records over your provider's API — no more jumping to each registrar's console. It reuses the scoped API tokens you already configured for ACME DNS-01, so there is nothing new to set up if you issue certs by DNS. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.9.0</code>).</p>
@@ -2736,22 +2749,6 @@
                 <li><strong>UI: no subtitle flash on reload.</strong> Each page's descriptive subtitle is folded into a hover info icon at runtime; on a hard reload it briefly painted as raw text before the script ran. The subtitle is now hidden by default in CSS and revealed inline only in the Old UI.</li>
               </ul>
               <p class="hint">A stability + hardening patch — every install keeps working exactly as before. See <code>docs/v4.6.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.6.0 repellantmatters industrial new ui old ui theme design skin graphite steel blue accent corner ticks dashed mono labels look redesign appearance interface tab toggle data-ui csp font ibm plex mono space grotesk inter classic revert admin group alphabetical menu security hardening ssrf bugfix performance bind drawer cpu kernel ram scroll cap">
-            <summary><strong>What's new — v4.6.0 "RepellantMatters"</strong> — a new Industrial interface ("New UI") as the default with a one-click New UI / Old UI toggle, plus a project-wide reliability, security and performance polish pass</summary>
-            <div class="doc-body">
-              <p>v4.6.0 gives RemotePower a look of its own — an <strong>Industrial</strong> interface that replaces the generic dark-slate template, while keeping our blue accent — and pairs it with a thorough sweep across the whole project: bug fixes, security hardening, performance, and data-binding polish. A toggle lets anyone keep the old look. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.0</code>).</p>
-              <ul>
-                <li><strong>Industrial "New UI" (default).</strong> Warm <strong>graphite/steel</strong> palette (keeping the RemotePower <strong>blue</strong>), with the <strong>sidebar/nav set in self-hosted IBM Plex Mono</strong> and the rest of the UI in the familiar Inter, plus instrument-panel motifs: corner ticks on panels, dashed technical rules, mono uppercase eyebrow labels, tabular figures, sharper corners. A genuine re-skin of the chrome (sidebar, headers, cards, tables, controls) via <code>body[data-ui="industrial"]</code>.</li>
-                <li><strong>New UI / Old UI toggle.</strong> A new <strong>Settings → Interface</strong> tab (and a control in <strong>My Account → Appearance</strong>, so non-admins can switch too) flips between the Industrial look and the classic one. Per-browser, default New, applied instantly with no reload.</li>
-                <li><strong>Navigation tidy-up.</strong> A dedicated <strong>Admin</strong> group (Links now lives there), and every sidebar group is alphabetically sorted for quicker scanning.</li>
-                <li><strong>Bind-it-together &amp; polish.</strong> The device drawer now shows CPU model, kernel, total RAM and total disk alongside the live usage; more lists and tables cap at ~15 rows then scroll internally; the disk-forecast table sorts correctly by GB and percent.</li>
-                <li><strong>Security hardening.</strong> Tighter SSRF guards on appliance / integration targets, resolved-role checks on a couple of read endpoints, and hardened agent credential storage on Windows and macOS. Independently pentested clean (see the security review).</li>
-                <li><strong>Performance.</strong> Fewer per-tick round-trips on the dashboard, single-row reads on a hot path, and lighter agent heartbeats (cached tool lookups, no blocking uptime probe).</li>
-                <li><strong>CSP-safe by construction.</strong> Pure CSS plus one <code>data-ui</code> attribute; the toggle is wired through the existing <code>data-action</code> dispatch with no inline scripts, styles or <code>on*</code> handlers.</li>
-              </ul>
-              <p class="hint">Switch the look any time under <em>Settings → Interface</em>. See <code>docs/v4.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -3767,7 +3764,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v4.10.0: AI Insights — one-click fleet reports + advisors -->
         <div id="ai-insights-wrap" class="d-none">
-          <div class="section-title mt-8">AI Insights</div>
+          <div class="section-title mt-16">AI Insights</div>
           <div class="page-subtitle">One-click AI reports and advisors over your fleet state — each runs against the configured provider with RAG context attached. <a href="docs/ai.md" class="c-accent">Documentation</a>.</div>
           <div id="ai-insights-grid"></div>
         </div>
@@ -3893,7 +3890,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Timeline</div>
         <div class="page-subtitle">A single chronological history — fleet events and command runs merged into one stream — for the whole fleet or one device. Pick the scope below. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
-          <select id="timeline-device" class="form-input input-wide-sm device-combo" data-change="loadTimeline"><option value="*">Whole fleet</option></select>
+          <select id="timeline-device" aria-label="Filter timeline by device" class="form-input input-wide-sm device-combo" data-change="loadTimeline"><option value="*">Whole fleet</option></select>
           <button class="btn-secondary fs-12" data-action="loadTimeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <span id="timeline-summary" class="fs-12 c-muted"></span>
         </div>
@@ -4027,7 +4024,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <div class="row-8-center mb-8">
             <h3 class="m-0">Device resources</h3>
-            <select id="trend-device" class="form-input input-auto device-combo" data-change="loadTrendDevice"><option value="">Pick a device…</option></select>
+            <select id="trend-device" aria-label="Select device for trends" class="form-input input-auto device-combo" data-change="loadTrendDevice"><option value="">Pick a device…</option></select>
           </div>
           <div id="trend-resources" class="trend-chart"><div class="c-muted">Pick a device to see its memory / swap / disk history.</div></div>
         </div>
@@ -4038,7 +4035,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Checks</div>
         <div class="page-subtitle">Every monitored signal on every host as OK / WARN / CRIT / UNKNOWN, with output. Sort and filter; toggle a check off to silence it on a host.</div>
         <div class="isl-186">
-          <select id="checks-filter-status" class="form-input isl-68" data-change="renderChecks">
+          <select id="checks-filter-status" aria-label="Filter checks by status" class="form-input isl-68" data-change="renderChecks">
             <option value="notok" selected>Not OK (warn + crit)</option>
             <option value="">All statuses</option>
             <option value="critical">Critical only</option>
@@ -4401,10 +4398,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- Search bar + stats -->
         <div class="toolbar">
           <input type="text" id="logs-search-input" placeholder="regex (e.g. error|critical)  — blank shows live tail" class="isl-140" aria-label="regex (e.g. error|critical)  — blank shows live tail">
-          <select id="logs-device-filter" data-change="onLogFilterChange" class="select-sm device-combo">
+          <select id="logs-device-filter" aria-label="Filter logs by device" data-change="onLogFilterChange" class="select-sm device-combo">
             <option value="">All devices</option>
           </select>
-          <select id="logs-unit-filter" data-change="onLogFilterChange" class="select-sm">
+          <select id="logs-unit-filter" aria-label="Filter logs by unit" data-change="onLogFilterChange" class="select-sm">
             <option value="">All units</option>
           </select>
           <button class="btn-primary isl-141" data-action="runLogSearch" >Search</button>
@@ -4881,7 +4878,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="firewall-detail" class="mt-16"></div>
 
-        <div class="section-title mt-24">fail2ban</div>
+        <div class="section-title mt-16">fail2ban</div>
         <div class="page-subtitle">Intrusion-prevention jails and the IPs they have banned. Ban or unban an address, or start/stop a jail. Hosts without fail2ban report it as not available.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadFail2ban"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
@@ -5381,7 +5378,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Alerts</div>
         <div class="page-subtitle">Operational alert inbox — acknowledge, resolve, and track every fired event. Recover events (device_online, service_recover, custom_script_recover) auto-resolve their matching open alert.</div>
         <div class="isl-186">
-          <select id="alerts-filter-status" class="form-input isl-68" data-change="loadAlerts">
+          <select id="alerts-filter-status" aria-label="Filter alerts by status" class="form-input isl-68" data-change="loadAlerts">
             <option value="open" selected>Open</option>
             <option value="ack">Acknowledged</option>
             <option value="resolved">Resolved</option>
@@ -5475,7 +5472,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="isl-186">
           <input type="text" id="audit-filter-text" class="form-input isl-170" placeholder="Filter by actor, action, or detail…" aria-label="Filter by actor, action, or detail">
-          <select id="audit-filter-action" class="form-input isl-68" data-change="renderAuditLog">
+          <select id="audit-filter-action" aria-label="Filter audit log by action" class="form-input isl-68" data-change="renderAuditLog">
             <option value="">All actions</option>
           </select>
           <button class="btn-icon" data-action="loadAuditLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
@@ -7351,19 +7348,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.9.0"></script>
-<script defer src="static/js/app.js?v=4.9.0"></script>
+<script defer src="static/js/i18n.js?v=4.10.0"></script>
+<script defer src="static/js/app.js?v=4.10.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.9.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.9.0"></script>
-<script defer src="static/js/app-containers.js?v=4.9.0"></script>
-<script defer src="static/js/app-network.js?v=4.9.0"></script>
+<script defer src="static/js/app-calendar.js?v=4.10.0"></script>
+<script defer src="static/js/app-cmdb.js?v=4.10.0"></script>
+<script defer src="static/js/app-containers.js?v=4.10.0"></script>
+<script defer src="static/js/app-network.js?v=4.10.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.9.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.9.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.9.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=4.10.0"></script>
+<script defer src="static/js/app-compliance.js?v=4.10.0"></script>
+<script defer src="static/js/app-integrations.js?v=4.10.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.9.0"></script>
+<script defer src="static/js/sw-register.js?v=4.10.0"></script>
 </body>
 </html>

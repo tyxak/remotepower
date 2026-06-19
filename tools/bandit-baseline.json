@@ -1,56 +1,56 @@
 {
   "errors": [],
-  "generated_at": "2026-06-15T14:08:49Z",
+  "generated_at": "2026-06-19T23:10:49Z",
   "metrics": {
     "./client/remotepower-agent-mac.py": {
-      "CONFIDENCE.HIGH": 20,
-      "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 0,
-      "CONFIDENCE.UNDEFINED": 0,
-      "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 19,
-      "SEVERITY.MEDIUM": 1,
-      "SEVERITY.UNDEFINED": 0,
-      "loc": 461,
-      "nosec": 0,
-      "skipped_tests": 0
-    },
-    "./client/remotepower-agent-win.py": {
-      "CONFIDENCE.HIGH": 26,
+      "CONFIDENCE.HIGH": 23,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 1,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 25,
+      "SEVERITY.LOW": 22,
       "SEVERITY.MEDIUM": 2,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 655,
+      "loc": 541,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "./client/remotepower-agent-win.py": {
+      "CONFIDENCE.HIGH": 29,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 1,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 28,
+      "SEVERITY.MEDIUM": 2,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 700,
       "nosec": 0,
       "skipped_tests": 0
     },
     "./client/remotepower-agent.py": {
-      "CONFIDENCE.HIGH": 228,
+      "CONFIDENCE.HIGH": 227,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 8,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 1,
-      "SEVERITY.LOW": 224,
+      "SEVERITY.LOW": 223,
       "SEVERITY.MEDIUM": 11,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 5783,
+      "loc": 5947,
       "nosec": 0,
       "skipped_tests": 0
     },
     "_totals": {
-      "CONFIDENCE.HIGH": 522,
+      "CONFIDENCE.HIGH": 529,
       "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 46,
+      "CONFIDENCE.MEDIUM": 48,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 1,
-      "SEVERITY.LOW": 529,
-      "SEVERITY.MEDIUM": 38,
+      "SEVERITY.LOW": 539,
+      "SEVERITY.MEDIUM": 37,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 55177,
+      "loc": 58572,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -81,15 +81,15 @@
       "skipped_tests": 0
     },
     "server/cgi-bin/ai_provider.py": {
-      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
       "SEVERITY.LOW": 0,
-      "SEVERITY.MEDIUM": 1,
+      "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 895,
+      "loc": 1070,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -109,13 +109,13 @@
     "server/cgi-bin/api.py": {
       "CONFIDENCE.HIGH": 205,
       "CONFIDENCE.LOW": 0,
-      "CONFIDENCE.MEDIUM": 26,
+      "CONFIDENCE.MEDIUM": 27,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 224,
-      "SEVERITY.MEDIUM": 7,
+      "SEVERITY.LOW": 226,
+      "SEVERITY.MEDIUM": 6,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 36045,
+      "loc": 37787,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -184,6 +184,19 @@
       "nosec": 0,
       "skipped_tests": 0
     },
+    "server/cgi-bin/cve_scan_runner.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 23,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
     "server/cgi-bin/cve_scanner.py": {
       "CONFIDENCE.HIGH": 7,
       "CONFIDENCE.LOW": 0,
@@ -194,6 +207,45 @@
       "SEVERITY.MEDIUM": 3,
       "SEVERITY.UNDEFINED": 0,
       "loc": 484,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "server/cgi-bin/dmarc_monitor.py": {
+      "CONFIDENCE.HIGH": 2,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 1,
+      "SEVERITY.MEDIUM": 1,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 228,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "server/cgi-bin/dns_resolve.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 135,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "server/cgi-bin/dns_zones.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 427,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -232,7 +284,20 @@
       "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 1073,
+      "loc": 1078,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "server/cgi-bin/ip_reputation.py": {
+      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 1,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 133,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -310,7 +375,20 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 879,
+      "loc": 1010,
+      "nosec": 0,
+      "skipped_tests": 0
+    },
+    "server/cgi-bin/resolver_health.py": {
+      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.LOW": 0,
+      "CONFIDENCE.MEDIUM": 0,
+      "CONFIDENCE.UNDEFINED": 0,
+      "SEVERITY.HIGH": 0,
+      "SEVERITY.LOW": 0,
+      "SEVERITY.MEDIUM": 0,
+      "SEVERITY.UNDEFINED": 0,
+      "loc": 67,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -419,15 +497,15 @@
       "skipped_tests": 0
     },
     "server/cgi-bin/storage.py": {
-      "CONFIDENCE.HIGH": 5,
+      "CONFIDENCE.HIGH": 6,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 5,
+      "SEVERITY.LOW": 6,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 919,
+      "loc": 926,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -440,7 +518,7 @@
       "SEVERITY.LOW": 9,
       "SEVERITY.MEDIUM": 3,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 839,
+      "loc": 843,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -453,7 +531,7 @@
       "SEVERITY.LOW": 2,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 610,
+      "loc": 633,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -471,22 +549,42 @@
       "skipped_tests": 0
     },
     "server/cgi-bin/webpush.py": {
-      "CONFIDENCE.HIGH": 1,
+      "CONFIDENCE.HIGH": 0,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
       "SEVERITY.LOW": 0,
-      "SEVERITY.MEDIUM": 1,
+      "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 132,
+      "loc": 138,
       "nosec": 0,
       "skipped_tests": 0
     }
   },
   "results": [
     {
-      "code": "415                                           'User-Agent': f'RemotePower-Mac/{VERSION}'})\n416     with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:\n417         return json.loads(resp.read().decode('utf-8'))\n",
+      "code": "191         return 'local'\n192     if ip in ('0.0.0.0', '::'):\n193         return 'world'\n",
+      "col_offset": 14,
+      "end_col_offset": 23,
+      "filename": "./client/remotepower-agent-mac.py",
+      "issue_confidence": "MEDIUM",
+      "issue_cwe": {
+        "id": 605,
+        "link": "https://cwe.mitre.org/data/definitions/605.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Possible binding to all interfaces.",
+      "line_number": 192,
+      "line_range": [
+        192
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
+      "test_id": "B104",
+      "test_name": "hardcoded_bind_all_interfaces"
+    },
+    {
+      "code": "513                                           'User-Agent': f'RemotePower-Mac/{VERSION}'})\n514     with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:\n515         return json.loads(resp.read().decode('utf-8'))\n",
       "col_offset": 9,
       "end_col_offset": 71,
       "filename": "./client/remotepower-agent-mac.py",
@@ -497,16 +595,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 416,
+      "line_number": 514,
       "line_range": [
-        416
+        514
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
       "test_id": "B310",
       "test_name": "blacklist"
     },
     {
-      "code": "209         return 'local'\n210     if ip in ('0.0.0.0', '::'):\n211         return 'world'\n",
+      "code": "226         return 'local'\n227     if ip in ('0.0.0.0', '::'):\n228         return 'world'\n",
       "col_offset": 14,
       "end_col_offset": 23,
       "filename": "./client/remotepower-agent-win.py",
@@ -517,16 +615,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 210,
+      "line_number": 227,
       "line_range": [
-        210
+        227
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "556                                           'User-Agent': f'RemotePower-Win/{VERSION}'})\n557     with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:\n558         return json.loads(resp.read().decode('utf-8'))\n",
+      "code": "573                                           'User-Agent': f'RemotePower-Win/{VERSION}'})\n574     with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:\n575         return json.loads(resp.read().decode('utf-8'))\n",
       "col_offset": 9,
       "end_col_offset": 71,
       "filename": "./client/remotepower-agent-win.py",
@@ -537,9 +635,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 557,
+      "line_number": 574,
       "line_range": [
-        557
+        574
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
       "test_id": "B310",
@@ -666,7 +764,7 @@
       "test_name": "hardcoded_tmp_directory"
     },
     {
-      "code": "1389     score = None\n1390     root = ET.parse(path).getroot()\n1391     for el in root.iter():\n",
+      "code": "1397     score = None\n1398     root = ET.parse(path).getroot()\n1399     for el in root.iter():\n",
       "col_offset": 11,
       "end_col_offset": 25,
       "filename": "./client/remotepower-agent.py",
@@ -677,16 +775,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Using xml.etree.ElementTree.parse to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree.parse with its defusedxml equivalent function or make sure defusedxml.defuse_stdlib() is called",
-      "line_number": 1390,
+      "line_number": 1398,
       "line_range": [
-        1390
+        1398
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b313-b320-xml-bad-elementtree",
       "test_id": "B314",
       "test_name": "blacklist"
     },
     {
-      "code": "3021         return 'world'\n3022     if a in ('0.0.0.0', '::', '*'):\n3023         return 'world'\n",
+      "code": "3054         return 'world'\n3055     if a in ('0.0.0.0', '::', '*'):\n3056         return 'world'\n",
       "col_offset": 13,
       "end_col_offset": 22,
       "filename": "./client/remotepower-agent.py",
@@ -697,16 +795,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 3022,
+      "line_number": 3055,
       "line_range": [
-        3022
+        3055
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "3443                     logins.append({'user': f[0], 'source': ip, 'ts': ts})\n3444                     if ip and ip not in srcs and ip != '0.0.0.0':\n3445                         srcs.append(ip)\n",
+      "code": "3611                     logins.append({'user': f[0], 'source': ip, 'ts': ts})\n3612                     if ip and ip not in srcs and ip != '0.0.0.0':\n3613                         srcs.append(ip)\n",
       "col_offset": 55,
       "end_col_offset": 64,
       "filename": "./client/remotepower-agent.py",
@@ -717,16 +815,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 3444,
+      "line_number": 3612,
       "line_range": [
-        3444
+        3612
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "5303             exec_timeout = 1800 if _is_upgrade else 300\n5304             result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)\n5305             output = (result.stdout + result.stderr).strip()\n",
+      "code": "5479             exec_timeout = 1800 if _is_upgrade else 300\n5480             result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)\n5481             output = (result.stdout + result.stderr).strip()\n",
       "col_offset": 21,
       "end_col_offset": 115,
       "filename": "./client/remotepower-agent.py",
@@ -737,16 +835,16 @@
       },
       "issue_severity": "HIGH",
       "issue_text": "subprocess call with shell=True identified, security issue.",
-      "line_number": 5304,
+      "line_number": 5480,
       "line_range": [
-        5304
+        5480
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html",
       "test_id": "B602",
       "test_name": "subprocess_popen_with_shell_equals_true"
     },
     {
-      "code": "6165         # Fall back to legacy location only if STATE_DIR couldn't be created.\n6166         interval_override_file = Path('/tmp/remotepower-poll-interval')\n6167 \n",
+      "code": "6353         # Fall back to legacy location only if STATE_DIR couldn't be created.\n6354         interval_override_file = Path('/tmp/remotepower-poll-interval')\n6355 \n",
       "col_offset": 38,
       "end_col_offset": 70,
       "filename": "./client/remotepower-agent.py",
@@ -757,16 +855,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Probable insecure usage of temp file/directory.",
-      "line_number": 6166,
+      "line_number": 6354,
       "line_range": [
-        6166
+        6354
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html",
       "test_id": "B108",
       "test_name": "hardcoded_tmp_directory"
     },
     {
-      "code": "6203         for cand in (STATE_DIR / 'pending-cmd.json',\n6204                      Path('/tmp/remotepower-pending-cmd.json')):\n6205             try:\n",
+      "code": "6391         for cand in (STATE_DIR / 'pending-cmd.json',\n6392                      Path('/tmp/remotepower-pending-cmd.json')):\n6393             try:\n",
       "col_offset": 26,
       "end_col_offset": 61,
       "filename": "./client/remotepower-agent.py",
@@ -777,36 +875,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Probable insecure usage of temp file/directory.",
-      "line_number": 6204,
+      "line_number": 6392,
       "line_range": [
-        6204
+        6392
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html",
       "test_id": "B108",
       "test_name": "hardcoded_tmp_directory"
     },
     {
-      "code": "543     try:\n544         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:\n545             return r.status, json.loads(r.read(2 * 1024 * 1024))\n",
-      "col_offset": 13,
-      "end_col_offset": 70,
-      "filename": "server/cgi-bin/ai_provider.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 22,
-        "link": "https://cwe.mitre.org/data/definitions/22.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 544,
-      "line_range": [
-        544
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-      "test_id": "B310",
-      "test_name": "blacklist"
-    },
-    {
-      "code": "2425     REMOTE_ADDR, unchanged for single-node installs.\"\"\"\n2426     remote = os.environ.get('REMOTE_ADDR', '0.0.0.0')\n2427     try:\n",
+      "code": "2505     REMOTE_ADDR, unchanged for single-node installs.\"\"\"\n2506     remote = os.environ.get('REMOTE_ADDR', '0.0.0.0')\n2507     try:\n",
       "col_offset": 43,
       "end_col_offset": 52,
       "filename": "server/cgi-bin/api.py",
@@ -817,16 +895,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 2426,
+      "line_number": 2506,
       "line_range": [
-        2426
+        2506
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "2589         return True\n2590     if not ip or ip == '0.0.0.0':\n2591         # We can't track requests with no source IP; treat as a rejection\n",
+      "code": "2670         return True\n2671     if not ip or ip == '0.0.0.0':\n2672         # We can't track requests with no source IP; treat as a rejection\n",
       "col_offset": 23,
       "end_col_offset": 32,
       "filename": "server/cgi-bin/api.py",
@@ -837,16 +915,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 2590,
+      "line_number": 2671,
       "line_range": [
-        2590
+        2671
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "4531                 f'{p.get(\"proto\",\"tcp\")}/{p.get(\"port\",\"?\")} bound to '\n4532                 f'{p.get(\"addr\",\"0.0.0.0\")} ({proc})')\n4533     if event == 'software_policy_violation':\n",
+      "code": "4633                 f'{p.get(\"proto\",\"tcp\")}/{p.get(\"port\",\"?\")} bound to '\n4634                 f'{p.get(\"addr\",\"0.0.0.0\")} ({proc})')\n4635     if event == 'software_policy_violation':\n",
       "col_offset": 32,
       "end_col_offset": 41,
       "filename": "server/cgi-bin/api.py",
@@ -857,16 +935,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 4532,
+      "line_number": 4634,
       "line_range": [
-        4532
+        4634
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "6047                 f'is exposed to the world \u2014 bound to '\n6048                 f'{payload.get(\"addr\",\"0.0.0.0\")}{extra}')\n6049     elif event == 'software_policy_violation':\n",
+      "code": "6170                 f'is exposed to the world \u2014 bound to '\n6171                 f'{payload.get(\"addr\",\"0.0.0.0\")}{extra}')\n6172     elif event == 'software_policy_violation':\n",
       "col_offset": 38,
       "end_col_offset": 47,
       "filename": "server/cgi-bin/api.py",
@@ -877,16 +955,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 6048,
+      "line_number": 6171,
       "line_range": [
-        6048
+        6171
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "15376     try:\n15377         os.chmod(out_dir, 0o750)\n15378     except OSError:\n",
+      "code": "15952     try:\n15953         os.chmod(out_dir, 0o750)\n15954     except OSError:\n",
       "col_offset": 8,
       "end_col_offset": 32,
       "filename": "server/cgi-bin/api.py",
@@ -897,16 +975,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Chmod setting a permissive mask 0o750 on file (out_dir).",
-      "line_number": 15377,
+      "line_number": 15953,
       "line_range": [
-        15377
+        15953
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b103_set_bad_file_permissions.html",
       "test_id": "B103",
       "test_name": "set_bad_file_permissions"
     },
     {
-      "code": "15524         out_dir.mkdir(parents=True, exist_ok=True)\n15525         os.chmod(out_dir, 0o750)\n15526     except OSError:\n",
+      "code": "16100         out_dir.mkdir(parents=True, exist_ok=True)\n16101         os.chmod(out_dir, 0o750)\n16102     except OSError:\n",
       "col_offset": 8,
       "end_col_offset": 32,
       "filename": "server/cgi-bin/api.py",
@@ -917,33 +995,13 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Chmod setting a permissive mask 0o750 on file (out_dir).",
-      "line_number": 15525,
+      "line_number": 16101,
       "line_range": [
-        15525
+        16101
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b103_set_bad_file_permissions.html",
       "test_id": "B103",
       "test_name": "set_bad_file_permissions"
-    },
-    {
-      "code": "15905             ctx = _get_ssl_context()\n15906             with urllib.request.urlopen(req, timeout=5, context=ctx) as r:\n15907                 data = json.loads(r.read(65536))  # cap response size\n",
-      "col_offset": 17,
-      "end_col_offset": 68,
-      "filename": "server/cgi-bin/api.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 22,
-        "link": "https://cwe.mitre.org/data/definitions/22.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 15906,
-      "line_range": [
-        15906
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-      "test_id": "B310",
-      "test_name": "blacklist"
     },
     {
       "code": "214         sock.bind(spec)\n215         os.chmod(spec, 0o660)  # nginx (same group) connects; others don't\n216     sock.listen(64)\n",
@@ -1043,6 +1101,26 @@
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
       "test_id": "B310",
+      "test_name": "blacklist"
+    },
+    {
+      "code": "203     try:\n204         root = ET.fromstring(xml_bytes)\n205     except ET.ParseError:\n",
+      "col_offset": 15,
+      "end_col_offset": 39,
+      "filename": "server/cgi-bin/dmarc_monitor.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 20,
+        "link": "https://cwe.mitre.org/data/definitions/20.html"
+      },
+      "issue_severity": "MEDIUM",
+      "issue_text": "Using xml.etree.ElementTree.fromstring to parse untrusted XML data is known to be vulnerable to XML attacks. Replace xml.etree.ElementTree.fromstring with its defusedxml equivalent function or make sure defusedxml.defuse_stdlib() is called",
+      "line_number": 204,
+      "line_range": [
+        204
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b313-b320-xml-bad-elementtree",
+      "test_id": "B314",
       "test_name": "blacklist"
     },
     {
@@ -1186,7 +1264,7 @@
       "test_name": "hardcoded_tmp_directory"
     },
     {
-      "code": "777         rows = conn.execute(\n778             f'SELECT {cols} FROM rag_chunks WHERE embedding IS NOT NULL '\n779             'ORDER BY embedding <=> %s::vector LIMIT %s',\n780             (_vec_literal(query_vec), k)).fetchall()\n",
+      "code": "780         rows = conn.execute(\n781             f'SELECT {cols} FROM rag_chunks WHERE embedding IS NOT NULL '\n782             'ORDER BY embedding <=> %s::vector LIMIT %s',\n783             (_vec_literal(query_vec), k)).fetchall()\n",
       "col_offset": 14,
       "end_col_offset": 21,
       "filename": "server/cgi-bin/storage_pg.py",
@@ -1197,17 +1275,17 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 778,
+      "line_number": 781,
       "line_range": [
-        778,
-        779
+        781,
+        782
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "782         rows = conn.execute(\n783             f\"SELECT {cols} FROM rag_chunks \"\n784             \"WHERE tsv @@ plainto_tsquery('english', %s) \"\n785             \"ORDER BY ts_rank(tsv, plainto_tsquery('english', %s)) DESC LIMIT %s\",\n786             (query_text or '', query_text or '', k)).fetchall()\n",
+      "code": "785         rows = conn.execute(\n786             f\"SELECT {cols} FROM rag_chunks \"\n787             \"WHERE tsv @@ plainto_tsquery('english', %s) \"\n788             \"ORDER BY ts_rank(tsv, plainto_tsquery('english', %s)) DESC LIMIT %s\",\n789             (query_text or '', query_text or '', k)).fetchall()\n",
       "col_offset": 14,
       "end_col_offset": 21,
       "filename": "server/cgi-bin/storage_pg.py",
@@ -1218,18 +1296,18 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 783,
+      "line_number": 786,
       "line_range": [
-        783,
-        784,
-        785
+        786,
+        787,
+        788
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
       "test_name": "hardcoded_sql_expressions"
     },
     {
-      "code": "814     rows = conn.execute(\n815         f'SELECT {cols} FROM rag_chunks WHERE device = ANY(%s) '\n816         'ORDER BY ts DESC LIMIT %s', (list(devices), k)).fetchall()\n817     return [{'id': r['id'], 'source': r['source'], 'type': r['dtype'],\n",
+      "code": "817     rows = conn.execute(\n818         f'SELECT {cols} FROM rag_chunks WHERE device = ANY(%s) '\n819         'ORDER BY ts DESC LIMIT %s', (list(devices), k)).fetchall()\n820     return [{'id': r['id'], 'source': r['source'], 'type': r['dtype'],\n",
       "col_offset": 10,
       "end_col_offset": 17,
       "filename": "server/cgi-bin/storage_pg.py",
@@ -1240,34 +1318,14 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible SQL injection vector through string-based query construction.",
-      "line_number": 815,
+      "line_number": 818,
       "line_range": [
-        815,
-        816
+        818,
+        819
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
       "test_id": "B608",
       "test_name": "hardcoded_sql_expressions"
-    },
-    {
-      "code": "163     try:\n164         with urllib.request.urlopen(req, timeout=timeout) as resp:\n165             return resp.status\n",
-      "col_offset": 13,
-      "end_col_offset": 57,
-      "filename": "server/cgi-bin/webpush.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 22,
-        "link": "https://cwe.mitre.org/data/definitions/22.html"
-      },
-      "issue_severity": "MEDIUM",
-      "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-      "line_number": 164,
-      "line_range": [
-        164
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-      "test_id": "B310",
-      "test_name": "blacklist"
     }
   ]
 }

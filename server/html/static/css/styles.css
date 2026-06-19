@@ -32,6 +32,7 @@
     --red: #ef4444;
     --red-dim: #7f1d1d;
     --amber: #f59e0b;
+    --orange: #f97316;   /* severity "high" / ERROR — themeable; inherited by themes that don't override it */
     --purple: #7c3aed;
     --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
   }
@@ -3949,12 +3950,18 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .isl-134 { grid-template-columns:repeat(5,1fr) }
 .isl-135 { flex:1; min-width:240px; max-width:380px; padding:8px 12px; font-size:13px }
 .isl-136 { grid-template-columns:repeat(5,1fr); margin-bottom:24px }
-.isl-137 { color:#f97316 }
+.isl-137 { color:var(--orange) }
 .isl-138 { display:none; font-size:12px; color:var(--amber); margin-left:12px }
 .isl-139 { grid-template-columns:repeat(4,1fr); margin-bottom:24px }
 .isl-140 { flex:1; min-width:300px; padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family: var(--font-mono); font-size:13px }
 .isl-141 { max-width:100px }
 .isl-142 { grid-template-columns:repeat(4,1fr); margin-bottom:16px }
+/* v4.10.0: the patch/CVE/summary stat rows are defined after the .stats-row
+   mobile collapse, so they need their own narrow-width collapse or they stay
+   4-5 columns at ~360px and clip. */
+@media (max-width: 600px) {
+  .isl-134, .isl-136, .isl-139, .isl-142 { grid-template-columns: 1fr; }
+}
 .isl-143 { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
 .isl-144 { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px }
 .isl-145 { max-height:500px; min-height:300px; font-size:12px; overflow-y:auto; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px }

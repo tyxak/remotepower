@@ -6918,7 +6918,7 @@ function _registerCveTable() {
       const prioBtn = cveTotal > 0
         ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this device's CVEs">${_icon('sparkles',14)}</button> `
         : '';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${(d.kev||0)>0 ? `<td class="ta-center"><span class="kev-badge" title="${d.kev} known-exploited in the wild (CISA KEV)">${d.kev}</span></td>` : '<td class="isl-385 ta-center">0</td>'}${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, 'var(--orange)')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -7378,7 +7378,7 @@ async function openDeviceCVE(devId, devName) {
   openModal('cve-detail-modal');
   const data = await api('GET', `/devices/${devId}/cve`);
   if (!data) return;
-  const sevColor = {critical: 'var(--red)', high: '#f97316', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
+  const sevColor = {critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
   html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button></div>`;
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
@@ -8261,7 +8261,7 @@ function appendLogLines(lines) {
 function lineSeverityColor(line) {
   if (!line) return '';
   if (/(?:\b|_)(FATAL|CRITICAL|emergency|panic)(?:\b|_)/i.test(line)) return 'var(--red)';
-  if (/(?:\b|_)(ERROR|ERR)(?:\b|_)|\berror:/i.test(line)) return '#f97316';
+  if (/(?:\b|_)(ERROR|ERR)(?:\b|_)|\berror:/i.test(line)) return 'var(--orange)';
   if (/(?:\b|_)(WARN(?:ING)?)(?:\b|_)/i.test(line)) return 'var(--amber)';
   return '';
 }
@@ -12877,7 +12877,7 @@ async function fail2banDetail(devId, devName) {
     html += `<div class="fw-jail-hdr"><strong>${escHtml(j.name)}</strong> <span class="hint">${j.banned_count || 0} banned · ${j.total_failed || 0} failed</span>
       <button class="btn-icon cell-sm" data-action="fail2banBan" data-arg="${did}" data-arg2="${jn}" title="Ban an IP in this jail">Ban IP</button>
       <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${did}" data-arg2="${jn}" data-arg3="enable" title="Start this jail">Start</button>
-      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${did}" data-arg2="${jn}" data-arg3="disable" title="Stop this jail">Stop</button></div>`;
+      <button class="btn-icon cell-sm c-danger-outline" data-action="fail2banJail" data-arg="${did}" data-arg2="${jn}" data-arg3="disable" title="Stop this jail">Stop</button></div>`;
     const banned = j.banned || [];
     if (banned.length) {
       html += '<div class="scroll-cap mt-8 fw-rules">' + banned.map(ip =>
@@ -14313,7 +14313,7 @@ function _renderDiskHealth() {
     return;
   }
   const riskPill = (risk) => {
-    const cls = risk === 'critical' ? 'var(--red)' : risk === 'high' ? '#f97316' : 'var(--amber)';
+    const cls = risk === 'critical' ? 'var(--red)' : risk === 'high' ? 'var(--orange)' : 'var(--amber)';
     return `<span class="pill" data-color="${cls}">${escHtml(risk)}</span>`;
   };
   // v4.6.0: also list the healthy tracked disks under the at-risk ones, deduped,

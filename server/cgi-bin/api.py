@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '4.9.0'
+SERVER_VERSION = '4.10.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -8290,8 +8290,11 @@ def handle_device_firewall_rule(dev_id):
                 respond(400, {'error': 'ufw add spec must start with allow/deny/reject/limit'})
             cmd = f'ufw {spec}'
         else:  # firewalld
-            if not spec.startswith('--add-'):
-                respond(400, {'error': 'firewalld add spec must start with --add-'})
+            # Single --add-* token only: reject a second flag so the spec can't
+            # smuggle extra firewall-cmd arguments (defence-in-depth; the regex
+            # already blocks shell metacharacters).
+            if not spec.startswith('--add-') or ' ' in spec.strip():
+                respond(400, {'error': 'firewalld add spec must be a single --add-* flag'})
             cmd = f'firewall-cmd --permanent {spec}; firewall-cmd --reload'
     else:  # delete
         ref = str(body.get('ref', '')).strip()

@@ -58,6 +58,10 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v4.10.0.md](v4.10.0.md)** — "PerimeterMatters": a fleet-wide Firewall +
+ fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails),
+ an AI Insights hub (20 one-click AI reports/advisors), and three new
+ fleet-knowledge (RAG) sources. No breaking changes.
 - **[v4.9.0.md](v4.9.0.md)** — "ResolutionMatters": an Admin → DNS dashboard that
  views, adds, edits and deletes DNS records directly through your provider's API,
  plus live resolve/dig + propagation checks
@@ -77,9 +81,6 @@ The five most recent per-release notes are kept here:
  fixes (CAP_NET_RAW for agentless ICMP ping, Postgres connection fork-safety), a
  ReDoS fix in `_valid_tls_host`, a defence-in-depth XSS coercion, and a subtitle
  reload-flash fix. No breaking changes.
-- **[v4.6.0.md](v4.6.0.md)** — "RepellantMatters": a visual-identity release — the
- new Industrial "New UI" (graphite/steel + blue accent) as default, with a
- CSP-safe New UI / Old UI toggle. No markup/nav/functional changes.
 
 Older release notes (v4.5.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

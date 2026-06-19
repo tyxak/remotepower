@@ -14,7 +14,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-4.9.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-4.10.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -165,6 +165,7 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
+- **v4.10 — PerimeterMatters** — a fleet-wide **Security → Firewall** page that views *and* edits host firewalls (nftables / iptables / ufw / firewalld) and **fail2ban** jails, an **AI Insights** hub of 20 one-click AI reports and advisors, and three new sources (firewall, integrations, backups) in the fleet-knowledge index that powers "Ask my fleet".
 - **v4.9 — ResolutionMatters** — an **Admin → DNS** dashboard that reads and writes DNS records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), plus a live **resolve/dig + propagation** panel, a **resolver-health** monitor (latency / NXDOMAIN alerts), and an **alert-resolution timeline (MTTR)** on the Alerts page.
 - **v4.8 — OnboardingMatters** — turnkey onboarding: a unified one-command **`install.sh`** wizard, one-command Docker with HTTPS by default, a self-hosted one-line **agent install**, SSH agent bootstrap and clean uninstall. Plus a new **Reputation/DMARC** monitor (mail-sending IPs checked against DNS blocklists, SPF/DKIM/DMARC posture, and IMAP RUA-report ingestion), accessibility work and agent parity.
 - **v4.7 — IntegrationsMatters** — 26 read-only homelab software integrations, a **containerized agent** (monitor a Docker host with no OS install), and a fleet **GPU** page (NVIDIA + AMD, trend sparklines + thermal alerting).

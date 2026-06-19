@@ -2,13 +2,12 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v4.9.0 — "ResolutionMatters" — unreleased (test)
+## v4.10.0 — "PerimeterMatters" — unreleased (test)
 
-Adds an **Admin → DNS dashboard** that reads and writes DNS records directly
-through your provider's API, so you can manage zones without leaving RemotePower
-or opening each registrar's console. It reuses the scoped API tokens already
-stored for ACME DNS-01 issuance — set a token once and it drives both certs and
-this dashboard. No breaking changes, no schema changes.
+A perimeter-defense and AI release: a fleet-wide **Firewall + fail2ban** page
+(view *and* edit), **20 new AI features** in an AI Insights hub, three new
+sources in the fleet-knowledge (RAG) index, and a UI-polish + release-readiness
+finalize sweep. No breaking changes, no schema changes.
 
 ### Security → Firewall page (firewall + fail2ban)
 
@@ -67,6 +66,26 @@ attached. New capabilities:
 
 Each is a tunable system prompt (Settings → AI → Prompts), rate-limited,
 audited, and redaction-aware like the existing AI actions.
+
+### UI polish + finalize sweep
+
+- Firewall/fail2ban detail panels highlight the open host, scroll into view, add
+  a Close button, and mark queued edits in-panel (no more stale "did it work?").
+  Rule lists are grouped by table/chain with the volatile packet counters
+  stripped; banned IPs show an inline Unban.
+- The AI Insights hub is grouped (Proactive / Incident / Planning /
+  Natural-language / Advisors) with per-category icons.
+- Three fleet-scaling dashboard lists (heatmap, upcoming events, timeline) are
+  now scroll-capped, plus a11y fixes (labelled toolbar filters, a no-emoji icon
+  swap) and a themeable severity-orange.
+
+## v4.9.0 — "ResolutionMatters" — unreleased (test)
+
+Adds an **Admin → DNS dashboard** that reads and writes DNS records directly
+through your provider's API, so you can manage zones without leaving RemotePower
+or opening each registrar's console. It reuses the scoped API tokens already
+stored for ACME DNS-01 issuance — set a token once and it drives both certs and
+this dashboard. No breaking changes, no schema changes.
 
 - **DNS dashboard (Admin → DNS).** Pick a provider and zone; list, create, edit
   and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records with TTL,
