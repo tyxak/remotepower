@@ -10778,6 +10778,10 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-drift',      rs.drift !== false);
   _setSrc('ai-rag-src-compliance', rs.compliance !== false);
   _setSrc('ai-rag-src-metrics',    !!rs.metrics);
+  // v4.10.0: firewall/fail2ban, integrations, backups (default on).
+  _setSrc('ai-rag-src-firewall',     rs.firewall !== false);
+  _setSrc('ai-rag-src-integrations', rs.integrations !== false);
+  _setSrc('ai-rag-src-backups',      rs.backups !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
@@ -11026,6 +11030,9 @@ async function saveAISettings() {
         drift:      !!document.getElementById('ai-rag-src-drift')?.checked,
         compliance: !!document.getElementById('ai-rag-src-compliance')?.checked,
         metrics:    !!document.getElementById('ai-rag-src-metrics')?.checked,
+        firewall:     !!document.getElementById('ai-rag-src-firewall')?.checked,
+        integrations: !!document.getElementById('ai-rag-src-integrations')?.checked,
+        backups:      !!document.getElementById('ai-rag-src-backups')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,

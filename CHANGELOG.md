@@ -31,6 +31,22 @@ place ([docs/firewall.md](docs/firewall.md)).
 - Agents report fail2ban status and capped per-backend rule lists; the
   containerized agent reports fail2ban as not-available (no host socket).
 
+### AI RAG — three new corpus sources
+
+The fleet-knowledge index (what "Ask my fleet" and the AI assistant retrieve
+over) now also indexes — on by default, cheap, no-PII:
+
+- **Firewall & fail2ban** — per-host firewall posture (backends, active state,
+  rule counts, policy) and fail2ban jails/bans, plus a fleet "which hosts have
+  no active firewall" rollup. Rule *counts* only, never raw rules.
+- **Homelab integrations** — health of every connector (Pi-hole, TrueNAS, *arr,
+  …) and a down/degraded rollup.
+- **Backups** — per-host backup freshness and a fleet "stale backups" rollup.
+
+So the assistant can now answer "which hosts have no firewall?", "is fail2ban
+running on web01?", "which integrations are down?" and "are db01's backups
+current?" directly from indexed state. Toggle each in Settings → AI → RAG.
+
 - **DNS dashboard (Admin → DNS).** Pick a provider and zone; list, create, edit
   and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records with TTL,
   MX/SRV priority and Cloudflare's proxied flag.

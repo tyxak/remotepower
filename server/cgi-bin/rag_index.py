@@ -736,6 +736,144 @@ def build_drift_corpus(devices, now=0):
     return docs
 
 
+def build_firewall_corpus(devices, now=0):
+    """v4.10.0: per-device host-firewall posture + fail2ban jails, plus a fleet
+    'no active firewall' rollup. Answers "what's the firewall on host X?",
+    "which hosts have no firewall?", "is fail2ban running on X?". Device-scoped.
+
+    Reads each device's `sysinfo.firewall` (backends with active/rules/policy)
+    and `sysinfo.fail2ban` (jails + banned counts).
+    """
+    docs = []
+    no_fw = []
+    for d in (devices or []):
+        if not isinstance(d, dict):
+            continue
+        dev_id = d.get('id') or d.get('name')
+        if not dev_id:
+            continue
+        name = d.get('name') or dev_id
+        si = d.get('sysinfo') or {}
+        fw = si.get('firewall') or {}
+        f2b = si.get('fail2ban') or {}
+        bes = [b for b in (fw.get('backends') or [])
+               if isinstance(b, dict) and b.get('present')]
+        if not bes and not f2b.get('available'):
+            continue
+        active = fw.get('active')
+        lines = []
+        for b in bes:
+            st = ('active' if b.get('active') else
+                  ('inactive' if b.get('active') is False else 'unknown'))
+            extra = []
+            if b.get('policy'):
+                extra.append(f"policy {b['policy']}")
+            if b.get('default'):
+                extra.append(str(b['default']))
+            lines.append(f"- {b.get('name')}: {st}, {b.get('rules', 0)} rule(s)"
+                         + (f" ({'; '.join(extra)})" if extra else ''))
+        if active is False:
+            no_fw.append(name)
+        head = ('active' if active else
+                ('INACTIVE (no active host firewall)' if active is False
+                 else 'state unknown'))
+        body = f"{name} host firewall — {head}:\n" + '\n'.join(lines)
+        if f2b.get('available'):
+            jails = [j for j in (f2b.get('jails') or []) if isinstance(j, dict)]
+            tot = sum(int(j.get('banned_count', 0) or 0) for j in jails)
+            jn = ', '.join(j.get('name', '') for j in jails)[:300]
+            body += (f"\nfail2ban: {len(jails)} jail(s), {tot} banned IP(s)"
+                     + (f" — jails: {jn}" if jn else ''))
+        docs.append(make_doc(f"firewall/{dev_id}", 'firewall', 'device_firewall',
+                             body, title=f"Firewall: {name}", device=dev_id, ts=now))
+    if no_fw:
+        docs.append(make_doc(
+            'firewall/_fleet', 'firewall', 'fleet_firewall',
+            f"Hosts with NO active host firewall ({len(no_fw)}): "
+            + ', '.join(sorted(no_fw)[:200]),
+            title='Fleet — hosts without an active firewall', ts=now))
+    return docs
+
+
+def build_integrations_corpus(latest, now=0):
+    """v4.10.0: homelab software-integration health (Pi-hole / TrueNAS / UniFi /
+    *arr / …) for the RAG. `latest` is integrations_state['latest'] = {id:
+    result}, each result {label, type, status, detail}. Fleet-scoped (these are
+    services, not devices). Answers "which integrations are down?".
+    """
+    docs = []
+    rows, down = [], []
+    for key, r in (latest.items() if isinstance(latest, dict) else []):
+        if not isinstance(r, dict):
+            continue
+        label = r.get('label') or key
+        rtype = r.get('type', '')
+        status = r.get('status', '')
+        detail = (r.get('detail') or '')[:200]
+        rows.append(f"- {label} ({rtype}): {status}"
+                    + (f" — {detail}" if detail else ''))
+        if status in ('warning', 'critical'):
+            down.append(f"{label} ({status})")
+    if not rows:
+        return docs
+    docs.append(make_doc(
+        'integrations/_all', 'integrations', 'integrations_health',
+        f"Homelab integrations — {len(rows)} monitored:\n"
+        + '\n'.join(sorted(rows)[:120]),
+        title='Homelab integrations health', ts=now))
+    if down:
+        docs.append(make_doc(
+            'integrations/_down', 'integrations', 'integrations_down',
+            f"Integrations needing attention ({len(down)}): "
+            + ', '.join(sorted(down)[:120]),
+            title='Integrations down / degraded', ts=now))
+    return docs
+
+
+def build_backups_corpus(state, monitors, resolve_device=None, now=0):
+    """v4.10.0: per-device backup freshness + a fleet 'stale backups' rollup.
+    `state` = backup_state.json keyed `"{dev_id}:{path}" -> {ok, age_h}`;
+    `monitors` = cfg['backup_monitors'] (for labels). Device-scoped via the
+    canonical-id resolver so it associates with the host's other chunks.
+    """
+    resolve = resolve_device or (lambda x: x)
+    mon_by_path = {m.get('path'): m for m in (monitors or [])
+                   if isinstance(m, dict)}
+    by_dev = {}
+    for key, st in (state.items() if isinstance(state, dict) else []):
+        if not isinstance(st, dict) or ':' not in key:
+            continue
+        raw_dev, path = key.split(':', 1)
+        dev = resolve(raw_dev) or raw_dev
+        by_dev.setdefault(dev, []).append((path, st))
+    docs = []
+    stale_hosts = []
+    for dev, items in by_dev.items():
+        lines, any_stale = [], False
+        for path, st in sorted(items):
+            mon = mon_by_path.get(path) or {}
+            label = mon.get('label') or path
+            ok = bool(st.get('ok'))
+            age = st.get('age_h')
+            if not ok:
+                any_stale = True
+            lines.append(f"- {label}: {'OK' if ok else 'STALE'}"
+                         + (f", {age}h old" if age is not None else ''))
+        if any_stale:
+            stale_hosts.append(str(dev))
+        body = (f"{dev} backups — {len(items)} watched path(s):\n"
+                + '\n'.join(lines[:80]))
+        docs.append(make_doc(f"backups/{dev}", 'backups', 'device_backups', body,
+                             title=f"Backups: {dev}", device=dev, ts=now))
+    if stale_hosts:
+        docs.append(make_doc(
+            'backups/_fleet', 'backups', 'fleet_backups',
+            f"Hosts with STALE backups ({len(stale_hosts)}): "
+            + ', '.join(sorted(stale_hosts)[:200]),
+            title='Fleet — stale backups', ts=now))
+    return docs
+
+
 def build_compliance_corpus(report, now=0):
     """v4.1.0: a compliance report → one chunk per framework (score + the
     FAILING controls with evidence/remediation) plus an overall summary.

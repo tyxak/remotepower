@@ -21094,6 +21094,11 @@ _AI_DEFAULTS = {
             'drift':      True,
             'compliance': True,
             'metrics':    False,
+            # v4.10.0: firewall/fail2ban posture, homelab integration health,
+            # backup freshness — cheap, no-PII, high-value operational Q&A.
+            'firewall':     True,
+            'integrations': True,
+            'backups':      True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -21367,6 +21372,13 @@ def _rag_source_files(sources):
         files += [DEVICES_FILE, FLEET_EVENTS_FILE]
     if sources.get('metrics'):
         files.append(METRICS_FILE)
+    # v4.10.0
+    if sources.get('firewall'):
+        files.append(DEVICES_FILE)
+    if sources.get('integrations'):
+        files.append(INTEG_STATE_FILE)
+    if sources.get('backups'):
+        files += [DATA_DIR / 'backup_state.json', CONFIG_FILE]
     return files
 
 
@@ -21589,6 +21601,33 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_metrics_corpus(_rag_metric_summaries(), now=now)
         except Exception as e:
             sys.stderr.write(f'rag: metrics source failed: {e}\n')
+
+    # v4.10.0: host firewall + fail2ban posture (per-device + fleet rollup).
+    if sources.get('firewall'):
+        try:
+            raw = load(DEVICES_FILE)
+            devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
+            docs += rag_index.build_firewall_corpus(devices, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: firewall source failed: {e}\n')
+
+    # v4.10.0: homelab software-integration health (fleet-scoped).
+    if sources.get('integrations'):
+        try:
+            latest = (load(INTEG_STATE_FILE) or {}).get('latest') or {}
+            docs += rag_index.build_integrations_corpus(latest, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: integrations source failed: {e}\n')
+
+    # v4.10.0: backup freshness (per-device + fleet stale rollup).
+    if sources.get('backups'):
+        try:
+            bstate = load(DATA_DIR / 'backup_state.json') or {}
+            bmons = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
+            docs += rag_index.build_backups_corpus(bstate, bmons,
+                                                   resolve_device=resolve_dev, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: backups source failed: {e}\n')
 
     return docs
 

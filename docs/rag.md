@@ -33,6 +33,9 @@ embeddings. v3.4.0 ships both 2 and 3.
 | **Fleet rollups** | Cross-host summaries: worst CVEs, **all open (unresolved) alerts worst-first**, hosts with pending updates / pending reboot, drifted hosts, certs expiring soon | answers "which hosts have X?" / "what is alerting?" |
 | **CMDB** | Asset metadata + per-asset Markdown docs | **credentials vault never indexed** |
 | **History** | Recent commands, alerts, fleet events | bounded by count + age; redaction applied |
+| **Firewall** | Per device: host-firewall posture (nftables/iptables/ufw/firewalld — active, rule counts, policy) + fail2ban jails/bans, and a fleet "no active firewall" rollup | rule **counts**, never raw rules/counters |
+| **Integrations** | Homelab software-integration health (Pi-hole, TrueNAS, *arr, …) + a down/degraded rollup | fleet-scoped; secrets never indexed |
+| **Backups** | Per device: backup freshness (which watched paths are stale, age) + a fleet "stale backups" rollup | answers "are X's backups current?" |
 
 Each chunk carries a stable id (e.g. `live/web01#cves`) that doubles as its
 citation key, plus a freshness timestamp.

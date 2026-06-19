@@ -2219,7 +2219,10 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-history"> Recent commands, alerts &amp; fleet events <span class="meta-sm">(most sensitive — redaction applies)</span></label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-drift" checked> Config drift (which files diverged from baseline)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-compliance" checked> Compliance posture (framework scores &amp; failing controls)</label>
-              <label class="click-row"><input type="checkbox" id="ai-rag-src-metrics"> Resource-usage trends <span class="meta-sm">(from the SQL time-series; off by default)</span></label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-metrics"> Resource-usage trends <span class="meta-sm">(from the SQL time-series; off by default)</span></label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-firewall" checked> Firewall &amp; fail2ban posture (per host + which hosts have none)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-integrations" checked> Homelab integration health (Pi-hole, TrueNAS, *arr, …)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-backups" checked> Backup freshness (which paths/hosts are stale)</label>
             </div>
 
             <div class="form-group isl-773">
