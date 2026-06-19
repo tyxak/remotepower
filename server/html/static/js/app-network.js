@@ -354,7 +354,7 @@ async function tunnelRenderList() {
   };
   list.innerHTML = tunnels.map(t => `<div class="isl-471">
     <div class="fw-500">${escHtml(nameOf(t.endpoints[0]))} <span class="c-amber">↔</span> ${escHtml(nameOf(t.endpoints[1]))}</div>
-    <button class="btn-icon c-danger-outline" data-action="tunnelDelete" data-arg="${escAttr(t.id)}" >✕</button>
+    <button class="btn-icon c-danger-outline" data-action="tunnelDelete" data-arg="${escAttr(t.id)}" title="Delete tunnel" aria-label="Delete tunnel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   </div>`).join('');
 }
 

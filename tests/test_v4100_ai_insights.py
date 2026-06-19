@@ -64,6 +64,13 @@ class TestHub(unittest.TestCase):
         self.assertIn("function _renderAIInsights()", _APP_JS)
         self.assertIn("_renderAIInsights();", _APP_JS)  # wired in loadAIPage
 
+    def test_every_card_categorised(self):
+        block = _APP_JS[_APP_JS.index("const AI_INSIGHTS ="):_APP_JS.index("const _AI_CATS")]
+        cats = re.findall(r"cat:\s*'([a-z]+)'", block)
+        self.assertEqual(len(cats), 20, "every card must carry a category")
+        self.assertLessEqual(set(cats),
+                             {"proactive", "incident", "planning", "nlconfig", "advisors"})
+
     def test_page_container_present(self):
         self.assertIn('id="ai-insights-grid"', _HTML)
         self.assertIn('id="ai-insights-wrap"', _HTML)

@@ -4572,12 +4572,24 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .fw-ban-row  { display: flex; align-items: center; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); }
 .fw-rule-row code, .fw-ban-row code { font-size: 12px; word-break: break-all; }
 .fw-jail-hdr { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.fw-rule-row > button, .fw-ban-row > button { flex-shrink: 0; }
+.fw-detail-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fw-detail-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.fw-pending { opacity: .55; }
+.fw-pending code { text-decoration: line-through; }
+.fw-queued-note { font-size: 12px; color: var(--green); margin: 6px 0 2px; }
+/* selected-row highlight (firewall/fail2ban detail) */
+tr.row-selected td { background: rgba(127, 127, 127, .10); }
+tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 /* v4.10.0: AI Insights hub — one-click report/advisor cards. */
-.ai-insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 18px; }
+.ai-insight-cat { margin: 14px 0 6px; }
+.ai-insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 0 0 10px; }
 .ai-insight-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; color: inherit; }
 .ai-insight-card:hover { border-color: var(--accent); }
-.ai-insight-label { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+.ai-insight-top { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.ai-insight-icon { color: var(--accent); flex-shrink: 0; }
+.ai-insight-label { font-size: 14px; font-weight: 600; }
 .ai-insight-desc { font-size: 12px; color: var(--muted); }
 /* v3.13.0: drift profiles panel */
 .drift-prof-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }

@@ -522,7 +522,7 @@
         <!-- v4.1.0: upcoming calendar/scheduler events -->
         <div class="dash-card mt-16 mb-16" id="home-upcoming" data-widget="upcoming">
           <div class="row-8-center mb-6"><h3 class="m-0">Upcoming</h3><span class="fs-12 c-muted">next events from the calendar &amp; scheduler</span></div>
-          <div id="home-upcoming-body"><div class="skeleton skeleton-line med mb-6"></div><div class="skeleton skeleton-line long"></div></div>
+          <div id="home-upcoming-body" class="scroll-cap"><div class="skeleton skeleton-line med mb-6"></div><div class="skeleton skeleton-line long"></div></div>
         </div>
 
         <!-- v4.1.0: tickets — open (quick-ack) + recently acknowledged -->
@@ -551,7 +551,7 @@
         <!-- Fleet heat map (v3.4.2) -->
         <div class="dash-card mb-16" id="home-heatmap-card" data-widget="heatmap">
           <div class="row-8-center mb-6"><h3 class="m-0">Fleet heat map</h3><span class="fs-12 c-muted">health score per device — green healthy, red needs attention</span></div>
-          <div id="home-heatmap"></div>
+          <div id="home-heatmap" class="scroll-cap"></div>
         </div>
 
         <!-- Two-column: needs attention | recent activity -->
@@ -3769,7 +3769,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="ai-insights-wrap" class="d-none">
           <div class="section-title mt-8">AI Insights</div>
           <div class="page-subtitle">One-click AI reports and advisors over your fleet state — each runs against the configured provider with RAG context attached. <a href="docs/ai.md" class="c-accent">Documentation</a>.</div>
-          <div id="ai-insights-grid" class="ai-insights-grid"></div>
+          <div id="ai-insights-grid"></div>
         </div>
 
         <!-- Chat -->
@@ -3899,7 +3899,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="dash-card">
           <div id="timeline-kinds" class="mb-16 row-8-center"></div>
-          <div id="timeline-body"><div class="c-muted">Loading…</div></div>
+          <div id="timeline-body" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
       </div>
 

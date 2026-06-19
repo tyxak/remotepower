@@ -11784,36 +11784,61 @@ async function _aiPageLoadModels() {
 // configured provider via openAIModal (RAG + fleet context attached). `input`
 // (when set) prompts the operator for a target/question, folded into `msg` at %s.
 const AI_INSIGHTS = [
-  { key: 'ai_briefing',         label: 'Daily fleet briefing',        desc: 'What needs attention + what changed in the last day.', msg: "Write today's fleet operations briefing." },
-  { key: 'log_anomaly',         label: 'Log-anomaly digest',          desc: "What's abnormal or new in recent logs across the fleet.", msg: "What is abnormal or new in the recent logs across the fleet?" },
-  { key: 'alert_tuning',        label: 'Alert-noise tuning',          desc: 'Thresholds/mutes/dependencies to cut alert noise.', msg: "Recommend alert-noise reductions from recent alert and resolution history." },
-  { key: 'predict_maintenance', label: 'Predictive maintenance',      desc: 'Hardware likely to fail soon, and roughly when.', msg: "Which hardware is likely to fail soon, and roughly when?" },
-  { key: 'incident_rca',        label: 'Incident RCA',                desc: 'Root-cause narrative for the current top incident.', msg: "Write a root-cause analysis for the most significant current incident." },
-  { key: 'alert_group',         label: 'Group related alerts',        desc: 'Cluster open alerts into likely incidents.', msg: "Group the current open alerts into likely incidents." },
-  { key: 'cve_patch_plan',      label: 'CVE remediation plan',        desc: 'Staged KEV-first patch plan across the fleet.', msg: "Produce a staged CVE remediation plan for the fleet." },
-  { key: 'compliance_plan',     label: 'Compliance remediation plan', desc: 'Fleet-wide plan to close failing controls.', msg: "Produce a fleet-wide compliance remediation plan." },
-  { key: 'capacity_forecast',   label: 'Capacity & cost forecast',    desc: 'Where the fleet will hit limits, and when.', msg: "Write a capacity and growth forecast for the fleet." },
-  { key: 'dr_readiness',        label: 'Backup / DR readiness',       desc: 'Unprotected/stale backups and recovery gaps.', msg: "Assess the fleet's backup and disaster-recovery readiness." },
-  { key: 'email_deliverability',label: 'Email deliverability',        desc: 'DMARC/SPF/DKIM/DNSBL posture and fixes.', msg: "Assess our email deliverability (DMARC/SPF/DKIM/DNSBL) and recommend fixes." },
-  { key: 'change_risk',         label: 'Change-risk review',          desc: 'Assess a command/script before it runs.', input: 'Paste the command or script to review:', msg: "Assess the risk of running this before it runs:\n%s" },
-  { key: 'nl_fleet_query',      label: 'Fleet query (NL)',            desc: 'Plain-English → a structured fleet filter.', input: 'Describe the hosts you are looking for:', msg: "%s" },
-  { key: 'nl_monitor',          label: 'Create monitor from text',    desc: 'Plain-English → monitor/check definitions.', input: 'Describe what to monitor:', msg: "%s" },
-  { key: 'reverse_iac',         label: 'Reverse-IaC (Ansible)',       desc: "Generate Ansible reproducing a host's state.", input: 'Which host should I reverse-engineer into Ansible?', msg: "Generate an Ansible role reproducing the current state of host: %s" },
-  { key: 'firewall_audit',      label: 'Firewall auditor',            desc: "Audit a host's firewall ruleset for gaps.", input: "Which host's firewall should I audit?", msg: "Audit the firewall ruleset on host: %s" },
-  { key: 'dns_hygiene',         label: 'DNS hygiene advisor',         desc: 'Find DNS problems in a zone before they bite.', input: 'Which DNS zone / domain?', msg: "Audit DNS hygiene for zone: %s" },
-  { key: 'integration_assist',  label: 'Homelab assistant',           desc: 'Ask about your self-hosted services.', input: 'Your question about your homelab services:', msg: "%s" },
-  { key: 'supply_chain',        label: 'Supply-chain / SBOM Q&A',     desc: 'Are we exposed to a given CVE or package?', input: 'Which CVE or package are you asking about?', msg: "Supply-chain question — are we exposed to: %s" },
-  { key: 'host_profile',        label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
+  { key: 'ai_briefing',         cat: 'proactive', label: 'Daily fleet briefing',        desc: 'What needs attention + what changed in the last day.', msg: "Write today's fleet operations briefing." },
+  { key: 'log_anomaly',         cat: 'proactive', label: 'Log-anomaly digest',          desc: "What's abnormal or new in recent logs across the fleet.", msg: "What is abnormal or new in the recent logs across the fleet?" },
+  { key: 'alert_tuning',        cat: 'proactive', label: 'Alert-noise tuning',          desc: 'Thresholds/mutes/dependencies to cut alert noise.', msg: "Recommend alert-noise reductions from recent alert and resolution history." },
+  { key: 'predict_maintenance', cat: 'proactive', label: 'Predictive maintenance',      desc: 'Hardware likely to fail soon, and roughly when.', msg: "Which hardware is likely to fail soon, and roughly when?" },
+  { key: 'incident_rca',        cat: 'incident',  label: 'Incident RCA',                desc: 'Root-cause narrative for the current top incident.', msg: "Write a root-cause analysis for the most significant current incident." },
+  { key: 'alert_group',         cat: 'incident',  label: 'Group related alerts',        desc: 'Cluster open alerts into likely incidents.', msg: "Group the current open alerts into likely incidents." },
+  { key: 'change_risk',         cat: 'incident',  label: 'Change-risk review',          desc: 'Assess a command/script before it runs.', input: 'Paste the command or script to review:', msg: "Assess the risk of running this before it runs:\n%s" },
+  { key: 'cve_patch_plan',      cat: 'planning',  label: 'CVE remediation plan',        desc: 'Staged KEV-first patch plan across the fleet.', msg: "Produce a staged CVE remediation plan for the fleet." },
+  { key: 'compliance_plan',     cat: 'planning',  label: 'Compliance remediation plan', desc: 'Fleet-wide plan to close failing controls.', msg: "Produce a fleet-wide compliance remediation plan." },
+  { key: 'capacity_forecast',   cat: 'planning',  label: 'Capacity & cost forecast',    desc: 'Where the fleet will hit limits, and when.', msg: "Write a capacity and growth forecast for the fleet." },
+  { key: 'dr_readiness',        cat: 'planning',  label: 'Backup / DR readiness',       desc: 'Unprotected/stale backups and recovery gaps.', msg: "Assess the fleet's backup and disaster-recovery readiness." },
+  { key: 'nl_fleet_query',      cat: 'nlconfig',  label: 'Fleet query (NL)',            desc: 'Plain-English → a structured fleet filter.', input: 'Describe the hosts you are looking for:', msg: "%s" },
+  { key: 'nl_monitor',          cat: 'nlconfig',  label: 'Create monitor from text',    desc: 'Plain-English → monitor/check definitions.', input: 'Describe what to monitor:', msg: "%s" },
+  { key: 'reverse_iac',         cat: 'nlconfig',  label: 'Reverse-IaC (Ansible)',       desc: "Generate Ansible reproducing a host's state.", input: 'Which host should I reverse-engineer into Ansible?', msg: "Generate an Ansible role reproducing the current state of host: %s" },
+  { key: 'firewall_audit',      cat: 'advisors',  label: 'Firewall auditor',            desc: "Audit a host's firewall ruleset for gaps.", input: "Which host's firewall should I audit?", msg: "Audit the firewall ruleset on host: %s" },
+  { key: 'dns_hygiene',         cat: 'advisors',  label: 'DNS hygiene advisor',         desc: 'Find DNS problems in a zone before they bite.', input: 'Which DNS zone / domain?', msg: "Audit DNS hygiene for zone: %s" },
+  { key: 'email_deliverability',cat: 'advisors',  label: 'Email deliverability',        desc: 'DMARC/SPF/DKIM/DNSBL posture and fixes.', msg: "Assess our email deliverability (DMARC/SPF/DKIM/DNSBL) and recommend fixes." },
+  { key: 'integration_assist',  cat: 'advisors',  label: 'Homelab assistant',           desc: 'Ask about your self-hosted services.', input: 'Your question about your homelab services:', msg: "%s" },
+  { key: 'supply_chain',        cat: 'advisors',  label: 'Supply-chain / SBOM Q&A',     desc: 'Are we exposed to a given CVE or package?', input: 'Which CVE or package are you asking about?', msg: "Supply-chain question — are we exposed to: %s" },
+  { key: 'host_profile',        cat: 'advisors',  label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
 ];
+
+const _AI_CATS = [
+  ['proactive', 'Proactive'],
+  ['incident',  'Incident response'],
+  ['planning',  'Planning & remediation'],
+  ['nlconfig',  'Natural language → config'],
+  ['advisors',  'Advisors'],
+];
+const _AI_CAT_ICON = {
+  proactive: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  incident:  '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  planning:  '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  nlconfig:  '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  advisors:  '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+};
+function _aiIcon(cat) {
+  return `<svg class="ai-insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round">${_AI_CAT_ICON[cat] || ''}</svg>`;
+}
 
 function _renderAIInsights() {
   const grid = document.getElementById('ai-insights-grid');
   if (!grid) return;
-  grid.innerHTML = AI_INSIGHTS.map(it =>
-    `<button class="ai-insight-card" data-action="aiInsight" data-arg="${escAttr(it.key)}" title="${escAttr(it.desc)}">
-       <div class="ai-insight-label">${escHtml(it.label)}</div>
-       <div class="ai-insight-desc">${escHtml(it.desc)}</div>
-     </button>`).join('');
+  let html = '';
+  for (const [cat, label] of _AI_CATS) {
+    const items = AI_INSIGHTS.filter(x => x.cat === cat);
+    if (!items.length) continue;
+    html += `<div class="section-title ai-insight-cat">${escHtml(label)}</div>`;
+    html += '<div class="ai-insights-grid">' + items.map(it =>
+      `<button class="ai-insight-card" data-action="aiInsight" data-arg="${escAttr(it.key)}" title="${escAttr(it.desc)}">
+         <div class="ai-insight-top">${_aiIcon(cat)}<span class="ai-insight-label">${escHtml(it.label)}</span></div>
+         <div class="ai-insight-desc">${escHtml(it.desc)}</div>
+       </button>`).join('') + '</div>';
+  }
+  grid.innerHTML = html;
 }
 
 function aiFirewallAudit(devName) {
@@ -12684,7 +12709,7 @@ function _renderFirewall() {
     const totalRules = (r.backends || []).reduce((a, b) => a + (b.rules || 0), 0);
     const fp = r.fp ? `<code class="hint" title="${escAttr(r.fp_backend + ' · ' + r.fp_rules + ' rules')}">${escHtml(String(r.fp).slice(0, 12))}</code>` : '<span class="hint">—</span>';
     const mon = r.monitored === false ? ' <span class="pill" data-color="var(--muted)">unmonitored</span>' : '';
-    return `<tr>
+    return `<tr data-fwrow="${escAttr(r.device_id)}">
       <td class="fw-500">${escHtml(r.device)}${mon}</td>
       <td>${beHtml}</td>
       <td>${_fwStateBadge(r.active)}</td>
@@ -12697,7 +12722,7 @@ function _renderFirewall() {
 
 function _fwRuleRow(devId, backend, r, editable) {
   const del = (editable && r.ref)
-    ? `<button class="btn-icon cell-sm" data-action="firewallRuleDelete" data-arg="${escAttr(devId)}" data-arg2="${escAttr(backend)}" data-arg3="${escAttr(r.ref)}" title="Delete this rule">Delete</button>`
+    ? `<button class="btn-icon cell-sm" data-action="firewallRuleDelete" data-arg="${escAttr(devId)}" data-arg2="${escAttr(backend)}" data-arg3="${escAttr(r.ref)}" data-pass-btn="1" title="Delete this rule">Delete</button>`
     : '';
   return `<div class="fw-rule-row"><code>${escHtml(r.text)}</code>${del}</div>`;
 }
@@ -12737,7 +12762,7 @@ async function firewallDetail(devId, devName) {
   if (!dev) { panel.innerHTML = '<div class="hint">No detail available.</div>'; return; }
   const editable = new Set(['nftables', 'iptables', 'ufw', 'firewalld']);
   const _dn = devName || dev.device;
-  let html = `<div class="dash-card"><div class="section-title">Firewall rules — ${escHtml(_dn)} <button class="btn-icon cell-sm" data-action="aiFirewallAudit" data-arg="${escAttr(_dn)}" title="AI: audit this firewall for gaps">AI audit</button></div>`;
+  let html = `<div class="dash-card"><div class="fw-detail-hdr"><div class="section-title">Firewall rules — ${escHtml(_dn)}</div><div class="fw-detail-actions"><button class="btn-icon cell-sm" data-action="aiFirewallAudit" data-arg="${escAttr(_dn)}" title="AI: audit this firewall for gaps">AI audit</button><button class="btn-icon cell-sm" data-action="firewallDetailClose" title="Close" aria-label="Close">${_FW_X_SVG}</button></div></div>`;
   let any = false;
   for (const be of (dev.backends || [])) {
     if (!be.present) continue;
@@ -12752,6 +12777,8 @@ async function firewallDetail(devId, devName) {
   if (!any) html += '<div class="hint mt-8">No firewall backends present on this host.</div>';
   html += '</div>';
   panel.innerHTML = html;
+  _fwSelectRow('firewall-tbody', 'fwrow', dev.device_id);
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function firewallRuleAdd(devId, backend) {
@@ -12771,15 +12798,17 @@ async function firewallRuleAdd(devId, backend) {
   try {
     await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec });
     toast('Rule queued — applies on the next agent check-in', 'success');
+    _fwQueuedNote('firewall-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
 }
 
-async function firewallRuleDelete(devId, backend, ref) {
+async function firewallRuleDelete(devId, backend, ref, btn) {
   const ok = await uiConfirm({ title: 'Delete firewall rule', message: `Delete this ${backend} rule from the host? It is removed on the next agent check-in.`, confirmText: 'Delete', danger: true });
   if (!ok) return;
   try {
     await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref) });
     toast('Delete queued', 'success');
+    _fwMarkPending(btn); _fwQueuedNote('firewall-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
 }
 
@@ -12819,14 +12848,14 @@ function _renderFail2ban() {
   tbody.innerHTML = rows.map(r => {
     const mon = r.monitored === false ? ' <span class="pill" data-color="var(--muted)">unmonitored</span>' : '';
     if (!r.available) {
-      return `<tr><td class="fw-500">${escHtml(r.device)}${mon}</td><td colspan="2" class="hint">fail2ban not installed / unreachable</td><td><span class="pill" data-color="var(--muted)">n/a</span></td><td></td></tr>`;
+      return `<tr data-f2brow="${escAttr(r.device_id)}"><td class="fw-500">${escHtml(r.device)}${mon}</td><td colspan="2" class="hint">fail2ban not installed / unreachable</td><td><span class="pill" data-color="var(--muted)">n/a</span></td><td></td></tr>`;
     }
     const jailNames = (r.jails || []).map(j => escHtml(j.name)).join(', ') || '<span class="hint">none</span>';
-    return `<tr>
+    return `<tr data-f2brow="${escAttr(r.device_id)}">
       <td class="fw-500">${escHtml(r.device)}${mon}</td>
       <td>${jailNames}</td>
       <td class="hint">${r.banned_total || 0}</td>
-      <td>${_fwStateBadge(true)}</td>
+      <td><span class="pill" data-color="var(--green)">running</span></td>
       <td><button class="btn-icon cell-sm" data-action="fail2banDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}">Manage</button></td>
     </tr>`;
   }).join('');
@@ -12841,7 +12870,7 @@ async function fail2banDetail(devId, devName) {
   catch (e) { panel.innerHTML = `<div class="hint">Failed: ${escHtml(String(e))}</div>`; return; }
   const dev = (data.devices || [])[0];
   if (!dev || !dev.available) { panel.innerHTML = '<div class="hint">fail2ban not available on this host.</div>'; return; }
-  let html = `<div class="dash-card"><div class="section-title">fail2ban — ${escHtml(devName || dev.device)}</div>`;
+  let html = `<div class="dash-card"><div class="fw-detail-hdr"><div class="section-title">fail2ban — ${escHtml(devName || dev.device)}</div><div class="fw-detail-actions"><button class="btn-icon cell-sm" data-action="fail2banDetailClose" title="Close" aria-label="Close">${_FW_X_SVG}</button></div></div>`;
   if (!(dev.jails || []).length) html += '<div class="hint mt-8">No jails configured.</div>';
   for (const j of (dev.jails || [])) {
     const did = escAttr(dev.device_id), jn = escAttr(j.name);
@@ -12852,13 +12881,15 @@ async function fail2banDetail(devId, devName) {
     const banned = j.banned || [];
     if (banned.length) {
       html += '<div class="scroll-cap mt-8 fw-rules">' + banned.map(ip =>
-        `<div class="fw-ban-row"><code>${escHtml(ip)}</code><button class="btn-icon cell-sm" data-action="fail2banUnban" data-arg="${did}" data-arg2="${jn}" data-arg3="${escAttr(ip)}">Unban</button></div>`).join('') + '</div>';
+        `<div class="fw-ban-row"><code>${escHtml(ip)}</code><button class="btn-icon cell-sm" data-action="fail2banUnban" data-arg="${did}" data-arg2="${jn}" data-arg3="${escAttr(ip)}" data-pass-btn="1">Unban</button></div>`).join('') + '</div>';
     } else {
       html += '<div class="hint mt-4">No banned IPs.</div>';
     }
   }
   html += '</div>';
   panel.innerHTML = html;
+  _fwSelectRow('fail2ban-tbody', 'f2brow', dev.device_id);
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function fail2banBan(devId, jail) {
@@ -12867,13 +12898,15 @@ async function fail2banBan(devId, jail) {
   try {
     await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'ban', jail, ip });
     toast('Ban queued', 'success');
+    _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
 }
 
-async function fail2banUnban(devId, jail, ip) {
+async function fail2banUnban(devId, jail, ip, btn) {
   try {
     await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'unban', jail, ip: String(ip) });
     toast('Unban queued', 'success');
+    _fwMarkPending(btn); _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
 }
 
@@ -12884,7 +12917,50 @@ async function fail2banJail(devId, jail, action) {
   try {
     await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action, jail });
     toast('Queued', 'success');
+    _fwQueuedNote('fail2ban-detail');
   } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
+// ── Firewall/fail2ban detail-panel UX helpers (v4.10.0 polish) ───────────────
+const _FW_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+function _fwSelectRow(tbodyId, key, devId) {
+  const tb = document.getElementById(tbodyId);
+  if (!tb) return;
+  tb.querySelectorAll('tr').forEach(r => r.classList.toggle('row-selected', r.dataset[key] === devId));
+}
+function _fwClearSel(tbodyId) {
+  const tb = document.getElementById(tbodyId);
+  if (tb) tb.querySelectorAll('tr.row-selected').forEach(r => r.classList.remove('row-selected'));
+}
+function _fwMarkPending(btn) {
+  if (!btn) return;
+  const row = btn.closest('.fw-rule-row, .fw-ban-row');
+  if (row) row.classList.add('fw-pending');
+  btn.disabled = true;
+  btn.textContent = 'queued';
+}
+function _fwQueuedNote(panelId) {
+  const card = document.querySelector('#' + panelId + ' .dash-card');
+  if (!card) return;
+  let note = card.querySelector('.fw-queued-note');
+  if (!note) {
+    note = document.createElement('div');
+    note.className = 'fw-queued-note';
+    const hdr = card.querySelector('.fw-detail-hdr');
+    if (hdr && hdr.nextSibling) card.insertBefore(note, hdr.nextSibling); else card.appendChild(note);
+  }
+  const n = (parseInt(note.dataset.n || '0', 10) || 0) + 1;
+  note.dataset.n = n;
+  note.textContent = `Queued: ${n} change${n > 1 ? 's' : ''} — apply on the host's next check-in.`;
+}
+function firewallDetailClose() {
+  const p = document.getElementById('firewall-detail'); if (p) p.innerHTML = '';
+  _fwClearSel('firewall-tbody');
+}
+function fail2banDetailClose() {
+  const p = document.getElementById('fail2ban-detail'); if (p) p.innerHTML = '';
+  _fwClearSel('fail2ban-tbody');
 }
 
 async function loadExposure() {
