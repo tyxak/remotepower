@@ -47,6 +47,27 @@ So the assistant can now answer "which hosts have no firewall?", "is fail2ban
 running on web01?", "which integrations are down?" and "are db01's backups
 current?" directly from indexed state. Toggle each in Settings → AI → RAG.
 
+### AI Insights — 20 new AI features
+
+The **AI Assistant** page gains an **AI Insights** hub: one-click reports and
+advisors that run against your configured provider with RAG/fleet context
+attached. New capabilities:
+
+- **Proactive:** daily fleet briefing · log-anomaly digest · alert-noise tuning
+  advisor · predictive-maintenance narrative.
+- **Incident:** incident root-cause narrative · group-related-alerts ·
+  pre-run change-risk review.
+- **Natural language → config:** fleet query → structured filter · monitor/check
+  from a sentence · reverse-IaC (Ansible from a host's live state).
+- **Planning:** CVE remediation plan (KEV-first, staged) · compliance
+  remediation plan · capacity & cost forecast · backup/DR-readiness advisor.
+- **Advisors:** firewall rule auditor (also a button on the Firewall page) · DNS
+  hygiene · email deliverability (DMARC/SPF/DKIM/DNSBL) · homelab integration
+  assistant · supply-chain/SBOM Q&A · host one-pager.
+
+Each is a tunable system prompt (Settings → AI → Prompts), rate-limited,
+audited, and redaction-aware like the existing AI actions.
+
 - **DNS dashboard (Admin → DNS).** Pick a provider and zone; list, create, edit
   and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records with TTL,
   MX/SRV priority and Cloudflare's proxied flag.

@@ -3765,6 +3765,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
              stays (AI-page JS toggles its visibility) but is intentionally empty. -->
         <div id="ai-page-tools" class="d-none"></div>
 
+        <!-- v4.10.0: AI Insights — one-click fleet reports + advisors -->
+        <div id="ai-insights-wrap" class="d-none">
+          <div class="section-title mt-8">AI Insights</div>
+          <div class="page-subtitle">One-click AI reports and advisors over your fleet state — each runs against the configured provider with RAG context attached. <a href="docs/ai.md" class="c-accent">Documentation</a>.</div>
+          <div id="ai-insights-grid" class="ai-insights-grid"></div>
+        </div>
+
         <!-- Chat -->
         <div id="ai-page-chat-wrap" class="d-none">
           <div class="isl-113">

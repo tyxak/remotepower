@@ -11780,6 +11780,59 @@ async function _aiPageLoadModels() {
   }
 }
 
+// v4.10.0: AI Insights hub. Each entry runs one SYSTEM_PROMPTS key against the
+// configured provider via openAIModal (RAG + fleet context attached). `input`
+// (when set) prompts the operator for a target/question, folded into `msg` at %s.
+const AI_INSIGHTS = [
+  { key: 'ai_briefing',         label: 'Daily fleet briefing',        desc: 'What needs attention + what changed in the last day.', msg: "Write today's fleet operations briefing." },
+  { key: 'log_anomaly',         label: 'Log-anomaly digest',          desc: "What's abnormal or new in recent logs across the fleet.", msg: "What is abnormal or new in the recent logs across the fleet?" },
+  { key: 'alert_tuning',        label: 'Alert-noise tuning',          desc: 'Thresholds/mutes/dependencies to cut alert noise.', msg: "Recommend alert-noise reductions from recent alert and resolution history." },
+  { key: 'predict_maintenance', label: 'Predictive maintenance',      desc: 'Hardware likely to fail soon, and roughly when.', msg: "Which hardware is likely to fail soon, and roughly when?" },
+  { key: 'incident_rca',        label: 'Incident RCA',                desc: 'Root-cause narrative for the current top incident.', msg: "Write a root-cause analysis for the most significant current incident." },
+  { key: 'alert_group',         label: 'Group related alerts',        desc: 'Cluster open alerts into likely incidents.', msg: "Group the current open alerts into likely incidents." },
+  { key: 'cve_patch_plan',      label: 'CVE remediation plan',        desc: 'Staged KEV-first patch plan across the fleet.', msg: "Produce a staged CVE remediation plan for the fleet." },
+  { key: 'compliance_plan',     label: 'Compliance remediation plan', desc: 'Fleet-wide plan to close failing controls.', msg: "Produce a fleet-wide compliance remediation plan." },
+  { key: 'capacity_forecast',   label: 'Capacity & cost forecast',    desc: 'Where the fleet will hit limits, and when.', msg: "Write a capacity and growth forecast for the fleet." },
+  { key: 'dr_readiness',        label: 'Backup / DR readiness',       desc: 'Unprotected/stale backups and recovery gaps.', msg: "Assess the fleet's backup and disaster-recovery readiness." },
+  { key: 'email_deliverability',label: 'Email deliverability',        desc: 'DMARC/SPF/DKIM/DNSBL posture and fixes.', msg: "Assess our email deliverability (DMARC/SPF/DKIM/DNSBL) and recommend fixes." },
+  { key: 'change_risk',         label: 'Change-risk review',          desc: 'Assess a command/script before it runs.', input: 'Paste the command or script to review:', msg: "Assess the risk of running this before it runs:\n%s" },
+  { key: 'nl_fleet_query',      label: 'Fleet query (NL)',            desc: 'Plain-English → a structured fleet filter.', input: 'Describe the hosts you are looking for:', msg: "%s" },
+  { key: 'nl_monitor',          label: 'Create monitor from text',    desc: 'Plain-English → monitor/check definitions.', input: 'Describe what to monitor:', msg: "%s" },
+  { key: 'reverse_iac',         label: 'Reverse-IaC (Ansible)',       desc: "Generate Ansible reproducing a host's state.", input: 'Which host should I reverse-engineer into Ansible?', msg: "Generate an Ansible role reproducing the current state of host: %s" },
+  { key: 'firewall_audit',      label: 'Firewall auditor',            desc: "Audit a host's firewall ruleset for gaps.", input: "Which host's firewall should I audit?", msg: "Audit the firewall ruleset on host: %s" },
+  { key: 'dns_hygiene',         label: 'DNS hygiene advisor',         desc: 'Find DNS problems in a zone before they bite.', input: 'Which DNS zone / domain?', msg: "Audit DNS hygiene for zone: %s" },
+  { key: 'integration_assist',  label: 'Homelab assistant',           desc: 'Ask about your self-hosted services.', input: 'Your question about your homelab services:', msg: "%s" },
+  { key: 'supply_chain',        label: 'Supply-chain / SBOM Q&A',     desc: 'Are we exposed to a given CVE or package?', input: 'Which CVE or package are you asking about?', msg: "Supply-chain question — are we exposed to: %s" },
+  { key: 'host_profile',        label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
+];
+
+function _renderAIInsights() {
+  const grid = document.getElementById('ai-insights-grid');
+  if (!grid) return;
+  grid.innerHTML = AI_INSIGHTS.map(it =>
+    `<button class="ai-insight-card" data-action="aiInsight" data-arg="${escAttr(it.key)}" title="${escAttr(it.desc)}">
+       <div class="ai-insight-label">${escHtml(it.label)}</div>
+       <div class="ai-insight-desc">${escHtml(it.desc)}</div>
+     </button>`).join('');
+}
+
+function aiFirewallAudit(devName) {
+  openAIModal({ title: 'Firewall auditor', system: 'firewall_audit',
+    userMsg: `Audit the firewall ruleset on host: ${devName}`, context: 'fleet', maxTokens: 1800 });
+}
+
+async function aiInsight(key) {
+  const it = AI_INSIGHTS.find(x => x.key === key);
+  if (!it) return;
+  let msg = it.msg;
+  if (it.input) {
+    const v = await uiPrompt({ title: it.label, message: it.input, confirmText: 'Run' });
+    if (!v || !v.trim()) return;
+    msg = it.msg.replace('%s', v.trim());
+  }
+  openAIModal({ title: it.label, system: it.key, userMsg: msg, context: 'fleet', maxTokens: 1800 });
+}
+
 async function loadAIPage() {
   _aiPageLoadConv();
   _aiPageRenderConv();
@@ -11791,6 +11844,7 @@ async function loadAIPage() {
   // only the *inline* property — the class rule keeps the element
   // hidden. Reveal must use an explicit display value (same lesson as
   // the v3.0.3 #pwa-install-btn fix).
+  { const _iw0 = document.getElementById('ai-insights-wrap'); if (_iw0) _iw0.style.display = 'none'; }
   if (!cfg.ok && cfg.error && /disabled/i.test(cfg.error)) {
     document.getElementById('ai-page-disabled').style.display = 'block';
     document.getElementById('ai-page-status').style.display = 'none';
@@ -11809,6 +11863,8 @@ async function loadAIPage() {
   document.getElementById('ai-page-status').style.display = 'block';
   document.getElementById('ai-page-chat-wrap').style.display = 'block';
   document.getElementById('ai-page-tools').style.display = 'block';
+  const _iw = document.getElementById('ai-insights-wrap');
+  if (_iw) { _iw.style.display = 'block'; _renderAIInsights(); }
 
   // Fire these in parallel — they don't depend on each other
   aiPageRefreshStats();
@@ -12680,7 +12736,8 @@ async function firewallDetail(devId, devName) {
   const dev = (data.devices || [])[0];
   if (!dev) { panel.innerHTML = '<div class="hint">No detail available.</div>'; return; }
   const editable = new Set(['nftables', 'iptables', 'ufw', 'firewalld']);
-  let html = `<div class="dash-card"><div class="section-title">Firewall rules — ${escHtml(devName || dev.device)}</div>`;
+  const _dn = devName || dev.device;
+  let html = `<div class="dash-card"><div class="section-title">Firewall rules — ${escHtml(_dn)} <button class="btn-icon cell-sm" data-action="aiFirewallAudit" data-arg="${escAttr(_dn)}" title="AI: audit this firewall for gaps">AI audit</button></div>`;
   let any = false;
   for (const be of (dev.backends || [])) {
     if (!be.present) continue;

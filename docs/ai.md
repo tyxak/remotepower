@@ -144,6 +144,30 @@ Per-button max_tokens overrides are also applied client-side so a
 The server still respects your configured global cap — the
 per-button value is a *floor*, not a *raise*.
 
+## AI Insights hub
+
+The **AI Assistant** page hosts an **AI Insights** grid — 20 one-click reports
+and advisors that run a focused system prompt against your fleet with RAG +
+fleet context attached automatically. They fall into five groups:
+
+- **Proactive** — daily fleet briefing, log-anomaly digest, alert-noise tuning,
+  predictive-maintenance narrative.
+- **Incident** — root-cause narrative, group-related-alerts, pre-run
+  change-risk review.
+- **Natural language → config** — fleet query → filter, monitor/check from a
+  sentence, reverse-IaC (Ansible from a host's live state). These return a
+  structured draft (JSON / YAML) for you to review.
+- **Planning** — CVE remediation plan, compliance remediation plan, capacity &
+  cost forecast, backup/DR-readiness.
+- **Advisors** — firewall auditor, DNS hygiene, email deliverability, homelab
+  integration assistant, supply-chain/SBOM Q&A, host one-pager.
+
+Cards marked with an input prompt you for a target (a host, zone, CVE, or a
+command to review) first. Every Insight is a tunable prompt
+(Settings → AI → Prompts), rate-limited and redaction-aware like the inline
+Explain/Investigate buttons below. The firewall auditor is also reachable as an
+**AI audit** button on each host in the Firewall page.
+
 ## button inventory
 
 | Location | Label | What gets sent |

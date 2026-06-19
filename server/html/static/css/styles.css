@@ -4572,6 +4572,13 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .fw-ban-row  { display: flex; align-items: center; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); }
 .fw-rule-row code, .fw-ban-row code { font-size: 12px; word-break: break-all; }
 .fw-jail-hdr { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+/* v4.10.0: AI Insights hub — one-click report/advisor cards. */
+.ai-insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 18px; }
+.ai-insight-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; color: inherit; }
+.ai-insight-card:hover { border-color: var(--accent); }
+.ai-insight-label { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+.ai-insight-desc { font-size: 12px; color: var(--muted); }
 /* v3.13.0: drift profiles panel */
 .drift-prof-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .drift-prof-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
