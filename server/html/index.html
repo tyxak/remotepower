@@ -5119,16 +5119,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">DNS</div>
         <div class="page-subtitle">View and edit DNS records directly through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun). Credentials are the scoped API tokens you already configured under ACME → DNS credentials — set them there once and they drive both certificate issuance and this dashboard.</div>
 
-        <div class="toolbar">
-          <select id="dns-provider" class="form-input isl-177" aria-label="DNS provider"></select>
-          <select id="dns-zone" class="form-input isl-177" aria-label="DNS zone"></select>
-          <button class="btn-icon" data-action="openDnsRecord">+ New record</button>
-          <button class="btn-icon" data-action="loadDnsRecords"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <span id="dns-status" class="hint"></span>
-        </div>
-        <div id="dns-vault-bar" class="toolbar"></div>
-        <div id="dns-agent-bar" class="toolbar"></div>
-        <div class="table-card">
+        <!-- Records -->
+        <div class="dash-card">
+          <div class="section-title">Records</div>
+          <div class="toolbar">
+            <select id="dns-provider" class="form-input isl-177" aria-label="DNS provider"></select>
+            <select id="dns-zone" class="form-input isl-177" aria-label="DNS zone"></select>
+            <button class="btn-icon" data-action="openDnsRecord">+ New record</button>
+            <button class="btn-icon" data-action="loadDnsRecords"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <span id="dns-status" class="hint"></span>
+          </div>
+          <div id="dns-vault-bar" class="toolbar"></div>
+          <div id="dns-agent-bar" class="toolbar"></div>
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead id="dns-thead"><tr>
@@ -5145,30 +5147,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <!-- v4.9.0 ResolutionMatters: live resolve/dig + propagation -->
-        <div class="section-title mt-16">Resolve / dig</div>
-        <div class="page-subtitle">Query a name live and compare what the zone's authoritative nameservers serve against public resolvers — surfacing drift between provider state and what actually resolves. After an edit, check how far the change has propagated across resolvers.</div>
-        <div class="toolbar">
-          <input type="text" id="dns-resolve-name" class="form-input isl-177" placeholder="name e.g. www.example.com" aria-label="DNS name to resolve">
-          <select id="dns-resolve-type" class="form-input" aria-label="record type"></select>
-          <button class="btn-icon" data-action="dnsResolve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Resolve</button>
-          <button class="btn-icon" data-action="dnsPropagation">Check propagation</button>
-          <span id="dns-resolve-status" class="hint"></span>
+        <div class="dash-card">
+          <div class="section-title">Resolve / dig</div>
+          <div class="page-subtitle">Query a name live and compare what the zone's authoritative nameservers serve against public resolvers — surfacing drift between provider state and what actually resolves. After an edit, check how far the change has propagated across resolvers.</div>
+          <div class="toolbar">
+            <input type="text" id="dns-resolve-name" class="form-input isl-177" placeholder="name e.g. www.example.com" aria-label="DNS name to resolve">
+            <select id="dns-resolve-type" class="form-input input-auto" aria-label="record type"></select>
+            <button class="btn-icon" data-action="dnsResolve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Resolve</button>
+            <button class="btn-icon" data-action="dnsPropagation">Check propagation</button>
+            <span id="dns-resolve-status" class="hint"></span>
+          </div>
+          <div id="dns-resolve-results"></div>
         </div>
-        <div id="dns-resolve-results"></div>
 
         <!-- v4.9.0 ResolutionMatters #3: resolver health monitor -->
-        <div class="section-title mt-16">Resolver health monitor</div>
-        <div class="page-subtitle">Track whether monitored names keep resolving across public resolvers, with per-resolver latency and NXDOMAIN/failure rates. Auto-rechecks periodically and raises an alert when a name stops resolving.</div>
-        <div class="toolbar">
-          <input type="text" id="rslv-name" class="form-input isl-177" placeholder="name e.g. mail.example.com" aria-label="name to monitor">
-          <select id="rslv-type" class="form-input" aria-label="record type"></select>
-          <input type="text" id="rslv-label" class="form-input isl-177" placeholder="label (optional)" aria-label="label">
-          <button class="btn-icon" data-action="resolverHealthAdd">+ Monitor name</button>
-          <button class="btn-icon" data-action="resolverHealthScan">Check now</button>
-          <button class="btn-icon" data-action="loadResolverHealth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <span id="rslv-status" class="hint"></span>
-        </div>
-        <div class="table-card">
+        <div class="dash-card">
+          <div class="section-title">Resolver health monitor</div>
+          <div class="page-subtitle">Track whether monitored names keep resolving across public resolvers, with per-resolver latency and NXDOMAIN/failure rates. Auto-rechecks periodically and raises an alert when a name stops resolving.</div>
+          <div class="toolbar">
+            <input type="text" id="rslv-name" class="form-input isl-177" placeholder="name e.g. mail.example.com" aria-label="name to monitor">
+            <select id="rslv-type" class="form-input input-auto" aria-label="record type"></select>
+            <input type="text" id="rslv-label" class="form-input isl-177" placeholder="label (optional)" aria-label="label">
+            <button class="btn-icon" data-action="resolverHealthAdd">+ Monitor name</button>
+            <button class="btn-icon" data-action="resolverHealthScan">Check now</button>
+            <button class="btn-icon" data-action="loadResolverHealth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <span id="rslv-status" class="hint"></span>
+          </div>
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead><tr>
