@@ -1442,6 +1442,7 @@ function showPage(name, btn) {
   if (name === 'rollouts')   loadRollouts();
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
+  if (name === 'firewall')   loadFirewall();
   if (name === 'storage')    loadStorage();
   if (name === 'integrations') loadIntegrationsPage();
   if (name === 'gpus')       loadGpus();
@@ -12567,6 +12568,236 @@ document.addEventListener('input', e => {
 // ─── v3.11.0: Exposure (attack-surface) ──────────────────────────────────────
 let _exposureResp = null;
 let _exposureScope = '';
+// ── v4.10.0: Firewall + fail2ban page (visibility + edit) ────────────────────
+let _firewallResp = null;
+let _fail2banResp = null;
+
+function _fwStateBadge(active) {
+  if (active === true)  return '<span class="pill" data-color="var(--green)">active</span>';
+  if (active === false) return '<span class="pill" data-color="var(--red)">inactive</span>';
+  return '<span class="pill" data-color="var(--muted)">unknown</span>';
+}
+
+async function loadFirewall() {
+  const tbody = document.getElementById('firewall-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('firewall-thead', 'firewall', () => _renderFirewall());
+  tbody.innerHTML = _skeletonRows(6);
+  try {
+    const data = await api('GET', '/firewall');
+    _firewallResp = data;
+    const sm = document.getElementById('firewall-summary');
+    if (sm) {
+      const off = (data.devices || []).filter(d => d.active === false).length;
+      sm.textContent = `${data.count} host(s) · ${off} with no active firewall`;
+    }
+    _renderFirewall();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hint">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+  loadFail2ban();   // sibling table on the same page
+}
+
+function _renderFirewall() {
+  const tbody = document.getElementById('firewall-tbody');
+  if (!tbody || !_firewallResp) return;
+  let rows = (_firewallResp.devices || []).slice();
+  rows = tableCtl.sortRows('firewall', rows, (r) => ({
+    device:  (r.device || '').toLowerCase(),
+    backend: (r.backends || []).map(b => b.name).join(','),
+    active:  r.active === false ? 0 : (r.active === true ? 2 : 1),
+    rules:   (r.backends || []).reduce((a, b) => a + (b.rules || 0), 0),
+    fp:      r.fp || '',
+  }));
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="hint">No firewall data reported yet. Agents must be on v3.12.0+.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const bes = (r.backends || []).filter(b => b.present);
+    const beHtml = bes.length
+      ? bes.map(b => `<span class="pill" data-color="var(--muted)" title="${escAttr((b.policy ? ('policy ' + b.policy) : '') || (b.default ? ('default ' + b.default) : ''))}">${escHtml(b.name)}${b.active === false ? ' off' : ''}</span>`).join(' ')
+      : '<span class="hint">none</span>';
+    const totalRules = (r.backends || []).reduce((a, b) => a + (b.rules || 0), 0);
+    const fp = r.fp ? `<code class="hint" title="${escAttr(r.fp_backend + ' · ' + r.fp_rules + ' rules')}">${escHtml(String(r.fp).slice(0, 12))}</code>` : '<span class="hint">—</span>';
+    const mon = r.monitored === false ? ' <span class="pill" data-color="var(--muted)">unmonitored</span>' : '';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}${mon}</td>
+      <td>${beHtml}</td>
+      <td>${_fwStateBadge(r.active)}</td>
+      <td class="hint">${totalRules}</td>
+      <td>${fp}</td>
+      <td><button class="btn-icon cell-sm" data-action="firewallDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}">Rules</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function firewallDetail(devId, devName) {
+  const panel = document.getElementById('firewall-detail');
+  if (!panel) return;
+  panel.innerHTML = '<div class="hint">Loading rules…</div>';
+  let data;
+  try { data = await api('GET', '/firewall?device=' + encodeURIComponent(devId)); }
+  catch (e) { panel.innerHTML = `<div class="hint">Failed: ${escHtml(String(e))}</div>`; return; }
+  const dev = (data.devices || [])[0];
+  if (!dev) { panel.innerHTML = '<div class="hint">No detail available.</div>'; return; }
+  const editable = new Set(['nftables', 'iptables', 'ufw', 'firewalld']);
+  let html = `<div class="dash-card"><div class="section-title">Firewall rules — ${escHtml(devName || dev.device)}</div>`;
+  let any = false;
+  for (const be of (dev.backends || [])) {
+    if (!be.present) continue;
+    any = true;
+    html += `<div class="mt-12"><strong>${escHtml(be.name)}</strong> ${_fwStateBadge(be.active)} <span class="hint">${be.rules || 0} rule(s)${be.policy ? (' · policy ' + escHtml(be.policy)) : ''}${be.default ? (' · ' + escHtml(be.default)) : ''}</span></div>`;
+    const rl = be.rule_list || [];
+    if (rl.length) {
+      html += '<div class="scroll-cap mt-8"><table class="data-table w-full"><tbody>';
+      html += rl.map(rr => `<tr><td class="hint"><code>${escHtml(rr.text)}</code></td><td class="cell-sm">${editable.has(be.name) && rr.ref ? `<button class="btn-icon cell-sm" data-action="firewallRuleDelete" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(be.name)}" data-arg3="${escAttr(rr.ref)}" title="Delete this rule">Delete</button>` : ''}</td></tr>`).join('');
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div class="hint mt-4">No rules listed (or not readable without root).</div>';
+    }
+    if (editable.has(be.name)) {
+      html += `<div class="mt-8"><button class="btn-icon cell-sm" data-action="firewallRuleAdd" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(be.name)}">+ Add ${escHtml(be.name)} rule</button></div>`;
+    }
+  }
+  if (!any) html += '<div class="hint mt-8">No firewall backends present on this host.</div>';
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+async function firewallRuleAdd(devId, backend) {
+  const examples = {
+    iptables:  '-A INPUT -p tcp --dport 22 -j ACCEPT',
+    nftables:  'add rule inet filter input tcp dport 22 accept',
+    ufw:       'allow 22/tcp',
+    firewalld: '--add-port=22/tcp',
+  };
+  const spec = await uiPrompt({
+    title: `Add ${backend} rule`,
+    message: `Enter the rule spec (e.g. "${examples[backend] || ''}"). Only letters, digits and rule punctuation are allowed — no shell characters.`,
+    placeholder: examples[backend] || '',
+    confirmText: 'Queue rule',
+  });
+  if (!spec) return;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec });
+    toast('Rule queued — applies on the next agent check-in', 'success');
+  } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
+async function firewallRuleDelete(devId, backend, ref) {
+  const ok = await uiConfirm({ title: 'Delete firewall rule', message: `Delete this ${backend} rule from the host? It is removed on the next agent check-in.`, confirmText: 'Delete', danger: true });
+  if (!ok) return;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref) });
+    toast('Delete queued', 'success');
+  } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
+async function loadFail2ban() {
+  const tbody = document.getElementById('fail2ban-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('fail2ban-thead', 'fail2ban', () => _renderFail2ban());
+  tbody.innerHTML = _skeletonRows(5);
+  try {
+    const data = await api('GET', '/fail2ban');
+    _fail2banResp = data;
+    const sm = document.getElementById('fail2ban-summary');
+    if (sm) {
+      const tot = (data.devices || []).reduce((a, d) => a + (d.banned_total || 0), 0);
+      sm.textContent = `${data.count} host(s) · ${tot} banned IP(s)`;
+    }
+    _renderFail2ban();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="hint">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+
+function _renderFail2ban() {
+  const tbody = document.getElementById('fail2ban-tbody');
+  if (!tbody || !_fail2banResp) return;
+  let rows = (_fail2banResp.devices || []).slice();
+  rows = tableCtl.sortRows('fail2ban', rows, (r) => ({
+    device:    (r.device || '').toLowerCase(),
+    jails:     (r.jails || []).length,
+    banned:    r.banned_total || 0,
+    available: r.available ? 1 : 0,
+  }));
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="hint">No fail2ban data reported yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const mon = r.monitored === false ? ' <span class="pill" data-color="var(--muted)">unmonitored</span>' : '';
+    if (!r.available) {
+      return `<tr><td class="fw-500">${escHtml(r.device)}${mon}</td><td colspan="2" class="hint">fail2ban not installed / unreachable</td><td><span class="pill" data-color="var(--muted)">n/a</span></td><td></td></tr>`;
+    }
+    const jailNames = (r.jails || []).map(j => escHtml(j.name)).join(', ') || '<span class="hint">none</span>';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}${mon}</td>
+      <td>${jailNames}</td>
+      <td class="hint">${r.banned_total || 0}</td>
+      <td>${_fwStateBadge(true)}</td>
+      <td><button class="btn-icon cell-sm" data-action="fail2banDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}">Manage</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function fail2banDetail(devId, devName) {
+  const panel = document.getElementById('fail2ban-detail');
+  if (!panel) return;
+  panel.innerHTML = '<div class="hint">Loading jails…</div>';
+  let data;
+  try { data = await api('GET', '/fail2ban?device=' + encodeURIComponent(devId)); }
+  catch (e) { panel.innerHTML = `<div class="hint">Failed: ${escHtml(String(e))}</div>`; return; }
+  const dev = (data.devices || [])[0];
+  if (!dev || !dev.available) { panel.innerHTML = '<div class="hint">fail2ban not available on this host.</div>'; return; }
+  let html = `<div class="dash-card"><div class="section-title">fail2ban — ${escHtml(devName || dev.device)}</div>`;
+  if (!(dev.jails || []).length) html += '<div class="hint mt-8">No jails configured.</div>';
+  for (const j of (dev.jails || [])) {
+    html += `<div class="mt-12"><strong>${escHtml(j.name)}</strong> <span class="hint">${j.banned_count || 0} banned · ${j.total_failed || 0} failed</span>
+      <button class="btn-icon cell-sm" data-action="fail2banBan" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" title="Ban an IP in this jail">Ban IP</button>
+      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" data-arg3="enable" title="Start this jail">Start</button>
+      <button class="btn-icon cell-sm" data-action="fail2banJail" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" data-arg3="disable" title="Stop this jail">Stop</button></div>`;
+    const banned = j.banned || [];
+    if (banned.length) {
+      html += '<div class="scroll-cap mt-8"><table class="data-table w-full"><tbody>';
+      html += banned.map(ip => `<tr><td class="hint"><code>${escHtml(ip)}</code></td><td class="cell-sm"><button class="btn-icon cell-sm" data-action="fail2banUnban" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(j.name)}" data-arg3="${escAttr(ip)}">Unban</button></td></tr>`).join('');
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div class="hint mt-4">No banned IPs.</div>';
+    }
+  }
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+async function fail2banBan(devId, jail) {
+  const ip = await uiPrompt({ title: `Ban IP in ${jail}`, message: 'Enter an IPv4 or IPv6 address to ban.', placeholder: '203.0.113.10', confirmText: 'Ban' });
+  if (!ip) return;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'ban', jail, ip });
+    toast('Ban queued', 'success');
+  } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
+async function fail2banUnban(devId, jail, ip) {
+  try {
+    await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action: 'unban', jail, ip: String(ip) });
+    toast('Unban queued', 'success');
+  } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
+async function fail2banJail(devId, jail, action) {
+  const stop = action === 'disable';
+  const ok = await uiConfirm({ title: `${stop ? 'Stop' : 'Start'} jail ${jail}`, message: `${stop ? 'Stop' : 'Start'} the "${jail}" jail on this host?`, confirmText: stop ? 'Stop' : 'Start', danger: stop });
+  if (!ok) return;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(devId)}/fail2ban-action`, { action, jail });
+    toast('Queued', 'success');
+  } catch (e) { toast('Failed: ' + String(e), 'error'); }
+}
+
 async function loadExposure() {
   const tbody = document.getElementById('exposure-tbody');
   const summary = document.getElementById('exposure-summary');

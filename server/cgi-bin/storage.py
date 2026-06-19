@@ -161,8 +161,19 @@ def _is_network_fs(path):
                     best_type = parts[2].lower()
         verdict = best_type in ('nfs', 'nfs4', 'smb', 'smb2', 'smb3',
                                 'cifs', 'fuseblk', 'fuse')
-    except Exception:
+    except FileNotFoundError:
+        # No /proc (non-Linux) — expected; treat as local disk, silently.
         verdict = False
+    except Exception as exc:
+        # A genuine read/permission failure shouldn't be invisible: swallowing
+        # it silently disables the WAL/network-FS corruption guard this check
+        # exists for. Default to local-disk but make the failure observable.
+        verdict = False
+        import sys
+        try:
+            sys.stderr.write('_is_network_fs(%s): %r\n' % (key, exc))
+        except Exception:
+            pass
     _NETFS_CACHE[key] = verdict
     return verdict
 

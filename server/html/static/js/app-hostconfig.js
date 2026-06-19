@@ -194,6 +194,7 @@ async function _buildCsDevicePicker(scriptId) {
 
   // Use cached device list if available; otherwise fetch fresh.
   let devs = _csDevices;
+  let fetchFailed = false;
   if (!devs || !devs.length) {
     try {
       const fetched = await api('GET', '/devices');
@@ -201,12 +202,15 @@ async function _buildCsDevicePicker(scriptId) {
       if (devs.length) _csDevices = devs; // cache for next time
     } catch (_) {
       devs = [];
+      fetchFailed = true;  // distinguish a load error from an empty fleet
     }
   }
 
   const agentDevs = (devs || []).filter(d => !d.agentless);
   if (!agentDevs.length) {
-    container.innerHTML = '<span class="hint">No devices enrolled.</span>';
+    container.innerHTML = fetchFailed
+      ? '<span class="hint">Could not load devices — check your connection and reopen.</span>'
+      : '<span class="hint">No devices enrolled.</span>';
     return;
   }
 

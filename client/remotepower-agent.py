@@ -623,12 +623,15 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
     start = time.monotonic()
     visited = 0
     for base in paths:
-        if not isinstance(base, str) or not os.path.exists(base):
+        if not isinstance(base, str):
+            continue
+        hbase = host_path(base)   # read the real host rootfs when containerized
+        if not os.path.exists(hbase):
             continue
         if len(findings) >= max_findings or visited >= max_files \
                 or time.monotonic() - start > time_budget:
             break
-        for dirpath, dirnames, filenames in os.walk(base):
+        for dirpath, dirnames, filenames in os.walk(hbase):
             if len(findings) >= max_findings or visited >= max_files \
                     or time.monotonic() - start > time_budget:
                 break
@@ -664,7 +667,7 @@ def collect_secret_findings(paths=None, max_findings=200, max_file_bytes=1048576
                         if key in seen:
                             continue
                         seen.add(key)
-                        findings.append({'path': fpath[:300], 'line': lineno,
+                        findings.append({'path': unhost_path(fpath)[:300], 'line': lineno,
                                          'rule': rule, 'preview': _redact_secret(val)[:48],
                                          'fingerprint': fph})
                         if len(findings) >= max_findings:
@@ -754,7 +757,10 @@ def get_patch_info():
                 text=True, timeout=30, stderr=subprocess.DEVNULL)
             result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
             result['upgradable_names'] = _parse_upgradable_names('apt', out)
-        except Exception: pass
+        except Exception:
+            # check failed (locked dpkg, repo error): report "unknown" rather
+            # than 0, so the host doesn't look fully patched when it isn't.
+            result['upgradable'] = None
     elif Path('/usr/bin/dnf').exists() or Path('/usr/bin/dnf5').exists():
         result['manager'] = 'dnf'
         try:
@@ -766,7 +772,8 @@ def get_patch_info():
             if e.returncode == 100 and e.output:
                 result['upgradable'] = sum(1 for l in e.output.splitlines() if l and not l.startswith(' ') and not l.startswith('Last'))
                 result['upgradable_names'] = _parse_upgradable_names('dnf', e.output)
-        except Exception: pass
+        except Exception:
+            result['upgradable'] = None  # check failed -> "unknown", not "0"
     # v3.0.1: yum (RHEL 7, older CentOS) — same rpm-based ecosystem as dnf.
     # Report manager='dnf' so the OSV ecosystem detection (Rocky/Alma/Red Hat)
     # and CVE scanning paths Just Work — only the status check differs.
@@ -787,7 +794,8 @@ def get_patch_info():
                     1 for l in e.output.splitlines()
                     if l.strip() and not l.startswith(' ') and not l.startswith('Obsoleting'))
                 result['upgradable_names'] = _parse_upgradable_names('dnf', e.output)
-        except Exception: pass
+        except Exception:
+            result['upgradable'] = None  # check failed -> "unknown", not "0"
     elif Path('/usr/bin/pacman').exists():
         result['manager'] = 'pacman'
         # v3.0.1: pacman 7+ runs downloads as the unprivileged "alpm" sandbox
@@ -2231,7 +2239,7 @@ def get_compose_projects():
         return []
     # Only scan roots that actually exist; on a fresh box /docker often
     # doesn't, and asking find for a missing path wastes a syscall.
-    roots = [r for r in COMPOSE_SCAN_ROOTS if Path(r).is_dir()]
+    roots = [host_path(r) for r in COMPOSE_SCAN_ROOTS if Path(host_path(r)).is_dir()]
     if not roots:
         return []
 
@@ -2284,8 +2292,8 @@ def get_compose_projects():
                 continue
             d = p.parent
             found.append({
-                'path':  str(p),
-                'dir':   str(d),
+                'path':  unhost_path(str(p)),
+                'dir':   unhost_path(str(d)),
                 # Project name == the parent directory's basename. That's
                 # what `docker compose` itself defaults to when COMPOSE_PROJECT_NAME
                 # isn't set; matching that here keeps the UI labels honest.
@@ -2323,7 +2331,7 @@ def _compose_scan_python(roots):
                         p = Path(dirpath) / f
                         try:
                             found.append({
-                                'path': str(p), 'dir': dirpath,
+                                'path': unhost_path(str(p)), 'dir': unhost_path(dirpath),
                                 'name': Path(dirpath).name,
                                 'mtime': int(p.stat().st_mtime),
                             })
@@ -3067,6 +3075,128 @@ def _sock_scope(addr):
         return 'world'
 
 
+MAX_FW_RULES = 200   # per-backend rule cap reported to the server
+
+
+def _parse_nft_rules(txt, cap=MAX_FW_RULES):
+    """Parse `nft -a list ruleset` into [{text, ref}] where ref =
+    '<family> <table> <chain> handle <N>' so the server can build an exact
+    `nft delete rule <ref>` without guessing context."""
+    out, family, table, chain = [], '', '', ''
+    for raw in txt.splitlines():
+        sline = raw.strip()
+        m = re.match(r'table (\S+) (\S+) \{', sline)
+        if m:
+            family, table, chain = m.group(1), m.group(2), ''
+            continue
+        m = re.match(r'chain (\S+) \{', sline)
+        if m:
+            chain = m.group(1)
+            continue
+        if not sline or sline == '}':
+            continue
+        if '# handle ' in sline and '{' not in sline:
+            hm = re.search(r'# handle (\d+)', sline)
+            if not hm or not (family and table and chain):
+                continue
+            out.append({'text': sline.split(' # handle ')[0].strip(),
+                        'ref': '%s %s %s handle %s' % (family, table, chain, hm.group(1))})
+            if len(out) >= cap:
+                break
+    return out
+
+
+def _parse_ipt_rules(txt, cap=MAX_FW_RULES):
+    """iptables -A lines -> [{text, ref}]; ref is the spec after '-A ' so the
+    server deletes with `iptables -D <ref>`."""
+    out = []
+    for line in txt.splitlines():
+        ls = line.strip()
+        if ls.startswith('-A '):
+            spec = ls[3:].strip()
+            out.append({'text': '-A ' + spec, 'ref': spec})
+            if len(out) >= cap:
+                break
+    return out
+
+
+def _parse_ufw_rules(txt, cap=MAX_FW_RULES):
+    """ufw status numbered -> [{text, ref}]; ref is the rule number for
+    `ufw --force delete <N>`."""
+    out = []
+    for line in txt.splitlines():
+        m = re.match(r'\[\s*(\d+)\]\s+(.*)', line.strip())
+        if m:
+            out.append({'text': m.group(2).strip(), 'ref': m.group(1)})
+            if len(out) >= cap:
+                break
+    return out
+
+
+def _parse_firewalld_rules(txt, cap=MAX_FW_RULES):
+    """firewall-cmd --list-all -> [{text, ref}] for ports and services (the
+    editable units the server's firewalld action handles). ref = 'port:<p>' /
+    'service:<s>'."""
+    out = []
+    for ls in (x.strip() for x in txt.splitlines()):
+        if ls.startswith('ports:'):
+            for p in ls.split(':', 1)[1].split():
+                out.append({'text': 'port ' + p, 'ref': 'port:' + p})
+        elif ls.startswith('services:'):
+            for sv in ls.split(':', 1)[1].split():
+                out.append({'text': 'service ' + sv, 'ref': 'service:' + sv})
+        if len(out) >= cap:
+            break
+    return out
+
+
+def collect_fail2ban():
+    """v4.10.0: fail2ban posture — jails + currently-banned IPs. Best-effort and
+    root/socket-dependent; returns {'available': False} when fail2ban-client is
+    absent or its server socket is unreachable (e.g. a containerized agent)."""
+    f2b = _which('fail2ban-client')
+    if not f2b:
+        return {'available': False}
+
+    def _run(argv, timeout=6):
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            return r.returncode, (r.stdout or '')
+        except Exception:
+            return 127, ''
+
+    rc, out = _run([f2b, 'status'])
+    if rc != 0 or 'Jail list:' not in out:
+        return {'available': False}
+    jail_names = []
+    for line in out.splitlines():
+        if 'Jail list:' in line:
+            jail_names = [j.strip() for j in line.split(':', 1)[1].split(',') if j.strip()]
+            break
+    result = {'available': True, 'jails': []}
+    for jail in jail_names[:50]:
+        if not re.match(r'^[A-Za-z0-9_.\-]+$', jail):
+            continue
+        _jrc, jout = _run([f2b, 'status', jail])
+        banned, total_banned, total_failed = [], 0, 0
+        # fail2ban-client draws a tree, so lines look like "   `- Total banned: 5"
+        # — match the label anywhere in the line, not at the start.
+        for jl in jout.splitlines():
+            if 'Banned IP list:' in jl:
+                banned = [ip for ip in jl.split('Banned IP list:', 1)[1].split() if ip][:MAX_FW_RULES]
+            elif 'Total banned:' in jl:
+                try: total_banned = int(jl.split('Total banned:', 1)[1].strip())
+                except ValueError: pass
+            elif 'Total failed:' in jl:
+                try: total_failed = int(jl.split('Total failed:', 1)[1].strip())
+                except ValueError: pass
+        result['jails'].append({
+            'name': jail, 'banned': banned, 'banned_count': len(banned),
+            'total_banned': total_banned, 'total_failed': total_failed,
+        })
+    return result
+
+
 def collect_firewall_detail():
     """v3.12.0: per-backend host-firewall posture — nftables, iptables, ufw,
     ebtables. For each backend report whether the tool is present, whether it
@@ -3103,7 +3233,8 @@ def collect_firewall_detail():
             rules = sum(1 for l in txt.splitlines()
                         if any(v in l for v in (' accept', ' drop', ' reject', ' queue', ' jump ', ' goto ')))
         backends.append({'name': 'nftables', 'present': True, 'rules': rules,
-                         'active': None if _unreadable(rc, txt) else rules > 0})
+                         'active': None if _unreadable(rc, txt) else rules > 0,
+                         'rule_list': _parse_nft_rules(txt)})
 
     # iptables — probe EVERY available variant and take the best reading. The
     # active ruleset can live in the nft *or* the legacy backend (Docker and
@@ -3117,6 +3248,7 @@ def collect_firewall_detail():
     ipt_rules = 0
     ipt_policy = ''
     ipt_readable = False
+    ipt_best_txt = ''
     for binname, arg in (('iptables-save', None), ('iptables', '-S'),
                          ('iptables-legacy-save', None), ('iptables-legacy', '-S')):
         b = _which(binname)
@@ -3138,6 +3270,7 @@ def collect_firewall_detail():
                 p = ls.split();  pol = p[2] if len(p) >= 3 else ''
         if n > ipt_rules:
             ipt_rules = n
+            ipt_best_txt = txt
         if pol and (not ipt_policy or ipt_policy == 'ACCEPT'):
             ipt_policy = pol
     if ipt_present:
@@ -3145,6 +3278,7 @@ def collect_firewall_detail():
         if ipt_policy:
             b['policy'] = ipt_policy
         b['active'] = (ipt_rules > 0 or ipt_policy in ('DROP', 'REJECT')) if ipt_readable else None
+        b['rule_list'] = _parse_ipt_rules(ipt_best_txt)
         backends.append(b)
 
     # firewalld — a front-end that programs nftables/iptables underneath. The
@@ -3158,7 +3292,8 @@ def collect_firewall_detail():
                     for ls in (x.strip() for x in allz.splitlines())
                     if ls.startswith(('services:', 'ports:', 'rich rules:')) and ':' in ls)
         backends.append({'name': 'firewalld', 'present': True, 'rules': rules,
-                         'active': None if _unreadable(rc, st) else ('running' in st.lower())})
+                         'active': None if _unreadable(rc, st) else ('running' in st.lower()),
+                         'rule_list': _parse_firewalld_rules(allz)})
 
     # ufw — a front-end (counted separately because operators manage it directly)
     ufw = _which('ufw')
@@ -3175,6 +3310,8 @@ def collect_firewall_detail():
         if default:
             b['default'] = default
         b['active'] = None if _unreadable(rc, txt) else ('status: active' in txt.lower())
+        _rcn, ntxt, _ = _run([ufw, 'status', 'numbered'])
+        b['rule_list'] = _parse_ufw_rules(ntxt)
         backends.append(b)
 
     # ebtables — layer-2 / bridge firewall
@@ -3548,6 +3685,14 @@ def get_host_health():
         _fwd = collect_firewall_detail()
         if _fwd:
             out['firewall'] = _fwd
+    except Exception:
+        pass
+
+    # v4.10.0: fail2ban posture (jails + banned IPs) for the Firewall page.
+    try:
+        _f2b = collect_fail2ban()
+        if _f2b:
+            out['fail2ban'] = _f2b
     except Exception:
         pass
 

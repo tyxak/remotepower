@@ -8,6 +8,11 @@ let calCurrentMonth = null;   // Date object pinned to the first of the displaye
 let calCurrentEvents = [];    // events fetched for the displayed range
 let calEditingId = null;      // id of event currently being edited (or null = new)
 let calSelectedColor = 'blue';
+// Whitelist of event-colour tokens that map to .color-<x> CSS classes. A
+// server-supplied colour outside this set would otherwise inject a stray
+// class or silently yield a non-existent one — clamp to a known value.
+const CAL_COLORS = ['blue', 'green', 'amber', 'red', 'purple', 'teal', 'slate'];
+function calSafeColor(c) { return CAL_COLORS.includes(c) ? c : 'blue'; }
 
 function calMonthBounds(d) {
   const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0);
@@ -70,7 +75,7 @@ function renderCalendarGrid() {
     try {
       evStart = new Date(ev.start);
       evEnd   = ev.end ? new Date(ev.end) : evStart;
-    } catch { continue; }
+    } catch (e) { console.warn('calendar: skipping event with bad date', ev.start, e); continue; }
     // Walk each day from start to end (inclusive)
     const cur = new Date(evStart.getFullYear(), evStart.getMonth(), evStart.getDate());
     const last = new Date(evEnd.getFullYear(), evEnd.getMonth(), evEnd.getDate());
@@ -94,7 +99,7 @@ function renderCalendarGrid() {
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const events = byDay[key] || [];
     const eventsHtml = events.slice(0, 3).map(ev =>
-      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${ev.is_recurring ? '<span class="cal-recur-glyph"></span>' : ''}${escHtml(ev.title)}</div>`
+      `<div class="cal-event color-${calSafeColor(ev.color)}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${ev.is_recurring ? '<span class="cal-recur-glyph"></span>' : ''}${escHtml(ev.title)}</div>`
     ).join('');
     const more = events.length > 3 ? `<div class="isl-428">+${events.length - 3} more</div>` : '';
     const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -428,7 +433,7 @@ async function deleteCurrentTask() {
 }
 let notificationsEnabled = false;
 function requestNotifications() { if (!('Notification' in window)) return; if (Notification.permission === 'granted') { notificationsEnabled = true; return; } if (Notification.permission !== 'denied') Notification.requestPermission().then(p => { notificationsEnabled = (p === 'granted'); }); }
-function sendNotification(title, body) { if (!notificationsEnabled) return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) {} }
+function sendNotification(title, body) { if (!notificationsEnabled) return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) { console.warn('Notification failed:', e); } }
 let previousDeviceStates = {};
 function checkDeviceNotifications(newDevices) { if (!notificationsEnabled) return; for (const d of newDevices) { const prev = previousDeviceStates[d.id]; if (prev !== undefined && prev !== d.online) sendNotification(`RemotePower: ${d.name}`, d.online ? 'Device came online' : 'Device went offline'); previousDeviceStates[d.id] = d.online; } }
 // v1.8.4: fetch unauthenticated public info (server name, remember-me default)

@@ -267,4 +267,8 @@ release: dist
 clean:
 	find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete
+	# Also drop the tool caches. They're kept out of the release tarball by the
+	# hand-maintained `dist` --exclude list; removing them here is a second line
+	# of defence so a typo'd exclude can't silently bloat the release.
+	rm -rf .mypy_cache .pytest_cache .ruff_cache .cache
 	rm -rf $(DIST_DIR)

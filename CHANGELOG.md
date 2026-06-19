@@ -10,6 +10,27 @@ or opening each registrar's console. It reuses the scoped API tokens already
 stored for ACME DNS-01 issuance — set a token once and it drives both certs and
 this dashboard. No breaking changes, no schema changes.
 
+### Security → Firewall page (firewall + fail2ban)
+
+Fleet-wide visibility *and* editing for host firewalls and **fail2ban**, in one
+place ([docs/firewall.md](docs/firewall.md)).
+
+- **Host firewalls.** Every host's firewall posture (nftables / iptables / ufw /
+  firewalld — backend, default policy, active state, rule count and drift
+  fingerprint) in one sortable table. Open a host to see its actual ruleset and
+  **add or delete rules** — ufw/firewalld port rules and raw nftables/iptables
+  rules. Unmonitored hosts still show their posture (flagged), like the other
+  telemetry views.
+- **fail2ban.** Jails and the IPs each has banned, per host. **Ban or unban** an
+  address and **start or stop** a jail. Hosts without fail2ban report it as not
+  available.
+- **Safe by construction.** Every edit runs through the existing audited,
+  permission-gated (`command`) command queue — quarantined hosts are skipped, and
+  rule specs are strictly validated server-side (no shell metacharacters) before
+  they reach a host. Read-only visibility needs no special permission.
+- Agents report fail2ban status and capped per-backend rule lists; the
+  containerized agent reports fail2ban as not-available (no host socket).
+
 - **DNS dashboard (Admin → DNS).** Pick a provider and zone; list, create, edit
   and delete A / AAAA / CNAME / TXT / MX / NS / SRV / CAA records with TTL,
   MX/SRV priority and Cloudflare's proxied flag.

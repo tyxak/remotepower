@@ -113,6 +113,7 @@
     'Drift':       { zh: '漂移', hi: 'ड्रिफ्ट', es: 'Desviación', ar: 'الانحراف' },
     'SSH keys':    { zh: 'SSH 密钥', hi: 'SSH कुंजियाँ', es: 'Claves SSH', ar: 'مفاتيح SSH' },
     'Exposure':    { zh: '暴露面', hi: 'एक्सपोज़र', es: 'Exposición', ar: 'التعرّض' },
+    'Firewall':    { zh: '防火墙', hi: 'फ़ायरवॉल', es: 'Cortafuegos', ar: 'جدار الحماية' },
     'Storage':     { zh: '存储', hi: 'स्टोरेज', es: 'Almacenamiento', ar: 'التخزين' },
     'Thermal':     { zh: '温度', hi: 'तापीय', es: 'Térmico', ar: 'الحرارة' },
     'Power':       { zh: '电源', hi: 'पावर', es: 'Energía', ar: 'الطاقة' },
@@ -1699,13 +1700,14 @@
     if (root && root.nodeType === 1 && root.classList && root.classList.contains('page-subtitle')) list.push(root);
     for (var j = 0; j < list.length; j++) {
       var el = list[j];
+      var cur = _normWS(el.innerHTML);   // compute once per element, not 3x
       var en = _origHTML ? _origHTML.get(el) : undefined;
-      if (en === undefined) { en = _normWS(el.innerHTML); if (_origHTML) _origHTML.set(el, en); }
-      if (current === 'en') { if (_normWS(el.innerHTML) !== en) el.innerHTML = en; continue; }
+      if (en === undefined) { en = cur; if (_origHTML) _origHTML.set(el, en); }
+      if (current === 'en') { if (cur !== en) el.innerHTML = en; continue; }
       var row = HTMLDICT[en];
       var out = row && row[current];
-      if (out) { if (_normWS(el.innerHTML) !== _normWS(out)) el.innerHTML = out; }
-      else if (_normWS(el.innerHTML) !== en) { el.innerHTML = en; }
+      if (out) { if (cur !== _normWS(out)) el.innerHTML = out; }
+      else if (cur !== en) { el.innerHTML = en; }
     }
   }
 

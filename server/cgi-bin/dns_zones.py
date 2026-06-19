@@ -65,6 +65,29 @@ def _int(x, default=0):
         return default
 
 
+def _split_prio(rtype, value):
+    """For MX/SRV, peel a leading integer priority off the value, returning
+    (priority_or_None, remaining_value). Providers that store priority inline in
+    the record value (Hetzner, deSEC) round-trip through this + ``_join_prio`` so
+    the editor sees a clean value + separate priority field like CF/DO/Porkbun."""
+    if rtype in ('MX', 'SRV') and value:
+        head, _, rest = value.strip().partition(' ')
+        if head.isdigit() and rest:
+            return _int(head), rest.strip()
+    return None, value
+
+
+def _join_prio(rtype, value, priority):
+    """Inverse of ``_split_prio``: fold a separately-supplied priority back into
+    an MX/SRV value that doesn't already lead with one. No-op when priority is
+    None (the pre-existing behaviour) or the value already carries it."""
+    if rtype in ('MX', 'SRV') and priority is not None and value:
+        head = value.strip().partition(' ')[0]
+        if not head.isdigit():
+            return f'{_int(priority)} {value.strip()}'
+    return value
+
+
 # ── provider base ──────────────────────────────────────────────────────────────
 class DNSProvider:
     """One DNS-host API. Subclasses implement the five CRUD methods using
@@ -160,15 +183,30 @@ class Cloudflare(DNSProvider):
         return [{'id': z['id'], 'name': z['name']} for z in (j.get('result') or [])]
 
     def list_records(self, zone_id, zone_name):
-        r = self._req('GET', f'/zones/{zone_id}/dns_records?per_page=100')
-        j = self._json(r, 'records'); self._ok(j, 'records')
-        out = []
-        for rr in (j.get('result') or []):
-            out.append({
-                'id': rr.get('id'), 'type': rr.get('type'), 'name': rr.get('name'),
-                'content': rr.get('content', ''), 'ttl': _int(rr.get('ttl'), 1),
-                'priority': rr.get('priority'), 'proxied': bool(rr.get('proxied')),
-            })
+        # Paginate: a mail/SaaS-heavy zone can exceed one 100-record page, and a
+        # silently-truncated list lets the operator "add" a record that already
+        # exists or miss one they're editing.
+        out, seen, page = [], set(), 1
+        while page <= 100:   # hard cap: 100 pages × 100 = 10k records
+            r = self._req('GET', f'/zones/{zone_id}/dns_records?per_page=100&page={page}')
+            j = self._json(r, 'records'); self._ok(j, 'records')
+            batch = j.get('result') or []
+            new = 0
+            for rr in batch:
+                rid = rr.get('id')
+                if rid in seen:
+                    continue
+                seen.add(rid); new += 1
+                out.append({
+                    'id': rid, 'type': rr.get('type'), 'name': rr.get('name'),
+                    'content': rr.get('content', ''), 'ttl': _int(rr.get('ttl'), 1),
+                    'priority': rr.get('priority'), 'proxied': bool(rr.get('proxied')),
+                })
+            # Stop on a short page (the last one) or a page that added nothing new
+            # (a provider that ignored ?page= and re-served page 1).
+            if not new or len(batch) < 100:
+                break
+            page += 1
         return out
 
     def _body(self, zone_name, rec):
@@ -221,15 +259,26 @@ class DigitalOcean(DNSProvider):
         return [{'id': d['name'], 'name': d['name']} for d in (self._json(r, 'zones').get('domains') or [])]
 
     def list_records(self, zone_id, zone_name):
-        r = self._req('GET', f'/domains/{zone_id}/records?per_page=200')
-        self._check(r, 'records')
-        out = []
-        for rr in (self._json(r, 'records').get('domain_records') or []):
-            out.append({
-                'id': rr.get('id'), 'type': rr.get('type'),
-                'name': _fqdn(rr.get('name'), zone_name), 'content': rr.get('data', ''),
-                'ttl': _int(rr.get('ttl'), 1800), 'priority': rr.get('priority'), 'proxied': None,
-            })
+        # Paginate (see the Cloudflare note): zones can exceed one page.
+        out, seen, page = [], set(), 1
+        while page <= 100:
+            r = self._req('GET', f'/domains/{zone_id}/records?per_page=200&page={page}')
+            self._check(r, 'records')
+            batch = self._json(r, 'records').get('domain_records') or []
+            new = 0
+            for rr in batch:
+                rid = rr.get('id')
+                if rid in seen:
+                    continue
+                seen.add(rid); new += 1
+                out.append({
+                    'id': rid, 'type': rr.get('type'),
+                    'name': _fqdn(rr.get('name'), zone_name), 'content': rr.get('data', ''),
+                    'ttl': _int(rr.get('ttl'), 1800), 'priority': rr.get('priority'), 'proxied': None,
+                })
+            if not new or len(batch) < 200:
+                break
+            page += 1
         return out
 
     def _body(self, zone_name, rec):
@@ -276,20 +325,36 @@ class Hetzner(DNSProvider):
         return [{'id': z['id'], 'name': z['name']} for z in (self._json(r, 'zones').get('zones') or [])]
 
     def list_records(self, zone_id, zone_name):
-        r = self._req('GET', f'/records?zone_id={zone_id}')
-        self._check(r, 'records')
-        out = []
-        for rr in (self._json(r, 'records').get('records') or []):
-            out.append({
-                'id': rr.get('id'), 'type': rr.get('type'),
-                'name': _fqdn(rr.get('name'), zone_name), 'content': rr.get('value', ''),
-                'ttl': _int(rr.get('ttl'), 0), 'priority': None, 'proxied': None,
-            })
+        # Paginate (see the Cloudflare note), and peel the inline MX/SRV priority
+        # off the value so the editor gets a clean value + priority field.
+        out, seen, page = [], set(), 1
+        while page <= 100:
+            r = self._req('GET', f'/records?zone_id={zone_id}&per_page=100&page={page}')
+            self._check(r, 'records')
+            batch = self._json(r, 'records').get('records') or []
+            new = 0
+            for rr in batch:
+                rid = rr.get('id')
+                if rid in seen:
+                    continue
+                seen.add(rid); new += 1
+                prio, val = _split_prio(rr.get('type'), rr.get('value', ''))
+                out.append({
+                    'id': rid, 'type': rr.get('type'),
+                    'name': _fqdn(rr.get('name'), zone_name), 'content': val,
+                    'ttl': _int(rr.get('ttl'), 0), 'priority': prio, 'proxied': None,
+                })
+            if not new or len(batch) < 100:
+                break
+            page += 1
         return out
 
     def _body(self, zone_id, zone_name, rec):
+        # Hetzner stores MX/SRV priority inline in the value ("10 mail.example.com"),
+        # so fold a separately-supplied priority back in or the record is malformed.
         b = {'zone_id': zone_id, 'type': rec['type'],
-             'name': _subname(rec.get('name'), zone_name, apex='@'), 'value': rec.get('content', '')}
+             'name': _subname(rec.get('name'), zone_name, apex='@'),
+             'value': _join_prio(rec['type'], rec.get('content', ''), rec.get('priority'))}
         ttl = _int(rec.get('ttl'), 0)
         if ttl:
             b['ttl'] = ttl
@@ -360,10 +425,15 @@ class Desec(DNSProvider):
             })
         return out
 
-    def _values(self, content):
-        # one value per line (or comma) — deSEC takes a list per RRset
+    def _values(self, content, rtype=None, priority=None):
+        # one value per line (or comma) — deSEC takes a list per RRset, with
+        # MX/SRV priority inline in each value. Fold a separately-supplied
+        # priority into values that don't already lead with one.
         parts = [p.strip() for chunk in (content or '').split('\n') for p in chunk.split(',')]
-        return [p for p in parts if p]
+        vals = [p for p in parts if p]
+        if rtype in ('MX', 'SRV') and priority is not None:
+            vals = [_join_prio(rtype, v, priority) for v in vals]
+        return vals
 
     def _patch(self, zone_id, sub, rtype, records, ttl):
         body = [{'subname': sub, 'type': rtype, 'ttl': max(self.MIN_TTL, _int(ttl, self.MIN_TTL)),
@@ -373,12 +443,14 @@ class Desec(DNSProvider):
 
     def create_record(self, zone_id, zone_name, rec):
         sub = _subname(rec.get('name'), zone_name, apex='')
-        self._patch(zone_id, sub, rec['type'], self._values(rec.get('content')), rec.get('ttl'))
+        self._patch(zone_id, sub, rec['type'],
+                    self._values(rec.get('content'), rec['type'], rec.get('priority')), rec.get('ttl'))
 
     def update_record(self, zone_id, zone_name, rec_id, rec):
         # id carries the original subname|type; let the edited name win if changed
         sub = _subname(rec.get('name'), zone_name, apex='')
-        self._patch(zone_id, sub, rec['type'], self._values(rec.get('content')), rec.get('ttl'))
+        self._patch(zone_id, sub, rec['type'],
+                    self._values(rec.get('content'), rec['type'], rec.get('priority')), rec.get('ttl'))
 
     def delete_record(self, zone_id, zone_name, rec_id, name='', rtype=''):
         sub, _, rid_type = str(rec_id or '').partition('|')

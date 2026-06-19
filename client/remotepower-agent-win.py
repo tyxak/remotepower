@@ -42,6 +42,16 @@ import urllib.request
 VERSION = '4.9.0'
 DEFAULT_POLL = 60
 
+# Prime the non-blocking CPU sampler once at import so the first heartbeat's
+# cpu_percent(interval=None) measures against a real baseline instead of
+# returning 0.0 — and we never pay a blocking 0.3s sample on the heartbeat hot
+# path (parity with the Linux agent).
+try:
+    import psutil as _psutil_prime
+    _psutil_prime.cpu_percent(interval=None)
+except Exception:
+    pass
+
 
 def _make_ssl_context():
     """Strict TLS context: cert verification on, TLS 1.2 floor — parity with the
@@ -388,7 +398,7 @@ def collect_sysinfo():
         pass
     try:
         import psutil
-        info['cpu_percent'] = round(psutil.cpu_percent(interval=0.3), 1)
+        info['cpu_percent'] = round(psutil.cpu_percent(interval=None), 1)  # non-blocking; primed at import
         info['cpu_count'] = psutil.cpu_count() or 0
         vm = psutil.virtual_memory()
         info['mem_percent'] = round(vm.percent, 1)

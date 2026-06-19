@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 DATA_DIR="/var/lib/remotepower"
 USERS_FILE="$DATA_DIR/users.json"
@@ -38,30 +38,37 @@ if [ ! -f "$USERS_FILE" ]; then
     # behaviour (either a hard-coded `changeme` default in
     # docker-compose.yml, or no admin user at all).
     GENERATED=""
-    if [ -z "$RP_ADMIN_PASS" ]; then
+    if [ -z "${RP_ADMIN_PASS:-}" ]; then
         # 18 url-safe chars from the kernel CSPRNG via Python's secrets
         RP_ADMIN_PASS="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
         GENERATED="yes"
     fi
     echo "[*] Creating admin user: $RP_ADMIN_USER"
-    python3 -c "
-import json, time, hashlib
+    # Pass credentials via the environment, NOT shell-interpolated into the
+    # Python source: a password containing a quote/backslash/newline would
+    # otherwise break the literal (container fails to start) or inject Python.
+    # The quoted heredoc delimiter ('PYEOF') disables all shell expansion.
+    RP_ADMIN_USER="$RP_ADMIN_USER" RP_ADMIN_PASS="$RP_ADMIN_PASS" USERS_FILE="$USERS_FILE" \
+        python3 - <<'PYEOF'
+import json, time, hashlib, os
 from pathlib import Path
+user = os.environ['RP_ADMIN_USER']
+pw   = os.environ['RP_ADMIN_PASS']
 try:
     import bcrypt
-    pw_hash = bcrypt.hashpw('${RP_ADMIN_PASS}'.encode(), bcrypt.gensalt(12)).decode()
+    pw_hash = bcrypt.hashpw(pw.encode(), bcrypt.gensalt(12)).decode()
 except ImportError:
-    pw_hash = hashlib.sha256('${RP_ADMIN_PASS}'.encode()).hexdigest()
-path = Path('$USERS_FILE')
+    pw_hash = hashlib.sha256(pw.encode()).hexdigest()
+path = Path(os.environ['USERS_FILE'])
 users = {
-    '$RP_ADMIN_USER': {
+    user: {
         'password_hash': pw_hash,
         'role': 'admin',
         'created': int(time.time())
     }
 }
 path.write_text(json.dumps(users, indent=2))
-"
+PYEOF
     chown www-data:www-data "$USERS_FILE"
     echo "[+] Admin user created"
     if [ -n "$GENERATED" ]; then
@@ -96,7 +103,7 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
     fi
     chown -R www-data:www-data "$TLS_DIR" 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/remotepower-tls /etc/nginx/sites-enabled/remotepower
-    FP="$(openssl x509 -in "$TLS_DIR/ca.crt" -noout -fingerprint -sha256 | sed 's/^.*=//')"
+    FP="$(openssl x509 -in "$TLS_DIR/ca.crt" -noout -fingerprint -sha256 | sed 's/^.*=//')" || true
     echo ""
     echo "  ╔══════════════════════════════════════════════════════════╗"
     echo "  ║  SELF-SIGNED TLS ENABLED — HTTPS on container :8443       ║"

@@ -8167,6 +8167,195 @@ def handle_device_firewall_action(dev_id):
     _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
 
 
+# ── v4.10.0: Firewall + fail2ban (visibility + edit) ─────────────────────────
+_FW_TOKEN_RE = re.compile(r'^[A-Za-z0-9 _.:/=,@%+-]+$')   # NO shell metacharacters
+_FW_JAIL_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+
+def _valid_fw_token(s, maxlen=400):
+    """A firewall rule spec / delete-ref is interpolated into an `exec:` command
+    the agent runs through a shell, so it must hold ONLY safe characters — no
+    ;, |, &, $, backtick, quotes, redirects, globs or braces — so a rule field
+    can never inject a second command."""
+    return isinstance(s, str) and 0 < len(s) <= maxlen and bool(_FW_TOKEN_RE.match(s))
+
+
+def handle_firewall_overview():
+    """GET /api/firewall — fleet host-firewall posture. ?device=<id> returns that
+    one host WITH its per-backend rule lists; otherwise a fleet summary (no rule
+    lists, to keep the payload lean). Telemetry view: unmonitored hosts still show,
+    flagged."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    want_dev = (qs.get('device', [''])[0] or '').strip()
+    devices = load(DEVICES_FILE)
+    rows = []
+    for dev_id, d in (devices or {}).items():
+        if want_dev and dev_id != want_dev:
+            continue
+        si = d.get('sysinfo') or {}
+        fw = si.get('firewall') or {}
+        fp = si.get('firewall_fp') or {}
+        if not fw and not fp:
+            continue
+        backends = []
+        for be in (fw.get('backends') or []):
+            sb = {'name': be.get('name'), 'present': be.get('present'),
+                  'active': be.get('active'), 'rules': be.get('rules', 0)}
+            if be.get('policy'):
+                sb['policy'] = be['policy']
+            if be.get('default'):
+                sb['default'] = be['default']
+            if want_dev:                       # rule lists only in detail mode
+                sb['rule_list'] = be.get('rule_list') or []
+            backends.append(sb)
+        rows.append({
+            'device_id': dev_id, 'device': d.get('name', dev_id),
+            'monitored': d.get('monitored') is not False,
+            'active': fw.get('active'),
+            'backends': backends,
+            'fp': fp.get('fp', ''), 'fp_backend': fp.get('backend', ''),
+            'fp_rules': fp.get('rules', 0),
+        })
+    rows.sort(key=lambda r: (r['active'] is True, str(r['device']).lower()))
+    respond(200, {'devices': rows, 'count': len(rows)})
+
+
+def handle_fail2ban_overview():
+    """GET /api/fail2ban — fleet fail2ban posture. ?device=<id> returns that host
+    WITH per-jail banned-IP lists; otherwise a fleet summary (counts only)."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    want_dev = (qs.get('device', [''])[0] or '').strip()
+    devices = load(DEVICES_FILE)
+    rows = []
+    for dev_id, d in (devices or {}).items():
+        if want_dev and dev_id != want_dev:
+            continue
+        f2b = (d.get('sysinfo') or {}).get('fail2ban')
+        if not isinstance(f2b, dict):
+            continue
+        jails = []
+        for j in (f2b.get('jails') or []):
+            jr = {'name': j.get('name'), 'banned_count': j.get('banned_count', 0),
+                  'total_banned': j.get('total_banned', 0),
+                  'total_failed': j.get('total_failed', 0)}
+            if want_dev:
+                jr['banned'] = j.get('banned') or []
+            jails.append(jr)
+        rows.append({
+            'device_id': dev_id, 'device': d.get('name', dev_id),
+            'monitored': d.get('monitored') is not False,
+            'available': bool(f2b.get('available')),
+            'jails': jails,
+            'banned_total': sum(j.get('banned_count', 0) for j in jails),
+        })
+    rows.sort(key=lambda r: (-r['banned_total'], str(r['device']).lower()))
+    respond(200, {'devices': rows, 'count': len(rows)})
+
+
+def handle_device_firewall_rule(dev_id):
+    """POST /api/devices/{id}/firewall-rule — add or delete a raw nftables /
+    iptables / ufw / firewalld rule. Body: {backend, op: add|delete, spec?, ref?}.
+    `spec` (add) and `ref` (delete) are STRICTLY validated (no shell metacharacters)
+    because they ride an `exec:` command. Gated on `command`, audited,
+    quarantine-aware via _queue_command."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_body() or {}
+    backend = str(body.get('backend', '')).strip().lower()
+    op = str(body.get('op', '')).strip().lower()
+    if backend not in ('nftables', 'iptables', 'ufw', 'firewalld'):
+        respond(400, {'error': 'backend must be nftables, iptables, ufw or firewalld'})
+    if op not in ('add', 'delete'):
+        respond(400, {'error': "op must be 'add' or 'delete'"})
+
+    if op == 'add':
+        spec = str(body.get('spec', '')).strip()
+        if not _valid_fw_token(spec):
+            respond(400, {'error': 'rule spec contains invalid characters'})
+        if backend == 'iptables':
+            if not spec.startswith(('-A ', '-I ')):
+                respond(400, {'error': 'iptables add spec must start with -A or -I'})
+            cmd = f'iptables {spec}'
+        elif backend == 'nftables':
+            if not spec.startswith(('add ', 'insert ')):
+                respond(400, {'error': 'nftables add spec must start with "add" or "insert"'})
+            cmd = f'nft {spec}'
+        elif backend == 'ufw':
+            if not spec.startswith(('allow ', 'deny ', 'reject ', 'limit ')):
+                respond(400, {'error': 'ufw add spec must start with allow/deny/reject/limit'})
+            cmd = f'ufw {spec}'
+        else:  # firewalld
+            if not spec.startswith('--add-'):
+                respond(400, {'error': 'firewalld add spec must start with --add-'})
+            cmd = f'firewall-cmd --permanent {spec}; firewall-cmd --reload'
+    else:  # delete
+        ref = str(body.get('ref', '')).strip()
+        if not _valid_fw_token(ref):
+            respond(400, {'error': 'rule ref contains invalid characters'})
+        if backend == 'iptables':
+            cmd = f'iptables -D {ref}'
+        elif backend == 'nftables':
+            if not ref.startswith(('inet ', 'ip ', 'ip6 ', 'arp ', 'bridge ', 'netdev ')):
+                respond(400, {'error': 'invalid nftables rule ref'})
+            cmd = f'nft delete rule {ref}'
+        elif backend == 'ufw':
+            if not ref.isdigit():
+                respond(400, {'error': 'ufw delete ref must be a rule number'})
+            cmd = f'ufw --force delete {ref}'
+        else:  # firewalld: ref = 'port:<p>' or 'service:<s>'
+            kind, _, val = ref.partition(':')
+            if kind == 'port' and val:
+                cmd = f'firewall-cmd --permanent --remove-port={val}; firewall-cmd --reload'
+            elif kind == 'service' and val:
+                cmd = f'firewall-cmd --permanent --remove-service={val}; firewall-cmd --reload'
+            else:
+                respond(400, {'error': 'invalid firewalld rule ref'})
+
+    audit_log(actor, 'host_firewall_rule',
+              detail=(f'device={dev_id} backend={backend} {op} '
+                      f'{body.get("spec") or body.get("ref")}')[:200])
+    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+
+
+def handle_device_fail2ban_action(dev_id):
+    """POST /api/devices/{id}/fail2ban-action — ban/unban an IP or start/stop a
+    jail. Body: {action: ban|unban|enable|disable, jail, ip?}. jail + ip strictly
+    validated. Gated on `command`, audited, quarantine-aware."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_body() or {}
+    action = str(body.get('action', '')).strip().lower()
+    jail = str(body.get('jail', '')).strip()
+    if action not in ('ban', 'unban', 'enable', 'disable'):
+        respond(400, {'error': 'action must be ban, unban, enable or disable'})
+    if not _FW_JAIL_RE.match(jail) or len(jail) > 64:
+        respond(400, {'error': 'invalid jail name'})
+    if action in ('ban', 'unban'):
+        import ipaddress
+        try:
+            ip = str(ipaddress.ip_address(str(body.get('ip', '')).strip()))
+        except ValueError:
+            respond(400, {'error': 'invalid IP address'})
+        verb = 'banip' if action == 'ban' else 'unbanip'
+        cmd = f'fail2ban-client set {jail} {verb} {ip}'
+        detail = f'device={dev_id} {action} {ip} jail={jail}'
+    else:
+        sub = 'start' if action == 'enable' else 'stop'
+        cmd = f'fail2ban-client {sub} {jail}'
+        detail = f'device={dev_id} {action} jail={jail}'
+
+    audit_log(actor, 'fail2ban_action', detail=detail[:200])
+    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+
+
 # ── v3.6.0: backup orchestration ────────────────────────────────────────────
 # Closes the loop on the existing backup_stale *monitoring*: define a backup
 # command per device (restic/borg/rsync/…), run it on demand, and optionally on
@@ -9961,6 +10150,19 @@ def handle_heartbeat():
                         sb['policy'] = _sanitize_str(be.get('policy'), 16)
                     if be.get('default'):
                         sb['default'] = _sanitize_str(be.get('default'), 80)
+                    # v4.10.0: capped structured rule list ({text, ref}) so the
+                    # Firewall page can show rules and delete them by exact ref.
+                    rl = be.get('rule_list')
+                    if isinstance(rl, list):
+                        safe_rl = []
+                        for rr in rl[:200]:
+                            if isinstance(rr, dict) and rr.get('text'):
+                                safe_rl.append({
+                                    'text': _sanitize_str(rr.get('text', ''), 400),
+                                    'ref':  _sanitize_str(rr.get('ref', ''), 200),
+                                })
+                        if safe_rl:
+                            sb['rule_list'] = safe_rl
                     safe_bes.append(sb)
                 if safe_bes:
                     _readable = [b for b in safe_bes if b['active'] is not None]
@@ -9970,6 +10172,28 @@ def handle_heartbeat():
                         'active': (any(b['active'] for b in _readable)
                                    if _readable else None),
                     }
+            # v4.10.0: fail2ban posture (jails + banned IPs) for the Firewall page
+            if isinstance(si.get('fail2ban'), dict):
+                f2b = si['fail2ban']
+                if f2b.get('available'):
+                    safe_jails = []
+                    for jj in (f2b.get('jails') or [])[:50]:
+                        if not isinstance(jj, dict):
+                            continue
+                        jnm = _sanitize_str(jj.get('name', ''), 64)
+                        if not jnm:
+                            continue
+                        jbanned = [_sanitize_str(ip, 64) for ip in (jj.get('banned') or [])[:200]
+                                   if isinstance(ip, str)]
+                        jtb = jj.get('total_banned'); jtf = jj.get('total_failed')
+                        safe_jails.append({
+                            'name': jnm, 'banned': jbanned, 'banned_count': len(jbanned),
+                            'total_banned': int(jtb) if isinstance(jtb, int) and 0 <= jtb <= 10**9 else 0,
+                            'total_failed': int(jtf) if isinstance(jtf, int) and 0 <= jtf <= 10**9 else 0,
+                        })
+                    safe_si['fail2ban'] = {'available': True, 'jails': safe_jails}
+                else:
+                    safe_si['fail2ban'] = {'available': False}
             # v3.8.0: persist failed systemd units. The agent has always
             # shipped this in sysinfo, but the sanitiser never copied it —
             # silently dead-ending the Fleet Query "failed units" filter,
@@ -10391,7 +10615,9 @@ def handle_heartbeat():
         try:
             process_container_report(dev_id, normalised, now)
         except Exception:
-            pass  # never let container processing break heartbeat
+            # never let container processing break the heartbeat, but don't
+            # hide a recurring processing bug either (mirror the metric path).
+            traceback.print_exc(file=sys.stderr)
         store = load(CONTAINERS_FILE)
         store[dev_id] = {'ts': now, 'items': normalised}
         _save_nb(CONTAINERS_FILE, store)
@@ -12184,6 +12410,15 @@ def run_integrations_if_due():
     # (its prior result/history is preserved — _persist keys "live" off the
     # configured list, not this batch).
     budget = time.monotonic() + _INTEGRATIONS_POLL_BUDGET_S
+    # Rotate across the fleet: poll least-recently-checked instances first so a
+    # few slow/black-holed targets at the head of the configured list can't
+    # starve the tail every cycle (its tiles would otherwise never refresh).
+    # Mirrors the oldest-first ordering the reputation/image scanners use.
+    _ist_latest = (load(INTEG_STATE_FILE) or {}).get('latest') or {}
+    def _inst_last_checked(inst):
+        k = str(inst.get('id') or inst.get('label'))
+        return int((_ist_latest.get(k) or {}).get('checked', 0) or 0)
+    insts = sorted(insts, key=_inst_last_checked)
     results = []
     for i in insts:
         if time.monotonic() > budget:
@@ -14252,8 +14487,11 @@ def handle_user_passwd():
     users = load(USERS_FILE)
     _, requester_role = verify_token(get_token_from_request())
 
-    # Non-admins can only change their own password
-    if username != requester and requester_role != 'admin':
+    # Non-admins can only change their own password. Gate on the resolved
+    # role's admin flag (not a literal 'admin' string) so a custom admin-
+    # equivalent role can't be misread as non-admin — and the denylist shape
+    # can't drift into a bypass.
+    if username != requester and not _resolve_role(requester_role).get('admin'):
         respond(403, {'error': 'Cannot change another user\'s password'})
 
     user = users.get(username)
@@ -16235,8 +16473,10 @@ def handle_version_check():
             req = urllib.request.Request(
                 'https://api.github.com/repos/tyxak/remotepower/releases/latest',
                 headers={'User-Agent': 'RemotePower'})
-            ctx = _get_ssl_context()
-            with urllib.request.urlopen(req, timeout=5, context=ctx) as r:
+            opener = _ssrf_safe_opener(allow_loopback=False,
+                                       ssl_ctx=_get_ssl_context(),
+                                       no_redirect=True, enforce_ip=True)
+            with opener.open(req, timeout=5) as r:
                 data = json.loads(r.read(65536))  # cap response size
             # Strictly validate: tag must match semver pattern
             raw_tag = data.get('tag_name', '').lstrip('v')
@@ -37538,7 +37778,7 @@ def _fetch_feed_bytes(url, timeout=30):
     """Fetch an external prioritization feed through the SSRF-safe opener
     (peer-IP re-validated at connect; external-only)."""
     opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=_get_ssl_context(),
-                               no_redirect=False, enforce_ip=True)
+                               no_redirect=True, enforce_ip=True)
     req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
     with opener.open(req, timeout=timeout) as resp:
         return resp.read()
@@ -42803,6 +43043,8 @@ def _build_exact_routes():
         (None, '/api/software-policy'): handle_software_policy,
         ('GET', '/api/software-policy/violations'): handle_software_policy_violations,
         ('GET', '/api/exposure'): handle_exposure_overview,
+        ('GET', '/api/firewall'): handle_firewall_overview,
+        ('GET', '/api/fail2ban'): handle_fail2ban_overview,
         ('POST', '/api/exposure/mute'): handle_exposure_mute,
         ('GET', '/api/storage'): handle_storage_overview,
         # v3.14.0: fleet thermal roll-up ("hottest hosts")
@@ -42927,6 +43169,10 @@ def _dispatch(pi, m):
         handle_device_user_action(pi[len('/api/devices/'):-len('/user-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/firewall-action') and m == 'POST':
         handle_device_firewall_action(pi[len('/api/devices/'):-len('/firewall-action')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/firewall-rule') and m == 'POST':
+        handle_device_firewall_rule(pi[len('/api/devices/'):-len('/firewall-rule')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST':
+        handle_device_fail2ban_action(pi[len('/api/devices/'):-len('/fail2ban-action')])
     # v3.6.0: endpoint AV/malware posture
     elif pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST':
         handle_av_scan(pi[len('/api/devices/'):-len('/av-scan')])

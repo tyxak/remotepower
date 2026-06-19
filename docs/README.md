@@ -91,6 +91,8 @@ Older release notes (v4.5.0 and earlier) live in
  API reference, backup story, disaster recovery.
 - **[drift.md](drift.md)** — Configuration drift detection: what's
  watched, customising the list, re-baselining, the compliance angle.
+- **[firewall.md](firewall.md)** — Fleet firewall + fail2ban: view posture and
+ drift, edit nftables/iptables/ufw/firewalld rules, ban/unban IPs and start/stop jails.
 - **[mcp.md](mcp.md)** — MCP server setup, Claude Desktop config, the
  14 read + 4 guarded write tools, security model, troubleshooting.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run

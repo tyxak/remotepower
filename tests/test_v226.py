@@ -232,7 +232,9 @@ class TestAgentHostHealth(unittest.TestCase):
                    # v3.11.0 posture probes
                    'storage_health', 'auth', 'timers', 'firewall_fp',
                    # v3.12.0 per-backend firewall posture
-                   'firewall'}
+                   'firewall',
+                   # v4.10.0 fail2ban posture (jails + banned IPs)
+                   'fail2ban'}
         for k in result:
             self.assertIn(k, allowed, f'undocumented key {k!r}')
 

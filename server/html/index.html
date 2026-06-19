@@ -287,6 +287,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           <span>Exposure</span>
         </button>
+        <button class="nav-btn" data-page="firewall" title="Host firewall rulesets and fail2ban jails across the fleet — view and edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v6M15 9v6M9 15v6"/></svg>
+          <span>Firewall</span>
+        </button>
         <button class="nav-btn" data-page="patches" title="Pending system updates across all devices">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
@@ -965,7 +969,7 @@
         <div class="dash-card mt-24">
           <div class="section-header"><div class="section-title">Custom roles</div><button class="enroll-btn" data-action="openRoleAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add role</button></div>
           <div class="page-subtitle mb-12">A custom role grants a subset of actions — <strong>exec</strong>, <strong>reboot</strong>, <strong>upgrade</strong> — limited to a <strong>scope</strong> (all devices, or only named groups/tags). Members can act on their scope and see only those devices on the Devices roster; server config, user/role management and saved scripts stay admin-only.</div>
-          <div id="roles-list"><div class="c-muted">Loading…</div></div>
+          <div id="roles-list" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
       </div>
 
@@ -2450,7 +2454,7 @@
         <div class="settings-section">
           <h3>Log ignore patterns</h3>
           <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc.</p>
-          <div id="log-ignore-list" class="isl-85"></div>
+          <div id="log-ignore-list" class="isl-85 scroll-cap"></div>
           <div class="row-8-center">
             <input type="text" id="log-ignore-input" class="form-input isl-86"
                    placeholder="Note: After setting.*old kernels">
@@ -4842,6 +4846,52 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── v4.10.0: Firewall + fail2ban (visibility + edit) ───────────── -->
+      <div id="page-firewall" class="page">
+        <div class="page-title">Firewall</div>
+        <div class="page-subtitle">Host firewall rulesets (nftables / iptables / ufw / firewalld) and <span class="fw-600">fail2ban</span> jails across the fleet — view posture and drift, and edit rules, bans and jails. Every change runs through the audited, permission-gated command queue (quarantined hosts are skipped). <a href="https://github.com/tyxak/remotepower/wiki" class="c-accent">Documentation</a>.</div>
+
+        <div class="section-title">Host firewalls</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadFirewall"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" class="form-input page-filter" placeholder="Filter device / backend…" data-input="filterRows" data-input-el="1" data-filter-target="#firewall-tbody tr" aria-label="Filter device / backend">
+          <span id="firewall-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="firewall-thead"><tr>
+                <th data-col="device">Device</th><th data-col="backend">Backends</th>
+                <th data-col="active">State</th><th data-col="rules">Rules</th>
+                <th data-col="fp">Drift fingerprint</th><th></th>
+              </tr></thead>
+              <tbody id="firewall-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="firewall-detail" class="mt-16"></div>
+
+        <div class="section-title mt-24">fail2ban</div>
+        <div class="page-subtitle">Intrusion-prevention jails and the IPs they have banned. Ban or unban an address, or start/stop a jail. Hosts without fail2ban report it as not available.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadFail2ban"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" class="form-input page-filter" placeholder="Filter device / jail…" data-input="filterRows" data-input-el="1" data-filter-target="#fail2ban-tbody tr" aria-label="Filter device / jail">
+          <span id="fail2ban-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="fail2ban-thead"><tr>
+                <th data-col="device">Device</th><th data-col="jails">Jails</th>
+                <th data-col="banned">Banned IPs</th><th data-col="available">Status</th><th></th>
+              </tr></thead>
+              <tbody id="fail2ban-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="fail2ban-detail" class="mt-16"></div>
+      </div>
+
       <!-- ── v3.12.0: per-asset risk score ──────────────────────────────── -->
       <div id="page-risk" class="page">
         <div class="page-title">Risk</div>
@@ -5023,7 +5073,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card card-padded">
           <div class="page-subtitle fw-600">Policy rules</div>
-          <div id="swpol-rules"></div>
+          <div id="swpol-rules" class="scroll-cap"></div>
           <div class="form-row-wrap">
             <select id="swpol-type" class="form-input">
               <option value="banned">banned</option>
@@ -5672,7 +5722,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="isl-198">
       <div class="isl-199">Per-mount disk overrides</div>
       <div class="isl-200">Different thresholds for specific mount points. Useful when /var fills with logs (lower threshold) or /backup is meant to fill (higher threshold).</div>
-      <div id="thr-mounts-list" class="isl-201"></div>
+      <div id="thr-mounts-list" class="isl-201 scroll-cap"></div>
       <button class="btn-icon isl-55" type="button" data-action="addMountThresholdRow">+ Add mount</button>
     </div>
 

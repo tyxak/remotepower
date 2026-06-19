@@ -457,8 +457,9 @@ def _save_devices(conn, data, clamp_last_seen=True):
                              (doc, new_ls, dev_id))
     stale = set(current) - incoming
     if stale:
-        conn.cursor().executemany('DELETE FROM devices WHERE id=%s',
-                                  [(i,) for i in stale])
+        with conn.cursor() as cur:
+            cur.executemany('DELETE FROM devices WHERE id=%s',
+                            [(i,) for i in stale])
 
 
 def _save_entity(conn, name, data):
@@ -477,8 +478,9 @@ def _save_entity(conn, name, data):
                 (name, k, doc))
     stale = set(current) - incoming
     if stale:
-        conn.cursor().executemany('DELETE FROM entity WHERE file=%s AND k=%s',
-                                  [(name, k) for k in stale])
+        with conn.cursor() as cur:
+            cur.executemany('DELETE FROM entity WHERE file=%s AND k=%s',
+                            [(name, k) for k in stale])
 
 
 def _save_wrapped(conn, name, data):
@@ -490,8 +492,9 @@ def _save_wrapped(conn, name, data):
         items = []
     conn.execute('DELETE FROM listrow WHERE file=%s', (name,))
     if items:
-        conn.cursor().executemany('INSERT INTO listrow(file, doc) VALUES(%s,%s)',
-                                  [(name, _dumps(it)) for it in items])
+        with conn.cursor() as cur:
+            cur.executemany('INSERT INTO listrow(file, doc) VALUES(%s,%s)',
+                            [(name, _dumps(it)) for it in items])
     meta = {k: v for k, v in data.items() if k != wrapkey}
     if meta:
         conn.execute(
@@ -888,8 +891,9 @@ def list_append(path, entry, cap=None):
                     'SELECT id, doc FROM listrow WHERE file=%s ORDER BY id LIMIT %s',
                     (name, n - cap)).fetchall()
                 overflow = [json.loads(r['doc']) for r in old]
-                c.cursor().executemany('DELETE FROM listrow WHERE id=%s',
-                                       [(r['id'],) for r in old])
+                with c.cursor() as cur:
+                    cur.executemany('DELETE FROM listrow WHERE id=%s',
+                                    [(r['id'],) for r in old])
         _touch(c, name)
     return overflow
 
