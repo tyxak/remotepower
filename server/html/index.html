@@ -4626,6 +4626,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <datalist id="cmdb-func-datalist"></datalist>
 
+        <!-- v5.0.0 (#C3): break-glass approval card (hidden until a request exists) -->
+        <div class="dash-card mt-16 d-none" id="cmdb-breakglass-card">
+          <div class="row-8-center mb-8"><h3 class="m-0">Break-glass requests</h3></div>
+          <div class="page-subtitle mb-12">Pending requests to reveal a break-glass credential. A <strong>second</strong> admin (not the requester) must approve before the secret is shown — every request, approval and reveal is immutably audit-logged.</div>
+          <div id="cmdb-breakglass-body"></div>
+        </div>
+
         <!-- v4.10.0: site / group / tag-scoped credentials -->
         <div class="dash-card mt-16" id="cmdb-scoped-card">
           <div class="row-8-center mb-8"><h3 class="m-0">Scoped credentials</h3></div>
@@ -6511,6 +6518,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <label class="form-label">Rotate every (days, 0 = off)</label>
     <input type="number" id="cmdb-cred-rotate" class="form-input mw-160" min="0" max="3650" placeholder="0">
     <div class="meta-sm">Flags this credential on the dashboard when it's older than this since its last password change.</div>
+  </div>
+  <div class="form-group">
+    <label class="click-row-6"><input type="checkbox" id="cmdb-cred-breakglass"> <span>Break-glass (require a second admin's approval to reveal)</span></label>
+    <div class="meta-sm">For root / IPMI / DR secrets. A reveal opens a request that a different admin must approve; both steps are immutably audit-logged and a <code>vault_break_glass</code> alert fires.</div>
   </div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-cred-add-modal" >Cancel</button>

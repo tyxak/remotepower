@@ -16331,6 +16331,8 @@ function _renderHomeActivity(fleetEvents) {
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
+    // v5.0.0 (#C3): break-glass credential reveal requested
+    'vault_break_glass',
     // v3.2.0 (B5): SNMP polling state transitions
     'snmp_unreachable', 'snmp_dead', 'snmp_recover',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
@@ -16478,6 +16480,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'drift_detected':
       return `${base} data-home-act="drift"`;
+    case 'vault_break_glass': return `${base} data-home-act="cmdb"`;
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
     case 'patch_alert':    return `${base} data-home-act="patches"`;
@@ -24377,6 +24380,8 @@ function _homeNavAction(btn) {
     case 'dmarc':    showPage('dmarc',           document.querySelector('.nav-btn[data-page="dmarc"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
+    // v5.0.0 (#C3): break-glass reveal request → CMDB page (approval card)
+    case 'cmdb':     showPage('cmdb',             document.querySelector('.nav-btn[data-page="cmdb"]')); break;
     // v4.7.0: integration health → the dedicated Integrations page
     case 'integrations':
       showPage('integrations', document.querySelector('.nav-btn[data-page="integrations"]'));

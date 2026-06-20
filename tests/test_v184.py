@@ -276,6 +276,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'snapshot_old',
             # v2.8.0: security & audit
             'new_port_detected', 'ssh_key_added', 'brute_force_detected',
+            'vault_break_glass',  # v5.0.0 #C3
             'backup_stale', 'backup_verify_failed', 'backup_verified',
             'rollout_halted',
             # v3.2.0 (B5): SNMP polling state transitions

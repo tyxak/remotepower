@@ -189,6 +189,7 @@ TASK_STATES         = ('upcoming', 'ongoing', 'pending', 'closed')
 # ── v1.9.0: CMDB (asset metadata + encrypted credentials) ─────────────────────
 CMDB_FILE           = DATA_DIR / 'cmdb.json'
 CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
+BREAKGLASS_FILE     = DATA_DIR / 'breakglass_requests.json'  # v5.0.0 #C3
 # v3.5.0: sites/teams — a first-class grouping above device `group`, for
 # organising a fleet by location/team/customer. Soft boundary (super-admin
 # always sees all); used to scope dashboard/device views, not as a security
@@ -764,6 +765,10 @@ WEBHOOK_EVENTS = (
     ('new_port_detected',     'New listening port appeared on host',         True),
     ('ssh_key_added',         'SSH authorized key added to host',            True),
     ('brute_force_detected',  'Brute-force login attempts detected',         True),
+    # v5.0.0 (#C3): a break-glass vault reveal was requested — a SECOND admin
+    # must approve before the root/IPMI secret is shown. High-signal: someone
+    # is asking to see a privileged credential right now.
+    ('vault_break_glass',     'Break-glass credential reveal requested',     True),
     # v2.8.1: backup file age monitoring
     ('backup_stale',          'Backup file is older than threshold',         True),
     ('backup_verify_failed',  'Backup integrity check failed',               True),
@@ -4166,6 +4171,7 @@ def _record_fleet_event(event, payload):
 _ALERT_RULES = {
     'device_offline':         ('critical', None),
     'agent_stopped':          ('high', None),
+    'vault_break_glass':      ('high',     None),   # v5.0.0 #C3
     'service_down':           ('high',     None),
     'container_stopped':      ('high',     None),
     'container_restarting':   ('medium',   None),
@@ -4325,6 +4331,7 @@ CHANNEL_KINDS = [
     ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
     ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
     ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
+    ('break_glass', 'Break-glass cred reveals', 'operational',   ['vault_break_glass']),
     ('backup',      'Backup health',            'operational',   ['backup_stale', 'backup_verify_failed', 'backup_verified']),
     ('rollout',     'Rollout halted',           'operational',   ['rollout_halted']),
     ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
@@ -5525,6 +5532,7 @@ def _webhook_title(event):
         'device_offline': 'Device Offline',
         'agent_stopped': 'Agent Stopped',
         'agent_started': 'Agent Started',
+        'vault_break_glass': 'Break-Glass Reveal Requested',
         'device_online':  'Device Online',
         'command_queued':  'Command Queued',
         'command_executed': 'Command Executed',
@@ -42835,6 +42843,9 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
         'ct':         blob['ct'],
         'rotate_after_days': rotate_after_days,
         'rotated_at': now,   # v3.7.0: anchor for rotation reminders
+        # v5.0.0 (#C3): mark a sensitive credential (root/IPMI/etc.) for
+        # break-glass — its reveal then requires a SECOND admin's approval.
+        'break_glass': bool(body.get('break_glass')),
         'created_by': actor,
         'created_at': now,
         'updated_by': actor,
@@ -42977,6 +42988,123 @@ def handle_cmdb_credentials_delete(dev_id: str, cred_id: str) -> None:
     respond(200, {'ok': True})
 
 
+# ─── v5.0.0 (#C3): break-glass two-person rule for sensitive credential reveals ──
+_BREAKGLASS_TTL = 900  # 15 min — a fresh approval is only valid this long
+
+
+def _breakglass_load() -> dict:
+    try:
+        return load(BREAKGLASS_FILE) or {}
+    except Exception:
+        return {}
+
+
+def _breakglass_open(actor: str, dev_id: str, cred_id: str, label: str, reason: str) -> str:
+    """Open a pending break-glass request; audit + webhook fire AFTER the lock
+    (never nest self-locking helpers inside _LockedUpdate). Returns the req id."""
+    now = int(time.time())
+    req_id = 'bg_' + secrets.token_hex(8)
+    with _LockedUpdate(BREAKGLASS_FILE) as store:
+        # opportunistic prune of long-dead requests so the file stays small
+        for k in [k for k, v in store.items()
+                  if now - int(v.get('created', 0)) > _BREAKGLASS_TTL * 8]:
+            store.pop(k, None)
+        store[req_id] = {
+            'id': req_id, 'device_id': dev_id, 'cred_id': cred_id,
+            'label': label, 'reason': reason, 'requester': actor,
+            'created': now, 'status': 'pending',
+            'approved_by': None, 'approved_at': None,
+        }
+    audit_log(actor, 'cmdb_break_glass_requested',
+              detail=f'device={dev_id} cred={cred_id} req={req_id} label={label[:40]}',
+              source_ip=_get_client_ip())
+    fire_webhook('vault_break_glass', {
+        'device_id': dev_id, 'device_name': dev_id, 'cred_id': cred_id,
+        'label': label, 'requester': actor, 'request_id': req_id, 'reason': reason,
+    })
+    return req_id
+
+
+def _breakglass_check(req_id: str, dev_id: str, cred_id: str, actor: str) -> 'tuple[bool, str]':
+    """(ok, reason) — a reveal proceeds only when the request is approved, fresh,
+    for THIS exact credential, by a DIFFERENT admin than the requester, and the
+    one revealing is the original requester."""
+    r = _breakglass_load().get(req_id)
+    if not r:
+        return (False, 'unknown or expired break-glass request')
+    if r.get('device_id') != dev_id or r.get('cred_id') != cred_id:
+        return (False, 'request does not match this credential')
+    if r.get('status') != 'approved':
+        return (False, 'break-glass request is not approved yet')
+    if int(time.time()) - int(r.get('approved_at') or 0) > _BREAKGLASS_TTL:
+        return (False, 'approval expired — open a new break-glass request')
+    if r.get('approved_by') == r.get('requester'):
+        return (False, 'self-approval is not allowed')
+    if r.get('requester') != actor:
+        return (False, 'only the original requester may reveal this credential')
+    return (True, '')
+
+
+def _breakglass_consume(req_id: str) -> None:
+    if not req_id:
+        return
+    with _LockedUpdate(BREAKGLASS_FILE) as store:
+        if req_id in store:
+            store[req_id]['status'] = 'consumed'
+            store[req_id]['consumed_at'] = int(time.time())
+
+
+def handle_breakglass_list() -> None:
+    """``GET /api/cmdb/break-glass`` — open (pending/approved) break-glass requests
+    for the approval card. Admin only. Never returns secrets."""
+    require_admin_auth()
+    now = int(time.time())
+    out = []
+    for r in _breakglass_load().values():
+        if r.get('status') == 'consumed':
+            continue
+        if now - int(r.get('created', 0)) > _BREAKGLASS_TTL * 8:
+            continue
+        out.append({k: r.get(k) for k in (
+            'id', 'device_id', 'cred_id', 'label', 'reason', 'requester',
+            'created', 'status', 'approved_by', 'approved_at')})
+    out.sort(key=lambda r: r.get('created', 0), reverse=True)
+    respond(200, out)
+
+
+def handle_breakglass_approve(req_id: str) -> None:
+    """``POST /api/cmdb/break-glass/{req_id}/approve`` — a SECOND admin approves a
+    pending break-glass request. Cannot approve your own; audit-logged."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not req_id.startswith('bg_') or not _validate_id(req_id[len('bg_'):]):
+        respond(404, {'error': 'break-glass request not found'})
+    r = _breakglass_load().get(req_id)
+    if not r:
+        respond(404, {'error': 'break-glass request not found or expired'})
+    if r.get('status') == 'consumed':
+        respond(400, {'error': 'this break-glass request was already used'})
+    if r.get('requester') == actor:
+        respond(403, {'error': 'you cannot approve your own break-glass request'})
+    missing = False
+    with _LockedUpdate(BREAKGLASS_FILE) as store:
+        rr = store.get(req_id)
+        if not rr:
+            missing = True
+        else:
+            rr['status'] = 'approved'
+            rr['approved_by'] = actor
+            rr['approved_at'] = int(time.time())
+    if missing:
+        respond(404, {'error': 'break-glass request not found'})
+    audit_log(actor, 'cmdb_break_glass_approved',
+              detail=f"req={req_id} device={r.get('device_id')} "
+                     f"cred={r.get('cred_id')} requester={r.get('requester')}",
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True, 'request_id': req_id})
+
+
 def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     """``POST /api/cmdb/{device_id}/credentials/{cred_id}/reveal`` — return plaintext.
 
@@ -43012,6 +43140,24 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     if not cred:
         respond(404, {'error': 'credential not found'})
 
+    # v5.0.0 (#C3): break-glass two-person rule. A flagged credential can only
+    # be revealed once a SECOND admin has approved a pending request. The first
+    # reveal opens the request (and notifies via webhook); the reveal that
+    # carries an approved, fresh, non-self request_id returns the plaintext.
+    bg_body = get_json_body() if method() == 'POST' else {}  # stdin reads once
+    bg_req_id = str((bg_body or {}).get('request_id', '')).strip()
+    if cred.get('break_glass'):
+        if not bg_req_id:
+            new_req = _breakglass_open(actor, dev_id, cred_id, cred.get('label', ''),
+                                       str((bg_body or {}).get('reason', ''))[:200])
+            respond(202, {'break_glass': True, 'pending': True,
+                          'request_id': new_req,
+                          'message': 'Break-glass credential — a second admin must '
+                                     'approve before it is revealed.'})
+        ok, why = _breakglass_check(bg_req_id, dev_id, cred_id, actor)
+        if not ok:
+            respond(403, {'break_glass': True, 'error': why})
+
     try:
         plaintext = cmdb_vault.decrypt(key,
                                        {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})
@@ -43023,6 +43169,11 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     except cmdb_vault.VaultError as e:
         respond(500, {'error': f'decrypt failed: {e}'})
 
+    if cred.get('break_glass'):
+        _breakglass_consume(bg_req_id)
+        audit_log(actor, 'cmdb_break_glass_reveal',
+                  detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
+                  source_ip=_get_client_ip())
     audit_log(actor, 'cmdb_credential_reveal',
               detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
               source_ip=_get_client_ip())
@@ -44363,6 +44514,12 @@ def _dispatch(pi, m):
     elif pi == '/api/cmdb/vault/change'  and m == 'POST': handle_cmdb_vault_change()
     # Server-function autocomplete list
     elif pi == '/api/cmdb/server-functions' and m == 'GET': handle_cmdb_server_functions()
+    # v5.0.0 (#C3): break-glass requests — match the literal paths before the
+    # generic /api/cmdb/{id} routes so "break-glass" isn't read as a device id.
+    elif pi == '/api/cmdb/break-glass' and m == 'GET':
+        handle_breakglass_list()
+    elif pi.startswith('/api/cmdb/break-glass/') and pi.endswith('/approve') and m == 'POST':
+        handle_breakglass_approve(pi[len('/api/cmdb/break-glass/'):-len('/approve')])
     # Per-device credential CRUD — match before the generic /api/cmdb/{id} route
     # v4.10.0: site/group/tag-scoped credentials (must precede the generic
     # /api/cmdb/ credential routes; /inherited-credentials is device-scoped).

@@ -26,6 +26,7 @@ import backup_crypto  # noqa: E402
 
 API_SRC = (_CGI / "api.py").read_text()
 APP = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+APP_CMDB = (_ROOT / "server" / "html" / "static" / "js" / "app-cmdb.js").read_text()
 HTML = (_ROOT / "server" / "html" / "index.html").read_text()
 
 
@@ -162,6 +163,111 @@ class TestBackupApiWiring(unittest.TestCase):
             self.assertEqual(api._backup_passphrase(), "hunter2")
         finally:
             os.environ.pop("RP_BACKUP_PASSPHRASE", None)
+
+
+# ─────────────────────────── #C3 break-glass reveals ───────────────────────────
+class TestBreakGlass(unittest.TestCase):
+    def setUp(self):
+        api.save(api.BREAKGLASS_FILE, {})
+
+    def test_open_creates_pending(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "root pw", "incident")
+        self.assertTrue(rid.startswith("bg_"))
+        store = api._breakglass_load()
+        self.assertEqual(store[rid]["status"], "pending")
+        self.assertEqual(store[rid]["requester"], "alice")
+
+    def test_check_rejects_unapproved(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        ok, why = api._breakglass_check(rid, "dev1", "cred_aa", "alice")
+        self.assertFalse(ok)
+        self.assertIn("not approved", why)
+
+    def test_full_two_person_flow(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        # second admin approves
+        store = api._breakglass_load()
+        store[rid]["status"] = "approved"
+        store[rid]["approved_by"] = "bob"
+        store[rid]["approved_at"] = int(__import__("time").time())
+        api.save(api.BREAKGLASS_FILE, store)
+        ok, why = api._breakglass_check(rid, "dev1", "cred_aa", "alice")
+        self.assertTrue(ok, why)
+
+    def test_self_approval_blocked(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        store = api._breakglass_load()
+        store[rid].update(status="approved", approved_by="alice",
+                          approved_at=int(__import__("time").time()))
+        api.save(api.BREAKGLASS_FILE, store)
+        ok, why = api._breakglass_check(rid, "dev1", "cred_aa", "alice")
+        self.assertFalse(ok)
+        self.assertIn("self-approval", why)
+
+    def test_wrong_requester_blocked(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        store = api._breakglass_load()
+        store[rid].update(status="approved", approved_by="bob",
+                          approved_at=int(__import__("time").time()))
+        api.save(api.BREAKGLASS_FILE, store)
+        ok, why = api._breakglass_check(rid, "dev1", "cred_aa", "carol")
+        self.assertFalse(ok)
+        self.assertIn("original requester", why)
+
+    def test_mismatched_cred_blocked(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        store = api._breakglass_load()
+        store[rid].update(status="approved", approved_by="bob",
+                          approved_at=int(__import__("time").time()))
+        api.save(api.BREAKGLASS_FILE, store)
+        ok, why = api._breakglass_check(rid, "dev1", "cred_BB", "alice")
+        self.assertFalse(ok)
+
+    def test_approval_expiry(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        store = api._breakglass_load()
+        store[rid].update(status="approved", approved_by="bob",
+                          approved_at=int(__import__("time").time()) - api._BREAKGLASS_TTL - 5)
+        api.save(api.BREAKGLASS_FILE, store)
+        ok, why = api._breakglass_check(rid, "dev1", "cred_aa", "alice")
+        self.assertFalse(ok)
+        self.assertIn("expired", why)
+
+    def test_consume(self):
+        rid = api._breakglass_open("alice", "dev1", "cred_aa", "l", "")
+        api._breakglass_consume(rid)
+        self.assertEqual(api._breakglass_load()[rid]["status"], "consumed")
+
+    def test_event_registered_all_registries(self):
+        names = {e[0] for e in api.WEBHOOK_EVENTS}
+        self.assertIn("vault_break_glass", names)
+        self.assertEqual(api._ALERT_RULES.get("vault_break_glass")[0], "high")
+        # CHANNEL_KINDS row
+        kinds = {row[0] for row in api.CHANNEL_KINDS}
+        self.assertIn("break_glass", kinds)
+        # title
+        self.assertIn("Break-Glass", api._webhook_title("vault_break_glass"))
+        # frontend FLEET_EVENTS + dispatch
+        self.assertIn("vault_break_glass", APP)
+        self.assertIn("data-home-act=\"cmdb\"", APP)
+
+    def test_routing(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("GET", "/api/cmdb/break-glass")[0],
+                         "handle_breakglass_list")
+        self.assertEqual(resolve_route("POST", "/api/cmdb/break-glass/bg_abc/approve")[0],
+                         "handle_breakglass_approve")
+
+    def test_cred_add_stores_flag(self):
+        i = API_SRC.index("def handle_cmdb_credentials_add(")
+        self.assertIn("'break_glass': bool(body.get('break_glass'))",
+                      API_SRC[i:i + 4000])
+
+    def test_frontend_wires(self):
+        self.assertIn('id="cmdb-cred-breakglass"', HTML)
+        self.assertIn('id="cmdb-breakglass-card"', HTML)
+        self.assertIn("function loadBreakGlass", APP_CMDB)
+        self.assertIn("cmdbBreakGlassApprove", APP_CMDB)
 
 
 if __name__ == "__main__":

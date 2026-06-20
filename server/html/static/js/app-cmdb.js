@@ -43,6 +43,50 @@ function enterCMDB() {
   cmdbRefreshVaultStatus().then(() => cmdbReloadList());
   cmdbLoadServerFunctions();
   loadScopedCreds();
+  loadBreakGlass();
+}
+
+// ── v5.0.0 (#C3): break-glass approval card ──────────────────────────────────
+// Lists open break-glass reveal requests so a SECOND admin can approve them.
+// Never shows any secret — just who asked for what, and an Approve button.
+async function loadBreakGlass() {
+  const card = document.getElementById('cmdb-breakglass-card');
+  const body = document.getElementById('cmdb-breakglass-body');
+  if (!card || !body) return;
+  const res = await cmdbApi('GET', '/cmdb/break-glass');
+  const reqs = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
+  if (!reqs.length) { card.classList.add('d-none'); return; }
+  card.classList.remove('d-none');
+  body.innerHTML = reqs.map(r => {
+    const when = r.created ? new Date(r.created * 1000).toLocaleString() : '—';
+    const status = r.status === 'approved'
+      ? `<span class="patch-badge ok">approved by ${_cmdbEsc(r.approved_by || '')}</span>`
+      : '<span class="patch-badge warn">awaiting approval</span>';
+    const approve = (r.status === 'pending')
+      ? `<button class="btn-icon" data-action="cmdbBreakGlassApprove" data-arg="${_cmdbEsc(r.id)}" >Approve</button>`
+      : '';
+    return `<div class="isl-444">
+      <div class="isl-445">
+        <div class="fw-600">${_cmdbEsc(r.label || r.cred_id)} ${status}</div>
+        <div class="isl-328">requested by ${_cmdbEsc(r.requester || '')} · ${_cmdbEsc(when)}${r.reason ? ' · ' + _cmdbEsc(r.reason) : ''}</div>
+      </div>
+      <div class="isl-446">${approve}</div>
+    </div>`;
+  }).join('');
+}
+
+async function cmdbBreakGlassApprove(reqId) {
+  if (typeof uiConfirm === 'function'
+      ? !(await uiConfirm('Approve this break-glass reveal? The requester will then be able to '
+          + 'see the credential. You cannot approve your own request.'))
+      : !confirm('Approve this break-glass reveal?')) return;
+  const res = await cmdbApi('POST', '/cmdb/break-glass/' + encodeURIComponent(reqId) + '/approve', {});
+  if (!res || !res.ok) {
+    alert('Approve failed: ' + (res && res.data && res.data.error || '?'));
+    return;
+  }
+  if (typeof toast === 'function') toast('Break-glass request approved', 'success');
+  loadBreakGlass();
 }
 
 // ── v4.10.0: site / group / tag-scoped credentials ──────────────────────────
@@ -847,6 +891,7 @@ function cmdbCredAddOpen() {
   document.getElementById('cmdb-cred-password').value = '';
   document.getElementById('cmdb-cred-note').value     = '';
   document.getElementById('cmdb-cred-rotate').value   = '';
+  const bg = document.getElementById('cmdb-cred-breakglass'); if (bg) bg.checked = false;
   openModal('cmdb-cred-add-modal');
 }
 
@@ -875,6 +920,7 @@ async function cmdbCredSave() {
     username: document.getElementById('cmdb-cred-username').value,
     note:     document.getElementById('cmdb-cred-note').value,
     rotate_after_days: parseInt(document.getElementById('cmdb-cred-rotate').value, 10) || 0,
+    break_glass: !!(document.getElementById('cmdb-cred-breakglass') || {}).checked,
   };
   const pw = document.getElementById('cmdb-cred-password').value;
   if (mode === 'add') {
@@ -905,15 +951,30 @@ async function cmdbCredDelete(deviceId, credId) {
   cmdbReloadList();
 }
 
+// v5.0.0 (#C3): remember the open break-glass request per credential so the
+// requester's *second* reveal click carries the (now-approved) request id.
+let _cmdbBgReqs = {};
 async function cmdbCredReveal(deviceId, credId) {
   if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  const bgKey = deviceId + '|' + credId;
+  const body = {};
+  if (_cmdbBgReqs[bgKey]) body.request_id = _cmdbBgReqs[bgKey];
   const res = await cmdbApi('POST',
     '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId) + '/reveal',
-    null, true);
+    body, true);
+  // Break-glass: first click opens a request that a second admin must approve.
+  if (res && res.data && res.data.pending) {
+    _cmdbBgReqs[bgKey] = res.data.request_id;
+    alert('Break-glass credential.\n\nRequest ' + res.data.request_id + ' created — a SECOND '
+      + 'admin must approve it under CMDB → "Break-glass requests", then click Reveal again.');
+    if (typeof loadBreakGlass === 'function') loadBreakGlass();
+    return;
+  }
   if (!res || !res.ok) {
     alert('Reveal failed: ' + (res && res.data && res.data.error || '?'));
     return;
   }
+  delete _cmdbBgReqs[bgKey];   // consumed
   document.getElementById('cmdb-cred-reveal-label').textContent    = res.data.label || '—';
   document.getElementById('cmdb-cred-reveal-username').textContent = res.data.username || '—';
   document.getElementById('cmdb-cred-reveal-password').textContent = res.data.password || '';
