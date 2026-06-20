@@ -60,7 +60,18 @@ def _addr_blocked(ip: str) -> bool:
         a = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    return a.is_link_local or a.is_unspecified
+    # Unwrap IPv6 encodings that can smuggle the blocked metadata IPv4
+    # (169.254.169.254): IPv4-mapped (::ffff:a.b.c.d), 6to4 (2002::/16) and
+    # NAT64 (64:ff9b::/96) — then classify on the embedded v4.
+    if a.version == 6:
+        mapped = getattr(a, 'ipv4_mapped', None)
+        if mapped is None and a in ipaddress.ip_network('2002::/16'):
+            mapped = ipaddress.IPv4Address(a.packed[2:6])
+        if mapped is None and a in ipaddress.ip_network('64:ff9b::/96'):
+            mapped = ipaddress.IPv4Address(a.packed[12:16])
+        if mapped is not None:
+            a = mapped
+    return a.is_link_local or a.is_unspecified or a.is_multicast
 
 # Probe knobs. 5+5s is generous — Cloudflare-fronted hosts respond in
 # well under a second; the timeout exists for the unreachable case.

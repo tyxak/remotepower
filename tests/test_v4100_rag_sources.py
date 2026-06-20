@@ -93,19 +93,52 @@ class TestBackupsCorpus(unittest.TestCase):
         self.assertEqual(docs[0]["device"], "d1")
 
 
+class TestDnsEmailCorpus(unittest.TestCase):
+    DMARC = {"t1": {"domain": "tvipper.com", "status": "pass",
+                    "dmarc": {"policy": "reject"}, "spf": {"record": "v=spf1 -all"},
+                    "dkim": {"selector": "default"}, "reasons": []}}
+    REP = {"r1": {"ip": "1.2.3.4", "label": "mx", "listed_count": 1,
+                  "listed_on": [{"name": "zen.spamhaus.org"}], "errors": {}}}
+    RES = [{"resolver": "1.1.1.1", "healthy": True, "latency_ms": 12}]
+
+    def test_domains_reputation_resolvers(self):
+        docs = ri.build_dns_email_corpus(self.DMARC, self.REP, self.RES, now=1)
+        by = {d["id"]: d for d in docs}
+        self.assertIn("email/tvipper.com", by)
+        self.assertIn("p=reject", by["email/tvipper.com"]["text"])
+        self.assertIn("reputation/1.2.3.4", by)
+        self.assertIn("LISTED", by["reputation/1.2.3.4"]["text"])
+        self.assertIn("reputation/_fleet", by)        # blacklist rollup
+        self.assertIn("dns/resolvers", by)
+
+    def test_empty_and_malformed_safe(self):
+        self.assertEqual(ri.build_dns_email_corpus({}, [], None), [])
+        # non-dict/non-list stores must not raise
+        self.assertEqual(ri.build_dns_email_corpus(42, "x", 3.14), [])
+
+
 class TestApiWiring(unittest.TestCase):
     def test_sources_wired_in_orchestrator(self):
-        for fn in ("build_firewall_corpus", "build_integrations_corpus", "build_backups_corpus"):
+        for fn in ("build_firewall_corpus", "build_integrations_corpus",
+                   "build_backups_corpus", "build_dns_email_corpus"):
             self.assertIn(f"rag_index.{fn}", _API_SRC, fn)
 
     def test_sources_default_on(self):
-        # the three new sources are enabled by default
-        for key in ("'firewall':", "'integrations':", "'backups':"):
+        # the new sources are enabled by default
+        for key in ("'firewall':", "'integrations':", "'backups':", "'dns_email':"):
             self.assertIn(key, _API_SRC, key)
 
     def test_staleness_files_registered(self):
         self.assertIn("if sources.get('integrations'):", _API_SRC)
         self.assertIn("files.append(INTEG_STATE_FILE)", _API_SRC)
+        self.assertIn("if sources.get('dns_email'):", _API_SRC)
+
+    def test_dns_email_save_whitelisted(self):
+        # the save-handler whitelist must include every default source, or its
+        # UI toggle silently won't persist (the v4.10.0 firewall/integrations/
+        # backups toggle-persistence bug).
+        for key in ("'firewall'", "'integrations'", "'backups'", "'dns_email'"):
+            self.assertIn(key, _API_SRC, key)
 
 
 if __name__ == "__main__":

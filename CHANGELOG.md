@@ -5,9 +5,31 @@ All notable changes to RemotePower. Newest first.
 ## v4.10.0 — "PerimeterMatters" — unreleased (test)
 
 A perimeter-defense and AI release: a fleet-wide **Firewall + fail2ban** page
-(view *and* edit), **20 new AI features** in an AI Insights hub, three new
+(view *and* edit), **20 new AI features** in an AI Insights hub, four new
 sources in the fleet-knowledge (RAG) index, and a UI-polish + release-readiness
 finalize sweep. No breaking changes, no schema changes.
+
+### Finalize sweep (whole-project)
+
+- **Devices** — hover tooltip on the patches badge; **Reputation** now reads
+  "Clean — N unreachable" so the reachable blocklists' clean status is explicit.
+- **Risk** — seven more factors (OS end-of-life, overheating, config drift,
+  clock skew, gateway down, recent OOM) from already-collected data.
+- **Thermal** — per-sensor critical thresholds, a headroom column, GPU
+  fan/util/power, and a full per-sensor hover breakdown.
+- **Certificates** — ACME revoke/remove now passes `--ecc` for EC certs.
+- **Search** — the `/` command palette and the sidebar search now cover every
+  page (Firewall, Risk, DNS, GPUs, Integrations, …) and concept keywords.
+- **AI / RAG** — a new **Email & DNS** source (DMARC/SPF/DKIM, DNSBL reputation,
+  resolver health) grounds the email-deliverability and DNS-hygiene advisors;
+  fixed a latent bug where the firewall/integrations/backups RAG toggles didn't
+  persist.
+- **Security** — firewalld-delete argument validation, IPv6-encoded
+  metadata-IP unwrapping in the TLS monitor, and containerized-agent host-path
+  fixes for drift / authorized-keys / mailbox reads. No Critical/High/Medium
+  findings ([docs/security-review-4.10.0.md](docs/security-review-4.10.0.md)).
+- **Performance** — scope-keyed cache on the sidebar badge poll; the agent's
+  per-poll service check batched from up to 50 subprocesses into one.
 
 ### Security → Firewall page (firewall + fail2ban)
 

@@ -874,6 +874,77 @@ def build_backups_corpus(state, monitors, resolve_device=None, now=0):
     return docs
 
 
+def build_dns_email_corpus(dmarc=None, reputation=None, resolver=None, now=0):
+    """v4.10.0: email-deliverability + DNS-hygiene posture for the AI advisors.
+
+    Indexes DMARC/SPF/DKIM grades per domain (dmarc_results.json), DNSBL / IP
+    reputation (ip_reputation_results.json) and DNS resolver health
+    (resolver_health_results.json) — the exact data the `email_deliverability`
+    and `dns_hygiene` insight cards ask the model about, which previously had no
+    corpus to ground their answers. All admin-configured posture, no PII.
+    Defensive about store shape (dict-of-id or list).
+    """
+    docs = []
+    _seq = lambda x: list(x.values()) if isinstance(x, dict) else (x if isinstance(x, list) else [])
+    # ── DMARC / SPF / DKIM per domain ──
+    dm = _seq(dmarc)
+    for r in dm:
+        if not isinstance(r, dict):
+            continue
+        domain = r.get('domain') or '?'
+        status = r.get('status') or 'unknown'
+        pol = (r.get('dmarc') or {}).get('policy') or r.get('policy') or '—'
+        spf = (r.get('spf') or {})
+        dkim = (r.get('dkim') or {})
+        reasons = r.get('reasons') or []
+        body = (f"Email authentication for {domain}: overall status {status}.\n"
+                f"- DMARC policy: p={pol}\n"
+                f"- SPF: {spf.get('record') or spf.get('status') or spf.get('found') or 'n/a'}\n"
+                f"- DKIM: {dkim.get('selector') or dkim.get('status') or dkim.get('found') or 'n/a'}\n"
+                + (("Issues: " + '; '.join(str(x) for x in reasons[:8])) if reasons else ''))
+        docs.append(make_doc(f"email/{domain}", 'dns_email', 'email_auth', body,
+                             title=f"Email auth: {domain}", ts=now))
+    # ── IP reputation (DNSBL) ──
+    rp = _seq(reputation)
+    listed = []
+    for r in rp:
+        if not isinstance(r, dict):
+            continue
+        ip = r.get('ip') or '?'
+        label = r.get('label') or ''
+        lc = r.get('listed_count') or 0
+        on = ', '.join(z.get('name', '?') for z in (r.get('listed_on') or []) if isinstance(z, dict))
+        state = (f"LISTED on {lc} blocklist(s) ({on})" if lc else 'clean')
+        if r.get('errors'):
+            state += f"; {len(r['errors'])} blocklist(s) unreachable"
+        if lc:
+            listed.append(f"{ip}{(' ' + label) if label else ''}: {on}")
+        docs.append(make_doc(f"reputation/{ip}", 'dns_email', 'ip_reputation',
+                             f"IP reputation for {ip} {label}: {state}.",
+                             title=f"IP reputation: {ip}", ts=now))
+    if listed:
+        docs.append(make_doc('reputation/_fleet', 'dns_email', 'fleet_reputation',
+                             "Blacklisted IPs: " + ' | '.join(listed[:100]),
+                             title='Fleet — blacklisted IPs', ts=now))
+    # ── DNS resolver health ──
+    rs = _seq(resolver)
+    rlines = []
+    for r in rs:
+        if not isinstance(r, dict):
+            continue
+        srv = r.get('resolver') or r.get('server') or r.get('target') or '?'
+        healthy = r.get('healthy')
+        lat = r.get('latency_ms')
+        st = (('healthy' if healthy else 'UNHEALTHY') if healthy is not None
+              else (r.get('status') or '?'))
+        rlines.append(f"- {srv}: {st}" + (f", {lat}ms" if isinstance(lat, (int, float)) else ''))
+    if rlines:
+        docs.append(make_doc('dns/resolvers', 'dns_email', 'resolver_health',
+                             "DNS resolver health:\n" + '\n'.join(rlines[:60]),
+                             title='DNS resolver health', ts=now))
+    return docs
+
+
 def build_compliance_corpus(report, now=0):
     """v4.1.0: a compliance report → one chunk per framework (score + the
     FAILING controls with evidence/remediation) plus an overall summary.

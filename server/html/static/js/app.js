@@ -1157,6 +1157,26 @@ const _SIDEBAR_KW = {
   'settings': 'settings config configuration notifications webhooks 2fa totp smtp ldap oidc sso backup signing automation rbac roles after-hours integrations',
   'users': 'users accounts rbac roles permissions scope operators',
   'api keys': 'api keys tokens mcp bearer integration',
+  // v4.10.0: keyword synonyms for the Security / Monitoring / Admin pages that
+  // had none — so a concept search finds them, not just the exact menu label.
+  'firewall': 'firewall nftables iptables ufw firewalld fail2ban jail jails banned ban list rules block drop reject perimeter',
+  'risk': 'risk score asset risk posture security score risk factors at-risk weighted',
+  'dns': 'dns records zone cloudflare digitalocean hetzner desec porkbun a aaaa cname mx txt ns resolve dig propagation resolver nameserver',
+  'reputation/dmarc': 'reputation dmarc spf dkim dnsbl blacklist blocklist rbl ip reputation email deliverability mail rua aggregate report spoofing',
+  'gpus': 'gpu gpus nvidia amd vram graphics card temperature utilization fan cuda rocm',
+  'integrations': 'integrations homelab pi-hole pihole adguard truenas unifi home assistant proxmox backup jellyfin plex nextcloud sonarr radarr connectors third-party',
+  'checks': 'checks health checks per-host status reachability posture custom checks monitoring',
+  'exposure': 'exposure world exposed ports attack surface internet facing public sockets exposed secrets',
+  'storage': 'storage pools raid zfs mdadm array volumes capacity disks degraded',
+  'backups': 'backups backup snapshot restore archive export data retention',
+  'release signing': 'release signing gpg sign signature verify artifacts provenance',
+  'sites': 'sites locations regions geography datacenter site grouping',
+  'software policy': 'software policy allowed banned packages blocklist allowlist required forbidden',
+  'automation': 'automation rules triggers actions auto remediation if then',
+  'auto-patch': 'auto-patch autopatch automatic updates unattended upgrades patching policy windows',
+  'ansible': 'ansible playbook automation configuration management inventory adhoc',
+  'confirmations': 'confirmations mcp pending approval confirm two-person sign-off',
+  'ai assistant': 'ai assistant insights ai insights briefing rca anomaly recommendations chat provider openai anthropic ollama rag ask analyze',
 };
 // Destinations that aren't sidebar buttons — Settings sub-panes (deep-linked via
 // gotoSetupStep) and other concept landing spots. Each one navigates itself.
@@ -1667,7 +1687,10 @@ function renderDevices() {
     let patchHtml = '';
     if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
       const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
-      patchHtml = `<span class="patch-badge ${cls}">${pkg.upgradable} update${pkg.upgradable !== 1 ? 's' : ''}</span>`;
+      const ptitle = pkg.upgradable > 0
+        ? `${pkg.upgradable} package update${pkg.upgradable !== 1 ? 's' : ''} pending — install to clear`
+        : 'Up to date — no pending package updates';
+      patchHtml = `<span class="patch-badge ${cls}" title="${escAttr(ptitle)}">${pkg.upgradable} update${pkg.upgradable !== 1 ? 's' : ''}</span>`;
     }
     const missedHtml = (!isOnline && d.missed_polls && d.offline_reason === 'missed_polls') ? `<span class="missed-badge">~${d.missed_polls} missed</span>` : '';
     const iconContent = d.icon ? `<span class="isl-313">${escHtml(d.icon)}</span>` : (isSel ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`);
@@ -1844,7 +1867,10 @@ function _registerDevicesMinimalTable() {
       let patchHtml = '';
       if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
         const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
-        patchHtml = ` <span class="patch-badge ${cls} isl-316">${pkg.upgradable}</span>`;
+        const ptitle = pkg.upgradable > 0
+          ? `${pkg.upgradable} package update${pkg.upgradable !== 1 ? 's' : ''} pending — install to clear`
+          : 'Up to date — no pending package updates';
+        patchHtml = ` <span class="patch-badge ${cls} isl-316" title="${escAttr(ptitle)}">${pkg.upgradable}</span>`;
       }
       const groupHtml = d.group ? `<span class="group-badge fs-10">${escHtml(d.group)}</span>` : '<span class="c-muted">—</span>';
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
@@ -6598,7 +6624,7 @@ async function regenerateRecoveryCodes() {
   if (data?.ok && data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); }
   else toast(data?.error || 'Failed', 'error');
 }
-async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${data.secret}" title="Click to copy" class="isl-368">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
+async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${escAttr(data.secret)}" title="Click to copy" class="isl-368">${escHtml(data.secret)}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
 async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); if (data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); } else { loadTotpStatus(); } } else toast(data?.error || 'Invalid code', 'error'); }
 async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
 function filterDevices() {
@@ -10782,6 +10808,7 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-firewall',     rs.firewall !== false);
   _setSrc('ai-rag-src-integrations', rs.integrations !== false);
   _setSrc('ai-rag-src-backups',      rs.backups !== false);
+  _setSrc('ai-rag-src-dnsemail',     rs.dns_email !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
@@ -11033,6 +11060,7 @@ async function saveAISettings() {
         firewall:     !!document.getElementById('ai-rag-src-firewall')?.checked,
         integrations: !!document.getElementById('ai-rag-src-integrations')?.checked,
         backups:      !!document.getElementById('ai-rag-src-backups')?.checked,
+        dns_email:    !!document.getElementById('ai-rag-src-dnsemail')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
@@ -13882,7 +13910,10 @@ async function loadReputation() {
     if (t.error) { status = escHtml(t.error); cls = 'c-muted'; }
     else if (!t.checked_at) { status = 'not checked'; cls = 'c-muted'; }
     else if ((t.listed_count || 0) > 0) { status = `Listed on ${t.listed_count}`; cls = 'c-red'; }
-    else if (errCount) { status = `Partial — ${errCount} unreachable`; cls = 'c-amber'; }
+    // At this branch listed_count is 0 — the reachable blocklists found no listing
+    // (clean); we just couldn't reach `errCount` of them. Say so explicitly rather
+    // than a bare "Partial", which left "are the rest clean?" ambiguous.
+    else if (errCount) { status = `Clean — ${errCount} unreachable`; cls = 'c-amber'; }
     else { status = 'Clean'; cls = 'c-green'; }
     // Show each listing's return codes + the DNSBL's TXT reason (delisting URL) on
     // hover. Both come from DNS, so escape them. Unreachable blocklists are surfaced
@@ -14028,7 +14059,7 @@ async function loadThermal() {
     if (summary) summary.textContent = `${data.count} host${data.count === 1 ? '' : 's'} · ${data.hot} hot`;
     _renderThermal();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 function _renderThermal() {
@@ -14042,22 +14073,43 @@ function _renderThermal() {
     max_temp:     r.max_temp || 0,
     sensor_label: (r.sensor_label || '').toLowerCase(),
     sensor_type:  r.sensor_type || '',
+    crit_c:       (typeof r.crit_c === 'number') ? r.crit_c : 9999,
+    headroom:     (typeof r.headroom === 'number') ? r.headroom : 9999,
     sensors:      r.sensors || 0,
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
     return;
   }
   const { rows: shown, note } = _capFleetRows(rows, 5, 'hosts');
   tbody.innerHTML = shown.map(r => {
     const cls = r.critical ? 'c-red fw-600' : r.hot ? 'c-amber fw-600' : '';
     const t = (typeof r.max_temp === 'number') ? `${r.max_temp.toFixed(1)}°C` : '—';
+    const thr = (typeof r.crit_c === 'number') ? `${r.crit_c.toFixed(0)}°C` : '<span class="c-muted">—</span>';
+    let head = '<span class="c-muted">—</span>';
+    if (typeof r.headroom === 'number') {
+      const hc = r.headroom <= 5 ? 'c-red fw-600' : r.headroom <= 15 ? 'c-amber' : 'c-green';
+      head = `<span class="${hc}">${r.headroom.toFixed(1)}°C</span>`;
+    }
+    // hover breakdown: every sensor reporting on the host, hottest-first
+    const bd = (r.detail || []).map(s =>
+      `${s.label}: ${s.temp}°C${(typeof s.crit === 'number') ? ' (crit ' + s.crit + '°)' : ''}`).join('\n');
+    let lbl = escHtml(r.sensor_label || '—');
+    if (r.gpu) {  // GPU is the hottest sensor — show its fan/util/power
+      const bits = [];
+      if (typeof r.gpu.util_pct === 'number') bits.push(`${r.gpu.util_pct}% util`);
+      if (typeof r.gpu.fan_pct === 'number') bits.push(`${r.gpu.fan_pct}% fan`);
+      if (typeof r.gpu.power_w === 'number') bits.push(`${r.gpu.power_w}W`);
+      if (bits.length) lbl += ` <span class="hint">· ${escHtml(bits.join(' · '))}</span>`;
+    }
     return `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
       <td class="${cls}">${t}</td>
-      <td>${escHtml(r.sensor_label || '—')}</td>
+      <td>${lbl}</td>
       <td class="hint">${escHtml(r.sensor_type || '—')}</td>
-      <td class="hint">${r.sensors || 0}</td>
+      <td class="hint">${thr}</td>
+      <td>${head}</td>
+      <td class="hint" title="${escAttr(bd)}">${r.sensors || 0}</td>
     </tr>`;
   }).join('') + note;
 }
@@ -24773,6 +24825,18 @@ function _palBuildIndex() {
     // v3.4.1: new + previously-missing destinations
     ['Timeline', 'timeline'], ['Reports', 'reports'], ['Alerts', 'alerts'],
     ['Compliance', 'compliance'], ['Forecast', 'forecast'],
+    // v4.10.0: catch the palette up with the nav — Security / Monitoring / Admin
+    // pages added since v3.4.1 (Firewall, Risk, DNS, Reputation/DMARC, GPUs, …).
+    ['Firewall', 'firewall'], ['Risk', 'risk'], ['Checks', 'checks'],
+    ['Exposure', 'exposure'], ['Thermal', 'thermal'], ['Power', 'power'],
+    ['Storage', 'storage'], ['Predictive health', 'disk-health'],
+    ['SSH keys', 'ssh-keys'], ['GPUs', 'gpus'], ['DNS', 'dns'],
+    ['Reputation/DMARC', 'dmarc'], ['Integrations', 'integrations'],
+    ['Trends', 'trends'], ['Query', 'query'], ['Links', 'links'],
+    ['Rollouts', 'rollouts'], ['Auto-patch', 'autopatch'], ['Ansible', 'ansible'],
+    ['Automation', 'automation'], ['Software policy', 'software-policy'],
+    ['Sites', 'sites'], ['Backups', 'backups'], ['Release Signing', 'signing'],
+    ['Confirmations', 'confirmations'],
   ];
   for (const [label, page] of pages) {
     items.push({label, kind: 'page', sub: 'Go to page',

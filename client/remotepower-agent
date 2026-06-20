@@ -2360,22 +2360,27 @@ def get_services(watched_units):
         return []
 
     out = []
-    # Batch into one systemctl call per unit (simpler + each unit has its own
-    # ActiveEnterTimestamp). Could use --all + --no-pager, but single-shot is
-    # clearer and robust to unknown units.
-    for unit in watched_units[:50]:  # matches server MAX_SERVICES_PER_DEVICE
-        try:
-            proc = subprocess.run(
-                ['systemctl', 'show', unit,
-                 '--property=Id,ActiveState,SubState,ActiveEnterTimestampMonotonic,ActiveEnterTimestamp',
-                 '--no-pager'],
-                capture_output=True, text=True, timeout=5,
-            )
+    units = watched_units[:50]  # matches server MAX_SERVICES_PER_DEVICE
+    # v4.10.0 (perf): batch ALL units into ONE `systemctl show` instead of one
+    # subprocess per unit (up to 50 × timeout=5 → worst case ~250s of blocking on
+    # the heartbeat thread, which would flip the device offline). systemctl emits
+    # one property block per requested unit, IN ARGUMENT ORDER, separated by a
+    # blank line — even for unknown units — so index alignment is safe.
+    try:
+        proc = subprocess.run(
+            ['systemctl', 'show', *units,
+             '--property=Id,ActiveState,SubState,ActiveEnterTimestampMonotonic,ActiveEnterTimestamp',
+             '--no-pager'],
+            capture_output=True, text=True, timeout=15,
+        )
+        blocks = proc.stdout.split('\n\n')
+        for i, unit in enumerate(units):
             props = {}
-            for line in proc.stdout.splitlines():
-                if '=' in line:
-                    k, _, v = line.partition('=')
-                    props[k.strip()] = v.strip()
+            if i < len(blocks):
+                for line in blocks[i].splitlines():
+                    if '=' in line:
+                        k, _, v = line.partition('=')
+                        props[k.strip()] = v.strip()
             active = props.get('ActiveState', 'unknown')
             sub    = props.get('SubState', '')
             since  = _parse_systemd_timestamp(props.get('ActiveEnterTimestamp', ''))
@@ -2384,11 +2389,11 @@ def get_services(watched_units):
             if canonical != unit:
                 entry['canonical'] = canonical
             out.append(entry)
-        except subprocess.TimeoutExpired:
-            out.append({'unit': unit, 'active': 'unknown', 'sub': 'timeout', 'since': 0})
-        except Exception as e:
-            log.debug(f'systemctl show {unit} failed: {e}')
-            out.append({'unit': unit, 'active': 'unknown', 'sub': '', 'since': 0})
+    except subprocess.TimeoutExpired:
+        out = [{'unit': u, 'active': 'unknown', 'sub': 'timeout', 'since': 0} for u in units]
+    except Exception as e:
+        log.debug(f'systemctl show (batch) failed: {e}')
+        out = [{'unit': u, 'active': 'unknown', 'sub': '', 'since': 0} for u in units]
     return out
 
 
@@ -4536,13 +4541,30 @@ def get_hardware_inventory():
                     for label, vals in feats.items():
                         if not isinstance(vals, dict):
                             continue
+                        # A temp feature exposes <name>_input (current) plus, on
+                        # most chips, <name>_crit / <name>_max thresholds. Capture
+                        # the hardware critical limit too so the UI can show how
+                        # much headroom is left, not just the bare temperature.
+                        cur = crit = high = None
                         for k, v in vals.items():
-                            if k.endswith('_input') and 'temp' in k:
-                                try:
-                                    temps.append({'label': f'{chip}/{label}',
-                                                  'current_c': round(float(v), 1)})
-                                except (TypeError, ValueError):
-                                    pass
+                            if 'temp' not in k:
+                                continue
+                            try:
+                                fv = float(v)
+                            except (TypeError, ValueError):
+                                continue
+                            if k.endswith('_input'):
+                                cur = fv
+                            elif k.endswith('_crit') and crit is None:
+                                crit = fv
+                            elif k.endswith('_max') and high is None:
+                                high = fv
+                        if cur is not None:
+                            entry = {'label': f'{chip}/{label}', 'current_c': round(cur, 1)}
+                            thr = crit if crit is not None else high
+                            if thr is not None:
+                                entry['crit_c'] = round(thr, 1)
+                            temps.append(entry)
             if temps:
                 hw['temps'] = temps[:64]
         except Exception:
@@ -5898,7 +5920,7 @@ def collect_host_config():
             if pw.pw_uid < 1000 or pw.pw_name == 'nobody':
                 continue
             groups = [g.gr_name for g in _grp.getgrall() if pw.pw_name in g.gr_mem]
-            ak_path = Path(pw.pw_dir) / '.ssh' / 'authorized_keys'
+            ak_path = Path(host_path(os.path.join(pw.pw_dir, '.ssh', 'authorized_keys')))
             ak = ''
             try:
                 ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
@@ -6183,13 +6205,14 @@ def count_mailbox_paths(paths):
     out = {}
     for p in (paths or [])[:MAX_MAILBOX_PATHS]:
         entry = {'count': None, 'exists': False, 'error': None}
+        hp = host_path(p)   # containerized agent: count the host's maildir
         try:
-            if not os.path.isdir(p):
+            if not os.path.isdir(hp):
                 entry['error'] = 'not_a_directory'
                 out[p] = entry
                 continue
             n = 0
-            with os.scandir(p) as it:
+            with os.scandir(hp) as it:
                 for de in it:
                     try:
                         # follow_symlinks=False: count the link itself,
@@ -6225,8 +6248,12 @@ def compute_drift_report(paths):
     """
     out = {}
     for p in (paths or [])[:MAX_DRIFT_FILES]:
+        # Containerized agent: hash the Docker HOST's file, not the slim image's
+        # copy. host_path() is identity natively. The report stays keyed by the
+        # clean path `p` (mirrors _eval_one_agent_check).
+        hp = host_path(p)
         try:
-            st = os.stat(p)
+            st = os.stat(hp)
         except FileNotFoundError:
             out[p] = {'hash': None, 'size': None, 'mtime': None, 'exists': False}
             continue
@@ -6247,7 +6274,7 @@ def compute_drift_report(paths):
             continue
         try:
             h = hashlib.sha256()
-            with open(p, 'rb') as fh:
+            with open(hp, 'rb') as fh:
                 while True:
                     chunk = fh.read(65536)
                     if not chunk:

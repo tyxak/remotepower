@@ -38,18 +38,17 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-4.6.0.md](security-review-4.6.0.md)** — Latest review:
- a full server + agent re-audit (independently pentested clean) — SSRF parity on
- the OPNsense/Proxmox/AI/TLS-monitor targets, resolved-role checks on two read
- endpoints, and agent credential-storage hardening on Windows/macOS/Linux.
+- **[security-review-4.10.0.md](security-review-4.10.0.md)** — Latest review:
+ a whole-project server + agent audit (no Critical/High/Medium findings ship) —
+ the new Firewall/fail2ban edit surface, SSRF guards, and containerized-agent
+ host-boundary hardening, with the static + dynamic tooling used each cycle.
+- **[security-review-4.6.0.md](security-review-4.6.0.md)** — A prior full server +
+ agent re-audit (independently pentested clean) — SSRF parity on the OPNsense/
+ Proxmox/AI/TLS-monitor targets, resolved-role checks on two read endpoints, and
+ agent credential-storage hardening on Windows/macOS/Linux.
 - **[security-review-4.4.1.md](security-review-4.4.1.md)** — Triage of the open
  CodeQL code-scanning alerts (XSS/SSRF/weak-hash/clear-text); all confirmed
  false positives, with the feature/function that covers each.
-- **[security-review-4.4.0.md](security-review-4.4.0.md)** — A full server +
- agent audit (independently pentested clean) — a critical admin-gate escalation,
- mitigation-route scope guards, shell-quoting the drift/ACME command builders,
- the RouterOS SSRF guard, metrics-scrape resilience, and Windows/macOS agent
- transport parity.
 
 ## Release notes
 

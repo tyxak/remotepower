@@ -2222,7 +2222,8 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-metrics"> Resource-usage trends <span class="meta-sm">(from the SQL time-series; off by default)</span></label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-firewall" checked> Firewall &amp; fail2ban posture (per host + which hosts have none)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-integrations" checked> Homelab integration health (Pi-hole, TrueNAS, *arr, …)</label>
-              <label class="click-row"><input type="checkbox" id="ai-rag-src-backups" checked> Backup freshness (which paths/hosts are stale)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-backups" checked> Backup freshness (which paths/hosts are stale)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-dnsemail" checked> Email &amp; DNS posture (DMARC/SPF/DKIM, blocklists, resolver health)</label>
             </div>
 
             <div class="form-group isl-773">
@@ -4978,9 +4979,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <thead id="thermal-thead"><tr>
               <th data-col="device">Device</th><th data-col="max_temp">Max temp</th>
               <th data-col="sensor_label">Hottest sensor</th><th data-col="sensor_type">Type</th>
+              <th data-col="crit_c">Threshold</th><th data-col="headroom">Headroom</th>
               <th data-col="sensors">Sensors</th>
             </tr></thead>
-            <tbody id="thermal-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+            <tbody id="thermal-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
           </table>
           </div>
         </div>

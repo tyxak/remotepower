@@ -8312,9 +8312,12 @@ def handle_device_firewall_rule(dev_id):
             cmd = f'ufw --force delete {ref}'
         else:  # firewalld: ref = 'port:<p>' or 'service:<s>'
             kind, _, val = ref.partition(':')
-            if kind == 'port' and val:
+            # Mirror the add path's single-token rule: validate the value to its
+            # exact firewalld shape so a space-separated extra argument
+            # (e.g. 'port:22/tcp --add-masquerade') can never be appended.
+            if kind == 'port' and re.fullmatch(r'\d{1,5}(-\d{1,5})?/(tcp|udp|sctp|dccp)', val):
                 cmd = f'firewall-cmd --permanent --remove-port={val}; firewall-cmd --reload'
-            elif kind == 'service' and val:
+            elif kind == 'service' and re.fullmatch(r'[A-Za-z0-9._-]{1,64}', val):
                 cmd = f'firewall-cmd --permanent --remove-service={val}; firewall-cmd --reload'
             else:
                 respond(400, {'error': 'invalid firewalld rule ref'})
@@ -21102,6 +21105,10 @@ _AI_DEFAULTS = {
             'firewall':     True,
             'integrations': True,
             'backups':      True,
+            # v4.10.0 (finalize): email-deliverability + DNS-hygiene posture
+            # (DMARC/SPF/DKIM, DNSBL reputation, resolver health) so the
+            # email_deliverability / dns_hygiene AI advisors have grounding.
+            'dns_email':    True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -21258,8 +21265,13 @@ def handle_ai_config_set():
                 cur['rag']['reindex_min_interval_sec'] = iv
             if isinstance(rb.get('sources'), dict):
                 cur['rag']['sources'] = dict(cur['rag'].get('sources') or {})
+                # Whitelist of toggleable sources — MUST list every source in
+                # _AI_DEFAULTS['rag']['sources'] or its UI toggle silently won't
+                # persist (the v4.10.0 firewall/integrations/backups toggles hit
+                # exactly that bug). dns_email added in the v4.10.0 finalize.
                 for k in ('docs', 'live_state', 'cmdb', 'history',
-                          'drift', 'compliance', 'metrics'):   # v4.1.0: + 3 sources
+                          'drift', 'compliance', 'metrics',
+                          'firewall', 'integrations', 'backups', 'dns_email'):
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -21382,6 +21394,8 @@ def _rag_source_files(sources):
         files.append(INTEG_STATE_FILE)
     if sources.get('backups'):
         files += [DATA_DIR / 'backup_state.json', CONFIG_FILE]
+    if sources.get('dns_email'):
+        files += [DMARC_RESULTS_FILE, IP_REP_RESULTS_FILE, RESOLVER_HEALTH_RESULTS_FILE]
     return files
 
 
@@ -21631,6 +21645,16 @@ def _rag_build_corpus(cfg):
                                                    resolve_device=resolve_dev, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: backups source failed: {e}\n')
+
+    # v4.10.0 (finalize): email-deliverability + DNS-hygiene posture.
+    if sources.get('dns_email'):
+        try:
+            docs += rag_index.build_dns_email_corpus(
+                load(DMARC_RESULTS_FILE) or {},
+                load(IP_REP_RESULTS_FILE) or {},
+                load(RESOLVER_HEALTH_RESULTS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: dns_email source failed: {e}\n')
 
     return docs
 
@@ -26289,11 +26313,14 @@ _RISK_WEIGHTS = {
     # v3.12.0: firewall posture + hardware/software health
     'firewall_off': 14, 'storage_degraded': 12, 'smart_failure': 12,
     'kernel_outdated': 6, 'failed_units': 3,
+    # v4.10.0: more posture/health signals already collected (no new probing)
+    'os_eol': 14, 'os_eol_soon': 4, 'overheating': 10, 'config_drift': 3,
+    'clock_skew': 4, 'gateway_down': 10, 'oom_recent': 6,
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
               'mount_issue': 24, 'storage_degraded': 24, 'smart_failure': 24,
-              'failed_units': 15}
+              'failed_units': 15, 'config_drift': 12}
 # states (substring match) that mean a storage pool / RAID array is unhealthy
 _RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
                      'suspended', 'error', 'fail')
@@ -26310,7 +26337,7 @@ def _risk_level(score):
 
 
 def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
-                 cve_ignore=None, exposure_mutes=None):
+                 cve_ignore=None, exposure_mutes=None, pkg_entry=None):
     si = dev.get('sysinfo') or {}
     hw_rec = hw_rec or {}
     factors = []
@@ -26419,6 +26446,43 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None,
         _add('failed_units',
              min(_RISK_CAPS['failed_units'], fu * _RISK_WEIGHTS['failed_units']),
              f'{fu} failed system service(s)')
+    # ── v4.10.0: more posture/health signals (all already collected) ─────────
+    # OS end-of-life — no security updates is a real, durable risk.
+    eol = _device_os_eol(dev, pkg_entry or {})
+    if eol and eol.get('status') == 'eol':
+        _add('os_eol', _RISK_WEIGHTS['os_eol'],
+             f"{eol.get('label', 'OS')} is past end-of-life — no security updates")
+    elif eol and eol.get('status') == 'soon':
+        _add('os_eol_soon', _RISK_WEIGHTS['os_eol_soon'],
+             f"{eol.get('label', 'OS')} reaches end-of-life in {eol.get('days', 0)}d")
+    # Overheating — hottest board/disk/GPU sensor vs the thermal thresholds.
+    hottest_c = None
+    for _src, _key in ((hw_rec.get('temps') or [], 'current_c'),
+                       (hw_rec.get('smart') or [], 'temperature_c'),
+                       (hw_rec.get('gpus') or [], 'temp_c')):
+        for _e in _src:
+            _c = _e.get(_key) if isinstance(_e, dict) else None
+            if isinstance(_c, (int, float)) and (hottest_c is None or _c > hottest_c):
+                hottest_c = float(_c)
+    if hottest_c is not None and hottest_c >= THERMAL_HOT_C:
+        _crit_t = hottest_c >= THERMAL_CRIT_C
+        _add('overheating',
+             _RISK_WEIGHTS['overheating'] if _crit_t else _RISK_WEIGHTS['overheating'] // 2,
+             f"hottest sensor at {round(hottest_c, 1)} °C ({'critical' if _crit_t else 'hot'})")
+    # Config drift from the tracked baseline.
+    drifted = [f for f, s in (dev.get('drift_state') or {}).items()
+               if isinstance(s, dict) and s.get('status') == 'drifted' and not s.get('ignored')]
+    if drifted:
+        _add('config_drift',
+             min(_RISK_CAPS['config_drift'], len(drifted) * _RISK_WEIGHTS['config_drift']),
+             f'{len(drifted)} config file(s) drifted from baseline')
+    if isinstance(si.get('clock'), dict) and si['clock'].get('skewed'):
+        _add('clock_skew', _RISK_WEIGHTS['clock_skew'], 'system clock skewed / NTP out of sync')
+    if isinstance(si.get('gateway'), dict) and si['gateway'].get('reachable') is False:
+        _add('gateway_down', _RISK_WEIGHTS['gateway_down'], 'default gateway unreachable')
+    _lo = si.get('last_oom_ts')
+    if isinstance(_lo, (int, float)) and _lo > 0 and (now - _lo) < 86400:
+        _add('oom_recent', _RISK_WEIGHTS['oom_recent'], 'OOM killer fired in last 24h')
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
             'score': score, 'level': _risk_level(score),
@@ -26451,7 +26515,7 @@ def _fleet_risk_cached(use_cache=True):
                     fresher = False
                     for src in (DEVICES_FILE, CMDB_FILE, CVE_FINDINGS_FILE,
                                 SOFTWARE_VIOLATIONS_FILE, HARDWARE_FILE,
-                                CVE_IGNORE_FILE, CONFIG_FILE):
+                                CVE_IGNORE_FILE, CONFIG_FILE, PACKAGES_FILE):
                         try:
                             if src.exists() and src.stat().st_mtime > cache_mtime:
                                 fresher = True
@@ -26483,6 +26547,8 @@ def _compute_fleet_risk():
     # v3.13.0: ignored CVEs + muted exposure must not contribute to risk.
     cve_ignore = (load(CVE_IGNORE_FILE) or {}) if backend_exists(CVE_IGNORE_FILE) else {}
     exposure_mutes = (load(CONFIG_FILE) or {}).get('exposure_mutes') or []
+    # v4.10.0: structured os_id/version_id for the OS end-of-life factor.
+    pkgs = (load(PACKAGES_FILE) or {}) if backend_exists(PACKAGES_FILE) else {}
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -26495,7 +26561,8 @@ def _compute_fleet_risk():
         out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
                                 cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl,
                                 hw.get(dev_id) or {},
-                                cve_ignore=cve_ignore, exposure_mutes=exposure_mutes))
+                                cve_ignore=cve_ignore, exposure_mutes=exposure_mutes,
+                                pkg_entry=pkgs.get(dev_id) or {}))
     out.sort(key=lambda r: -r['score'])
     return out
 
@@ -33171,6 +33238,41 @@ def handle_nav_counts():
     except Exception:
         _nc_role = 'viewer'
     now = int(time.time())
+    # v4.10.0 (perf): file-cache the badge counts for ~15s, keyed by the caller's
+    # scope (the counts are scope-filtered). At fleet scale this collapses every
+    # operator's 60s sidebar poll from N full-fleet reads to one recompute per
+    # scope per 15s. Busted when any source file changes. Mirrors
+    # _fleet_risk_cached (JSON backend only; a no-op fall-through under SQLite).
+    _nc_admin = bool(_resolve_role(_nc_role).get('admin'))
+    try:
+        _nc_scope = _caller_scope()
+        _nc_skey = ('all' if _nc_scope is None
+                    else hashlib.md5(json.dumps(_nc_scope, sort_keys=True).encode(),
+                                     usedforsecurity=False).hexdigest()[:12])
+    except Exception:
+        _nc_skey = 'x'
+    _nc_skey += '_a' if _nc_admin else '_n'
+    _nc_cache = DATA_DIR / f'nav_counts_cache_{_nc_skey}.json'
+    try:
+        if _nc_cache.exists():
+            _cmt = _nc_cache.stat().st_mtime
+            if (time.time() - _cmt) < 15:
+                _fresh = True
+                for _src in (DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE,
+                             ALERTS_FILE, CONFIRMATIONS_FILE):
+                    try:
+                        if _src.exists() and _src.stat().st_mtime > _cmt:
+                            _fresh = False
+                            break
+                    except Exception:
+                        pass
+                if _fresh:
+                    _c = load(_nc_cache)
+                    if isinstance(_c, dict):
+                        respond(200, _c)
+                        return
+    except Exception:
+        pass
     try:
         ttl = get_online_ttl()
     except Exception:
@@ -33224,6 +33326,10 @@ def handle_nav_counts():
                 and now - (c.get('requested_at') or 0) <= CONFIRMATION_TTL_SEC)
         except Exception:
             pass
+    try:
+        save(_nc_cache, out)
+    except Exception:
+        pass
     respond(200, out)
 
 
@@ -37075,40 +37181,56 @@ def handle_fleet_thermal():
         # Telemetry view — unmonitored hosts still appear (alerting only is
         # suppressed for them); the row carries a `monitored` flag for the UI.
         hw = hw_all.get(dev_id) or {}
-        hottest = None  # (temp_c, label, kind)
+        hottest = None  # (temp_c, label, kind, crit_c)
         sensors = 0
+        detail = []      # per-sensor breakdown (hover); capped below
+        gpu_extra = None  # fan/util/power, carried when a GPU is the hottest sensor
         for t in (hw.get('temps') or []):
             c = t.get('current_c')
             if not isinstance(c, (int, float)):
                 continue
             sensors += 1
+            cr = t.get('crit_c') if isinstance(t.get('crit_c'), (int, float)) else None
+            lbl = str(t.get('label') or 'sensor')
+            detail.append({'label': lbl, 'temp': round(float(c), 1), 'type': 'sensor', 'crit': cr})
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), str(t.get('label') or 'sensor'), 'sensor')
+                hottest = (float(c), lbl, 'sensor', cr)
         for s in (hw.get('smart') or []):
             c = s.get('temperature_c')
             if not isinstance(c, (int, float)):
                 continue
             sensors += 1
+            lbl = str(s.get('device') or 'disk')
+            detail.append({'label': lbl, 'temp': round(float(c), 1), 'type': 'disk', 'crit': None})
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), str(s.get('device') or 'disk'), 'disk')
+                hottest = (float(c), lbl, 'disk', None)
         for g in (hw.get('gpus') or []):    # v3.14.0: GPUs are sensors too
             c = g.get('temp_c')
             if not isinstance(c, (int, float)):
                 continue
             sensors += 1
+            lbl = str(g.get('name') or 'GPU')
+            detail.append({'label': lbl, 'temp': round(float(c), 1), 'type': 'gpu', 'crit': None})
             if hottest is None or c > hottest[0]:
-                hottest = (float(c), str(g.get('name') or 'GPU'), 'gpu')
+                hottest = (float(c), lbl, 'gpu', None)
+                gpu_extra = {k: g.get(j) for k, j in
+                             (('fan_pct', 'fan_pct'), ('util_pct', 'util_pct'), ('power_w', 'power_w'))
+                             if isinstance(g.get(j), (int, float))} or None
         if hottest is None:
             continue  # host reports no temperatures — omit rather than show 0 °C
         max_c = round(hottest[0], 1)
+        crit_c = hottest[3]
+        headroom = round(crit_c - max_c, 1) if isinstance(crit_c, (int, float)) else None
         is_hot = max_c >= THERMAL_HOT_C
         if is_hot:
             hot += 1
+        detail.sort(key=lambda x: -x['temp'])
         rows.append({
             'device_id': dev_id, 'device': d.get('name', dev_id),
             'monitored': d.get('monitored') is not False,
             'max_temp': max_c, 'sensor_label': hottest[1], 'sensor_type': hottest[2],
-            'sensors': sensors,
+            'sensors': sensors, 'crit_c': crit_c, 'headroom': headroom,
+            'detail': detail[:16], 'gpu': gpu_extra,
             'hot': is_hot, 'critical': max_c >= THERMAL_CRIT_C,
             'reported_at': hw.get('ts', 0),
         })
@@ -46084,10 +46206,16 @@ def handle_acme_revoke(dev_id, domain):
     home = rec.get('home') or '/root/.acme.sh'
     safe_domain = domain.replace("'", "'\\''")
     acme_bin = shlex.quote(f'{home}/acme.sh')   # v4.4.0: quote agent-reported home
+    # v4.10.0: acme.sh stores EC/ECC certs under <domain>_ecc/. Without --ecc,
+    # --revoke/--remove look in the RSA dir, can't find the key, and fail with
+    # "Only RSA or EC key is supported. keyfile=…/". Mirror the key type the last
+    # scan recorded (Le_Keylength like 'ec-256'/'ec-384' → --ecc).
+    cert = next((c for c in (rec.get('certs') or []) if c.get('domain') == domain), None)
+    ecc = ' --ecc' if cert and str(cert.get('key_length', '')).startswith('ec-') else ''
     # --revoke tells LE the cert is no longer trusted; --remove drops the
     # local files so the next scan reflects the change.
-    cmd = (f"{acme_bin} --revoke -d '{safe_domain}' && "
-           f"{acme_bin} --remove -d '{safe_domain}'")
+    cmd = (f"{acme_bin} --revoke{ecc} -d '{safe_domain}' && "
+           f"{acme_bin} --remove{ecc} -d '{safe_domain}'")
     result = _acme_queue_command(dev_id, 'revoke', domain, cmd)
     if result:
         respond(200, result)

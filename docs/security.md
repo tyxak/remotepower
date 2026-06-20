@@ -16,32 +16,37 @@
 
 ## Independent security testing
 
-Each release is scanned with an external toolchain in addition to the code-level
-review and CI guardrails. **v4.7.0** — the homelab/fleet software integrations +
-containerized-agent release — was independently penetration-tested with
-[wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),
-[nuclei](https://github.com/projectdiscovery/nuclei), [bandit](https://github.com/PyCQA/bandit)
-and [OWASP ZAP](https://www.zaproxy.org/) and **passed clean** (no findings). The
-new outbound integration subsystem reuses the same connect-time SSRF guard
-(loopback / link-local / cloud-metadata refused, peer IP re-validated, no
-redirects) as every other outbound feature, with credentials redacted from API
-responses and the raw URL admin-only.
+**The bar: no Critical, High, or Medium severity finding ships.** Anything that
+could be exploited is fixed before release, on both the server and the agent.
 
-**v4.4.0 was independently scanned with [wapiti](https://wapiti-scanner.github.io/),
-[nikto](https://github.com/sullo/nikto), [nuclei](https://github.com/projectdiscovery/nuclei),
-[bandit](https://github.com/PyCQA/bandit) and [OWASP ZAP](https://www.zaproxy.org/)
-and passed clean** (no exploitable findings) — see
-[security-review-4.4.0.md](security-review-4.4.0.md), the security-themed release
-(authorized scanning, passkeys, SAML, the audit hash-chain, and the CRITICAL
-admin-gate escalation fix). The most recent full review,
-[security-review-4.6.0.md](security-review-4.6.0.md), re-audited the server and
-agent (SSRF parity, resolved-role checks, agent credential-storage hardening).
-v4.8.0 was likewise scanned with wapiti, nikto, nuclei, bandit and OWASP ZAP and
-passed clean. The strict Content-Security-Policy
-(`default-src 'self'`, no `unsafe-inline`), full security-header set (HSTS,
-X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
-COOP/CORP), same-origin enforcement on state-changing requests, and the SSRF-safe
-fetch path (peer-IP revalidation + no-redirect) were all verified live.
+Each release is reviewed for security at the code level and scanned with an
+external toolchain in addition to the CI guardrails. The current release,
+**v4.10.0**, had a whole-project server + agent audit and **passed clean** (no
+Critical/High/Medium findings) — see
+[security-review-4.10.0.md](security-review-4.10.0.md). Its headline new surface,
+the **Security → Firewall** page (view/edit nftables/iptables/ufw/firewalld rules
+and fail2ban jails), is safe by construction: every edit is **server-validated
+against a strict character allowlist, permission-gated, written to the audited
+command queue, and skipped on quarantined hosts** — there is no path from the UI
+to a command the operator could not already run with that permission.
+
+Recent releases were independently penetration-tested with
+[wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),
+[nuclei](https://github.com/projectdiscovery/nuclei), [bandit](https://github.com/PyCQA/bandit),
+[semgrep](https://semgrep.dev/), [gitleaks](https://github.com/gitleaks/gitleaks)
+and [OWASP ZAP](https://www.zaproxy.org/), each passing clean: **v4.7.0** (homelab
+integrations + containerized agent), **v4.8.0** (onboarding + DMARC monitor),
+**v4.9.0** (DNS dashboard + resolver health) and **v4.10.0** (firewall/fail2ban).
+Every outbound feature — integrations, DNS providers, AI providers, web-push and
+the monitors — reuses the same connect-time SSRF guard (loopback / link-local /
+cloud-metadata refused, peer IP re-validated, no redirects), with credentials
+redacted from API responses and raw URLs kept admin-only. The strict
+Content-Security-Policy (`default-src 'self'`, no `unsafe-inline`), full
+security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
+Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
+state-changing requests, and the SSRF-safe fetch path were all verified live. A
+durable, release-over-release summary lives in the
+[`security-review-*.md`](security-review-4.10.0.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -97,7 +102,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-4.6.0.md](security-review-4.6.0.md).
+summarised in the latest, [security-review-4.10.0.md](security-review-4.10.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
 OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -270,7 +275,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every few releases
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-4.6.0.md](security-review-4.6.0.md)).
+  [security-review-4.10.0.md](security-review-4.10.0.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
   Python codebase.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
