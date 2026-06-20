@@ -56,6 +56,20 @@ finalize sweep. No breaking changes, no schema changes.
   was up") instead of a silent offline — the first move in an intrusion. Auto-
   recovers (`agent_started`) when the agent resumes. (An ungraceful `kill -9`
   still shows as offline.)
+- **Backup integrity verification** — beyond freshness, the agent can run a
+  backup's **own integrity check** (`tar -tf`, `restic check`, `borg check`),
+  rate-gated and time-bounded; a failed check fires **`backup_verify_failed`**
+  (auto-recovers on the next clean check). Enable per monitor in Settings →
+  Advanced; status shows in the device drawer. `tar` needs nothing; restic/borg
+  need their passphrase in the agent's environment.
+- **Per-site (customer) reports** — the fleet posture report (devices, patches,
+  SLA, CVEs, health) scoped to one **site**, with a "Report" button per site and
+  `GET /api/report/site/{id}` (JSON/CSV). RBAC-scoped.
+- **Health-gated rollouts (canary auto-halt)** — opt-in per rollout: after a ring
+  is dispatched, if a targeted host's **health score drops below a floor** during
+  the verify window (and wasn't already below it), the rollout **auto-halts** and
+  fires `rollout_halted`. Fully reversible — it pauses for you to resume or
+  cancel, never rolls back on its own. Default off.
 
 ### Security → Firewall page (firewall + fail2ban)
 

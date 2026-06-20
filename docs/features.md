@@ -100,6 +100,9 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Setup checklist** | Settings → Install: live getting-started checklist. `GET /api/setup-status` (v3.4.2) |
 | **Expanded Fleet Query** | + version, pkg-manager, has-package, monitored/agentless/quarantined, reboot, failed units, disk/mem %, offline-days (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
+| **Per-site (customer) reports** | The same posture report scoped to one **site** — devices, patches, SLA, CVEs and health for that customer. "Report" button per site; `GET /api/report/site/{id}` (JSON/CSV), RBAC-scoped (v4.10.0) |
+| **Backup integrity verification** | Beyond freshness: the agent runs the backup tool's **own check** (`tar -tf` / `restic check` / `borg check`), rate-gated + time-bounded; a failed check fires `backup_verify_failed`. Status in the device drawer (v4.10.0) |
+| **Health-gated rollouts** | Opt-in canary safety net: auto-halt a staged rollout (and fire `rollout_halted`) if a dispatched host's health score drops below a floor during the verify window. Pauses for you to resume/cancel — never auto-rolls-back (v4.10.0) |
 | **Access — recent logins (drawer)** | The device drawer lists who logged in and from which distinct source IPs (`auth.recent_logins`) — the data the `login_new_source` alert fires off (v3.13.0) |
 | **Scheduled jobs / timers (drawer)** | Failed-first table of every systemd timer per device — unit, what it activates, current state (v3.13.0) |
 | **Per-host storage / RAID (drawer)** | This host's own ZFS / mdadm / btrfs pools and arrays (state, capacity, scrub) in the drawer, not just on the fleet Storage page (v3.13.0) |

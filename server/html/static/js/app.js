@@ -6159,7 +6159,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td class="row-6"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -7973,7 +7973,7 @@ function _renderRollout(roll) {
     <div class="row-8-center mb-8">
       <strong>${escHtml(roll.name || '(unnamed)')}</strong>
       <span class="ro-badge ${sc}">${escHtml(roll.state)}</span>
-      <span class="c-muted fs-12">${escHtml(roll.action === 'script' ? 'saved script' : 'package upgrade')}${roll.auto_promote ? ' · auto-promote' : ' · manual promote'}</span>
+      <span class="c-muted fs-12">${escHtml(roll.action === 'script' ? 'saved script' : 'package upgrade')}${roll.auto_promote ? ' · auto-promote' : ' · manual promote'}${roll.health_gate && roll.health_gate.enabled ? ` · health-gate &lt;${roll.health_gate.threshold}` : ''}</span>
     </div>
     <div class="ro-rings mb-8">${rings || '<span class="c-muted">no rings</span>'}</div>
     ${last ? `<div class="c-muted fs-12">${escHtml(timeAgo(last.ts))} — ${escHtml(last.msg)}</div>` : ''}
@@ -8025,6 +8025,10 @@ async function saveRollout() {
     name, action, rings,
     verify_minutes: parseInt(document.getElementById('ro-verify').value) || 30,
     auto_promote: document.getElementById('ro-auto').checked,
+    health_gate: {
+      enabled: !!document.getElementById('ro-health-gate')?.checked,
+      threshold: parseInt(document.getElementById('ro-health-threshold')?.value) || 70,
+    },
   };
   if (action === 'script') {
     body.script_id = document.getElementById('ro-script').value;
@@ -15076,6 +15080,7 @@ const EVENT_CLASS = {
   'command_queued': 'info', 'command_executed': 'info',
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
   'new_port_detected': 'warn', 'backup_stale': 'warn',
+  'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'snapshot_old': 'warn',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
   'custom_script_recover': 'ok', 'config_drift': 'warn',
@@ -16323,7 +16328,7 @@ function _renderHomeActivity(fleetEvents) {
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
-    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale',
+    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v3.2.0 (B5): SNMP polling state transitions
     'snmp_unreachable', 'snmp_dead', 'snmp_recover',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
@@ -16467,9 +16472,11 @@ function _homeActivityAttrs(event, p) {
     case 'mailbox_threshold': case 'reboot_required':
     case 'new_port_detected': case 'ssh_key_added':
     case 'brute_force_detected': case 'backup_stale':
+    case 'backup_verify_failed': case 'backup_verified':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'drift_detected':
       return `${base} data-home-act="drift"`;
+    case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
     case 'patch_alert':    return `${base} data-home-act="patches"`;
     case 'monitor_down':   case 'monitor_up':
@@ -18436,6 +18443,7 @@ function renderBackupMonitors(monitors) {
       <span class="isl-618"><code>${escHtml(m.path)}</code></span>
       <span class="hint">${escHtml(m.label||m.path)}</span>
       <span class="cmd-badge">${m.max_age_hours}h</span>
+      ${m.verify_enabled ? '<span class="cmd-badge" title="integrity verification enabled">verify</span>' : ''}
       <button class="btn-icon" data-action="editBackupMonitor" data-arg="${i}">Edit</button>
       <button class="btn-icon c-red" data-action="removeBackupMonitor" data-arg="${i}">✕</button>
     </div>`).join('');
@@ -18447,6 +18455,7 @@ function editBackupMonitor(idx) {
   document.getElementById('bm-path').value  = m.path  || '';
   document.getElementById('bm-label').value = m.label || '';
   document.getElementById('bm-hours').value = String(m.max_age_hours || 24);
+  const _bv = document.getElementById('bm-verify'); if (_bv) _bv.checked = !!m.verify_enabled;
   _backupEditIdx = idx;
   renderBackupMonitors(_backupMonitors);  // re-render so the button flips to "Save"
   document.getElementById('bm-path').focus();
@@ -18457,7 +18466,8 @@ async function addBackupMonitor() {
   const label = document.getElementById('bm-label').value.trim();
   const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
   if (!path) { toast('Path required', 'error'); return; }
-  const entry = {path, label: label || path, max_age_hours: hours};
+  const verify = !!document.getElementById('bm-verify')?.checked;
+  const entry = {path, label: label || path, max_age_hours: hours, tool: 'auto', verify_enabled: verify};
   if (_backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length) {
     _backupMonitors[_backupEditIdx] = entry;
   } else {
@@ -18469,6 +18479,7 @@ async function addBackupMonitor() {
     toast(wasEdit ? 'Backup monitor updated' : 'Backup monitor added', 'success');
     document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
     document.getElementById('bm-hours').value = '24';
+    const _bvr = document.getElementById('bm-verify'); if (_bvr) _bvr.checked = false;
     _backupEditIdx = -1;
     renderBackupMonitors(_backupMonitors);
   } else toast(r?.error || 'Failed', 'error');
@@ -20117,12 +20128,22 @@ async function _loadAuditSection(key) {
         body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
           <thead id="device-backups-thead"><tr>
             <th data-col="label">Backup</th><th data-col="age">Age</th>
-            <th data-col="threshold">Threshold</th><th data-col="status">Status</th></tr></thead>
-          <tbody>` + sorted.map(b => `<tr>
+            <th data-col="threshold">Threshold</th><th data-col="status">Status</th>
+            <th data-col="verify">Verify</th></tr></thead>
+          <tbody>` + sorted.map(b => {
+            let vcell = '<td class="fs-11 c-muted">—</td>';
+            if (b.verify_enabled) {
+              const vs = b.verify_status || 'unknown';
+              const vcls = vs === 'ok' ? 'c-green' : (vs === 'failed' || vs === 'timeout' || vs === 'error') ? 'c-red' : (vs === 'tool_missing' ? 'c-amber' : 'c-muted');
+              const vlbl = vs === 'ok' ? 'verified' : vs;
+              vcell = `<td class="${vcls}" title="${escAttr(((b.verify_tool || '') + ' ' + (b.verify_output || '')).trim())}">${escHtml(vlbl)}</td>`;
+            }
+            return `<tr>
               <td><code>${escHtml(b.label)}</code>${b.label !== b.path ? `<div class="fs-11 c-muted">${escHtml(b.path)}</div>` : ''}</td>
               <td class="${b.ok ? '' : 'c-red'}">${escHtml(_fmtAge(b.age_h))}</td>
               <td class="fs-11 c-muted">≤ ${escHtml(_fmtAge(b.max_age_hours))}</td>
-              <td class="${b.ok ? 'c-green' : 'c-red'}">${b.ok ? 'fresh' : 'stale'}</td></tr>`).join('')
+              <td class="${b.ok ? 'c-green' : 'c-red'}">${b.ok ? 'fresh' : 'stale'}</td>${vcell}</tr>`;
+          }).join('')
           + `</tbody></table></div>`;
         tableCtl.wireSortOnly('device-backups-thead', 'device_backups', () => _loadAuditSectionForce('backups'));
         badge.textContent = stale ? `${stale} stale` : `${baks.length} fresh`;
@@ -21638,6 +21659,25 @@ function downloadFleetReport(format) {
       a.click();
       URL.revokeObjectURL(u);
       toast(`${fmt.toUpperCase()} downloaded`, 'success');
+    })
+    .catch(() => toast('Export failed', 'error'));
+}
+
+// v4.10.0: per-site (customer) posture report — the fleet report scoped to one
+// site (devices/patches/SLA/CVE/health). JSON or CSV download.
+function downloadSiteReport(siteId, siteName, format) {
+  const fmt = (format === 'csv') ? 'csv' : 'json';
+  fetch(`/api/report/site/${encodeURIComponent(siteId)}?format=${fmt}`, { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(blob => {
+      const slug = (siteName || siteId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = `site-report-${slug}-${new Date().toISOString().slice(0, 10)}.${fmt}`;
+      a.click();
+      URL.revokeObjectURL(u);
+      toast(`Site report (${fmt.toUpperCase()}) downloaded`, 'success');
     })
     .catch(() => toast('Export failed', 'error'));
 }

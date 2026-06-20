@@ -763,6 +763,9 @@ WEBHOOK_EVENTS = (
     ('brute_force_detected',  'Brute-force login attempts detected',         True),
     # v2.8.1: backup file age monitoring
     ('backup_stale',          'Backup file is older than threshold',         True),
+    ('backup_verify_failed',  'Backup integrity check failed',               True),
+    ('backup_verified',       'Backup integrity check passed (recovered)',   True),
+    ('rollout_halted',        'Rollout auto-halted (health gate / verify)',  True),
     # v3.2.0 (B5): SNMP polling state changes for agentless devices
     ('snmp_unreachable',      'SNMP poll failing for 2+ cycles',             True),
     # v3.2.0 follow-up: severity escalation after sustained failure
@@ -4140,6 +4143,8 @@ _ALERT_RULES = {
     'brute_force_detected':   ('high',     None),
     'ssh_key_added':          ('high',     None),
     'backup_stale':           ('medium',   None),
+    'backup_verify_failed':   ('high',     None),
+    'rollout_halted':         ('high',     None),
     'snapshot_old':           ('medium',   None),
     'reboot_required':        ('medium',   None),
     'new_port_detected':      ('medium',   None),
@@ -4185,6 +4190,7 @@ _ALERT_RULES = {
 _ALERT_RECOVER = {
     'device_online':           'device_offline',
     'agent_started':           'agent_stopped',
+    'backup_verified':         'backup_verify_failed',
     # v4.2.0 sweep: the service processor fires `service_up` (and always has);
     # `service_recover` was a phantom key nothing ever fired, so service_down
     # alerts sat open forever after the unit recovered. Keep both spellings —
@@ -4263,7 +4269,8 @@ CHANNEL_KINDS = [
     ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
     ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
     ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
-    ('backup',      'Stale backups',            'operational',   ['backup_stale']),
+    ('backup',      'Backup health',            'operational',   ['backup_stale', 'backup_verify_failed', 'backup_verified']),
+    ('rollout',     'Rollout halted',           'operational',   ['rollout_halted']),
     ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
     ('acme',        'ACME certificate issuance','operational',   []),   # NA-only — surfaced from acme.sh state
     # v4.2.0 sweep: NA-only kind (like acme) — _compute_attention emits
@@ -5502,6 +5509,9 @@ def _webhook_title(event):
         'ssh_key_added':         'SSH Key Added to Host',
         'brute_force_detected':  'Brute-Force Attempts Detected',
         'backup_stale':          'Backup File Stale',
+        'backup_verify_failed':  'Backup Integrity Check Failed',
+        'backup_verified':       'Backup Integrity Restored',
+        'rollout_halted':        'Rollout Halted',
         'mailbox_threshold':     'Mailbox Threshold Reached',
         'drift_detected':        'Configuration Drift',
         'smart_failure':         'Disk SMART Failure',
@@ -10826,10 +10836,61 @@ def handle_heartbeat():
                         })
                     except Exception:
                         pass
-                _bak_state[_state_key] = {'ok': _is_ok, 'age_h': _age_h}
+                _v = _bak_state.get(_state_key) or {}
+                _v.update({'ok': _is_ok, 'age_h': _age_h})
+                _bak_state[_state_key] = _v
                 _bak_changed = True
             if _bak_changed:
                 save(DATA_DIR / 'backup_state.json', _bak_state)
+        except Exception:
+            pass
+
+    # v4.10.0: backup INTEGRITY verification results (restic/borg/tar check). Merged
+    # into the same backup_state entry; edge-triggered backup_verify_failed /
+    # backup_verified. Outside the device lock — fire_webhook is lock-safe here.
+    _backup_verify = body.get('backup_verify')
+    if isinstance(_backup_verify, list) and _backup_verify:
+        try:
+            _bv_state = (load(DATA_DIR / 'backup_state.json') or {}
+                         if backend_exists(DATA_DIR / 'backup_state.json') else {})
+            _bv_mons = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
+            _bv_changed = False
+            for entry in _backup_verify:
+                if not isinstance(entry, dict):
+                    continue
+                _path = str(entry.get('path', ''))
+                _vstatus = str(entry.get('verify_status', 'unknown'))
+                _voutput = str(entry.get('verify_output', ''))[:200]
+                _state_key = f'{dev_id}:{_path}'
+                _prev = _bv_state.get(_state_key) or {}
+                _was_bad = _prev.get('verify_status') in ('failed', 'timeout', 'error')
+                _is_bad  = _vstatus in ('failed', 'timeout', 'error')
+                _label = next((m.get('label', _path) for m in _bv_mons
+                               if m.get('path') == _path), _path)
+                if _is_bad and not _was_bad:
+                    try:
+                        fire_webhook('backup_verify_failed', {
+                            'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                            'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
+                            'verify_status': _vstatus, 'verify_output': _voutput,
+                        })
+                    except Exception:
+                        pass
+                elif _vstatus == 'ok' and _was_bad:
+                    try:
+                        fire_webhook('backup_verified', {
+                            'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                            'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
+                        })
+                    except Exception:
+                        pass
+                _prev.update({'verify_status': _vstatus, 'verify_output': _voutput,
+                              'verify_at': int(entry.get('verify_at', now) or now),
+                              'verify_tool': entry.get('tool', '')})
+                _bv_state[_state_key] = _prev
+                _bv_changed = True
+            if _bv_changed:
+                save(DATA_DIR / 'backup_state.json', _bv_state)
         except Exception:
             pass
 
@@ -13755,10 +13816,17 @@ def handle_config_save():
         for bm in raw_bm[:50]:
             if not isinstance(bm, dict) or not bm.get('path'):
                 continue
+            _tool = str(bm.get('tool', 'auto')).lower()
+            if _tool not in ('auto', 'restic', 'borg', 'tar'):
+                _tool = 'auto'
             clean_bm.append({
                 'path':         _sanitize_str(str(bm['path']), 512),
                 'label':        _sanitize_str(str(bm.get('label', bm['path'])), 128),
                 'max_age_hours': max(1, int(bm.get('max_age_hours', 24))),
+                # v4.10.0: optional integrity verification (the tool's own check)
+                'tool':           _tool,
+                'verify_enabled': bool(bm.get('verify_enabled', False)),
+                'verify_max_age_hours': max(1, min(8760, int(bm.get('verify_max_age_hours', 168) or 168))),
             })
         cfg['backup_monitors'] = clean_bm
 
@@ -22723,6 +22791,12 @@ def handle_device_backups(dev_id):
             'ok':            bool(st.get('ok')),
             'age_h':         st.get('age_h'),
             'max_age_hours': float(mon.get('max_age_hours', 24)),
+            # v4.10.0: integrity-verification status (when verify is enabled)
+            'verify_enabled': bool(mon.get('verify_enabled')),
+            'verify_status':  st.get('verify_status', 'unknown'),
+            'verify_output':  st.get('verify_output', ''),
+            'verify_at':      st.get('verify_at', 0),
+            'verify_tool':    st.get('verify_tool', mon.get('tool', '')),
         })
     # Stale first, then by label, so the actionable rows are at the top.
     items.sort(key=lambda x: (x['ok'], str(x['label']).lower()))
@@ -30521,9 +30595,13 @@ def _rollout_ring_progress(roll, rstate, devices, cmds):
     return ok, failed, total
 
 
-def _rollout_advance(roll, devices, cmds):
+def _rollout_advance(roll, devices, cmds, pending=None):
     """Advance a single running rollout by at most one transition. Returns True
-    if devices/cmds were mutated (a ring was dispatched)."""
+    if devices/cmds were mutated (a ring was dispatched). `pending` (a list)
+    collects ('event', payload) tuples to fire AFTER the ROLLOUTS_FILE lock —
+    fire_webhook takes its own lock, so it must never run inside this one."""
+    if pending is None:
+        pending = []
     if roll.get('state') != 'running':
         return False
     idx = roll.get('current_ring', 0)
@@ -30552,12 +30630,44 @@ def _rollout_advance(roll, devices, cmds):
         rstate['failed_count'] = failed
         elapsed_min = (now - (rstate.get('dispatched_at') or now)) / 60.0
         verify_min = roll.get('verify_minutes', _ROLLOUT_VERIFY_MIN_DEFAULT)
-        if ok >= total or elapsed_min >= verify_min:
+        # v4.10.0: health gate — auto-halt if a dispatched host's health drops
+        # below the floor during the watch window. Baseline captured at dispatch
+        # so a pre-existing low score never false-trips; only a DROP halts.
+        hg = roll.get('health_gate') or {}
+        if hg.get('enabled'):
+            try:
+                floor = int(hg.get('threshold', 70))
+                hb = {d['device_id']: d['score'] for d in (_fleet_health().get('devices') or [])}
+                if not rstate.get('baseline_health'):
+                    rstate['baseline_health'] = {did: hb.get(did, 100)
+                                                 for did in (rstate.get('dispatched_ids') or [])}
+                base = rstate['baseline_health']
+                degraded = [did for did in (rstate.get('dispatched_ids') or [])
+                            if hb.get(did, 100) < floor and base.get(did, 100) >= floor]
+                if degraded:
+                    rstate['state'] = 'failed'
+                    rstate['health_failures'] = degraded
+                    roll['state'] = 'failed'
+                    names = ', '.join(devices.get(d, {}).get('name', d) for d in degraded[:3])
+                    _rollout_log(roll, f'ring {idx+1} HALTED — health dropped below {floor} '
+                                       f'on {len(degraded)} host(s) ({names}); rollout paused')
+                    pending.append(('rollout_halted', {
+                        'rollout_id': roll.get('id'), 'name': roll.get('name'),
+                        'ring': idx + 1, 'reason': 'health_gate', 'threshold': floor,
+                        'degraded': len(degraded),
+                    }))
+            except Exception:
+                pass
+        if rstate.get('state') == 'verifying' and (ok >= total or elapsed_min >= verify_min):
             if total > 0 and ok == 0:
                 rstate['state'] = 'failed'
                 roll['state'] = 'failed'
                 _rollout_log(roll, f'ring {idx+1} FAILED — 0/{total} verified after '
                                    f'{int(elapsed_min)}m; rollout halted')
+                pending.append(('rollout_halted', {
+                    'rollout_id': roll.get('id'), 'name': roll.get('name'),
+                    'ring': idx + 1, 'reason': 'no_verification',
+                }))
             else:
                 rstate['state'] = 'done'
                 rstate['done_at'] = now
@@ -30583,6 +30693,7 @@ def _rollout_tick():
         return
     if not any(r.get('state') == 'running' for r in rolls):
         return
+    pending = []   # v4.10.0: ('event', payload) tuples fired AFTER the lock
     try:
         with _LockedUpdate(ROLLOUTS_FILE) as store:
             rolls = store.get('rollouts') or []
@@ -30596,7 +30707,7 @@ def _rollout_tick():
                     continue
                 if roll.get('action') == 'script' and roll.get('script_id'):
                     roll['_script_body'] = _rollout_script_body(roll['script_id'])
-                if _rollout_advance(roll, devices, cmds):
+                if _rollout_advance(roll, devices, cmds, pending):
                     dirty = True
                 roll.pop('_script_body', None)
             if dirty:
@@ -30605,6 +30716,11 @@ def _rollout_tick():
             store['rollouts'] = rolls
     except Exception as e:
         sys.stderr.write(f'[remotepower] rollout tick failed: {e}\n')
+    for _ev, _pl in pending:   # outside the ROLLOUTS_FILE lock — fire-safe
+        try:
+            fire_webhook(_ev, _pl)
+        except Exception:
+            pass
 
 
 def _rollout_tick_if_due():
@@ -30674,6 +30790,14 @@ def handle_rollouts_create():
                           int(body.get('verify_minutes') or _ROLLOUT_VERIFY_MIN_DEFAULT)))
     except (TypeError, ValueError):
         vmin = _ROLLOUT_VERIFY_MIN_DEFAULT
+    # v4.10.0: optional health gate — auto-halt the rollout if a dispatched host's
+    # health score drops below the floor during the verify window. Default OFF.
+    _hg_in = body.get('health_gate') or {}
+    try:
+        _hg_floor = max(1, min(100, int(_hg_in.get('threshold', 70))))
+    except (TypeError, ValueError):
+        _hg_floor = 70
+    health_gate = {'enabled': bool(_hg_in.get('enabled')), 'threshold': _hg_floor}
     roll = {
         'id': secrets.token_hex(8),
         'name': name,
@@ -30684,6 +30808,7 @@ def handle_rollouts_create():
                          'ok_count': 0, 'failed_count': 0} for _ in rings],
         'auto_promote': bool(body.get('auto_promote')),
         'verify_minutes': vmin,
+        'health_gate': health_gate,
         'state': 'draft',
         'current_ring': 0,
         'history': [],
@@ -31620,13 +31745,20 @@ def handle_patch_report_xml():
 # read on separate pages — patches, CVEs, health score, and compliance — so a
 # single export (or scheduled email) captures "how is the fleet doing right now".
 
-def _build_fleet_report():
-    """Assemble the fleet posture report from data RemotePower already holds.
+def _build_fleet_report(site_id=None):
+    """Assemble the fleet (or single-site) posture report from data RemotePower
+    already holds.
 
     Reuses the existing single-source-of-truth helpers (_fleet_health,
     _compliance_facts/compliance.build_report, the CVE findings store) rather
-    than recomputing, so the report can never disagree with the live pages."""
+    than recomputing, so the report can never disagree with the live pages.
+    When `site_id` is given, devices / patches / SLA / CVE / health are scoped to
+    that site; compliance stays fleet-wide (tagged `scope: fleet`)."""
     devices = load(DEVICES_FILE) or {}
+    if site_id is not None:
+        devices = {k: v for k, v in devices.items()
+                   if isinstance(v, dict) and (v.get('site') or '') == site_id}
+    site_ids = set(devices) if site_id is not None else None
     now = int(time.time())
     ttl = get_online_ttl()
     online = sum(1 for d in devices.values()
@@ -31646,6 +31778,8 @@ def _build_fleet_report():
     # ignored set. Iterate items() to keep the device id apply_ignore_list needs.
     cve_ignore = load(CVE_IGNORE_FILE) or {}
     for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+        if site_ids is not None and did not in site_ids:
+            continue
         affected = False
         findings = (rec or {}).get('findings') or []
         for f in cve_scanner.apply_ignore_list(findings, cve_ignore, did):
@@ -31659,8 +31793,20 @@ def _build_fleet_report():
             cve['devices_affected'] += 1
 
     health = _fleet_health()
+    if site_ids is not None:
+        # Scope the health roster + recompute the headline score/grade/counts.
+        hdevs = [d for d in health['devices'] if d.get('device_id') in site_ids]
+        hscore = round(sum(d['score'] for d in hdevs) / len(hdevs)) if hdevs else 100
+        health = {
+            'score': hscore, 'grade': _health_grade(hscore), 'devices': hdevs,
+            'counts': {'critical': sum(d.get('critical', 0) for d in hdevs),
+                       'warning':  sum(d.get('warning', 0) for d in hdevs),
+                       'info':     sum(d.get('info', 0) for d in hdevs)},
+        }
     comp = compliance.build_report(_compliance_facts())
     comp['generated_ts'] = now
+    if site_id is not None:
+        comp['scope'] = 'fleet'   # compliance frameworks are graded fleet-wide
 
     # v3.4.1: fleet uptime % over the last 30 days (SLA headline).
     uptime = load(UPTIME_FILE) or {}
@@ -31674,7 +31820,7 @@ def _build_fleet_report():
             sla_pcts.append(pct)
     fleet_uptime = round(sum(sla_pcts) / len(sla_pcts), 3) if sla_pcts else None
 
-    return {
+    out = {
         'generated_ts':   now,
         'server_version': SERVER_VERSION,
         'server_name':    get_server_name(),
@@ -31689,6 +31835,10 @@ def _build_fleet_report():
         'attention':      health['counts'],
         'compliance':     comp,
     }
+    if site_id is not None:
+        out['site_id'] = site_id
+        out['site_name'] = ((load(SITES_FILE) or {}).get(site_id) or {}).get('name', site_id)
+    return out
 
 
 # v3.14.0: custom report builder — selectable sections + saved definitions.
@@ -31761,6 +31911,36 @@ def handle_fleet_report():
         print("Status: 200 OK")
         print("Content-Type: text/csv")
         print(f"Content-Disposition: attachment; filename=fleet-report-{ts}.csv")
+        print(f"Content-Length: {len(data)}")
+        print("Cache-Control: no-store")
+        print("X-Content-Type-Options: nosniff")
+        print()
+        sys.stdout.flush()
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+        sys.exit(0)
+    respond(200, report)
+
+
+def handle_site_report(site_id):
+    """GET /api/report/site/{site_id}?format=json|csv — per-site (customer)
+    posture report: the same fleet report scoped to one site. RBAC-scoped — a
+    caller can only pull a site whose devices fall within their scope."""
+    require_auth()
+    if not isinstance((load(SITES_FILE) or {}).get(site_id), dict):
+        respond(404, {'error': 'site not found'})
+    scope = _caller_scope()
+    if scope is not None and scope.get('type') == 'sites' and site_id not in (scope.get('values') or []):
+        respond(403, {'error': 'site outside your role scope'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    fmt = (qs.get('format') or ['json'])[0].lower()
+    report = _build_fleet_report(site_id=site_id)
+    if fmt == 'csv':
+        data = _fleet_report_csv_bytes(report)
+        ts = time.strftime('%Y%m%d-%H%M%S')
+        print("Status: 200 OK")
+        print("Content-Type: text/csv")
+        print(f"Content-Disposition: attachment; filename=site-report-{_site_slugify(report.get('site_name', site_id))}-{ts}.csv")
         print(f"Content-Length: {len(data)}")
         print("Cache-Control: no-store")
         print("X-Content-Type-Options: nosniff")
@@ -43960,6 +44140,8 @@ def _dispatch(pi, m):
         handle_automation_rule_delete(pi[len('/api/automation/rules/'):])
     # v3.4.1: fleet posture report (patches + CVE + health + compliance)
     elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
+    elif pi.startswith('/api/report/site/') and m == 'GET':                    # v4.10.0
+        handle_site_report(pi[len('/api/report/site/'):])
     elif pi == '/api/report/evidence' and m == 'GET': handle_evidence_pack()   # v3.14.0 (#44)
     elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()
     elif pi == '/api/report/schedule' and m == 'PUT': handle_report_schedule_set()

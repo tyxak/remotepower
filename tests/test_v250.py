@@ -223,7 +223,7 @@ class TestHeartbeatWiring(unittest.TestCase):
         # v3.12.0: widened 50000→60000 — handle_heartbeat grew (single-row
         # device update + mount-issue sanitisation), pushing the strings this
         # test greps for past the old slice boundary.
-        cls.hb = cls.api[idx: idx + 74000]   # widened (v4.9.0 DNS-cred harvest ingest in the heartbeat)
+        cls.hb = cls.api[idx: idx + 78000]   # widened (v4.9.0 DNS-cred harvest ingest; v4.10.0 agent-stopping branch + backup_verify ingest)
 
     def test_custom_script_results_ingested(self):
         self.assertIn('custom_script_results', self.hb)

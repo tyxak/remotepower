@@ -3048,6 +3048,86 @@ def collect_backup_status(backup_monitors):
     return results
 
 
+_BACKUP_VERIFY_STATE = 'backup_verify_state.json'
+
+
+def _detect_backup_tool(path, hint=''):
+    """v4.10.0: which backup tool owns this path. Explicit `hint` (restic/borg/
+    tar) wins; otherwise sniff the path."""
+    h = (hint or 'auto').lower()
+    if h in ('restic', 'borg', 'tar'):
+        return h
+    pl = path.lower()
+    if 'restic' in pl:
+        return 'restic'
+    if 'borg' in pl or pl.endswith('.borg'):
+        return 'borg'
+    if pl.endswith(('.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz')):
+        return 'tar'
+    return ''
+
+
+def collect_backup_verify(backup_monitors):
+    """v4.10.0: run each backup tool's OWN integrity check (restic/borg check,
+    tar -t) for monitors with verify enabled — rate-gated (per `verify_max_age_hours`,
+    default weekly) and time-bounded (<=30s each, <=60s/heartbeat). Returns
+    [{path, tool, verify_status, verify_output, verify_at}]. tar needs nothing;
+    restic/borg need their passphrase in the agent's environment (e.g.
+    RESTIC_PASSWORD_FILE / BORG_PASSPHRASE set in the agent unit)."""
+    out = []
+    mons = [m for m in (backup_monitors or [])
+            if isinstance(m, dict) and m.get('verify_enabled')]
+    if not mons:
+        return out
+    try:
+        state = json.loads(_safe_read(str(CONF_DIR / _BACKUP_VERIFY_STATE)) or '{}')
+        if not isinstance(state, dict):
+            state = {}
+    except Exception:
+        state = {}
+    now = int(time.time())
+    budget = 60
+    for mon in mons:
+        p = mon.get('path', '')
+        if not p:
+            continue
+        tool = _detect_backup_tool(p, mon.get('tool', 'auto'))
+        if not tool:
+            continue
+        interval = max(1, int(mon.get('verify_max_age_hours', 168) or 168)) * 3600
+        if now - int(state.get(p, 0)) < interval:
+            continue
+        if budget <= 0:
+            break
+        hp = host_path(p)
+        cmd = (['restic', '-r', hp, 'check'] if tool == 'restic'
+               else ['borg', 'check', hp] if tool == 'borg'
+               else ['tar', '-tf', hp])
+        if not _which(cmd[0]):
+            out.append({'path': p, 'tool': tool, 'verify_status': 'tool_missing',
+                        'verify_output': f'{cmd[0]} not installed', 'verify_at': now})
+            state[p] = now
+            continue
+        t0 = time.time()
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=min(30, budget))
+            status = 'ok' if r.returncode == 0 else 'failed'
+            output = ((r.stdout or '') + (r.stderr or '')).strip()[-200:]
+        except subprocess.TimeoutExpired:
+            status, output = 'timeout', 'integrity check exceeded the time limit'
+        except Exception as e:
+            status, output = 'error', str(e)[:200]
+        budget -= int(time.time() - t0)
+        state[p] = now
+        out.append({'path': p, 'tool': tool, 'verify_status': status,
+                    'verify_output': output, 'verify_at': now})
+    try:
+        _safe_state_write(_BACKUP_VERIFY_STATE, json.dumps(state))
+    except Exception:
+        pass
+    return out
+
+
 def detect_auto_watch_units():
     """v2.7.0: return AUTO_WATCH_UNITS that actually exist on this host."""
     present = []
@@ -6537,6 +6617,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # v2.8.1: backup file age reporting (every poll if monitors configured)
         if _backup_monitors:
             payload['backup_status'] = collect_backup_status(_backup_monitors)
+            _bv = collect_backup_verify(_backup_monitors)   # v4.10.0: integrity checks
+            if _bv:
+                payload['backup_verify'] = _bv
 
         # v1.11.7: pick up any cmd_output that couldn't be sent in its
         # follow-up heartbeat last cycle. Piggybacks on this heartbeat.

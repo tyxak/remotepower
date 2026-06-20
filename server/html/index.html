@@ -2427,8 +2427,13 @@
               <label class="form-label">Max age (hours)</label>
               <input type="number" id="bm-hours" class="form-input isl-81" value="24" min="1" max="8760">
             </div>
+            <div class="form-group">
+              <label class="form-label">Verify integrity</label>
+              <label class="click-row"><input type="checkbox" id="bm-verify"> run the tool's own check (restic/borg/tar)</label>
+            </div>
             <button class="btn-secondary" data-action="addBackupMonitor" >Add</button>
           </div>
+          <p class="hint mt-8">Verification runs the backup tool's <strong>own integrity check</strong> (<code>tar -tf</code>, <code>restic check</code>, <code>borg check</code>) at most weekly, time-bounded. <code>tar</code> needs nothing; <code>restic</code>/<code>borg</code> need their passphrase in the agent's environment (e.g. <code>RESTIC_PASSWORD_FILE</code> / <code>BORG_PASSPHRASE</code> in the agent unit). A failed check fires <code>backup_verify_failed</code>.</p>
         </div>
 
         <div class="settings-section">
@@ -7136,6 +7141,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group"><label>Verify window per ring (minutes)</label><input type="number" id="ro-verify" min="1" max="1440" value="30"></div>
   <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-auto"> <span>Auto-promote to the next ring when the current one verifies</span></label></div>
+  <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-health-gate"> <span>Auto-halt if a dispatched host's health drops below</span> <input type="number" id="ro-health-threshold" class="form-input mw-200" min="1" max="100" value="70"> <span>during the verify window</span></label><p class="hint mt-4">A safety net: if a host's health score falls under the floor after the action (and wasn't already below it), the rollout pauses and fires <code>rollout_halted</code>. You resume or cancel — it never rolls back on its own.</p></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-rollout-modal">Cancel</button><button class="btn-primary" data-action="saveRollout">Create</button></div>
 </div></div>
 

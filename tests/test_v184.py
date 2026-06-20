@@ -276,7 +276,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'snapshot_old',
             # v2.8.0: security & audit
             'new_port_detected', 'ssh_key_added', 'brute_force_detected',
-            'backup_stale',
+            'backup_stale', 'backup_verify_failed', 'backup_verified',
+            'rollout_halted',
             # v3.2.0 (B5): SNMP polling state transitions
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
             # v3.2.0 (A1 follow-up): MCP confirmation TTL expiry
