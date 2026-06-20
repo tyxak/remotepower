@@ -337,7 +337,12 @@ class TestAgentMtls(unittest.TestCase):
         self.assertEqual(agent, ext)
 
     def test_nginx_snippet(self):
-        conf = (_ROOT / "deploy" / "nginx" / "remotepower.conf").read_text()
+        # deploy/ is gitignored + excluded from `make dist` — skip when absent so
+        # the release build (staged tree) doesn't error (CLAUDE.md gotcha).
+        conf_path = _ROOT / "deploy" / "nginx" / "remotepower.conf"
+        if not conf_path.exists():
+            self.skipTest("deploy/nginx/remotepower.conf not present (excluded tree)")
+        conf = conf_path.read_text()
         self.assertIn("ssl_verify_client", conf)
         self.assertIn("HTTP_X_SSL_CLIENT_FINGERPRINT", conf)
 
