@@ -40,6 +40,11 @@ finalize sweep. No breaking changes, no schema changes.
   macOS agents all enforce it.
 - **Reports** — the per-device Uptime (SLA) table is now searchable by device or
   group.
+- **Site / group / tag-scoped credentials** — define a shared login once at a
+  site, group or tag level (a customer's domain admin, a site's switch password)
+  and it's **inherited by every member device**. Same encrypted CMDB vault
+  (AES-GCM, key from the `X-RP-Vault-Key` header — never stored); admin-only;
+  every reveal is audit-logged. Managed from a card on the **CMDB** page.
 
 ### Security → Firewall page (firewall + fail2ban)
 

@@ -42670,6 +42670,177 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     })
 
 
+# ─── v4.10.0: site / group / tag-scoped credentials ─────────────────────────
+# A credential defined ONCE at a site / group / tag level and inherited by every
+# member device — for shared logins (a customer's domain admin, a site's switch
+# password) you don't want to copy onto each asset. Same encrypted vault as the
+# per-device CMDB credentials: AES-GCM with the operator's vault key from the
+# X-RP-Vault-Key header; the server never stores the key or the plaintext. v1 is
+# admin-only; scope-delegated reveal (a site operator using that site's creds) is
+# a planned follow-up.
+SCOPED_VAULT_FILE   = DATA_DIR / 'scoped_credentials.json'
+MAX_SCOPED_CREDS    = 200
+_SCOPED_CRED_SCOPES = ('site', 'group', 'tag')
+
+
+def _scoped_creds_load() -> dict:
+    d = load(SCOPED_VAULT_FILE) or {}
+    if not isinstance(d, dict):
+        d = {}
+    if not isinstance(d.get('creds'), list):
+        d['creds'] = []
+    return d
+
+
+def _scoped_cred_meta(c: dict) -> dict:
+    """Ciphertext-free public view of a scoped credential."""
+    return {
+        'id':          c.get('id'),
+        'scope_type':  c.get('scope_type'),
+        'scope_value': c.get('scope_value'),
+        'label':       c.get('label', ''),
+        'username':    c.get('username', ''),
+        'note':        c.get('note', ''),
+        'created_by':  c.get('created_by', ''),
+        'created_at':  c.get('created_at', 0),
+    }
+
+
+def _scoped_cred_applies(c: dict, dev: dict) -> bool:
+    """Does a scoped credential apply to a device (by its site/group/tags)?"""
+    st, sv = c.get('scope_type'), str(c.get('scope_value') or '')
+    if st == 'site':
+        return (dev.get('site') or '') == sv
+    if st == 'group':
+        return (dev.get('group') or '') == sv
+    if st == 'tag':
+        return sv in (dev.get('tags') or [])
+    return False
+
+
+def handle_scoped_credentials_list() -> None:
+    """GET /api/scoped-credentials — metadata for every scope-scoped credential
+    plus the count of devices each applies to. Admin only; no ciphertext."""
+    require_admin_auth()
+    creds = _scoped_creds_load()['creds']
+    devices = load(DEVICES_FILE) or {}
+    out = []
+    for c in creds:
+        if not isinstance(c, dict):
+            continue
+        m = _scoped_cred_meta(c)
+        m['applies_to'] = sum(1 for d in devices.values()
+                              if isinstance(d, dict) and _scoped_cred_applies(c, d))
+        out.append(m)
+    respond(200, {'ok': True, 'credentials': out})
+
+
+def handle_scoped_credentials_add() -> None:
+    """POST /api/scoped-credentials — encrypt + store a scope-scoped credential.
+    Admin + unlocked vault (X-RP-Vault-Key)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    key, _meta = _cmdb_require_unlocked()
+    body = get_json_body()
+    scope_type  = str(body.get('scope_type', '')).strip().lower()
+    scope_value = _sanitize_str(body.get('scope_value', ''), 128, allow_empty=False)
+    label    = _sanitize_str(body.get('label', ''),    MAX_CMDB_LABEL,    allow_empty=False)
+    username = _sanitize_str(body.get('username', ''), MAX_CMDB_USERNAME, allow_empty=True) or ''
+    password = body.get('password', '')
+    note     = _sanitize_str(body.get('note', ''),     MAX_CMDB_CRED_NOTE, allow_empty=True) or ''
+    if scope_type not in _SCOPED_CRED_SCOPES:
+        respond(400, {'error': 'scope_type must be site, group or tag'})
+    if not scope_value:
+        respond(400, {'error': 'scope_value required'})
+    if not label:
+        respond(400, {'error': 'label required'})
+    if not isinstance(password, str) or not password:
+        respond(400, {'error': 'password required'})
+    if len(password) > MAX_CMDB_PASSWORD:
+        respond(400, {'error': f'password too long (max {MAX_CMDB_PASSWORD})'})
+    store = _scoped_creds_load()
+    if len(store['creds']) >= MAX_SCOPED_CREDS:
+        respond(400, {'error': f'max {MAX_SCOPED_CREDS} scoped credentials'})
+    try:
+        blob = cmdb_vault.encrypt(key, password)
+    except cmdb_vault.VaultError as e:
+        respond(500, {'error': f'encrypt failed: {e}'})
+    now = int(time.time())
+    new_id = 'scred_' + secrets.token_hex(8)
+    store['creds'].append({
+        'id': new_id, 'scope_type': scope_type, 'scope_value': scope_value,
+        'label': label, 'username': username, 'note': note,
+        'nonce': blob['nonce'], 'ct': blob['ct'],
+        'created_by': actor, 'created_at': now,
+    })
+    save(SCOPED_VAULT_FILE, store)
+    audit_log(actor, 'scoped_credential_add',
+              detail=f'{scope_type}={scope_value} cred={new_id} label={label[:40]}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_scoped_credentials_delete(cred_id: str) -> None:
+    """DELETE /api/scoped-credentials/{id} — remove a scope-scoped credential."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not cred_id.startswith('scred_') or not _validate_id(cred_id[len('scred_'):]):
+        respond(404, {'error': 'credential not found'})
+    store = _scoped_creds_load()
+    before = len(store['creds'])
+    store['creds'] = [c for c in store['creds'] if c.get('id') != cred_id]
+    if len(store['creds']) == before:
+        respond(404, {'error': 'credential not found'})
+    save(SCOPED_VAULT_FILE, store)
+    audit_log(actor, 'scoped_credential_delete', detail=f'cred={cred_id}')
+    respond(200, {'ok': True})
+
+
+def handle_scoped_credentials_reveal(cred_id: str) -> None:
+    """POST /api/scoped-credentials/{id}/reveal — decrypt + return plaintext.
+    Admin + vault key; every reveal is audit-logged."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not cred_id.startswith('scred_') or not _validate_id(cred_id[len('scred_'):]):
+        respond(404, {'error': 'credential not found'})
+    key, _meta = _cmdb_require_unlocked()
+    cred = next((c for c in _scoped_creds_load()['creds'] if c.get('id') == cred_id), None)
+    if not cred:
+        respond(404, {'error': 'credential not found'})
+    try:
+        plaintext = cmdb_vault.decrypt(key, {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})
+    except cmdb_vault.VaultKeyError:
+        audit_log(actor, 'scoped_credential_reveal_failed',
+                  detail=f'cred={cred_id} reason=decrypt', source_ip=_get_client_ip())
+        respond(403, {'error': 'decryption failed — vault key may be stale'})
+    except cmdb_vault.VaultError as e:
+        respond(500, {'error': f'decrypt failed: {e}'})
+    audit_log(actor, 'scoped_credential_reveal',
+              detail=(f'cred={cred_id} {cred.get("scope_type")}={cred.get("scope_value")} '
+                      f'label={cred.get("label","")[:40]}'),
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True, 'id': cred_id, 'label': cred.get('label', ''),
+                  'username': cred.get('username', ''), 'password': plaintext,
+                  'note': cred.get('note', '')})
+
+
+def handle_device_inherited_credentials(dev_id: str) -> None:
+    """GET /api/cmdb/{device_id}/inherited-credentials — the scope-scoped
+    credentials that apply to this device by its site/group/tags. Metadata only;
+    reveal goes through /api/scoped-credentials/{id}/reveal."""
+    require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    dev = (load(DEVICES_FILE) or {}).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    out = [_scoped_cred_meta(c) for c in _scoped_creds_load()['creds']
+           if isinstance(c, dict) and _scoped_cred_applies(c, dev)]
+    respond(200, {'ok': True, 'credentials': out})
+
+
 # ─── Router ────────────────────────────────────────────────────────────────────
 def _is_demo_read_only() -> bool:
     """True if the server is running in demo / read-only mode.
@@ -43799,6 +43970,18 @@ def _dispatch(pi, m):
     # Server-function autocomplete list
     elif pi == '/api/cmdb/server-functions' and m == 'GET': handle_cmdb_server_functions()
     # Per-device credential CRUD — match before the generic /api/cmdb/{id} route
+    # v4.10.0: site/group/tag-scoped credentials (must precede the generic
+    # /api/cmdb/ credential routes; /inherited-credentials is device-scoped).
+    elif pi == '/api/scoped-credentials' and m == 'GET':
+        handle_scoped_credentials_list()
+    elif pi == '/api/scoped-credentials' and m == 'POST':
+        handle_scoped_credentials_add()
+    elif pi.startswith('/api/scoped-credentials/') and pi.endswith('/reveal') and m == 'POST':
+        handle_scoped_credentials_reveal(pi[len('/api/scoped-credentials/'):-len('/reveal')])
+    elif pi.startswith('/api/scoped-credentials/') and m == 'DELETE':
+        handle_scoped_credentials_delete(pi[len('/api/scoped-credentials/'):])
+    elif pi.startswith('/api/cmdb/') and pi.endswith('/inherited-credentials') and m == 'GET':
+        handle_device_inherited_credentials(pi[len('/api/cmdb/'):-len('/inherited-credentials')])
     elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'GET':
         handle_cmdb_credentials_list(pi[len('/api/cmdb/'):-len('/credentials')])
     elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'POST':

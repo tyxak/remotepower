@@ -4661,6 +4661,30 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
         <datalist id="cmdb-func-datalist"></datalist>
+
+        <!-- v4.10.0: site / group / tag-scoped credentials -->
+        <div class="dash-card mt-16" id="cmdb-scoped-card">
+          <div class="row-8-center mb-8"><h3 class="m-0">Scoped credentials</h3></div>
+          <div class="page-subtitle mb-12">Shared logins defined once per <strong>site</strong>, <strong>group</strong> or <strong>tag</strong> and inherited by every member device — a customer's domain admin, a site's switch password. Encrypted with the same vault; unlock it above to add or reveal.</div>
+          <div class="row-8-center mb-12">
+            <select id="scoped-cred-scope-type" class="form-input input-auto" aria-label="Scope type">
+              <option value="site">Site</option>
+              <option value="group">Group</option>
+              <option value="tag">Tag</option>
+            </select>
+            <input type="text" id="scoped-cred-scope-value" class="form-input input-auto" placeholder="Scope value (site id / group / tag)" aria-label="Scope value">
+            <input type="text" id="scoped-cred-label" class="form-input input-auto" placeholder="Label" aria-label="Label">
+            <input type="text" id="scoped-cred-username" class="form-input input-auto" placeholder="Username" autocomplete="off" aria-label="Username">
+            <input type="password" id="scoped-cred-password" class="form-input input-auto" placeholder="Password" autocomplete="new-password" aria-label="Password">
+            <button class="btn-primary fs-12" data-action="scopedCredAdd">Add</button>
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead><tr><th>Scope</th><th>Label</th><th>Username</th><th>Devices</th><th></th></tr></thead>
+              <tbody id="scoped-creds-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- ── v1.11.0: Containers ────────────────────────────────────────── -->

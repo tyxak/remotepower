@@ -42,6 +42,74 @@ async function cmdbApi(method, path, body, sendKey) {
 function enterCMDB() {
   cmdbRefreshVaultStatus().then(() => cmdbReloadList());
   cmdbLoadServerFunctions();
+  loadScopedCreds();
+}
+
+// ── v4.10.0: site / group / tag-scoped credentials ──────────────────────────
+// A credential defined once at a site/group/tag level and inherited by every
+// member device. Reuses the CMDB vault: listing is admin-only (no key); add and
+// reveal send the X-RP-Vault-Key header via cmdbApi(..., true).
+async function loadScopedCreds() {
+  const tb = document.getElementById('scoped-creds-tbody');
+  if (!tb) return;
+  const res = await cmdbApi('GET', '/scoped-credentials');
+  if (!res || !res.ok) { tb.innerHTML = '<tr><td colspan="5" class="c-red">Failed to load.</td></tr>'; return; }
+  const creds = (res.data && res.data.credentials) || [];
+  tb.innerHTML = creds.length ? creds.map(c => `
+    <tr>
+      <td><span class="group-badge">${escHtml(c.scope_type)}</span> ${escHtml(c.scope_value)}</td>
+      <td>${escHtml(c.label)}</td>
+      <td class="ff-mono">${escHtml(c.username || '—')}</td>
+      <td class="hint" title="devices this credential is inherited by">${c.applies_to || 0}</td>
+      <td>
+        <button class="btn-icon cell-sm" data-action="scopedCredReveal" data-arg="${escAttr(c.id)}" title="Reveal — copies the password to the clipboard (audited)">Reveal</button>
+        <button class="btn-icon cell-sm c-danger-outline" data-action="scopedCredDelete" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.label)}" title="Delete">${_icon('trash', 12)}</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="5" class="hint">No scoped credentials yet.</td></tr>';
+}
+
+async function scopedCredAdd() {
+  if (!_cmdbVaultKey) { alert('Unlock the vault first (top of this page).'); return; }
+  const body = {
+    scope_type:  document.getElementById('scoped-cred-scope-type').value,
+    scope_value: document.getElementById('scoped-cred-scope-value').value.trim(),
+    label:       document.getElementById('scoped-cred-label').value.trim(),
+    username:    document.getElementById('scoped-cred-username').value.trim(),
+    password:    document.getElementById('scoped-cred-password').value,
+  };
+  if (!body.scope_value || !body.label || !body.password) {
+    alert('Scope value, label and password are required.'); return;
+  }
+  const res = await cmdbApi('POST', '/scoped-credentials', body, true);
+  if (!res) return;
+  if (!res.ok) { alert((res.data && res.data.error) || 'Failed to add.'); return; }
+  ['scoped-cred-scope-value', 'scoped-cred-label', 'scoped-cred-username', 'scoped-cred-password']
+    .forEach(id => { document.getElementById(id).value = ''; });
+  toast('Scoped credential added', 'success');
+  loadScopedCreds();
+}
+
+async function scopedCredReveal(id) {
+  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  const res = await cmdbApi('POST', '/scoped-credentials/' + encodeURIComponent(id) + '/reveal', {}, true);
+  if (!res || !res.ok) { alert((res && res.data && res.data.error) || 'Reveal failed.'); return; }
+  const d = res.data;
+  try {
+    await navigator.clipboard.writeText(d.password);
+    toast(`${d.label}: password copied to clipboard (user ${d.username || '—'})`, 'success');
+  } catch (e) {
+    alert(`${d.label}\nUsername: ${d.username || '—'}\nPassword: ${d.password}` + (d.note ? `\nNote: ${d.note}` : ''));
+  }
+}
+
+async function scopedCredDelete(id, label) {
+  const ok = await uiConfirm({title: 'Delete scoped credential',
+    message: `Delete “${label}”? This cannot be undone.`, confirmText: 'Delete', danger: true});
+  if (!ok) return;
+  const res = await cmdbApi('DELETE', '/scoped-credentials/' + encodeURIComponent(id));
+  if (!res || !res.ok) { alert((res && res.data && res.data.error) || 'Delete failed.'); return; }
+  toast('Deleted', 'info');
+  loadScopedCreds();
 }
 
 async function cmdbRefreshVaultStatus() {
