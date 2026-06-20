@@ -13,6 +13,7 @@ import re
 import sys
 import json
 import time
+import signal
 import socket
 import subprocess
 import platform
@@ -7194,6 +7195,26 @@ def main():
     if not creds:
         print("Not enrolled. Starting enrollment wizard...")
         creds = enroll_interactive()
+
+    # v4.10.0: graceful-stop notice. On SIGTERM (systemctl stop) or SIGINT, tell
+    # the server we're stopping so it fires a distinct "agent stopped (host was
+    # up)" signal instead of a silent offline, then exit. Sending from the handler
+    # lands the notice within systemd's stop timeout even while sleeping between
+    # polls. An ungraceful kill -9 still shows as offline (documented).
+    def _on_term(_signum, _frame):
+        try:
+            http_post(f"{creds['server_url']}/api/heartbeat",
+                      {'device_id': creds['device_id'], 'token': creds['token'],
+                       'agent_stopping': True}, timeout=5)
+            log.info("Sent graceful-stop notice to server")
+        except Exception as e:
+            log.debug(f"stop notice failed: {e}")
+        sys.exit(0)
+    try:
+        signal.signal(signal.SIGTERM, _on_term)
+        signal.signal(signal.SIGINT, _on_term)
+    except Exception:
+        pass   # not in the main thread / platform without these signals
 
     heartbeat(creds, interval=args.interval)
 # ══ v3.0.0: IaC data collection ════════════════════════════════════════════════

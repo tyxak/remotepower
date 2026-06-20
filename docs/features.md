@@ -179,7 +179,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **LDAP / AD** | Optional bind-mode auth; auto-creates local user record |
 | **SCIM 2.0** | IdP-driven user create/deactivate so offboarding revokes access + live sessions |
 | **MFA enforcement** *(v4.2)* | Require MFA (TOTP **or** a passkey) for chosen roles; enrolment is forced before any other action |
-| **Roles** | Admin (full access) and Viewer (read-only) per user |
+| **Roles** | Admin (full access), Viewer (read-only dashboard), and **Auditor** (read-only + audit log / hash-chain verify / evidence pack / security posture / compliance, runs nothing, never reveals a secret) per user, plus custom scoped roles (v4.10.0) |
 | **PIN enrolment** | 6-digit, single-use, 10-minute expiry |
 | **API enrolment tokens** | One-time-use tokens for Ansible / cloud-init / golden images. Default group + tags applied at enrolment (v1.11.10) |
 | **API keys** | Named keys for scripts and CI; **default expiry window** for new keys (v4.2) |

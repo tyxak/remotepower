@@ -51,6 +51,7 @@ class _Base(unittest.TestCase):
         self.cap = {}
         self._orig = {n: getattr(api, n) for n in
                       ('respond', 'method', 'get_json_body', 'require_admin_auth',
+                       'require_admin_or_auditor_auth',
                        'require_auth', 'require_perm', 'verify_token',
                        '_caller_scope', '_scope_filter_devices', 'audit_log')}
 
@@ -59,6 +60,7 @@ class _Base(unittest.TestCase):
             raise api.HTTPError(s, b)
         api.respond = _resp
         api.require_admin_auth = lambda: 'alice'
+        api.require_admin_or_auditor_auth = lambda: 'alice'
         api.require_auth = lambda require_admin=False: 'alice'
         api.require_perm = lambda *a, **k: 'alice'
         api._caller_scope = lambda: None

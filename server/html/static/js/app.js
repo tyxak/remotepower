@@ -2441,7 +2441,7 @@ async function openUserAdd() {
   if (sel) {
     if (!_rolesCache.length) { const r = await api('GET', '/roles').catch(() => null); _rolesCache = (r && r.roles) || []; }
     const custom = _rolesCache.filter(x => !x.builtin);
-    sel.innerHTML = '<option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option>'
+    sel.innerHTML = '<option value="admin">Admin (full access)</option><option value="auditor">Auditor (read-only + audit log / evidence / posture, runs nothing)</option><option value="viewer">Viewer (read-only dashboard)</option>'
       + custom.map(r => `<option value="${escAttr(r.name)}">${escHtml(r.name)} (custom)</option>`).join('');
   }
   openModal('user-add-modal');
@@ -15062,6 +15062,7 @@ function renderDiff(baselineText, currentText) {
 // v2.9.1: module-scope so audit drawer and activity feed share the same map
 const EVENT_CLASS = {
   'device_offline': 'critical', 'device_online': 'ok',
+  'agent_stopped': 'critical', 'agent_started': 'ok',
   'monitor_down': 'critical', 'monitor_up': 'ok',
   'service_down': 'critical', 'service_up': 'ok',
   'cve_found': 'warn', 'patch_alert': 'warn',
@@ -16310,7 +16311,7 @@ function _renderHomeActivity(fleetEvents) {
   // allowlist for defence-in-depth + so a future event added on the
   // server doesn't silently appear without dashboard recognition.
   const FLEET_EVENTS = new Set([
-    'device_offline', 'device_online',
+    'device_offline', 'device_online', 'agent_stopped', 'agent_started',
     'monitor_down', 'monitor_up',
     'patch_alert', 'cve_found',
     'service_down', 'service_up',
@@ -16462,6 +16463,7 @@ function _homeActivityAttrs(event, p) {
   const base = `data-dev-id="${devId}" data-dev-name="${devName}"`;
   switch (event) {
     case 'device_offline': case 'device_online':
+    case 'agent_stopped': case 'agent_started':
     case 'mailbox_threshold': case 'reboot_required':
     case 'new_port_detected': case 'ssh_key_added':
     case 'brute_force_detected': case 'backup_stale':

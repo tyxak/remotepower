@@ -688,9 +688,9 @@ MAX_FLEET_EVENTS = 1000
 # write tools yet. Stage 4 fills the allowlist with the initial set of
 # write tools (run_saved_script, reboot_device, force_package_scan,
 # force_acme_rescan).
-VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp'})
-USER_ROLES         = frozenset({'admin', 'viewer'})         # roles a user account may hold
-APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp'})  # roles an API key may hold
+VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp', 'auditor'})
+USER_ROLES         = frozenset({'admin', 'viewer', 'auditor'})  # roles a user account may hold
+APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp', 'auditor'})  # roles an API key may hold
 MCP_ACTION_ALLOWLIST = frozenset({
     # v3.2.0 Stage 4: initial write tools. Each is intentionally narrow:
     #   - reboot_device: a `reboot` command queued for the agent.
@@ -721,6 +721,8 @@ MCP_ACTION_ALLOWLIST = frozenset({
 WEBHOOK_EVENTS = (
     ('device_offline',     'Device went offline',                  True),
     ('device_online',      'Device came back online',              True),
+    ('agent_stopped',      'Agent stopped (host was still up)',     True),
+    ('agent_started',      'Agent restarted / resumed',            True),
     ('monitor_down',       'Monitor target went down',             True),
     ('monitor_up',         'Monitor target recovered',             True),
     ('patch_alert',        'Pending updates exceed threshold',     True),
@@ -2904,6 +2906,20 @@ def require_admin_auth():
     return require_auth(require_admin=True)
 
 
+def require_admin_or_auditor_auth():
+    """v4.10.0: gate for read-only OVERSIGHT surfaces (audit log, evidence pack,
+    security posture) — admins plus the read-only 'auditor' role, nobody else.
+    Auditor can READ these but still runs nothing and never reveals secrets."""
+    username = require_auth()
+    try:
+        role = verify_token(get_token_from_request())[1] or 'viewer'
+    except Exception:
+        role = 'viewer'
+    if not (_resolve_role(role).get('admin') or role == 'auditor'):
+        respond(403, {'error': 'Admins and auditors only'})
+    return username
+
+
 def require_mcp_action(action_name):
     """Gate for MCP write tools (Stage 4).
 
@@ -2989,7 +3005,10 @@ def _resolve_role(role_name):
     any legacy umbrella names to the granular set."""
     if role_name == 'admin':
         return {'permissions': set(_RBAC_PERMS), 'scope': {'type': 'all'}, 'admin': True}
-    if role_name in ('viewer', 'mcp'):
+    # 'auditor' (v4.10.0) is read-only like viewer (no action permissions, not
+    # admin); it differs only in being allowed to READ the oversight surfaces
+    # (audit log, evidence pack, security posture) via require_admin_or_auditor_auth.
+    if role_name in ('viewer', 'mcp', 'auditor'):
         return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
     for r in (load(ROLES_FILE) or {}).get('roles', []):
         if r.get('name') == role_name:
@@ -4087,6 +4106,7 @@ def _record_fleet_event(event, payload):
 # Map firing event → (severity, auto_resolves_event). None severity = skip.
 _ALERT_RULES = {
     'device_offline':         ('critical', None),
+    'agent_stopped':          ('high', None),
     'service_down':           ('high',     None),
     'container_stopped':      ('high',     None),
     'container_restarting':   ('medium',   None),
@@ -4164,6 +4184,7 @@ _ALERT_RULES = {
 # Map recover event → firing event it resolves
 _ALERT_RECOVER = {
     'device_online':           'device_offline',
+    'agent_started':           'agent_stopped',
     # v4.2.0 sweep: the service processor fires `service_up` (and always has);
     # `service_recover` was a phantom key nothing ever fired, so service_down
     # alerts sat open forever after the unit recovered. Keep both spellings —
@@ -4230,6 +4251,7 @@ _ALERT_RECOVER_EXTRA = {
 CHANNEL_KINDS = [
     # (kind, label, group, [event types])
     ('offline',     'Device offline',           'operational',   ['device_offline']),
+    ('agentlifecycle', 'Agent stopped / started', 'operational', ['agent_stopped', 'agent_started']),
     ('online',      'Device came online',       'operational',   ['device_online']),
     ('monitor',     'Monitor target up/down',   'operational',   ['monitor_down', 'monitor_up']),
     ('patches',     'Pending patches',          'operational',   ['patch_alert']),
@@ -5438,6 +5460,8 @@ def _webhook_title(event):
     """Human-readable title for the event (used by every adapter)."""
     titles = {
         'device_offline': 'Device Offline',
+        'agent_stopped': 'Agent Stopped',
+        'agent_started': 'Agent Started',
         'device_online':  'Device Online',
         'command_queued':  'Command Queued',
         'command_executed': 'Command Executed',
@@ -9652,6 +9676,29 @@ def handle_heartbeat():
     if not _validate_id(dev_id):
         respond(403, {'error': 'Unauthorized device'})
 
+    # v4.10.0: agent graceful-stop notice. A stopping agent POSTs
+    # {agent_stopping: true} so we fire a DISTINCT "agent stopped (host was up)"
+    # signal — the first move in an intrusion — instead of a silent offline. Rare
+    # path, handled here in isolation so fire_webhook never runs inside the
+    # heartbeat's _DeviceUpdate lock (lock-nesting rule). last_seen is updated so
+    # the normal offline timer still runs if the agent never comes back.
+    if body.get('agent_stopping'):
+        _now = int(time.time())
+        _d = (load(DEVICES_FILE) or {}).get(dev_id)
+        if not _d or not hmac.compare_digest(_d.get('token', ''), dev_token):
+            respond(403, {'error': 'Unauthorized device'})
+        if not _d.get('agent_stopping_at'):       # edge-trigger; ignore repeats
+            with _DeviceUpdate(dev_id) as _du:
+                if _du.get(dev_id):
+                    _du[dev_id]['agent_stopping_at'] = _now
+                    _du[dev_id]['last_seen'] = _now
+            if _d.get('monitored') is not False:
+                fire_webhook('agent_stopped', {
+                    'device_id': dev_id, 'name': _d.get('name', dev_id),
+                    'hostname': _d.get('hostname', ''),
+                })
+        respond(200, {'ok': True})
+
     # v2.1.0: every non-DEVICES save() inside this handler uses
     # non_blocking=True. If any of them hits LockBusy, we bail with HTTP 202
     # (Accepted) — the agent treats 202 as "delivered, retry next cycle",
@@ -9700,6 +9747,7 @@ def handle_heartbeat():
     _gw_event_pending = None         # v4.1.0: ('gateway_unreachable'|'gateway_reachable', payload)
     _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
     _reinstall_audit_pending = False  # audit AFTER the device lock (audit_log locks too)
+    _agent_started_pending = None     # v4.10.0: ('agent resumed after graceful stop') payload
     # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
@@ -9745,6 +9793,13 @@ def handle_heartbeat():
             dev.pop('agent_uninstalled_at', None)
             dev.pop('agent_uninstalled_by', None)
             _reinstall_audit_pending = True
+
+        # v4.10.0: a normal heartbeat after a graceful-stop notice = the agent
+        # restarted → recover the agent_stopped alert (fired AFTER the lock).
+        if dev.get('agent_stopping_at'):
+            dev.pop('agent_stopping_at', None)
+            _agent_started_pending = {'device_id': dev_id, 'name': dev.get('name', dev_id),
+                                      'hostname': dev.get('hostname', '')}
 
         # Sanitize all fields coming from the agent
         dev['ip']      = _sanitize_ip(body.get('ip', dev.get('ip', '')))
@@ -10725,6 +10780,11 @@ def handle_heartbeat():
     if _oom_event_pending:
         try:
             fire_webhook(_oom_event_pending[0], _oom_event_pending[1])
+        except Exception:
+            pass
+    if _agent_started_pending:
+        try:
+            fire_webhook('agent_started', _agent_started_pending)
         except Exception:
             pass
 
@@ -14435,6 +14495,7 @@ def handle_roles_list():
     require_admin_auth()
     builtin = [
         {'name': 'admin', 'builtin': True, 'permissions': list(_RBAC_PERMS), 'scope': {'type': 'all'}},
+        {'name': 'auditor', 'builtin': True, 'permissions': [], 'scope': {'type': 'all'}},
         {'name': 'viewer', 'builtin': True, 'permissions': [], 'scope': {'type': 'all'}},
     ]
     custom = (load(ROLES_FILE) or {}).get('roles', [])
@@ -31719,7 +31780,7 @@ def handle_evidence_pack():
     the compliance-baseline trend, and an audit-log excerpt for the period — all
     from data RemotePower already holds, no recompute. The act of generating it is
     itself audit-logged."""
-    actor = require_admin_auth()
+    actor = require_admin_or_auditor_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     try:
         days = int((qs.get('days') or ['90'])[0])
@@ -32010,7 +32071,7 @@ def _maybe_send_report_definitions():
 
 
 def handle_audit_log():
-    require_admin_auth()
+    require_admin_or_auditor_auth()
     al = load(AUDIT_LOG_FILE)
     respond(200, _paginate_list(list(reversed(al.get('entries', [])))))
 
@@ -32036,7 +32097,7 @@ def _audit_chain_walk(entries):
 
 def handle_audit_log_verify():
     """GET /api/audit-log/verify — walk the A2 hash-chain; report tampering."""
-    require_admin_auth()
+    require_admin_or_auditor_auth()
     entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
     checked, broken_at = _audit_chain_walk(entries)
     respond(200, {'ok': broken_at is None, 'entries': len(entries),
@@ -32049,7 +32110,7 @@ def handle_audit_log_archive():
     the retained tail that compliance dives need, previously reachable only via
     shell access to DATA_DIR. Admin only; the download is itself audited.
     404 (JSON) when nothing has been archived yet."""
-    actor = require_admin_auth()
+    actor = require_admin_or_auditor_auth()
     arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
     if not arch.exists() or arch.stat().st_size == 0:
         respond(404, {'error': 'no archived audit entries yet'})
@@ -32075,7 +32136,7 @@ def handle_audit_log_archive():
 def handle_security_posture():
     """GET /api/security-posture — v4.2.0 (A6): grade the live config against a
     secure-defaults checklist so operators can see (and fix) what's not hardened."""
-    require_admin_auth()
+    require_admin_or_auditor_auth()
     cfg = load(CONFIG_FILE) or {}
     users = load(USERS_FILE) or {}
     checks = []
@@ -42718,15 +42779,34 @@ def _scoped_cred_applies(c: dict, dev: dict) -> bool:
     return False
 
 
+def _caller_scope_covers_credential(scope_type: str, scope_value: str) -> bool:
+    """v4.10.0: does the caller's RBAC scope cover a scoped credential? Admins and
+    all-scope roles → True. A scoped operator covers a credential only when its
+    scope_type maps to the operator's RBAC scope type AND the value is in scope —
+    so a sites-scoped tech can reveal that site's credentials, but not another
+    site's, and not a group/tag credential. Used to relax list/reveal/inherited
+    from admin-only to admin-or-scope-covered (create/delete stay admin-only)."""
+    caller = _caller_scope()
+    if caller is None:                              # admin / all-scope
+        return True
+    rbac_type = {'site': 'sites', 'group': 'groups', 'tag': 'tags'}.get(scope_type)
+    if not rbac_type or caller.get('type') != rbac_type:
+        return False
+    return scope_value in (caller.get('values') or [])
+
+
 def handle_scoped_credentials_list() -> None:
     """GET /api/scoped-credentials — metadata for every scope-scoped credential
-    plus the count of devices each applies to. Admin only; no ciphertext."""
-    require_admin_auth()
+    the caller can see, plus the count of devices each applies to. No ciphertext.
+    Admins see all; a scoped operator sees only credentials within its scope."""
+    require_auth()
     creds = _scoped_creds_load()['creds']
     devices = load(DEVICES_FILE) or {}
     out = []
     for c in creds:
         if not isinstance(c, dict):
+            continue
+        if not _caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value')):
             continue
         m = _scoped_cred_meta(c)
         m['applies_to'] = sum(1 for d in devices.values()
@@ -42799,8 +42879,9 @@ def handle_scoped_credentials_delete(cred_id: str) -> None:
 
 def handle_scoped_credentials_reveal(cred_id: str) -> None:
     """POST /api/scoped-credentials/{id}/reveal — decrypt + return plaintext.
-    Admin + vault key; every reveal is audit-logged."""
-    actor = require_admin_auth()
+    Admin OR a scoped operator whose RBAC scope covers the credential, plus the
+    vault key; every reveal is audit-logged."""
+    actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not cred_id.startswith('scred_') or not _validate_id(cred_id[len('scred_'):]):
@@ -42809,6 +42890,8 @@ def handle_scoped_credentials_reveal(cred_id: str) -> None:
     cred = next((c for c in _scoped_creds_load()['creds'] if c.get('id') == cred_id), None)
     if not cred:
         respond(404, {'error': 'credential not found'})
+    if not _caller_scope_covers_credential(cred.get('scope_type'), cred.get('scope_value')):
+        respond(403, {'error': 'this credential is outside your role scope'})
     try:
         plaintext = cmdb_vault.decrypt(key, {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})
     except cmdb_vault.VaultKeyError:
@@ -42829,15 +42912,19 @@ def handle_scoped_credentials_reveal(cred_id: str) -> None:
 def handle_device_inherited_credentials(dev_id: str) -> None:
     """GET /api/cmdb/{device_id}/inherited-credentials — the scope-scoped
     credentials that apply to this device by its site/group/tags. Metadata only;
-    reveal goes through /api/scoped-credentials/{id}/reveal."""
-    require_admin_auth()
+    reveal goes through /api/scoped-credentials/{id}/reveal. Admin, or a scoped
+    operator who can see the device + the credential's scope."""
+    require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
     dev = (load(DEVICES_FILE) or {}).get(dev_id)
     if not dev:
         respond(404, {'error': 'device not found'})
+    if not _device_in_scope(_caller_scope(), dev):
+        respond(403, {'error': 'this device is outside your role scope'})
     out = [_scoped_cred_meta(c) for c in _scoped_creds_load()['creds']
-           if isinstance(c, dict) and _scoped_cred_applies(c, dev)]
+           if isinstance(c, dict) and _scoped_cred_applies(c, dev)
+           and _caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value'))]
     respond(200, {'ok': True, 'credentials': out})
 
 

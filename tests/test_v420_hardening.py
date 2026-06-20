@@ -26,13 +26,15 @@ class _Base(unittest.TestCase):
             setattr(api, a, self.d / Path(getattr(api, a)).name)
         self.cap = {}
         self._orig = {n: getattr(api, n) for n in
-                      ('respond', 'method', 'get_json_body', 'require_admin_auth')}
+                      ('respond', 'method', 'get_json_body', 'require_admin_auth',
+                       'require_admin_or_auditor_auth')}
 
         def _resp(s, b=None):
             self.cap['s'] = s; self.cap['b'] = b
             raise api.HTTPError(s, b)
         api.respond = _resp
         api.require_admin_auth = lambda: 'alice'
+        api.require_admin_or_auditor_auth = lambda: 'alice'
         api.method = lambda: 'GET'
 
     def tearDown(self):

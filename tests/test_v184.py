@@ -250,6 +250,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
         names = {e[0] for e in api_module.WEBHOOK_EVENTS}
         expected = {
             'device_offline', 'device_online',
+            'agent_stopped', 'agent_started',
             'monitor_down', 'monitor_up',
             'patch_alert', 'cve_found',
             'service_down', 'service_up',

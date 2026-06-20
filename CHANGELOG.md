@@ -43,8 +43,19 @@ finalize sweep. No breaking changes, no schema changes.
 - **Site / group / tag-scoped credentials** — define a shared login once at a
   site, group or tag level (a customer's domain admin, a site's switch password)
   and it's **inherited by every member device**. Same encrypted CMDB vault
-  (AES-GCM, key from the `X-RP-Vault-Key` header — never stored); admin-only;
-  every reveal is audit-logged. Managed from a card on the **CMDB** page.
+  (AES-GCM, key from the `X-RP-Vault-Key` header — never stored); every reveal is
+  audit-logged. Managed from a card on the **CMDB** page. A scoped operator can
+  reveal **its own scope's** credentials (admins see all); create/delete stay
+  admin-only.
+- **Read-only "Auditor" role** — a new built-in role that sees the oversight
+  surfaces an external auditor needs (audit log + hash-chain verify + archive,
+  evidence pack, security posture, compliance) but **runs nothing** and never
+  reveals a secret. The console complement to agent audit-mode.
+- **Agent-stopped ≠ host-offline** — a gracefully stopped agent (`systemctl
+  stop`) now fires a distinct **`agent_stopped`** signal ("agent stopped, host
+  was up") instead of a silent offline — the first move in an intrusion. Auto-
+  recovers (`agent_started`) when the agent resumes. (An ungraceful `kill -9`
+  still shows as offline.)
 
 ### Security → Firewall page (firewall + fail2ban)
 

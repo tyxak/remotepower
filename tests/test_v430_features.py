@@ -34,7 +34,8 @@ class _Base(unittest.TestCase):
         api.DATA_DIR = self.d
         self.cap = {}
         self._orig = {n: getattr(api, n) for n in
-                      ('respond', 'method', 'require_admin_auth', 'require_auth',
+                      ('respond', 'method', 'require_admin_auth',
+                       'require_admin_or_auditor_auth', 'require_auth',
                        'audit_log')}
 
         def _resp(s, b=None):
@@ -42,6 +43,7 @@ class _Base(unittest.TestCase):
             raise api.HTTPError(s, b)
         api.respond = _resp
         api.require_admin_auth = lambda: 'alice'
+        api.require_admin_or_auditor_auth = lambda: 'alice'
         api.require_auth = lambda require_admin=False: 'alice'
         api.audit_log = lambda *a, **k: None
         api.method = lambda: 'GET'
