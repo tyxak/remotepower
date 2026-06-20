@@ -351,6 +351,17 @@ def _make_ssl_context():
             ctx.load_verify_locations(cafile=_ca)
         except Exception as _e:
             log.warning(f'RP_CA_BUNDLE load failed ({_ca}): {_e}')
+    # v5.0.0 (#C1): present a client certificate for mutual TLS when the server
+    # enforces require_agent_mtls. RP_CLIENT_CERT (and RP_CLIENT_KEY, or a combined
+    # PEM) are operator-provisioned from the same CA. Absent → unchanged (the
+    # server only demands a cert when mTLS is on).
+    _cc = os.environ.get('RP_CLIENT_CERT', '').strip()
+    _ck = os.environ.get('RP_CLIENT_KEY', '').strip()
+    if _cc and os.path.exists(_cc):
+        try:
+            ctx.load_cert_chain(certfile=_cc, keyfile=(_ck or None))
+        except Exception as _e:
+            log.warning(f'RP_CLIENT_CERT load failed ({_cc}): {_e}')
     return ctx
 
 _SSL_CTX = _make_ssl_context()

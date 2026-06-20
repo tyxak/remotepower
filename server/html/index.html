@@ -1791,6 +1791,16 @@
             </label>
           </div>
 
+          <!-- ── v5.0.0 (#C1): mutual TLS for agents ─────────────────────────── -->
+          <div class="settings-section">
+            <h3>Agent mutual TLS (mTLS)</h3>
+            <p class="hint">Require every agent to present a client certificate signed by your RemotePower CA — defence-in-depth on top of the per-device token, so a stolen token alone can't impersonate a host. <strong>Enable the nginx <code>ssl_verify_client optional</code> block first</strong> (see <code>deploy/nginx/remotepower.conf</code>) and run agents with <code>RP_CLIENT_CERT</code>/<code>RP_CLIENT_KEY</code>, or healthy agents will be locked out.</p>
+            <label class="isl-33">
+              <input type="checkbox" id="cfg-require-agent-mtls" class="isl-34">
+              <span class="fs-14">Require a verified client certificate on agent requests</span>
+            </label>
+          </div>
+
           <!-- v3.12.0: SSH preferences moved to My Account (top-right). -->
 
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->

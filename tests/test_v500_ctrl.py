@@ -270,5 +270,81 @@ class TestBreakGlass(unittest.TestCase):
         self.assertIn("cmdbBreakGlassApprove", APP_CMDB)
 
 
+# ─────────────────────────── #C1 mutual TLS for agents ─────────────────────────
+class TestAgentMtls(unittest.TestCase):
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {})
+        api.save(api.DEVICES_FILE, {"dev1": {"token": "t", "mtls_fingerprint": ""}})
+        for k in ("HTTP_X_SSL_CLIENT_VERIFY", "HTTP_X_SSL_CLIENT_FINGERPRINT",
+                  "HTTP_X_SSL_CLIENT_DN"):
+            os.environ.pop(k, None)
+
+    def test_off_by_default_allows(self):
+        ok, why = api._agent_mtls_ok("dev1")
+        self.assertTrue(ok, why)
+
+    def test_on_requires_verified_cert(self):
+        api.save(api.CONFIG_FILE, {"require_agent_mtls": True})
+        ok, why = api._agent_mtls_ok("dev1")
+        self.assertFalse(ok)
+        self.assertIn("no verified client certificate", why)
+
+    def test_on_with_verified_cert_allows(self):
+        api.save(api.CONFIG_FILE, {"require_agent_mtls": True})
+        os.environ["HTTP_X_SSL_CLIENT_VERIFY"] = "SUCCESS"
+        os.environ["HTTP_X_SSL_CLIENT_FINGERPRINT"] = "aabbcc"
+        ok, why = api._agent_mtls_ok("dev1")
+        self.assertTrue(ok, why)
+
+    def test_pin_mismatch_blocked(self):
+        api.save(api.CONFIG_FILE, {"require_agent_mtls": True})
+        api.save(api.DEVICES_FILE, {"dev1": {"token": "t", "mtls_fingerprint": "AA:BB:CC"}})
+        os.environ["HTTP_X_SSL_CLIENT_VERIFY"] = "SUCCESS"
+        os.environ["HTTP_X_SSL_CLIENT_FINGERPRINT"] = "ddeeff"
+        ok, why = api._agent_mtls_ok("dev1")
+        self.assertFalse(ok)
+        self.assertIn("does not match", why)
+
+    def test_pin_match_allows(self):
+        api.save(api.CONFIG_FILE, {"require_agent_mtls": True})
+        api.save(api.DEVICES_FILE, {"dev1": {"token": "t", "mtls_fingerprint": "SHA1:AA:BB:CC"}})
+        os.environ["HTTP_X_SSL_CLIENT_VERIFY"] = "SUCCESS"
+        os.environ["HTTP_X_SSL_CLIENT_FINGERPRINT"] = "aabbcc"
+        ok, why = api._agent_mtls_ok("dev1")
+        self.assertTrue(ok, why)
+
+    def test_identity_normalizes_fingerprint(self):
+        os.environ["HTTP_X_SSL_CLIENT_VERIFY"] = "SUCCESS"
+        os.environ["HTTP_X_SSL_CLIENT_FINGERPRINT"] = "SHA1:AA:BB:CC"
+        verified, fp, _dn = api._client_cert_identity()
+        self.assertTrue(verified)
+        self.assertEqual(fp, "aabbcc")
+
+    def test_heartbeat_enforces(self):
+        i = API_SRC.index("def handle_heartbeat(")
+        self.assertIn("_agent_mtls_ok(dev_id)", API_SRC[i:i + 3000])
+
+    def test_config_wiring(self):
+        self.assertIn("cfg['require_agent_mtls'] = bool(body['require_agent_mtls'])", API_SRC)
+        self.assertIn("safe.setdefault('require_agent_mtls', False)", API_SRC)
+
+    def test_agent_presents_client_cert(self):
+        agent = (_ROOT / "client" / "remotepower-agent.py").read_text()
+        self.assertIn("RP_CLIENT_CERT", agent)
+        self.assertIn("load_cert_chain", agent)
+        # extensionless copy stays byte-identical
+        ext = (_ROOT / "client" / "remotepower-agent").read_text()
+        self.assertEqual(agent, ext)
+
+    def test_nginx_snippet(self):
+        conf = (_ROOT / "deploy" / "nginx" / "remotepower.conf").read_text()
+        self.assertIn("ssl_verify_client", conf)
+        self.assertIn("HTTP_X_SSL_CLIENT_FINGERPRINT", conf)
+
+    def test_frontend_toggle(self):
+        self.assertIn('id="cfg-require-agent-mtls"', HTML)
+        self.assertIn("require_agent_mtls:", APP)
+
+
 if __name__ == "__main__":
     unittest.main()

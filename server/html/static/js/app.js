@@ -2837,6 +2837,7 @@ async function loadSettings() {
   document.getElementById('cfg-session-short').value = Math.round((data.session_ttl_short || 86400) / 3600);
   document.getElementById('cfg-session-long').value  = Math.round((data.session_ttl_long  || 86400 * 30) / 86400);
   document.getElementById('cfg-remember-default').checked = !!data.remember_me_default;
+  { const m = document.getElementById('cfg-require-agent-mtls'); if (m) m.checked = !!data.require_agent_mtls; }
 
   // Activate tab from URL hash
   const hash = (location.hash || '').replace(/^#/, '');
@@ -2960,6 +2961,7 @@ async function saveSettings(btn) {
     session_ttl_short:     sessShortHours * 3600,
     session_ttl_long:      sessLongDays * 86400,
     remember_me_default:   document.getElementById('cfg-remember-default').checked,
+    require_agent_mtls:     document.getElementById('cfg-require-agent-mtls')?.checked || false,
 
     // v1.8.6: SMTP
     smtp_enabled:    document.getElementById('cfg-smtp-enabled').checked,

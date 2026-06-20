@@ -9710,6 +9710,47 @@ _HEARTBEAT_PASSTHROUGH_FIELDS = {
 }
 
 
+def _client_cert_identity():
+    """v5.0.0 (#C1): the verified client-cert identity nginx forwards when
+    `ssl_verify_client` is enabled (see the mTLS block in deploy/nginx/remotepower.conf).
+    The snippet sets, on each agent request:
+        X-SSL-Client-Verify:      SUCCESS | FAILED | NONE
+        X-SSL-Client-Fingerprint: <sha1 hex of the client cert>
+        X-SSL-Client-DN:          <subject DN>
+    Returns (verified: bool, fingerprint: str, dn: str)."""
+    verify = os.environ.get('HTTP_X_SSL_CLIENT_VERIFY', '').strip().upper()
+    fp = os.environ.get('HTTP_X_SSL_CLIENT_FINGERPRINT', '').strip().lower()
+    # nginx emits "SHA1:AA:BB:.." for $ssl_client_fingerprint on some builds and
+    # a bare hex on others — normalise to lowercase hex with no separators.
+    fp = fp.replace('sha1:', '').replace(':', '')
+    dn = os.environ.get('HTTP_X_SSL_CLIENT_DN', '').strip()
+    return (verify == 'SUCCESS', fp, dn)
+
+
+def _agent_mtls_ok(dev_id):
+    """v5.0.0 (#C1): mutual-TLS policy decision for an agent request.
+
+    Off by default. When `require_agent_mtls` is enabled the agent must present
+    a CA-verified client certificate; if the device has a pinned
+    `mtls_fingerprint` the presented cert must match it (binds the cert to the
+    one device, so a valid-but-wrong cert can't impersonate another host).
+    Returns (ok: bool, reason: str)."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('require_agent_mtls'):
+        return (True, '')
+    verified, fp, _dn = _client_cert_identity()
+    if not verified:
+        return (False, 'mutual TLS required: no verified client certificate presented')
+    dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+    pin = (dev.get('mtls_fingerprint') or '').strip().lower().replace('sha1:', '').replace(':', '')
+    if pin:
+        if not fp:
+            return (False, 'mutual TLS: client certificate fingerprint missing')
+        if not hmac.compare_digest(pin, fp):
+            return (False, 'mutual TLS: client certificate does not match the device pin')
+    return (True, '')
+
+
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -9749,6 +9790,14 @@ def handle_heartbeat():
 
     if not _validate_id(dev_id):
         respond(403, {'error': 'Unauthorized device'})
+
+    # v5.0.0 (#C1): mutual-TLS gate — when enabled, every agent request must
+    # carry a CA-verified client cert (and match the device pin if set). Checked
+    # up front so it covers the graceful-stop branch too. No-op (one cached
+    # config read) when require_agent_mtls is off.
+    _mtls_ok, _mtls_why = _agent_mtls_ok(dev_id)
+    if not _mtls_ok:
+        respond(403, {'error': _mtls_why})
 
     # v4.10.0: agent graceful-stop notice. A stopping agent POSTs
     # {agent_stopping: true} so we fire a DISTINCT "agent stopped (host was up)"
@@ -13022,6 +13071,7 @@ def handle_config_get():
     safe['vapid_keyed'] = bool(cfg.get('vapid_private_key'))
     safe.setdefault('tenancy_enforced', False)   # v3.14.0 #24 P2
     safe.setdefault('trust_proxy', False)         # v3.14.0: XFF behind a load balancer
+    safe.setdefault('require_agent_mtls', False)  # v5.0.0 #C1: mutual-TLS gate
     safe.setdefault('agentless_ssh_enabled', False)   # v3.14.0 #48
     safe['agentless_ssh_key_set'] = bool(safe.pop('agentless_ssh_key', None))
     # v3.14.0 #32: cloud accounts — surface provider/region/key-id + a *_set
@@ -13752,6 +13802,9 @@ def handle_config_save():
     # proxy that sets it — otherwise clients could spoof their source IP).
     if 'trust_proxy' in body:
         cfg['trust_proxy'] = bool(body['trust_proxy'])
+    # v5.0.0 (#C1): require a CA-verified client certificate on agent requests.
+    if 'require_agent_mtls' in body:
+        cfg['require_agent_mtls'] = bool(body['require_agent_mtls'])
 
     # v3.14.0 (#48): agentless SSH. Opt-in (default off); the private key is a
     # write-only secret (preserved when omitted, never returned by GET).
