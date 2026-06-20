@@ -2500,56 +2500,15 @@
       </div>
 
 
-            <!-- ── v2.9.0: Device Drawer ────────────────────────────────────────────── -->
-      <div id="device-drawer" class="device-drawer" role="dialog" aria-modal="true">
-        <div class="drawer-backdrop" data-action="closeDeviceDrawer" ></div>
-        <div class="drawer-panel">
-
-          <!-- Header -->
-          <div class="drawer-header">
-            <div>
-              <div class="drawer-device-name" id="drawer-device-name">Device</div>
-              <div class="drawer-device-sub"  id="drawer-device-sub"></div>
-            </div>
-            <button class="btn-icon isl-91" data-action="closeDeviceDrawer" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-          </div>
-
-          <!-- Tabs -->
-          <div class="drawer-tabs">
-            <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
-                    data-action="switchDrawerTab" data-arg="actions" >Actions &amp; Settings</button>
-            <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
-                    data-action="switchDrawerTab" data-arg="audit" >Audit</button>
-          </div>
-
-          <!-- Content -->
-          <div class="drawer-content">
-
-            <!-- ── Actions & Settings tab ─────────────────────────────────── -->
-            <div id="drawer-tab-actions" class="drawer-tab-panel">
-
-              <div class="drawer-section">
-                <div class="drawer-section-title">Quick Actions</div>
-                <div class="drawer-actions-grid" id="drawer-actions-grid">
-                  <!-- rendered by JS -->
-                </div>
-              </div>
-
-              <div class="drawer-section mt-16">
-                <div class="drawer-section-title">Device Settings</div>
-                <div id="drawer-settings-form"><!-- rendered by JS --></div>
-              </div>
-
-            </div><!-- /actions tab -->
-
-            <!-- ── Audit tab ───────────────────────────────────────────────── -->
-            <div id="drawer-tab-audit" class="drawer-tab-panel d-none">
-              <div id="drawer-audit-sections"><!-- rendered by JS --></div>
-            </div>
-
-          </div><!-- /drawer-content -->
-        </div><!-- /drawer-panel -->
-      </div><!-- /device-drawer -->
+      <!-- ── v2.9.0: Device Drawer — markup MOVED to body level (after #app),
+           alongside the modal overlays. It is a fixed full-viewport overlay;
+           living inside .container (position:relative; z-index:1) trapped its
+           z-index:500 inside that low stacking context, so the fixed sidebar
+           (z-index:90, a direct child of #app) painted OVER the drawer's left
+           strip whenever the panel went full-width (<820px viewport) — the
+           "drawer splits across the screen" bug. Every other overlay (90
+           .modal-overlay nodes) already lives at body level; the drawer was
+           the lone exception. See the moved block below `</div><!-- /app -->`. -->
 
 
       <!-- ── History page (unchanged) ─────────────────────────────────────── -->
@@ -5557,6 +5516,59 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div><!-- /app-content -->
   </div><!-- /app-layout -->
 </div><!-- /app -->
+
+<!-- ── v2.9.0: Device Drawer (moved here from inside .container at v4.10.0 so
+     its z-index:500 sits in the body-level stacking context, above the fixed
+     sidebar — fixes the full-width-drawer "split" at narrow viewports). ── -->
+<div id="device-drawer" class="device-drawer" role="dialog" aria-modal="true">
+  <div class="drawer-backdrop" data-action="closeDeviceDrawer" ></div>
+  <div class="drawer-panel">
+
+    <!-- Header -->
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-device-name" id="drawer-device-name">Device</div>
+        <div class="drawer-device-sub"  id="drawer-device-sub"></div>
+      </div>
+      <button class="btn-icon isl-91" data-action="closeDeviceDrawer" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="drawer-tabs">
+      <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
+              data-action="switchDrawerTab" data-arg="actions" >Actions &amp; Settings</button>
+      <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
+              data-action="switchDrawerTab" data-arg="audit" >Audit</button>
+    </div>
+
+    <!-- Content -->
+    <div class="drawer-content">
+
+      <!-- ── Actions & Settings tab ─────────────────────────────────── -->
+      <div id="drawer-tab-actions" class="drawer-tab-panel">
+
+        <div class="drawer-section">
+          <div class="drawer-section-title">Quick Actions</div>
+          <div class="drawer-actions-grid" id="drawer-actions-grid">
+            <!-- rendered by JS -->
+          </div>
+        </div>
+
+        <div class="drawer-section mt-16">
+          <div class="drawer-section-title">Device Settings</div>
+          <div id="drawer-settings-form"><!-- rendered by JS --></div>
+        </div>
+
+      </div><!-- /actions tab -->
+
+      <!-- ── Audit tab ───────────────────────────────────────────────── -->
+      <div id="drawer-tab-audit" class="drawer-tab-panel d-none">
+        <div id="drawer-audit-sections"><!-- rendered by JS --></div>
+      </div>
+
+    </div><!-- /drawer-content -->
+  </div><!-- /drawer-panel -->
+</div><!-- /device-drawer -->
 
 <!-- ══ MODALS (unchanged) ════════════════════════════════════════════════════════════════ -->
 <!-- Reusable promise-based prompt (replaces native window.prompt()). Driven by

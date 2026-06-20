@@ -104,6 +104,43 @@ class TestSmoke(unittest.TestCase):
         self.page.wait_for_selector('#device-drawer.open', timeout=10000)
         self._assert_no_page_errors()
 
+    def test_drawer_overlays_sidebar_at_narrow_width(self):
+        # Regression (v4.10.0): the device drawer used to live INSIDE
+        # .container (position:relative; z-index:1), which sealed its
+        # z-index:500 inside that low stacking context. The fixed sidebar
+        # (z-index:90) is a direct child of #app, so it actually competed
+        # with .container (z1), not the drawer — and won. Below ~820px the
+        # drawer panel goes full-width and overlaps the 0–240px sidebar
+        # strip, where the sidebar then painted THROUGH the drawer: the
+        # "drawer splits across the screen" bug the user reported. The
+        # drawer now lives at body level (with the modal overlays), so its
+        # z-index:500 beats the sidebar at every width. Assert the open
+        # drawer — not the sidebar — is the topmost element where they
+        # overlap.
+        self._login()
+        self.page.set_viewport_size({'width': 768, 'height': 900})
+        # deep-link opens the drawer even for an unknown id (empty fleet)
+        self.page.evaluate("location.hash = '#device/regression-host'")
+        self.page.wait_for_selector('#device-drawer.open', timeout=10000)
+        self.page.wait_for_timeout(300)
+        topmost = self.page.evaluate("""() => {
+          const sbEl = document.querySelector('.sidebar');
+          const sb = sbEl.getBoundingClientRect();
+          // a point squarely inside the sidebar's painted strip
+          const el = document.elementFromPoint(sb.x + sb.width / 2,
+                                               sb.y + sb.height / 2);
+          return { tag: el && el.tagName,
+                   inDrawer: !!(el && el.closest('#device-drawer')),
+                   inSidebar: !!(el && el.closest('.sidebar')) };
+        }""")
+        self.assertTrue(topmost['inDrawer'],
+                        f'sidebar paints over the open drawer at 768px '
+                        f'(topmost={topmost}) — drawer must overlay the sidebar')
+        self.assertFalse(topmost['inSidebar'],
+                         f'sidebar is hit-testable through the open drawer '
+                         f'(topmost={topmost})')
+        self._assert_no_page_errors()
+
     def test_settings_page_loads_config(self):
         self._login()
         self._nav('settings')
