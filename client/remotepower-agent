@@ -149,6 +149,24 @@ def _require_signed_updates():
         return False
 
 
+# v4.11.0: audit / read-only mode. Touch /etc/remotepower/audit-mode and the
+# agent becomes OBSERVE-ONLY: it keeps collecting and reporting, and read-only
+# assessments (lynis / OpenSCAP / CVE — run on their own path) still run, but it
+# REFUSES every server command (exec/scripts, reboot/shutdown/suspend, compose/
+# container, netscan/speedtest, poll-interval, uninstall), host-config apply, and
+# self-update. The flag is a LOCAL file the operator owns, so a compromised or
+# hostile server can never clear it — the host cannot be modified through the
+# agent, by design.
+AUDIT_MODE_FILE = CONF_DIR / 'audit-mode'
+
+
+def _audit_mode():
+    try:
+        return AUDIT_MODE_FILE.exists()
+    except Exception:
+        return False
+
+
 def _verify_detached_sig(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
     """Verify a detached signature over data_bytes using an ephemeral gpg keyring
     seeded only with the pinned public key. Returns (ok, detail). Fails closed.
@@ -4999,6 +5017,11 @@ def check_for_update(server_url, force=False):
         # self-update here.
         log.debug("Containerized agent — skipping self-update (upgrade via image tag)")
         return False
+    if _audit_mode():
+        # v4.11.0: self-update rewrites the binary on disk — a write. Audit
+        # (read-only) mode never self-updates.
+        log.info("Audit mode (read-only): skipping self-update")
+        return False
     if _oscap_running.locked():
         log.info("Deferring agent self-update — an OpenSCAP scan is in progress")
         return False
@@ -5434,6 +5457,14 @@ def run_netscan(subnet=None):
 
 # ─── Command execution ──────────────────────────────────────────────────────────
 def execute_command(cmd):
+    # v4.11.0: audit (read-only) mode refuses EVERY server command. The result
+    # rides the normal cmd_output channel so the operator sees the refusal in the
+    # UI. Read-only assessments and the passive heartbeat are unaffected (they
+    # don't come through here).
+    if _audit_mode():
+        log.warning(f"Audit mode (read-only): refusing command {str(cmd)[:60]!r}")
+        return {'cmd': cmd, 'output': 'refused: agent is in audit (read-only) mode',
+                'rc': 126}
     if cmd == 'shutdown':
         log.info("Executing: shutdown")
         try: subprocess.run(['systemctl', 'poweroff'], check=True)
@@ -5976,6 +6007,11 @@ def apply_host_config(desired):
     """
     import grp as _grp
     import pwd as _pwd
+
+    # v4.11.0: audit (read-only) mode never writes host config.
+    if _audit_mode():
+        log.warning("Audit mode (read-only): refusing host-config apply")
+        return {'_refused': 'agent is in audit (read-only) mode'}
 
     # Containerized agents monitor a Docker HOST read-only; applying host
     # config from inside a container would mutate the slim image (or, via a
@@ -6755,6 +6791,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 'packages': cached_patch,
                 'network':  get_network_info(),
                 'network_io': collect_net_io(),   # v3.14.0 #37: per-iface bandwidth
+                'audit_mode': _audit_mode(),      # v4.11.0: observe-only (read-only) agent
             }
             # Merge metrics if psutil available
             sysinfo.update(get_metrics())

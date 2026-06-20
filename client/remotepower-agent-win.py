@@ -376,6 +376,16 @@ def get_local_accounts():
         return []
 
 
+def _audit_mode():
+    """v4.10.0: observe-only (read-only) flag — an operator-owned file the server
+    can't clear. When set, the agent refuses every command (parity with the Linux
+    agent's /etc/remotepower/audit-mode). Lives in ProgramData\\RemotePower."""
+    try:
+        return os.path.exists(os.path.join(_data_dir(), 'audit-mode'))
+    except Exception:
+        return False
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available; otherwise a best-effort subset
     so a host without psutil still reports OS/uptime/hostname."""
@@ -383,6 +393,7 @@ def collect_sysinfo():
         'platform': platform.platform(),
         'kernel':   platform.version(),       # Windows build string
         'hostname': socket.gethostname(),
+        'audit_mode': _audit_mode(),          # v4.10.0: read-only agent flag
     }
     pkgs = windows_update_pending()
     if pkgs is not None:
@@ -516,6 +527,8 @@ def handle_command(cmd):
     None for fire-and-forget / control commands)."""
     if not cmd:
         return None
+    if _audit_mode():   # v4.10.0: read-only agent refuses every command
+        return {'cmd': cmd, 'output': 'refused: agent is in audit (read-only) mode', 'rc': 126}
     if cmd.startswith('poll_interval:'):
         try:
             n = int(cmd.split(':', 1)[1])

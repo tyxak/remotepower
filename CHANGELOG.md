@@ -30,6 +30,16 @@ finalize sweep. No breaking changes, no schema changes.
   findings ([docs/security-review-4.10.0.md](docs/security-review-4.10.0.md)).
 - **Performance** — scope-keyed cache on the sidebar badge poll; the agent's
   per-poll service check batched from up to 50 subprocesses into one.
+- **Agent audit (read-only) mode** — touch `/etc/remotepower/audit-mode` on a
+  host and its agent becomes **observe-only**: it keeps collecting and reporting
+  (and read-only lynis/OpenSCAP/CVE assessments still run), but **refuses every
+  command** — exec/scripts, reboot/shutdown, config apply, self-update. The flag
+  is an operator-owned file the **server can't clear**, so the host can't be
+  modified through the agent by design. The server also refuses to queue actions
+  for an audit host, and the device shows an **AUDIT** badge. Linux / Windows /
+  macOS agents all enforce it.
+- **Reports** — the per-device Uptime (SLA) table is now searchable by device or
+  group.
 
 ### Security → Firewall page (firewall + fail2ban)
 

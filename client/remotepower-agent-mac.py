@@ -244,6 +244,17 @@ def collect_listening_ports():
     return ports[:80]
 
 
+def _audit_mode():
+    """v4.10.0: observe-only (read-only) flag — an operator-owned file the server
+    can't clear. When set, the agent refuses every command (parity with the Linux
+    agent's /etc/remotepower/audit-mode)."""
+    try:
+        return (os.path.exists(os.path.join(_data_dir(), 'audit-mode'))
+                or os.path.exists('/etc/remotepower/audit-mode'))
+    except Exception:
+        return False
+
+
 def collect_sysinfo():
     """Core metrics. Uses psutil when available, else a best-effort subset so a
     host without psutil still reports OS / cpu model / hostname."""
@@ -251,6 +262,7 @@ def collect_sysinfo():
         'platform': get_os_info(),
         'kernel':   platform.release(),       # Darwin kernel version
         'hostname': socket.gethostname(),
+        'audit_mode': _audit_mode(),          # v4.10.0: read-only agent flag
     }
     cpu = _sysctl('machdep.cpu.brand_string') or platform.processor()
     if cpu:
@@ -475,6 +487,8 @@ def command_argv(cmd):
 def handle_command(cmd):
     if not cmd:
         return None
+    if _audit_mode():   # v4.10.0: read-only agent refuses every command
+        return {'cmd': cmd, 'output': 'refused: agent is in audit (read-only) mode', 'rc': 126}
     if cmd.startswith('poll_interval:'):
         try:
             n = int(cmd.split(':', 1)[1])

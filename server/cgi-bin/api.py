@@ -9942,6 +9942,10 @@ def handle_heartbeat():
                 _reboot_webhook_pending = new_reboot and not old_reboot
             else:
                 _reboot_webhook_pending = False
+            # v4.11.0: audit (read-only) agent flag — persist so the UI can badge
+            # the host and _queue_command can refuse to enqueue actions for it.
+            if 'audit_mode' in si:
+                safe_si['audit_mode'] = bool(si['audit_mode'])
             # v4.1.0: clock skew (NTP). Skewed = unsynchronised OR |offset| over
             # threshold. Edge-triggered both ways (clock_synced auto-resolves).
             if isinstance(si.get('clock'), dict):
@@ -11223,6 +11227,13 @@ def _queue_command(dev_id, command, actor):
     # is the one exception — it changes only the agent's local timer.
     if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
         respond(409, {'error': 'Device is quarantined — exec/reboot/actions are disabled.'})
+    # v4.11.0: an audit-mode (read-only) agent refuses every command locally.
+    # Refuse to even queue one so the operator gets a clear error now instead of
+    # a deferred "refused" result. The flag rides the heartbeat sysinfo.
+    if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
+        respond(409, {'error': 'Device is in audit (read-only) mode — exec/reboot/actions '
+                               'are disabled. Remove /etc/remotepower/audit-mode on the host '
+                               'to re-enable.'})
     # v3.14.0: 4-eyes — park risky actions for a second admin when enabled.
     _kind = _command_kind(command)
     if _needs_approval(_kind):

@@ -2685,8 +2685,9 @@
               <ul>
                 <li><strong>Firewall + fail2ban.</strong> One sortable table of every host's firewall (nftables/iptables/ufw/firewalld — backend, policy, active state, rule count, drift fingerprint). Open a host to view its ruleset grouped by chain and <strong>add/delete rules</strong>; manage fail2ban jails and <strong>ban/unban</strong> IPs. Every edit is permission-gated, audited, server-validated and quarantine-aware.</li>
                 <li><strong>AI Insights — 20 features.</strong> One-click reports and advisors grouped into Proactive, Incident, Planning, Natural-language and Advisors — daily briefing, incident RCA, CVE/compliance plans, capacity forecast, firewall auditor, DNS hygiene, supply-chain Q&amp;A, host one-pager and more. Each is a tunable, rate-limited, redaction-aware prompt.</li>
-                <li><strong>Smarter "Ask my fleet".</strong> The AI knowledge index now also covers firewall/fail2ban posture, homelab integration health and backup freshness — so it can answer "which hosts have no firewall?" or "are db01's backups current?" directly.</li>
-                <li><strong>UI polish.</strong> Grouped/iconed AI cards, firewall detail panels with selected-row highlight + close + queued-edit feedback, more scroll-capped lists, and accessibility/theming fixes.</li>
+                <li><strong>Smarter "Ask my fleet".</strong> The AI knowledge index now also covers firewall/fail2ban posture, homelab integration health, backup freshness and email/DNS posture (DMARC/SPF/DKIM, blocklists, resolver health) — so it can answer "which hosts have no firewall?" or "is our DMARC set up right?" directly.</li>
+                <li><strong>Agent audit (read-only) mode.</strong> Touch <code>/etc/remotepower/audit-mode</code> and the agent observes and reports but refuses every command (exec, reboot, config, self-update) — an operator-owned flag the server can't clear. The host shows an <strong>AUDIT</strong> badge. Linux / Windows / macOS.</li>
+                <li><strong>UI polish.</strong> Grouped/iconed AI cards, firewall detail panels with selected-row highlight + close + queued-edit feedback, a searchable per-device Uptime (SLA) table, more scroll-capped lists, and accessibility/theming fixes.</li>
               </ul>
               <p class="hint">Open <em>Security → Firewall</em> and the <em>AI Assistant</em> page. See <code>docs/v4.10.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -3955,6 +3956,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="30" selected>30 days</option>
               <option value="90">90 days</option>
             </select>
+            <input type="search" id="sla-search" class="form-input input-auto" placeholder="Search device…" data-input="_renderReportsSla" data-input-debounce="180" aria-label="Filter uptime by device">
             <span id="sla-fleet" class="fs-12 c-muted"></span>
             <button class="btn-secondary fs-12 isl-12" data-action="toggleSlaTargets">SLA targets</button>
           </div>

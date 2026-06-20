@@ -1749,11 +1749,15 @@ function renderDevices() {
       const t = `${bfa.length} active brute-force source${bfa.length>1?'s':''}: ${ips.slice(0,5).join(', ')}${ips.length>5?'…':''}`;
       hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="logs" data-stop-prop="1">${_icon('shield',12)} brute-force ${ips.length}</span>`;
     }
+    // v4.11.0: audit (read-only) agent badge — the host refuses every command.
+    const auditPill = ((si || {}).audit_mode)
+      ? ` <span class="hw-pill hw-warn" title="Agent is in audit (read-only) mode — it observes and reports but refuses every command (exec, reboot, config, self-update). Remove /etc/remotepower/audit-mode on the host to re-enable.">${_icon('eye',12)} AUDIT</span>`
+      : '';
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -18680,6 +18684,7 @@ function switchDrawerTab(tab) {
 // markup from https://lucide.dev/icons/.
 const _ICONS = {
   users:       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  eye:         '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
   terminal:    '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
   refresh:     '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   power:       '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
@@ -21075,9 +21080,15 @@ function _renderReportsSla() {
   const out = document.getElementById('reports-sla');
   if (!out) return;
   if (!_slaRows.length) { out.innerHTML = '<div class="c-muted fs-13">No uptime data yet.</div>'; return; }
+  // v4.10.0: omnisearch the per-device SLA table by device name or group.
+  const q = (document.getElementById('sla-search')?.value || '').trim().toLowerCase();
+  const base = q
+    ? _slaRows.filter(r => (r.name || '').toLowerCase().includes(q) || (r.group || '').toLowerCase().includes(q))
+    : _slaRows;
+  if (!base.length) { out.innerHTML = `<div class="c-muted fs-13">No device matches “${escHtml(q)}”.</div>`; return; }
   const fmtPct = p => p == null ? '—' : p + '%';
   const fmtDown = s => !s ? '0' : s >= 86400 ? Math.round(s / 86400) + 'd' : s >= 3600 ? Math.round(s / 3600) + 'h' : Math.round(s / 60) + 'm';
-  const sorted = tableCtl.sortRows('sla', _slaRows.slice(), r => ({
+  const sorted = tableCtl.sortRows('sla', base.slice(), r => ({
     device: r.name, group: r.group, uptime: r.uptime_pct == null ? -1 : r.uptime_pct,
     downtime: r.downtime_seconds, target: r.sla_target == null ? -1 : r.sla_target,
     budget: r.error_budget ? r.error_budget.used_pct : -1,
