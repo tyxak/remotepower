@@ -598,6 +598,9 @@ import dns_resolve as dns_resolve_mod
 # v4.9.0 ResolutionMatters #3: resolver health monitor (latency / NXDOMAIN /
 # failure tracking with rate-limited cadence + flap-dampened alerts).
 import resolver_health as resolver_health_mod
+# v5.0.0 CTRLMatters #C2: at-rest AES-256-GCM encryption for DR backup tarballs
+# (passphrase from RP_BACKUP_PASSPHRASE env — never persisted in the data dir).
+import backup_crypto
 
 # v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
 import ai_provider
@@ -2470,6 +2473,8 @@ def verify_token(token):
     apikeys = load(APIKEYS_FILE)
     matched_user = None
     matched_role = None
+    matched_kid  = None
+    matched_kdata = None
     for kid, kdata in apikeys.items():
         stored_key = kdata.get('key', '')
         # Pad both to same length for compare_digest (keys are fixed-length urlsafe)
@@ -2481,7 +2486,12 @@ def verify_token(token):
                         continue  # expired key
                     matched_user = kdata.get('user', 'api')
                     matched_role = kdata.get('role', 'admin')
+                    matched_kid  = kid
+                    matched_kdata = kdata
     if matched_user:
+        # v5.0.0 (#C4): enforce the key's per-minute budget before it counts as
+        # authenticated (429s a runaway/leaked key; no-op when rate_limit is 0).
+        _enforce_apikey_ratelimit(matched_kid, matched_kdata)
         return matched_user, matched_role
 
     return None, None
@@ -2694,6 +2704,52 @@ def _ip_ratelimit(scope: str, ip: str, max_per_window: int, window: int = 60) ->
         # than to lock out legitimate operators when the disk is wedged.
         return True
     return True
+
+
+# v5.0.0 (#C4): per-API-key rate limiting. A leaked key can otherwise saturate
+# the API; an admin sets `rate_limit` (requests/minute, 0 = unlimited) per key.
+# Keyed on the key id (NOT the IP) so the cap follows the key across sources.
+_APIKEY_RL_CHECKED = False  # per-request guard (fork-per-request → process-local)
+
+
+def _key_ratelimit(kid: str, max_per_min: int) -> bool:
+    """Sliding 60s window keyed on an API-key id. True = allowed (and recorded),
+    False = over the cap. Fail-open on lock error (mirrors `_ip_ratelimit`)."""
+    if max_per_min <= 0:
+        return True
+    now = int(time.time())
+    key = f'akrl:{kid}'
+    try:
+        with _LockedUpdate(RATELIMIT_FILE) as rl:
+            entry = rl.get(key) or {'hits': []}
+            entry['hits'] = [t for t in entry['hits'] if now - t < 60]
+            if len(entry['hits']) >= max_per_min:
+                rl[key] = entry
+                return False
+            entry['hits'].append(now)
+            rl[key] = entry
+    except Exception:
+        return True
+    return True
+
+
+def _enforce_apikey_ratelimit(kid: str, kdata: dict) -> None:
+    """Charge one hit against the key's per-minute budget; 429 if exhausted.
+    Runs at most ONCE per request — `verify_token` can be called twice on the
+    auditor path, and double-charging would halve the effective limit."""
+    global _APIKEY_RL_CHECKED
+    if _APIKEY_RL_CHECKED:
+        return
+    try:
+        limit = int(kdata.get('rate_limit') or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit <= 0:
+        return
+    _APIKEY_RL_CHECKED = True
+    if not _key_ratelimit(kid, limit):
+        respond(429, {'error': 'API key rate limit exceeded',
+                      'limit_per_min': limit, 'retry_after': 60})
 
 # ── Request helpers ────────────────────────────────────────────────────────────
 def get_body():
@@ -15902,6 +15958,12 @@ def handle_self_status():
         bs_file = DATA_DIR / 'self_backup_state.json'
         if bs_file.exists():
             out['backup'] = load(bs_file)
+        # v5.0.0 (#C2): surface whether at-rest encryption is armed (passphrase
+        # present in the env) + whether the crypto lib is available — without ever
+        # echoing the passphrase itself.
+        out.setdefault('backup', {})
+        out['backup']['encryption_armed'] = bool(_backup_passphrase())
+        out['backup']['encryption_available'] = backup_crypto.available()
     except Exception:
         pass
     # v4.3.0: cadence-job staleness. A job that quietly stops looks identical to
@@ -16459,6 +16521,14 @@ def handle_storage_backend_migrate():
     respond(status, result)
 
 
+def _backup_passphrase():
+    """v5.0.0 (#C2): the DR-backup encryption passphrase, sourced ONLY from the
+    `RP_BACKUP_PASSPHRASE` environment variable — never the config/data dir (the
+    backup contains the data dir, so storing the key there would be circular).
+    Empty/unset → backups stay plaintext (legacy behavior)."""
+    return (os.environ.get('RP_BACKUP_PASSPHRASE') or '').strip()
+
+
 def _run_data_backup(triggered_by='scheduled'):
     """Snapshot DATA_DIR to a tarball; prune old ones; record state.
 
@@ -16515,25 +16585,51 @@ def _run_data_backup(triggered_by='scheduled'):
                         _snap_tmp.unlink()
                 except OSError:
                     pass
-    # Prune
-    cutoff = time.time() - keep * 86400
-    pruned = 0
-    for f in p_base.glob('remotepower_data_*.tar.gz'):
+    # v5.0.0 (#C2): encrypt at rest if RP_BACKUP_PASSPHRASE is set. The plaintext
+    # tarball is replaced by `*.tar.gz.enc` (AES-256-GCM, streamed) and unlinked,
+    # so nothing readable lingers in backup_path. The passphrase lives ONLY in the
+    # environment — never in the data dir the backup contains.
+    encrypted = False
+    passphrase = _backup_passphrase()
+    if passphrase:
+        if not backup_crypto.available():
+            # Don't silently ship plaintext when the operator asked for crypto.
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
+            raise RuntimeError("RP_BACKUP_PASSPHRASE is set but the 'cryptography' "
+                               "library is missing — refusing to write a plaintext backup")
+        enc_path = out_path.with_suffix(out_path.suffix + '.enc')
+        backup_crypto.encrypt_file(out_path, enc_path, passphrase)
         try:
-            if f.stat().st_mtime < cutoff:
-                f.unlink(); pruned += 1
+            out_path.unlink()
         except OSError:
             pass
+        out_path = enc_path
+        encrypted = True
+    # Prune — retain BOTH plaintext and encrypted archives (a fleet may have a mix
+    # across a passphrase change).
+    cutoff = time.time() - keep * 86400
+    pruned = 0
+    for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
+        for f in p_base.glob(pat):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink(); pruned += 1
+            except OSError:
+                pass
     state = {
         'last_run':    int(time.time()),
         'last_file':   str(out_path),
         'last_bytes':  out_path.stat().st_size,
         'triggered_by': triggered_by,
+        'encrypted':   encrypted,
         'pruned':      pruned,
         'retain_days': keep,
     }
     save(DATA_DIR / 'self_backup_state.json', state)
-    return {'ok': True, 'file': str(out_path),
+    return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
             'bytes': out_path.stat().st_size, 'pruned': pruned}
 
 
@@ -28255,6 +28351,26 @@ def handle_backup_restore():
     raw = get_body()
     if not raw:
         respond(400, {'error': 'empty body — POST the backup .tar.gz'})
+    # v5.0.0 (#C2): transparently decrypt an uploaded `*.tar.gz.enc`. The
+    # passphrase comes from the X-RP-Backup-Passphrase header (so an operator can
+    # restore on a fresh box) or falls back to RP_BACKUP_PASSPHRASE in the env.
+    if raw[:len(backup_crypto.MAGIC)] == backup_crypto.MAGIC:
+        pw = (os.environ.get('HTTP_X_RP_BACKUP_PASSPHRASE') or _backup_passphrase()).strip()
+        if not pw:
+            respond(400, {'error': 'encrypted backup — supply the passphrase via the '
+                                   'X-RP-Backup-Passphrase header or RP_BACKUP_PASSPHRASE env'})
+        if not backup_crypto.available():
+            respond(400, {'error': "the 'cryptography' library is required to decrypt this backup"})
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as _td:
+            _ep = Path(_td) / 'in.enc'
+            _dp = Path(_td) / 'out.tar.gz'
+            _ep.write_bytes(raw)
+            try:
+                backup_crypto.decrypt_file(_ep, _dp, pw)
+            except backup_crypto.BackupCryptoError as e:
+                respond(400, {'error': str(e)})
+            raw = _dp.read_bytes()
     stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
     # 1) Safety snapshot of the current state before we overwrite anything.
     try:
@@ -29793,6 +29909,7 @@ def handle_apikeys_list():
     respond(200, [{'id': kid, 'name': v.get('name', ''), 'user': v.get('user', ''),
                    'role': v.get('role', 'admin'), 'created': v.get('created', 0),
                    'active': v.get('active', True),
+                   'rate_limit': int(v.get('rate_limit') or 0),
                    'expires_at': v.get('expires_at')}
                   for kid, v in apikeys.items()])
 
@@ -29812,6 +29929,13 @@ def handle_apikeys_create():
     # key behaves like 'viewer' for now.
     if role not in APIKEY_ROLES:
         respond(400, {'error': "role must be 'admin', 'viewer', or 'mcp'"})
+    # v5.0.0 (#C4): optional per-key rate limit (requests/minute, 0 = unlimited).
+    try:
+        rate_limit = int(body.get('rate_limit') or 0)
+    except (TypeError, ValueError):
+        respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
+    if rate_limit < 0 or rate_limit > 100000:
+        respond(400, {'error': 'rate_limit must be 0..100000'})
     apikeys = load(APIKEYS_FILE)
     if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
     key_value = secrets.token_urlsafe(40)
@@ -29836,6 +29960,7 @@ def handle_apikeys_create():
             expires_at = int(time.time()) + dd * 86400
     apikeys[kid] = {'name': name, 'key': key_value, 'user': user, 'role': role,
                     'created': int(time.time()), 'active': True,
+                    'rate_limit': rate_limit,
                     'expires_at': expires_at}
     save(APIKEYS_FILE, apikeys)
     respond(201, {'ok': True, 'id': kid, 'key': key_value,

@@ -5963,12 +5963,13 @@ function _registerApiKeysTable() {
     tbody: 'apikeys-tbody',
     filterInput: 'apikeys-filter',
     sortHeaders: 'apikeys-thead',
-    colspan: 6,
-    columns: ['name', 'role', 'user', 'created', 'expires'],
+    colspan: 7,
+    columns: ['name', 'role', 'user', 'rate', 'created', 'expires'],
     getColumns: (k) => ({
       name:    k.name || '',
       role:    k.role || '',
       user:    k.user || '',
+      rate:    k.rate_limit || 0,
       created: k.created || 0,
       expires: k.expires_at || 0,
     }),
@@ -5981,7 +5982,8 @@ function _registerApiKeysTable() {
         const pre = k.expires_at <= now ? 'expired ' : '';
         exp = `<span class="${cls}">${pre}${new Date(k.expires_at*1000).toLocaleDateString()}</span>`;
       }
-      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`;
+      const rate = k.rate_limit ? `${k.rate_limit}/min` : '<span class="hint">unlimited</span>';
+      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`;
     },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
@@ -6122,8 +6124,8 @@ async function loadApiKeys() {
   if (!data) return;
   tableCtl.render('apikeys', data);
 }
-function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
-async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const body = {name, role}; const exVal = (document.getElementById('apikey-expires')?.value || '').trim(); if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } body.expires_at = ts; } const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
+async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const body = {name, role}; const exVal = (document.getElementById('apikey-expires')?.value || '').trim(); if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } body.expires_at = ts; } const rlVal = parseInt(document.getElementById('apikey-rate')?.value || '0', 10); if (rlVal > 0) body.rate_limit = rlVal; const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteApiKey(id) { if (!await uiConfirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 
 // ─── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -24750,13 +24752,20 @@ async function loadSelfStatus() {
 
     <div class="card p-16">
       <div class="fw-600-mb10">Backup</div>
+      <table class="fs-13">
+        <tr><td class="c-muted-padded">Encryption</td><td>${bk.encryption_armed
+          ? '<span class="patch-badge ok">AES-256-GCM at rest</span>'
+          : `<span class="patch-badge warn">plaintext</span> <span class="hint">set <code>RP_BACKUP_PASSPHRASE</code> to encrypt</span>`}${
+          bk.encryption_armed && bk.encryption_available === false
+          ? ' <span class="c-red">— cryptography lib missing!</span>' : ''}</td></tr>
+      </table>
       ${bk.last_run ? `
-        <table class="fs-13">
+        <table class="fs-13 mt-6">
           <tr><td class="c-muted-padded">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span class="c-muted">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
-          <tr><td class="c-muted-padded">Last file</td><td><code class="fs-11">${escHtml(bk.last_file || '—')}</code></td></tr>
+          <tr><td class="c-muted-padded">Last file</td><td><code class="fs-11">${escHtml(bk.last_file || '—')}</code>${bk.encrypted ? ' <span class="patch-badge ok">encrypted</span>' : ''}</td></tr>
           <tr><td class="c-muted-padded">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
           <tr><td class="c-muted-padded">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
-        </table>` : '<div class="c-muted-fs13">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
+        </table>` : '<div class="c-muted-fs13 mt-6">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
     </div>
 
     ${_cadenceJobsCard(s.cadence_jobs)}
