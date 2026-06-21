@@ -3251,6 +3251,43 @@ async function loadWebhookLog() {
     const isOk = String(e.status).startsWith('2') || e.status === 200;
     return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
   }).join('');
+  loadWebhookDlq();
+}
+
+// v5.0.0 (#R2): dead-letter queue card — failed deliveries with a retry button.
+async function loadWebhookDlq() {
+  const wrap = document.getElementById('webhook-dlq-wrap');
+  const tbody = document.getElementById('webhook-dlq-tbody');
+  if (!wrap || !tbody) return;
+  const data = await api('GET', '/webhook/dlq');
+  const entries = Array.isArray(data) ? data : [];
+  if (!entries.length) { wrap.classList.add('d-none'); return; }
+  wrap.classList.remove('d-none');
+  tbody.innerHTML = entries.slice(0, 100).map(e =>
+    `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td>`
+    + `<td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td>`
+    + `<td class="hint" title="${escAttr(e.url||'')}">${escHtml((e.url||'').slice(0, 40))}</td>`
+    + `<td class="c-red" title="${escAttr(e.error||'')}">${escHtml((e.error||'').slice(0, 50))}</td>`
+    + `<td>${e.attempts || 1}</td>`
+    + `<td class="nowrap"><button class="btn-icon" data-action="retryDlq" data-arg="${escAttr(e.id)}" >Retry</button></td></tr>`
+  ).join('');
+}
+async function retryDlq(id) {
+  const r = await api('POST', '/webhook/dlq/retry', { id });
+  if (r?.ok) toast(r.succeeded ? 'Delivered' : 'Retry failed — still queued', r.succeeded ? 'success' : 'error');
+  else toast(r?.error || 'Failed', 'error');
+  loadWebhookDlq();
+}
+async function retryAllDlq() {
+  const r = await api('POST', '/webhook/dlq/retry', { all: true });
+  if (r?.ok) toast(`Retried ${r.retried}: ${r.succeeded} delivered, ${r.remaining} still failing`, r.remaining ? 'info' : 'success');
+  else toast(r?.error || 'Failed', 'error');
+  loadWebhookDlq();
+}
+async function clearDlq() {
+  if (!await uiConfirm('Clear the dead-letter queue? Failed deliveries will be discarded.')) return;
+  const r = await api('DELETE', '/webhook/dlq');
+  if (r?.ok) { toast('Dead-letter queue cleared', 'success'); loadWebhookDlq(); }
 }
 // v2.1.0: refresh cycle pauses while a modal is open or the tab is in
 // the background. The "auto-refresh closes browser window" bug had two

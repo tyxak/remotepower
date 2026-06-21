@@ -1388,6 +1388,22 @@
               <table><thead id="webhook-log-thead"><tr><th data-col="ts">Time</th><th data-col="event">Event</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th></th></tr></thead>
               <tbody id="webhook-log-tbody"><tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet.</td></tr></tbody></table>
             </div>
+
+            <!-- v5.0.0 (#R2): dead-letter queue — hidden until a delivery fails -->
+            <div class="d-none mt-16" id="webhook-dlq-wrap">
+              <div class="section-header mb-12">
+                <div class="section-title isl-42">Failed deliveries (dead-letter queue)</div>
+                <div class="isl-43">
+                  <button class="btn-icon" data-action="retryAllDlq" >Retry all</button>
+                  <button class="btn-icon isl-45" data-action="clearDlq" >Clear</button>
+                </div>
+              </div>
+              <p class="hint mb-8">Permanently-failed webhook deliveries are kept here so they aren't lost when the log scrolls. Retry re-sends the exact event to its destination.</p>
+              <div class="table-card">
+                <table><thead><tr><th>Time</th><th>Event</th><th>Destination</th><th>Error</th><th>Tries</th><th></th></tr></thead>
+                <tbody id="webhook-dlq-tbody"></tbody></table>
+              </div>
+            </div>
           </div>
         </div>
 

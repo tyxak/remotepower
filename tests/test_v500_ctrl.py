@@ -438,5 +438,62 @@ class TestDiskWatchdog(unittest.TestCase):
         self.assertIn('data-home-act="self"', APP)
 
 
+# ─────────────────────────── #R2 webhook DLQ + replay ──────────────────────────
+class TestWebhookDlq(unittest.TestCase):
+    def setUp(self):
+        api.save(api.WEBHOOK_DLQ_FILE, {"entries": []})
+
+    def test_record_appends(self):
+        api._dlq_record("device_offline", {"url": "https://x/y", "secret": "z"},
+                        {"device_id": "d1"}, "msg", "Title", 0, "HTTP 500")
+        entries = api.load(api.WEBHOOK_DLQ_FILE)["entries"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["event"], "device_offline")
+        self.assertTrue(entries[0]["id"].startswith("dlq_"))
+        self.assertEqual(entries[0]["attempts"], 1)
+
+    def test_record_capped(self):
+        for i in range(api.MAX_WEBHOOK_DLQ + 25):
+            api._dlq_record("e", {"url": "u"}, {}, "m", "t", 0, "err")
+        self.assertEqual(len(api.load(api.WEBHOOK_DLQ_FILE)["entries"]),
+                         api.MAX_WEBHOOK_DLQ)
+
+    def test_retry_entry_success_and_fail(self):
+        real = api._dispatch_one_webhook
+        try:
+            api._dispatch_one_webhook = lambda *a, **k: None  # succeeds
+            self.assertTrue(api._dlq_retry_entry({"event": "e", "dest": {"url": "u"}}))
+
+            def _boom(*a, **k):
+                raise RuntimeError("still down")
+            api._dispatch_one_webhook = _boom
+            self.assertFalse(api._dlq_retry_entry({"event": "e", "dest": {"url": "u"}}))
+        finally:
+            api._dispatch_one_webhook = real
+
+    def test_failure_path_records_dlq(self):
+        # the three except branches in _dispatch_one_webhook must call _dlq_record
+        i = API_SRC.index("def _dispatch_one_webhook(")
+        block = API_SRC[i:API_SRC.index("def _build_discord_body(")]
+        self.assertEqual(block.count("_dlq_record("), 3)
+
+    def test_routes(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("GET", "/api/webhook/dlq")[0], "handle_webhook_dlq_list")
+        self.assertEqual(resolve_route("POST", "/api/webhook/dlq/retry")[0], "handle_webhook_dlq_retry")
+        self.assertEqual(resolve_route("DELETE", "/api/webhook/dlq")[0], "handle_webhook_dlq_clear")
+        self.assertEqual(resolve_route("POST", "/api/webhook/replay")[0], "handle_webhook_replay")
+
+    def test_list_scrubs_dest(self):
+        # handle_webhook_dlq_list must drop the dest blob (carries tokens)
+        i = API_SRC.index("def handle_webhook_dlq_list(")
+        self.assertIn("d.pop('dest', None)", API_SRC[i:i + 700])
+
+    def test_frontend(self):
+        self.assertIn('id="webhook-dlq-wrap"', HTML)
+        self.assertIn("function loadWebhookDlq", APP)
+        self.assertIn("retryAllDlq", APP)
+
+
 if __name__ == "__main__":
     unittest.main()

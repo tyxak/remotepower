@@ -65,6 +65,7 @@ RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
+WEBHOOK_DLQ_FILE = DATA_DIR / 'webhook_dlq.json'  # v5.0.0 #R2: dead-letter queue
 # v3.2.0 follow-up: separate log for INBOUND webhook + syslog hits.
 # Symmetry with the outbound log — operators want to see "we received N
 # inbound events today, M were rejected" on Server Status the same way
@@ -4034,6 +4035,48 @@ def _log_webhook(event, url, status, detail=''):
         pass
 
 
+MAX_WEBHOOK_DLQ = 200  # v5.0.0 #R2
+
+
+def _dlq_record(event, dest, safe_payload, message, title, priority, error):
+    """v5.0.0 (#R2): persist a permanently-failed webhook delivery to the
+    dead-letter queue so an operator can SEE it and retry from the UI — unlike
+    the rolling log (which scrolls failures off). Stores everything needed to
+    re-dispatch the exact delivery."""
+    try:
+        with _LockedUpdate(WEBHOOK_DLQ_FILE) as dlq:
+            entries = dlq.get('entries', [])
+            entries.append({
+                'id':       'dlq_' + secrets.token_hex(8),
+                'ts':       int(time.time()),
+                'event':    str(event)[:64],
+                'url':      str(dest.get('url', ''))[:256],
+                'dest':     dest,
+                'payload':  safe_payload,
+                'message':  str(message)[:2000],
+                'title':    str(title)[:200],
+                'priority': priority,
+                'error':    str(error)[:300],
+                'attempts': 1,
+            })
+            dlq['entries'] = entries[-MAX_WEBHOOK_DLQ:]
+    except Exception:
+        pass
+
+
+def _dlq_retry_entry(entry):
+    """Re-dispatch one DLQ entry. Returns True on success. fire_webhook's
+    filters are intentionally skipped — this replays the exact stored delivery
+    to its destination (the operator already decided it should have gone)."""
+    try:
+        _dispatch_one_webhook(entry.get('event', ''), entry.get('dest') or {},
+                              entry.get('payload') or {}, entry.get('message', ''),
+                              entry.get('title', ''), entry.get('priority'))
+        return True
+    except Exception:
+        return False
+
+
 def is_email_event_enabled(event, cfg=None):
     """v1.8.6: per-event email toggle. Independent of webhook toggle.
     SMTP must also be enabled overall and have at least one recipient."""
@@ -5920,12 +5963,18 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
     except urllib.error.HTTPError as e:
         _log_webhook(event, url, e.code,
                      f'HTTP {e.code} [{fmt}]: {str(e.reason)[:200]}')
+        _dlq_record(event, dest, safe_payload, message, title, priority,
+                    f'HTTP {e.code}: {str(e.reason)[:120]}')
     except urllib.error.URLError as e:
         _log_webhook(event, url, 'error',
                      f'URLError [{fmt}]: {str(e.reason)[:200]}')
+        _dlq_record(event, dest, safe_payload, message, title, priority,
+                    f'URLError: {str(e.reason)[:120]}')
     except Exception as e:
         _log_webhook(event, url, 'error',
                      f'{type(e).__name__} [{fmt}]: {str(e)[:200]}')
+        _dlq_record(event, dest, safe_payload, message, title, priority,
+                    f'{type(e).__name__}: {str(e)[:120]}')
 
 
 def _build_discord_body(event, title, message):
@@ -37183,6 +37232,90 @@ def handle_webhook_log_clear():
     respond(200, {'ok': True})
 
 
+def handle_webhook_dlq_list():
+    """v5.0.0 (#R2): ``GET /api/webhook/dlq`` — permanently-failed webhook
+    deliveries (newest first). The secret-bearing dest fields are scrubbed."""
+    require_admin_auth()
+    entries = (load(WEBHOOK_DLQ_FILE) or {}).get('entries', []) or []
+    out = []
+    for e in reversed(entries):
+        d = dict(e)
+        d.pop('dest', None)          # may carry tokens/keys — never echo it
+        out.append(d)
+    respond(200, out)
+
+
+def handle_webhook_dlq_retry():
+    """``POST /api/webhook/dlq/retry`` — re-dispatch one entry ({"id": "..."}) or
+    all ({"all": true}). Successes are removed from the queue; failures stay with
+    their attempt count bumped."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    want_all = bool(body.get('all'))
+    one_id = str(body.get('id', '')).strip()
+    if not want_all and not one_id:
+        respond(400, {'error': 'pass {"id": ...} or {"all": true}'})
+    entries = (load(WEBHOOK_DLQ_FILE) or {}).get('entries', []) or []
+    targets = entries if want_all else [e for e in entries if e.get('id') == one_id]
+    if not targets:
+        respond(404, {'error': 'no matching dead-letter entry'})
+    retried = succeeded = 0
+    survived_ids = set()
+    for e in targets:
+        retried += 1
+        if _dlq_retry_entry(e):
+            succeeded += 1
+        else:
+            survived_ids.add(e.get('id'))
+            e['attempts'] = int(e.get('attempts', 1)) + 1
+    # Rebuild the queue: drop the ones that retried OK; keep the rest (with the
+    # bumped attempts already mutated in-place on shared dict objects).
+    retried_ids = {e.get('id') for e in targets} - survived_ids
+    with _LockedUpdate(WEBHOOK_DLQ_FILE) as dlq:
+        dlq['entries'] = [e for e in (dlq.get('entries', []) or [])
+                          if e.get('id') not in retried_ids]
+    audit_log(actor, 'webhook_dlq_retry',
+              detail=f'retried={retried} ok={succeeded} all={want_all}')
+    respond(200, {'ok': True, 'retried': retried, 'succeeded': succeeded,
+                  'remaining': retried - succeeded})
+
+
+def handle_webhook_dlq_clear():
+    """``DELETE /api/webhook/dlq`` — empty the dead-letter queue."""
+    actor = require_admin_auth()
+    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    save(WEBHOOK_DLQ_FILE, {'entries': []})
+    audit_log(actor, 'webhook_dlq_clear', 'webhook dead-letter queue cleared')
+    respond(200, {'ok': True})
+
+
+def handle_webhook_replay():
+    """v5.0.0 (#R2): ``POST /api/webhook/replay`` {ts, event} — re-fire a past
+    fleet event through the normal webhook path (filters + suppression apply, so
+    it routes exactly as a fresh event would)."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    ev = str(body.get('event', '')).strip()
+    try:
+        ts = int(body.get('ts', 0))
+    except (TypeError, ValueError):
+        ts = 0
+    if not ev or not ts:
+        respond(400, {'error': 'pass {"event": ..., "ts": ...} from the activity feed'})
+    events = (load(FLEET_EVENTS_FILE) or {}).get('events', []) or []
+    match = next((e for e in events
+                  if e.get('event') == ev and int(e.get('ts', 0)) == ts), None)
+    if not match:
+        respond(404, {'error': 'no matching fleet event to replay'})
+    payload = dict(match.get('payload') or {})
+    payload['_replay'] = True
+    fire_webhook(ev, payload)
+    audit_log(actor, 'webhook_replay', detail=f'event={ev} ts={ts}')
+    respond(200, {'ok': True, 'event': ev, 'ts': ts})
+
+
 # ─── v1.8.6: SMTP test endpoint ───────────────────────────────────────────────
 
 def handle_smtp_test():
@@ -44129,6 +44262,10 @@ def _build_exact_routes():
         ('GET', '/api/version'): handle_version_check,
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
+        ('GET', '/api/webhook/dlq'): handle_webhook_dlq_list,         # v5.0.0 #R2
+        ('POST', '/api/webhook/dlq/retry'): handle_webhook_dlq_retry,
+        ('DELETE', '/api/webhook/dlq'): handle_webhook_dlq_clear,
+        ('POST', '/api/webhook/replay'): handle_webhook_replay,
         ('POST', '/api/webterm/audit'): handle_webterm_session_audit,
         ('POST', '/api/webterm/auth'): handle_webterm_auth,
         (None, '/api/wol'): handle_wol,
