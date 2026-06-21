@@ -2950,12 +2950,23 @@ async function loadSecurityDiag() {
     if (ipList)    ipList.value = (diag.ip_allowlist || []).join('\n');
     if (ipMine)    ipMine.textContent = diag.your_ip || '(unknown)';
   }
-  // HSTS detection — issue a HEAD against the current page and read
-  // the Strict-Transport-Security header out of the response. Fetch
-  // is same-origin, doesn't need any auth context.
+  // HSTS detection — read the Strict-Transport-Security header off a same-origin
+  // response. v5.0.0 fix: send credentials and DON'T follow redirects. Behind a
+  // forward-auth proxy (Authelia/oauth2-proxy), an unauthenticated/credential-less
+  // request bounces to the auth domain (e.g. auth.example.com); the old code
+  // followed that cross-origin redirect, which CSP `connect-src 'self'` blocked,
+  // so the probe failed AND spammed CSP violations. `redirect: 'manual'` returns
+  // the redirect as an opaque response (status 0) WITHOUT connecting to the auth
+  // host, so no CSP violation — we just can't read headers through the proxy.
   const hstsEl = document.getElementById('cfg-hsts-status');
   try {
-    const r = await fetch('/', { method: 'HEAD', credentials: 'omit' });
+    const r = await fetch('/api/public-info', { method: 'GET',
+                                                credentials: 'same-origin',
+                                                redirect: 'manual', cache: 'no-store' });
+    if (r.type === 'opaqueredirect' || r.status === 0) {
+      hstsEl.innerHTML = '<span class="c-muted">Couldn\'t probe HSTS from here — your deployment is behind an authentication proxy. HSTS is set at the nginx / proxy layer; check that config directly.</span>';
+      return;
+    }
     const sts = r.headers.get('Strict-Transport-Security');
     if (sts) {
       hstsEl.innerHTML = `<span class="c-green">✓ HSTS enabled.</span> Header: <code>${escHtml(sts)}</code>`;
@@ -7542,6 +7553,11 @@ async function triggerCVEScan(devId, btn) {
   // v4.1.0: the scan now runs in a detached background process and returns
   // immediately ("Queued"), so the page never blocks. We poll scan-status for
   // progress and refresh the report when it finishes.
+  // v5.0.0 fix: the "Scan all" button is wired via data-action-btn, which calls
+  // us with the BUTTON ELEMENT as the first arg (per-device callers pass a
+  // string id). Normalise so we never POST the element as device_id — that
+  // serialised to {} and the server rejected it with 400 Bad Request.
+  if (devId && typeof devId === 'object') { btn = devId; devId = null; }
   const origText = btn?.textContent || '';
   if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
   const r = await api('POST', '/cve/scan', devId ? { device_id: devId } : {});
@@ -25158,12 +25174,31 @@ async function loadSelfStatus() {
       <table class="fs-13">
         <tr><td class="c-muted-padded">Encryption</td><td>${bk.encryption_armed
           ? '<span class="patch-badge ok">AES-256-GCM at rest</span>'
-          : `<span class="patch-badge warn">plaintext</span> <span class="hint">set <code>RP_BACKUP_PASSPHRASE</code> to encrypt</span>`}${
+          : `<span class="patch-badge warn">plaintext</span> <span class="hint">not encrypted</span>`}${
           bk.encryption_armed && bk.encryption_available === false
           ? ' <span class="c-red">— cryptography lib missing!</span>' : ''}</td></tr>
         ${(bk.plaintext_archives != null || bk.encrypted_archives != null) ? `
         <tr><td class="c-muted-padded">Archives</td><td>${bk.encrypted_archives || 0} encrypted, ${bk.plaintext_archives || 0} plaintext</td></tr>` : ''}
       </table>
+      ${!bk.encryption_armed && bk.encryption_available !== false ? `
+        <details class="mt-6 fs-12">
+          <summary class="pointer c-accent">How do I turn on backup encryption?</summary>
+          <div class="mt-6">
+            <div class="mb-6">There are two parts. <strong>For ongoing scheduled backups</strong>, set the <code>RP_BACKUP_PASSPHRASE</code> environment variable on the process that runs RemotePower (it's read at backup time and never written to disk), then restart. Pick the one that matches your install:</div>
+            <div class="mb-4"><strong>systemd</strong> (package / install.sh):</div>
+            <pre class="ff-mono fs-11 scroll-cap">sudo systemctl edit remotepower-api        # or your fcgiwrap unit
+# add under [Service]:
+Environment=RP_BACKUP_PASSPHRASE=choose-a-strong-passphrase
+sudo systemctl restart remotepower-api</pre>
+            <div class="mb-4 mt-6"><strong>Docker compose</strong>:</div>
+            <pre class="ff-mono fs-11 scroll-cap">services:
+  remotepower:
+    environment:
+      RP_BACKUP_PASSPHRASE: choose-a-strong-passphrase
+# then:  docker compose up -d</pre>
+            <div class="mt-6 c-muted">Keep the passphrase safe — without it, encrypted backups cannot be restored. <strong>Already have plaintext archives?</strong> Use the button below to convert them now (no env var or restart needed for that).</div>
+          </div>
+        </details>` : ''}
       ${(bk.plaintext_archives > 0 && bk.encryption_available !== false) ? `
         <button class="btn-icon mt-8" data-action="encryptExistingBackups" title="Encrypt the plaintext backup archives already on disk">${_icon('power', 14)} Encrypt existing backups (${bk.plaintext_archives})</button>
         <div class="hint mt-6">Encrypts archives on disk now with a passphrase you supply (never stored). For ongoing scheduled backups, set <code>RP_BACKUP_PASSPHRASE</code>.</div>` :
