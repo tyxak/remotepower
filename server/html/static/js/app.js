@@ -14299,8 +14299,14 @@ async function loadThermal() {
     if (summary) summary.textContent = `${data.count} host${data.count === 1 ? '' : 's'} · ${data.hot} hot`;
     _renderThermal();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
+}
+// v5.0.0: hosts whose per-sensor breakdown row is expanded (survives re-sort).
+const _thermalExpanded = new Set();
+function toggleThermalDetail(id) {
+  if (_thermalExpanded.has(id)) _thermalExpanded.delete(id); else _thermalExpanded.add(id);
+  _renderThermal();
 }
 function _renderThermal() {
   const tbody = document.getElementById('thermal-tbody');
@@ -14318,10 +14324,10 @@ function _renderThermal() {
     sensors:      r.sensors || 0,
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
     return;
   }
-  const { rows: shown, note } = _capFleetRows(rows, 5, 'hosts');
+  const { rows: shown, note } = _capFleetRows(rows, 9, 'hosts');
   tbody.innerHTML = shown.map(r => {
     const cls = r.critical ? 'c-red fw-600' : r.hot ? 'c-amber fw-600' : '';
     const t = (typeof r.max_temp === 'number') ? `${r.max_temp.toFixed(1)}°C` : '—';
@@ -14331,9 +14337,6 @@ function _renderThermal() {
       const hc = r.headroom <= 5 ? 'c-red fw-600' : r.headroom <= 15 ? 'c-amber' : 'c-green';
       head = `<span class="${hc}">${r.headroom.toFixed(1)}°C</span>`;
     }
-    // hover breakdown: every sensor reporting on the host, hottest-first
-    const bd = (r.detail || []).map(s =>
-      `${s.label}: ${s.temp}°C${(typeof s.crit === 'number') ? ' (crit ' + s.crit + '°)' : ''}`).join('\n');
     let lbl = escHtml(r.sensor_label || '—');
     if (r.gpu) {  // GPU is the hottest sensor — show its fan/util/power
       const bits = [];
@@ -14342,15 +14345,47 @@ function _renderThermal() {
       if (typeof r.gpu.power_w === 'number') bits.push(`${r.gpu.power_w}W`);
       if (bits.length) lbl += ` <span class="hint">· ${escHtml(bits.join(' · '))}</span>`;
     }
-    return `<tr>
+    // Trend sparkline — hottest reading over ~4h; coloured by current state.
+    const sparkColor = r.critical ? 'var(--red)' : r.hot ? 'var(--amber)' : 'var(--green)';
+    const spark = (Array.isArray(r.trend) && r.trend.length >= 2)
+      ? renderSparkline(r.trend, {width: 110, height: 20, color: sparkColor, fill: true})
+      : '<span class="c-muted">—</span>';
+    const open = _thermalExpanded.has(r.device_id);
+    const caret = `<button class="btn-icon thermal-expand" data-action="toggleThermalDetail" data-arg="${escAttr(r.device_id)}" aria-expanded="${open ? 'true' : 'false'}" title="${open ? 'Hide' : 'Show'} all sensors"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${open ? 'rot-180' : ''}"><polyline points="6 9 12 15 18 9"/></svg> ${r.sensors || 0}</button>`;
+    const main = `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
       <td class="${cls}">${t}</td>
       <td>${lbl}</td>
       <td class="hint">${escHtml(r.sensor_type || '—')}</td>
       <td class="hint">${thr}</td>
       <td>${head}</td>
-      <td class="hint" title="${escAttr(bd)}">${r.sensors || 0}</td>
+      <td>${spark}</td>
+      <td class="hint">${caret}</td>
+      <td class="nowrap"><button class="btn-icon" data-action="openMetricThresholds" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Set warning / critical temperature thresholds">Thresholds</button></td>
     </tr>`;
+    if (!open) return main;
+    // Expanded: every sensor on the host, hottest-first. Capped + scrolled so a
+    // host with many sensors never blows past the box.
+    const sensorRows = (r.detail || []).map(s => {
+      const sc = (typeof s.crit === 'number' && typeof s.temp === 'number')
+        ? (s.temp >= s.crit ? 'c-red fw-600' : (s.crit - s.temp) <= 10 ? 'c-amber' : '')
+        : '';
+      return `<tr>
+        <td>${escHtml(s.label || 'sensor')}</td>
+        <td class="${sc}">${(typeof s.temp === 'number') ? s.temp.toFixed(1) + '°C' : '—'}</td>
+        <td class="hint">${escHtml(s.type || '—')}</td>
+        <td class="hint">${(typeof s.crit === 'number') ? s.crit.toFixed(0) + '°C' : '—'}</td>
+      </tr>`;
+    }).join('');
+    const detail = `<tr class="thermal-detail-row"><td colspan="9">
+      <div class="scroll-cap-sm">
+        <table class="data-table w-full thermal-sensor-table">
+          <thead><tr><th>Sensor</th><th>Temp</th><th>Type</th><th>Critical</th></tr></thead>
+          <tbody>${sensorRows || '<tr><td colspan="4" class="hint">No per-sensor detail.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </td></tr>`;
+    return main + detail;
   }).join('') + note;
 }
 

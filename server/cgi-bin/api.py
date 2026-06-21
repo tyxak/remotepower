@@ -247,6 +247,9 @@ _CMDB_IFACE_RE      = re.compile(r'^[A-Za-z0-9._:\-]{0,32}$')
 # v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
 CMDB_DEFAULT_SSH_PORT = 22
 CMDB_ENVIRONMENTS = ('', 'test', 'dev', 'staging', 'prod')  # v3.12.0
+# v5.0.0: coarse operational ownership bucket (who runs the box, not what it
+# does). Fixed allowlist — values are stored verbatim (mixed-case labels).
+CMDB_BUSINESS_FUNCTIONS = ('', 'Application Operation', 'OS Operation', 'Server Camp')
 CMDB_SSH_PORT_MIN     = 1
 CMDB_SSH_PORT_MAX     = 65535
 
@@ -266,6 +269,7 @@ METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
 SMART_HIST_FILE  = DATA_DIR / 'smart_history.json'
 # v4.7.0: per-GPU telemetry samples (temp/util/mem%) → GPU-page trend sparklines.
 GPU_HIST_FILE    = DATA_DIR / 'gpu_history.json'
+THERMAL_HIST_FILE = DATA_DIR / 'thermal_history.json'   # v5.0.0: hottest-temp trend
 HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
 HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
@@ -24799,6 +24803,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
     The two underscore-prefixed booleans are the previous alert states so we
     only fire on a transition (matching every other monitor in this file).
     """
+    temp_sample = None   # v5.0.0: hottest reading, sampled for the trend AFTER the lock
     with _locked_update(HARDWARE_FILE) as store:
         rec = store.setdefault(dev_id, {})
         events = []
@@ -24947,6 +24952,20 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             elif was_hot and not _hot:
                 events.append(('temp_normal', {'device_id': dev_id, 'name': dev_name}))
             rec['_temp_high'] = bool(_hot)
+            # v5.0.0: stash the hottest reading across board sensors + SMART disks
+            # + GPUs. We sample it AFTER this lock exits — _maybe_sample_temp takes
+            # its own THERMAL_HIST_FILE lock, and DATA_DIR shares one SQLite
+            # connection, so calling it in here would nest BEGIN IMMEDIATE → abort.
+            _tvals = [t['current_c'] for t in (safe.get('temps') or [])
+                      if isinstance(t.get('current_c'), (int, float))]
+            for _sd in (body.get('smart') or []):
+                if isinstance(_sd, dict) and isinstance(_sd.get('temperature_c'), (int, float)):
+                    _tvals.append(_sd['temperature_c'])
+            for _gg in (body.get('gpus') or []):
+                if isinstance(_gg, dict) and isinstance(_gg.get('temp_c'), (int, float)):
+                    _tvals.append(_gg['temp_c'])
+            if _tvals:
+                temp_sample = max(_tvals)
 
         # ── v3.14.0: GPU telemetry ───────────────────────────────────
         if isinstance(body.get('gpus'), list):
@@ -25060,6 +25079,11 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             rec['_ups_on_battery'] = on_batt
 
         rec['ts'] = now
+
+    # v5.0.0: append the thermal-trend sample outside the HARDWARE_FILE lock
+    # (it self-locks THERMAL_HIST_FILE; same-connection nesting would abort).
+    if temp_sample is not None:
+        _maybe_sample_temp(dev_id, temp_sample, now)
 
     # Fire events outside the lock (fire_webhook does its own I/O).
     for event, payload in events:
@@ -25254,6 +25278,22 @@ def _maybe_sample_gpu(dev_id, gpus, now):
             entry['samples'].append({'ts': now, 'temp': g.get('temp_c'),
                                      'util': g.get('util_pct'), 'mem': mem_pct})
             entry['samples'] = entry['samples'][-MAX_GPU_SAMPLES:]
+
+
+MAX_TEMP_SAMPLES = 288   # ~24h at the ~5-min hardware cadence
+
+
+def _maybe_sample_temp(dev_id, max_c, now):
+    """Append the host's hottest temperature reading for the Thermal-page trend
+    sparkline. One sample per hardware-cycle ingest (~5 min), bounded to
+    MAX_TEMP_SAMPLES. Mirrors `_maybe_sample_gpu`; a no-op when the host
+    reported no usable temperature this cycle."""
+    if not isinstance(max_c, (int, float)):
+        return
+    with _locked_update(THERMAL_HIST_FILE) as store:
+        entry = store.setdefault(dev_id, {'samples': []})
+        entry.setdefault('samples', []).append({'ts': now, 'temp': round(float(max_c), 1)})
+        entry['samples'] = entry['samples'][-MAX_TEMP_SAMPLES:]
 
 
 def _maybe_sample_smart(dev_id, disks, now):
@@ -38746,6 +38786,7 @@ def handle_fleet_thermal():
     require_auth()
     devices = load(DEVICES_FILE) or {}
     hw_all = load(HARDWARE_FILE) or {}
+    temp_hist = load(THERMAL_HIST_FILE) or {}
     rows = []
     hot = 0
     for dev_id, d in devices.items():
@@ -38796,12 +38837,16 @@ def handle_fleet_thermal():
         if is_hot:
             hot += 1
         detail.sort(key=lambda x: -x['temp'])
+        # v5.0.0: last ~48 samples (~4h at the hardware cadence) of the host's
+        # hottest reading, for the Thermal-page trend sparkline.
+        _samples = ((temp_hist.get(dev_id) or {}).get('samples') or [])[-48:]
+        trend = [s['temp'] for s in _samples if isinstance(s.get('temp'), (int, float))]
         rows.append({
             'device_id': dev_id, 'device': d.get('name', dev_id),
             'monitored': d.get('monitored') is not False,
             'max_temp': max_c, 'sensor_label': hottest[1], 'sensor_type': hottest[2],
             'sensors': sensors, 'crit_c': crit_c, 'headroom': headroom,
-            'detail': detail[:16], 'gpu': gpu_extra,
+            'detail': detail[:16], 'gpu': gpu_extra, 'trend': trend,
             'hot': is_hot, 'critical': max_c >= THERMAL_CRIT_C,
             'reported_at': hw.get('ts', 0),
         })
@@ -43050,6 +43095,9 @@ def _cmdb_record_default() -> dict:
         'asset_id':        '',
         'server_function': '',
         'environment':     '',     # v3.12.0: test / dev / staging / prod
+        # v5.0.0: coarse operational ownership bucket (fixed allowlist — see
+        # CMDB_BUSINESS_FUNCTIONS). Drives reporting/grouping, not a free-text.
+        'business_function': '',
         'vlan':            '',
         # v5.0.0: network interfaces, each with an optional NAT/public IP child.
         # `interfaces` is the source of truth (multi-NIC, multi-NAT); the legacy
@@ -43329,6 +43377,7 @@ def handle_cmdb_list() -> None:
             'asset_id':        rec_safe.get('asset_id', ''),
             'server_function': rec_safe.get('server_function', ''),
             'environment':     rec_safe.get('environment', ''),
+            'business_function': rec_safe.get('business_function', ''),     # v5.0.0
             'vlan':            rec_safe.get('vlan', ''),
             'interfaces':      rec_safe.get('interfaces', []),            # v5.0.0
             'primary_interface': rec_safe.get('primary_interface', ''),   # v5.0.0
@@ -43524,6 +43573,13 @@ def handle_cmdb_update(dev_id: str) -> None:
             respond(400, {'error': f'environment must be one of: {", ".join(e for e in CMDB_ENVIRONMENTS if e)} (or empty)'})
         rec['environment'] = env
         changed.append('environment')
+
+    if 'business_function' in body:
+        bf = str(body.get('business_function') or '').strip()
+        if bf not in CMDB_BUSINESS_FUNCTIONS:
+            respond(400, {'error': f'business_function must be one of: {", ".join(b for b in CMDB_BUSINESS_FUNCTIONS if b)} (or empty)'})
+        rec['business_function'] = bf
+        changed.append('business_function')
 
     if 'vlan' in body:
         vlan = str(body.get('vlan') or '').strip()

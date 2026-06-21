@@ -5127,9 +5127,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th scope="col" data-col="device">Device</th><th scope="col" data-col="max_temp">Max temp</th>
               <th scope="col" data-col="sensor_label">Hottest sensor</th><th scope="col" data-col="sensor_type">Type</th>
               <th scope="col" data-col="crit_c">Threshold</th><th scope="col" data-col="headroom">Headroom</th>
+              <th scope="col" data-col="trend">Trend (~24h)</th>
               <th scope="col" data-col="sensors">Sensors</th>
+              <th scope="col" class="th-actions"></th>
             </tr></thead>
-            <tbody id="thermal-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
+            <tbody id="thermal-tbody"><tr><td colspan="9" class="hint">Loading…</td></tr></tbody>
           </table>
           </div>
         </div>
@@ -6494,11 +6496,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group">
+      <label class="form-label">Business function</label>
+      <select id="cmdb-asset-business-function" class="form-input">
+        <option value="">— none —</option>
+        <option value="Application Operation">Application Operation</option>
+        <option value="OS Operation">OS Operation</option>
+        <option value="Server Camp">Server Camp</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label class="form-label">VLAN</label>
       <input type="text" id="cmdb-asset-vlan" class="form-input" placeholder="10, 20 (trunk), DMZ" maxlength="64">
       <div class="meta-sm">Free text — a single ID, a comma-separated list for trunked, or a descriptive label.</div>
     </div>
-    <div class="form-group">
+    <div class="form-group cmdb-fullspan">
       <label class="form-label">Network interfaces &amp; NAT</label>
       <div class="meta-sm mb-8">One row per NIC. Attach a NAT&nbsp;/&nbsp;public IP to any interface that's reachable from outside via 1:1 NAT — a host can have several NICs and several NATs. Star the primary interface.</div>
       <div id="cmdb-interfaces"></div>
@@ -6531,7 +6542,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <input type="date" id="cmdb-asset-support" class="form-input mw-200">
       <div class="meta-sm">Vendor support / maintenance contract end date.</div>
     </div>
-    <div class="form-group hint">
+    <div class="form-group hint cmdb-fullspan">
       <div><strong>Hostname:</strong> <span id="cmdb-asset-hostname">—</span></div>
       <div><strong>OS:</strong> <span id="cmdb-asset-os">—</span></div>
       <div><strong>IP:</strong> <span id="cmdb-asset-ip">—</span></div>

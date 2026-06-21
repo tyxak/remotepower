@@ -898,8 +898,17 @@
   /* CMDB asset modal: fixed dialog height so switching tabs (Properties /
      Documentation / Credentials / Hardware / Contracts & contacts / SNMP)
      doesn't resize and re-centre the window. The active pane scrolls inside. */
-  #cmdb-asset-modal > .modal { height: min(88vh, 760px); display: flex; flex-direction: column; overflow: hidden; }
+  #cmdb-asset-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
   #cmdb-asset-modal > .modal > [id^="cmdb-tab-"] { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  /* v5.0.0: the Properties tab is a responsive 2-column grid so the short
+   * inputs (Asset ID, Server function, …) sit half-width instead of spanning
+   * the whole wider modal. Wide blocks — interfaces editor, the read-only info
+   * panel, the decommissioned toggle — span both columns. Collapses to one
+   * column automatically when the modal is narrow (auto-fit minmax). */
+  #cmdb-tab-props { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 20px; align-items: start; }
+  #cmdb-tab-props > .form-group { min-width: 0; }
+  #cmdb-tab-props > .cmdb-fullspan,
+  #cmdb-tab-props > .cmdb-decomm-row { grid-column: 1 / -1; }
   /* v3.13.0: same fixed-size treatment for the Host Configuration modal — its
    * sections (Repos / Netplan / … / Cron) vary a lot in height, so switching
    * tabs used to resize and re-centre the window. The active .hc-panel now
@@ -5671,6 +5680,14 @@ body[data-ui="industrial"] svg { stroke-width: 1.75; stroke-linecap: round; stro
 .gpu-trend-row { display:flex; align-items:center; gap:8px; }
 .gpu-trend-l { font-size:11px; color:var(--muted); width:34px; flex:none; }
 .gpu-trend .sparkline { display:block; }
+
+/* v5.0.0: Thermal page — expandable per-sensor breakdown + caret. */
+.rot-180 { transform: rotate(180deg); }
+.thermal-expand { display:inline-flex; align-items:center; gap:5px; }
+.thermal-expand svg { transition: transform 0.15s ease; }
+.thermal-detail-row > td { background: var(--surface-2, rgba(127,127,127,0.05)); padding: 6px 12px 10px; }
+.thermal-sensor-table { font-size: 13px; }
+.thermal-sensor-table th { font-size: 11px; }
 
 /* v4.6.0: page descriptions folded into a hover info icon next to the title
    (the .subtitle-hidden class is toggled by _applyPageSubtitleInfo). */

@@ -362,6 +362,7 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-id').value         = res.data.asset_id || '';
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
   document.getElementById('cmdb-asset-environment').value = res.data.environment || '';
+  document.getElementById('cmdb-asset-business-function').value = res.data.business_function || '';
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
   // v5.0.0: multi-NIC / multi-NAT editor.
   _cmdbInterfaces = Array.isArray(res.data.interfaces) ? res.data.interfaces.map(x => ({
@@ -878,6 +879,7 @@ async function cmdbAssetSave() {
     asset_id:        document.getElementById('cmdb-asset-id').value.trim(),
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
     environment:     document.getElementById('cmdb-asset-environment').value,
+    business_function: document.getElementById('cmdb-asset-business-function').value,
     vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
     ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,
