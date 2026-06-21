@@ -18,7 +18,11 @@ _spec.loader.exec_module(api)
 
 
 class TestComplianceCveExcludesIgnored(unittest.TestCase):
-    def _seed(self, findings_by_dev, ignore):
+    def _seed(self, findings_by_dev, ignore, devices=None):
+        # By default every device with findings also exists in DEVICES_FILE.
+        devs = devices if devices is not None else {
+            d: {"name": d} for d in findings_by_dev}
+        api.save(api.DEVICES_FILE, devs)
         api.save(api.CVE_FINDINGS_FILE, findings_by_dev)
         api.save(api.CVE_IGNORE_FILE, ignore)
         api._LOAD_CACHE.clear()
@@ -53,6 +57,19 @@ class TestComplianceCveExcludesIgnored(unittest.TestCase):
         }, {})
         facts = api._compliance_facts()
         self.assertEqual(facts["cve_critical_high"], 2)
+
+    def test_stale_findings_for_deleted_device_excluded(self):
+        # ghost1 has findings in the store but no longer exists in DEVICES_FILE —
+        # those must not count toward "outstanding across the fleet".
+        self._seed({
+            "dev1":   {"findings": [{"vuln_id": "CVE-A", "severity": "critical"}]},
+            "ghost1": {"findings": [
+                {"vuln_id": "CVE-X", "severity": "critical"},
+                {"vuln_id": "CVE-Y", "severity": "high"},
+            ]},
+        }, {}, devices={"dev1": {"name": "dev1"}})   # ghost1 NOT present
+        facts = api._compliance_facts()
+        self.assertEqual(facts["cve_critical_high"], 1)   # only dev1's one crit
 
 
 if __name__ == "__main__":

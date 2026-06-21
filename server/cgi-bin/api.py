@@ -23990,15 +23990,20 @@ def _compliance_facts():
     facts['pending_patches_devices'] = pending_bad
     facts['reboot_required'] = reboot
 
-    # CVEs (critical+high) from the findings store. EXCLUDE findings the operator
-    # has ignored/accepted (global or per-device) — an accepted-risk CVE is not
-    # "outstanding", and counting it here made Compliance disagree with the CVE
-    # Findings page and the Needs-Attention banner (both already drop ignored).
+    # CVEs (critical+high) from the findings store. Match the CVE Findings page
+    # exactly so Compliance can't disagree with it: (1) skip findings for devices
+    # that no longer exist (deleted hosts leave stale findings behind), and
+    # (2) EXCLUDE findings the operator has ignored/accepted (global or
+    # per-device) — an accepted-risk CVE is not "outstanding". Both the CVE page
+    # and the Needs-Attention banner already do this; the compliance fact didn't,
+    # which made it read e.g. 140 where the page read 76.
     try:
         cve_all = load(CVE_FINDINGS_FILE) or {}
         cve_ignore = load(CVE_IGNORE_FILE) or {}
         cnt = 0
         for did, rec in cve_all.items():
+            if did not in devices:          # stale findings for a removed host
+                continue
             for f in cve_scanner.apply_ignore_list((rec or {}).get('findings') or [],
                                                    cve_ignore, did):
                 if not f.get('ignored') \
