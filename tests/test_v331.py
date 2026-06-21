@@ -101,10 +101,12 @@ class TestOfflineHardening(unittest.TestCase):
             'check_offline_webhooks must use offline_pending for debounce')
 
     def test_pending_cleared_on_device_delete(self):
+        # v5.0.0 (#F1): the per-device cleanup moved into the shared _purge_device
+        # helper (handle_device_delete + bulk-delete both call it).
         m = re.search(
-            r'def handle_device_delete\(.*?\n(?:.*?\n){0,80}',
+            r'def _purge_device\(.*?\n(?:.*?\n){0,80}',
             self.api, re.DOTALL)
-        self.assertIsNotNone(m, 'handle_device_delete missing')
+        self.assertIsNotNone(m, '_purge_device missing')
         self.assertIn('offline_pending', m.group(0),
             'device delete must purge offline_pending')
 

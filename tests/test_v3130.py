@@ -511,7 +511,8 @@ class TestUpgradeRebootReliability(unittest.TestCase):
 
     def test_upgrade_gets_long_timeout(self):
         # Upgrades must not be killed at 300s before the trailing reboot runs.
-        self.assertIn("exec_timeout = 1800 if _is_upgrade else 300", self.agent)
+        # v5.0.0 (#F3): an optional per-command override may precede the heuristic.
+        self.assertIn("1800 if _is_upgrade else 300", self.agent)
 
     def test_reboot_has_fallbacks(self):
         self.assertIn("systemctl reboot || /sbin/reboot || reboot", self.api)

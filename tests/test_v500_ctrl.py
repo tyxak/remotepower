@@ -530,8 +530,8 @@ class TestMaintenanceMode(unittest.TestCase):
 
     def test_routes(self):
         from routing_harness import resolve_route
-        self.assertEqual(resolve_route("GET", "/api/maintenance")[0], "handle_maintenance_mode_get")
-        self.assertEqual(resolve_route("POST", "/api/maintenance")[0], "handle_maintenance_mode_set")
+        self.assertEqual(resolve_route("GET", "/api/maintenance-mode")[0], "handle_maintenance_mode_get")
+        self.assertEqual(resolve_route("POST", "/api/maintenance-mode")[0], "handle_maintenance_mode_set")
 
     def test_frontend(self):
         self.assertIn('id="cfg-maintenance-mode"', HTML)

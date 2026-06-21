@@ -1605,7 +1605,7 @@ def _retention_sweep_if_due():
 
 
 def handle_maintenance_mode_get():
-    """v5.0.0 (#R3): ``GET /api/maintenance`` — current maintenance-mode state.
+    """v5.0.0 (#R3): ``GET /api/maintenance-mode`` — current maintenance-mode state.
     Auth required (any role) so the UI can show the banner to everyone."""
     require_auth()
     active, reason = _maintenance_active()
@@ -1613,7 +1613,7 @@ def handle_maintenance_mode_get():
 
 
 def handle_maintenance_mode_set():
-    """``POST /api/maintenance`` {enabled, reason} — toggle maintenance mode.
+    """``POST /api/maintenance-mode`` {enabled, reason} — toggle maintenance mode.
     Admin only; audit-logged. While on, new agent command dispatch is paused
     (heartbeats + browsing keep working)."""
     actor = require_admin_auth()
@@ -44543,8 +44543,8 @@ def _build_exact_routes():
         ('GET', '/api/agent-compat'): handle_agent_compat,                # v5.0.0 #F4
         ('POST', '/api/devices/bulk-delete'): handle_devices_bulk_delete,  # v5.0.0 #F1
         ('POST', '/api/devices/bulk-tags'): handle_devices_bulk_tags,      # v5.0.0 #F2
-        ('GET', '/api/maintenance'): handle_maintenance_mode_get,    # v5.0.0 #R3
-        ('POST', '/api/maintenance'): handle_maintenance_mode_set,
+        ('GET', '/api/maintenance-mode'): handle_maintenance_mode_get,    # v5.0.0 #R3
+        ('POST', '/api/maintenance-mode'): handle_maintenance_mode_set,
         ('GET', '/api/webhook/dlq'): handle_webhook_dlq_list,         # v5.0.0 #R2
         ('POST', '/api/webhook/dlq/retry'): handle_webhook_dlq_retry,
         ('DELETE', '/api/webhook/dlq'): handle_webhook_dlq_clear,

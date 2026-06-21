@@ -3257,7 +3257,7 @@ async function loadWebhookLog() {
 
 // ── v5.0.0 (#R3): maintenance mode ───────────────────────────────────────────
 async function loadMaintenanceMode() {
-  const data = await api('GET', '/maintenance');
+  const data = await api('GET', '/maintenance-mode');
   if (!data) return;
   const cb = document.getElementById('cfg-maintenance-mode');
   if (cb) cb.checked = !!data.enabled;
@@ -3280,7 +3280,7 @@ async function toggleMaintenanceMode() {
   const cb = document.getElementById('cfg-maintenance-mode');
   const reason = (document.getElementById('cfg-maintenance-reason')?.value || '').trim();
   const enabled = !!cb?.checked;
-  const data = await api('POST', '/maintenance', { enabled, reason });
+  const data = await api('POST', '/maintenance-mode', { enabled, reason });
   if (data?.ok) {
     toast(enabled ? 'Maintenance mode ON — command dispatch paused' : 'Maintenance mode OFF', enabled ? 'info' : 'success');
     _applyMaintenanceBanner(data);
