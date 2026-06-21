@@ -16644,7 +16644,7 @@ def handle_self_status():
     # Backup state
     try:
         bs_file = DATA_DIR / 'self_backup_state.json'
-        if bs_file.exists():
+        if backend_exists(bs_file):   # v5.0.0: DB-backed key, not a file
             out['backup'] = load(bs_file)
         # v5.0.0 (#C2): surface whether at-rest encryption is armed (passphrase
         # present in the env) + whether the crypto lib is available — without ever
@@ -17467,10 +17467,17 @@ def handle_backup_clear():
                     deleted += 1
                 except OSError:
                     pass
+    # v5.0.0: reset the backup state for BOTH backends. Under SQLite/Postgres it's
+    # a DB row (no file to unlink), so save({}) clears it; also drop the JSON-backend
+    # file if one is present. (The old code only unlink()ed, so a DB-backed instance
+    # kept its stale last_run.)
     bs_file = DATA_DIR / 'self_backup_state.json'
-    if bs_file.exists():
-        try: bs_file.unlink()
-        except OSError: pass
+    if backend_exists(bs_file):
+        try: save(bs_file, {})
+        except Exception: pass
+    try:
+        if bs_file.exists(): bs_file.unlink()
+    except OSError: pass
     audit_log(actor, 'backup_clear', detail=f'deleted={deleted} path={base}')
     respond(200, {'ok': True, 'deleted': deleted})
 
@@ -17487,7 +17494,12 @@ def _maybe_run_scheduled_backup():
     if not (cfg.get('backup') or {}).get('enabled', True):
         return
     state_file = DATA_DIR / 'self_backup_state.json'
-    state = load(state_file) if state_file.exists() else {}
+    # v5.0.0 CRITICAL: must use backend_exists, NOT Path.exists(). Under the
+    # SQLite/Postgres backend self_backup_state.json is a DB row, not a file, so
+    # Path.exists() is always False → the persisted last_run was never read → the
+    # 24h gate never tripped → EVERY heartbeat ran a full backup (runaway, filled
+    # the backup dir). The sibling _maybe_check_disk_space already does this right.
+    state = load(state_file) if backend_exists(state_file) else {}
     last = state.get('last_run') or 0
     if int(time.time()) - last < 86400:
         return  # ran within the last 24h
@@ -19359,7 +19371,7 @@ def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
     no separate cron needed.
     """
     now = int(time.time())
-    cache = load(PROXMOX_SNAPSHOT_CACHE) if PROXMOX_SNAPSHOT_CACHE.exists() else {}
+    cache = load(PROXMOX_SNAPSHOT_CACHE) if backend_exists(PROXMOX_SNAPSHOT_CACHE) else {}
     if not isinstance(cache, dict):
         cache = {}
 
@@ -19707,7 +19719,7 @@ def handle_proxmox_backups_get() -> None:
             _refresh_proxmox_backup_cache(pc)
         except Exception:
             pass
-    cache = load(PROXMOX_BACKUP_CACHE) if PROXMOX_BACKUP_CACHE.exists() else {}
+    cache = load(PROXMOX_BACKUP_CACHE) if backend_exists(PROXMOX_BACKUP_CACHE) else {}
     if not isinstance(cache, dict):
         cache = {}
     guests = cache.get('guests', [])
@@ -26808,7 +26820,7 @@ def _compute_attention():
 
     # v2.8.1: backup file staleness.
     bak_state_file = DATA_DIR / 'backup_state.json'
-    if bak_state_file.exists():
+    if backend_exists(bak_state_file):   # v5.0.0: DB-backed key, not a file
         try:
             bak_state = load(bak_state_file) or {}
             bak_mons  = {m['path']: m for m in (cfg.get('backup_monitors') or []) if m.get('path')}
@@ -33357,7 +33369,7 @@ def handle_report_schedule_get():
     cfg = load(CONFIG_FILE) or {}
     rs = dict(cfg.get('report_schedule') or {})
     state_file = DATA_DIR / 'report_schedule_state.json'
-    state = load(state_file) if state_file.exists() else {}
+    state = load(state_file) if backend_exists(state_file) else {}
     respond(200, {
         'enabled':    bool(rs.get('enabled')),
         'cron':       rs.get('cron', ''),
@@ -40440,7 +40452,7 @@ def handle_metrics_push_get():
     """GET /api/metrics/push/config — current metrics-push config + last result."""
     require_auth()
     mp = dict((load(CONFIG_FILE) or {}).get('metrics_push') or {})
-    st = load(METRICS_PUSH_STATE_FILE) if METRICS_PUSH_STATE_FILE.exists() else {}
+    st = load(METRICS_PUSH_STATE_FILE) if backend_exists(METRICS_PUSH_STATE_FILE) else {}
     respond(200, {'enabled': bool(mp.get('enabled')), 'url': mp.get('url', ''),
                   'interval': int(mp.get('interval') or 60),
                   'job': mp.get('job') or 'remotepower',
@@ -40668,7 +40680,7 @@ def handle_gitops_get():
     """GET /api/gitops — config (auth token masked) + last-sync status."""
     require_auth()
     gc = dict((load(CONFIG_FILE) or {}).get('gitops') or {})
-    st = load(GITOPS_STATE_FILE) if GITOPS_STATE_FILE.exists() else {}
+    st = load(GITOPS_STATE_FILE) if backend_exists(GITOPS_STATE_FILE) else {}
     respond(200, {
         'enabled':       bool(gc.get('enabled')),
         'url':           gc.get('url', ''),

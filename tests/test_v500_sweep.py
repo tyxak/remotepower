@@ -9,6 +9,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -143,6 +144,56 @@ class TestSnmpSsrf(unittest.TestCase):
                "snmp": {"enabled": True, "community": "public"}}
         self.assertEqual(api._device_snmp_target(dev),
                          ("10.0.0.5", "public", 161))
+
+
+class TestScheduledBackupGate(unittest.TestCase):
+    """CRITICAL: the daily scheduled-backup gate must read its PERSISTED last_run
+    so it runs at most once per 24h. The bug: it used Path.exists() to decide
+    whether to load the state, but under the SQLite/Postgres backend the state is
+    a DB row (no file) → exists() was always False → last_run never read → a full
+    backup ran on EVERY heartbeat (runaway). This test fails under the SQLite leg
+    of `make test-both` without the backend_exists() fix."""
+
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {"backup": {"enabled": True}})
+        # clear any stale in-progress sentinel (a real file)
+        try:
+            (api.DATA_DIR / ".backup_in_progress").unlink()
+        except OSError:
+            pass
+        self._orig = api._run_data_backup
+        self.calls = []
+
+        def _fake(triggered_by="scheduled"):
+            self.calls.append(triggered_by)
+            api.save(api.DATA_DIR / "self_backup_state.json",
+                     {"last_run": int(time.time())})
+            return {"ok": True}
+
+        api._run_data_backup = _fake
+
+    def tearDown(self):
+        api._run_data_backup = self._orig
+
+    def test_recent_run_suppresses_backup(self):
+        # last_run = now (persisted via the storage layer, exactly as the real
+        # backup does). The gate must read it back and NOT run again.
+        api.save(api.DATA_DIR / "self_backup_state.json",
+                 {"last_run": int(time.time())})
+        api._maybe_run_scheduled_backup()
+        self.assertEqual(self.calls, [],
+                         "a backup ran despite a recent persisted last_run "
+                         "(the SQLite runaway bug)")
+
+    def test_stale_run_allows_one_backup(self):
+        api.save(api.DATA_DIR / "self_backup_state.json",
+                 {"last_run": int(time.time()) - 90000})  # >24h ago
+        api._maybe_run_scheduled_backup()
+        self.assertEqual(len(self.calls), 1)
+        # and a second immediate call must now be suppressed (the fake persisted
+        # a fresh last_run) — i.e. it does not loop.
+        api._maybe_run_scheduled_backup()
+        self.assertEqual(len(self.calls), 1, "scheduled backup looped")
 
 
 class TestSourceGuards(unittest.TestCase):
