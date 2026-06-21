@@ -8079,6 +8079,9 @@ function _renderRollout(roll) {
   if (canPause)   actions += btn('Pause', 'pause');
   if (canPromote) actions += btn('Promote', 'promote');
   if (canCancel)  actions += btn('Cancel', 'cancel');
+  // v5.0.0 (#F5): one-click rollback for a script rollout with a rollback script.
+  if (roll.action === 'script' && roll.rollback_script_id && roll.state !== 'draft' && !roll.rolled_back_by)
+    actions += `<button class="btn-icon fs-12 c-amber" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="rollback">Rollback</button>`;
   actions += `<button class="btn-icon fs-12 c-red" data-action="deleteRollout" data-arg="${escAttr(roll.id)}">Delete</button>`;
   return `<div class="dash-card mb-12">
     <div class="row-8-center mb-8">
@@ -8105,8 +8108,12 @@ async function openRolloutModal() {
   // Populate the saved-script dropdown
   const sel = document.getElementById('ro-script');
   const scripts = await api('GET', '/scripts').catch(() => []);
-  sel.innerHTML = (Array.isArray(scripts) ? scripts : []).map(s =>
+  const opts = (Array.isArray(scripts) ? scripts : []).map(s =>
     `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('') || '<option value="">(no saved scripts)</option>';
+  sel.innerHTML = opts;
+  // v5.0.0 (#F5): rollback-script picker (optional) — same options + a "none".
+  const rbSel = document.getElementById('ro-rollback-script');
+  if (rbSel) rbSel.innerHTML = '<option value="">— none —</option>' + opts;
   onRolloutActionChange();
   openModal('new-rollout-modal');
 }
@@ -8144,6 +8151,8 @@ async function saveRollout() {
   if (action === 'script') {
     body.script_id = document.getElementById('ro-script').value;
     if (!body.script_id) { toast('Pick a saved script', 'error'); return; }
+    const rb = document.getElementById('ro-rollback-script')?.value || '';
+    if (rb) body.rollback_script_id = rb;   // v5.0.0 #F5
   }
   const r = await api('POST', '/rollouts', body).catch(() => null);
   if (r?.ok) { toast('Rollout created (draft) — press Start to begin', 'success'); closeModal('new-rollout-modal'); loadRollouts(); }
@@ -8152,8 +8161,9 @@ async function saveRollout() {
 
 async function rolloutAction(id, action) {
   if (action === 'cancel' && !await uiConfirm('Cancel this rollout? Already-dispatched rings keep running on their devices.')) return;
+  if (action === 'rollback' && !await uiConfirm('Roll back? This starts a NEW rollout running the rollback script on every device this rollout reached.')) return;
   const r = await api('POST', `/rollouts/${id}/${action}`, {}).catch(() => null);
-  if (r?.ok) { toast(`Rollout ${action} ok`, 'success'); loadRollouts(); }
+  if (r?.ok) { toast(action === 'rollback' ? 'Rollback started' : `Rollout ${action} ok`, 'success'); loadRollouts(); }
   else toast(r?.error || `Failed to ${action}`, 'error');
 }
 

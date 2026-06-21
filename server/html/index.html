@@ -7214,6 +7214,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group d-none" id="ro-script-row"><label>Saved script</label><select id="ro-script"></select>
     <div class="page-subtitle mt-4">Scripts can only be confirmed as <em>delivered</em>, not verified for success — upgrades get true post-deploy verification.</div>
+    <label class="mt-8">Rollback script (optional)</label><select id="ro-rollback-script"></select>
+    <div class="page-subtitle mt-4">v5.0.0: enables a one-click <strong>Rollback</strong> that re-runs this script on exactly the devices the rollout reached.</div>
   </div>
   <div class="form-group"><label>Rings (top to bottom; empty rings are skipped)</label>
     <div id="ro-rings">

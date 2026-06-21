@@ -745,5 +745,33 @@ class TestAgentCompat(unittest.TestCase):
         self.assertIn("force: true", APP)
 
 
+# ─────────────────────────── #F5 rollout rollback ──────────────────────────────
+class TestRolloutRollback(unittest.TestCase):
+    def test_create_accepts_rollback_script(self):
+        i = API_SRC.index("def handle_rollouts_create(")
+        block = API_SRC[i:i + 2600]
+        self.assertIn("rollback_script_id", block)
+        self.assertIn("rollback_script_id not found", block)
+
+    def test_action_handler_has_rollback(self):
+        i = API_SRC.index("def handle_rollout_action(")
+        block = API_SRC[i:API_SRC.index("def handle_rollout_delete(")]
+        self.assertIn("action == 'rollback'", block)
+        # gathers dispatched_ids across rings + makes a new script rollout
+        self.assertIn("dispatched_ids", block)
+        self.assertIn("'rolled_back_from': roll_id", block)
+        self.assertIn("agent-binary rollback requires a", block)
+
+    def test_response_surfaces_rollback_id(self):
+        i = API_SRC.index("def handle_rollout_action(")
+        block = API_SRC[i:API_SRC.index("def handle_rollout_delete(")]
+        self.assertIn("'rollback_id': err_box[1]", block)
+
+    def test_frontend(self):
+        self.assertIn("data-arg2=\"rollback\"", APP)
+        self.assertIn("rollback_script_id", APP)
+        self.assertIn('id="ro-rollback-script"', HTML)
+
+
 if __name__ == "__main__":
     unittest.main()

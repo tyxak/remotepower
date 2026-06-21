@@ -31302,10 +31302,16 @@ def handle_rollouts_create():
     if action not in ('upgrade', 'script'):
         respond(400, {'error': 'action must be upgrade or script'})
     script_id = ''
+    rollback_script_id = ''
     if action == 'script':
         script_id = _sanitize_str(body.get('script_id', ''), 64)
         if not _rollout_script_body(script_id):
             respond(400, {'error': 'script_id not found'})
+        # v5.0.0 (#F5): optional rollback script — a one-click "undo" that
+        # re-dispatches this script to exactly the devices the rollout reached.
+        rollback_script_id = _sanitize_str(body.get('rollback_script_id', ''), 64)
+        if rollback_script_id and not _rollout_script_body(rollback_script_id):
+            respond(400, {'error': 'rollback_script_id not found'})
     raw_rings = body.get('rings') if isinstance(body.get('rings'), list) else []
     rings = []
     for r in raw_rings[:10]:
@@ -31347,6 +31353,7 @@ def handle_rollouts_create():
         'name': name,
         'action': action,
         'script_id': script_id,
+        'rollback_script_id': rollback_script_id,
         'rings': rings,
         'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0,
                          'ok_count': 0, 'failed_count': 0} for _ in rings],
@@ -31376,7 +31383,7 @@ def handle_rollout_action(roll_id, action):
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    err_box = [None]
+    err_box = [None, None]   # [error, new_rollback_id]  (v5.0.0 #F5)
     with _LockedUpdate(ROLLOUTS_FILE) as store:
         rolls = store.get('rollouts') or []
         roll = next((r for r in rolls if r.get('id') == roll_id), None)
@@ -31417,6 +31424,48 @@ def handle_rollout_action(roll_id, action):
                 roll['current_ring'] = idx + 1
                 roll['state'] = 'running'
                 _rollout_log(roll, f'manually promoted to ring {idx+2}')
+        elif action == 'rollback':
+            # v5.0.0 (#F5): create + start a NEW script rollout that runs the
+            # configured rollback script on exactly the devices this rollout
+            # already reached (the union of every ring's dispatched_ids).
+            if roll.get('action') != 'script' or not roll.get('rollback_script_id'):
+                err_box[0] = ('rollback needs a script rollout with a rollback '
+                              'script configured (agent-binary rollback requires a '
+                              'reinstall)')
+            else:
+                hit = []
+                for rs in (roll.get('rings_state') or []):
+                    for d in (rs.get('dispatched_ids') or []):
+                        if d not in hit:
+                            hit.append(d)
+                if not hit:
+                    err_box[0] = 'this rollout has not dispatched to any device yet'
+                else:
+                    rb = {
+                        'id': secrets.token_hex(8),
+                        'name': f'Rollback of {roll.get("name", roll_id)}'[:80],
+                        'action': 'script',
+                        'script_id': roll['rollback_script_id'],
+                        'rollback_script_id': '',
+                        'rings': [{'name': 'rollback', 'selector': {'type': 'ids', 'ids': hit}}],
+                        'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0,
+                                         'ok_count': 0, 'failed_count': 0}],
+                        'auto_promote': True,
+                        'verify_minutes': roll.get('verify_minutes', _ROLLOUT_VERIFY_MIN_DEFAULT),
+                        'health_gate': {'enabled': False, 'threshold': 70},
+                        'state': 'running',
+                        'current_ring': 0,
+                        'history': [],
+                        'rolled_back_from': roll_id,
+                        'created_by': actor,
+                        'created_at': int(time.time()),
+                        'updated_at': int(time.time()),
+                    }
+                    _rollout_log(rb, f'rollback of {roll_id} — {len(hit)} device(s)')
+                    rolls.append(rb)
+                    roll['rolled_back_by'] = rb['id']
+                    _rollout_log(roll, f'rolled back via {rb["id"]}')
+                    err_box[1] = rb['id']  # carry the new id out for the response
         else:
             err_box[0] = 'unknown action'
         store['rollouts'] = rolls
@@ -31426,7 +31475,8 @@ def handle_rollout_action(roll_id, action):
     _rollout_tick()   # dispatch/advance immediately so the UI reflects it
     rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
     fresh = next((r for r in rolls if r.get('id') == roll_id), None)
-    respond(200, {'ok': True, 'rollout': _rollout_public(fresh) if fresh else None})
+    respond(200, {'ok': True, 'rollout': _rollout_public(fresh) if fresh else None,
+                  'rollback_id': err_box[1]})
 
 
 def handle_rollout_delete(roll_id):
