@@ -4,71 +4,31 @@ All notable changes to RemotePower. Newest first.
 
 ## v5.0.0 — "CTRLMatters" — 2026-06-22
 
-Control-plane hardening + scale. **Security:** opt-in mutual TLS for agents
-(CA-verified client certs, optional per-device pin), AES-256-GCM encrypted DR
-backups (`RP_BACKUP_PASSPHRASE`), break-glass vault reveals (two-person rule +
-immutable audit + `vault_break_glass` alert), per-API-key rate limiting.
-**Reliability:** server disk-space watchdog (`server_disk_low`/`_ok`), webhook
-dead-letter queue with retry + event replay, runtime maintenance mode (drain
-command dispatch during upgrades), graceful SIGTERM for long-poll commands, OSV
-circuit breaker. **Fleet:** bulk device delete + bulk tag, per-command timeout
-override, agent/server version-compat check, one-click rollout rollback (script
-rollouts). **Scale:** cross-device OSV batching (one OSV sweep per ecosystem for
-the whole fleet). **Polish:** copy-to-clipboard everywhere, webhook delivery
-dots, per-device alert snooze, pending-command nav badge, rename/duplicate saved
-queries, palette command-history search, one-click Run-diagnostics. WEBHOOK_EVENTS
-now 80 (`agent_stopped`, `agent_started`, `vault_break_glass`,
-`backup_verify_failed`, `rollout_halted`, `server_disk_low`, `server_disk_ok`).
-**CMDB & inventory:** record a host's **network interfaces** — several NICs, each
-with its own optional **NAT / public IP** child (for assets behind 1:1 NAT), one
-flagged primary — edited with a live preview tree; mark an asset
-**Decommissioned** — it greys out across the device list and is fully silenced
-(no monitoring, alerts, health or SLA), and clearing it restores monitoring.
-**New Network Metrics page** — per-device RX/TX throughput rolled up fleet-wide
-or by group / tag / site (a site represents a customer). **Accessibility:**
-every table column header carries `scope="col"`, icon-only buttons are
-`aria-label`led and decorative icons `aria-hidden`.
-**Backups:** migrate existing plaintext archives to encrypted **from the web UI**
-(Server status → Backup → "Encrypt existing backups", request-only passphrase).
-**Network map at fleet scale:** a **scope picker** (site / group / tag) renders
-one slice of the topology instead of all nodes at once. **Ticketing:** ready-made
-**Jira / ServiceNow / Zendesk** webhook formats for the on-ack opt-in, with the
-opened ticket's link shown on the alert. **Settings → Install:** a version check
-against the latest release + a guided **self-update** (runs an operator-set update
-script). **Settings:** an optional **login banner / security notice**.
-**Performance (big-fleet):** the heartbeat hot path no longer reads or rewrites
-whole-fleet blobs every beat. `containers.json`, `update_logs.json`, `cmds.json`
-and `uptime.json` are now per-device entity stores (O(1) single-row read/write
-on SQLite/Postgres instead of O(fleet)), with a safe one-time migration of
-existing databases. The dashboard's posture and bandwidth roll-ups are computed
-only when those widgets are actually on screen.
-**Thermal page:** expand any host to see every sensor (temperature + critical),
-a ~24h temperature **trend sparkline**, and a per-host **Thresholds** button to
-set the warning / critical temperatures. **CMDB:** a new **Business function**
-field (Application Operation / OS Operation / Server Camp) and a wider asset
-editor whose properties lay out in two columns. **AI knowledge index:** the
-live-state corpus now also covers mount problems, failing custom checks, running
-process names and file-descriptor / conntrack saturation, so the assistant can
-answer those reliability questions from real data.
-Follow-up hardening sweep (no Critical/High/Medium findings): the legacy
-`webhook_url` is no longer returned by `GET /api/config` (it embeds a secret —
-only a `webhook_configured` boolean is exposed now; rotate that webhook after
-upgrading if you used the legacy field); and per-disk SMART / per-GPU /
-temperature trend samples are now written outside the hardware lock so they're
-durable on the SQLite backend.
-Second finalize sweep (whole-project; no Critical/High/Medium findings): fixed a
-500 on the per-device patch report; the agent's **audit (read-only) mode** now
-also refuses server-pushed custom monitoring scripts (the fourth command channel);
-distro **security-flagged update counts** are surfaced on the Checks page and in
-the patch alert; SSRF connect-time guards extended to **SNMP**, **LDAP** and
-**Proxmox** runtime calls (loopback / link-local / cloud-metadata refused, peer IP
-re-validated); the containerized agent now reads backup, web-access-log, file-log
-and ACME paths through the host rootfs; the Reputation, DMARC and Scoped-credential
-tables are now sortable; the NOC Status Board and break-glass list cap their height
-and scroll; the heartbeat writes `backup_state` once per beat instead of twice; and
-the debug instrumentation no longer runs on every request when disabled.
-Deferred:
-user-configurable timezone. See docs/v5.0.0.md.
+Control-plane hardening + scale. No breaking changes.
+
+- **Security** — opt-in mutual TLS for agents (CA-verified client certs, optional per-device pin), AES-256-GCM encrypted DR backups (`RP_BACKUP_PASSPHRASE`), break-glass vault reveals (two-person rule + immutable audit + `vault_break_glass` alert), per-API-key rate limiting.
+- **Reliability** — server disk-space watchdog (`server_disk_low`/`_ok`), webhook dead-letter queue with retry + event replay, runtime maintenance mode (drain command dispatch during upgrades), graceful SIGTERM for long-poll commands, OSV circuit breaker.
+- **Fleet** — bulk device delete + bulk tag, per-command timeout override, agent/server version-compatibility check, one-click rollout rollback (script rollouts).
+- **Scale** — cross-device OSV batching (one OSV sweep per ecosystem for the whole fleet).
+- **Polish** — copy-to-clipboard everywhere, webhook delivery dots, per-device alert snooze, pending-command nav badge, rename/duplicate saved queries, palette command-history search, one-click Run-diagnostics. `WEBHOOK_EVENTS` now 80 (adds `agent_stopped`, `agent_started`, `vault_break_glass`, `backup_verify_failed`, `rollout_halted`, `server_disk_low`, `server_disk_ok`).
+- **CMDB & inventory** — record a host's network interfaces (several NICs, each with its own optional NAT / public IP child for assets behind 1:1 NAT, one flagged primary), edited with a live preview tree. Mark an asset **Decommissioned** to grey it out across the device list and fully silence it (no monitoring, alerts, health or SLA); clearing it restores monitoring. New **Business function** field and a wider two-column asset editor.
+- **Network Metrics page** — per-device RX/TX throughput rolled up fleet-wide or by group / tag / site.
+- **Network map at fleet scale** — a scope picker (site / group / tag) renders one slice of the topology instead of every node at once.
+- **Thermal page** — expand any host to see every sensor (temperature + critical), a ~24h trend sparkline, and a per-host warning/critical Thresholds editor.
+- **Backups** — migrate existing plaintext archives to encrypted from the web UI (Server status → Backup → “Encrypt existing backups”, request-only passphrase).
+- **Ticketing** — ready-made Jira / ServiceNow / Zendesk webhook formats for the on-ack opt-in, with the opened ticket's link shown on the alert.
+- **Settings** — an Install pane with a latest-release version check + guided self-update (runs an operator-set update script); an optional login banner / security notice.
+- **Accessibility** — every table column header carries `scope="col"`; icon-only buttons are `aria-label`led and decorative icons `aria-hidden`.
+- **AI knowledge index** — the live-state corpus now also covers mount problems, failing custom checks, running process names, and file-descriptor / conntrack saturation, so the assistant can answer those reliability questions from real data.
+- **Performance (big fleets)** — the heartbeat hot path no longer rewrites whole-fleet blobs every beat: `containers.json`, `update_logs.json`, `cmds.json` and `uptime.json` are now per-device entity stores (O(1) single-row read/write on SQLite/Postgres instead of O(fleet)), with a safe one-time migration. Dashboard posture and bandwidth roll-ups are computed only when those widgets are on screen.
+
+**Hardening & finalize sweeps** (independently pentested — no Critical/High/Medium findings):
+
+- The legacy `webhook_url` is no longer returned by `GET /api/config` (it embeds a secret — only a `webhook_configured` boolean is exposed now; rotate that webhook after upgrading if you used the legacy field). Per-disk SMART / per-GPU / temperature-trend samples are written outside the hardware lock so they're durable on the SQLite backend.
+- Fixed a 500 on the per-device patch report. The agent's audit (read-only) mode now also refuses server-pushed custom monitoring scripts (the fourth command channel). Distro security-flagged update counts are surfaced on the Checks page and in the patch alert. SSRF connect-time guards extended to SNMP, LDAP and Proxmox runtime calls (loopback / link-local / cloud-metadata refused, peer IP re-validated). The containerized agent reads backup, web-access-log, file-log and ACME paths through the host rootfs. The Reputation, DMARC and Scoped-credential tables are now sortable. The NOC Status Board and break-glass list cap their height and scroll. The heartbeat writes `backup_state` once per beat instead of twice; debug instrumentation no longer runs on every request when disabled.
+- **Critical fix:** the daily scheduled-backup gate checked `Path.exists()` on `self_backup_state.json`, but under the SQLite/Postgres backend that state is a database row, not a file — so the 24-hour throttle never engaged and a full encrypted backup ran on **every heartbeat**. It now uses the storage-aware existence check; the same class was swept across the backup and cache subsystems.
+
+**Deferred:** user-configurable timezone. See [docs/v5.0.0.md](docs/v5.0.0.md).
 
 ## v4.10.0 — "PerimeterMatters" — folded into v5.0.0 (no standalone release)
 
