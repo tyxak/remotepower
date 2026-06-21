@@ -10,11 +10,15 @@ The Server status page (`/api/self/status`) closes the "who monitors the monitor
 
 **Webhook delivery** — success rate over the last 24h and 7d, total entries logged. Drops below 95% usually mean a destination is rejecting your payloads (rate limit, invalid format, dead URL) and the operator needs to investigate.
 
-**Disk** — RemotePower's data dir total bytes, filesystem-level used/free, and the top 20 files >100KB (collapsible). Useful when a runaway log fills disk; the page tells you which file grew.
+**Disk** — RemotePower's data dir total bytes, filesystem-level used/free, and the top 20 files >100KB (collapsible). Useful when a runaway log fills disk; the page tells you which file grew. A **disk watchdog** (v5.0.0) also raises a `server_disk_low` alert when the controller's free space crosses a configurable threshold, before flock writes start failing, and clears it with `server_disk_ok`.
 
 **Audit log** — active entry count, configured retention in days, archive size if any entries have been evicted.
 
-**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs.
+**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs. v5.0.0 adds an **encryption** row (AES-256-GCM armed or plaintext, whether the crypto library is present) and **archive counts** (encrypted vs plaintext), plus an **"Encrypt existing backups"** button that converts the plaintext archives on disk with a passphrase you supply for that run only (it's never stored). For ongoing scheduled backups, set `RP_BACKUP_PASSPHRASE` in the server environment.
+
+**Maintenance mode** (v5.0.0) — when on, new command dispatch is paused (heartbeats and browsing keep working). Surfaced as a banner; toggled under Settings → Advanced.
+
+**Webhook dead-letter queue** (v5.0.0) — permanently-failed webhook deliveries are parked here for retry/replay (Settings → Notifications → Webhook log). See [webhooks.md](webhooks.md).
 
 **Fleet events** — current rolling file size, archive size.
 

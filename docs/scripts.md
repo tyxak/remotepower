@@ -242,6 +242,19 @@ One row per target device showing:
 Polling stops automatically once every queued device has returned
 output, or after 1 hour (the job's TTL). Close button stops polling.
 
+## Staged rollouts & one-click rollback (v5.0.0)
+
+When you roll a script out in stages, you can attach a **rollback script** to the
+rollout. After it completes, a **Rollback** button appears on the rollout card;
+clicking it queues the rollback script on every device the original rollout
+reached, so a bad change can be reverted fleet-wide in one click. Rollouts can also
+be **health-gated** (opt-in): a canary batch that trips a health check auto-halts
+the rollout (`rollout_halted`) before it reaches the rest of the fleet.
+
+A queued script also honours a per-command timeout: the agent accepts an
+`exec:to=<seconds>:` prefix (1–3600s) so a long-running script isn't killed at the
+default 300s. See [agent-commands.md](agent-commands.md).
+
 ## Security
 
 - **Admin-only** for every mutation, dispatch, and dry-run. Listing and

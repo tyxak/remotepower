@@ -54,6 +54,12 @@ v5.0.0 strengthens the trust boundary around the agents and the secrets store:
 - **Per-API-key rate limiting.** Each named API key carries its own request
   budget, enforced independently of the per-IP login throttle, so a leaked or
   runaway automation key can't exhaust the server.
+- **Guided self-update with no shell.** The optional server self-update runs an
+  absolute script path that an admin configures by hand; it is run directly (never
+  through a shell), admin-only, and audit-logged, and stays disabled until set.
+- **Login banner / security notice.** An optional plain-text notice shown above
+  the sign-in form (for example "Authorized use only. Activity is monitored."),
+  surfaced before authentication.
 
 Recent releases were independently penetration-tested with
 [wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),

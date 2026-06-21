@@ -26,6 +26,8 @@ Press `g`, then one more key, within 1.5 seconds:
 | `g c` | CVEs |
 | `g m` | Monitor |
 | `g a` | Audit |
+| `g r` | Reports |
+| `g t` | Trends |
 | `g v` | serVer status |
 
 ## Implementation notes

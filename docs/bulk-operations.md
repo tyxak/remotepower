@@ -11,6 +11,8 @@ Run an operation across many devices at once. Reachable from the command palette
 | Shut down | `_queue_command_batch(ids, 'shutdown')` | Requires typing `RUN` to confirm |
 | Force package scan | per-device `POST /devices/<id>/scan-packages` fan-out | Useful before a CVE re-scan |
 | Force ACME rescan | per-device `POST /devices/<id>/acme/force-rescan` fan-out | After issuing/renewing via CLI |
+| Bulk delete *(v5.0.0)* | `POST /api/devices/bulk-delete` | Admin only. Removes many devices in one audited call. |
+| Bulk tag *(v5.0.0)* | `POST /api/devices/bulk-tags` | Admin only. Add and/or remove tags across the selection. |
 
 ## Filtering targets
 

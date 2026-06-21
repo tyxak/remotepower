@@ -25,6 +25,10 @@ If RemotePower has **no record** covering part of the window — most commonly t
 time *before a device was enrolled* — that period is reported as **unknown** and
 excluded from the calculation. It is never counted as downtime.
 
+Unmonitored and **decommissioned** (v5.0.0) devices are skipped entirely:
+decommissioning a host forces `monitored: false`, so it drops out of SLA
+computation rather than dragging the number down.
+
 This matters for fresh deployments: a host enrolled 8 days ago, evaluated over a
 30-day window, is scored over the ~8 days actually covered — not reported as "22
 days down / 27% uptime". The Reports table shows `unknown` for a device with no

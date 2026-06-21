@@ -105,7 +105,9 @@ Older release notes (v4.5.0 and earlier) live in
 - **[containers.md](containers.md)** — Docker / Podman / Kubernetes pod
  listings.
 - **[network-map.md](network-map.md)** — Manual topology graph from
- `connected_to` links.
+ `connected_to` links, with a site/group/tag scope filter for big fleets.
+- **[network-metrics.md](network-metrics.md)** — Per-device RX/TX throughput,
+ rolled up fleet-wide or by group / tag / site.
 - **[agentless-devices.md](agentless-devices.md)** — Manual records for
  switches, APs, printers, IPMI cards.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry

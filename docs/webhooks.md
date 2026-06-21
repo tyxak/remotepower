@@ -20,6 +20,9 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 | `github` | `api.github.com` | Opens a GitHub issue (PAT in the destination's credential field) |
 | `pagerduty` | `events.pagerduty.com` | Events API v2 — triggers an incident; recover events auto-resolve it (v3.4.1) |
 | `opsgenie` | `opsgenie.com` | Alerts API v2 — P1–P4 by severity (v3.4.1) |
+| `jira` | explicit | Opens a Jira issue via `POST /rest/api/2/issue` — HTTP Basic auth (account email + API token), with a project key and issue type. Fires on alert ACK (v5.0.0) |
+| `servicenow` | explicit | Opens a ServiceNow incident via `POST /api/now/table/incident` — HTTP Basic auth. Fires on alert ACK (v5.0.0) |
+| `zendesk` | explicit | Opens a Zendesk ticket via `POST /api/v2/tickets.json` — email/token Basic auth. Fires on alert ACK (v5.0.0) |
 | `generic` | Anything else | JSON `{event, ts, title, message, priority, ...payload}` + `X-Title`/`X-Priority`/`X-Tags` headers |
 
 Format auto-detect runs only on the legacy `webhook_url`. Entries in the new array carry an explicit `format` field — change it in the UI dropdown.
@@ -30,8 +33,21 @@ These are two different jobs — use the right tool for each:
 
 - **On-call / paging** (wake someone, escalate if unacked): the `pagerduty` and
   `opsgenie` formats above.
-- **Ticketing / help-desk** (a durable queue someone triages and closes): see
+- **Ticketing / help-desk** (a durable queue someone triages and closes): the
+  native `jira` / `servicenow` / `zendesk` formats, or the zero-code email path
   below.
+
+### Native ITSM tickets on acknowledge (v5.0.0)
+
+The `jira`, `servicenow` and `zendesk` formats open a ticket in your ITSM tool
+over its REST API (HTTP Basic auth over HTTPS). Wire one up in **Settings →
+Notifications → Webhook destinations**: pick the format, paste the API URL, and
+fill the credentials (account email + API token; Jira also needs a project key
+and issue type). Tick **"Also fire on alert ACK"** so a ticket is opened when an
+operator acknowledges an alert. RemotePower parses the created ticket's id/url
+from the response and shows the **ticket link right on the alert row**, so you
+can jump straight to it. Credentials are stored encrypted and redacted from the
+config GET (`itsm_secret_set: true/false`).
 
 ### osTicket (and any email-to-ticket help-desk) — zero code
 
@@ -108,9 +124,29 @@ Migrating a single legacy URL to the new array:
 | GET  | `/api/config` | Returns `webhook_urls` with Pushover creds redacted, `pushover_token_set` / `pushover_user_set` flags |
 | POST | `/api/config` | Accepts `webhook_urls` array; empty pushover_token/pushover_user fields preserve existing values |
 | POST | `/api/webhook/test` | Body `{}` → fan out to all enabled destinations. Body `{id: "wh_xxx"}` → fire only to that one (uses a synthetic config without touching persisted state) |
+| GET    | `/api/webhook/dlq` | List the dead-letter queue (failed deliveries) — admin (v5.0.0) |
+| POST   | `/api/webhook/dlq/retry` | Re-dispatch one entry (`{id}`) or all (`{all: true}`) — admin (v5.0.0) |
+| DELETE | `/api/webhook/dlq` | Clear the dead-letter queue — admin (v5.0.0) |
+| POST   | `/api/webhook/replay` | Replay past fleet events to a destination — admin (v5.0.0) |
 
 Max 20 destinations. URL must be http or https. Format must be one of those listed above (anything else returns 400).
+
+## Dead-letter queue & replay (v5.0.0)
+
+A delivery that fails permanently (after retries) is parked in a **dead-letter
+queue** (`webhook_dlq.json`, capped at the most recent entries) so it isn't lost
+when the receiver is down. From **Settings → Notifications → Webhook log** you can
+**Retry** a single entry, **Retry all**, or **Clear** the queue; each retry is
+logged and its attempt counter bumped. You can also **replay** past fleet events
+to a destination, which is handy after a receiver outage.
 
 ## Audit + logging
 
 Every successful POST is logged to `webhook_log.json` with the format suffix: `OK (200) [pushover]`, `HTTP 400 [discord]: Bad Request`, etc. Visible in Settings → Notifications → Recent deliveries, and aggregated for the success-rate stat on the Server status page.
+
+## Agent lifecycle events
+
+Two events fire around an agent's lifecycle (both routable to any destination and
+in the Alerts inbox): **`agent_stopped`** when an agent shuts down cleanly (a
+distinct signal from `device_offline`, which means "stopped reporting"), and
+**`agent_started`** when it comes back. Payload: `device_id`, `name`, `hostname`.

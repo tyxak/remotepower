@@ -54,6 +54,9 @@ Get-Content "$env:ProgramData\RemotePower\agent.log" -Tail 50 -Wait
 | Journal | journalctl | wevtutil (System event log) |
 | Service | systemd | NSSM |
 | Self-update | Automatic | Manual (logged when available) |
+| HTTPS + TLS 1.2 floor | yes | yes |
+| Read-only audit mode | `/etc/remotepower/audit-mode` | `%ProgramData%\RemotePower\audit-mode` |
+| Per-command timeout (`exec:to=`) | yes | yes |
 | Config path | `/etc/remotepower/` | `%ProgramData%\RemotePower\` |
 
 ---

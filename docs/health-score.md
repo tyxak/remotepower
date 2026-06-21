@@ -18,7 +18,8 @@ Attention item it has, weighted by severity:
 
 The score floors at 0. The fleet score is the mean of the per-device scores.
 Unmonitored devices (`monitored: false`) are excluded — scoring a silenced host
-a perfect 100 would inflate the fleet average.
+a perfect 100 would inflate the fleet average. **Decommissioned** assets (v5.0.0)
+force `monitored: false`, so they're excluded the same way.
 
 Grades: **good** ≥ 90, **fair** ≥ 70, **poor** ≥ 40, **critical** below 40.
 

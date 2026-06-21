@@ -15,7 +15,23 @@ stored on the server), and **tunnels** as a second kind of edge
 between two devices (peer link, dashed amber, intended for VPN
 tunnels and site-to-site links).
 
+*v5.0.0 adds a scope filter* so a big fleet stays readable.
+
 ---
+
+## Scoping the map (v5.0.0)
+
+On a large fleet, drawing every node at once is noise. The toolbar has a **Scope**
+picker with three dropdowns — **Site**, **Group** and **Tag** — populated from
+your fleet. Pick one (or combine them) and the map renders just that slice, so you
+can look at one site's or one customer's topology instead of all of it. The node
+count line shows `N of M nodes — scoped` when a filter is active; leave the
+dropdowns blank for the fleet-wide view. The same filter is available on the API:
+`GET /api/network-map?site=<site>&group=<group>&tag=<tag>`.
+
+> Looking for throughput, not topology? The separate **Network metrics** page
+> (Monitoring → Network metrics) shows per-device RX/TX, scoped the same way.
+> See [network-metrics.md](network-metrics.md).
 
 ## What it shows
 

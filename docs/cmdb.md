@@ -51,11 +51,36 @@ row to edit:
 - **SSH port** *(v1.10.0)* — defaults to 22. Used by the SSH-link
   buttons that appear next to each credential in the Credentials
   tab. Validated 1–65535. Empty or 0 resets to the default.
+- **Environment** *(v3.12.0)* — `dev` / `test` / `staging` / `prod` (or
+  blank). Drives colour-coding in the asset table.
+- **VLAN** *(v3.12.0)* — free text: a single ID, a comma-separated list
+  for a trunk, or a label like `100 (DMZ)`.
+- **Network interfaces & NAT** *(v5.0.0)* — record the host's NICs, one row
+  per interface, each with an optional **local IP** and an optional **NAT /
+  public IP** (for a host behind 1:1 NAT). A host can have several NICs and
+  several NATs. Star one row as the **primary**. The editor is an add/remove
+  row list with a live preview tree, and in the CMDB table every NAT address
+  shows nested under the asset as a child (`iface → NAT`). The legacy single
+  primary-interface/NAT fields stay in sync with the primary row.
+- **Lifecycle dates** *(v3.5.0)* — `warranty_expiry`, `license_expiry`,
+  `support_contract_expiry` (ISO `YYYY-MM-DD`). Surface as attention items as
+  they approach.
+- **Contracts / contacts / licenses** *(v3.12.0)* — business-metadata lists
+  on the **Contracts & contacts** tab.
 - **Documentation** — Markdown, up to 64 KB per asset. The editor has
   Edit and Preview tabs. Headings (`#`, `##`, `###`), lists (`- `),
   code (`` ` ``), bold (`**x**`), italic (`*x*`), and links
   (`[text](https://…)`) all render. Anything more exotic stays as
   literal text — this is a renderer for runbooks, not a CMS.
+
+### Decommissioning an asset *(v5.0.0)*
+
+Tick **Decommissioned** on the asset (or `PATCH /api/devices/{id}/decommissioned
+{"decommissioned": true}`) when a host is retired. It greys out across the device
+list (card and minimal views) and the CMDB table with a *DECOMMED* badge, and it
+is **fully silenced**: setting it forces `monitored = false`, so every per-device
+alert, health-score impact and SLA computation is suppressed. Clearing the flag
+restores monitoring automatically (no need to re-enable it by hand).
 
 The search box at the top filters across name, hostname, asset ID,
 function, IP, MAC, group, tags, and the documentation body. The
@@ -333,7 +358,8 @@ everywhere else. Vault key is `X-RP-Vault-Key` (hex, 64 chars).
 |--------|------|------|-------|
 | GET    | `/cmdb` | any | List assets. `?q=…` and `?function=…` filters. |
 | GET    | `/cmdb/{device_id}` | any | Asset detail. Credentials redacted to metadata only. |
-| PUT    | `/cmdb/{device_id}` | any | Patch `asset_id`, `server_function`, `hypervisor_url`, `documentation`. Send only the fields you want to change. |
+| PUT    | `/cmdb/{device_id}` | any | Patch `asset_id`, `server_function`, `environment`, `vlan`, `interfaces`, `hypervisor_url`, `ssh_port`, `documentation`, the lifecycle dates, and the `contracts`/`contacts`/`licenses` lists. Send only the fields you want to change. |
+| PATCH  | `/devices/{device_id}/decommissioned` | admin | `{decommissioned: bool}` — retire/restore an asset (forces `monitored=false` when set). |
 | GET    | `/cmdb/server-functions` | any | Distinct server_function values, sorted, for autocomplete. |
 | GET    | `/cmdb/vault/status` | any | `{configured, kdf, iterations, created_at, created_by}`. |
 | POST   | `/cmdb/vault/setup` | admin | One-shot. 409 if already configured. Body: `{passphrase}`. Returns `{key}`. |

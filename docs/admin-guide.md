@@ -185,6 +185,28 @@ Settings → Proxmox connects one Proxmox VE node. The Virtualization
 and Containers pages then manage QEMU VMs and LXC containers,
 including snapshots. Use a scoped Proxmox API token.
 
+### 5.5 Settings &amp; controls (v5.0.0)
+
+A few controls worth knowing about:
+
+- **Login banner** (Settings → Advanced → General) — an optional notice shown
+  above the sign-in form, e.g. "Authorized use only."
+- **Per-API-key rate limits** (Settings → API keys) — give a key its own
+  requests-per-minute budget; 0 means unlimited.
+- **Two-person break-glass** for the most sensitive vault credentials: one admin
+  requests a reveal, a second approves, the whole exchange is audit-logged and
+  raises a `vault_break_glass` alert.
+- **Mutual-TLS agent auth** — pin a per-device client certificate and optionally
+  enforce it fleet-wide so the server only accepts heartbeats from a known agent.
+- **Maintenance mode** (Settings → Advanced) — pause command dispatch during an
+  upgrade without devices flapping offline.
+- **Self-update script** (Settings → Install) — an absolute path the **Run
+  update** button executes; see [upgrading.md](upgrading.md).
+- **Backup encryption** — AES-256-GCM at rest via `RP_BACKUP_PASSPHRASE`, plus a
+  Server status → Backup button to encrypt existing archives.
+- **NOC Status Board** and the **Network Metrics** page give glanceable
+  fleet-wide views for large estates.
+
 ---
 
 ## 6. Backup &amp; restore

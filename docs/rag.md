@@ -37,6 +37,7 @@ embeddings. v3.4.0 ships both 2 and 3.
 | **Integrations** | Homelab software-integration health (Pi-hole, TrueNAS, *arr, …) + a down/degraded rollup | fleet-scoped; secrets never indexed |
 | **Backups** | Per device: backup freshness (which watched paths are stale, age) + a fleet "stale backups" rollup | answers "are X's backups current?" |
 | **Email & DNS** | DMARC/SPF/DKIM posture per domain, DNSBL/IP-reputation status, and DNS-resolver health — grounds the *email-deliverability* and *DNS-hygiene* AI advisors | admin-configured posture, no PII |
+| **Security posture** | Fleet security-control posture: mutual-TLS coverage (which hosts pin a client certificate), at-rest backup-encryption status, agents in read-only audit mode, and break-glass / maintenance-mode state — lets the AI answer "is backup encryption on?" or "what's our mTLS coverage?" | control-plane summary, no secrets (passphrases/keys are never touched) |
 
 Each chunk carries a stable id (e.g. `live/web01#cves`) that doubles as its
 citation key, plus a freshness timestamp.

@@ -135,6 +135,22 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `POST` | `/api/scan-schedules/:id/run` | admin | Run a scheduled scan now |
 | `DELETE` | `/api/scan-schedules/:id` | admin | Delete a schedule |
 
+### Fleet & server control (v5.0.0)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/devices/bulk-delete` | admin | Delete many devices by id list |
+| `POST` | `/api/devices/bulk-tags` | admin | Add and/or remove tags across a selection |
+| `PATCH` | `/api/devices/:id/decommissioned` | admin | Retire/restore an asset (forces `monitored=false`) |
+| `GET` | `/api/board` | | NOC status-board rollups (`?by=group\|site\|tag`) |
+| `GET` | `/api/network-metrics` | | Per-device RX/TX throughput (`?by=fleet\|group\|tag\|site`) |
+| `GET` | `/api/network-map` | | Topology; supports `?site=&group=&tag=` scope filter |
+| `GET`/`POST` | `/api/maintenance-mode` | get any / set admin | Read or toggle runtime maintenance mode |
+| `POST` | `/api/server/self-update` | admin | Run the configured update script |
+| `POST` | `/api/self/backup-encrypt` | admin | Encrypt existing plaintext backup archives |
+| `GET`/`POST`/`DELETE` | `/api/webhook/dlq` (+ `/retry`) | admin | Webhook dead-letter queue: list / retry / clear |
+| `POST` | `/api/webhook/replay` | admin | Replay past fleet events to a destination |
+| `GET` | `/api/version` | | Current vs latest release + update-available |
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
