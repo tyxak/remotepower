@@ -32,7 +32,10 @@ function _netmapFillScope(sel, values, active) {
   const el = document.getElementById(sel);
   if (!el) return;
   const allLabel = el.options[0] ? el.options[0].textContent : 'All';
-  el.innerHTML = `<option value="">${allLabel}</option>` +
+  // allLabel is the static first-option text from index.html (author-controlled),
+  // but escape it anyway — defense-in-depth and it clears the CodeQL textContent→
+  // innerHTML flow (js/xss-through-dom #51).
+  el.innerHTML = `<option value="">${escHtml(allLabel)}</option>` +
     (values || []).map(v => `<option value="${escAttr(v)}"${v === active ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
   el.value = active || '';
 }
