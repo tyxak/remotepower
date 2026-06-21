@@ -48,7 +48,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 2  # v3.12.0: +file_meta (per-file last-write time)
+SCHEMA_VERSION = 3  # v5.0.0: containers/update_logs/cmds/uptime promoted to entity
 
 
 def configure(data_dir):
@@ -80,7 +80,22 @@ ENTITY_FILES = {
     'metrics.json',
     'monitor_history.json',
     'metrics_history.json',
+    # v5.0.0 (perf): promoted from cold blobs. Each is a flat {device_id: value}
+    # dict touched once per heartbeat — as ENTITY files, save() diff-writes only
+    # the changed device row (O(1)) instead of rewriting the whole-fleet blob,
+    # and the heartbeat read path uses entity_get() for an O(1) single-row read.
+    # load() still reassembles the full dict for every other reader. Existing DBs
+    # are migrated from kv -> entity once (see _migrate_cold_to_entity).
+    'containers.json',
+    'update_logs.json',
+    'cmds.json',
+    'uptime.json',
 }
+
+# v5.0.0: files that were 'cold' blobs before this version and are now ENTITY
+# files. On an existing DB their data still lives as a single kv blob — split it
+# into per-key entity rows ONCE (schema-version-gated) so nothing is orphaned.
+_COLD_TO_ENTITY_V3 = ('containers.json', 'update_logs.json', 'cmds.json', 'uptime.json')
 
 # wrapped-list files: basename -> the single top-level list key.
 # NOTE: fleet_events.json is deliberately NOT here — it is polymorphic in the
@@ -315,10 +330,45 @@ def _ensure_schema(conn):
             f"but invisible to this build; restore the matching server version "
             f"or the pre-upgrade backup.\n")
         return
+    # v5.0.0: one-time reclassification of the cold-blob files now promoted to
+    # ENTITY storage. Runs only when crossing from an older schema (db_ver < 3),
+    # so it's a single pass per DB. Idempotent + defensive (a bad blob for one
+    # file can't break the others or the connect).
+    if db_ver is None or db_ver < 3:
+        _migrate_cold_to_entity(conn)
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(SCHEMA_VERSION),))
+
+
+def _migrate_cold_to_entity(conn):
+    """Split each cold-blob kv row for a now-ENTITY file into per-key entity rows.
+    The blobs are flat {device_id: value} dicts, so key=device_id. Each file is
+    migrated under its own SAVEPOINT so a partial failure rolls back cleanly
+    (the kv blob stays intact and load()'s kv-fallback still serves the data)."""
+    for n in _COLD_TO_ENTITY_V3:
+        try:
+            row = conn.execute('SELECT doc FROM kv WHERE path=?', (n,)).fetchone()
+            if row is None:
+                continue
+            blob = json.loads(row['doc'])
+            if not isinstance(blob, dict):
+                continue   # unexpected shape — leave the kv row intact
+            conn.execute('SAVEPOINT rp_mig')
+            try:
+                for k, v in blob.items():
+                    conn.execute(
+                        'INSERT INTO entity(file, k, doc) VALUES(?,?,?) '
+                        'ON CONFLICT(file, k) DO UPDATE SET doc=excluded.doc',
+                        (n, str(k), json.dumps(v, separators=(',', ':'), default=str)))
+                conn.execute('DELETE FROM kv WHERE path=?', (n,))
+                conn.execute('RELEASE rp_mig')
+            except Exception:
+                conn.execute('ROLLBACK TO rp_mig')
+                conn.execute('RELEASE rp_mig')
+        except Exception:
+            pass   # load()'s kv-fallback keeps the data reachable regardless
 
 
 # ── transaction helper ───────────────────────────────────────────────────────
@@ -397,7 +447,20 @@ def load(path):
         n = _name(path)
         rows = conn.execute(
             'SELECT k, doc FROM entity WHERE file=?', (n,)).fetchall()
-        return {r['k']: json.loads(r['doc']) for r in rows}
+        if rows:
+            return {r['k']: json.loads(r['doc']) for r in rows}
+        # v5.0.0: fallback for a file freshly promoted from a cold blob whose data
+        # hasn't been split into entity rows yet (migration not run / mid-failure).
+        # Never lose the cold blob — serve it; the next save() writes entity rows.
+        cold = conn.execute('SELECT doc FROM kv WHERE path=?', (n,)).fetchone()
+        if cold is not None:
+            try:
+                b = json.loads(cold['doc'])
+                if isinstance(b, dict):
+                    return b
+            except Exception:
+                pass
+        return {}
     if kind == 'wrapped':
         n = _name(path)
         wrapkey = WRAPPED_LIST_FILES[n]
@@ -765,7 +828,20 @@ def entity_get(path, key, default=None):
     name = _name(path)
     row = conn.execute(
         'SELECT doc FROM entity WHERE file=? AND k=?', (name, key)).fetchone()
-    return json.loads(row['doc']) if row else default
+    if row is not None:
+        return json.loads(row['doc'])
+    # v5.0.0: fallback to the pre-migration cold blob for one key (a file freshly
+    # promoted from kv whose rows aren't split yet). The eager migration normally
+    # makes this moot; this guarantees correctness even mid-migration.
+    cold = conn.execute('SELECT doc FROM kv WHERE path=?', (name,)).fetchone()
+    if cold is not None:
+        try:
+            b = json.loads(cold['doc'])
+            if isinstance(b, dict) and key in b:
+                return b[key]
+        except Exception:
+            pass
+    return default
 
 
 def entity_set(path, key, value):

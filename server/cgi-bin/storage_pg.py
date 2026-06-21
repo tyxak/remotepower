@@ -43,7 +43,7 @@ from storage import (
     json_inventory, read_marker, write_marker, _read_json, _write_json_atomic, _norm,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v5.0.0: containers/update_logs/cmds/uptime promoted to entity
 
 # psycopg is optional — only imported when this backend is actually used.
 _psycopg = None
@@ -294,10 +294,52 @@ def _ensure_schema(conn):
             cpu    REAL, mem REAL, swap REAL, disk REAL
         );""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_metric_samples ON metric_samples(device, ts);")
+    # v5.0.0: one-time cold-blob -> entity reclassification (see storage.py). Runs
+    # only when crossing from an older schema (db_ver < 2).
+    try:
+        _r = conn.execute(
+            "SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
+        _dbv = int(_r['value']) if _r and _r['value'] else None
+    except Exception:
+        _dbv = None
+    if _dbv is None or _dbv < 2:
+        _migrate_cold_to_entity_pg(conn)
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', %s) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(SCHEMA_VERSION),))
+
+
+def _migrate_cold_to_entity_pg(conn):
+    """Postgres twin of storage._migrate_cold_to_entity. The connection runs
+    autocommit, so each file is migrated under its OWN explicit BEGIN/COMMIT
+    (a SAVEPOINT needs an already-open transaction, which we don't have here).
+    A file that fails rolls back wholly — its kv blob stays intact and load()'s
+    kv-fallback keeps serving it, so data is never split or lost."""
+    for n in storage._COLD_TO_ENTITY_V3:
+        try:
+            row = conn.execute('SELECT doc FROM kv WHERE path=%s', (n,)).fetchone()
+            if row is None:
+                continue
+            blob = json.loads(row['doc'])
+            if not isinstance(blob, dict):
+                continue
+            conn.execute('BEGIN')
+            try:
+                for k, v in blob.items():
+                    conn.execute(
+                        'INSERT INTO entity(file, k, doc) VALUES(%s,%s,%s) '
+                        'ON CONFLICT(file, k) DO UPDATE SET doc=excluded.doc',
+                        (n, str(k), json.dumps(v, separators=(',', ':'), default=str)))
+                conn.execute('DELETE FROM kv WHERE path=%s', (n,))
+                conn.execute('COMMIT')
+            except Exception:
+                try:
+                    conn.execute('ROLLBACK')
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 # ── transaction helper (ownership by transaction_status) ──────────────────────
@@ -384,7 +426,18 @@ def _load_with_conn(conn, path):
     if kind == 'entity':
         n = _name(path)
         rows = conn.execute('SELECT k, doc FROM entity WHERE file=%s', (n,)).fetchall()
-        return {r['k']: json.loads(r['doc']) for r in rows}
+        if rows:
+            return {r['k']: json.loads(r['doc']) for r in rows}
+        # v5.0.0: kv-fallback for a freshly-promoted cold blob (see storage.py).
+        cold = conn.execute('SELECT doc FROM kv WHERE path=%s', (n,)).fetchone()
+        if cold is not None:
+            try:
+                b = json.loads(cold['doc'])
+                if isinstance(b, dict):
+                    return b
+            except Exception:
+                pass
+        return {}
     if kind == 'wrapped':
         n = _name(path)
         wrapkey = WRAPPED_LIST_FILES[n]
@@ -859,9 +912,21 @@ def device_get(path, dev_id, default=None):
 
 def entity_get(path, key, default=None):
     conn = _connect(_dir(path))
+    name = _name(path)
     row = conn.execute('SELECT doc FROM entity WHERE file=%s AND k=%s',
-                       (_name(path), key)).fetchone()
-    return json.loads(row['doc']) if row else default
+                       (name, key)).fetchone()
+    if row is not None:
+        return json.loads(row['doc'])
+    # v5.0.0: kv-fallback for one key of a freshly-promoted cold blob.
+    cold = conn.execute('SELECT doc FROM kv WHERE path=%s', (name,)).fetchone()
+    if cold is not None:
+        try:
+            b = json.loads(cold['doc'])
+            if isinstance(b, dict) and key in b:
+                return b[key]
+        except Exception:
+            pass
+    return default
 
 
 def entity_set(path, key, value):

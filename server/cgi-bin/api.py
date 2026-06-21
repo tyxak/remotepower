@@ -1760,6 +1760,43 @@ def _invalidate_load_cache(path):
         _LOAD_CACHE[path] = (None, False)
 
 
+def _entity_read_one(store_file, dev_id, default=None):
+    """v5.0.0 (perf): O(1) per-device read for an ENTITY-promoted store
+    (containers/update_logs/cmds/uptime) on a DB backend, instead of load()ing
+    and json-parsing the whole-fleet blob. Falls back to load()[dev_id] on the
+    JSON backend (no per-row store there)."""
+    _m = _dbmod()
+    if _m is not None:
+        try:
+            return _m.entity_get(store_file, dev_id, default)
+        except Exception:
+            pass
+    return (load(store_file) or {}).get(dev_id, default)
+
+
+def _entity_write_one(store_file, dev_id, value):
+    """v5.0.0 (perf): O(1) per-device write for an ENTITY-promoted store on a DB
+    backend (entity_set touches one row); JSON backend does load-modify-save.
+    Best-effort & non-blocking — these are secondary heartbeat blobs (containers,
+    update_logs, uptime), so a write skipped under lock contention is simply
+    re-reported on the next beat rather than failing the heartbeat."""
+    _m = _dbmod()
+    if _m is not None:
+        try:
+            _m.entity_set(store_file, dev_id, value)
+            _invalidate_load_cache(store_file)
+            return
+        except Exception:
+            pass
+    try:
+        store = load(store_file) or {}
+        store[dev_id] = value
+        save(store_file, store, non_blocking=True)
+        _invalidate_load_cache(store_file)
+    except Exception:
+        pass
+
+
 def _peek_load_cache(path):
     """Return the already-cached document for `path` if a VALID copy exists
     this request, else None — without triggering a load. Used by device_get to
@@ -11106,10 +11143,8 @@ def handle_heartbeat():
                        else 'dnf' if 'dnf' in cmd_text
                        else 'pacman' if 'pacman' in cmd_text
                        else 'unknown')
-            ulogs = load(UPDATE_LOGS_FILE)
-            if dev_id not in ulogs:
-                ulogs[dev_id] = []
-            ulogs[dev_id].append({
+            _ul = _entity_read_one(UPDATE_LOGS_FILE, dev_id, []) or []
+            _ul.append({
                 'started_at':  now - 1,            # we don't know exactly
                 'finished_at': now,
                 'exit_code':   int(co['rc']) if isinstance(co.get('rc'), int) else -1,
@@ -11117,8 +11152,7 @@ def handle_heartbeat():
                 'package_manager': pkg_mgr,
                 'triggered_by': '',                # actor info already in audit log
             })
-            ulogs[dev_id] = ulogs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
-            _save_nb(UPDATE_LOGS_FILE, ulogs)
+            _entity_write_one(UPDATE_LOGS_FILE, dev_id, _ul[-MAX_UPDATE_LOGS_PER_DEVICE:])
 
     # ── v1.10.0: dedicated update output channel ───────────────────────────
     # Agent posts {'update_log': {started_at, finished_at, exit_code,
@@ -11128,10 +11162,8 @@ def handle_heartbeat():
     # exec results.
     if 'update_log' in body and isinstance(body['update_log'], dict):
         ul = body['update_log']
-        logs = load(UPDATE_LOGS_FILE)
-        if dev_id not in logs:
-            logs[dev_id] = []
-        logs[dev_id].append({
+        _logs = _entity_read_one(UPDATE_LOGS_FILE, dev_id, []) or []
+        _logs.append({
             'started_at':  int(ul.get('started_at') or now),
             'finished_at': int(ul.get('finished_at') or now),
             'exit_code':   int(ul['exit_code']) if isinstance(ul.get('exit_code'), int) else -1,
@@ -11139,8 +11171,7 @@ def handle_heartbeat():
             'package_manager': _sanitize_str(ul.get('package_manager', ''), 32),
             'triggered_by': _sanitize_str(ul.get('triggered_by', ''), 64),
         })
-        logs[dev_id] = logs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
-        _save_nb(UPDATE_LOGS_FILE, logs)
+        _entity_write_one(UPDATE_LOGS_FILE, dev_id, _logs[-MAX_UPDATE_LOGS_PER_DEVICE:])
 
     # ── v1.11.0: container/k8s listing ─────────────────────────────────────
     # Agent posts {'containers': [<list of normalised entries>]} when it has
@@ -11160,9 +11191,7 @@ def handle_heartbeat():
             # never let container processing break the heartbeat, but don't
             # hide a recurring processing bug either (mirror the metric path).
             traceback.print_exc(file=sys.stderr)
-        store = load(CONTAINERS_FILE)
-        store[dev_id] = {'ts': now, 'items': normalised}
-        _save_nb(CONTAINERS_FILE, store)
+        _entity_write_one(CONTAINERS_FILE, dev_id, {'ts': now, 'items': normalised})
         # v1.11.4: this device just gave us fresh container data, so clear
         # any "containers_stale" notified flag — the next time it goes stale
         # we want a new webhook to fire (matches device_offline pattern).
@@ -11179,8 +11208,7 @@ def handle_heartbeat():
     # last_seen — the prior structure was vulnerable to the same
     # lost-update race.
 
-    cmds = load(CMDS_FILE)
-    pending = cmds.get(dev_id, [])
+    pending = _entity_read_one(CMDS_FILE, dev_id, []) or []
 
     # v2.2.0: ingest drift report if the agent sent one. Runs OUTSIDE the
     # devices.json lock — _ingest_drift_report takes its own lock on
@@ -17511,16 +17539,16 @@ def handle_server_self_update():
 
 
 def _record_uptime(dev_id, name, is_online):
-    uptime = load(UPTIME_FILE)
-    if dev_id not in uptime:
-        uptime[dev_id] = {'name': name, 'events': []}
-    events = uptime[dev_id].get('events', [])
+    # v5.0.0 (perf): per-device entity read/write — runs every heartbeat, so it
+    # no longer loads + rewrites the whole-fleet uptime blob.
+    entry = _entity_read_one(UPTIME_FILE, dev_id, None) or {'name': name, 'events': []}
+    events = entry.get('events', [])
     last_state = events[-1]['online'] if events else None
     if last_state != is_online:
         events.append({'ts': int(time.time()), 'online': is_online})
-        uptime[dev_id]['events'] = events[-500:]
-        uptime[dev_id]['name'] = name
-        save(UPTIME_FILE, uptime)
+        entry['events'] = events[-500:]
+        entry['name'] = name
+        _entity_write_one(UPTIME_FILE, dev_id, entry)
 
 
 def handle_uptime(dev_id):
@@ -28079,11 +28107,18 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             out['diskfill'] = rows[:6]
         except Exception:
             out['diskfill'] = []
-    # Posture from the full device records (devices_raw already in hand)
+    # Posture from the full device records (devices_raw already in hand).
+    # v5.0.0 (perf): GATED behind the ?w= hint — this is an O(fleet) loop over
+    # every device's sysinfo and previously ran on every /api/home poll even when
+    # no posture widget was on the dashboard. We iterate nothing when none of the
+    # posture widgets are enabled (computes-all when no hint is sent).
+    _posture_keys = ('rebootreq', 'worldports', 'failedunits', 'timers', 'mounts',
+                     'clockskew', 'gateway', 'oom', 'storagedeg')
+    _posture_src = devices_raw.items() if any(_g(k) for k in _posture_keys) else []
     try:
         reboot, worldp, failedu, timersf = [], 0, 0, 0
         mounts = clockskew = gw_unreach = oom_recent = storagedeg = 0
-        for did, d in devices_raw.items():
+        for did, d in _posture_src:
             if not isinstance(d, dict) or d.get('monitored') is False:
                 continue
             si = d.get('sysinfo') or {}
@@ -28187,10 +28222,13 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
             out['bruteforce'] = {'count': len(hosts), 'hosts': hosts[:8]}
         except Exception:
             out['bruteforce'] = {}
-    # Top bandwidth (sum of per-iface rx+tx bps from the device sysinfo)
+    # Top bandwidth (sum of per-iface rx+tx bps from the device sysinfo).
+    # v5.0.0 (perf): GATED — another O(fleet) sysinfo loop that previously ran on
+    # every dashboard poll regardless of whether the bandwidth widget was shown.
+    _bw_src = devices_raw.items() if _g('bandwidth') else []
     try:
         rows = []
-        for did, d in devices_raw.items():
+        for did, d in _bw_src:
             if not isinstance(d, dict):
                 continue
             nio = (d.get('sysinfo') or {}).get('network_io') or []
@@ -41622,8 +41660,9 @@ def process_container_report(dev_id, normalised, now):
     if not isinstance(normalised, list):
         return
 
-    store = load(CONTAINERS_FILE)
-    prev_entry = store.get(dev_id) or {}
+    # v5.0.0 (perf): O(1) per-device read of the previous container list instead
+    # of load()ing the whole-fleet blob every heartbeat.
+    prev_entry = _entity_read_one(CONTAINERS_FILE, dev_id, None) or {}
     prev_items = prev_entry.get('items') or []
     if not isinstance(prev_items, list):
         prev_items = []

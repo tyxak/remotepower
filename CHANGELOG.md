@@ -36,6 +36,12 @@ one slice of the topology instead of all nodes at once. **Ticketing:** ready-mad
 opened ticket's link shown on the alert. **Settings → Install:** a version check
 against the latest release + a guided **self-update** (runs an operator-set update
 script). **Settings:** an optional **login banner / security notice**.
+**Performance (big-fleet):** the heartbeat hot path no longer reads or rewrites
+whole-fleet blobs every beat. `containers.json`, `update_logs.json`, `cmds.json`
+and `uptime.json` are now per-device entity stores (O(1) single-row read/write
+on SQLite/Postgres instead of O(fleet)), with a safe one-time migration of
+existing databases. The dashboard's posture and bandwidth roll-ups are computed
+only when those widgets are actually on screen.
 Deferred:
 user-configurable timezone. See docs/v5.0.0.md.
 
