@@ -1838,8 +1838,12 @@ class TestCveScanAsync(_HandlerBase):
         self._spawn = api._spawn_cve_scan
         api._spawn_cve_scan = lambda actor, target: api._cve_scan_worker(actor, target)
         self._scan = api.cve_scanner.scan_device
-        api.cve_scanner.scan_device = lambda dev, pkgs, eco, dd, cache_ttl=0: {
+        # v5.0.0 (#S1): scan_device gained an osv_prefetch kwarg — accept **kw.
+        api.cve_scanner.scan_device = lambda dev, pkgs, eco, dd, cache_ttl=0, **kw: {
             'findings': [{'vuln_id': 'CVE-1', 'package': 'p', 'severity': 'high'}]}
+        # v5.0.0 (#S1): stub the fleet OSV prefetch so the worker never hits OSV.dev.
+        self._prefetch = getattr(api.cve_scanner, 'prefetch_osv', None)
+        api.cve_scanner.prefetch_osv = lambda store, cache_dir: {}
         self._ccs = api.get_cve_cache_seconds
         api.get_cve_cache_seconds = lambda: 0
         self._fire = api._detect_new_cve_and_fire_webhook
@@ -1851,6 +1855,8 @@ class TestCveScanAsync(_HandlerBase):
         api._run_detached = self._det
         api._spawn_cve_scan = self._spawn
         api.cve_scanner.scan_device = self._scan
+        if self._prefetch is not None:
+            api.cve_scanner.prefetch_osv = self._prefetch
         api.get_cve_cache_seconds = self._ccs
         api._detect_new_cve_and_fire_webhook = self._fire
         super().tearDown()
