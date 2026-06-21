@@ -5597,12 +5597,20 @@ def execute_command(cmd):
             log.warning(f"Failed to set poll interval: {e}")
     elif cmd.startswith('exec:'):
         shell_cmd = cmd[5:]
+        import re as _tag_re
+        # v5.0.0 (#F3): optional per-command timeout — the server may prefix the
+        # shell with "to=<seconds>:". Parse it off first (before tag routing) and
+        # clamp to 1..3600s; absent → the default heuristic below applies.
+        exec_timeout_override = None
+        _to_m = _tag_re.match(r'^to=(\d{1,5}):(.*)$', shell_cmd, _tag_re.DOTALL)
+        if _to_m:
+            exec_timeout_override = max(1, min(int(_to_m.group(1)), 3600))
+            shell_cmd = _to_m.group(2)
         # v3.0.1: Tag-routed commands. The server prefixes certain commands
         # with "#<scope>:<action_id>#" so the cmd_output ingestion can route
         # the full stdout to a per-scope log dir (ACME, mitigate). Strip the
         # tag before passing to the shell; keep it in the returned `cmd`
         # field so the server can still recognise it.
-        import re as _tag_re
         acme_tag_m     = _tag_re.match(r'^#acme:[a-zA-Z0-9_-]+#(.*)$',     shell_cmd, _tag_re.DOTALL)
         mitigate_tag_m = _tag_re.match(r'^#mitigate:[a-zA-Z0-9_-]+#(.*)$', shell_cmd, _tag_re.DOTALL) if not acme_tag_m else None
         if acme_tag_m:
@@ -5621,7 +5629,8 @@ def execute_command(cmd):
             _is_upgrade = any(n in actual_shell for n in (
                 'apt-get -y upgrade', 'dnf -y upgrade', 'yum -y upgrade',
                 'pacman -Syu', 'zypper', 'apk upgrade', 'remotepower_update.log'))
-            exec_timeout = 1800 if _is_upgrade else 300
+            # v5.0.0 (#F3): an explicit per-command timeout wins over the heuristic.
+            exec_timeout = exec_timeout_override or (1800 if _is_upgrade else 300)
             result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")

@@ -17750,6 +17750,18 @@ def handle_custom_cmd():
     if not cmd_str: respond(400, {'error': 'cmd required'})
     if len(cmd_str) > 512: respond(400, {'error': 'cmd too long (max 512 chars)'})
 
+    # v5.0.0 (#F3): optional per-command timeout. Encoded as a "to=<n>:" prefix on
+    # the queued exec string; the agent parses + clamps it. 0/absent → the agent's
+    # default heuristic (300s, or 1800s for an upgrade) applies.
+    try:
+        _to = int(body.get('timeout', 0) or 0)
+    except (TypeError, ValueError):
+        respond(400, {'error': 'timeout must be an integer (seconds)'})
+    if _to and not (1 <= _to <= 3600):
+        respond(400, {'error': 'timeout must be 1..3600 seconds'})
+    _exec_pfx = f'to={_to}:' if _to else ''
+    _queued = f'exec:{_exec_pfx}{cmd_str}'
+
     # Support batch targets (device_ids, tag, group) just like shutdown/reboot
     ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
@@ -17771,7 +17783,7 @@ def handle_custom_cmd():
             if not ok:
                 respond(400, {'ok': False, 'error': reason})
             conf_ids.append(_create_confirmation(
-                'exec_command', dev_id, {'command': f'exec:{cmd_str}'},
+                'exec_command', dev_id, {'command': _queued},
                 actor, None, None))
         audit_log(actor, 'change_approval_requested', f'exec on {len(conf_ids)} device(s)')
         respond(202, {'ok': False, 'approval_required': True,
@@ -17792,7 +17804,7 @@ def handle_custom_cmd():
             results[dev_id] = {'ok': False, 'error':
                 f'Command queue full ({MAX_QUEUED_PER_DEVICE} already waiting) — '
                 f'{devices[dev_id].get("name", dev_id)} may be offline. Clear its queue first.'}; continue
-        cmds[dev_id].append(f'exec:{cmd_str}')
+        cmds[dev_id].append(_queued)
         log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec:{cmd_str[:40]}')
         audit_log(actor, 'exec', f'{dev_id}: {cmd_str[:80]}')
         fire_webhook('command_queued', {

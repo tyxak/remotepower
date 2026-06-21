@@ -3971,7 +3971,7 @@ async function addScheduleJob() {
   } else toast(data?.error || 'Failed', 'error');
 }
 async function deleteJob(id) { const data = await api('DELETE', '/schedule/' + id); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
-function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
+function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; { const t = document.getElementById('exec-timeout'); if (t) t.value = ''; } document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
 // v3.3.0: schedule modal carries an editing id for in-place updates.
 let _scheduleEditId = null;
@@ -4039,7 +4039,7 @@ async function _editScheduleBtn(btn) {
   if (calCb) calCb.checked = false;
   openModal('schedule-add-modal');
 }
-async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
+async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const body = {device_id: id, cmd}; const to = parseInt(document.getElementById('exec-timeout')?.value || '0', 10); if (to > 0) body.timeout = to; const data = await api('POST', '/exec', body); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
   "Settings → Integrations can poll the software your homelab already runs — Pi-hole, TrueNAS, Home Assistant, the *arr suite, download clients and more — and raise an alert when one goes unhealthy. Read-only and SSRF-guarded.",

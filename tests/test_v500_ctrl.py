@@ -658,5 +658,44 @@ class TestBulkDeviceOps(unittest.TestCase):
         self.assertIn("/devices/bulk-tags", APP)
 
 
+# ─────────────────────────── #F3 per-command timeout ───────────────────────────
+class TestPerCommandTimeout(unittest.TestCase):
+    def test_server_encodes_prefix(self):
+        i = API_SRC.index("def handle_custom_cmd(")
+        block = API_SRC[i:i + 1400]
+        self.assertIn("to={_to}:", block)
+        self.assertIn("1..3600 seconds", block)
+        self.assertIn("_queued = f'exec:{_exec_pfx}{cmd_str}'", block)
+
+    def test_linux_agent_parses(self):
+        agent = (_ROOT / "client" / "remotepower-agent.py").read_text()
+        self.assertIn("exec_timeout_override", agent)
+        self.assertIn(r"^to=(\d{1,5}):(.*)$", agent)
+        # byte-identical extensionless copy
+        self.assertEqual(agent, (_ROOT / "client" / "remotepower-agent").read_text())
+
+    def test_win_mac_agents_strip_prefix(self):
+        for fn in ("remotepower-agent-win.py", "remotepower-agent-mac.py"):
+            src = (_ROOT / "client" / fn).read_text()
+            self.assertIn("_exec_timeout_override", src,
+                          f"{fn} missing timeout parse")
+            self.assertIn(r"^to=\d{1,5}:(.*)$", src,
+                          f"{fn} doesn't strip the to= prefix")
+
+    def test_frontend(self):
+        self.assertIn('id="exec-timeout"', HTML)
+        self.assertIn("body.timeout = to", APP)
+
+    def test_prefix_roundtrip_regex(self):
+        # the exact regex the agents use, exercised here
+        import re
+        m = re.match(r'^to=(\d{1,5}):(.*)$', "to=120:systemctl restart nginx", re.DOTALL)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "120")
+        self.assertEqual(m.group(2), "systemctl restart nginx")
+        # a normal command is untouched
+        self.assertIsNone(re.match(r'^to=(\d{1,5}):(.*)$', "echo hello", re.DOTALL))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -517,8 +517,23 @@ def command_argv(cmd):
         return ['shutdown', '/s', '/t', '30', '/c', 'RemotePower: scheduled shutdown']
     if isinstance(cmd, str) and cmd.startswith('exec:'):
         body = cmd[len('exec:'):]
+        # v5.0.0 (#F3): strip the optional "to=<seconds>:" per-command timeout prefix.
+        import re as _re
+        m = _re.match(r'^to=\d{1,5}:(.*)$', body, _re.DOTALL)
+        if m:
+            body = m.group(1)
         # Run via PowerShell for parity with operators' expectations.
         return ['powershell', '-NoProfile', '-NonInteractive', '-Command', body]
+    return None
+
+
+def _exec_timeout_override(cmd):
+    """v5.0.0 (#F3): parse the optional exec:to=<seconds>: prefix → clamped int or None."""
+    import re as _re
+    if isinstance(cmd, str) and cmd.startswith('exec:'):
+        m = _re.match(r'^to=(\d{1,5}):', cmd[len('exec:'):])
+        if m:
+            return max(1, min(int(m.group(1)), 3600))
     return None
 
 
@@ -549,8 +564,9 @@ def handle_command(cmd):
         return {'cmd': cmd, 'output': f'unsupported command: {cmd}', 'rc': 1}
     try:
         is_exec = cmd.startswith('exec:')
+        _to = _exec_timeout_override(cmd) if is_exec else None
         r = subprocess.run(argv, capture_output=True, text=True,
-                           timeout=EXEC_TIMEOUT if is_exec else 30)
+                           timeout=_to or (EXEC_TIMEOUT if is_exec else 30))
         out = ((r.stdout or '') + (r.stderr or '')).strip()[:MAX_OUTPUT]
         return {'cmd': cmd, 'output': out or '(no output)', 'rc': r.returncode}
     except subprocess.TimeoutExpired:
