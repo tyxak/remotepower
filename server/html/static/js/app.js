@@ -3250,7 +3250,8 @@ async function loadWebhookLog() {
   }));
   tbody.innerHTML = entries.slice(0, 50).map(e => {
     const isOk = String(e.status).startsWith('2') || e.status === 200;
-    return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
+    const dot = `<span class="${isOk ? 'c-green' : 'c-red'}" title="${isOk ? 'Delivered' : 'Failed'}">●</span> `;
+    return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${dot}${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
   }).join('');
   loadWebhookDlq();
 }
@@ -10357,6 +10358,13 @@ async function refreshNavCounts() {
     if (c.alerts) _paintAlertsBadge(c.alerts.open || 0);
     _paintConfirmationsBadge(
       typeof c.confirmations_pending === 'number' ? c.confirmations_pending : null);
+    // v5.0.0 (#U4): live pending-command count on the Command Queue nav item.
+    { const b = document.getElementById('cmdqueue-badge');
+      if (b) {
+        const n = typeof c.commands_pending === 'number' ? c.commands_pending : 0;
+        if (n > 0) { b.classList.remove('d-none'); b.textContent = n > 99 ? '99+' : String(n); b.title = `${n} command(s) waiting for delivery`; }
+        else b.classList.add('d-none');
+      } }
     [['fleet', c.fleet], ['monitoring', c.monitoring], ['security', c.security]]
       .forEach(([group, n]) => {
         const toggle = document.querySelector(
@@ -18868,6 +18876,7 @@ const _ICONS = {
   lock:        '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   unlock:      '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
   edit:        '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  copy:        '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   partyPopper: '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-1.53.84a2.91 2.91 0 0 1-3.18-.13c-.86-.6-2.08-.55-2.86.13l-.51.43"/><path d="M5 5c2 0 5 1 5 6 0 0 .35.21.61.34"/><path d="M3 21c.6-3.6 4-7 7-7"/>',
 };
 
@@ -21312,8 +21321,8 @@ function _renderSlaTargetsEditor() {
         <option value="tag"${row.scope === 'tag' ? ' selected' : ''}>Tag</option>
         <option value="device"${row.scope === 'device' ? ' selected' : ''}>Device id</option>
       </select>
-      <input class="sla-tgt-key form-input fs-12" placeholder="name / id" value="${escAttr(row.key || '')}">
-      <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" value="${escAttr(String(row.pct == null ? '' : row.pct))}">
+      <input class="sla-tgt-key form-input fs-12" placeholder="name / id" title="The device name/id, tag, or group this target applies to (leave blank for the Default scope)." value="${escAttr(row.key || '')}">
+      <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" title="Target uptime %, e.g. 99.9. Devices below it over the report window are flagged as breaching their SLA / error budget." value="${escAttr(String(row.pct == null ? '' : row.pct))}">
       <button class="btn-secondary fs-12" data-action="slaTargetRemoveRow" data-arg="${i}">Remove</button>
     </div>`).join('');
   ed.innerHTML = `<div class="dash-card p-12">
@@ -21520,6 +21529,24 @@ function _fqFields() {
   }
   return out;
 }
+// v5.0.0 (#U1): one generic copy-to-clipboard action used across the UI
+// (device IDs, API keys, command output, enrolment commands). CSP-safe.
+function copyText(text) {
+  if (text == null || text === '') return;
+  const ok = () => { if (typeof toast === 'function') toast('Copied to clipboard', 'success'); };
+  const no = () => { if (typeof toast === 'function') toast('Copy failed — clipboard blocked', 'error'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(String(text)).then(ok, no);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = String(text); document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { no(); }
+    document.body.removeChild(ta);
+  }
+}
+
+function copyApiKeyValue() { copyText(document.getElementById('apikey-value-display')?.textContent || ''); }
+
 function loadFleetQuery() { _renderSavedQueries(); }
 function _savedQueries() {
   try { return JSON.parse(localStorage.getItem('rp_fleet_queries') || '[]'); } catch (_) { return []; }
@@ -21528,9 +21555,27 @@ function _renderSavedQueries() {
   const wrap = document.getElementById('fq-saved');
   if (!wrap) return;
   const qs = _savedQueries();
+  // v5.0.0 (#U5): each saved query gets rename + duplicate + delete actions.
   wrap.innerHTML = qs.map((q, i) =>
-    `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}">${escHtml(q.name)}</span>`
-    + `<button class="btn-icon fs-11" data-action="deleteFleetQuery" data-arg="${i}" title="Delete saved query">✕</button>`).join('');
+    `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}" title="Apply this query">${escHtml(q.name)}</span>`
+    + `<button class="btn-icon fs-11" data-action="renameFleetQuery" data-arg="${i}" title="Rename">${_icon('edit', 12)}</button>`
+    + `<button class="btn-icon fs-11" data-action="duplicateFleetQuery" data-arg="${i}" title="Duplicate">${_icon('copy', 12)}</button>`
+    + `<button class="btn-icon fs-11" data-action="deleteFleetQuery" data-arg="${i}" title="Delete saved query">${_icon('trash', 12)}</button>`).join('');
+}
+async function renameFleetQuery(i) {
+  const qs = _savedQueries(); const q = qs[i]; if (!q) return;
+  const name = await uiPrompt({ message: 'Rename query:', value: q.name });
+  if (!name) return;
+  q.name = name.slice(0, 40);
+  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs));
+  _renderSavedQueries();
+}
+function duplicateFleetQuery(i) {
+  const qs = _savedQueries(); const q = qs[i]; if (!q) return;
+  qs.splice(i + 1, 0, { name: (q.name + ' copy').slice(0, 40), f: { ...(q.f || {}) } });
+  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs.slice(0, 50)));
+  _renderSavedQueries();
+  toast('Query duplicated', 'success');
 }
 async function saveFleetQuery() {
   const name = await uiPrompt({message: 'Name this query:'});
@@ -24951,6 +24996,21 @@ function _cadenceJobsCard(jobs) {
     </div>`;
 }
 // v4.3.0: download the support diagnostics bundle (secrets scrubbed server-side).
+// v5.0.0 (#U9): one-click health check with a green/red summary.
+async function runSelfTest() {
+  const box = document.getElementById('self-test-result');
+  if (box) { box.classList.remove('d-none'); box.innerHTML = '<div class="c-muted">Running diagnostics…</div>'; }
+  const data = await api('GET', '/self-test');
+  if (!data || !Array.isArray(data.checks)) { if (box) box.innerHTML = '<div class="c-red">Diagnostics failed to run.</div>'; return; }
+  const rows = data.checks.map(c =>
+    `<tr><td>${c.ok ? '<span class="c-green">●</span>' : '<span class="c-red">●</span>'}</td>`
+    + `<td class="fw-600">${escHtml(c.name)}</td><td class="hint">${escHtml(c.detail || '')}</td></tr>`).join('');
+  box.innerHTML = `<div class="card p-16"><div class="fw-600-mb10">${data.ok
+    ? '<span class="c-green">● All checks passed</span>'
+    : '<span class="c-red">● Some checks failed</span>'}</div>`
+    + `<table class="fs-13">${rows}</table></div>`;
+}
+
 function downloadDiagnostics() {
   _downloadAuthed('/api/diagnostics', 'remotepower-diagnostics.json',
     'Diagnostics bundle downloaded');

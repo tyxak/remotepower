@@ -828,5 +828,58 @@ class TestOsvPrefetch(unittest.TestCase):
         self.assertIn("if not target and total > 1:", block)
 
 
+# ─────────────────────────── T5 operator polish ────────────────────────────────
+class TestT5Polish(unittest.TestCase):
+    def test_u1_clipboard_helper(self):
+        self.assertIn("function copyText(", APP)
+        self.assertIn("function copyApiKeyValue(", APP)
+        self.assertIn('data-action="copyApiKeyValue"', HTML)
+
+    def test_u2_webhook_dot(self):
+        # the webhook log row carries an explicit green/red delivery dot
+        i = APP.index("function loadWebhookLog(")
+        self.assertIn("Delivered", APP[i:i + 1500])
+
+    def test_u4_pending_commands_badge(self):
+        # backend exposes commands_pending in nav-counts (admin only)
+        i = API_SRC.index("def handle_nav_counts(")
+        block = API_SRC[i:i + 6000]
+        self.assertIn("out['commands_pending']", block)
+        # CMDS_FILE added to the cache-invalidation sources so the badge is fresh
+        self.assertIn("ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE", API_SRC)
+        # frontend badge element + painter
+        self.assertIn('id="cmdqueue-badge"', HTML)
+        self.assertIn("c.commands_pending", APP)
+
+    def test_u5_rename_duplicate_query(self):
+        self.assertIn("function renameFleetQuery(", APP)
+        self.assertIn("function duplicateFleetQuery(", APP)
+        self.assertIn('data-action="renameFleetQuery"', APP)
+        self.assertIn('data-action="duplicateFleetQuery"', APP)
+
+    def test_u6_field_tooltips(self):
+        # representative hover help added to fields that lacked it
+        i = HTML.index('id="cfg-online-ttl"')
+        self.assertIn("title=", HTML[i:i + 300])
+
+    def test_u9_self_test(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("GET", "/api/self-test")[0], "handle_self_test")
+        i = API_SRC.index("def handle_self_test(")
+        block = API_SRC[i:i + 2500]
+        for label in ("Storage backend", "Disk space", "Audit chain", "Agent reachability"):
+            self.assertIn(label, block)
+        self.assertIn("function runSelfTest(", APP)
+        self.assertIn('data-action="runSelfTest"', HTML)
+
+    def test_u9_self_test_runs(self):
+        # behavioral: the helper builds a checks list with an overall ok bool
+        # (can't call the handler directly — it needs auth/respond — so assert the
+        # shape via the source contract instead).
+        i = API_SRC.index("def handle_self_test(")
+        self.assertIn("'ok': overall", API_SRC[i:i + 2500])
+        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 2500])
+
+
 if __name__ == "__main__":
     unittest.main()

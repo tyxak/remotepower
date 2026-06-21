@@ -16357,6 +16357,66 @@ def _cadence_job_status(now):
     return jobs
 
 
+def handle_self_test():
+    """v5.0.0 (#U9): ``GET /api/self-test`` — a fast green/red health summary the
+    UI shows on one click: storage reachable, config loads, disk headroom, audit
+    chain intact, and agent reachability. Admin only."""
+    require_admin_auth()
+    now = int(time.time())
+    checks = []
+
+    def _add(name, ok, detail=''):
+        checks.append({'name': name, 'ok': bool(ok), 'detail': str(detail)[:200]})
+
+    # Storage backend + config readable
+    try:
+        cfg = load(CONFIG_FILE) or {}
+        _add('Storage backend', True, _storage_backend())
+        _add('Config readable', isinstance(cfg, dict), f'{len(cfg)} keys')
+    except Exception as e:
+        cfg = {}
+        _add('Storage backend', False, str(e))
+    # Disk headroom on the data dir
+    try:
+        st = os.statvfs(str(DATA_DIR))
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used_pct = round((1 - free / total) * 100, 1) if total else 0
+        thr = int(cfg.get('disk_watchdog_pct', 85) or 85)
+        _add('Disk space', used_pct < thr,
+             f'{used_pct}% used (alert at {thr}%), {round(free/1e9,1)} GB free')
+    except Exception as e:
+        _add('Disk space', False, str(e))
+    # Audit chain integrity
+    try:
+        entries = (load(AUDIT_LOG_FILE) or {}).get('entries', [])
+        checked, broken_at = _audit_chain_walk(entries)
+        _add('Audit chain', broken_at is None,
+             'intact' if broken_at is None else f'broken at entry {broken_at}')
+    except Exception as e:
+        _add('Audit chain', False, str(e))
+    # Agent reachability (informational — ok if at least one agent online, or none enrolled)
+    try:
+        devs = load(DEVICES_FILE) or {}
+        ttl = get_online_ttl()
+        agents = [d for d in devs.values() if isinstance(d, dict) and not d.get('agentless')]
+        online = sum(1 for d in agents if d.get('last_seen', 0) and (now - d['last_seen']) < ttl)
+        _add('Agent reachability', (not agents) or online > 0,
+             f'{online}/{len(agents)} agents online')
+    except Exception as e:
+        _add('Agent reachability', False, str(e))
+    # AI / API keys configured (informational, never fails the suite)
+    try:
+        ai_ok = bool((cfg.get('ai') or {}).get('api_key'))
+        _add('AI provider key', True, 'configured' if ai_ok else 'not configured (optional)')
+    except Exception:
+        pass
+
+    overall = all(c['ok'] for c in checks)
+    respond(200, {'ok': overall, 'checks': checks, 'server_version': SERVER_VERSION,
+                  'generated_at': now})
+
+
 def handle_diagnostics_bundle():
     """GET /api/diagnostics — v4.3.0: one downloadable JSON support bundle so an
     operator can attach "everything you'd ask for" in a single file instead of
@@ -34105,7 +34165,7 @@ def handle_nav_counts():
             if (time.time() - _cmt) < 15:
                 _fresh = True
                 for _src in (DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE,
-                             ALERTS_FILE, CONFIRMATIONS_FILE):
+                             ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE):
                     try:
                         if _src.exists() and _src.stat().st_mtime > _cmt:
                             _fresh = False
@@ -34170,6 +34230,14 @@ def handle_nav_counts():
                 1 for c in arr
                 if isinstance(c, dict) and c.get('status') == 'pending'
                 and now - (c.get('requested_at') or 0) <= CONFIRMATION_TTL_SEC)
+        except Exception:
+            pass
+        # v5.0.0 (#U4): total commands waiting to be delivered to agents, so the
+        # Command Queue nav item can show a live "N pending" badge.
+        try:
+            cmds = load(CMDS_FILE) or {}
+            out['commands_pending'] = sum(len(v) for v in cmds.values()
+                                          if isinstance(v, list))
         except Exception:
             pass
     try:
@@ -44451,6 +44519,7 @@ def _build_exact_routes():
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
+        ('GET', '/api/self-test'): handle_self_test,                 # v5.0.0 #U9
         ('GET', '/api/diagnostics'): handle_diagnostics_bundle,
         # v3.12.0: pluggable storage backend (JSON <-> SQLite). Separate from
         # /api/config because switching triggers an in-place migration that must
