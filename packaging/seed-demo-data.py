@@ -314,6 +314,24 @@ def _demo_enrich_sysinfo(dev, rng, si):
                          'fp': hashlib.sha256(
                              f"{dev['id']}|fw".encode()).hexdigest()[:16]}
 
+    # ── v5.0.0: per-interface network throughput (Network Metrics page) ──
+    # The agent reports rx/tx bits-per-second + lifetime totals per NIC; the
+    # /api/network-metrics roll-up sums them. Busier roles push more traffic.
+    _busy = 1.0
+    if any(t in (dev.get('tags') or []) for t in ('proxy', 'web', 'media', 'streaming')):
+        _busy = 6.0
+    elif any(t in (dev.get('tags') or []) for t in ('nas', 'backup', 'storage')):
+        _busy = 4.0
+    _rx = int(rng.uniform(0.2, 3.0) * _busy * 1e6)   # ~0.2–18 Mbps
+    _tx = int(rng.uniform(0.1, 2.0) * _busy * 1e6)
+    si['network_io'] = [{
+        'iface':    'eth0',
+        'rx_bps':   _rx,
+        'tx_bps':   _tx,
+        'rx_total': _rx * rng.randint(50_000, 500_000),
+        'tx_total': _tx * rng.randint(50_000, 500_000),
+    }]
+
 
 # v2.6.0/v3.13.0: sample desired host configs for the Host Configuration modal
 # + fleet export demo. Keyed by device id; SSH keys are placeholders.
@@ -801,6 +819,7 @@ def build_cmdb() -> dict:
     out['pmx01'] = {
         'asset_id':        'INF-PMX-001',
         'server_function': 'hypervisor',
+        'business_function': 'OS Operation',
         'hypervisor_url':  'https://proxmox.lab:8006',
         'ssh_port':        22,
         'documentation':   '',
@@ -839,6 +858,7 @@ def build_cmdb() -> dict:
     out['tnas'] = {
         'asset_id':        'STO-NAS-001',
         'server_function': 'storage',
+        'business_function': 'Server Camp',
         'hypervisor_url':  'https://truenas.lab',
         'ssh_port':        22,
         'documentation':   '',
@@ -904,6 +924,16 @@ def build_cmdb() -> dict:
         out[dev_id] = {
             'asset_id':        '',
             'server_function': function,
+            # v5.0.0: coarse operational-ownership bucket. App-facing services →
+            # Application Operation; OS/platform hosts → OS Operation; the rest
+            # (infra/storage/network appliances) → Server Camp.
+            'business_function': (
+                'Application Operation' if function in (
+                    'web', 'proxy', 'media', 'streaming', 'files', 'cloud',
+                    'git', 'dev', 'home', 'iot', 'secrets')
+                else 'OS Operation' if function in (
+                    'dns', 'monitoring', 'metrics')
+                else 'Server Camp'),
             'hypervisor_url':  '',
             'ssh_port':        22,
             'documentation':   '',
@@ -3025,6 +3055,155 @@ def build_gpu_history() -> dict:
     return out
 
 
+def build_thermal_history() -> dict:
+    """Per-host hottest-temperature trend → thermal_history.json (v5.0.0 Thermal
+    page sparkline). Mirrors _maybe_sample_temp: {dev_id: {samples:[{ts, temp}]}}.
+    The hottest reading is max(board sensors, SMART disks, GPUs) from
+    build_hardware, so the trend ends exactly on what the Thermal table shows.
+    ~48 samples (~4h at the 5-min hardware cadence)."""
+    hw = build_hardware()
+    n, step = 48, 300
+    out = {}
+    for dev_id, rec in hw.items():
+        vals = [t.get('current_c') for t in (rec.get('temps') or [])
+                if isinstance(t.get('current_c'), (int, float))]
+        vals += [d.get('temperature_c') for d in (rec.get('smart') or [])
+                 if isinstance(d.get('temperature_c'), (int, float))]
+        vals += [g.get('temp_c') for g in (rec.get('gpus') or [])
+                 if isinstance(g.get('temp_c'), (int, float))]
+        if not vals:
+            continue
+        cur = float(max(vals))
+        rng = _seeded_random('temphist', dev_id)
+        samples = []
+        for i in range(n):
+            ts = now() - (n - 1 - i) * step
+            temp = cur if i == n - 1 else round(max(20.0, cur + rng.uniform(-6, 3)), 1)
+            samples.append({'ts': ts, 'temp': temp})
+        out[dev_id] = {'samples': samples}
+    return out
+
+
+# ─── Reputation / DMARC / Resolver-health monitors (v4.8.0 / v4.9.0) ─────────
+# These are standalone monitors (not per-device), so the demo seeds a small,
+# realistic watchlist with a mix of healthy / weak / failing results — otherwise
+# the pages render empty. Target and result builders share stable ids.
+
+_DMARC_DOMAINS = [
+    # (domain, dkim_selector, label, status, policy)
+    ('tvipper.com',      'default', 'Primary domain',  'ok',   'reject'),
+    ('lab.local',        'mail',    'Internal mail',    'weak', 'none'),
+    ('old-shop.example', '',        'Legacy storefront','fail', ''),
+]
+
+
+def _dmarc_id(domain):
+    return 'dmarc_' + _stable_hex('dmarc', domain)
+
+
+def build_dmarc_targets() -> dict:
+    return {_dmarc_id(d): {'domain': d, 'dkim_selector': sel, 'label': lbl}
+            for d, sel, lbl, _s, _p in _DMARC_DOMAINS}
+
+
+def build_dmarc_results() -> dict:
+    out = {}
+    for d, _sel, _lbl, status, pol in _DMARC_DOMAINS:
+        tid = _dmarc_id(d)
+        if status == 'ok':
+            out[tid] = {
+                'status': 'ok', 'reasons': [],
+                'dmarc': {'record': f'v=DMARC1; p={pol}; rua=mailto:dmarc@{d}', 'policy': pol},
+                'spf':   {'record': 'v=spf1 include:_spf.google.com -all', 'all': '-all'},
+                'dkim':  {'record': 'v=DKIM1; k=rsa; p=MIIBIjANBgkq...', 'present': True},
+                'errors': {}, 'checked_at': now() - 3600}
+        elif status == 'weak':
+            out[tid] = {
+                'status': 'weak',
+                'reasons': ['DMARC policy is p=none (monitor only, not enforced)',
+                            'SPF ends with ~all (softfail rather than -all)'],
+                'dmarc': {'record': 'v=DMARC1; p=none', 'policy': 'none'},
+                'spf':   {'record': 'v=spf1 include:mailgun.org ~all', 'all': '~all'},
+                'dkim':  {'record': 'v=DKIM1; k=rsa; p=MIIBIjANBgkq...', 'present': True},
+                'errors': {}, 'checked_at': now() - 7200}
+        else:
+            out[tid] = {
+                'status': 'fail',
+                'reasons': ['No DMARC record found', 'No SPF record found'],
+                'dmarc': {}, 'spf': {}, 'dkim': {}, 'errors': {},
+                'checked_at': now() - 10800}
+    return out
+
+
+# RFC-5737 documentation IPs — valid-looking public addresses that can never be
+# real, so the demo never implies a real host is blacklisted.
+_REP_IPS = [
+    # (ip, label, listed_on)
+    ('203.0.113.10',  'Mail relay (prod)', []),
+    ('198.51.100.25', 'Web edge',          []),
+    ('192.0.2.50',    'Old VPS (retired)', ['zen.spamhaus.org', 'bl.spamcop.net']),
+]
+
+
+def _rep_id(ip):
+    return 'iprep_' + _stable_hex('iprep', ip)
+
+
+def build_ip_reputation_targets() -> dict:
+    return {_rep_id(ip): {'ip': ip, 'label': lbl} for ip, lbl, _l in _REP_IPS}
+
+
+def build_ip_reputation_results() -> dict:
+    return {_rep_id(ip): {'listed_count': len(listed), 'listed_on': listed,
+                          'errors': {}, 'error': '', 'checked_at': now() - 1800}
+            for ip, _lbl, listed in _REP_IPS}
+
+
+_RESOLVER_NAMES = [
+    # (name, type, label, healthy, down)
+    ('tvipper.com',      'A', 'Primary site',       True,  False),
+    ('lab.local',        'A', 'Internal zone',      True,  False),
+    ('retired.example',  'A', 'Decommissioned host', False, True),
+]
+
+
+def _rslv_id(name, rtype):
+    return 'rslv_' + _stable_hex('rslv', name, rtype)
+
+
+def build_resolver_health_targets() -> dict:
+    return {_rslv_id(n, t): {'name': n, 'type': t, 'label': lbl}
+            for n, t, lbl, _h, _d in _RESOLVER_NAMES}
+
+
+def build_resolver_health_results() -> dict:
+    out = {}
+    pub = [('Cloudflare', '1.1.1.1'), ('Google', '8.8.8.8'), ('Quad9', '9.9.9.9')]
+    for name, rtype, _lbl, healthy, down in _RESOLVER_NAMES:
+        tid = _rslv_id(name, rtype)
+        per = []
+        for rname, rip in pub:
+            if healthy:
+                per.append({'resolver': rname, 'ip': rip, 'status': 'ok',
+                            'error': '', 'latency_ms': _seeded_random('rslv', name, rip).randint(8, 40),
+                            'answers': ['203.0.113.7']})
+            else:
+                per.append({'resolver': rname, 'ip': rip, 'status': 'nxdomain',
+                            'error': 'NXDOMAIN', 'latency_ms': 0, 'answers': []})
+        total = len(per)
+        ok_count = total if healthy else 0
+        lat = [p['latency_ms'] for p in per if p['latency_ms']]
+        out[tid] = {
+            'healthy': healthy, 'down': down,
+            'ok_count': ok_count, 'total': total,
+            'nxdomain_count': 0 if healthy else total,
+            'fail_count': 0 if healthy else total,
+            'latency_ms': round(sum(lat) / len(lat)) if lat else 0,
+            'max_latency_ms': max(lat) if lat else 0,
+            'per_resolver': per, 'checked_at': now() - 900}
+    return out
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -3100,6 +3279,13 @@ BUILDERS = {
     'custom_scripts.json':         build_custom_scripts,
     'smart_history.json':          build_smart_history,
     'gpu_history.json':            build_gpu_history,
+    'thermal_history.json':        build_thermal_history,
+    'dmarc_targets.json':          build_dmarc_targets,
+    'dmarc_results.json':          build_dmarc_results,
+    'ip_reputation_targets.json':  build_ip_reputation_targets,
+    'ip_reputation_results.json':  build_ip_reputation_results,
+    'resolver_health_targets.json': build_resolver_health_targets,
+    'resolver_health_results.json': build_resolver_health_results,
     # runbooks / automation / maintenance / inbound webhooks / misc
     'runbooks.json':               build_runbooks,
     'automation_rules.json':       build_automation_rules,

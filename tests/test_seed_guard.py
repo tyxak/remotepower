@@ -97,5 +97,42 @@ class TestSeedGuard(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class TestSeedNewData(unittest.TestCase):
+    """The v5.0.0 demo additions seed valid, self-consistent data."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _load()
+
+    def test_new_files_registered(self):
+        for f in ('thermal_history.json', 'dmarc_targets.json',
+                  'dmarc_results.json', 'ip_reputation_targets.json',
+                  'ip_reputation_results.json', 'resolver_health_targets.json',
+                  'resolver_health_results.json'):
+            self.assertIn(f, self.m.BUILDERS, f)
+
+    def test_monitor_target_result_ids_match(self):
+        # A target with no matching result (or vice versa) renders broken rows.
+        for base in ('dmarc', 'ip_reputation', 'resolver_health'):
+            t = self.m.BUILDERS[f'{base}_targets.json']()
+            r = self.m.BUILDERS[f'{base}_results.json']()
+            self.assertEqual(set(t), set(r), base)
+
+    def test_business_function_allowlist(self):
+        allowed = {'', 'Application Operation', 'OS Operation', 'Server Camp'}
+        cmdb = self.m.build_cmdb()
+        vals = {v.get('business_function', '') for v in cmdb.values()}
+        self.assertTrue(vals <= allowed, vals)
+        self.assertTrue({'Application Operation', 'OS Operation', 'Server Camp'} & vals)
+
+    def test_thermal_history_shape(self):
+        th = self.m.build_thermal_history()
+        self.assertTrue(th)
+        for rec in th.values():
+            self.assertTrue(rec['samples'])
+            self.assertIn('temp', rec['samples'][0])
+            self.assertIn('ts', rec['samples'][0])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
