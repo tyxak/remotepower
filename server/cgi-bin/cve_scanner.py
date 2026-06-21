@@ -146,6 +146,63 @@ def osv_breaker_record(cache_dir: Path, ok: bool, now: int = None) -> dict:
     return st
 
 
+def _ecosystem_supported(ecosystem: str) -> bool:
+    return bool(ecosystem) and any(
+        ecosystem.startswith(p) for p in OSV_SUPPORTED_ECOSYSTEMS)
+
+
+# ── v5.0.0 (#S1): cross-device OSV batching ──────────────────────────────────
+# A naive fleet scan calls OSV once per device. On a homogeneous fleet (same
+# distro → the same package set) that's hugely redundant. prefetch_osv collects
+# the DEDUPLICATED (ecosystem, name, version) union across every device, queries
+# OSV once per ecosystem, and returns a {(eco, name, ver): result} map that
+# scan_device consults instead of making its own calls — O(unique packages)
+# OSV traffic instead of O(devices × packages).
+def prefetch_osv(store: dict, cache_dir: Path) -> dict:
+    """Build the shared OSV result map for a whole fleet. Returns {} if the
+    breaker is open or nothing is scannable (scan_device then falls back / skips).
+    Records breaker outcomes like a normal scan."""
+    if osv_breaker_open(cache_dir):
+        return {}
+    by_eco = {}   # ecosystem -> ordered unique [(name, version)]
+    seen = set()
+    for entry in (store or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        eco = entry.get("ecosystem")
+        if not _ecosystem_supported(eco):
+            continue
+        for p in (entry.get("packages") or [])[:MAX_PACKAGES]:
+            name = (p.get("name") or "").strip()
+            version = (p.get("version") or "").strip()
+            if not name or not version:
+                continue
+            key = (eco, name, version)
+            if key in seen:
+                continue
+            seen.add(key)
+            by_eco.setdefault(eco, []).append((name, version))
+    result_map = {}
+    any_ok = False
+    for eco, pkgs in by_eco.items():
+        queries = [{"package": {"name": n, "ecosystem": eco}, "version": v}
+                   for (n, v) in pkgs]
+        for i in range(0, len(queries), OSV_BATCH_SIZE):
+            chunk = queries[i:i + OSV_BATCH_SIZE]
+            try:
+                res = _osv_querybatch(chunk)
+            except Exception:
+                osv_breaker_record(cache_dir, ok=False)
+                return result_map   # partial; callers handle the gaps
+            for j, r in enumerate(res):
+                n, v = pkgs[i + j]
+                result_map[(eco, n, v)] = r or {}
+            any_ok = True
+    if any_ok:
+        osv_breaker_record(cache_dir, ok=True)
+    return result_map
+
+
 # ── CVSS vector parser ───────────────────────────────────────────────────────
 #
 # v2.3.4: the previous implementation did naive substring matching on the
@@ -370,7 +427,7 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> tuple:
 # ── Main scan entrypoint ─────────────────────────────────────────────────────
 
 def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
-                cache_ttl: int = None) -> dict:
+                cache_ttl: int = None, osv_prefetch: dict = None) -> dict:
     """
     Scan one device's package list against OSV (if ecosystem supported).
     """
@@ -428,26 +485,32 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         })
         pkg_by_index.append((name, version))
 
-    # Submit batches
     all_results = []
-    for i in range(0, len(queries), OSV_BATCH_SIZE):
-        batch = queries[i:i+OSV_BATCH_SIZE]
-        try:
-            batch_results = _osv_querybatch(batch)
-        except Exception as e:
-            # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
-            # so the rest of the fleet scan stops hammering a dead OSV.
-            osv_breaker_record(cache_dir, ok=False)
-            return {
-                'scanned_at': int(time.time()),
-                'ecosystem': ecosystem,
-                'findings': findings,
-                'error': f'OSV query failed: {e}',
-                'partial': True,
-            }
-        all_results.extend(batch_results)
-    # All batches succeeded → the breaker resets (half-open probe recovered).
-    osv_breaker_record(cache_dir, ok=True)
+    if osv_prefetch is not None:
+        # v5.0.0 (#S1): serve every package from the fleet-wide prefetch map (one
+        # OSV sweep already covered the whole fleet) — no per-device OSV traffic.
+        # A package the prefetch missed → empty result (treated as no vulns).
+        all_results = [osv_prefetch.get((ecosystem, n, v), {}) for (n, v) in pkg_by_index]
+    else:
+        # Submit batches
+        for i in range(0, len(queries), OSV_BATCH_SIZE):
+            batch = queries[i:i+OSV_BATCH_SIZE]
+            try:
+                batch_results = _osv_querybatch(batch)
+            except Exception as e:
+                # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
+                # so the rest of the fleet scan stops hammering a dead OSV.
+                osv_breaker_record(cache_dir, ok=False)
+                return {
+                    'scanned_at': int(time.time()),
+                    'ecosystem': ecosystem,
+                    'findings': findings,
+                    'error': f'OSV query failed: {e}',
+                    'partial': True,
+                }
+            all_results.extend(batch_results)
+        # All batches succeeded → the breaker resets (half-open probe recovered).
+        osv_breaker_record(cache_dir, ok=True)
 
     # v1.8.4: cache TTL is configurable via the server's settings
     effective_ttl = cache_ttl if cache_ttl is not None else DETAILS_CACHE_TTL

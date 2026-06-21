@@ -773,5 +773,60 @@ class TestRolloutRollback(unittest.TestCase):
         self.assertIn('id="ro-rollback-script"', HTML)
 
 
+# ─────────────────────────── #S1 cross-device OSV batching ─────────────────────
+class TestOsvPrefetch(unittest.TestCase):
+    def setUp(self):
+        import cve_scanner
+        self.cve = cve_scanner
+        self.dir = Path(tempfile.mkdtemp())
+        self._real = cve_scanner._osv_querybatch
+        self.calls = {"n": 0}
+
+        def _fake(batch):
+            self.calls["n"] += 1
+            return [{"vulns": []} for _ in batch]
+        cve_scanner._osv_querybatch = _fake
+
+    def tearDown(self):
+        self.cve._osv_querybatch = self._real
+
+    def test_prefetch_dedups_across_devices(self):
+        store = {
+            "a": {"ecosystem": "Debian:12",
+                  "packages": [{"name": "openssl", "version": "1.0"},
+                               {"name": "bash", "version": "5.0"}]},
+            "b": {"ecosystem": "Debian:12",
+                  "packages": [{"name": "openssl", "version": "1.0"}]},  # dup
+        }
+        pf = self.cve.prefetch_osv(store, self.dir)
+        self.assertEqual(len(pf), 2)               # openssl1.0 + bash5.0, deduped
+        self.assertEqual(self.calls["n"], 1)       # one querybatch for the fleet
+        self.assertIn(("Debian:12", "openssl", "1.0"), pf)
+
+    def test_scan_device_with_prefetch_makes_no_osv_calls(self):
+        store = {"a": {"ecosystem": "Debian:12",
+                       "packages": [{"name": "openssl", "version": "1.0"}]}}
+        pf = self.cve.prefetch_osv(store, self.dir)
+        self.calls["n"] = 0
+        r = self.cve.scan_device("a", store["a"]["packages"], "Debian:12",
+                                 self.dir, osv_prefetch=pf)
+        self.assertEqual(self.calls["n"], 0)       # served entirely from the map
+        self.assertIsNone(r.get("error"))
+
+    def test_prefetch_empty_when_breaker_open(self):
+        for _ in range(self.cve.OSV_FAIL_THRESHOLD):
+            self.cve.osv_breaker_record(self.dir, ok=False)
+        self.assertEqual(self.cve.prefetch_osv({"a": {"ecosystem": "Debian:12",
+                         "packages": [{"name": "x", "version": "1"}]}}, self.dir), {})
+
+    def test_worker_uses_prefetch_for_fleet(self):
+        i = API_SRC.index("def _cve_scan_worker(")
+        block = API_SRC[i:i + 2000]
+        self.assertIn("cve_scanner.prefetch_osv(", block)
+        self.assertIn("osv_prefetch=osv_prefetch", block)
+        # single-device scans don't prefetch (guarded by `not target and total>1`)
+        self.assertIn("if not target and total > 1:", block)
+
+
 if __name__ == "__main__":
     unittest.main()

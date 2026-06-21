@@ -38784,6 +38784,17 @@ def _cve_scan_worker(actor, target):
     targets = [target] if target else list(store.keys())
     scanned = skipped = errors = 0
     total = len(targets)
+    # v5.0.0 (#S1): for a FLEET scan (not a single device), prefetch the
+    # deduplicated OSV results across every target in one sweep, so the per-device
+    # scans below cost zero OSV calls. Single-device scans keep the direct path.
+    osv_prefetch = None
+    if not target and total > 1:
+        try:
+            _pf_store = {d: store[d] for d in targets if d in store}
+            osv_prefetch = cve_scanner.prefetch_osv(_pf_store, DATA_DIR)
+        except Exception as _pf:
+            sys.stderr.write(f'[remotepower] OSV prefetch failed, per-device fallback: {_pf}\n')
+            osv_prefetch = None
     for i, dev_id in enumerate(targets):
         entry = store.get(dev_id)
         if not entry or not entry.get('ecosystem'):
@@ -38791,7 +38802,8 @@ def _cve_scan_worker(actor, target):
         else:
             result = cve_scanner.scan_device(dev_id, entry.get('packages') or [],
                                              entry['ecosystem'], DATA_DIR,
-                                             cache_ttl=get_cve_cache_seconds())
+                                             cache_ttl=get_cve_cache_seconds(),
+                                             osv_prefetch=osv_prefetch)
             if result.get('error') and not result.get('findings'):
                 errors += 1
             else:
