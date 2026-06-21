@@ -42696,6 +42696,14 @@ def _cmdb_load() -> dict:
                 }]
             else:
                 rec['docs'] = []
+        # v5.0.0: synthesise the interfaces list from the legacy single
+        # primary_interface/nat_ip fields so older records show up in the new
+        # multi-NIC editor. Left non-destructive; the single fields stay in sync.
+        if 'interfaces' not in rec or not isinstance(rec.get('interfaces'), list):
+            _pi = (rec.get('primary_interface') or '').strip()
+            _nat = (rec.get('nat_ip') or '').strip()
+            rec['interfaces'] = ([{'iface': _pi, 'ip': '', 'nat_ip': _nat,
+                                   'primary': True}] if (_pi or _nat) else [])
     return store
 
 
@@ -42715,7 +42723,11 @@ def _cmdb_record_default() -> dict:
         'server_function': '',
         'environment':     '',     # v3.12.0: test / dev / staging / prod
         'vlan':            '',
-        # v5.0.0: primary interface + a NAT/public IP attached to it as a child.
+        # v5.0.0: network interfaces, each with an optional NAT/public IP child.
+        # `interfaces` is the source of truth (multi-NIC, multi-NAT); the legacy
+        # single primary_interface/nat_ip are kept in sync (derived from the
+        # primary row) for back-compat with older readers.
+        'interfaces':        [],   # [{iface, ip, nat_ip, primary}]
         'primary_interface': '',
         'nat_ip':            '',
         'hypervisor_url':  '',
@@ -42787,6 +42799,11 @@ _CMDB_LIST_SPECS = {
     'contacts':  {'tier': 16, 'name': 80, 'role': 64, 'email': 128, 'phone': 40},
     'licenses':  {'product': 80, 'key': 200, 'seats': 'int',
                   'expiry': 'date', 'notes': 500},
+    # v5.0.0: network interfaces, each with an optional NAT/public IP. A host
+    # with several NICs and several NATs gets one row per mapping; one row is
+    # flagged primary. iface = NIC name, ip = local address, nat_ip = the
+    # externally reachable address NATed to it.
+    'interfaces': {'iface': 'iface', 'ip': 'ip', 'nat_ip': 'ip', 'primary': 'bool'},
 }
 
 
@@ -42816,9 +42833,27 @@ def _cmdb_clean_list(items, spec):
                     rec[f] = max(0, int(v)) if v not in (None, '') else 0
                 except (TypeError, ValueError):
                     rec[f] = 0
+            elif rule == 'ip':       # v5.0.0: optional IPv4/IPv6 literal
+                s = str(v or '').strip()
+                if s:
+                    import ipaddress as _ipa
+                    try:
+                        s = str(_ipa.ip_address(s))
+                    except ValueError:
+                        return [], f'{f} must be a valid IP address or empty'
+                rec[f] = s
+            elif rule == 'iface':    # v5.0.0: NIC name
+                s = str(v or '').strip()
+                if s and not _CMDB_IFACE_RE.match(s):
+                    return [], f'{f} must be letters/digits/.:_- (max 32)'
+                rec[f] = s
+            elif rule == 'bool':
+                rec[f] = bool(v)
             else:
                 rec[f] = _sanitize_str(str(v or ''), rule)
-        if any(rec.get(f) for f in spec):
+        # Drop wholly-empty rows — but ignore bool flags (a lone primary=True
+        # with no iface/IP is still empty and shouldn't be kept).
+        if any(rec.get(f) for f in spec if spec[f] != 'bool'):
             out.append(rec)
     return out, None
 
@@ -42967,6 +43002,7 @@ def handle_cmdb_list() -> None:
             'server_function': rec_safe.get('server_function', ''),
             'environment':     rec_safe.get('environment', ''),
             'vlan':            rec_safe.get('vlan', ''),
+            'interfaces':      rec_safe.get('interfaces', []),            # v5.0.0
             'primary_interface': rec_safe.get('primary_interface', ''),   # v5.0.0
             'nat_ip':          rec_safe.get('nat_ip', ''),                # v5.0.0
             'decommissioned':  bool(dev.get('decommissioned')),          # v5.0.0
@@ -43237,6 +43273,7 @@ def handle_cmdb_update(dev_id: str) -> None:
             changed.append(_field)
 
     # v3.12.0: business lists — contracts / contacts / licenses.
+    # v5.0.0: + interfaces (multi-NIC, multi-NAT). All validated by spec.
     for _lf, _spec in _CMDB_LIST_SPECS.items():
         if _lf in body:
             _clean, _err = _cmdb_clean_list(body.get(_lf), _spec)
@@ -43244,6 +43281,18 @@ def handle_cmdb_update(dev_id: str) -> None:
                 respond(400, {'error': f'{_lf}: {_err}'})
             rec[_lf] = _clean
             changed.append(_lf)
+
+    # v5.0.0: normalise interfaces to exactly one primary and mirror it into the
+    # legacy single fields so older readers (cmdb table/list) keep working.
+    if 'interfaces' in body:
+        ifaces = rec.get('interfaces') or []
+        prim_idx = next((i for i, x in enumerate(ifaces) if x.get('primary')),
+                        0 if ifaces else None)
+        for i, x in enumerate(ifaces):
+            x['primary'] = (i == prim_idx)
+        prim = ifaces[prim_idx] if prim_idx is not None else {}
+        rec['primary_interface'] = prim.get('iface', '')
+        rec['nat_ip'] = prim.get('nat_ip', '')
 
     if not changed:
         respond(400, {'error': 'no recognised fields to update'})

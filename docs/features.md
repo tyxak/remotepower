@@ -1544,11 +1544,14 @@ A new **Status Board** rolls the fleet up into **group / site / tag tiles** with
 **problem-host strip** for an at-a-glance NOC wallboard view, alongside an
 industrial visual refresh across the dashboard.
 
-### CMDB: primary interface + NAT IP
-Each asset can record its **primary network interface** (the main NIC) and attach
-a **NAT / public IP** to it as a child — for a host behind 1:1 NAT whose primary
-interface carries a private address but is reachable from outside on the NAT IP.
-The NAT IP shows nested under the asset's address in the CMDB table.
+### CMDB: network interfaces + NAT mapping
+Each asset can record **multiple network interfaces**, each with its own optional
+**NAT / public IP** — a host with several NICs and several 1:1-NAT mappings is
+fully expressible. One interface is flagged **primary** (★). The editor is a
+simple add/remove row list with a live preview tree, and in the CMDB table every
+NAT address shows nested under the asset as a child (`iface → NAT`). The legacy
+single primary-interface/NAT fields stay in sync with the primary row for
+backward compatibility.
 
 ### Decommissioned assets
 Mark a retired server **Decommissioned** from its CMDB record. It greys out across

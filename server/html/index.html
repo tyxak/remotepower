@@ -6466,14 +6466,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="meta-sm">Free text — a single ID, a comma-separated list for trunked, or a descriptive label.</div>
     </div>
     <div class="form-group">
-      <label class="form-label" for="cmdb-asset-primary-interface">Primary interface</label>
-      <input type="text" id="cmdb-asset-primary-interface" class="form-input" placeholder="eth0, ens18, bond0.100" maxlength="32">
-      <div class="meta-sm">The asset's main NIC. A NAT / public IP can be attached to it below.</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="cmdb-asset-nat-ip">NAT&nbsp;/&nbsp;public IP <span class="meta-sm">(child of the primary interface)</span></label>
-      <input type="text" id="cmdb-asset-nat-ip" class="form-input" placeholder="203.0.113.10" maxlength="45">
-      <div class="meta-sm">For a host behind 1:1 NAT — the externally reachable address mapped to the primary interface.</div>
+      <label class="form-label">Network interfaces &amp; NAT</label>
+      <div class="meta-sm mb-8">One row per NIC. Attach a NAT&nbsp;/&nbsp;public IP to any interface that's reachable from outside via 1:1 NAT — a host can have several NICs and several NATs. Star the primary interface.</div>
+      <div id="cmdb-interfaces"></div>
+      <button type="button" class="btn-icon mt-8" data-action="cmdbAddInterface" aria-label="Add interface">+ Add interface</button>
+      <div id="cmdb-interfaces-tree" class="cmdb-iface-tree mt-8"></div>
     </div>
     <div class="form-group">
       <label class="form-label">Hypervisor URL (optional)</label>

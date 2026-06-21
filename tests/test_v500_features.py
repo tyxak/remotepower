@@ -91,17 +91,60 @@ class TestCmdbInterfaceNat(unittest.TestCase):
             api.handle_cmdb_update("d1")
         self.assertEqual(box["status"], 400)
 
+    def test_multi_nic_multi_nat(self):
+        # v5.0.0: several NICs, each with its own NAT; one primary. The legacy
+        # single fields are derived from the primary row.
+        api.get_json_body = lambda: {"interfaces": [
+            {"iface": "ens18", "ip": "10.0.0.5", "nat_ip": "203.0.113.10", "primary": True},
+            {"iface": "eth1", "ip": "10.0.0.6", "nat_ip": "198.51.100.7", "primary": False},
+        ]}
+        box = _capture_respond()
+        with self.assertRaises(_Stop):
+            api.handle_cmdb_update("d1")
+        self.assertEqual(box["status"], 200)
+        rec = api._cmdb_load()["d1"]
+        self.assertEqual(len(rec["interfaces"]), 2)
+        self.assertEqual({i["nat_ip"] for i in rec["interfaces"]},
+                         {"203.0.113.10", "198.51.100.7"})
+        # exactly one primary, mirrored into the legacy single fields
+        self.assertEqual(sum(1 for i in rec["interfaces"] if i["primary"]), 1)
+        self.assertEqual(rec["primary_interface"], "ens18")
+        self.assertEqual(rec["nat_ip"], "203.0.113.10")
+
+    def test_bad_nat_in_list_rejected(self):
+        api.get_json_body = lambda: {"interfaces": [{"iface": "eth0", "nat_ip": "nope"}]}
+        box = _capture_respond()
+        with self.assertRaises(_Stop):
+            api.handle_cmdb_update("d1")
+        self.assertEqual(box["status"], 400)
+
+    def test_legacy_single_fields_migrate_to_list(self):
+        # a record with only the old primary_interface/nat_ip shows up in the
+        # new interfaces list after a load (non-destructive migration).
+        api.save(api.CMDB_FILE, {"d1": {"primary_interface": "eth0",
+                                        "nat_ip": "203.0.113.9"}})
+        rec = api._cmdb_load()["d1"]
+        self.assertEqual(len(rec["interfaces"]), 1)
+        self.assertEqual(rec["interfaces"][0]["iface"], "eth0")
+        self.assertEqual(rec["interfaces"][0]["nat_ip"], "203.0.113.9")
+        self.assertTrue(rec["interfaces"][0]["primary"])
+
     def test_cmdb_list_exposes_fields(self):
         # source-level: the list/get endpoints surface the new fields
+        self.assertIn("'interfaces':      rec_safe.get('interfaces'", API_SRC)
         self.assertIn("'primary_interface': rec_safe.get('primary_interface'", API_SRC)
-        self.assertIn("'nat_ip':          rec_safe.get('nat_ip'", API_SRC)
 
-    def test_frontend_wires_fields(self):
-        self.assertIn('id="cmdb-asset-primary-interface"', HTML)
-        self.assertIn('id="cmdb-asset-nat-ip"', HTML)
-        self.assertIn("primary_interface:", APP_CMDB)
-        self.assertIn("nat_ip:", APP_CMDB)
-        self.assertIn("cmdb-nat-child", APP_CMDB)   # NAT shown as a child
+    def test_frontend_wires_editor(self):
+        self.assertIn('id="cmdb-interfaces"', HTML)
+        self.assertIn('data-action="cmdbAddInterface"', HTML)
+        self.assertIn("function _cmdbRenderInterfaces(", APP_CMDB)
+        self.assertIn("function _cmdbReadInterfaces(", APP_CMDB)
+        self.assertIn("function cmdbSetPrimaryIface(", APP_CMDB)
+        self.assertIn("body.interfaces", APP_CMDB)
+        self.assertIn("cmdb-nat-child", APP_CMDB)   # NATs shown as children
+        # the spec drives generic validation in _cmdb_clean_list
+        self.assertIn("'interfaces': {'iface': 'iface', 'ip': 'ip', 'nat_ip': 'ip'",
+                      API_SRC)
 
 
 # ───────────────────────────── decommissioning ─────────────────────────────────

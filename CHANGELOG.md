@@ -19,8 +19,9 @@ dots, per-device alert snooze, pending-command nav badge, rename/duplicate saved
 queries, palette command-history search, one-click Run-diagnostics. WEBHOOK_EVENTS
 now 80 (`agent_stopped`, `agent_started`, `vault_break_glass`,
 `backup_verify_failed`, `rollout_halted`, `server_disk_low`, `server_disk_ok`).
-**CMDB & inventory:** record a host's **primary interface** and attach a **NAT /
-public IP** to it as a child (for assets behind 1:1 NAT); mark an asset
+**CMDB & inventory:** record a host's **network interfaces** — several NICs, each
+with its own optional **NAT / public IP** child (for assets behind 1:1 NAT), one
+flagged primary — edited with a live preview tree; mark an asset
 **Decommissioned** — it greys out across the device list and is fully silenced
 (no monitoring, alerts, health or SLA), and clearing it restores monitoring.
 **New Network Metrics page** — per-device RX/TX throughput rolled up fleet-wide

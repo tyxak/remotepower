@@ -310,11 +310,15 @@ function cmdbRenderTable(rows) {
     const fn = (r.server_function
       ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
       : (r.environment ? '' : '<span class="hint">—</span>')) + envPill;
-    // v5.0.0: show a NAT/public IP as a CHILD of the primary interface,
-    // nested under the asset's primary IP.
-    const natChild = r.nat_ip
-      ? `<div class="cmdb-nat-child mono-12"><span class="c-muted">↳ ${_cmdbEsc(r.primary_interface || 'NAT')}:</span> ${_cmdbEsc(r.nat_ip)} <span class="meta-sm">(NAT)</span></div>`
-      : '';
+    // v5.0.0: show every NIC's NAT/public IP as a CHILD nested under the asset's
+    // primary IP (a host can have several NICs and several NATs).
+    const _natMaps = (Array.isArray(r.interfaces) ? r.interfaces : []).filter(x => x && x.nat_ip);
+    const natChild = _natMaps.length
+      ? '<div class="cmdb-nat-child">' + _natMaps
+          .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
+          .map(x => `<div class="mono-12"><span class="c-muted">↳ ${x.primary ? '★ ' : ''}${_cmdbEsc(x.iface || 'NAT')}:</span> ${_cmdbEsc(x.nat_ip)} <span class="meta-sm">(NAT)</span></div>`)
+          .join('') + '</div>'
+      : (r.nat_ip ? `<div class="cmdb-nat-child mono-12"><span class="c-muted">↳ ${_cmdbEsc(r.nat_ip)}</span> <span class="meta-sm">(NAT)</span></div>` : '');
     // v3.3.0: clicking the Name cell opens the asset (same as the Open
     // button). The button stays in the actions column for discoverability.
     // v5.0.0: grey out + badge decommissioned assets.
@@ -359,8 +363,11 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
   document.getElementById('cmdb-asset-environment').value = res.data.environment || '';
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
-  document.getElementById('cmdb-asset-primary-interface').value = res.data.primary_interface || '';
-  document.getElementById('cmdb-asset-nat-ip').value     = res.data.nat_ip || '';
+  // v5.0.0: multi-NIC / multi-NAT editor.
+  _cmdbInterfaces = Array.isArray(res.data.interfaces) ? res.data.interfaces.map(x => ({
+    iface: x.iface || '', ip: x.ip || '', nat_ip: x.nat_ip || '', primary: !!x.primary,
+  })) : [];
+  _cmdbRenderInterfaces();
   // v5.0.0: decommissioned is a DEVICE flag (admin-only, separate endpoint) —
   // track the loaded value so save only PATCHes it when it actually changed.
   _cmdbDecommOrig = !!res.data.decommissioned;
@@ -431,6 +438,82 @@ function cmdbRemoveRow(type, idx) {
   (_cmdbLists[type] || []).splice(idx, 1);
   _cmdbRenderList(type);
 }
+
+// ── v5.0.0: network-interface editor (multi-NIC, multi-NAT) ──────────────────
+let _cmdbInterfaces = [];   // [{iface, ip, nat_ip, primary}]
+
+function _cmdbRenderInterfaces() {
+  const el = document.getElementById('cmdb-interfaces');
+  if (!el) return;
+  const rows = _cmdbInterfaces || [];
+  if (!rows.length) {
+    el.innerHTML = '<div class="hint">No interfaces yet — add one to record a NIC and its NAT / public IP.</div>';
+  } else {
+    el.innerHTML = rows.map((it, i) => `
+      <div class="cmdb-iface-row${it.primary ? ' is-primary' : ''}">
+        <button type="button" class="iface-star${it.primary ? ' on' : ''}" data-action="cmdbSetPrimaryIface" data-arg="${i}" title="Mark as the primary interface" aria-label="Mark interface ${i + 1} as primary">★</button>
+        <input type="text" class="form-input ff-mono" data-iface-idx="${i}" data-iface-field="iface" placeholder="eth0 / ens18" maxlength="32" value="${escAttr(it.iface || '')}">
+        <input type="text" class="form-input ff-mono" data-iface-idx="${i}" data-iface-field="ip" placeholder="local IP (optional)" maxlength="45" value="${escAttr(it.ip || '')}">
+        <span class="iface-arrow" aria-hidden="true">→</span>
+        <input type="text" class="form-input ff-mono" data-iface-idx="${i}" data-iface-field="nat_ip" placeholder="NAT / public IP" maxlength="45" value="${escAttr(it.nat_ip || '')}">
+        <button type="button" class="btn-icon cell-sm" data-action="cmdbRemoveInterface" data-arg="${i}" aria-label="Remove interface ${i + 1}">×</button>
+      </div>`).join('');
+  }
+  // re-render the live tree on every keystroke (container listener survives the
+  // innerHTML swaps since it's bound once to the parent, not the inputs)
+  if (!el._ifaceWired) {
+    el.addEventListener('input', () => _cmdbRenderInterfaceTree());
+    el._ifaceWired = true;
+  }
+  _cmdbRenderInterfaceTree();
+}
+
+function _cmdbReadInterfaces() {
+  const rows = {};
+  document.querySelectorAll('#cmdb-interfaces [data-iface-idx]').forEach(inp => {
+    const i = inp.dataset.ifaceIdx, f = inp.dataset.ifaceField;
+    (rows[i] = rows[i] || {})[f] = inp.value.trim();
+  });
+  // preserve the primary flag (it lives on the star button, not an input)
+  const merged = Object.keys(rows).sort((a, b) => a - b).map(k => rows[k]);
+  merged.forEach((r, i) => { r.primary = !!(_cmdbInterfaces[i] && _cmdbInterfaces[i].primary); });
+  if (merged.length && !merged.some(r => r.primary)) merged[0].primary = true;
+  _cmdbInterfaces = merged;
+}
+
+function _cmdbRenderInterfaceTree() {
+  const tree = document.getElementById('cmdb-interfaces-tree');
+  if (!tree) return;
+  _cmdbReadInterfaces();
+  const rows = _cmdbInterfaces.filter(r => r.iface || r.ip || r.nat_ip);
+  if (!rows.length) { tree.innerHTML = ''; return; }
+  // primary first, then the rest
+  const ordered = [...rows].sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0));
+  tree.innerHTML = '<div class="cmdb-iface-tree-title">Preview</div>' + ordered.map(r => `
+    <div class="iface-node${r.primary ? ' primary' : ''}">
+      ${r.primary ? '<span class="iface-star on" title="Primary">★</span> ' : ''}<span class="ff-mono">${escHtml(r.iface || '(unnamed NIC)')}</span>${r.ip ? ` <span class="c-muted ff-mono">${escHtml(r.ip)}</span>` : ''}
+      ${r.nat_ip ? `<div class="iface-nat">↳ <span class="ff-mono">${escHtml(r.nat_ip)}</span> <span class="nat-tag">NAT</span></div>` : ''}
+    </div>`).join('');
+}
+
+function cmdbAddInterface() {
+  _cmdbReadInterfaces();
+  _cmdbInterfaces.push({ iface: '', ip: '', nat_ip: '', primary: _cmdbInterfaces.length === 0 });
+  _cmdbRenderInterfaces();
+}
+function cmdbRemoveInterface(idx) {
+  _cmdbReadInterfaces();
+  const wasPrimary = _cmdbInterfaces[idx] && _cmdbInterfaces[idx].primary;
+  _cmdbInterfaces.splice(idx, 1);
+  if (wasPrimary && _cmdbInterfaces.length) _cmdbInterfaces[0].primary = true;
+  _cmdbRenderInterfaces();
+}
+function cmdbSetPrimaryIface(idx) {
+  _cmdbReadInterfaces();
+  _cmdbInterfaces.forEach((r, i) => { r.primary = (i === idx); });
+  _cmdbRenderInterfaces();
+}
+
 function _cmdbRenderHardware(si) {
   const el = document.getElementById('cmdb-hw-summary');
   if (!el) return;
@@ -796,8 +879,6 @@ async function cmdbAssetSave() {
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
     environment:     document.getElementById('cmdb-asset-environment').value,
     vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
-    primary_interface: document.getElementById('cmdb-asset-primary-interface').value.trim(),
-    nat_ip:          document.getElementById('cmdb-asset-nat-ip').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
     ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,
     // v3.5.0: lifecycle expiry dates (empty string clears)
@@ -810,6 +891,10 @@ async function cmdbAssetSave() {
   body.contracts = _cmdbLists.contracts;
   body.contacts  = _cmdbLists.contacts;
   body.licenses  = _cmdbLists.licenses;
+  // v5.0.0: network interfaces (multi-NIC / multi-NAT). Server derives the
+  // legacy primary_interface/nat_ip from the primary row.
+  _cmdbReadInterfaces();
+  body.interfaces = _cmdbInterfaces;
   const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
   if (!res) return;
   if (!res.ok) { alert('Save failed: ' + (res.data && res.data.error || res.status)); return; }

@@ -4775,6 +4775,11 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 .nav-badge.nav-badge-ok    { background: #28a745; }
 .nav-badge.nav-badge-alert { background: var(--red); }
+/* v5.0.0 fix: `.nav-badge` sets display:inline-block and is defined AFTER the
+   global `.d-none` (equal specificity → later rule wins), so a hidden zero-count
+   badge still painted as an empty red pill (a stray "red dash" next to e.g.
+   Status Board / Command Queue). This more-specific rule restores hiding. */
+.nav-badge.d-none { display: none; }
 
 /* v3.2.0 (B5): SNMP status pill on device cards */
 .snmp-pill {
@@ -5268,6 +5273,30 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    and the Current-violations card, which previously touched). */
 .table-card + .table-card { margin-top: 22px; }   /* v4.10.0: match the roomier card rhythm */
 .cmdb-list-row { margin-bottom: 6px; }
+
+/* v5.0.0: multi-NIC / multi-NAT interface editor + visual tree. */
+.cmdb-iface-row {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 6px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+  flex-wrap: wrap;
+}
+.cmdb-iface-row.is-primary { border-color: var(--accent); background: var(--accent-soft); }
+.cmdb-iface-row > .form-input { flex: 1 1 120px; min-width: 100px; width: auto; }
+.cmdb-iface-row .iface-arrow { color: var(--muted); font-weight: 700; }
+.iface-star {
+  background: none; border: 0; cursor: pointer; font-size: 16px; line-height: 1;
+  color: var(--border); padding: 2px 4px;
+}
+.iface-star.on { color: #f5b301; }   /* gold = primary */
+.cmdb-iface-tree { }
+.cmdb-iface-tree-title { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.iface-node { padding: 3px 0; font-size: 13px; }
+.iface-node.primary { font-weight: 600; }
+.iface-node .iface-nat { padding-left: 18px; color: var(--muted); font-size: 12px; }
+.nat-tag {
+  display: inline-block; font-size: 10px; padding: 0 5px; border-radius: 3px;
+  background: rgba(59,126,255,0.16); color: var(--accent2); border: 1px solid var(--border);
+}
 
 /* ── v3.12.0: uniform toolbar control height ──────────────────────────────────
    Buttons, filter inputs and selects that share a control row must line up at
