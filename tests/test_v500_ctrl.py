@@ -495,5 +495,49 @@ class TestWebhookDlq(unittest.TestCase):
         self.assertIn("retryAllDlq", APP)
 
 
+# ─────────────────────────── #R3 runtime maintenance mode ──────────────────────
+class TestMaintenanceMode(unittest.TestCase):
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {})
+
+    def test_inactive_by_default(self):
+        active, reason = api._maintenance_active()
+        self.assertFalse(active)
+        self.assertEqual(reason, "")
+
+    def test_active_with_reason(self):
+        api.save(api.CONFIG_FILE, {"maintenance_mode": True, "maintenance_reason": "upgrade"})
+        active, reason = api._maintenance_active()
+        self.assertTrue(active)
+        self.assertEqual(reason, "upgrade")
+
+    def test_block_helper_503s(self):
+        api.save(api.CONFIG_FILE, {"maintenance_mode": True})
+        with self.assertRaises(api.HTTPError) as ctx:   # respond() raises HTTPError
+            api._block_if_maintenance("reboot")
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_poll_interval_exempt(self):
+        api.save(api.CONFIG_FILE, {"maintenance_mode": True})
+        # poll_interval must NOT raise (agent-local timer only)
+        api._block_if_maintenance("poll_interval:300")
+
+    def test_queue_command_gated(self):
+        i = API_SRC.index("def _queue_command(")
+        self.assertIn("_block_if_maintenance(command)", API_SRC[i:i + 400])
+        j = API_SRC.index("def _queue_command_batch(")
+        self.assertIn("_block_if_maintenance(command)", API_SRC[j:j + 200])
+
+    def test_routes(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("GET", "/api/maintenance")[0], "handle_maintenance_mode_get")
+        self.assertEqual(resolve_route("POST", "/api/maintenance")[0], "handle_maintenance_mode_set")
+
+    def test_frontend(self):
+        self.assertIn('id="cfg-maintenance-mode"', HTML)
+        self.assertIn('id="maintenance-banner"', HTML)
+        self.assertIn("function toggleMaintenanceMode", APP)
+
+
 if __name__ == "__main__":
     unittest.main()

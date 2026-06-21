@@ -1604,6 +1604,33 @@ def _retention_sweep_if_due():
     save(RETENTION_STATE_FILE, st)
 
 
+def handle_maintenance_mode_get():
+    """v5.0.0 (#R3): ``GET /api/maintenance`` — current maintenance-mode state.
+    Auth required (any role) so the UI can show the banner to everyone."""
+    require_auth()
+    active, reason = _maintenance_active()
+    respond(200, {'enabled': active, 'reason': reason})
+
+
+def handle_maintenance_mode_set():
+    """``POST /api/maintenance`` {enabled, reason} — toggle maintenance mode.
+    Admin only; audit-logged. While on, new agent command dispatch is paused
+    (heartbeats + browsing keep working)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    enabled = bool(body.get('enabled'))
+    reason = _sanitize_str(body.get('reason', ''), 200, allow_empty=True) or ''
+    cfg = load(CONFIG_FILE) or {}
+    cfg['maintenance_mode'] = enabled
+    cfg['maintenance_reason'] = reason
+    save(CONFIG_FILE, cfg)
+    audit_log(actor, 'maintenance_mode',
+              detail=f"enabled={enabled} reason={reason[:80]}")
+    respond(200, {'ok': True, 'enabled': enabled, 'reason': reason})
+
+
 def handle_maintenance_run():
     """POST /api/db-maintenance — purge old data per the configured retention,
     and (under SQLite) VACUUM + checkpoint + integrity_check. Admin-only."""
@@ -11521,10 +11548,34 @@ def _park_for_approval(dev_id, command, actor, kind):
                                 {'command': command, 'kind': kind}, actor, None, None)
 
 
+def _maintenance_active():
+    """v5.0.0 (#R3): runtime maintenance mode. Returns (active, reason). When
+    active, the server pauses NEW agent command dispatch (drain) while leaving
+    heartbeats + read-only browsing fully working — so devices don't flip
+    offline during a controller upgrade."""
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('maintenance_mode'):
+        return (False, '')
+    return (True, str(cfg.get('maintenance_reason') or 'scheduled maintenance')[:200])
+
+
+def _block_if_maintenance(command):
+    """503 if maintenance mode is on (poll_interval is exempt — agent-local timer
+    only, like the quarantine carve-out)."""
+    if str(command).startswith('poll_interval:'):
+        return
+    active, reason = _maintenance_active()
+    if active:
+        respond(503, {'error': f'Server is in maintenance mode ({reason}) — new commands '
+                               f'are paused. They will resume once maintenance ends.',
+                      'maintenance': True})
+
+
 def _queue_command(dev_id, command, actor):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
+    _block_if_maintenance(command)  # v5.0.0 #R3
     # v3.4.0: refuse to queue actions for a quarantined device. poll_interval
     # is the one exception — it changes only the agent's local timer.
     if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
@@ -11567,6 +11618,7 @@ def _queue_command(dev_id, command, actor):
 
 
 def _queue_command_batch(dev_ids, command, actor):
+    _block_if_maintenance(command)  # v5.0.0 #R3
     devices = load(DEVICES_FILE); results = {}
     # v3.14.0: 4-eyes — park each target as its own confirmation when enabled.
     _kind = _command_kind(command)
@@ -44262,6 +44314,8 @@ def _build_exact_routes():
         ('GET', '/api/version'): handle_version_check,
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
+        ('GET', '/api/maintenance'): handle_maintenance_mode_get,    # v5.0.0 #R3
+        ('POST', '/api/maintenance'): handle_maintenance_mode_set,
         ('GET', '/api/webhook/dlq'): handle_webhook_dlq_list,         # v5.0.0 #R2
         ('POST', '/api/webhook/dlq/retry'): handle_webhook_dlq_retry,
         ('DELETE', '/api/webhook/dlq'): handle_webhook_dlq_clear,

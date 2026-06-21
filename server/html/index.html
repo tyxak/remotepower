@@ -1829,6 +1829,20 @@
             </div>
           </div>
 
+          <!-- ── v5.0.0 (#R3): maintenance mode ──────────────────────────────── -->
+          <div class="settings-section">
+            <h3>Maintenance mode</h3>
+            <p class="hint">Pause new agent command dispatch during a controller upgrade — heartbeats and read-only browsing keep working, so devices don't flip offline. In-flight commands drain normally; new exec/reboot/install attempts are refused with a clear message and a banner is shown to everyone.</p>
+            <label class="isl-33">
+              <input type="checkbox" id="cfg-maintenance-mode" class="isl-34" data-action="toggleMaintenanceMode">
+              <span class="fs-14">Enable maintenance mode (pause command dispatch)</span>
+            </label>
+            <div class="form-group mt-8 mw-200">
+              <label class="form-label">Reason (optional, shown in the banner)</label>
+              <input type="text" id="cfg-maintenance-reason" class="form-input" maxlength="200" placeholder="Upgrading to v5.0.0">
+            </div>
+          </div>
+
           <!-- v3.12.0: SSH preferences moved to My Account (top-right). -->
 
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
@@ -7440,6 +7454,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
   <span>Can&rsquo;t reach the server &mdash; your view may be stale. Retrying automatically.</span>
   <button class="btn-icon btn-xs" data-action="retryConnection">Retry now</button>
+</div>
+<!-- v5.0.0 (#R3): maintenance-mode banner (shown to everyone while active) -->
+<div id="maintenance-banner" class="net-down-banner hidden" role="status">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+  <span id="maintenance-banner-text">Maintenance mode — new commands are paused.</span>
 </div>
 <!-- v3.4.2: print-only posture report target (filled by printFleetReport) -->
 <div id="print-report" class="print-only" aria-hidden="true"></div>

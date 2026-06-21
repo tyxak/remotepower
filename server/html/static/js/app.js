@@ -2839,6 +2839,7 @@ async function loadSettings() {
   document.getElementById('cfg-remember-default').checked = !!data.remember_me_default;
   { const m = document.getElementById('cfg-require-agent-mtls'); if (m) m.checked = !!data.require_agent_mtls; }
   { const d = document.getElementById('cfg-disk-watchdog-pct'); if (d) d.value = data.disk_watchdog_pct ?? 85; }
+  loadMaintenanceMode();
 
   // Activate tab from URL hash
   const hash = (location.hash || '').replace(/^#/, '');
@@ -3252,6 +3253,41 @@ async function loadWebhookLog() {
     return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
   }).join('');
   loadWebhookDlq();
+}
+
+// ── v5.0.0 (#R3): maintenance mode ───────────────────────────────────────────
+async function loadMaintenanceMode() {
+  const data = await api('GET', '/maintenance');
+  if (!data) return;
+  const cb = document.getElementById('cfg-maintenance-mode');
+  if (cb) cb.checked = !!data.enabled;
+  const rs = document.getElementById('cfg-maintenance-reason');
+  if (rs && data.reason) rs.value = data.reason;
+  _applyMaintenanceBanner(data);
+}
+function _applyMaintenanceBanner(data) {
+  const banner = document.getElementById('maintenance-banner');
+  if (!banner) return;
+  if (data && data.enabled) {
+    document.getElementById('maintenance-banner-text').textContent =
+      'Maintenance mode — new commands are paused' + (data.reason ? ` (${data.reason})` : '') + '.';
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+async function toggleMaintenanceMode() {
+  const cb = document.getElementById('cfg-maintenance-mode');
+  const reason = (document.getElementById('cfg-maintenance-reason')?.value || '').trim();
+  const enabled = !!cb?.checked;
+  const data = await api('POST', '/maintenance', { enabled, reason });
+  if (data?.ok) {
+    toast(enabled ? 'Maintenance mode ON — command dispatch paused' : 'Maintenance mode OFF', enabled ? 'info' : 'success');
+    _applyMaintenanceBanner(data);
+  } else {
+    toast(data?.error || 'Failed', 'error');
+    if (cb) cb.checked = !enabled;   // revert on failure
+  }
 }
 
 // v5.0.0 (#R2): dead-letter queue card — failed deliveries with a retry button.
