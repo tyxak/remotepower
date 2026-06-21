@@ -901,6 +901,8 @@
   #cmdb-asset-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
   /* v5.0.0: the storage maintenance modal matches the CMDB asset modal width. */
   #storage-maint-modal > .modal { max-width: min(940px, 94vw); }
+  .fl-wrap { flex-wrap: wrap; }
+  #storage-maint-output { white-space: pre-wrap; font-family: var(--font-mono); font-size: 13px; }
   #cmdb-asset-modal > .modal > [id^="cmdb-tab-"] { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   /* v5.0.0: the Properties tab is a responsive 2-column grid so the short
    * inputs (Asset ID, Server function, …) sit half-width instead of spanning

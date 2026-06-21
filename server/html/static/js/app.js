@@ -13584,14 +13584,18 @@ const _STORAGE_MAINT_ACTIONS = {
     { a: 'snapshots', l: 'List snapshots', mut: 0 },
   ],
 };
+let _storagePollTimer = null;
 function openStorageMaint(deviceId, packed) {
   const [kind, target, pool] = String(packed || '').split('|');
   if (!_STORAGE_MAINT_ACTIONS[kind] || !target) { toast('No maintenance actions for this pool', 'error'); return; }
   _storageMaintCtx = { deviceId, kind, target, pool: pool || target };
+  if (_storagePollTimer) { clearInterval(_storagePollTimer); _storagePollTimer = null; }
   document.getElementById('storage-maint-title').textContent = `${kind.toUpperCase()} maintenance — ${pool || target}`;
-  document.getElementById('storage-maint-sub').textContent = `Target: ${target}. Commands run on the host and report back to its command output.`;
+  document.getElementById('storage-maint-sub').textContent = `Target: ${target}. Read actions show their output below; scrubs/balances run in the background.`;
   const snapInput = document.getElementById('storage-maint-snap');
   if (snapInput) snapInput.value = '';
+  const out = document.getElementById('storage-maint-output');
+  if (out) { out.classList.add('d-none'); out.textContent = ''; }
   document.getElementById('storage-maint-actions').innerHTML = _STORAGE_MAINT_ACTIONS[kind].map(x =>
     `<button class="btn-secondary cell-sm" data-action="storageRunAction" data-arg="${escAttr(x.a)}">${escHtml(x.l)}</button>`
   ).join('');
@@ -13601,13 +13605,63 @@ async function storageRunAction(action) {
   const c = _storageMaintCtx;
   if (!c) return;
   const def = (_STORAGE_MAINT_ACTIONS[c.kind] || []).find(x => x.a === action);
-  if (def && def.mut) {
+  const isRead = !(def && def.mut);   // status / usage / device-stats / list-snapshots
+  if (!isRead) {
     if (!await uiConfirm(`Run "${def.l}" on ${c.kind} ${c.pool}?\n\nThe command queues on ${c.pool} and runs on the host. Scrubs/balances are IO-intensive and run in the background.`)) return;
+  }
+  const out = document.getElementById('storage-maint-output');
+  if (isRead && out) {
+    out.classList.remove('d-none');
+    out.textContent = `Running ${def ? def.l.toLowerCase() : action} on ${c.pool}…\nWaiting for the host's next check-in (up to ~90s).`;
+  }
+  // Baseline against the server's OWN timestamps (not the browser clock) so we
+  // only surface the NEW result, not a stale older run of the same command.
+  let baseTs = 0;
+  if (isRead) {
+    const cur = await api('GET', `/devices/${encodeURIComponent(c.deviceId)}/output`).catch(() => null);
+    baseTs = Math.max(0, ...(((cur && cur.outputs) || [])
+      .filter(e => String(e.cmd || '').includes(c.target)).map(e => e.ts || 0)));
   }
   const r = await api('POST', `/devices/${encodeURIComponent(c.deviceId)}/storage-action`,
                       { kind: c.kind, action, target: c.target });
-  if (!r || r.error) { toast('Failed: ' + ((r && r.error) || 'unknown'), 'error'); return; }
-  toast(`Queued: ${action} on ${c.pool}. Output appears in the host's command output.`, 'success');
+  if (!r || r.error) {
+    toast('Failed: ' + ((r && r.error) || 'unknown'), 'error');
+    if (isRead && out) out.textContent = 'Failed: ' + ((r && r.error) || 'unknown');
+    return;
+  }
+  if (!isRead) { toast(`Queued: ${action} on ${c.pool}. Runs on the host; pool status updates on the next check-in.`, 'success'); return; }
+  _pollStorageOutput(c.deviceId, c.target, baseTs);
+}
+// Poll the host's command output for the result of a just-queued read action and
+// show it in the modal. Reuses the standard /output buffer (capped 100/host).
+function _pollStorageOutput(deviceId, target, baseTs) {
+  if (_storagePollTimer) { clearInterval(_storagePollTimer); }
+  const out = document.getElementById('storage-maint-output');
+  const deadline = Date.now() + 95000;
+  let dots = 0;
+  _storagePollTimer = setInterval(async () => {
+    // Stop if the modal was closed or context changed.
+    if (!_storageMaintCtx || _storageMaintCtx.deviceId !== deviceId
+        || !document.getElementById('storage-maint-modal')?.classList.contains('active')) {
+      clearInterval(_storagePollTimer); _storagePollTimer = null; return;
+    }
+    const data = await api('GET', `/devices/${encodeURIComponent(deviceId)}/output`).catch(() => null);
+    const list = (data && data.outputs) || [];
+    // Newest matching entry for this pool/mount that landed after we queued.
+    const hit = list.filter(e => e && (e.ts || 0) > baseTs && String(e.cmd || '').includes(target)).pop();
+    if (hit) {
+      clearInterval(_storagePollTimer); _storagePollTimer = null;
+      const rcline = (typeof hit.rc === 'number' && hit.rc !== 0) ? `\n\n(exit code ${hit.rc})` : '';
+      if (out) out.textContent = `$ ${hit.cmd}\n\n${hit.output || '(no output)'}${rcline}`;
+      return;
+    }
+    if (Date.now() > deadline) {
+      clearInterval(_storagePollTimer); _storagePollTimer = null;
+      if (out) out.textContent = 'No output yet — the host may be offline or checking in slowly. It will appear in the host’s command output when it reports back.';
+      return;
+    }
+    if (out) { dots = (dots + 1) % 4; out.textContent = out.textContent.replace(/\.*$/, '') + '.'.repeat(dots); }
+  }, 3000);
 }
 async function storageDeleteSnapshot() {
   const c = _storageMaintCtx;
