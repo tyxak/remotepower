@@ -819,7 +819,7 @@
         </div>
         <!-- v1.11.5: filter input -->
         <div class="mb-16"><input type="text" id="monitor-filter" class="form-input input-wide" placeholder="Filter by label, type, target, status…" aria-label="Filter by label, type, target, status"></div>
-        <div class="table-card"><table><thead id="monitor-thead"><tr><th data-col="label">Label</th><th data-col="type">Type</th><th data-col="target">Target</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th data-col="checked">Checked</th><th></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" class="empty-state">No monitors configured.</td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="monitor-thead"><tr><th scope="col" data-col="label">Label</th><th scope="col" data-col="type">Type</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="detail">Detail</th><th scope="col" data-col="checked">Checked</th><th scope="col"></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" class="empty-state">No monitors configured.</td></tr></tbody></table></div>
 
         </div><!-- /mon-panel-targets -->
         <div id="mon-panel-metrics">
@@ -848,13 +848,13 @@
           <table>
             <thead id="device-metrics-thead">
               <tr>
-                <th data-col="name">Device</th>
-                <th data-col="status">Alert</th>
-                <th data-col="memory" class="ta-right">Memory</th>
-                <th data-col="swap" class="ta-right">Swap</th>
-                <th data-col="cpu" class="ta-right">CPU load</th>
-                <th data-col="disks">Disks</th>
-                <th></th>
+                <th scope="col" data-col="name">Device</th>
+                <th scope="col" data-col="status">Alert</th>
+                <th scope="col" data-col="memory" class="ta-right">Memory</th>
+                <th scope="col" data-col="swap" class="ta-right">Swap</th>
+                <th scope="col" data-col="cpu" class="ta-right">CPU load</th>
+                <th scope="col" data-col="disks">Disks</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="device-metrics-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
@@ -878,14 +878,14 @@
           <table>
             <thead id="snmp-metrics-thead">
               <tr>
-                <th data-col="name">Device</th>
-                <th data-col="status">Alert</th>
-                <th data-col="cpu" class="ta-right">CPU</th>
-                <th data-col="memory" class="ta-right">Memory</th>
-                <th data-col="disks">Storage</th>
-                <th data-col="temp" class="ta-right">Temp</th>
-                <th data-col="uptime" class="ta-right">Uptime</th>
-                <th></th>
+                <th scope="col" data-col="name">Device</th>
+                <th scope="col" data-col="status">Alert</th>
+                <th scope="col" data-col="cpu" class="ta-right">CPU</th>
+                <th scope="col" data-col="memory" class="ta-right">Memory</th>
+                <th scope="col" data-col="disks">Storage</th>
+                <th scope="col" data-col="temp" class="ta-right">Temp</th>
+                <th scope="col" data-col="uptime" class="ta-right">Uptime</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="snmp-metrics-tbody"><tr><td colspan="8" class="empty-state">No SNMP devices yet — enable SNMP on an agentless device's Settings tab.</td></tr></tbody>
@@ -944,14 +944,14 @@
           <table>
             <thead id="cs-results-thead">
               <tr>
-                <th data-col="script_name">Script</th>
-                <th data-col="device_name">Device</th>
-                <th data-col="group">Group</th>
-                <th data-col="ok" class="ta-center">Status</th>
-                <th data-col="output">Last output</th>
-                <th data-col="ran_at">Last run</th>
-                <th data-col="duration_ms" class="ta-right">Duration</th>
-                <th></th>
+                <th scope="col" data-col="script_name">Script</th>
+                <th scope="col" data-col="device_name">Device</th>
+                <th scope="col" data-col="group">Group</th>
+                <th scope="col" data-col="ok" class="ta-center">Status</th>
+                <th scope="col" data-col="output">Last output</th>
+                <th scope="col" data-col="ran_at">Last run</th>
+                <th scope="col" data-col="duration_ms" class="ta-right">Duration</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="cs-results-tbody">
@@ -978,11 +978,11 @@
           <table>
             <thead id="processes-thead">
               <tr>
-                <th data-col="name">Process</th>
-                <th data-col="pid">PID</th>
-                <th data-col="device">Device</th>
-                <th data-col="cpu" class="ta-right">CPU %</th>
-                <th data-col="mem" class="ta-right">Mem %</th>
+                <th scope="col" data-col="name">Process</th>
+                <th scope="col" data-col="pid">PID</th>
+                <th scope="col" data-col="device">Device</th>
+                <th scope="col" data-col="cpu" class="ta-right">CPU %</th>
+                <th scope="col" data-col="mem" class="ta-right">Mem %</th>
               </tr>
             </thead>
             <tbody id="processes-tbody">
@@ -1000,7 +1000,7 @@
         <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" data-action="openUserAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add user</button></div>
         <!-- v1.11.6: filter -->
         <div class="mb-16"><input type="text" id="users-filter" class="form-input input-wide-sm" placeholder="Filter by username or role…" aria-label="Filter by username or role"></div>
-        <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th data-col="mfa">MFA</th><th data-col="source">Source</th><th></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="users-thead"><tr><th scope="col" data-col="username">Username</th><th scope="col" data-col="created">Created</th><th scope="col" data-col="role">Role</th><th scope="col" data-col="mfa">MFA</th><th scope="col" data-col="source">Source</th><th scope="col"></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
 
         <!-- v3.4.2: custom RBAC roles -->
         <div class="dash-card mt-24">
@@ -1422,7 +1422,7 @@
               </div>
             </div>
             <div class="table-card isl-46">
-              <table><thead id="webhook-log-thead"><tr><th data-col="ts">Time</th><th data-col="event">Event</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th></th></tr></thead>
+              <table><thead id="webhook-log-thead"><tr><th scope="col" data-col="ts">Time</th><th scope="col" data-col="event">Event</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="detail">Detail</th><th scope="col"></th></tr></thead>
               <tbody id="webhook-log-tbody"><tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet.</td></tr></tbody></table>
             </div>
 
@@ -1437,7 +1437,7 @@
               </div>
               <p class="hint mb-8">Permanently-failed webhook deliveries are kept here so they aren't lost when the log scrolls. Retry re-sends the exact event to its destination.</p>
               <div class="table-card">
-                <table><thead><tr><th>Time</th><th>Event</th><th>Destination</th><th>Error</th><th>Tries</th><th></th></tr></thead>
+                <table><thead><tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">Destination</th><th scope="col">Error</th><th scope="col">Tries</th><th scope="col"></th></tr></thead>
                 <tbody id="webhook-dlq-tbody"></tbody></table>
               </div>
             </div>
@@ -1562,7 +1562,7 @@
             </div>
             <div class="table-card">
               <table>
-                <thead id="inbound-webhooks-thead"><tr><th data-col="label">Label</th><th data-col="kind">Type</th><th data-col="scope">Scope</th><th>Token</th><th data-col="hit_count">Hits</th><th data-col="last_seen">Last seen</th><th data-col="enabled">Status</th><th></th></tr></thead>
+                <thead id="inbound-webhooks-thead"><tr><th scope="col" data-col="label">Label</th><th scope="col" data-col="kind">Type</th><th scope="col" data-col="scope">Scope</th><th scope="col">Token</th><th scope="col" data-col="hit_count">Hits</th><th scope="col" data-col="last_seen">Last seen</th><th scope="col" data-col="enabled">Status</th><th scope="col"></th></tr></thead>
                 <tbody id="inbound-webhooks-tbody"><tr><td colspan="8" class="empty-state">No inbound tokens yet.</td></tr></tbody>
               </table>
             </div>
@@ -2691,7 +2691,7 @@
         <div class="section-header"><div class="section-title">Recent commands</div><div class="row-8"><button class="btn-icon" data-action="loadHistory" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon c-danger-outline" data-action="clearHistory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div>
         <!-- v1.11.5: filter + sortable headers via tableCtl -->
         <div class="mb-16"><input type="text" id="history-filter" class="form-input input-wide" placeholder="Filter by actor, device, or command…" aria-label="Filter by actor, device, or command"></div>
-        <div class="table-card"><table><thead id="history-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="device_name">Device</th><th data-col="command">Command</th></tr></thead><tbody id="history-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="history-thead"><tr><th scope="col" data-col="ts">Time</th><th scope="col" data-col="actor">Actor</th><th scope="col" data-col="device_name">Device</th><th scope="col" data-col="command">Command</th></tr></thead><tbody id="history-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <!-- ── Schedule page (unchanged) ────────────────────────────────────── -->
@@ -2700,7 +2700,7 @@
         <div class="section-header"><div class="section-title">Pending jobs</div><button class="enroll-btn" data-action="openScheduleAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add job</button></div>
         <!-- v1.11.5: filter -->
         <div class="mb-16"><input type="text" id="schedule-filter" class="form-input input-wide" placeholder="Filter by device, command, or actor…" aria-label="Filter by device, command, or actor"></div>
-        <div class="table-card"><table><thead id="schedule-thead"><tr><th data-col="device_name">Device</th><th data-col="command">Command</th><th data-col="run_at">Scheduled for</th><th data-col="actor">By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" class="empty-state">No scheduled jobs. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="schedule-thead"><tr><th scope="col" data-col="device_name">Device</th><th scope="col" data-col="command">Command</th><th scope="col" data-col="run_at">Scheduled for</th><th scope="col" data-col="actor">By</th><th scope="col"></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" class="empty-state">No scheduled jobs. </td></tr></tbody></table></div>
 
         <!-- v3.4.2: cron builder relocated here (Planning) — turns plain English into a cron expression for the jobs above. -->
         <div class="settings-section ai-tool-card mt-16">
@@ -3819,14 +3819,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="ai-page-tools" class="d-none"></div>
 
         <!-- v4.10.0: AI Insights — one-click fleet reports + advisors -->
-        <div id="ai-insights-wrap" class="d-none">
-          <div class="section-title mt-16">AI Insights</div>
+        <!-- v5.0.0: boxed as its own card (each function in a separated card). -->
+        <div id="ai-insights-wrap" class="dash-card mt-16 d-none">
+          <div class="section-title">AI Insights</div>
           <div class="page-subtitle">One-click AI reports and advisors over your fleet state — each runs against the configured provider with RAG context attached. <a href="docs/ai.md" class="c-accent">Documentation</a>.</div>
           <div id="ai-insights-grid"></div>
         </div>
 
-        <!-- Chat -->
-        <div id="ai-page-chat-wrap" class="d-none">
+        <!-- Chat — v5.0.0: boxed as its own card. -->
+        <div id="ai-page-chat-wrap" class="dash-card mt-16 d-none">
           <div class="isl-113">
             <label class="form-label isl-42">Model</label>
             <select id="ai-page-model" class="form-input isl-114">
@@ -4113,12 +4114,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table>
             <thead id="checks-thead"><tr>
-              <th data-col="host">Host</th>
-              <th data-col="group">Group</th>
-              <th data-col="check">Check</th>
-              <th data-col="status">Status</th>
-              <th data-col="output">Output</th>
-              <th></th>
+              <th scope="col" data-col="host">Host</th>
+              <th scope="col" data-col="group">Group</th>
+              <th scope="col" data-col="check">Check</th>
+              <th scope="col" data-col="status">Status</th>
+              <th scope="col" data-col="output">Output</th>
+              <th scope="col"></th>
             </tr></thead>
             <tbody id="checks-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody>
           </table>
@@ -4284,7 +4285,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-header"><div class="section-title">Keys</div><button class="enroll-btn" data-action="openApiKeyCreate" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New key</button></div>
         <!-- v1.11.6: filter -->
         <div class="mb-16"><input type="text" id="apikeys-filter" class="form-input input-wide-sm" placeholder="Filter by name, role, or user…" aria-label="Filter by name, role, or user"></div>
-        <div class="table-card"><table><thead id="apikeys-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="user">User</th><th data-col="rate">Rate limit</th><th data-col="created">Created</th><th data-col="expires">Expires</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="apikeys-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="role">Role</th><th scope="col" data-col="user">User</th><th scope="col" data-col="rate">Rate limit</th><th scope="col" data-col="created">Created</th><th scope="col" data-col="expires">Expires</th><th scope="col"></th></tr></thead><tbody id="apikeys-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <!-- ── v3.5.0: Sites/teams page ─────────────────────────────────────── -->
@@ -4293,7 +4294,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Group the fleet by location, team, or customer — one level above device groups. Assign a device to a site from its drawer. Super-admins always see every site.</div>
         <div class="section-header"><div class="section-title">Sites</div><button class="enroll-btn" data-action="openSiteCreate" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New site</button></div>
         <div class="mb-16"><input type="text" id="sites-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
-        <div class="table-card"><table><thead id="sites-thead"><tr><th data-col="name">Name</th><th data-col="slug">Slug</th><th data-col="device_count">Devices</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="sites-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="slug">Slug</th><th scope="col" data-col="device_count">Devices</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
@@ -4302,7 +4303,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button></div>
         <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button></div>
         <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
-        <div class="table-card"><table><thead id="patch-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pkg_manager">Pkg Manager</th><th data-col="upgradable">Pending</th><th data-col="patch_status">Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
 
         <!-- v3.4.1: software inventory search -->
         <div class="dash-card mt-16">
@@ -4381,7 +4382,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="cve-kev-feed-text"></span>
           <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>
         </div>
-        <div class="table-card"><table><thead id="cve-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="ecosystem">Ecosystem</th><th data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th data-col="critical" class="ta-center">Critical</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Medium</th><th data-col="low" class="ta-center">Low</th><th data-col="last_scan">Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="cve-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="ecosystem">Ecosystem</th><th scope="col" data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th scope="col" data-col="critical" class="ta-center">Critical</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Medium</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="last_scan">Last scan</th><th scope="col"></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── v4.2.0 (B5): Security Scans page ─────────────────────────────────── -->
@@ -4408,7 +4409,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <label class="hint" id="scan-active-controls"><input type="checkbox" id="scan-attest"> I'm authorized to actively scan this target &nbsp; <input type="checkbox" id="scan-override"> run now (override maintenance window)</label>
         </div>
         <div id="scan-device-results" class="scroll-cap hidden mb-16"></div>
-        <div class="table-card mb-16"><table><thead id="scans-thead"><tr><th data-col="target">Target</th><th data-col="status">Status</th><th data-col="critical" class="ta-center">Crit</th><th data-col="high" class="ta-center">High</th><th data-col="medium" class="ta-center">Med</th><th data-col="low" class="ta-center">Low</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="scans-tbody"><tr><td colspan="8" class="empty-state">No scans yet. Select an enrolled device and queue one. </td></tr></tbody></table></div>
+        <div class="table-card mb-16"><table><thead id="scans-thead"><tr><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="critical" class="ta-center">Crit</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Med</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="scans-tbody"><tr><td colspan="8" class="empty-state">No scans yet. Select an enrolled device and queue one. </td></tr></tbody></table></div>
         <div id="scan-detail" class="dash-card mb-16 hidden">
           <div class="section-title">Findings — <span id="scan-detail-target"></span></div>
           <div id="scan-detail-body" class="scroll-cap"></div>
@@ -4446,7 +4447,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="services-stat-devices">0</div><div class="stat-label">Devices Reporting</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value" id="services-stat-total">0</div><div class="stat-label">Units Watched</div></div></div>
         </div>
-        <div class="table-card"><table><thead id="services-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="watched">Watched</th><th data-col="up" class="ta-center">Up</th><th data-col="down" class="ta-center">Down</th><th data-col="last_report">Last report</th><th></th></tr></thead><tbody id="services-tbody"><tr><td colspan="7" class="empty-state">Click Refresh to load. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="services-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="watched">Watched</th><th scope="col" data-col="up" class="ta-center">Up</th><th scope="col" data-col="down" class="ta-center">Down</th><th scope="col" data-col="last_report">Last report</th><th scope="col"></th></tr></thead><tbody id="services-tbody"><tr><td colspan="7" class="empty-state">Click Refresh to load. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── v1.8.1: Logs page ─────────────────────────────────────────────── -->
@@ -4504,7 +4505,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="table-card" id="logs-rules-device-wrap">
           <table>
-            <thead id="logs-rules-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="unit">Unit</th><th data-col="pattern">Pattern</th><th data-col="threshold" class="ta-center">Threshold</th><th></th></tr></thead>
+            <thead id="logs-rules-thead"><tr><th scope="col" data-col="device">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="unit">Unit</th><th scope="col" data-col="pattern">Pattern</th><th scope="col" data-col="threshold" class="ta-center">Threshold</th><th scope="col"></th></tr></thead>
             <tbody id="logs-rules-tbody"><tr><td colspan="6" class="empty-state-sm">No per-device rules configured.</td></tr></tbody>
           </table>
         </div>
@@ -4513,7 +4514,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             Fleet-wide rules apply to every device that submits logs for the named unit. Use <code>*</code> for the unit to match any unit on any device.
           </div>
           <table>
-            <thead id="logs-rules-global-thead"><tr><th data-col="unit">Unit</th><th data-col="pattern">Pattern</th><th data-col="exclude_pattern">Exclude pattern</th><th data-col="threshold" class="ta-center">Threshold</th><th data-col="created">Created</th><th></th></tr></thead>
+            <thead id="logs-rules-global-thead"><tr><th scope="col" data-col="unit">Unit</th><th scope="col" data-col="pattern">Pattern</th><th scope="col" data-col="exclude_pattern">Exclude pattern</th><th scope="col" data-col="threshold" class="ta-center">Threshold</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead>
             <tbody id="logs-rules-global-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
@@ -4530,10 +4531,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <!-- v1.11.6: filter -->
           <input type="text" id="maint-filter" class="form-input isl-135" placeholder="Filter by reason, scope, target…" aria-label="Filter by reason, scope, target">
         </div>
-        <div class="table-card"><table><thead id="maint-thead"><tr><th data-col="reason">Reason</th><th data-col="scope">Scope</th><th data-col="target">Target</th><th data-col="when">When</th><th data-col="events">Events</th><th data-col="status" class="ta-center">Status</th><th></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" class="empty-state">Click Refresh. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="maint-thead"><tr><th scope="col" data-col="reason">Reason</th><th scope="col" data-col="scope">Scope</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="when">When</th><th scope="col" data-col="events">Events</th><th scope="col" data-col="status" class="ta-center">Status</th><th scope="col"></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" class="empty-state">Click Refresh. </td></tr></tbody></table></div>
         <div id="maint-suppressions" class="isl-153">
           <div class="page-title isl-154">Recent Suppressions</div>
-          <div class="table-card"><table><thead id="maint-supp-thead"><tr><th data-col="ts">When</th><th data-col="event">Event</th><th data-col="device">Device</th><th data-col="window">Window</th><th data-col="reason">Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
+          <div class="table-card"><table><thead id="maint-supp-thead"><tr><th scope="col" data-col="ts">When</th><th scope="col" data-col="event">Event</th><th scope="col" data-col="device">Device</th><th scope="col" data-col="window">Window</th><th scope="col" data-col="reason">Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -4544,7 +4545,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Apply package updates automatically on a schedule across a group, tag, site, or the whole fleet. Queued upgrades respect maintenance windows and device quarantine.</div>
         <div class="section-header"><div class="section-title">Policies</div><button class="enroll-btn" data-action="openAutopatchCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New policy</button></div>
         <div class="mb-16"><input type="text" id="autopatch-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
-        <div class="table-card"><table><thead id="autopatch-thead"><tr><th data-col="name">Name</th><th data-col="target">Target</th><th data-col="cron">Schedule</th><th data-col="reboot">Reboot</th><th data-col="enabled">Enabled</th><th></th></tr></thead><tbody id="autopatch-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="autopatch-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="cron">Schedule</th><th scope="col" data-col="reboot">Reboot</th><th scope="col" data-col="enabled">Enabled</th><th scope="col"></th></tr></thead><tbody id="autopatch-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
       <!-- v3.6.0: Backup orchestration -->
@@ -4553,7 +4554,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Define a backup command per device (restic / borg / rsync / …), run it on demand, or schedule it with cron. Pairs with the backup-freshness monitoring in each device's drawer.</div>
         <div class="section-header"><div class="section-title">Backup jobs</div><button class="enroll-btn" data-action="openBackupJobCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New job</button></div>
         <div class="mb-16"><input type="text" id="backups-filter" class="form-input input-wide-sm" placeholder="Filter by name or device…" aria-label="Filter by name or device"></div>
-        <div class="table-card"><table><thead id="backups-thead"><tr><th data-col="name">Name</th><th data-col="device_name">Device</th><th data-col="cron">Schedule</th><th data-col="last_run">Last run</th><th data-col="enabled">Enabled</th><th></th></tr></thead><tbody id="backups-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="backups-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="device_name">Device</th><th scope="col" data-col="cron">Schedule</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="enabled">Enabled</th><th scope="col"></th></tr></thead><tbody id="backups-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
 
         <!-- v3.6.0: Proxmox guest backup recency (vzdump archives — NOT snapshots) -->
         <div class="dash-card mt-16" id="pmbackup-card">
@@ -4578,7 +4579,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Run Ansible playbooks against the fleet, with this server as the control node. Define a playbook, then run it against a group / tag / site over SSH. <span id="ansible-availability" class="hint"></span></div>
         <div class="section-header"><div class="section-title">Playbooks</div><button class="enroll-btn" data-action="openAnsibleCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New playbook</button></div>
         <div class="mb-16"><input type="text" id="ansible-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
-        <div class="table-card"><table><thead id="ansible-thead"><tr><th data-col="name">Name</th><th data-col="last_run">Last run</th><th data-col="last_rc">Result</th><th></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="ansible-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="last_rc">Result</th><th scope="col"></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
       <div id="page-rollouts" class="page">
@@ -4700,15 +4701,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <table>
             <thead id="cmdb-thead">
               <tr>
-                <th data-col="name">Name</th>
-                <th data-col="asset_id">Asset ID</th>
-                <th data-col="server_function">Function</th>
-                <th data-col="os">OS</th>
-                <th data-col="ip">IP</th>
-                <th data-col="hypervisor_url">Hypervisor</th>
-                <th data-col="docs_count">Docs</th>
-                <th data-col="creds_count">Creds</th>
-                <th></th>
+                <th scope="col" data-col="name">Name</th>
+                <th scope="col" data-col="asset_id">Asset ID</th>
+                <th scope="col" data-col="server_function">Function</th>
+                <th scope="col" data-col="os">OS</th>
+                <th scope="col" data-col="ip">IP</th>
+                <th scope="col" data-col="hypervisor_url">Hypervisor</th>
+                <th scope="col" data-col="docs_count">Docs</th>
+                <th scope="col" data-col="creds_count">Creds</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="cmdb-tbody">
@@ -4743,7 +4744,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
-              <thead><tr><th>Scope</th><th>Label</th><th>Username</th><th>Devices</th><th></th></tr></thead>
+              <thead><tr><th scope="col">Scope</th><th scope="col">Label</th><th scope="col">Username</th><th scope="col">Devices</th><th scope="col"></th></tr></thead>
               <tbody id="scoped-creds-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
@@ -4761,7 +4762,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="table-card">
             <table>
-              <thead id="containers-thead"><tr><th data-col="name">Device</th><th data-col="os">OS</th><th data-col="total">Total</th><th data-col="running">Running</th><th data-col="stopped">Stopped</th><th data-col="restarting">Restarting (≥5)</th><th data-col="runtimes">Runtimes</th><th data-col="reported_at">Reported</th><th></th></tr></thead>
+              <thead id="containers-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="total">Total</th><th scope="col" data-col="running">Running</th><th scope="col" data-col="stopped">Stopped</th><th scope="col" data-col="restarting">Restarting (≥5)</th><th scope="col" data-col="runtimes">Runtimes</th><th scope="col" data-col="reported_at">Reported</th><th scope="col"></th></tr></thead>
               <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
             </table>
           </div>
@@ -4776,7 +4777,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="table-card">
             <table>
-              <thead id="image-updates-thead"><tr><th data-col="image">Image</th><th data-col="tag">Tag</th><th data-col="hosts">Hosts</th><th data-col="status">Status</th><th data-col="registry">Registry</th><th data-col="checked">Last checked</th><th></th></tr></thead>
+              <thead id="image-updates-thead"><tr><th scope="col" data-col="image">Image</th><th scope="col" data-col="tag">Tag</th><th scope="col" data-col="hosts">Hosts</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="registry">Registry</th><th scope="col" data-col="checked">Last checked</th><th scope="col"></th></tr></thead>
               <tbody id="image-updates-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr></tbody>
             </table>
           </div>
@@ -4791,7 +4792,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="table-card">
             <table>
-              <thead id="compose-stacks-thead"><tr><th data-col="name">Stack</th><th data-col="device">Device</th><th data-col="status">Status</th><th data-col="last">Last action</th><th></th></tr></thead>
+              <thead id="compose-stacks-thead"><tr><th scope="col" data-col="name">Stack</th><th scope="col" data-col="device">Device</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="last">Last action</th><th scope="col"></th></tr></thead>
               <tbody id="compose-stacks-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
             </table>
           </div>
@@ -4890,8 +4891,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="drift-thead"><tr>
-              <th data-col="name">Device</th><th data-col="group">Group</th><th data-col="watched">Files watched</th>
-              <th data-col="drift">Drift</th><th data-col="missing">Missing</th><th data-col="last_check">Last check</th><th></th>
+              <th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="watched">Files watched</th>
+              <th scope="col" data-col="drift">Drift</th><th scope="col" data-col="missing">Missing</th><th scope="col" data-col="last_check">Last check</th><th scope="col"></th>
             </tr></thead>
             <tbody id="drift-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
@@ -4917,8 +4918,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="exposure-thead"><tr>
-              <th data-col="device">Device</th><th data-col="port">Proto/Port</th><th data-col="process">Process</th>
-              <th data-col="addr">Bind address</th><th data-col="scope">Scope</th><th></th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="port">Proto/Port</th><th scope="col" data-col="process">Process</th>
+              <th scope="col" data-col="addr">Bind address</th><th scope="col" data-col="scope">Scope</th><th scope="col"></th>
             </tr></thead>
             <tbody id="exposure-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -4934,9 +4935,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="secrets-thead"><tr>
-              <th data-col="device">Device</th><th data-col="rule">Type</th>
-              <th data-col="path">Path</th><th data-col="preview">Preview</th>
-              <th data-col="line">Line</th><th></th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="rule">Type</th>
+              <th scope="col" data-col="path">Path</th><th scope="col" data-col="preview">Preview</th>
+              <th scope="col" data-col="line">Line</th><th scope="col"></th>
             </tr></thead>
             <tbody id="secrets-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -4958,9 +4959,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
               <thead id="firewall-thead"><tr>
-                <th data-col="device">Device</th><th data-col="backend">Backends</th>
-                <th data-col="active">State</th><th data-col="rules">Rules</th>
-                <th data-col="fp">Drift fingerprint</th><th></th>
+                <th scope="col" data-col="device">Device</th><th scope="col" data-col="backend">Backends</th>
+                <th scope="col" data-col="active">State</th><th scope="col" data-col="rules">Rules</th>
+                <th scope="col" data-col="fp">Drift fingerprint</th><th scope="col"></th>
               </tr></thead>
               <tbody id="firewall-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
             </table>
@@ -4979,8 +4980,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
               <thead id="fail2ban-thead"><tr>
-                <th data-col="device">Device</th><th data-col="jails">Jails</th>
-                <th data-col="banned">Banned IPs</th><th data-col="available">Status</th><th></th>
+                <th scope="col" data-col="device">Device</th><th scope="col" data-col="jails">Jails</th>
+                <th scope="col" data-col="banned">Banned IPs</th><th scope="col" data-col="available">Status</th><th scope="col"></th>
               </tr></thead>
               <tbody id="fail2ban-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
             </table>
@@ -5001,8 +5002,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="risk-thead"><tr>
-              <th data-col="device">Device</th><th data-col="score">Risk</th>
-              <th data-col="level">Level</th><th data-col="factors">Top factors</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="score">Risk</th>
+              <th scope="col" data-col="level">Level</th><th scope="col" data-col="factors">Top factors</th>
             </tr></thead>
             <tbody id="risk-tbody"><tr><td colspan="4" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5044,8 +5045,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="storage-thead"><tr>
-              <th data-col="device">Device</th><th data-col="pool">Pool</th><th data-col="kind">Type</th>
-              <th data-col="state">State</th><th data-col="capacity">Capacity</th><th data-col="scrub">Last scrub</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="pool">Pool</th><th scope="col" data-col="kind">Type</th>
+              <th scope="col" data-col="state">State</th><th scope="col" data-col="capacity">Capacity</th><th scope="col" data-col="scrub">Last scrub</th>
             </tr></thead>
             <tbody id="storage-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5066,10 +5067,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="thermal-thead"><tr>
-              <th data-col="device">Device</th><th data-col="max_temp">Max temp</th>
-              <th data-col="sensor_label">Hottest sensor</th><th data-col="sensor_type">Type</th>
-              <th data-col="crit_c">Threshold</th><th data-col="headroom">Headroom</th>
-              <th data-col="sensors">Sensors</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="max_temp">Max temp</th>
+              <th scope="col" data-col="sensor_label">Hottest sensor</th><th scope="col" data-col="sensor_type">Type</th>
+              <th scope="col" data-col="crit_c">Threshold</th><th scope="col" data-col="headroom">Headroom</th>
+              <th scope="col" data-col="sensors">Sensors</th>
             </tr></thead>
             <tbody id="thermal-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5090,9 +5091,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="ssh-keys-thead"><tr>
-              <th data-col="device">Device</th><th data-col="user">User</th>
-              <th data-col="type">Type</th><th data-col="comment">Comment</th>
-              <th data-col="fingerprint">Fingerprint</th><th data-col="hosts">Hosts</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="user">User</th>
+              <th scope="col" data-col="type">Type</th><th scope="col" data-col="comment">Comment</th>
+              <th scope="col" data-col="fingerprint">Fingerprint</th><th scope="col" data-col="hosts">Hosts</th>
             </tr></thead>
             <tbody id="ssh-keys-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5113,9 +5114,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap">
           <table class="data-table w-full">
             <thead id="power-thead"><tr>
-              <th data-col="device">Device</th><th data-col="status">UPS status</th>
-              <th data-col="battery_pct">Battery</th><th data-col="load_pct">Load</th>
-              <th data-col="runtime_s">Runtime</th><th data-col="watts">Power</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="status">UPS status</th>
+              <th scope="col" data-col="battery_pct">Battery</th><th scope="col" data-col="load_pct">Load</th>
+              <th scope="col" data-col="runtime_s">Runtime</th><th scope="col" data-col="watts">Power</th>
             </tr></thead>
             <tbody id="power-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5141,9 +5142,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="disk-health-thead"><tr>
-              <th data-col="risk">Risk</th><th data-col="device">Device</th>
-              <th data-col="disk">Disk</th><th data-col="wear">Wear</th>
-              <th data-col="eta">ETA</th><th data-col="reasons">Signals</th>
+              <th scope="col" data-col="risk">Risk</th><th scope="col" data-col="device">Device</th>
+              <th scope="col" data-col="disk">Disk</th><th scope="col" data-col="wear">Wear</th>
+              <th scope="col" data-col="eta">ETA</th><th scope="col" data-col="reasons">Signals</th>
             </tr></thead>
             <tbody id="disk-health-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5153,8 +5154,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="unstable-thead"><tr>
-              <th data-col="device">Device</th><th data-col="restarts">Restarts (7d)</th>
-              <th data-col="reason">Last boot reason</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="restarts">Restarts (7d)</th>
+              <th scope="col" data-col="reason">Last boot reason</th>
             </tr></thead>
             <tbody id="unstable-tbody"><tr><td colspan="3" class="hint">—</td></tr></tbody>
           </table>
@@ -5189,8 +5190,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter device / package…" data-input="filterRows" data-input-el="1" data-filter-target="#swpol-viol-tbody tr" aria-label="Filter device / package">
           <table class="data-table w-full">
             <thead id="swpol-viol-thead"><tr>
-              <th data-col="device">Device</th><th data-col="type">Rule</th><th data-col="package">Package</th>
-              <th data-col="expected">Expected</th><th data-col="found">Found</th>
+              <th scope="col" data-col="device">Device</th><th scope="col" data-col="type">Rule</th><th scope="col" data-col="package">Package</th>
+              <th scope="col" data-col="expected">Expected</th><th scope="col" data-col="found">Found</th>
             </tr></thead>
             <tbody id="swpol-viol-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
           </table>
@@ -5225,12 +5226,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead id="dns-thead"><tr>
-                <th data-col="name">Name</th>
-                <th data-col="type">Type</th>
-                <th data-col="content">Content</th>
-                <th data-col="ttl">TTL</th>
-                <th>Flags</th>
-                <th></th>
+                <th scope="col" data-col="name">Name</th>
+                <th scope="col" data-col="type">Type</th>
+                <th scope="col" data-col="content">Content</th>
+                <th scope="col" data-col="ttl">TTL</th>
+                <th scope="col">Flags</th>
+                <th scope="col"></th>
               </tr></thead>
               <tbody id="dns-tbody"></tbody>
             </table>
@@ -5267,13 +5268,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead><tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Health</th>
-                <th>Latency</th>
-                <th>Resolvers</th>
-                <th>Checked</th>
-                <th></th>
+                <th scope="col">Name</th>
+                <th scope="col">Type</th>
+                <th scope="col">Health</th>
+                <th scope="col">Latency</th>
+                <th scope="col">Resolvers</th>
+                <th scope="col">Checked</th>
+                <th scope="col"></th>
               </tr></thead>
               <tbody id="rslv-tbody"></tbody>
             </table>
@@ -5298,12 +5299,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead><tr>
-                <th>IP</th>
-                <th>Label</th>
-                <th>Status</th>
-                <th>Blocklists</th>
-                <th>Checked</th>
-                <th></th>
+                <th scope="col">IP</th>
+                <th scope="col">Label</th>
+                <th scope="col">Status</th>
+                <th scope="col">Blocklists</th>
+                <th scope="col">Checked</th>
+                <th scope="col"></th>
               </tr></thead>
               <tbody id="reputation-tbody"></tbody>
             </table>
@@ -5321,14 +5322,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead id="dmarc-thead"><tr>
-                <th data-col="domain">Domain</th>
-                <th data-col="status">Status</th>
-                <th data-col="dmarc">DMARC</th>
-                <th data-col="spf">SPF</th>
-                <th data-col="dkim">DKIM</th>
-                <th>Findings</th>
-                <th data-col="checked">Checked</th>
-                <th></th>
+                <th scope="col" data-col="domain">Domain</th>
+                <th scope="col" data-col="status">Status</th>
+                <th scope="col" data-col="dmarc">DMARC</th>
+                <th scope="col" data-col="spf">SPF</th>
+                <th scope="col" data-col="dkim">DKIM</th>
+                <th scope="col">Findings</th>
+                <th scope="col" data-col="checked">Checked</th>
+                <th scope="col"></th>
               </tr></thead>
               <tbody id="dmarc-tbody"></tbody>
             </table>
@@ -5347,13 +5348,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead><tr>
-                <th>Reporter</th>
-                <th>Domain</th>
-                <th>Policy</th>
-                <th>Window</th>
-                <th>Messages</th>
-                <th>Pass</th>
-                <th>Fail</th>
+                <th scope="col">Reporter</th>
+                <th scope="col">Domain</th>
+                <th scope="col">Policy</th>
+                <th scope="col">Window</th>
+                <th scope="col">Messages</th>
+                <th scope="col">Pass</th>
+                <th scope="col">Fail</th>
               </tr></thead>
               <tbody id="dmarc-reports-tbody"></tbody>
             </table>
@@ -5366,11 +5367,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="scrollable-table-wrap audit-scroll">
             <table>
               <thead><tr>
-                <th>Source IP</th>
-                <th>Pass</th>
-                <th>Fail</th>
-                <th>From domains</th>
-                <th>Last seen</th>
+                <th scope="col">Source IP</th>
+                <th scope="col">Pass</th>
+                <th scope="col">Fail</th>
+                <th scope="col">From domains</th>
+                <th scope="col">Last seen</th>
               </tr></thead>
               <tbody id="dmarc-sources-tbody"></tbody>
             </table>
@@ -5395,7 +5396,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="table-card">
             <table>
-              <thead id="tls-thead"><tr><th data-col="status">Status</th><th data-col="host">Host</th><th data-col="port">Port</th><th data-col="days_left">Days left</th><th data-col="expires_at">Expires</th><th data-col="issuer">Issuer</th><th data-col="last_check">Last check</th><th></th></tr></thead>
+              <thead id="tls-thead"><tr><th scope="col" data-col="status">Status</th><th scope="col" data-col="host">Host</th><th scope="col" data-col="port">Port</th><th scope="col" data-col="days_left">Days left</th><th scope="col" data-col="expires_at">Expires</th><th scope="col" data-col="issuer">Issuer</th><th scope="col" data-col="last_check">Last check</th><th scope="col"></th></tr></thead>
               <tbody id="tls-tbody"><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
             </table>
           </div>
@@ -5433,14 +5434,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div id="acme-suppressed-hint" class="isl-184"></div>
             <table>
               <thead id="acme-thead"><tr>
-                <th data-col="device_name">Device</th>
-                <th data-col="domain">Domain</th>
-                <th data-col="challenge">Challenge</th>
-                <th data-col="provider">Provider</th>
-                <th data-col="created">Created</th>
-                <th data-col="renew">Next renewal</th>
-                <th data-col="status">Status</th>
-                <th>Actions</th>
+                <th scope="col" data-col="device_name">Device</th>
+                <th scope="col" data-col="domain">Domain</th>
+                <th scope="col" data-col="challenge">Challenge</th>
+                <th scope="col" data-col="provider">Provider</th>
+                <th scope="col" data-col="created">Created</th>
+                <th scope="col" data-col="renew">Next renewal</th>
+                <th scope="col" data-col="status">Status</th>
+                <th scope="col">Actions</th>
               </tr></thead>
               <tbody id="acme-tbody"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
             </table>
@@ -5492,13 +5493,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <table>
             <thead id="alerts-thead">
               <tr>
-                <th class="isl-187"><input type="checkbox" id="alerts-select-all" data-change="toggleAllAlerts" data-change-checked="1"></th>
-                <th data-col="severity">Severity</th>
-                <th data-col="ts">Time</th>
-                <th data-col="title">Title</th>
-                <th data-col="device_name">Device</th>
-                <th data-col="acknowledged_by">Ack by</th>
-                <th></th>
+                <th scope="col" class="isl-187"><input type="checkbox" id="alerts-select-all" data-change="toggleAllAlerts" data-change-checked="1"></th>
+                <th scope="col" data-col="severity">Severity</th>
+                <th scope="col" data-col="ts">Time</th>
+                <th scope="col" data-col="title">Title</th>
+                <th scope="col" data-col="device_name">Device</th>
+                <th scope="col" data-col="acknowledged_by">Ack by</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="alerts-tbody">
@@ -5524,7 +5525,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="table-card">
             <div class="scrollable-table-wrap audit-scroll">
               <table>
-                <thead><tr><th>Resolved</th><th>Severity</th><th>Title</th><th>Host</th><th>MTTR</th><th>How</th><th>By</th></tr></thead>
+                <thead><tr><th scope="col">Resolved</th><th scope="col">Severity</th><th scope="col">Title</th><th scope="col">Host</th><th scope="col">MTTR</th><th scope="col">How</th><th scope="col">By</th></tr></thead>
                 <tbody id="mttr-tbody"></tbody>
               </table>
             </div>
@@ -5544,13 +5545,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table>
             <thead id="confirmations-thead"><tr>
-              <th data-col="status">Status</th>
-              <th data-col="requested_at">Requested</th>
-              <th data-col="action">Action</th>
-              <th data-col="device_name">Device</th>
-              <th data-col="ai_host">AI host</th>
-              <th data-col="ai_prompt">Prompt</th>
-              <th></th>
+              <th scope="col" data-col="status">Status</th>
+              <th scope="col" data-col="requested_at">Requested</th>
+              <th scope="col" data-col="action">Action</th>
+              <th scope="col" data-col="device_name">Device</th>
+              <th scope="col" data-col="ai_host">AI host</th>
+              <th scope="col" data-col="ai_prompt">Prompt</th>
+              <th scope="col"></th>
             </tr></thead>
             <tbody id="confirmations-tbody">
               <tr><td colspan="7" class="empty-state">Loading…</td></tr>
@@ -5577,7 +5578,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon c-danger-outline" data-action="clearAuditLog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
           <button class="btn-icon c-danger-outline" data-action="revokeAllSessions">Revoke all sessions</button>
         </div>
-        <div class="table-card"><table><thead id="audit-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="action">Action</th><th data-col="detail">Detail</th><th data-col="source_ip">Source IP</th></tr></thead><tbody id="audit-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="audit-thead"><tr><th scope="col" data-col="ts">Time</th><th scope="col" data-col="actor">Actor</th><th scope="col" data-col="action">Action</th><th scope="col" data-col="detail">Detail</th><th scope="col" data-col="source_ip">Source IP</th></tr></thead><tbody id="audit-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <div id="page-cmdlib" class="page">
@@ -5585,7 +5586,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-header"><div class="section-title">Snippets</div><button class="enroll-btn" data-action="openCmdLibAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add snippet</button></div>
         <!-- v1.11.6: filter -->
         <div class="mb-16"><input type="text" id="cmdlib-filter" class="form-input input-wide-sm" placeholder="Filter by name, command, or description…" aria-label="Filter by name, command, or description"></div>
-        <div class="table-card"><table><thead id="cmdlib-thead"><tr><th data-col="name">Name</th><th data-col="cmd">Command</th><th data-col="description">Description</th><th></th></tr></thead><tbody id="cmdlib-tbody"><tr><td colspan="4" class="empty-state">No snippets yet. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="cmdlib-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="cmd">Command</th><th scope="col" data-col="description">Description</th><th scope="col"></th></tr></thead><tbody id="cmdlib-tbody"><tr><td colspan="4" class="empty-state">No snippets yet. </td></tr></tbody></table></div>
       </div>
 
       <!-- v2.1.0: Scripts page — multi-line scripts, separate from one-liner Library -->
@@ -5599,12 +5600,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="mb-16"><input type="text" id="scripts-filter" class="form-input input-wide-sm" placeholder="Filter by name or description…" data-input="renderScriptsList" aria-label="Filter by name or description"></div>
         <div class="table-card"><table>
           <thead id="scripts-thead"><tr>
-            <th data-col="name" class="isl-187">Name</th>
-            <th data-col="description">Description</th>
-            <th data-col="size" class="isl-188">Size</th>
-            <th data-col="updated" class="isl-189">Updated</th>
-            <th data-col="flags" class="isl-188">Flags</th>
-            <th class="isl-190"></th>
+            <th scope="col" data-col="name" class="isl-187">Name</th>
+            <th scope="col" data-col="description">Description</th>
+            <th scope="col" data-col="size" class="isl-188">Size</th>
+            <th scope="col" data-col="updated" class="isl-189">Updated</th>
+            <th scope="col" data-col="flags" class="isl-188">Flags</th>
+            <th scope="col" class="isl-190"></th>
           </tr></thead>
           <tbody id="scripts-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
         </table></div>
@@ -6052,7 +6053,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <input type="file" id="files-upload-input" class="d-none" data-change="sftpUploadFile">
   <div class="mono-12 hint mb-6">Path: <span id="files-cwd">/</span></div>
-  <div class="table-card"><table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody id="files-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
+  <div class="table-card"><table><thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified</th><th scope="col"></th></tr></thead><tbody id="files-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
 </div></div>
 <!-- v3.6.0: auto-patch policy create/edit -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="autopatch-modal-title" id="autopatch-modal"><div class="modal">

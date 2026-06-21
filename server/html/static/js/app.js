@@ -10414,6 +10414,11 @@ function _applyNavTints() {
 
 // Refresh alert + confirmation badges on load and every 60s after
 function _refreshTopBadges() {
+  // v5.0.0: skip when unauthenticated — the badge poll is armed on
+  // DOMContentLoaded (and re-fires every 60s), so without this guard it hits
+  // /api/nav-counts on the login screen (a 401 in the console) and keeps
+  // polling after logout. The counts are meaningless without a session anyway.
+  if (!getToken()) return;
   // One bundled request — /nav-counts carries all three badge groups now.
   // refreshAlertsBadge()/refreshConfirmationsBadge() still exist for the
   // targeted refreshes after ack/approve actions.
@@ -16924,6 +16929,10 @@ async function _getAiConfigCached() {
 }
 
 async function applyAiIdentity() {
+  // v5.0.0: don't fetch /api/ai/config before login — the body MutationObserver
+  // fires this on the login screen (401 in console). It re-fires post-login when
+  // showApp() mutates the DOM, so the AI identity still applies once authed.
+  if (!getToken()) return;
   const cfg = await _getAiConfigCached();
   if (!cfg.enabled) return;
   // v3.3.0: was a text.indexOf('AI') sniff. Emoji are gone from the UI,
@@ -22587,6 +22596,9 @@ async function _dbgFlush() {
 
 // Sync localStorage with server config on page load
 (async function _dbgInit() {
+  // v5.0.0: only when authenticated — pre-login this 401s /api/config on the
+  // login screen. Re-synced on the next load once a session exists.
+  if (!getToken()) return;
   try {
     const cfg = await api('GET', '/config');
     if (cfg?.debug_logging) {
