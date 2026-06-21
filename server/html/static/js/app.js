@@ -13630,11 +13630,11 @@ async function storageRunAction(action) {
     return;
   }
   if (!isRead) { toast(`Queued: ${action} on ${c.pool}. Runs on the host; pool status updates on the next check-in.`, 'success'); return; }
-  _pollStorageOutput(c.deviceId, c.target, baseTs);
+  _pollStorageOutput(c.deviceId, c.target, baseTs, action);
 }
 // Poll the host's command output for the result of a just-queued read action and
 // show it in the modal. Reuses the standard /output buffer (capped 100/host).
-function _pollStorageOutput(deviceId, target, baseTs) {
+function _pollStorageOutput(deviceId, target, baseTs, action) {
   if (_storagePollTimer) { clearInterval(_storagePollTimer); }
   const out = document.getElementById('storage-maint-output');
   const deadline = Date.now() + 95000;
@@ -13651,6 +13651,7 @@ function _pollStorageOutput(deviceId, target, baseTs) {
     const hit = list.filter(e => e && (e.ts || 0) > baseTs && String(e.cmd || '').includes(target)).pop();
     if (hit) {
       clearInterval(_storagePollTimer); _storagePollTimer = null;
+      if (action === 'snapshots') { _renderSnapshotList(out, target, hit); return; }
       const rcline = (typeof hit.rc === 'number' && hit.rc !== 0) ? `\n\n(exit code ${hit.rc})` : '';
       if (out) out.textContent = `$ ${hit.cmd}\n\n${hit.output || '(no output)'}${rcline}`;
       return;
@@ -13675,6 +13676,49 @@ async function storageDeleteSnapshot() {
   toast('Snapshot deletion queued.', 'success');
   const snapInput = document.getElementById('storage-maint-snap');
   if (snapInput) snapInput.value = '';
+}
+
+// Parse a snapshot listing into individual deletable names so you can remove
+// snapshots from the list without copy-pasting paths.
+//  - zfs `zfs list -t snapshot`: first column is the name (contains '@').
+//  - btrfs `subvolume list -s`: each line ends in `path <subvol>`; the deletable
+//    path is that joined onto the filesystem mountpoint (the target).
+function _parseSnapshotNames(kind, target, text) {
+  const lines = String(text || '').split('\n');
+  if (kind === 'zfs') {
+    return lines.map(l => l.trim().split(/\s+/)[0]).filter(t => t && t.includes('@'));
+  }
+  const base = (target === '/' ? '' : target.replace(/\/+$/, ''));
+  const out = [];
+  for (const l of lines) {
+    const m = l.match(/\bpath\s+(.+?)\s*$/);
+    if (!m) continue;
+    const rel = m[1].trim();
+    out.push(rel.startsWith('/') ? rel : `${base}/${rel}`);
+  }
+  return out;
+}
+function _renderSnapshotList(out, target, hit) {
+  const c = _storageMaintCtx;
+  if (!out || !c) return;
+  const names = _parseSnapshotNames(c.kind, target, hit.output);
+  if (!names.length) {
+    out.textContent = `$ ${hit.cmd}\n\n${hit.output || '(no snapshots)'}`;
+    return;
+  }
+  const rows = names.map(n =>
+    `<div class="row-8-center mb-4"><code class="fl-1 ellipsis">${escHtml(n)}</code><button class="btn-icon cell-sm c-red" data-action="storageDeleteNamedSnapshot" data-arg="${escAttr(n)}" title="Delete this snapshot">Delete</button></div>`
+  ).join('');
+  out.innerHTML = `<div class="row-8-center mb-8"><strong>${names.length} snapshot${names.length === 1 ? '' : 's'}</strong> on ${escHtml(c.pool)} — click Delete to remove one (destructive).</div>${rows}`;
+}
+async function storageDeleteNamedSnapshot(snap) {
+  const c = _storageMaintCtx;
+  if (!c || !snap) return;
+  if (!await uiConfirm(`Permanently DELETE snapshot:\n\n${snap}\n\nThis cannot be undone.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(c.deviceId)}/storage-action`,
+                      { kind: c.kind, action: c.kind === 'zfs' ? 'destroy' : 'delete', target: c.target, snapshot: snap });
+  if (!r || r.error) { toast('Failed: ' + ((r && r.error) || 'unknown'), 'error'); return; }
+  toast('Snapshot deletion queued: ' + snap, 'success');
 }
 
 // ─── v3.14.0: Fleet thermal roll-up ("hottest hosts") ───────────────────────
