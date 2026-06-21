@@ -539,5 +539,72 @@ class TestMaintenanceMode(unittest.TestCase):
         self.assertIn("function toggleMaintenanceMode", APP)
 
 
+# ─────────────────────────── #R4 graceful long-poll SIGTERM ────────────────────
+class TestLongpollGracefulShutdown(unittest.TestCase):
+    def test_handler_installs_sigterm(self):
+        i = API_SRC.index("def handle_longpoll_exec(")
+        block = API_SRC[i:i + 3500]
+        self.assertIn("signal.SIGTERM", block)
+        self.assertIn("_shutting_down", block)
+        self.assertIn("'shutdown': True", block)
+        self.assertIn("_restore_signal()", block)
+
+
+# ─────────────────────────── #R5 OSV circuit breaker ───────────────────────────
+class TestOsvCircuitBreaker(unittest.TestCase):
+    def setUp(self):
+        import cve_scanner
+        self.cve = cve_scanner
+        self.dir = Path(tempfile.mkdtemp())
+
+    def test_closed_by_default(self):
+        self.assertFalse(self.cve.osv_breaker_open(self.dir))
+
+    def test_opens_after_threshold(self):
+        for _ in range(self.cve.OSV_FAIL_THRESHOLD - 1):
+            self.cve.osv_breaker_record(self.dir, ok=False)
+        self.assertFalse(self.cve.osv_breaker_open(self.dir))   # not yet
+        self.cve.osv_breaker_record(self.dir, ok=False)         # trips it
+        self.assertTrue(self.cve.osv_breaker_open(self.dir))
+
+    def test_success_resets(self):
+        for _ in range(self.cve.OSV_FAIL_THRESHOLD):
+            self.cve.osv_breaker_record(self.dir, ok=False)
+        self.assertTrue(self.cve.osv_breaker_open(self.dir))
+        self.cve.osv_breaker_record(self.dir, ok=True)
+        self.assertFalse(self.cve.osv_breaker_open(self.dir))
+
+    def test_cooldown_expires(self):
+        now = 1_000_000
+        for _ in range(self.cve.OSV_FAIL_THRESHOLD):
+            self.cve.osv_breaker_record(self.dir, ok=False, now=now)
+        self.assertTrue(self.cve.osv_breaker_open(self.dir, now=now + 1))
+        self.assertFalse(self.cve.osv_breaker_open(self.dir,
+                                                   now=now + self.cve.OSV_COOLDOWN + 1))
+
+    def test_scan_device_skips_when_open(self):
+        for _ in range(self.cve.OSV_FAIL_THRESHOLD):
+            self.cve.osv_breaker_record(self.dir, ok=False)
+        res = self.cve.scan_device("d1", [{"name": "openssl", "version": "1.0"}],
+                                   "Debian:12", self.dir)
+        self.assertTrue(res.get("skipped"))
+        self.assertIn("circuit breaker", res.get("error", ""))
+
+    def test_scan_device_records_failure(self):
+        # stub _osv_querybatch to raise → scan_device records a breaker failure
+        real = self.cve._osv_querybatch
+
+        def _boom(_b):
+            raise RuntimeError("osv down")
+        self.cve._osv_querybatch = _boom
+        try:
+            self.cve.scan_device("d1", [{"name": "openssl", "version": "1.0"}],
+                                 "Debian:12", self.dir)
+            st = self.cve._load_json(self.cve._breaker_path(self.dir))
+            self.assertEqual(st.get("failures"), 1)
+        finally:
+            self.cve._osv_querybatch = real
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -30262,19 +30262,49 @@ def handle_longpoll_exec():
     save(CMDS_FILE, cmds)
     log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec(wait):{cmd_str[:40]}')
 
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        time.sleep(1)
-        lp   = load(LONGPOLL_FILE)
-        slot = lp.get(dev_id, {})
-        if slot.get('ready'):
-            output = slot.get('output', {})
-            del lp[dev_id]; save(LONGPOLL_FILE, lp)
-            respond(200, {'ok': True, 'output': output})
+    # v5.0.0 (#R4): graceful shutdown. On SIGTERM (controller restart/upgrade)
+    # the worker would otherwise kill this child mid-sleep, orphaning the waiting
+    # HTTP client. Install a SIGTERM handler that flips a flag so the loop exits
+    # cleanly, clears the slot, and returns a "retry" response. signal.signal only
+    # works on the main thread — under a threaded worker it raises, so we just
+    # skip the graceful path there (the command is already queued either way).
+    import signal as _signal
+    _shutting_down = {'flag': False}
+    _prev_handler = None
+    try:
+        _prev_handler = _signal.signal(_signal.SIGTERM,
+                                       lambda *_a: _shutting_down.__setitem__('flag', True))
+    except (ValueError, OSError):
+        _prev_handler = None
 
-    lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
-    respond(200, {'ok': False, 'timeout': True,
-                  'message': 'Output not received within timeout — poll /output endpoint'})
+    def _restore_signal():
+        if _prev_handler is not None:
+            try:
+                _signal.signal(_signal.SIGTERM, _prev_handler)
+            except (ValueError, OSError):
+                pass
+
+    try:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if _shutting_down['flag']:
+                lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
+                respond(503, {'ok': False, 'shutdown': True,
+                              'message': 'Server is restarting — the command is queued; '
+                                         'poll the /output endpoint shortly.'})
+            time.sleep(1)
+            lp   = load(LONGPOLL_FILE)
+            slot = lp.get(dev_id, {})
+            if slot.get('ready'):
+                output = slot.get('output', {})
+                del lp[dev_id]; save(LONGPOLL_FILE, lp)
+                respond(200, {'ok': True, 'output': output})
+
+        lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
+        respond(200, {'ok': False, 'timeout': True,
+                      'message': 'Output not received within timeout — poll /output endpoint'})
+    finally:
+        _restore_signal()
 
 
 def handle_digest():

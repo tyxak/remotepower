@@ -108,6 +108,44 @@ def _osv_vuln_details(vuln_id: str) -> dict | None:
         return None
 
 
+# ── v5.0.0 (#R5): OSV circuit breaker ────────────────────────────────────────
+# When OSV.dev is unreachable, a fleet scan would otherwise hammer it once per
+# device (thundering herd) and stall every scan on the timeout. After
+# OSV_FAIL_THRESHOLD consecutive failures the breaker OPENS for OSV_COOLDOWN
+# seconds: scan_device returns immediately (skipped) without touching OSV, and
+# the next attempt after the cooldown probes again (half-open). State is a tiny
+# file in the same cache dir as the details cache.
+OSV_FAIL_THRESHOLD = 3
+OSV_COOLDOWN = 600  # 10 minutes
+
+
+def _breaker_path(cache_dir: Path) -> Path:
+    return cache_dir / "cve_osv_breaker.json"
+
+
+def osv_breaker_open(cache_dir: Path, now: int = None) -> bool:
+    """True when the breaker is open — callers should skip OSV work."""
+    now = now if now is not None else int(time.time())
+    st = _load_json(_breaker_path(cache_dir))
+    return int(st.get("open_until", 0) or 0) > now
+
+
+def osv_breaker_record(cache_dir: Path, ok: bool, now: int = None) -> dict:
+    """Record one OSV outcome. A success resets the breaker; consecutive
+    failures past the threshold open it for OSV_COOLDOWN. Returns the new state."""
+    now = now if now is not None else int(time.time())
+    if ok:
+        st = {"failures": 0, "open_until": 0, "last_ok": now}
+    else:
+        st = _load_json(_breaker_path(cache_dir))
+        st["failures"] = int(st.get("failures", 0)) + 1
+        st["last_fail"] = now
+        if st["failures"] >= OSV_FAIL_THRESHOLD:
+            st["open_until"] = now + OSV_COOLDOWN
+    _save_json(_breaker_path(cache_dir), st)
+    return st
+
+
 # ── CVSS vector parser ───────────────────────────────────────────────────────
 #
 # v2.3.4: the previous implementation did naive substring matching on the
@@ -361,6 +399,18 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
     if len(packages) > MAX_PACKAGES:
         packages = packages[:MAX_PACKAGES]
 
+    # v5.0.0 (#R5): if the OSV circuit breaker is open (OSV.dev down), skip the
+    # scan entirely instead of hammering an unreachable service per device.
+    if osv_breaker_open(cache_dir):
+        return {
+            'scanned_at': int(time.time()),
+            'ecosystem': ecosystem,
+            'findings': [],
+            'error': 'OSV unavailable — circuit breaker open, scan skipped',
+            'skipped': True,
+            'partial': True,
+        }
+
     details_cache = _load_json(cache_dir / 'cve_details_cache.json')
     findings = []
     pkg_by_index = []
@@ -385,6 +435,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
         try:
             batch_results = _osv_querybatch(batch)
         except Exception as e:
+            # v5.0.0 (#R5): record the failure — repeated ones trip the breaker
+            # so the rest of the fleet scan stops hammering a dead OSV.
+            osv_breaker_record(cache_dir, ok=False)
             return {
                 'scanned_at': int(time.time()),
                 'ecosystem': ecosystem,
@@ -393,6 +446,8 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
                 'partial': True,
             }
         all_results.extend(batch_results)
+    # All batches succeeded → the breaker resets (half-open probe recovered).
+    osv_breaker_record(cache_dir, ok=True)
 
     # v1.8.4: cache TTL is configurable via the server's settings
     effective_ttl = cache_ttl if cache_ttl is not None else DETAILS_CACHE_TTL
