@@ -11894,11 +11894,75 @@ def handle_reboot():
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'reboot', actor)})
 
 
+def _ver_tuple(s):
+    """Parse 'X.Y.Z' → (X, Y, Z) ints; non-numeric parts → 0. Short strings pad."""
+    parts = (str(s or '').strip().split('.') + ['0', '0', '0'])[:3]
+    out = []
+    for p in parts:
+        try:
+            out.append(int(re.sub(r'[^0-9].*$', '', p) or 0))
+        except (TypeError, ValueError):
+            out.append(0)
+    return tuple(out)
+
+
+def _agent_compat(agent_ver, server_ver=None):
+    """v5.0.0 (#F4): is this agent version compatible with the server, and is an
+    update available? Updating points the agent at the server's binary, so a
+    cross-MAJOR jump is the mismatch risk. Returns a dict the UI surfaces."""
+    server_ver = server_ver or SERVER_VERSION
+    a = _ver_tuple(agent_ver)
+    s = _ver_tuple(server_ver)
+    if not agent_ver:
+        return {'compatible': True, 'update_available': False,
+                'reason': 'agent version unknown'}
+    update_available = a < s
+    # Agent NEWER than server (major) → updating would be a downgrade: incompatible.
+    if a[0] > s[0]:
+        return {'compatible': False, 'update_available': False,
+                'reason': f'agent {agent_ver} is newer than server {server_ver} — '
+                          f'upgrade the server first'}
+    # Agent more than one MAJOR behind → a big jump that may need a clean reinstall.
+    if s[0] - a[0] > 1:
+        return {'compatible': False, 'update_available': update_available,
+                'reason': f'agent {agent_ver} is >1 major behind server {server_ver} — '
+                          f'reinstall the agent rather than self-update'}
+    return {'compatible': True, 'update_available': update_available,
+            'reason': 'up to date' if not update_available else
+                      f'update available ({agent_ver} → {server_ver})'}
+
+
+def handle_agent_compat():
+    """``GET /api/agent-compat`` — per-device agent/server version compatibility
+    so the UI can warn before a (bulk) update queues a mismatch."""
+    require_auth()
+    devs = load(DEVICES_FILE) or {}
+    out = []
+    for dev_id, dev in devs.items():
+        if dev.get('agentless'):
+            continue
+        ver = dev.get('version', '')
+        c = _agent_compat(ver)
+        out.append({'id': dev_id, 'name': dev.get('name', dev_id),
+                    'version': ver, **c})
+    respond(200, {'server_version': SERVER_VERSION, 'devices': out})
+
+
 def handle_update_device():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('patch', ids)
+    # v5.0.0 (#F4): block an update that would be a cross-major downgrade (agent
+    # newer than server) unless explicitly forced — prevents version mismatches.
+    if not body.get('force'):
+        devs = load(DEVICES_FILE) or {}
+        for dev_id in ids:
+            c = _agent_compat((devs.get(dev_id) or {}).get('version', ''))
+            if not c['compatible']:
+                respond(409, {'error': f'Incompatible update: {c["reason"]}',
+                              'incompatible': True, 'device_id': dev_id,
+                              'hint': 'pass {"force": true} to override'})
     if len(ids) == 1: _queue_command(ids[0], 'update', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'update', actor)})
 
@@ -44426,6 +44490,7 @@ def _build_exact_routes():
         ('GET', '/api/version'): handle_version_check,
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
+        ('GET', '/api/agent-compat'): handle_agent_compat,                # v5.0.0 #F4
         ('POST', '/api/devices/bulk-delete'): handle_devices_bulk_delete,  # v5.0.0 #F1
         ('POST', '/api/devices/bulk-tags'): handle_devices_bulk_tags,      # v5.0.0 #F2
         ('GET', '/api/maintenance'): handle_maintenance_mode_get,    # v5.0.0 #R3

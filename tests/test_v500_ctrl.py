@@ -697,5 +697,53 @@ class TestPerCommandTimeout(unittest.TestCase):
         self.assertIsNone(re.match(r'^to=(\d{1,5}):(.*)$', "echo hello", re.DOTALL))
 
 
+# ─────────────────────────── #F4 agent version-compat ──────────────────────────
+class TestAgentCompat(unittest.TestCase):
+    def test_ver_tuple(self):
+        self.assertEqual(api._ver_tuple("4.10.0"), (4, 10, 0))
+        self.assertEqual(api._ver_tuple("5"), (5, 0, 0))
+        self.assertEqual(api._ver_tuple("4.9"), (4, 9, 0))
+        self.assertEqual(api._ver_tuple(""), (0, 0, 0))
+
+    def test_up_to_date(self):
+        c = api._agent_compat("5.0.0", "5.0.0")
+        self.assertTrue(c["compatible"])
+        self.assertFalse(c["update_available"])
+
+    def test_update_available(self):
+        c = api._agent_compat("4.10.0", "5.0.0")
+        self.assertTrue(c["compatible"])
+        self.assertTrue(c["update_available"])
+
+    def test_agent_newer_incompatible(self):
+        c = api._agent_compat("6.0.0", "5.0.0")
+        self.assertFalse(c["compatible"])
+        self.assertIn("newer than server", c["reason"])
+
+    def test_too_far_behind_incompatible(self):
+        c = api._agent_compat("3.0.0", "5.0.0")
+        self.assertFalse(c["compatible"])
+        self.assertIn("major behind", c["reason"])
+
+    def test_unknown_version_ok(self):
+        c = api._agent_compat("", "5.0.0")
+        self.assertTrue(c["compatible"])
+
+    def test_update_handler_gates(self):
+        i = API_SRC.index("def handle_update_device(")
+        block = API_SRC[i:i + 900]
+        self.assertIn("_agent_compat(", block)
+        self.assertIn("body.get('force')", block)
+        self.assertIn("'incompatible': True", block)
+
+    def test_route(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("GET", "/api/agent-compat")[0], "handle_agent_compat")
+
+    def test_frontend_force(self):
+        self.assertIn("data?.incompatible", APP)
+        self.assertIn("force: true", APP)
+
+
 if __name__ == "__main__":
     unittest.main()
