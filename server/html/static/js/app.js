@@ -2838,6 +2838,7 @@ async function loadSettings() {
   document.getElementById('cfg-session-long').value  = Math.round((data.session_ttl_long  || 86400 * 30) / 86400);
   document.getElementById('cfg-remember-default').checked = !!data.remember_me_default;
   { const m = document.getElementById('cfg-require-agent-mtls'); if (m) m.checked = !!data.require_agent_mtls; }
+  { const d = document.getElementById('cfg-disk-watchdog-pct'); if (d) d.value = data.disk_watchdog_pct ?? 85; }
 
   // Activate tab from URL hash
   const hash = (location.hash || '').replace(/^#/, '');
@@ -2962,6 +2963,7 @@ async function saveSettings(btn) {
     session_ttl_long:      sessLongDays * 86400,
     remember_me_default:   document.getElementById('cfg-remember-default').checked,
     require_agent_mtls:     document.getElementById('cfg-require-agent-mtls')?.checked || false,
+    disk_watchdog_pct:      parseInt(document.getElementById('cfg-disk-watchdog-pct')?.value ?? '85', 10),
 
     // v1.8.6: SMTP
     smtp_enabled:    document.getElementById('cfg-smtp-enabled').checked,
@@ -16335,6 +16337,8 @@ function _renderHomeActivity(fleetEvents) {
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
+    // v5.0.0 (#R1): server self disk-space watchdog
+    'server_disk_low', 'server_disk_ok',
     // v3.2.0 (B5): SNMP polling state transitions
     'snmp_unreachable', 'snmp_dead', 'snmp_recover',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
@@ -16483,6 +16487,8 @@ function _homeActivityAttrs(event, p) {
     case 'drift_detected':
       return `${base} data-home-act="drift"`;
     case 'vault_break_glass': return `${base} data-home-act="cmdb"`;
+    case 'server_disk_low': case 'server_disk_ok':
+      return `${base} data-home-act="self"`;
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
     case 'patch_alert':    return `${base} data-home-act="patches"`;

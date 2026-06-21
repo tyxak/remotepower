@@ -1801,6 +1801,18 @@
             </label>
           </div>
 
+          <!-- ── v5.0.0 (#R1): server disk-space watchdog ────────────────────── -->
+          <div class="settings-section">
+            <h3>Server disk watchdog</h3>
+            <p class="hint">Alert when the RemotePower controller's own data directory fills up — <em>before</em> file-lock writes start failing. Fires a high-severity <code>server_disk_low</code> alert (and a recover when it drops back). Checked every 30 min on the heartbeat hook.</p>
+            <div class="settings-row">
+              <div class="form-group mw-200">
+                <label class="form-label">Alert at used % (0 = off)</label>
+                <input type="number" id="cfg-disk-watchdog-pct" class="form-input" min="0" max="99" placeholder="85">
+              </div>
+            </div>
+          </div>
+
           <!-- v3.12.0: SSH preferences moved to My Account (top-right). -->
 
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->

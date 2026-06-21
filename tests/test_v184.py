@@ -279,6 +279,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'vault_break_glass',  # v5.0.0 #C3
             'backup_stale', 'backup_verify_failed', 'backup_verified',
             'rollout_halted',
+            'server_disk_low', 'server_disk_ok',  # v5.0.0 #R1
             # v3.2.0 (B5): SNMP polling state transitions
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
             # v3.2.0 (A1 follow-up): MCP confirmation TTL expiry

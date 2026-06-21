@@ -774,6 +774,10 @@ WEBHOOK_EVENTS = (
     ('backup_verify_failed',  'Backup integrity check failed',               True),
     ('backup_verified',       'Backup integrity check passed (recovered)',   True),
     ('rollout_halted',        'Rollout auto-halted (health gate / verify)',  True),
+    # v5.0.0 (#R1): the RemotePower server's OWN data-dir filesystem is filling
+    # up — alert before flock writes start failing. _ok is the recover event.
+    ('server_disk_low',       'Server data-dir disk space is low',           True),
+    ('server_disk_ok',        'Server disk space recovered',                 True),
     # v3.2.0 (B5): SNMP polling state changes for agentless devices
     ('snmp_unreachable',      'SNMP poll failing for 2+ cycles',             True),
     # v3.2.0 follow-up: severity escalation after sustained failure
@@ -4172,6 +4176,7 @@ _ALERT_RULES = {
     'device_offline':         ('critical', None),
     'agent_stopped':          ('high', None),
     'vault_break_glass':      ('high',     None),   # v5.0.0 #C3
+    'server_disk_low':        ('high',     None),   # v5.0.0 #R1
     'service_down':           ('high',     None),
     'container_stopped':      ('high',     None),
     'container_restarting':   ('medium',   None),
@@ -4253,6 +4258,8 @@ _ALERT_RECOVER = {
     'device_online':           'device_offline',
     'agent_started':           'agent_stopped',
     'backup_verified':         'backup_verify_failed',
+    'server_disk_ok':          'server_disk_low',     # v5.0.0 #R1
+
     # v4.2.0 sweep: the service processor fires `service_up` (and always has);
     # `service_recover` was a phantom key nothing ever fired, so service_down
     # alerts sat open forever after the unit recovered. Keep both spellings —
@@ -4332,6 +4339,7 @@ CHANNEL_KINDS = [
     ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
     ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
     ('break_glass', 'Break-glass cred reveals', 'operational',   ['vault_break_glass']),
+    ('server_disk', 'Server disk space',        'operational',   ['server_disk_low', 'server_disk_ok']),
     ('backup',      'Backup health',            'operational',   ['backup_stale', 'backup_verify_failed', 'backup_verified']),
     ('rollout',     'Rollout halted',           'operational',   ['rollout_halted']),
     ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
@@ -4950,6 +4958,10 @@ def _auto_resolve_alerts(event, payload):
         # v4.9.0: resolver-health events aren't devices — match the open
         # resolver_unhealthy alert by the monitored name (stored as 'target').
         sub_match['target'] = p.get('target')
+    elif event == 'server_disk_ok':
+        # v5.0.0 (#R1): the server disk watchdog isn't a device — match the open
+        # server_disk_low alert by its fixed target ('server').
+        sub_match['target'] = p.get('target')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -5533,6 +5545,8 @@ def _webhook_title(event):
         'agent_stopped': 'Agent Stopped',
         'agent_started': 'Agent Started',
         'vault_break_glass': 'Break-Glass Reveal Requested',
+        'server_disk_low': 'Server Disk Space Low',
+        'server_disk_ok': 'Server Disk Space Recovered',
         'device_online':  'Device Online',
         'command_queued':  'Command Queued',
         'command_executed': 'Command Executed',
@@ -9761,6 +9775,11 @@ def handle_heartbeat():
         _maybe_run_scheduled_backup()
     except Exception as _bk:
         sys.stderr.write(f'[remotepower] scheduled backup hook error: {_bk}\n')
+    # v5.0.0 (#R1): server self disk-space watchdog (30-min gate, cheap).
+    try:
+        _maybe_check_disk_space()
+    except Exception as _dw:
+        sys.stderr.write(f'[remotepower] disk watchdog hook error: {_dw}\n')
     # v3.14.0 #28: opportunistic OTLP metrics push (interval-gated, ~1 file read
     # when not due). Same piggyback pattern as the scheduled-backup hook.
     try:
@@ -13072,6 +13091,7 @@ def handle_config_get():
     safe.setdefault('tenancy_enforced', False)   # v3.14.0 #24 P2
     safe.setdefault('trust_proxy', False)         # v3.14.0: XFF behind a load balancer
     safe.setdefault('require_agent_mtls', False)  # v5.0.0 #C1: mutual-TLS gate
+    safe.setdefault('disk_watchdog_pct', 85)      # v5.0.0 #R1: server disk alert %
     safe.setdefault('agentless_ssh_enabled', False)   # v3.14.0 #48
     safe['agentless_ssh_key_set'] = bool(safe.pop('agentless_ssh_key', None))
     # v3.14.0 #32: cloud accounts — surface provider/region/key-id + a *_set
@@ -13805,6 +13825,15 @@ def handle_config_save():
     # v5.0.0 (#C1): require a CA-verified client certificate on agent requests.
     if 'require_agent_mtls' in body:
         cfg['require_agent_mtls'] = bool(body['require_agent_mtls'])
+    # v5.0.0 (#R1): server disk-space watchdog threshold (used %, 0 = off).
+    if 'disk_watchdog_pct' in body:
+        try:
+            v = int(body['disk_watchdog_pct'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'disk_watchdog_pct must be an integer'})
+        if v < 0 or v > 99:
+            respond(400, {'error': 'disk_watchdog_pct must be 0..99 (0 = off)'})
+        cfg['disk_watchdog_pct'] = v
 
     # v3.14.0 (#48): agentless SSH. Opt-in (default off); the private key is a
     # write-only secret (preserved when omitted, never returned by GET).
@@ -16754,6 +16783,58 @@ def _maybe_run_scheduled_backup():
     finally:
         try: sentinel.unlink()
         except OSError: pass
+
+
+def _maybe_check_disk_space():
+    """v5.0.0 (#R1): server self disk-space watchdog. Called from the heartbeat
+    hot path, gated to once per 30 min. Fires `server_disk_low` (high) when the
+    DATA_DIR filesystem crosses the configured used% threshold, and the
+    `server_disk_ok` recover (with 3-point hysteresis) when it drops back —
+    catching the failure mode where the controller's own disk fills and flock
+    writes start to fail. Threshold: `disk_watchdog_pct` (default 85; 0 = off).
+    """
+    cfg = load(CONFIG_FILE) or {}
+    try:
+        threshold = int(cfg.get('disk_watchdog_pct', 85))
+    except (TypeError, ValueError):
+        threshold = 85
+    if threshold <= 0:
+        return
+    state_file = DATA_DIR / 'disk_watchdog_state.json'
+    state = load(state_file) if backend_exists(state_file) else {}
+    now = int(time.time())
+    if now - int(state.get('last_check') or 0) < 1800:
+        return  # checked within the last 30 min
+    try:
+        st = os.statvfs(str(DATA_DIR))
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used_pct = round((1 - free / total) * 100, 1) if total else 0
+    except Exception:
+        return
+    alerted = bool(state.get('alerted'))
+    pending = None  # (event, payload) fired AFTER we persist state (no lock here)
+    if used_pct >= threshold and not alerted:
+        alerted = True
+        pending = ('server_disk_low', {
+            'target': 'server', 'name': 'RemotePower server',
+            'used_pct': used_pct, 'threshold': threshold,
+            'free_gb': round(free / 1e9, 1), 'total_gb': round(total / 1e9, 1),
+            'path': str(DATA_DIR),
+        })
+    elif alerted and used_pct < threshold - 3:
+        alerted = False
+        pending = ('server_disk_ok', {
+            'target': 'server', 'name': 'RemotePower server',
+            'used_pct': used_pct, 'threshold': threshold,
+        })
+    state.update(last_check=now, used_pct=used_pct, alerted=alerted)
+    try:
+        save(state_file, state)
+    except Exception:
+        pass
+    if pending:
+        fire_webhook(pending[0], pending[1])
 
 
 def handle_version_check():

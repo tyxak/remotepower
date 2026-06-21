@@ -351,5 +351,92 @@ class TestAgentMtls(unittest.TestCase):
         self.assertIn("require_agent_mtls:", APP)
 
 
+# ─────────────────────────── #R1 server disk watchdog ──────────────────────────
+class TestDiskWatchdog(unittest.TestCase):
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {})
+        try:
+            (api.DATA_DIR / "disk_watchdog_state.json").unlink()
+        except (OSError, FileNotFoundError):
+            pass
+
+    def test_events_registered(self):
+        names = {e[0] for e in api.WEBHOOK_EVENTS}
+        self.assertIn("server_disk_low", names)
+        self.assertIn("server_disk_ok", names)
+        self.assertEqual(api._ALERT_RULES.get("server_disk_low")[0], "high")
+        self.assertEqual(api._ALERT_RECOVER.get("server_disk_ok"), "server_disk_low")
+        kinds = {row[0] for row in api.CHANNEL_KINDS}
+        self.assertIn("server_disk", kinds)
+
+    def test_recover_matches_by_target(self):
+        # the server_disk_ok branch in _auto_resolve_alerts matches on 'target'
+        i = API_SRC.index("def _auto_resolve_alerts(")
+        block = API_SRC[i:i + 4000]
+        self.assertIn("event == 'server_disk_ok'", block)
+        self.assertIn("sub_match['target'] = p.get('target')", block)
+
+    def test_target_in_record_alert_whitelist(self):
+        # 'target' must be a whitelisted key or the recover never resolves
+        i = API_SRC.index("def _record_alert(")
+        self.assertIn("'target'", API_SRC[i:i + 2500])
+
+    def test_low_fires_then_recovers(self):
+        # Drive the watchdog by stubbing os.statvfs + bypassing the 30-min gate.
+        import os as _os
+        fired = []
+        real_fire = api.fire_webhook
+        api.fire_webhook = lambda ev, pl=None: fired.append((ev, pl))
+        real_statvfs = _os.statvfs
+
+        class _FakeVfs:
+            def __init__(self, used):
+                self.f_frsize = 4096
+                self.f_blocks = 1000
+                self.f_bavail = int(1000 * (1 - used))
+
+        try:
+            api.save(api.CONFIG_FILE, {"disk_watchdog_pct": 85})
+            # 1) 95% used → fires server_disk_low
+            _os.statvfs = lambda p: _FakeVfs(0.95)
+            api._maybe_check_disk_space()
+            self.assertEqual(fired[-1][0], "server_disk_low")
+            self.assertEqual(fired[-1][1]["target"], "server")
+            # force the gate open again
+            st = api.load(api.DATA_DIR / "disk_watchdog_state.json")
+            st["last_check"] = 0
+            api.save(api.DATA_DIR / "disk_watchdog_state.json", st)
+            # 2) recovered to 50% → fires server_disk_ok
+            _os.statvfs = lambda p: _FakeVfs(0.50)
+            api._maybe_check_disk_space()
+            self.assertEqual(fired[-1][0], "server_disk_ok")
+        finally:
+            api.fire_webhook = real_fire
+            _os.statvfs = real_statvfs
+
+    def test_threshold_zero_disables(self):
+        api.save(api.CONFIG_FILE, {"disk_watchdog_pct": 0})
+        fired = []
+        real = api.fire_webhook
+        api.fire_webhook = lambda ev, pl=None: fired.append(ev)
+        try:
+            api._maybe_check_disk_space()
+            self.assertEqual(fired, [])
+        finally:
+            api.fire_webhook = real
+
+    def test_heartbeat_calls_watchdog(self):
+        self.assertIn("_maybe_check_disk_space()", API_SRC)
+        i = API_SRC.index("def handle_heartbeat(")
+        self.assertIn("_maybe_check_disk_space()", API_SRC[i:i + 1500])
+
+    def test_config_and_frontend(self):
+        self.assertIn("cfg['disk_watchdog_pct'] = v", API_SRC)
+        self.assertIn("safe.setdefault('disk_watchdog_pct', 85)", API_SRC)
+        self.assertIn('id="cfg-disk-watchdog-pct"', HTML)
+        self.assertIn("server_disk_low", APP)
+        self.assertIn('data-home-act="self"', APP)
+
+
 if __name__ == "__main__":
     unittest.main()
