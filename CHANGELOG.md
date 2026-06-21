@@ -56,6 +56,17 @@ only a `webhook_configured` boolean is exposed now; rotate that webhook after
 upgrading if you used the legacy field); and per-disk SMART / per-GPU /
 temperature trend samples are now written outside the hardware lock so they're
 durable on the SQLite backend.
+Second finalize sweep (whole-project; no Critical/High/Medium findings): fixed a
+500 on the per-device patch report; the agent's **audit (read-only) mode** now
+also refuses server-pushed custom monitoring scripts (the fourth command channel);
+distro **security-flagged update counts** are surfaced on the Checks page and in
+the patch alert; SSRF connect-time guards extended to **SNMP**, **LDAP** and
+**Proxmox** runtime calls (loopback / link-local / cloud-metadata refused, peer IP
+re-validated); the containerized agent now reads backup, web-access-log, file-log
+and ACME paths through the host rootfs; the Reputation, DMARC and Scoped-credential
+tables are now sortable; the NOC Status Board and break-glass list cap their height
+and scroll; the heartbeat writes `backup_state` once per beat instead of twice; and
+the debug instrumentation no longer runs on every request when disabled.
 Deferred:
 user-configurable timezone. See docs/v5.0.0.md.
 

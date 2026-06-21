@@ -1629,7 +1629,7 @@ def handle_maintenance_mode_set():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
     enabled = bool(body.get('enabled'))
     reason = _sanitize_str(body.get('reason', ''), 200, allow_empty=True) or ''
     cfg = load(CONFIG_FILE) or {}
@@ -6932,16 +6932,19 @@ def check_offline_webhooks(skip_dev_id=None):
                 patch_threshold = int(raw_threshold)
                 alerted = cfg.setdefault('patch_alerted', {})
                 for dev_id, dev in devices.items():
-                    count = dev.get('sysinfo', {}).get('packages', {}).get('upgradable')
+                    pkgs = dev.get('sysinfo', {}).get('packages', {})
+                    count = pkgs.get('upgradable')
                     if not isinstance(count, int):
                         continue
+                    sec = pkgs.get('security_updates')   # v5.0.0: distro-flagged security count
+                    sec = sec if isinstance(sec, int) else None
                     over = count >= patch_threshold
                     was = alerted.get(dev_id, False)
                     if over and not was:
                         alerted[dev_id] = True
                         patch_fires.append((
                             dev_id, dev.get('name', dev_id),
-                            dev.get('hostname', ''), count,
+                            dev.get('hostname', ''), count, sec,
                         ))
                     elif not over and was:
                         alerted[dev_id] = False
@@ -6999,12 +7002,15 @@ def check_offline_webhooks(skip_dev_id=None):
         except Exception:
             pass
 
-    for dev_id, name, hostname, count in patch_fires:
-        fire_webhook('patch_alert', {
+    for dev_id, name, hostname, count, sec in patch_fires:
+        payload = {
             'device_id': dev_id, 'name': name,
             'hostname': hostname, 'upgradable': count,
             'threshold': patch_threshold,
-        })
+        }
+        if sec:   # v5.0.0: highlight vendor-flagged security updates when present
+            payload['security_updates'] = sec
+        fire_webhook('patch_alert', payload)
 
 # ─── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -7769,7 +7775,7 @@ def handle_devices_bulk_delete():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
     ids = body.get('device_ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
@@ -7791,7 +7797,7 @@ def handle_device_tags(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
     tags = body.get('tags', [])
     if not isinstance(tags, list):
         respond(400, {'error': 'tags must be a list'})
@@ -7817,7 +7823,7 @@ def handle_devices_bulk_tags():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()   # v5.0.0: coerce non-dict body → {} (no 500 on a JSON array)
     ids = body.get('device_ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'device_ids must be a non-empty list'})
@@ -11374,15 +11380,23 @@ def handle_heartbeat():
         except Exception:
             pass
 
-    # v2.8.1: backup file age monitoring
+    # v2.8.1: backup file age monitoring.
+    # v5.0.0 perf: the freshness block and the integrity block below both mutate
+    # the same per-`device:path` entries in backup_state.json, so load the fleet
+    # blob once and save once — a heartbeat carrying both used to parse + rewrite
+    # the whole blob twice.
+    _bs_path = DATA_DIR / 'backup_state.json'
     _backup_status = body.get('backup_status')
+    _backup_verify = body.get('backup_verify')
+    _bak_state = None
+    _bak_changed = False
+    if (isinstance(_backup_status, list) and _backup_status) or \
+       (isinstance(_backup_verify, list) and _backup_verify):
+        _bak_state = (load(_bs_path) or {}) if backend_exists(_bs_path) else {}
     if isinstance(_backup_status, list) and _backup_status:
         try:
             _cfg_bak = load(CONFIG_FILE) or {}
             _bak_monitors = _cfg_bak.get('backup_monitors') or []
-            _bak_state = (load(DATA_DIR / 'backup_state.json') or {}
-                          if backend_exists(DATA_DIR / 'backup_state.json') else {})
-            _bak_changed = False
             # Index monitors by path once (first-wins) instead of an O(monitors)
             # scan per reported backup path.
             _mon_by_path = {}
@@ -11421,25 +11435,20 @@ def handle_heartbeat():
                 _v.update({'ok': _is_ok, 'age_h': _age_h})
                 _bak_state[_state_key] = _v
                 _bak_changed = True
-            if _bak_changed:
-                save(DATA_DIR / 'backup_state.json', _bak_state)
         except Exception:
             pass
 
     # v4.10.0: backup INTEGRITY verification results (restic/borg/tar check). Merged
     # into the same backup_state entry; edge-triggered backup_verify_failed /
     # backup_verified. Outside the device lock — fire_webhook is lock-safe here.
-    _backup_verify = body.get('backup_verify')
     if isinstance(_backup_verify, list) and _backup_verify:
         try:
-            _bv_state = (load(DATA_DIR / 'backup_state.json') or {}
-                         if backend_exists(DATA_DIR / 'backup_state.json') else {})
+            _bv_state = _bak_state if _bak_state is not None else {}
             _bv_mons = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
             _bv_label_by_path = {}
             for _m in _bv_mons:
                 if isinstance(_m, dict):
                     _bv_label_by_path.setdefault(str(_m.get('path', '')), _m.get('label'))
-            _bv_changed = False
             for entry in _backup_verify:
                 if not isinstance(entry, dict):
                     continue
@@ -11472,9 +11481,14 @@ def handle_heartbeat():
                               'verify_at': int(entry.get('verify_at', now) or now),
                               'verify_tool': entry.get('tool', '')})
                 _bv_state[_state_key] = _prev
-                _bv_changed = True
-            if _bv_changed:
-                save(DATA_DIR / 'backup_state.json', _bv_state)
+                _bak_changed = True
+        except Exception:
+            pass
+
+    # v5.0.0 perf: single write after both backup blocks (see note above).
+    if _bak_changed and _bak_state is not None:
+        try:
+            save(_bs_path, _bak_state)
         except Exception:
             pass
 
@@ -14104,6 +14118,13 @@ def handle_config_save():
         v = _sanitize_str(body['ldap_url'], 255)
         if v and not (v.startswith('ldap://') or v.startswith('ldaps://')):
             respond(400, {'error': 'ldap_url must start with ldap:// or ldaps://'})
+        # v5.0.0 SSRF: classify the target at save (mirrors the proxmox/AI/tls
+        # preflight). ldap3 connects to this URL on every login attempt, so an
+        # unvalidated link-local/metadata host is a blind connect/port oracle.
+        # Loopback stays allowed (a same-host LDAP/AD sidecar is legitimate);
+        # RFC1918/LAN allowed (LDAP servers are normally on the LAN).
+        if v and _url_targets_local_or_meta(urllib.parse.urlparse(v), allow_loopback=True):
+            respond(400, {'error': 'ldap_url must not point at a link-local or cloud-metadata address'})
         cfg['ldap_url'] = v
     if 'ldap_bind_dn' in body:
         cfg['ldap_bind_dn'] = _sanitize_str(body['ldap_bind_dn'], 512)
@@ -26178,8 +26199,17 @@ def _host_checks(dev_id, dev, hw_rec=None, disabled=None, now=0, ttl=180,
             si.get('reboot_reason') or 'pending')
     up = (si.get('packages') or {}).get('upgradable')
     if isinstance(up, int):
-        add('patches', 'Pending updates', 'patch', 'warning' if up > 0 else 'ok',
-            f'{up} update(s)')
+        # v5.0.0: surface the distro's own SECURITY-flagged count. The vendor
+        # saying "patch now" is the highest-signal update state, so a host with
+        # pending security updates is a warning even when the total is small.
+        sec = (si.get('packages') or {}).get('security_updates')
+        sec = sec if isinstance(sec, int) else None
+        if sec:
+            detail = f'{up} update(s), {sec} security'
+        else:
+            detail = f'{up} update(s)'
+        add('patches', 'Pending updates', 'patch',
+            'warning' if (up > 0 or sec) else 'ok', detail)
     if cve_high is not None:
         add('cve', 'CVEs (crit+high)', 'security', 'critical' if cve_high else 'ok',
             f'{cve_high} finding(s)')
@@ -32807,6 +32837,7 @@ def handle_patch_report_device(dev_id):
     si = dev.get('sysinfo', {})
     pkg = si.get('packages', {})
     upgradable = pkg.get('upgradable')
+    security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
     is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
 
     # All exec output related to patching
@@ -36483,6 +36514,18 @@ def _device_snmp_target(dev):
         port = 161
     if not host or not community:
         return None
+    # v5.0.0 SSRF: SNMP was the one fleet outbound path with no IP classification.
+    # Reject link-local / cloud-metadata / unspecified targets so a device IP can't
+    # be used as a blind UDP:161 oracle against 169.254.169.254 etc. Loopback stays
+    # ALLOWED on purpose — monitoring the server host's own snmpd over 127.0.0.1 is a
+    # legitimate pattern (mirrors the allow_loopback default the notifier and other
+    # outbound features use). RFC1918/LAN allowed (the design target). None → skip.
+    try:
+        if _url_targets_local_or_meta(urllib.parse.urlparse(f'snmp://{host}'), allow_loopback=True):
+            sys.stderr.write(f"[remotepower] snmp: refusing link-local/metadata target {host!r}\n")
+            return None
+    except Exception:
+        pass
     return (host, community, port)
 
 

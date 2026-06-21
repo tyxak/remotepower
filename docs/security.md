@@ -67,7 +67,8 @@ Recent releases were independently penetration-tested with
 [semgrep](https://semgrep.dev/), [gitleaks](https://github.com/gitleaks/gitleaks)
 and [OWASP ZAP](https://www.zaproxy.org/), each passing clean: **v4.7.0** (homelab
 integrations + containerized agent), **v4.8.0** (onboarding + DMARC monitor),
-**v4.9.0** (DNS dashboard + resolver health) and **v4.10.0** (firewall/fail2ban).
+**v4.9.0** (DNS dashboard + resolver health), **v4.10.0** (firewall/fail2ban) and
+**v5.0.0** (control-plane hardening + scale).
 Every outbound feature — integrations, DNS providers, AI providers, web-push and
 the monitors — reuses the same connect-time SSRF guard (loopback / link-local /
 cloud-metadata refused, peer IP re-validated, no redirects), with credentials

@@ -14318,15 +14318,30 @@ async function loadDmarc() {
   loadReputation();
   loadDmarcReports();
 }
+let _reputationResp = null;
 async function loadReputation() {
+  tableCtl.wireSortOnly('reputation-thead', 'reputation', () => _renderReputation());
   const data = await api('GET', '/reputation/targets');
   if (!data) return;
+  _reputationResp = data;
   const dn = document.getElementById('reputation-dnsbls');
   if (dn) dn.textContent = `Checking ${(data.dnsbls || []).length} blocklist(s): `
     + (data.dnsbls || []).map(z => z.name).join(', ');
+  _renderReputation();
+}
+function _renderReputation() {
+  const data = _reputationResp;
+  if (!data) return;
   const tb = document.getElementById('reputation-tbody');
   if (!tb) return;
-  const rows = data.targets || [];
+  let rows = data.targets || [];
+  rows = tableCtl.sortRows('reputation', rows.slice(), t => ({
+    ip:         (t.ip || '').toLowerCase(),
+    label:      (t.label || '').toLowerCase(),
+    status:     t.error ? 0 : (t.listed_count || 0),
+    blocklists: t.listed_count || 0,
+    checked:    t.checked_at || 0,
+  }));
   tb.innerHTML = rows.length ? rows.map(t => {
     const errs = t.errors && typeof t.errors === 'object' ? t.errors : {};
     const errCount = Object.keys(errs).length;
@@ -14376,9 +14391,13 @@ async function deleteReputation(id) {
   if (r && r.ok) { toast('Removed', 'info'); loadReputation(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
+let _dmarcReportsResp = null;
 async function loadDmarcReports() {
+  tableCtl.wireSortOnly('dmarc-reports-thead', 'dmarc_reports', () => _renderDmarcReports());
+  tableCtl.wireSortOnly('dmarc-sources-thead', 'dmarc_sources', () => _renderDmarcSources());
   const data = await api('GET', '/dmarc/reports');
   if (!data) return;
+  _dmarcReportsResp = data;
   const mb = data.mailbox || {};
   const mbEl = document.getElementById('dmarc-mailbox');
   if (mbEl) {
@@ -14386,24 +14405,49 @@ async function loadDmarcReports() {
     else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${new Date(mb.checked_at * 1000).toLocaleString()}`;
     else mbEl.textContent = 'Mailbox: not polled yet — configure IMAP and fetch.';
   }
+  _renderDmarcReports();
+  _renderDmarcSources();
+}
+function _renderDmarcReports() {
+  if (!_dmarcReportsResp) return;
   const rtb = document.getElementById('dmarc-reports-tbody');
-  if (rtb) {
-    const rows = data.reports || [];
-    rtb.innerHTML = rows.length ? rows.map(r => {
-      const s = r.summary || {};
-      const win = r.date_begin ? `${new Date(r.date_begin * 1000).toLocaleDateString()} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString()}` : '—';
-      const fail = s.fail || 0;
-      return `<tr><td>${escHtml(r.org_name || '—')}</td><td class="fw-500">${escHtml(r.domain || '')}</td><td>${escHtml(r.policy || '—')}</td><td class="hint">${win}</td><td>${s.total || 0}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td></tr>`;
-    }).join('') : '<tr><td colspan="7" class="hint">No reports ingested yet.</td></tr>';
-  }
+  if (!rtb) return;
+  let rows = _dmarcReportsResp.reports || [];
+  rows = tableCtl.sortRows('dmarc_reports', rows.slice(), r => {
+    const s = r.summary || {};
+    return {
+      reporter: (r.org_name || '').toLowerCase(),
+      domain:   (r.domain || '').toLowerCase(),
+      policy:   (r.policy || '').toLowerCase(),
+      window:   r.date_begin || 0,
+      messages: s.total || 0,
+      pass:     s.pass || 0,
+      fail:     s.fail || 0,
+    };
+  });
+  rtb.innerHTML = rows.length ? rows.map(r => {
+    const s = r.summary || {};
+    const win = r.date_begin ? `${new Date(r.date_begin * 1000).toLocaleDateString()} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString()}` : '—';
+    const fail = s.fail || 0;
+    return `<tr><td>${escHtml(r.org_name || '—')}</td><td class="fw-500">${escHtml(r.domain || '')}</td><td>${escHtml(r.policy || '—')}</td><td class="hint">${win}</td><td>${s.total || 0}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" class="hint">No reports ingested yet.</td></tr>';
+}
+function _renderDmarcSources() {
+  if (!_dmarcReportsResp) return;
   const stb = document.getElementById('dmarc-sources-tbody');
-  if (stb) {
-    const rows = data.sources || [];
-    stb.innerHTML = rows.length ? rows.map(s => {
-      const fail = s.fail || 0;
-      return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? new Date(s.last_seen * 1000).toLocaleDateString() : '—'}</td></tr>`;
-    }).join('') : '<tr><td colspan="5" class="hint">No sending sources seen yet.</td></tr>';
-  }
+  if (!stb) return;
+  let rows = _dmarcReportsResp.sources || [];
+  rows = tableCtl.sortRows('dmarc_sources', rows.slice(), s => ({
+    ip:       (s.ip || '').toLowerCase(),
+    pass:     s.pass || 0,
+    fail:     s.fail || 0,
+    domains:  (s.domains || []).join(', ').toLowerCase(),
+    lastseen: s.last_seen || 0,
+  }));
+  stb.innerHTML = rows.length ? rows.map(s => {
+    const fail = s.fail || 0;
+    return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? new Date(s.last_seen * 1000).toLocaleDateString() : '—'}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="hint">No sending sources seen yet.</td></tr>';
 }
 async function dmarcFetch() {
   toast('Fetching reports from IMAP…', 'info');
@@ -22954,6 +22998,10 @@ function _dbgScrub(v, depth, budget) {
 const _origApi = window.api;
 if (typeof _origApi === 'function') {
   window.api = async function(method, path, body, ...rest) {
+    // Debug is off by default — short-circuit BEFORE any _dbgScrub/JSON.stringify
+    // string-building (those clone+stringify the whole payload and ran on EVERY
+    // api() call, freezing the page during multi-request fleet scans).
+    if (!_dbgIsEnabled()) return _origApi(method, path, body, ...rest);
     const t0 = performance.now();
     dbg(`→ ${method} ${path}` + (body ? ' body=' + JSON.stringify(_dbgScrub(body, 0)).slice(0,200) : ''), 'api');
     try {

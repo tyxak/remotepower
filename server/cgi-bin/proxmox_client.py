@@ -78,6 +78,44 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# v5.0.0 SSRF: set-time pre-flight blocks obvious local/meta targets, but every
+# runtime call re-resolves the saved host, leaving a DNS-rebinding window (save
+# once → each poll rebinds to 169.254.169.254 / loopback). These guard the peer
+# IP at connect time so a rebound host is refused before the token is sent.
+# Stdlib-only, mirroring the rest of this module. RFC1918/LAN stays allowed.
+def _peer_ip_blocked(ip_str: str) -> bool:
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback or ip.is_link_local or ip.is_unspecified)
+
+
+import http.client as _httpclient
+
+
+class _SSRFGuardHTTPSConnection(_httpclient.HTTPSConnection):
+    def connect(self):
+        super().connect()
+        try:
+            peer = self.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            return
+        if _peer_ip_blocked(peer):
+            self.close()
+            raise OSError(f'SSRF guard: Proxmox peer {peer} is a blocked address')
+
+
+def _ssrf_opener(ctx):
+    """An opener that refuses redirects AND re-validates the peer IP at connect
+    (mirrors api.py's _ssrf_safe_opener(no_redirect=True), stdlib-only here)."""
+    class _GuardHTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_SSRFGuardHTTPSConnection, req, context=ctx)
+    return urllib.request.build_opener(_NoRedirect, _GuardHTTPSHandler())
+
+
 class ProxmoxError(Exception):
     """Raised for any Proxmox interaction failure. The message is
     safe to surface to the UI — it never contains the token."""
@@ -189,8 +227,7 @@ def _request(pc: dict, path: str, method: str = 'GET',
         # Authorization token to an attacker-chosen location. Any 3xx is treated
         # as an error. (SSRF hardening — set-time pre-flight already blocks the
         # obvious local/meta targets.)
-        _opener = urllib.request.build_opener(
-            _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+        _opener = _ssrf_opener(ctx)
         with _opener.open(req, timeout=_HTTP_TIMEOUT) as resp:
             raw = resp.read().decode('utf-8', 'replace')
     except urllib.error.HTTPError as e:

@@ -94,12 +94,25 @@ async function cmdbBreakGlassApprove(reqId) {
 // A credential defined once at a site/group/tag level and inherited by every
 // member device. Reuses the CMDB vault: listing is admin-only (no key); add and
 // reveal send the X-RP-Vault-Key header via cmdbApi(..., true).
+let _scopedCredsCache = null;
 async function loadScopedCreds() {
   const tb = document.getElementById('scoped-creds-tbody');
   if (!tb) return;
+  tableCtl.wireSortOnly('scoped-creds-thead', 'scoped_creds', () => _renderScopedCreds());
   const res = await cmdbApi('GET', '/scoped-credentials');
   if (!res || !res.ok) { tb.innerHTML = '<tr><td colspan="5" class="c-red">Failed to load.</td></tr>'; return; }
-  const creds = (res.data && res.data.credentials) || [];
+  _scopedCredsCache = (res.data && res.data.credentials) || [];
+  _renderScopedCreds();
+}
+function _renderScopedCreds() {
+  const tb = document.getElementById('scoped-creds-tbody');
+  if (!tb || !_scopedCredsCache) return;
+  const creds = tableCtl.sortRows('scoped_creds', _scopedCredsCache.slice(), c => ({
+    scope:    ((c.scope_type || '') + ' ' + (c.scope_value || '')).toLowerCase(),
+    label:    (c.label || '').toLowerCase(),
+    username: (c.username || '').toLowerCase(),
+    devices:  c.applies_to || 0,
+  }));
   tb.innerHTML = creds.length ? creds.map(c => `
     <tr>
       <td><span class="group-badge">${escHtml(c.scope_type)}</span> ${escHtml(c.scope_value)}</td>

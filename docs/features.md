@@ -1504,6 +1504,43 @@ resolution and time-to-ack across recently-resolved alerts (mean / median over
 was closed — auto (recover event), manual (operator), or muted — with who and the
 note. Pairs with the ack-webhook. `GET /api/alerts/resolution-stats`.
 
+## v4.10.0 additions — "PerimeterMatters"
+
+### Firewall + fail2ban (Security → Firewall)
+A fleet-wide page that views *and* edits host firewalls and fail2ban. The
+firewall table shows every host's posture (nftables / iptables / ufw / firewalld
+— backend, default policy, active state, rule count, drift fingerprint); opening
+a host shows its ruleset grouped by table/chain (volatile packet counters
+stripped) with **add/delete** for ufw/firewalld port rules and raw
+nftables/iptables rules. A second table lists fail2ban jails and banned IPs with
+**ban / unban** and **start / stop jail**. Every edit rides the existing audited,
+`command`-permission-gated, quarantine-aware command queue, and rule specs are
+strictly validated server-side (no shell metacharacters). Read-only visibility
+needs no special permission. The agent reports capped per-backend rule lists and
+fail2ban status; the containerized agent reports fail2ban as not-available.
+
+### AI Insights hub (20 features)
+The AI Assistant page gains a grid of 20 one-click AI reports and advisors —
+**Proactive** (daily briefing, log-anomaly digest, alert-noise tuning,
+predictive-maintenance), **Incident** (RCA, group-related-alerts, change-risk
+review), **Natural-language → config** (fleet query → filter, monitor/check from
+text, reverse-IaC), **Planning** (CVE plan, compliance plan, capacity forecast,
+DR-readiness) and **Advisors** (firewall auditor, DNS hygiene, email
+deliverability, homelab assistant, supply-chain/SBOM, host one-pager). Each is a
+tunable system prompt with RAG + fleet context attached, rate-limited, audited
+and redaction-aware.
+
+### Three new RAG sources
+The fleet-knowledge index that powers "Ask my fleet" now also covers per-host
+**firewall/fail2ban** posture, **homelab integration** health and **backup**
+freshness (each with a fleet rollup; rule *counts* only, no secrets). Toggle
+under Settings → AI → RAG.
+
+
+---
+
+← [Back to docs index](README.md) · [Back to main README](../README.md)
+
 ## What's new in v5.0.0 — "CTRLMatters"
 
 A control-plane hardening and scale release: stronger agent trust, encrypted
@@ -1615,40 +1652,3 @@ version and restarts the service the way your install expects.
 ### Login banner
 An optional **login banner / security notice** (e.g. "Authorized use only") shown
 above the sign-in form, set in Settings.
-
-## v4.10.0 additions — "PerimeterMatters"
-
-### Firewall + fail2ban (Security → Firewall)
-A fleet-wide page that views *and* edits host firewalls and fail2ban. The
-firewall table shows every host's posture (nftables / iptables / ufw / firewalld
-— backend, default policy, active state, rule count, drift fingerprint); opening
-a host shows its ruleset grouped by table/chain (volatile packet counters
-stripped) with **add/delete** for ufw/firewalld port rules and raw
-nftables/iptables rules. A second table lists fail2ban jails and banned IPs with
-**ban / unban** and **start / stop jail**. Every edit rides the existing audited,
-`command`-permission-gated, quarantine-aware command queue, and rule specs are
-strictly validated server-side (no shell metacharacters). Read-only visibility
-needs no special permission. The agent reports capped per-backend rule lists and
-fail2ban status; the containerized agent reports fail2ban as not-available.
-
-### AI Insights hub (20 features)
-The AI Assistant page gains a grid of 20 one-click AI reports and advisors —
-**Proactive** (daily briefing, log-anomaly digest, alert-noise tuning,
-predictive-maintenance), **Incident** (RCA, group-related-alerts, change-risk
-review), **Natural-language → config** (fleet query → filter, monitor/check from
-text, reverse-IaC), **Planning** (CVE plan, compliance plan, capacity forecast,
-DR-readiness) and **Advisors** (firewall auditor, DNS hygiene, email
-deliverability, homelab assistant, supply-chain/SBOM, host one-pager). Each is a
-tunable system prompt with RAG + fleet context attached, rate-limited, audited
-and redaction-aware.
-
-### Three new RAG sources
-The fleet-knowledge index that powers "Ask my fleet" now also covers per-host
-**firewall/fail2ban** posture, **homelab integration** health and **backup**
-freshness (each with a fleet rollup; rule *counts* only, no secrets). Toggle
-under Settings → AI → RAG.
-
-
----
-
-← [Back to docs index](README.md) · [Back to main README](../README.md)

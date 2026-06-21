@@ -2825,7 +2825,10 @@ def collect_file_log(path_str, state):
         log.warning(f'file_log: refusing to read denied path {path_str!r}')
         return []
     try:
-        p = Path(path_str)
+        # Deny-list above checks the logical path (operator-facing semantics);
+        # the actual read maps through host_path so a containerized agent reads
+        # the host's log, not the empty container fs. v5.0.0.
+        p = Path(host_path(path_str))
         if not p.exists() or not p.is_file():
             return []
         st = p.stat()
@@ -2954,8 +2957,9 @@ def collect_acme_dns_creds():
     home = None
     for candidate in ACME_HOME_CANDIDATES:
         try:
-            if candidate.is_dir() and (candidate / 'account.conf').is_file():
-                home = candidate
+            hc = Path(host_path(candidate))   # v5.0.0: containerized agent reads host fs
+            if hc.is_dir() and (hc / 'account.conf').is_file():
+                home = hc
                 break
         except (OSError, PermissionError):
             continue
@@ -2980,15 +2984,16 @@ def collect_acme_state():
     home = None
     for candidate in ACME_HOME_CANDIDATES:
         try:
-            if candidate.is_dir() and (candidate / 'acme.sh').is_file():
-                home = candidate
+            hc = Path(host_path(candidate))   # v5.0.0: containerized agent reads host fs
+            if hc.is_dir() and (hc / 'acme.sh').is_file():
+                home = hc
                 break
         except (OSError, PermissionError):
             continue
     if home is None:
         return state
     state['available'] = True
-    state['home'] = str(home)
+    state['home'] = unhost_path(str(home))
     # Probe version. acme.sh --version prints "vX.Y.Z" to stdout.
     try:
         proc = subprocess.run([str(home / 'acme.sh'), '--version'],
@@ -3055,9 +3060,9 @@ def collect_acme_state():
             'created_str':         conf.get('Le_CertCreateTimeStr', ''),
             'next_renew_str':      conf.get('Le_NextRenewTimeStr', ''),
             'reload_cmd':          _acme_decode_reload(conf.get('Le_ReloadCmd', ''))[:512],
-            'cert_path':           str(cert_file) if cert_file.is_file() else '',
-            'key_path':            str(key_file)  if key_file.is_file()  else '',
-            'fullchain_path':      str(full_file) if full_file.is_file() else '',
+            'cert_path':           unhost_path(str(cert_file)) if cert_file.is_file() else '',
+            'key_path':            unhost_path(str(key_file))  if key_file.is_file()  else '',
+            'fullchain_path':      unhost_path(str(full_file)) if full_file.is_file() else '',
         }
         state['certs'].append(cert_entry)
         count += 1
@@ -3073,7 +3078,7 @@ def collect_web_access_logs(state_dir):
     """
     results = {}
     for log_path_str, unit_name in WEB_ACCESS_LOGS:
-        log_path = Path(log_path_str)
+        log_path = Path(host_path(log_path_str))   # v5.0.0: containerized agent reads host fs
         if not log_path.exists():
             continue
         state_file = state_dir / f'{unit_name.replace(".", "_")}_state.json'
@@ -3114,7 +3119,7 @@ def collect_backup_status(backup_monitors):
         if not p:
             continue
         try:
-            fp = Path(p)
+            fp = Path(host_path(p))   # v5.0.0: containerized agent reads host fs
             exists = fp.exists()
             mtime  = fp.stat().st_mtime if exists else 0
         except Exception:
@@ -6019,6 +6024,15 @@ def run_custom_scripts(scripts):
     import stat as _stat
     results = {}
     now = int(time.time())
+
+    # v5.0.0: audit (read-only) mode must refuse this command channel too.
+    # Custom scripts run arbitrary server-supplied bash as root — exactly the
+    # kind of host mutation /etc/remotepower/audit-mode is meant to block. The
+    # other three channels (execute_command, apply_host_config, check_for_update)
+    # already early-return on _audit_mode(); this is the fourth.
+    if _audit_mode():
+        log.info('Audit mode (read-only): skipping custom scripts')
+        return {}
 
     for s in scripts:
         sid     = str(s.get('id', ''))

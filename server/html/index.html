@@ -4756,7 +4756,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mt-16 d-none" id="cmdb-breakglass-card">
           <div class="row-8-center mb-8"><h3 class="m-0">Break-glass requests</h3></div>
           <div class="page-subtitle mb-12">Pending requests to reveal a break-glass credential. A <strong>second</strong> admin (not the requester) must approve before the secret is shown — every request, approval and reveal is immutably audit-logged.</div>
-          <div id="cmdb-breakglass-body"></div>
+          <div id="cmdb-breakglass-body" class="scroll-cap"></div>
         </div>
 
         <!-- v4.10.0: site / group / tag-scoped credentials -->
@@ -4777,7 +4777,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="scrollable-table-wrap audit-scroll">
             <table class="data-table w-full">
-              <thead><tr><th scope="col">Scope</th><th scope="col">Label</th><th scope="col">Username</th><th scope="col">Devices</th><th scope="col"></th></tr></thead>
+              <thead id="scoped-creds-thead"><tr><th scope="col" data-col="scope">Scope</th><th scope="col" data-col="label">Label</th><th scope="col" data-col="username">Username</th><th scope="col" data-col="devices">Devices</th><th scope="col"></th></tr></thead>
               <tbody id="scoped-creds-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
             </table>
           </div>
@@ -5361,12 +5361,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <div class="scrollable-table-wrap audit-scroll">
             <table>
-              <thead><tr>
-                <th scope="col">IP</th>
-                <th scope="col">Label</th>
-                <th scope="col">Status</th>
-                <th scope="col">Blocklists</th>
-                <th scope="col">Checked</th>
+              <thead id="reputation-thead"><tr>
+                <th scope="col" data-col="ip">IP</th>
+                <th scope="col" data-col="label">Label</th>
+                <th scope="col" data-col="status">Status</th>
+                <th scope="col" data-col="blocklists">Blocklists</th>
+                <th scope="col" data-col="checked">Checked</th>
                 <th scope="col"></th>
               </tr></thead>
               <tbody id="reputation-tbody"></tbody>
@@ -5410,14 +5410,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <div class="scrollable-table-wrap audit-scroll">
             <table>
-              <thead><tr>
-                <th scope="col">Reporter</th>
-                <th scope="col">Domain</th>
-                <th scope="col">Policy</th>
-                <th scope="col">Window</th>
-                <th scope="col">Messages</th>
-                <th scope="col">Pass</th>
-                <th scope="col">Fail</th>
+              <thead id="dmarc-reports-thead"><tr>
+                <th scope="col" data-col="reporter">Reporter</th>
+                <th scope="col" data-col="domain">Domain</th>
+                <th scope="col" data-col="policy">Policy</th>
+                <th scope="col" data-col="window">Window</th>
+                <th scope="col" data-col="messages">Messages</th>
+                <th scope="col" data-col="pass">Pass</th>
+                <th scope="col" data-col="fail">Fail</th>
               </tr></thead>
               <tbody id="dmarc-reports-tbody"></tbody>
             </table>
@@ -5429,12 +5429,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <div class="scrollable-table-wrap audit-scroll">
             <table>
-              <thead><tr>
-                <th scope="col">Source IP</th>
-                <th scope="col">Pass</th>
-                <th scope="col">Fail</th>
-                <th scope="col">From domains</th>
-                <th scope="col">Last seen</th>
+              <thead id="dmarc-sources-thead"><tr>
+                <th scope="col" data-col="ip">Source IP</th>
+                <th scope="col" data-col="pass">Pass</th>
+                <th scope="col" data-col="fail">Fail</th>
+                <th scope="col" data-col="domains">From domains</th>
+                <th scope="col" data-col="lastseen">Last seen</th>
               </tr></thead>
               <tbody id="dmarc-sources-tbody"></tbody>
             </table>

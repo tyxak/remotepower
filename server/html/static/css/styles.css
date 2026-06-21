@@ -5813,6 +5813,9 @@ body.density-compact .group-title { margin-bottom: 6px; }
 .board-grid {
   display: grid; gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* Cap unbounded growth (box-overflow rule) — generous for a wallboard but
+     scroll past ~15 rows of tiles instead of pushing the page down forever. */
+  max-height: 70vh; overflow-y: auto;
 }
 .board-tile {
   border: 1px solid var(--border); border-radius: 8px; padding: 14px;
