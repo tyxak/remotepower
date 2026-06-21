@@ -17,7 +17,9 @@ rollouts). **Scale:** cross-device OSV batching (one OSV sweep per ecosystem for
 the whole fleet). **Polish:** copy-to-clipboard everywhere, webhook delivery
 dots, per-device alert snooze, pending-command nav badge, rename/duplicate saved
 queries, palette command-history search, one-click Run-diagnostics. WEBHOOK_EVENTS
-now 78 (`vault_break_glass`, `server_disk_low`, `server_disk_ok`). Deferred:
+now 80 (`agent_stopped`, `agent_started`, `vault_break_glass`,
+`backup_verify_failed`, `rollout_halted`, `server_disk_low`, `server_disk_ok`).
+Deferred:
 user-configurable timezone. See docs/v5.0.0.md.
 
 ## v4.10.0 — "PerimeterMatters" — unreleased (test)

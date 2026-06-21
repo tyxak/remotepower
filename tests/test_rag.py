@@ -447,6 +447,11 @@ class TestApiCorpus(unittest.TestCase):
         # v4.1.0: drift + compliance are default-on sources too (metrics is
         # opt-in). Give a host config drift so the drift source emits a chunk;
         # the compliance source always produces framework chunks.
+        # v5.0.0: the `posture` source also always emits a fleet
+        # security-control summary (mTLS/backup-encryption/control-plane), even
+        # in the all-off state — that summary IS the useful grounding.
+        # firewall/integrations/backups/dns_email stay absent here because the
+        # seeded fixture has no firewall/integration/backup/DMARC data.
         devs = api.load(api.DEVICES_FILE)
         for d in (devs.values() if isinstance(devs, dict) else devs):
             d['drift_state'] = {'/etc/hosts': {'status': 'drifted'}}
@@ -457,7 +462,7 @@ class TestApiCorpus(unittest.TestCase):
         self.assertGreater(stats["docs"], 0)
         self.assertEqual(set(stats["by_source"]),
                          {"docs", "live_state", "cmdb", "history",
-                          "drift", "compliance"})
+                          "drift", "compliance", "posture"})
 
     def test_vault_secret_never_in_corpus(self):
         api._rag_reindex(api._ai_cfg())

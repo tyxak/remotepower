@@ -21,14 +21,39 @@ could be exploited is fixed before release, on both the server and the agent.
 
 Each release is reviewed for security at the code level and scanned with an
 external toolchain in addition to the CI guardrails. The current release,
-**v4.10.0**, had a whole-project server + agent audit and **passed clean** (no
-Critical/High/Medium findings) — see
-[security-review-4.10.0.md](security-review-4.10.0.md). Its headline new surface,
-the **Security → Firewall** page (view/edit nftables/iptables/ufw/firewalld rules
-and fail2ban jails), is safe by construction: every edit is **server-validated
-against a strict character allowlist, permission-gated, written to the audited
-command queue, and skipped on quarantined hosts** — there is no path from the UI
-to a command the operator could not already run with that permission.
+**v5.0.0**, underwent a whole-project server + agent security review with SAST
+tooling, held to the same bar — **no Critical, High, or Medium finding ships** —
+see [security-review-5.0.0.md](security-review-5.0.0.md). The previous release,
+**v4.10.0**, had the same whole-project audit and **passed clean** — see
+[security-review-4.10.0.md](security-review-4.10.0.md). The v4.10.0
+headline surface, the **Security → Firewall** page (view/edit
+nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
+construction: every edit is **server-validated against a strict character
+allowlist, permission-gated, written to the audited command queue, and skipped on
+quarantined hosts** — there is no path from the UI to a command the operator could
+not already run with that permission.
+
+### Control-plane hardening (v5.0.0)
+
+v5.0.0 strengthens the trust boundary around the agents and the secrets store:
+
+- **Mutual-TLS agent authentication.** Agents can present a CA-verified **client
+  certificate** on every connection, pinned per device, so the server accepts
+  heartbeats only from a known agent — not merely from anyone holding an
+  enrolment token. Optional and additive; enable it per device or enforce it
+  fleet-wide once every agent has a certificate.
+- **Encrypted disaster-recovery backups.** Data backups can be encrypted **at
+  rest with AES-256-GCM**, with the key derived via **PBKDF2-SHA256** from a
+  passphrase supplied in the environment — the passphrase is never written to
+  disk. Restore is symmetric.
+- **Break-glass credential reveals.** Revealing a stored credential can require a
+  **two-person rule**: one operator requests, a second admin approves, and the
+  full exchange is written to the immutable audit log and raises a
+  `vault_break_glass` alert — so no single account can read the most sensitive
+  secrets alone.
+- **Per-API-key rate limiting.** Each named API key carries its own request
+  budget, enforced independently of the per-IP login throttle, so a leaked or
+  runaway automation key can't exhaust the server.
 
 Recent releases were independently penetration-tested with
 [wapiti](https://wapiti-scanner.github.io/), [nikto](https://github.com/sullo/nikto),

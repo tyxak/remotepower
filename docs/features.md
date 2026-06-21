@@ -154,7 +154,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
 | **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
-| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 72 event types, per-event toggles, test-event button |
+| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 80 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
 | **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
 | **Patch alerts** | Webhook when pending updates exceed configurable threshold |
@@ -1488,6 +1488,61 @@ resolution and time-to-ack across recently-resolved alerts (mean / median over
 7 / 30 / 90 days), a per-host breakdown, and a timeline classifying how each alert
 was closed — auto (recover event), manual (operator), or muted — with who and the
 note. Pairs with the ack-webhook. `GET /api/alerts/resolution-stats`.
+
+## What's new in v5.0.0 — "CTRLMatters"
+
+A control-plane hardening and scale release: stronger agent trust, encrypted
+disaster-recovery backups, a two-person rule for revealing secrets, and a set of
+reliability and fleet-management features for running RemotePower at scale. No
+breaking changes, no schema changes.
+
+### Mutual-TLS agent authentication
+Agents can now present a CA-verified **client certificate** on every connection,
+pinned per device, so the server only accepts heartbeats from a known agent and
+not just anyone holding an enrolment token. Optional and additive — turn it on
+per device, or enforce it fleet-wide once every agent has a certificate.
+
+### Encrypted disaster-recovery backups
+RemotePower can encrypt its data backups **at rest with AES-256-GCM**, with the
+key derived (PBKDF2-SHA256) from a passphrase supplied in the environment — the
+passphrase never lands on disk. Restore is symmetric: provide the same
+passphrase and the bundle decrypts.
+
+### Break-glass credential reveals (two-person rule)
+Revealing a stored credential can require **two people**: one operator requests,
+a second admin approves, and the whole exchange is written to the immutable
+audit log and raises a `vault_break_glass` alert. For the most sensitive secrets,
+no single account can read them alone.
+
+### Per-API-key rate limits
+Each named API key now carries its own request budget, so an automation key that
+runs away — or is leaked — can't exhaust the server. Limits are configurable per
+key and enforced independently of the per-IP login throttle.
+
+### Reliability & operations
+- **Disk-space watchdog** — the server monitors its own free space and fires
+  `server_disk_low` / `server_disk_ok` before a full disk corrupts state.
+- **Webhook dead-letter queue** — deliveries that exhaust their retries land in a
+  dead-letter queue you can inspect and **replay** once the destination is back.
+- **Maintenance mode** — a runtime switch that drains and **pauses command
+  dispatch** during an upgrade, without taking the dashboard offline.
+- **OSV circuit breaker** — the CVE scanner backs off automatically when the OSV
+  feed is unhealthy instead of hammering it.
+
+### Fleet management at scale
+- **Bulk delete & re-tag** — select many devices and remove or tag them in one
+  action.
+- **Per-command execution timeouts** — override the default command timeout on a
+  single run for jobs that legitimately take longer.
+- **Version-compatibility checks** — the server flags agents whose version is
+  too far out of step before they cause surprises.
+- **Rollout rollback** — one-click rollback for a staged script rollout that went
+  wrong.
+
+### NOC Status Board & design refresh
+A new **Status Board** rolls the fleet up into **group / site / tag tiles** with a
+**problem-host strip** for an at-a-glance NOC wallboard view, alongside an
+industrial visual refresh across the dashboard.
 
 ## v4.10.0 additions — "PerimeterMatters"
 

@@ -71,6 +71,13 @@ def _data_dir():
               os.path.expanduser('~/Library/Application Support/RemotePower')):
         try:
             os.makedirs(d, exist_ok=True)
+            # v5.0.0: tighten to owner-only — the dir holds credentials.json
+            # (the enrolment bearer token). The file itself is 0600, but a 0700
+            # dir keeps siblings from even enumerating it. Best-effort.
+            try:
+                os.chmod(d, 0o700)
+            except OSError:
+                pass
             return d
         except Exception:
             continue

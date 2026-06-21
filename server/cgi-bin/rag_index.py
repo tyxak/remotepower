@@ -945,6 +945,73 @@ def build_dns_email_corpus(dmarc=None, reputation=None, resolver=None, now=0):
     return docs
 
 
+def build_posture_corpus(config=None, devices=None, backup=None, now=0):
+    """v5.0.0: fleet SECURITY-CONTROL posture for the AI advisors — grounds
+    answers to "is backup encryption on?", "what's our mutual-TLS coverage?",
+    "how many agents are in read-only audit mode?", "is maintenance mode on?".
+
+    These are control-plane settings that live across config + per-device flags
+    and previously had no corpus, so the model had nothing to cite. Pure summary
+    of admin-configured posture — no secrets (passphrases/keys never touched).
+    Defensive about store shape (devices: dict-of-id or list; config/backup: dict).
+    """
+    cfg = config if isinstance(config, dict) else {}
+    devs = (list(devices.values()) if isinstance(devices, dict)
+            else (devices if isinstance(devices, list) else []))
+    bk = backup if isinstance(backup, dict) else {}
+    docs = []
+
+    # ── Mutual-TLS agent authentication ──
+    mtls_on = bool(cfg.get('require_agent_mtls'))
+    pinned = [d.get('name') or d.get('id') for d in devs
+              if isinstance(d, dict) and (d.get('mtls_fingerprint') or '').strip()]
+    total = sum(1 for d in devs if isinstance(d, dict))
+    mtls_body = (
+        f"Mutual-TLS agent authentication is "
+        f"{'ENFORCED fleet-wide' if mtls_on else 'NOT enforced (off)'}.\n"
+        f"- Devices with a pinned client-certificate fingerprint: "
+        f"{len(pinned)} of {total}.")
+    if pinned:
+        mtls_body += "\n- Pinned hosts: " + ', '.join(sorted(map(str, pinned))[:200])
+    docs.append(make_doc('posture/mtls', 'posture', 'posture_mtls', mtls_body,
+                         title='Security posture — mutual TLS', ts=now))
+
+    # ── At-rest backup encryption ──
+    enc_armed = bool(bk.get('encryption_armed'))
+    enc_avail = bk.get('encryption_available')
+    enc_body = (
+        "Disaster-recovery backup encryption (AES-256-GCM) is "
+        f"{'ARMED — backups are encrypted at rest' if enc_armed else 'NOT armed (backups stored in clear)'}.\n"
+        f"- Crypto library available on the server: "
+        f"{'yes' if enc_avail else ('no' if enc_avail is False else 'unknown')}.")
+    docs.append(make_doc('posture/backup_encryption', 'posture', 'posture_backup_enc',
+                         enc_body, title='Security posture — backup encryption', ts=now))
+
+    # ── Read-only audit mode (agents) ──
+    audit_hosts = [d.get('name') or d.get('id') for d in devs
+                   if isinstance(d, dict) and (d.get('sysinfo') or {}).get('audit_mode')]
+    if audit_hosts:
+        docs.append(make_doc(
+            'posture/audit_mode', 'posture', 'posture_audit_mode',
+            f"Agents in read-only AUDIT mode (refuse all commands): "
+            f"{len(audit_hosts)} — " + ', '.join(sorted(map(str, audit_hosts))[:200]),
+            title='Security posture — agents in audit mode', ts=now))
+
+    # ── Control-plane state (break-glass + maintenance) ──
+    bg_on = bool(cfg.get('breakglass_required') or cfg.get('break_glass_required'))
+    mm = cfg.get('maintenance_mode') or {}
+    mm_on = bool(mm.get('enabled')) if isinstance(mm, dict) else bool(mm)
+    docs.append(make_doc(
+        'posture/control_plane', 'posture', 'posture_control_plane',
+        ("Control-plane safeguards:\n"
+         f"- Two-person break-glass approval for credential reveals: "
+         f"{'required' if bg_on else 'not required'}.\n"
+         f"- Maintenance mode (pauses command dispatch): "
+         f"{'ON' if mm_on else 'off'}."),
+        title='Security posture — control plane', ts=now))
+    return docs
+
+
 def build_compliance_corpus(report, now=0):
     """v4.1.0: a compliance report → one chunk per framework (score + the
     FAILING controls with evidence/remediation) plus an overall summary.

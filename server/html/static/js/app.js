@@ -10955,6 +10955,7 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-integrations', rs.integrations !== false);
   _setSrc('ai-rag-src-backups',      rs.backups !== false);
   _setSrc('ai-rag-src-dnsemail',     rs.dns_email !== false);
+  _setSrc('ai-rag-src-posture',      rs.posture !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
@@ -11207,6 +11208,7 @@ async function saveAISettings() {
         integrations: !!document.getElementById('ai-rag-src-integrations')?.checked,
         backups:      !!document.getElementById('ai-rag-src-backups')?.checked,
         dns_email:    !!document.getElementById('ai-rag-src-dnsemail')?.checked,
+        posture:      !!document.getElementById('ai-rag-src-posture')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,

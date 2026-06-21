@@ -117,27 +117,71 @@ class TestDnsEmailCorpus(unittest.TestCase):
         self.assertEqual(ri.build_dns_email_corpus(42, "x", 3.14), [])
 
 
+class TestPostureCorpus(unittest.TestCase):
+    # v5.0.0: fleet security-control posture corpus.
+    DEVICES = {
+        "d1": {"id": "d1", "name": "web01", "mtls_fingerprint": "ab:cd",
+               "sysinfo": {"audit_mode": True}},
+        "d2": {"id": "d2", "name": "db01"},
+    }
+
+    def test_mtls_backup_audit_control(self):
+        docs = ri.build_posture_corpus(
+            config={"require_agent_mtls": True, "breakglass_required": True,
+                    "maintenance_mode": {"enabled": True}},
+            devices=self.DEVICES,
+            backup={"encryption_armed": True, "encryption_available": True}, now=1)
+        by = {d["id"]: d for d in docs}
+        self.assertIn("posture/mtls", by)
+        self.assertIn("ENFORCED", by["posture/mtls"]["text"])
+        self.assertIn("1 of 2", by["posture/mtls"]["text"])      # one pinned host
+        self.assertIn("posture/backup_encryption", by)
+        self.assertIn("ARMED", by["posture/backup_encryption"]["text"])
+        self.assertIn("posture/audit_mode", by)                  # web01 in audit mode
+        self.assertIn("web01", by["posture/audit_mode"]["text"])
+        self.assertIn("posture/control_plane", by)
+        self.assertIn("ON", by["posture/control_plane"]["text"])  # maintenance ON
+
+    def test_no_secrets_leak(self):
+        # passphrases / fingerprintable secrets must never appear in the corpus
+        docs = ri.build_posture_corpus(
+            config={"require_agent_mtls": False}, devices=self.DEVICES,
+            backup={"encryption_armed": False}, now=1)
+        blob = " ".join(d["text"] for d in docs)
+        self.assertNotIn("RP_BACKUP_PASSPHRASE", blob)
+        self.assertIn("NOT enforced", blob)
+
+    def test_empty_and_malformed_safe(self):
+        # non-dict/non-list stores must not raise; off-state still yields summaries
+        self.assertTrue(ri.build_posture_corpus(config=42, devices="x", backup=3.14))
+        self.assertTrue(ri.build_posture_corpus())
+
+
 class TestApiWiring(unittest.TestCase):
     def test_sources_wired_in_orchestrator(self):
         for fn in ("build_firewall_corpus", "build_integrations_corpus",
-                   "build_backups_corpus", "build_dns_email_corpus"):
+                   "build_backups_corpus", "build_dns_email_corpus",
+                   "build_posture_corpus"):
             self.assertIn(f"rag_index.{fn}", _API_SRC, fn)
 
     def test_sources_default_on(self):
         # the new sources are enabled by default
-        for key in ("'firewall':", "'integrations':", "'backups':", "'dns_email':"):
+        for key in ("'firewall':", "'integrations':", "'backups':", "'dns_email':",
+                    "'posture':"):
             self.assertIn(key, _API_SRC, key)
 
     def test_staleness_files_registered(self):
         self.assertIn("if sources.get('integrations'):", _API_SRC)
         self.assertIn("files.append(INTEG_STATE_FILE)", _API_SRC)
         self.assertIn("if sources.get('dns_email'):", _API_SRC)
+        self.assertIn("if sources.get('posture'):", _API_SRC)
 
     def test_dns_email_save_whitelisted(self):
         # the save-handler whitelist must include every default source, or its
         # UI toggle silently won't persist (the v4.10.0 firewall/integrations/
-        # backups toggle-persistence bug).
-        for key in ("'firewall'", "'integrations'", "'backups'", "'dns_email'"):
+        # backups toggle-persistence bug). posture added in v5.0.0.
+        for key in ("'firewall'", "'integrations'", "'backups'", "'dns_email'",
+                    "'posture'"):
             self.assertIn(key, _API_SRC, key)
 
 

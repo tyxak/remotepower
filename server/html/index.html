@@ -1427,7 +1427,7 @@
             </div>
 
             <!-- v5.0.0 (#R2): dead-letter queue — hidden until a delivery fails -->
-            <div class="d-none mt-16" id="webhook-dlq-wrap">
+            <div class="d-none mt-16 mb-16" id="webhook-dlq-wrap">
               <div class="section-header mb-12">
                 <div class="section-title isl-42">Failed deliveries (dead-letter queue)</div>
                 <div class="isl-43">
@@ -2312,7 +2312,8 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-firewall" checked> Firewall &amp; fail2ban posture (per host + which hosts have none)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-integrations" checked> Homelab integration health (Pi-hole, TrueNAS, *arr, …)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-backups" checked> Backup freshness (which paths/hosts are stale)</label>
-              <label class="click-row"><input type="checkbox" id="ai-rag-src-dnsemail" checked> Email &amp; DNS posture (DMARC/SPF/DKIM, blocklists, resolver health)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-dnsemail" checked> Email &amp; DNS posture (DMARC/SPF/DKIM, blocklists, resolver health)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-posture" checked> Security-control posture (mutual-TLS coverage, backup encryption, audit-mode, break-glass)</label>
             </div>
 
             <div class="form-group isl-773">

@@ -4179,7 +4179,6 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .meta-accent { font-size: 11px; color: var(--accent); }
 .text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-trunc { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fs-15 { font-size: 14px; }
 .p-4-0 { padding: 4px 0; }
 .p-0 { padding: 0; }
 .p-8-12 { padding: 8px 12px; }

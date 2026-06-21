@@ -30,6 +30,11 @@ from typing import Callable
 
 MAGIC = b"RPBKENC1"
 KDF_ITERATIONS = 600_000
+# Bounds for the iteration count READ BACK from a file header — a crafted/corrupt
+# header could otherwise carry up to 2**32-1 iters and pin a CPU for minutes
+# (a self-inflicted DoS on restore). Floor keeps the KDF meaningful.
+KDF_ITERS_MIN = 100_000
+KDF_ITERS_MAX = 5_000_000
 SALT_LEN = 16
 NONCE_LEN = 12
 TAG_LEN = 16
@@ -120,6 +125,8 @@ def decrypt_file(
         if magic != MAGIC:
             raise BackupCryptoError("not a RemotePower encrypted backup (bad magic)")
         iterations = struct.unpack(">I", fin.read(4))[0]
+        if not (KDF_ITERS_MIN <= iterations <= KDF_ITERS_MAX):
+            raise BackupCryptoError("encrypted backup has an out-of-range KDF cost")
         salt = fin.read(SALT_LEN)
         nonce = fin.read(NONCE_LEN)
         # GCM tag is the trailing 16 bytes — read it before streaming the body.

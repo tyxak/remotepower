@@ -2804,9 +2804,24 @@ def get_json_body():
         raw = get_body()
         if not raw:
             return {}
-        return json.loads(raw)
+        data = json.loads(raw)
+        # v5.0.0: a top-level JSON `null` parses to None and would crash the
+        # ~hundreds of `body = get_json_body(); body.get(...)` callers. Coerce it
+        # to {} — distinct from a top-level ARRAY, which we still return as-is so
+        # the isinstance-checking handlers can reject it with 400.
+        return {} if data is None else data
     except Exception:
         return {}
+
+
+def get_json_obj():
+    """v5.0.0: get_json_body() coerced to a dict — returns {} for a non-dict body
+    (a top-level JSON null/array/number/string). For the many handlers that just
+    want an object and shouldn't 500 on a malformed body. Handlers that must
+    REJECT a non-dict (e.g. handle_ui_prefs_set) keep calling get_json_body()
+    and validating isinstance themselves."""
+    b = get_json_body()
+    return b if isinstance(b, dict) else {}
 
 
 def _peek_heartbeat_dev_id():
@@ -7668,7 +7683,7 @@ def handle_device_notes(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    notes = _sanitize_str(get_json_body().get('notes', ''), MAX_NOTES_LEN)
+    notes = _sanitize_str(get_json_obj().get('notes', ''), MAX_NOTES_LEN)
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
@@ -8050,7 +8065,7 @@ def handle_site_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    name = _sanitize_str(get_json_body().get('name', ''), MAX_SITE_NAME_LEN)
+    name = _sanitize_str(get_json_obj().get('name', ''), MAX_SITE_NAME_LEN)
     name = name.strip()
     if not name:
         respond(400, {'error': 'name required'})
@@ -8075,7 +8090,7 @@ def handle_site_update(site_id):
     sites = load(SITES_FILE)
     if site_id not in sites:
         respond(404, {'error': 'site not found'})
-    name = _sanitize_str(get_json_body().get('name', ''), MAX_SITE_NAME_LEN).strip()
+    name = _sanitize_str(get_json_obj().get('name', ''), MAX_SITE_NAME_LEN).strip()
     if not name:
         respond(400, {'error': 'name required'})
     sites[site_id]['name'] = name
@@ -8294,7 +8309,7 @@ def handle_device_site(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    site_id = str(get_json_body().get('site', '') or '').strip()
+    site_id = str(get_json_obj().get('site', '') or '').strip()
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
@@ -9243,7 +9258,7 @@ def handle_device_group(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    raw = _sanitize_str(get_json_body().get('group', ''), MAX_GROUP_LEN)
+    raw = _sanitize_str(get_json_obj().get('group', ''), MAX_GROUP_LEN)
     # Allow alphanumeric, hyphen, underscore, forward-slash for namespaces
     group = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)[:MAX_GROUP_LEN]
     devices = load(DEVICES_FILE)
@@ -9261,7 +9276,7 @@ def handle_device_poll_interval(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     try:
-        interval = int(get_json_body().get('poll_interval', 60))
+        interval = int(get_json_obj().get('poll_interval', 60))
     except (TypeError, ValueError):
         respond(400, {'error': 'poll_interval must be an integer'})
     interval = max(10, min(3600, interval))
@@ -9311,7 +9326,7 @@ def handle_device_icon(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    icon = _sanitize_str(get_json_body().get('icon', ''), 32)
+    icon = _sanitize_str(get_json_obj().get('icon', ''), 32)
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
@@ -21794,6 +21809,11 @@ _AI_DEFAULTS = {
             # (DMARC/SPF/DKIM, DNSBL reputation, resolver health) so the
             # email_deliverability / dns_hygiene AI advisors have grounding.
             'dns_email':    True,
+            # v5.0.0: fleet security-control posture (mutual-TLS coverage,
+            # backup encryption, audit-mode agents, break-glass / maintenance
+            # state) — cheap, no-secrets, lets the model answer "is backup
+            # encryption on?" / "what's our mTLS coverage?".
+            'posture':      True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -21953,10 +21973,12 @@ def handle_ai_config_set():
                 # Whitelist of toggleable sources — MUST list every source in
                 # _AI_DEFAULTS['rag']['sources'] or its UI toggle silently won't
                 # persist (the v4.10.0 firewall/integrations/backups toggles hit
-                # exactly that bug). dns_email added in the v4.10.0 finalize.
+                # exactly that bug). dns_email added in the v4.10.0 finalize;
+                # posture added in v5.0.0.
                 for k in ('docs', 'live_state', 'cmdb', 'history',
                           'drift', 'compliance', 'metrics',
-                          'firewall', 'integrations', 'backups', 'dns_email'):
+                          'firewall', 'integrations', 'backups', 'dns_email',
+                          'posture'):
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -22081,6 +22103,10 @@ def _rag_source_files(sources):
         files += [DATA_DIR / 'backup_state.json', CONFIG_FILE]
     if sources.get('dns_email'):
         files += [DMARC_RESULTS_FILE, IP_REP_RESULTS_FILE, RESOLVER_HEALTH_RESULTS_FILE]
+    # v5.0.0: security-control posture is derived from config (mTLS/break-glass/
+    # maintenance flags) + the device records (pins, audit-mode) + backup state.
+    if sources.get('posture'):
+        files += [CONFIG_FILE, DEVICES_FILE, DATA_DIR / 'backup_state.json']
     return files
 
 
@@ -22340,6 +22366,23 @@ def _rag_build_corpus(cfg):
                 load(RESOLVER_HEALTH_RESULTS_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: dns_email source failed: {e}\n')
+
+    # v5.0.0: fleet security-control posture (mTLS / backup encryption /
+    # audit-mode / break-glass / maintenance) for the AI advisors.
+    if sources.get('posture'):
+        try:
+            cfg_now = load(CONFIG_FILE) or {}
+            raw = load(DEVICES_FILE) or {}
+            # encryption_armed/available are computed live (env + lib), not stored.
+            try:
+                bk_status = {'encryption_armed': bool(_backup_passphrase()),
+                             'encryption_available': backup_crypto.available()}
+            except Exception:
+                bk_status = {}
+            docs += rag_index.build_posture_corpus(
+                config=cfg_now, devices=raw, backup=bk_status, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: posture source failed: {e}\n')
 
     return docs
 
@@ -37686,13 +37729,19 @@ def handle_webhook_dlq_retry():
             succeeded += 1
         else:
             survived_ids.add(e.get('id'))
-            e['attempts'] = int(e.get('attempts', 1)) + 1
-    # Rebuild the queue: drop the ones that retried OK; keep the rest (with the
-    # bumped attempts already mutated in-place on shared dict objects).
+    # Rebuild the queue under the lock against a FRESH load: drop the ones that
+    # retried OK, and bump `attempts` on the survivors here (mutating the copies
+    # we read above would be lost — the lock re-reads from disk).
     retried_ids = {e.get('id') for e in targets} - survived_ids
     with _LockedUpdate(WEBHOOK_DLQ_FILE) as dlq:
-        dlq['entries'] = [e for e in (dlq.get('entries', []) or [])
-                          if e.get('id') not in retried_ids]
+        kept = []
+        for e in (dlq.get('entries', []) or []):
+            if e.get('id') in retried_ids:
+                continue
+            if e.get('id') in survived_ids:
+                e['attempts'] = int(e.get('attempts', 1)) + 1
+            kept.append(e)
+        dlq['entries'] = kept
     audit_log(actor, 'webhook_dlq_retry',
               detail=f'retried={retried} ok={succeeded} all={want_all}')
     respond(200, {'ok': True, 'retried': retried, 'succeeded': succeeded,

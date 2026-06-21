@@ -38,17 +38,18 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-4.10.0.md](security-review-4.10.0.md)** — Latest review:
+- **[security-review-5.0.0.md](security-review-5.0.0.md)** — Latest review:
  a whole-project server + agent audit (no Critical/High/Medium findings ship) —
- the new Firewall/fail2ban edit surface, SSRF guards, and containerized-agent
- host-boundary hardening, with the static + dynamic tooling used each cycle.
+ the new mutual-TLS agent auth, at-rest backup encryption, two-person break-glass
+ credential reveals, and webhook dead-letter queue, with the static + dynamic
+ tooling used each cycle.
+- **[security-review-4.10.0.md](security-review-4.10.0.md)** — A prior review:
+ the Firewall/fail2ban edit surface, SSRF guards, and containerized-agent
+ host-boundary hardening.
 - **[security-review-4.6.0.md](security-review-4.6.0.md)** — A prior full server +
  agent re-audit (independently pentested clean) — SSRF parity on the OPNsense/
  Proxmox/AI/TLS-monitor targets, resolved-role checks on two read endpoints, and
  agent credential-storage hardening on Windows/macOS/Linux.
-- **[security-review-4.4.1.md](security-review-4.4.1.md)** — Triage of the open
- CodeQL code-scanning alerts (XSS/SSRF/weak-hash/clear-text); all confirmed
- false positives, with the feature/function that covers each.
 
 ## Release notes
 
