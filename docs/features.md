@@ -1572,6 +1572,35 @@ Every table column header now carries `scope="col"` so screen readers announce
 the right column; icon-only buttons expose an `aria-label`, and purely decorative
 icons are hidden from assistive tech.
 
+### Encrypt backups from the web UI
+Already have plaintext backup archives? Migrate them to **AES-256-GCM at rest**
+from **Server status → Backup → "Encrypt existing backups"** — you supply a
+passphrase that's used for that request only and never stored. (For ongoing
+scheduled backups, set `RP_BACKUP_PASSPHRASE` so new snapshots are encrypted at
+write time.)
+
+### Network map — scope to a slice
+The topology map now has a **site / group / tag scope picker** so a big fleet
+stays legible: pick a site (a site can represent a customer) and the map renders
+just those nodes instead of all of them at once.
+
+### Ticket-system integrations (Jira / ServiceNow / Zendesk)
+A webhook destination can use a ready-made **Jira**, **ServiceNow** or **Zendesk**
+format. Combined with "Also fire on alert ACK", acknowledging an alert opens a
+ticket in your ITSM tool over its REST API (HTTP Basic auth over HTTPS), and the
+new ticket's **link is shown right on the alert**.
+
+### Install update
+**Settings → Install** checks the running version against the latest published
+release and shows the upgrade commands for your install method. For hands-off
+upgrades you can point it at a server-side **update script** (absolute path) and
+trigger a **guided self-update** from the button — your script pulls the new
+version and restarts the service the way your install expects.
+
+### Login banner
+An optional **login banner / security notice** (e.g. "Authorized use only") shown
+above the sign-in form, set in Settings.
+
 ## v4.10.0 additions — "PerimeterMatters"
 
 ### Firewall + fail2ban (Security → Firewall)

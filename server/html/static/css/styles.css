@@ -1818,6 +1818,12 @@
   }
   .login-title { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
   .login-sub   { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  /* v5.0.0: login banner / security notice */
+  .login-banner {
+    font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    background: var(--accent-soft); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; margin: -16px 0 24px; color: var(--text);
+  }
   .login-btn {
     width: 100%; background: var(--accent); color: #fff; border: none;
     padding: 12px; border-radius: 8px; font-size: 14px; font-weight: 600;

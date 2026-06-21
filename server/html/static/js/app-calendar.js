@@ -450,6 +450,12 @@ async function loadPublicInfo() {
     }
     const rememberCb = document.getElementById('login-remember');
     if (rememberCb) rememberCb.checked = !!info.remember_me_default;
+    // v5.0.0: optional login banner / security notice (plain text).
+    const lb = document.getElementById('login-banner');
+    if (lb) {
+      if (info.login_banner) { lb.textContent = info.login_banner; lb.classList.remove('d-none'); }
+      else { lb.textContent = ''; lb.classList.add('d-none'); }
+    }
     // v2.0: show demo banner when running as a public read-only sandbox.
     // The banner stays visible across page navigation (it lives outside
     // the .page containers) so visitors always see "this is a demo".

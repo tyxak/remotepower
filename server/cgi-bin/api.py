@@ -5881,7 +5881,8 @@ def _auto_detect_format(url):
 
 # Allowed format adapters — anything else falls back to generic.
 _WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams',
-                    'github', 'pagerduty', 'opsgenie')
+                    'github', 'pagerduty', 'opsgenie',
+                    'jira', 'servicenow', 'zendesk')   # v5.0.0 ITSM
 
 
 def _webhook_rate_limit_ok():
@@ -5979,6 +5980,15 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
             _log_webhook(event, url, 'error',
                          'Opsgenie destination missing API key — set it in Settings → Notifications')
             return
+    elif fmt in ITSM_FORMATS:
+        _itsm_builder = {'jira': _build_jira_body, 'servicenow': _build_servicenow_body,
+                         'zendesk': _build_zendesk_body}[fmt]
+        body, headers, content_type = _itsm_builder(event, title, message, dest)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         f'{fmt} destination missing credentials (and project for Jira) '
+                         '— set them in Settings → Notifications')
+            return
     else:
         body, headers, content_type = _build_generic_body(
             event, title, message, priority, safe_payload)
@@ -6006,6 +6016,17 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
         opener = _ssrf_safe_opener(allow_loopback=_allow_lb, ssl_ctx=ctx,
                                    no_redirect=True, enforce_ip=_block_local)
         resp = opener.open(req, timeout=10)
+        # v5.0.0: for ITSM formats, parse the create-ticket response so the
+        # caller can store the new ticket's id/url on the alert.
+        if fmt in ITSM_FORMATS:
+            try:
+                _ticket = _parse_itsm_response(fmt, url, resp.read(16384))
+            except Exception:
+                _ticket = None
+            _log_webhook(event, url, resp.status,
+                         f'OK ({resp.status}) [{fmt}]'
+                         + (f' ticket={_ticket["ticket_ref"]}' if _ticket else ''))
+            return _ticket
         _log_webhook(event, url, resp.status,
                      f'OK ({resp.status}) [{fmt}]')
     except urllib.error.HTTPError as e:
@@ -6224,6 +6245,99 @@ def _build_pushover_body(event, title, message, priority, dest):
     }
     body = urllib.parse.urlencode(form).encode()
     return body, {}, 'application/x-www-form-urlencoded'
+
+
+# ── v5.0.0: lightweight ITSM ticket adapters (Jira / ServiceNow / Zendesk) ───
+# These POST a create-ticket payload to the provider's REST API using HTTP Basic
+# auth from the destination's `itsm_user` + `itsm_secret`. They're wired to the
+# on-ACK opt-in (open a ticket when an operator acknowledges an alert). The
+# response is parsed for the new ticket's id/url (see _parse_itsm_response) and
+# stored on the alert so the UI can link straight to it.
+ITSM_FORMATS = ('jira', 'servicenow', 'zendesk')
+
+
+def _itsm_basic(user, secret, zendesk=False):
+    import base64
+    if not secret:
+        return None
+    ident = f'{user}/token' if zendesk else user
+    return 'Basic ' + base64.b64encode(f'{ident}:{secret}'.encode()).decode()
+
+
+def _build_jira_body(event, title, message, dest):
+    """Jira Cloud/Server: POST <base>/rest/api/2/issue. Needs a project key +
+    user(email)/secret(API token). issuetype defaults to Task."""
+    proj = (dest.get('jira_project') or '').strip()
+    auth = _itsm_basic((dest.get('itsm_user') or '').strip(),
+                       (dest.get('itsm_secret') or '').strip())
+    if not (proj and auth):
+        return None, None, None
+    itype = (dest.get('jira_issuetype') or 'Task').strip() or 'Task'
+    body = json.dumps({'fields': {
+        'project':   {'key': proj},
+        'summary':   (title or str(event))[:250],
+        'description': message or '',
+        'issuetype': {'name': itype},
+    }}).encode()
+    return body, {'Authorization': auth}, 'application/json'
+
+
+def _build_servicenow_body(event, title, message, dest):
+    """ServiceNow: POST <base>/api/now/table/incident. user/secret basic auth."""
+    auth = _itsm_basic((dest.get('itsm_user') or '').strip(),
+                       (dest.get('itsm_secret') or '').strip())
+    if not auth:
+        return None, None, None
+    body = json.dumps({
+        'short_description': (title or str(event))[:160],
+        'description':       message or '',
+    }).encode()
+    return body, {'Authorization': auth, 'Accept': 'application/json'}, 'application/json'
+
+
+def _build_zendesk_body(event, title, message, dest):
+    """Zendesk: POST <base>/api/v2/tickets.json. email/token basic auth."""
+    auth = _itsm_basic((dest.get('itsm_user') or '').strip(),
+                       (dest.get('itsm_secret') or '').strip(), zendesk=True)
+    if not auth:
+        return None, None, None
+    body = json.dumps({'ticket': {
+        'subject': (title or str(event))[:250],
+        'comment': {'body': message or ''},
+    }}).encode()
+    return body, {'Authorization': auth}, 'application/json'
+
+
+def _parse_itsm_response(fmt, url, raw):
+    """Extract {ticket_ref, ticket_url} from a provider's create-ticket response."""
+    try:
+        data = json.loads((raw or b'').decode('utf-8', 'replace'))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    u = urllib.parse.urlparse(url)
+    base = f'{u.scheme}://{u.netloc}'
+    try:
+        if fmt == 'jira':
+            key = data.get('key')
+            if key:
+                return {'ticket_ref': str(key), 'ticket_url': f'{base}/browse/{key}'}
+        elif fmt == 'servicenow':
+            res = data.get('result') or {}
+            num, sid = res.get('number'), res.get('sys_id')
+            if num:
+                link = (f'{base}/nav_to.do?uri=incident.do?sys_id={sid}' if sid else '')
+                return {'ticket_ref': str(num), 'ticket_url': link}
+        elif fmt == 'zendesk':
+            t = data.get('ticket') or {}
+            tid = t.get('id')
+            if tid:
+                return {'ticket_ref': str(tid),
+                        'ticket_url': t.get('url') or f'{base}/agent/tickets/{tid}'}
+    except Exception:
+        return None
+    return None
 
 
 def _build_generic_body(event, title, message, priority, safe_payload):
@@ -6879,6 +6993,9 @@ def handle_public_info():
         # v4.2.0 sweep: same hint for the "Sign in with a passkey" button —
         # it used to render unconditionally even when the library was absent.
         'webauthn_enabled':    _webauthn_lib_usable(),
+        # v5.0.0: optional login banner / security notice (e.g. "Authorized use
+        # only"). Plain text, shown above the sign-in form. Non-sensitive.
+        'login_banner':        str(cfg.get('login_banner') or ''),
     })
 
 
@@ -13427,11 +13544,14 @@ def handle_config_get():
             if not isinstance(e, dict):
                 continue
             # v3.3.0: also redact the github `token` field (PAT).
+            # v5.0.0: + the ITSM secret (itsm_secret auto-redacts via the secret
+            # regex, but echo a *_set flag + keep the non-secret itsm fields).
             r = {k: v for k, v in e.items()
-                 if k not in ('pushover_token', 'pushover_user', 'token')}
+                 if k not in ('pushover_token', 'pushover_user', 'token', 'itsm_secret')}
             r['pushover_token_set'] = bool(e.get('pushover_token'))
             r['pushover_user_set']  = bool(e.get('pushover_user'))
             r['token_set']          = bool(e.get('token'))
+            r['itsm_secret_set']    = bool(e.get('itsm_secret'))
             redacted.append(r)
         safe['webhook_urls'] = redacted
 
@@ -13656,6 +13776,22 @@ def handle_config_save():
                     clean_entry['token'] = _sanitize_str(pat, 256)
                 elif existing and existing.get('token'):
                     clean_entry['token'] = existing['token']
+            # v5.0.0: ITSM (Jira/ServiceNow/Zendesk) credentials + Jira project.
+            # Same leave-unchanged-on-blank secret semantics as github/pushover.
+            if fmt in ITSM_FORMATS:
+                existing = next(
+                    (e for e in (cfg.get('webhook_urls') or [])
+                     if isinstance(e, dict) and e.get('id') == clean_entry['id']),
+                    None)
+                clean_entry['itsm_user'] = _sanitize_str(entry.get('itsm_user') or '', 128)
+                _isec = (entry.get('itsm_secret') or '').strip()
+                if _isec:
+                    clean_entry['itsm_secret'] = _sanitize_str(_isec, 512)
+                elif existing and existing.get('itsm_secret'):
+                    clean_entry['itsm_secret'] = existing['itsm_secret']
+                if fmt == 'jira':
+                    clean_entry['jira_project'] = _sanitize_str(entry.get('jira_project') or '', 32)
+                    clean_entry['jira_issuetype'] = _sanitize_str(entry.get('jira_issuetype') or 'Task', 40)
             clean.append(clean_entry)
         cfg['webhook_urls'] = clean
 
@@ -14519,6 +14655,19 @@ def handle_config_save():
     # governs whether operators are prompted for one).
     if 'ack_comment_enabled' in body:
         cfg['ack_comment_enabled'] = bool(body['ack_comment_enabled'])
+
+    # v5.0.0: guided self-update script (Settings → Install). Absolute path only;
+    # run directly (never via a shell) by /api/server/self-update. Empty disables.
+    if 'self_update_command' in body:
+        v = str(body.get('self_update_command') or '').strip()
+        if v and not v.startswith('/'):
+            respond(400, {'error': 'self_update_command must be an absolute path'})
+        cfg['self_update_command'] = _sanitize_str(v, 512)
+
+    # v5.0.0: login banner / security notice shown on the sign-in screen (e.g.
+    # "Authorized use only"). Plain text, surfaced pre-auth via /api/public-info.
+    if 'login_banner' in body:
+        cfg['login_banner'] = _sanitize_str(str(body.get('login_banner') or ''), 2000)
 
     # v3.3.0: Healthchecks.io / generic watchdog ping
     if 'healthchecks_url' in body:
@@ -16359,6 +16508,17 @@ def handle_self_status():
         out.setdefault('backup', {})
         out['backup']['encryption_armed'] = bool(_backup_passphrase())
         out['backup']['encryption_available'] = backup_crypto.available()
+        # v5.0.0: archive counts so the UI can offer "encrypt existing backups".
+        try:
+            _bcfg = (load(CONFIG_FILE) or {}).get('backup') or {}
+            _bdir = Path(_bcfg.get('path') or '/var/lib/remotepower/backups')
+            out['backup']['plaintext_archives'] = sum(
+                1 for f in _bdir.glob('remotepower_data_*.tar.gz')
+                if not f.name.endswith('.enc'))
+            out['backup']['encrypted_archives'] = sum(
+                1 for _ in _bdir.glob('remotepower_data_*.tar.gz.enc'))
+        except Exception:
+            pass
     except Exception:
         pass
     # v4.3.0: cadence-job staleness. A job that quietly stops looks identical to
@@ -16802,6 +16962,59 @@ def handle_backup_run():
     audit_log(actor, 'backup_run_manual',
               detail=f"file={result.get('file','?')} bytes={result.get('bytes','?')}")
     respond(200, result)
+
+
+def handle_backup_encrypt_existing():
+    """v5.0.0: POST /api/self/backup-encrypt — migrate existing PLAINTEXT backup
+    archives to encrypted (AES-256-GCM) using an admin-supplied passphrase.
+
+    The passphrase is used for THIS request only and is never persisted (same
+    philosophy as the env-var path — the thing the backup protects must not store
+    the key). Each `remotepower_data_*.tar.gz` is encrypted to `*.tar.gz.enc`,
+    the result is verified decryptable, then the plaintext is removed. For ONGOING
+    scheduled backups, set `RP_BACKUP_PASSPHRASE` so new snapshots are encrypted
+    at write time — this endpoint only converts the archives already on disk."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    if not backup_crypto.available():
+        respond(400, {'error': "the 'cryptography' library is not installed"}); return
+    passphrase = str(get_json_obj().get('passphrase') or '')
+    if len(passphrase) < 8:
+        respond(400, {'error': 'passphrase must be at least 8 characters'}); return
+    bcfg = (load(CONFIG_FILE) or {}).get('backup') or {}
+    bdir = Path(bcfg.get('path') or '/var/lib/remotepower/backups')
+    encrypted = failed = 0
+    import tempfile as _tf
+    for f in sorted(bdir.glob('remotepower_data_*.tar.gz')):
+        if f.name.endswith('.enc') or '.tmp.' in f.name:
+            continue
+        enc = f.with_suffix(f.suffix + '.enc')
+        try:
+            backup_crypto.encrypt_file(f, enc, passphrase)
+            # verify it round-trips before deleting the plaintext
+            with _tf.NamedTemporaryFile(dir=str(bdir), delete=False,
+                                        prefix='.verify_', suffix='.tmp') as _vt:
+                _vpath = Path(_vt.name)
+            try:
+                backup_crypto.decrypt_file(enc, _vpath, passphrase)
+            finally:
+                try:
+                    _vpath.unlink()
+                except OSError:
+                    pass
+            f.unlink()
+            encrypted += 1
+        except Exception:
+            failed += 1
+            try:
+                if enc.exists():
+                    enc.unlink()
+            except OSError:
+                pass
+    audit_log(actor, 'backup_encrypt_existing',
+              detail=f'encrypted={encrypted} failed={failed}')
+    respond(200, {'ok': True, 'encrypted': encrypted, 'failed': failed})
 
 
 def handle_storage_backend_status():
@@ -17263,7 +17476,38 @@ def handle_version_check():
         'current': local, 'latest': latest,
         'update_available': update_available,
         'release_url': 'https://github.com/tyxak/remotepower/releases/latest',
+        # v5.0.0: whether a guided self-update script is configured (Settings → Install).
+        'self_update_configured': bool((cfg.get('self_update_command') or '').strip()),
     })
+
+
+def handle_server_self_update():
+    """v5.0.0: POST /api/server/self-update — run the operator-configured update
+    script (Settings → Install). Disabled until an admin sets an absolute script
+    path in `self_update_command`; the script is responsible for pulling the new
+    version and restarting the service the way this install expects. Admin-only,
+    audited, no arguments are passed (the path is run directly, never via a shell)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    cfg = load(CONFIG_FILE) or {}
+    cmd = (cfg.get('self_update_command') or '').strip()
+    if not cmd:
+        respond(400, {'error': 'self-update is not configured — set an update-script '
+                               'path in Settings → Install first', 'configured': False}); return
+    p = Path(cmd)
+    if not p.is_absolute() or not p.exists():
+        respond(400, {'error': f'update script not found or not an absolute path: {cmd}'}); return
+    audit_log(actor, 'server_self_update', detail=f'cmd={cmd}')
+    try:
+        proc = subprocess.run([cmd], capture_output=True, text=True, timeout=600)
+        out = (proc.stdout + proc.stderr)[-4000:]
+        respond(200, {'ok': proc.returncode == 0, 'returncode': proc.returncode, 'output': out})
+    except subprocess.TimeoutExpired:
+        respond(200, {'ok': False, 'error': 'update timed out after 10 min — it may still '
+                                            'be running; check the server logs'})
+    except Exception as e:
+        respond(500, {'error': str(e)})
 
 
 def _record_uptime(dev_id, name, is_online):
@@ -20791,7 +21035,35 @@ def handle_network_map() -> None:
     (a device may have been deleted since the link/tunnel was set).
     """
     require_auth()
-    devices = _scope_filter_devices(load(DEVICES_FILE))   # v3.5.0 RBAC v2
+    all_devices = _scope_filter_devices(load(DEVICES_FILE))   # v3.5.0 RBAC v2
+    # v5.0.0: available scope values for the picker (computed before filtering).
+    _scopes = {
+        'groups': sorted({d.get('group') for d in all_devices.values()
+                          if isinstance(d, dict) and d.get('group')}),
+        'tags':   sorted({t for d in all_devices.values() if isinstance(d, dict)
+                          for t in (d.get('tags') or []) if t}),
+        'sites':  sorted({(d.get('site_id') or d.get('site')) for d in all_devices.values()
+                          if isinstance(d, dict) and (d.get('site_id') or d.get('site'))}),
+    }
+    # v5.0.0: optional scope filter so a big fleet's topology can be viewed one
+    # group / tag / site at a time instead of rendering all N nodes at once.
+    _qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    _fg = (_qs.get('group') or [''])[0].strip()
+    _ft = (_qs.get('tag') or [''])[0].strip()
+    _fs = (_qs.get('site') or [''])[0].strip()
+    if _fg or _ft or _fs:
+        def _in_scope(d):
+            if _fg and (d.get('group') or '') != _fg:
+                return False
+            if _ft and _ft not in (d.get('tags') or []):
+                return False
+            if _fs and (d.get('site_id') or d.get('site') or '') != _fs:
+                return False
+            return True
+        devices = {k: v for k, v in all_devices.items()
+                   if isinstance(v, dict) and _in_scope(v)}
+    else:
+        devices = all_devices
     now = int(time.time())
     nodes = []
     for dev_id, dev in devices.items():
@@ -20848,7 +21120,9 @@ def handle_network_map() -> None:
             tunnels.append({'id': tid, 'endpoints': [ends[0], ends[1]]})
 
     respond(200, {'nodes': nodes, 'edges': edges, 'tunnels': tunnels,
-                  'dep_edges': dep_edges})
+                  'dep_edges': dep_edges, 'scopes': _scopes,
+                  'scope': {'group': _fg, 'tag': _ft, 'site': _fs},
+                  'total': len(all_devices)})
 
 
 # ── v1.11.1: persisted node positions ─────────────────────────────────────────
@@ -33757,14 +34031,29 @@ def _fire_ack_webhooks(alert, user):
     title = f"Alert acknowledged: {alert.get('title') or alert.get('event') or 'alert'}"[:256]
     message = (f"Acknowledged by {user}: {alert.get('title') or alert.get('event') or 'alert'} "
                f"(severity {alert.get('severity', '?')})")
+    ticket = None
     for dest in dests:
         # Clear the normal filters — on_ack is an explicit opt-in.
         d = {**dest, 'events': None, 'min_priority': None}
         try:
-            _dispatch_one_webhook('alert_acked', d, payload, message, title, 1)
+            res = _dispatch_one_webhook('alert_acked', d, payload, message, title, 1)
+            # v5.0.0: first ITSM destination that opened a ticket wins the link.
+            if res and isinstance(res, dict) and res.get('ticket_ref') and not ticket:
+                ticket = res
         except Exception as e:
             _log_webhook('alert_acked', dest.get('url', '?'), 'error',
                          f'{type(e).__name__}: {str(e)[:200]}')
+    # v5.0.0: persist the opened ticket's ref/url on the alert so the UI links it.
+    if ticket and alert.get('id'):
+        try:
+            with _LockedUpdate(ALERTS_FILE) as store:
+                for a in (store.get('alerts') or []):
+                    if isinstance(a, dict) and a.get('id') == alert.get('id'):
+                        a['ticket_ref'] = ticket['ticket_ref'][:128]
+                        a['ticket_url'] = (ticket.get('ticket_url') or '')[:512]
+                        break
+        except Exception:
+            pass
 
 
 # ── v3.12.0: My Account (per-user identity, avatar, settings) ────────────────
@@ -44842,6 +45131,7 @@ def _build_exact_routes():
         ('POST', '/api/tls/gen-self-signed'): handle_tls_gen_self_signed,
         ('POST', '/api/tls/import-p12'): handle_tls_import_p12,
         ('POST', '/api/self/backup-now'): handle_backup_run,
+        ('POST', '/api/self/backup-encrypt'): handle_backup_encrypt_existing,   # v5.0.0
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
         ('GET', '/api/self-test'): handle_self_test,                 # v5.0.0 #U9
@@ -44944,6 +45234,7 @@ def _build_exact_routes():
         ('GET', '/api/roles'): handle_roles_list,
         ('POST', '/api/roles'): handle_role_create,
         ('GET', '/api/version'): handle_version_check,
+        ('POST', '/api/server/self-update'): handle_server_self_update,   # v5.0.0
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
         ('GET', '/api/agent-compat'): handle_agent_compat,                # v5.0.0 #F4

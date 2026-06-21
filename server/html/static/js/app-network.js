@@ -16,9 +16,35 @@ async function enterNetmap() {
   await loadNetmap();
 }
 
+// v5.0.0: scope the topology to one site / group / tag so a big fleet stays
+// legible instead of rendering all N nodes at once.
+function _netmapScopeQuery() {
+  const g = document.getElementById('netmap-scope-group')?.value || '';
+  const t = document.getElementById('netmap-scope-tag')?.value || '';
+  const s = document.getElementById('netmap-scope-site')?.value || '';
+  const p = [];
+  if (g) p.push('group=' + encodeURIComponent(g));
+  if (t) p.push('tag=' + encodeURIComponent(t));
+  if (s) p.push('site=' + encodeURIComponent(s));
+  return p.length ? '?' + p.join('&') : '';
+}
+function _netmapFillScope(sel, values, active) {
+  const el = document.getElementById(sel);
+  if (!el) return;
+  const allLabel = el.options[0] ? el.options[0].textContent : 'All';
+  el.innerHTML = `<option value="">${allLabel}</option>` +
+    (values || []).map(v => `<option value="${escAttr(v)}"${v === active ? ' selected' : ''}>${escHtml(v)}</option>`).join('');
+  el.value = active || '';
+}
+
 async function loadNetmap() {
-  const data = await api('GET', '/network-map');
+  const data = await api('GET', '/network-map' + _netmapScopeQuery());
   if (!data) return;
+  // populate the scope pickers (preserving the active selection)
+  const sc = data.scopes || {}; const act = data.scope || {};
+  _netmapFillScope('netmap-scope-site',  sc.sites,  act.site);
+  _netmapFillScope('netmap-scope-group', sc.groups, act.group);
+  _netmapFillScope('netmap-scope-tag',   sc.tags,   act.tag);
   // v3.0.5: guard against the demo / read-only API path that returns
   // `{}` (or `{error: ...}`) instead of the full shape. Previously
   // `data.nodes.map(...)` would throw "can't access property 'map',
@@ -54,8 +80,11 @@ async function loadNetmap() {
     yPos += 120;
   });
   renderNetmap();
+  const scoped = !!(act.site || act.group || act.tag);
   document.getElementById('netmap-stats').textContent =
-    `${_netmapData.nodes.length} node(s), ${_netmapData.edges.length} link(s), ${_netmapData.tunnels.length} tunnel(s)`;
+    `${_netmapData.nodes.length}${scoped && data.total ? ' of ' + data.total : ''} node(s), ` +
+    `${_netmapData.edges.length} link(s), ${_netmapData.tunnels.length} tunnel(s)` +
+    (scoped ? ' — scoped' : '');
 }
 
 // SVG renderer — physical edges as solid lines, tunnels as dashed amber.

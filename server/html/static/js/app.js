@@ -2486,7 +2486,7 @@ function switchSettingsTab(tab) {
   // v2.4.4: load the mailbox monitor config when its pane opens.
   if (tab === 'mailbox') loadMailwatchSettings();
   // v3.4.2: Install / getting-started checklist.
-  if (tab === 'install') loadSetup();
+  if (tab === 'install') { loadSetup(); loadUpdatePanel(); }
 }
 
 // v3.4.2: Settings → Install — onboarding checklist driven by live state.
@@ -2524,6 +2524,63 @@ async function loadSetup() {
 function gotoSetupStep(page, tab) {
   showPage(page);
   if (page === 'settings' && tab) switchSettingsTab(tab);
+}
+
+// ── v5.0.0: Settings → Install update ────────────────────────────────────────
+async function loadUpdatePanel() {
+  const st = document.getElementById('update-status');
+  if (!st) return;
+  st.innerHTML = '<div class="c-muted">Checking…</div>';
+  const v = await api('GET', '/version').catch(() => null);
+  if (!v) { st.innerHTML = '<div class="c-red">Could not check for updates.</div>'; return; }
+  st.innerHTML = `<table class="fs-13">
+    <tr><td class="c-muted-padded">Running</td><td class="ff-mono">${escHtml(v.current || '—')}</td></tr>
+    <tr><td class="c-muted-padded">Latest</td><td class="ff-mono">${escHtml(v.latest || '—')} ${
+      v.update_available
+        ? '<span class="patch-badge warn">update available</span>'
+        : '<span class="patch-badge ok">up to date</span>'}</td></tr>
+  </table>` + (v.release_url ? `<div class="mt-6"><a href="${escAttr(v.release_url)}" target="_blank" rel="noopener" class="c-accent">Release notes ↗</a></div>` : '');
+  // upgrade commands by install method (shown when an update is available)
+  const cmds = document.getElementById('update-commands');
+  if (cmds) {
+    cmds.innerHTML = v.update_available ? `
+      <details open><summary class="fw-600 pointer">How to upgrade</summary>
+        <div class="mt-8 fs-12">
+          <div class="mb-8"><strong>Docker</strong><pre class="ff-mono scroll-cap mt-4">docker compose pull &amp;&amp; docker compose up -d</pre></div>
+          <div class="mb-8"><strong>install.sh / source</strong><pre class="ff-mono scroll-cap mt-4">./install.sh update   # or: git pull &amp;&amp; sudo ./deploy-server.sh</pre></div>
+          <div class="mb-8"><strong>Arch (AUR)</strong><pre class="ff-mono scroll-cap mt-4">yay -S remotepower-server</pre></div>
+        </div>
+      </details>` : '';
+  }
+  // populate the configured self-update script path (admin reads it from config)
+  try {
+    const cfg = await api('GET', '/config').catch(() => null);
+    const inp = document.getElementById('self-update-cmd');
+    if (inp && cfg) inp.value = cfg.self_update_command || '';
+  } catch (e) {}
+}
+
+async function saveSelfUpdateCmd() {
+  const inp = document.getElementById('self-update-cmd');
+  if (!inp) return;
+  const val = inp.value.trim();
+  if (val && !val.startsWith('/')) { toast('Path must be absolute (start with /)', 'error'); return; }
+  const r = await api('POST', '/config', { self_update_command: val });
+  if (r && (r.ok || r.success !== false)) toast('Update script saved', 'success');
+  else toast((r && r.error) || 'Save failed', 'error');
+}
+
+async function runSelfUpdate() {
+  if (!await uiConfirm('Run the configured update script now? The server may restart. Make sure you have a recent backup.')) return;
+  const btn = document.getElementById('run-selfupdate-btn');
+  const out = document.getElementById('self-update-output');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  const r = await api('POST', '/server/self-update');
+  if (btn) { btn.disabled = false; btn.textContent = 'Run update now'; }
+  if (!r) return;
+  if (out) { out.classList.remove('d-none'); out.textContent = (r.output || r.error || '(no output)'); }
+  if (r.ok) toast('Update script completed', 'success');
+  else toast(r.error || `Update exited with code ${r.returncode}`, 'error');
 }
 
 function renderEventToggleTable(events, descriptions, emailEvents) {
@@ -2580,6 +2637,7 @@ async function loadSettings() {
   try { loadSatellites(); } catch (e) {}
   // General
   document.getElementById('cfg-server-name').value = data.server_name || '';
+  { const _lb = document.getElementById('cfg-login-banner'); if (_lb) _lb.value = data.login_banner || ''; }
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
   document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
   document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
@@ -2952,6 +3010,7 @@ async function saveSettings(btn) {
   const sessLongDays   = parseInt(document.getElementById('cfg-session-long').value)  || 30;
   const payload = {
     server_name:           document.getElementById('cfg-server-name').value.trim(),
+    login_banner:          document.getElementById('cfg-login-banner')?.value.trim() || '',
     default_poll_interval: parseInt(document.getElementById('cfg-default-poll').value) || 60,
     online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
     monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
@@ -3015,6 +3074,8 @@ async function saveSettings(btn) {
       const c = {...d};
       delete c.pushover_token_set;
       delete c.pushover_user_set;
+      delete c.token_set;
+      delete c.itsm_secret_set;
       return c;
     });
   }
@@ -9387,11 +9448,17 @@ function _alertRowHtml(a, role) {
     ? ' <span class="alert-rc-badge rc-root">root cause</span>'
     : role === 'symptom' ? ' <span class="alert-rc-badge rc-symptom">symptom</span>' : '';
   const titleCls = role === 'symptom' ? ' class="alert-symptom-cell"' : '';
+  // v5.0.0: ITSM ticket opened on ack — link straight to it.
+  const ticketLink = a.ticket_ref
+    ? (a.ticket_url
+        ? ` <a href="${escAttr(a.ticket_url)}" target="_blank" rel="noopener" class="patch-badge ok fs-10" title="Open the linked ticket">Ticket ${_escapeHtml(a.ticket_ref)} ↗</a>`
+        : ` <span class="patch-badge ok fs-10" title="Linked ticket">Ticket ${_escapeHtml(a.ticket_ref)}</span>`)
+    : '';
   return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}">
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${a.alertid ? `<div class="hint">${_escapeHtml(a.alertid)}</div>` : ''}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${a.alertid ? `<div class="hint">${_escapeHtml(a.alertid)}</div>` : ''}</td>
     <td>${_escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
@@ -25094,7 +25161,13 @@ async function loadSelfStatus() {
           : `<span class="patch-badge warn">plaintext</span> <span class="hint">set <code>RP_BACKUP_PASSPHRASE</code> to encrypt</span>`}${
           bk.encryption_armed && bk.encryption_available === false
           ? ' <span class="c-red">— cryptography lib missing!</span>' : ''}</td></tr>
+        ${(bk.plaintext_archives != null || bk.encrypted_archives != null) ? `
+        <tr><td class="c-muted-padded">Archives</td><td>${bk.encrypted_archives || 0} encrypted, ${bk.plaintext_archives || 0} plaintext</td></tr>` : ''}
       </table>
+      ${(bk.plaintext_archives > 0 && bk.encryption_available !== false) ? `
+        <button class="btn-icon mt-8" data-action="encryptExistingBackups" title="Encrypt the plaintext backup archives already on disk">${_icon('power', 14)} Encrypt existing backups (${bk.plaintext_archives})</button>
+        <div class="hint mt-6">Encrypts archives on disk now with a passphrase you supply (never stored). For ongoing scheduled backups, set <code>RP_BACKUP_PASSPHRASE</code>.</div>` :
+        (bk.encryption_available === false ? '<div class="hint mt-6">Install the <code>cryptography</code> library to enable backup encryption.</div>' : '')}
       ${bk.last_run ? `
         <table class="fs-13 mt-6">
           <tr><td class="c-muted-padded">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span class="c-muted">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
@@ -25190,6 +25263,23 @@ async function runBackupNow() {
   if (!r || r.error) { toast('Backup failed: ' + (r?.error || 'unknown'), 'error'); return; }
   if (r.skipped) { toast('Skipped: ' + (r.reason || ''), 'warning'); return; }
   toast(`Backup written: ${_selfFmtBytes(r.bytes)} (${r.pruned || 0} old files pruned)`, 'success');
+  loadSelfStatus();
+}
+
+// v5.0.0: migrate existing plaintext backup archives to encrypted at rest.
+async function encryptExistingBackups() {
+  const pass = await uiPrompt({
+    title: 'Encrypt existing backups',
+    message: 'Encrypts the plaintext archives on disk now. The passphrase is NOT stored — keep it safe, the backups can only be restored with it. For ongoing scheduled backups, also set RP_BACKUP_PASSPHRASE in the server environment.',
+    type: 'password', placeholder: 'passphrase (min 8 characters)', confirmText: 'Encrypt',
+  });
+  if (pass == null) return;
+  if (pass.length < 8) { toast('Passphrase must be at least 8 characters', 'error'); return; }
+  const r = await api('POST', '/self/backup-encrypt', { passphrase: pass });
+  if (!r) return;
+  if (!r.ok) { toast(r.error || 'Encryption failed', 'error'); return; }
+  toast(`Encrypted ${r.encrypted} archive(s)` + (r.failed ? `, ${r.failed} failed` : ''),
+        r.failed ? 'error' : 'success');
   loadSelfStatus();
 }
 
@@ -25752,6 +25842,9 @@ const _WEBHOOK_FORMATS = [
   ['github',    'GitHub issues',  'https://api.github.com/repos/<owner>/<repo>/issues'],
   ['pagerduty', 'PagerDuty',      'https://events.pagerduty.com/v2/enqueue'],
   ['opsgenie',  'Opsgenie',       'https://api.opsgenie.com/v2/alerts'],
+  ['jira',      'Jira (ticket)',       'https://your.atlassian.net/rest/api/2/issue'],
+  ['servicenow','ServiceNow (incident)','https://your.service-now.com/api/now/table/incident'],
+  ['zendesk',   'Zendesk (ticket)',    'https://your.zendesk.com/api/v2/tickets.json'],
   ['generic',   'Generic JSON',   'https://your-receiver.example.com/webhook'],
 ];
 function renderWebhookDests() {
@@ -25768,6 +25861,9 @@ function renderWebhookDests() {
     const isGithub   = d.format === 'github';
     const isPagerduty = d.format === 'pagerduty';
     const isOpsgenie  = d.format === 'opsgenie';
+    const isJira     = d.format === 'jira';
+    const isItsm     = (d.format === 'jira' || d.format === 'servicenow' || d.format === 'zendesk');
+    const itsmSecretSet = d.itsm_secret_set;
     const tokenSet = d.pushover_token_set;
     const userSet  = d.pushover_user_set;
     const githubTokenSet = d.token_set;
@@ -25801,6 +25897,17 @@ function renderWebhookDests() {
             <input type="text" data-field="token" class="form-input isl-743" placeholder="${githubTokenSet ? '••••••••••• (set — leave blank to keep)' : (isPagerduty ? 'PagerDuty integration/routing key' : 'Opsgenie API key (GenieKey)')}">
           </div>
           <div class="meta-sm-nm">${isPagerduty ? 'Events API v2 integration key from a PagerDuty service. Recover events auto-resolve the incident.' : 'API key from an Opsgenie API integration. Use the EU endpoint URL if your account is in the EU region.'}</div>` : ''}
+        ${isItsm ? `
+          <div class="isl-741">
+            <input type="text" data-field="itsm_user" class="form-input isl-743" placeholder="${isJira ? 'Atlassian account email' : (d.format === 'zendesk' ? 'Zendesk agent email' : 'ServiceNow username')}" value="${escAttr(d.itsm_user || '')}">
+            <input type="password" data-field="itsm_secret" class="form-input isl-743" placeholder="${itsmSecretSet ? '••••••••••• (set — leave blank to keep)' : (isJira || d.format === 'zendesk' ? 'API token' : 'Password')}">
+          </div>
+          ${isJira ? `
+          <div class="isl-741">
+            <input type="text" data-field="jira_project" class="form-input isl-743" placeholder="Project key (e.g. OPS)" value="${escAttr(d.jira_project || '')}">
+            <input type="text" data-field="jira_issuetype" class="form-input isl-743" placeholder="Issue type (default Task)" value="${escAttr(d.jira_issuetype || '')}">
+          </div>` : ''}
+          <div class="meta-sm-nm">Opens a ticket when an alert is acknowledged (enable "Also fire on alert ACK" below). The new ticket's link is shown on the alert. Basic auth over HTTPS.</div>` : ''}
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">
@@ -25839,7 +25946,7 @@ function _readWebhookDestCard(idx, card) {
     if (el.type === 'checkbox') d[f] = el.checked;
     else if (f === 'min_priority') d[f] = el.value === '' ? null : parseInt(el.value, 10);
     else if (f === 'events') d[f] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
-    else if (f === 'pushover_token' || f === 'pushover_user') {
+    else if (f === 'pushover_token' || f === 'pushover_user' || f === 'itsm_secret') {
       // Don't overwrite the placeholder unless the user typed something
       if (el.value) d[f] = el.value;
     }

@@ -36,6 +36,7 @@
   <form class="login-card" id="login-form" autocomplete="on">
     <div class="login-title">Sign in</div>
     <div class="login-sub">Access your device control panel</div>
+    <div id="login-banner" class="login-banner d-none"></div>
     <div class="form-group">
       <label class="form-label" for="login-user">Username</label>
       <input type="text" id="login-user" name="username" class="form-input" placeholder="admin" autocomplete="username">
@@ -1168,6 +1169,27 @@
             <div id="setup-progress" class="mb-12"></div>
             <div id="setup-steps" class="scroll-cap"><div class="c-muted">Loading…</div></div>
           </div>
+          <!-- v5.0.0: Install update -->
+          <div class="settings-section">
+            <h3>Install update</h3>
+            <p class="hint">Compares the running version against the latest published release.</p>
+            <div id="update-status" class="mb-8"><div class="c-muted">Not checked yet.</div></div>
+            <button class="btn-icon" data-action="loadUpdatePanel">Check for updates</button>
+            <div id="update-commands" class="mt-12"></div>
+            <details class="mt-12">
+              <summary class="fw-600 pointer">Guided self-update (advanced)</summary>
+              <div class="mt-8">
+                <p class="hint">Optionally point this at a server-side update script (absolute path). When set, "Run update now" executes it — your script pulls the new version and restarts the service the way your install expects (git / package / container). It runs directly, never through a shell, with no arguments. Leave empty to keep self-update disabled.</p>
+                <label class="form-label" for="self-update-cmd">Update script</label>
+                <input type="text" id="self-update-cmd" class="form-input mw-380 ff-mono" placeholder="/usr/local/sbin/remotepower-update.sh">
+                <div class="mt-8">
+                  <button class="btn-icon" data-action="saveSelfUpdateCmd">Save script path</button>
+                  <button class="btn-shutdown" data-action="runSelfUpdate" id="run-selfupdate-btn" title="Run the configured update script now">Run update now</button>
+                </div>
+                <pre id="self-update-output" class="ff-mono fs-12 mt-8 scroll-cap d-none"></pre>
+              </div>
+            </details>
+          </div>
         </div>
 
         <!-- ── Interface (New UI / Old UI) ──────────────────────────────── -->
@@ -1197,6 +1219,11 @@
                 <label class="form-label">Server name</label>
                 <input type="text" id="cfg-server-name" class="form-input" placeholder="RemotePower" maxlength="80">
               </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="cfg-login-banner">Login banner / security notice <span class="meta-sm">(optional)</span></label>
+              <textarea id="cfg-login-banner" class="form-input" rows="2" maxlength="2000" placeholder="e.g. Authorized use only. Activity is monitored and logged."></textarea>
+              <div class="meta-sm">Shown above the sign-in form to everyone before they log in.</div>
             </div>
           </div>
 
@@ -4840,6 +4867,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="netmapEditOpen" >Edit links</button>
           <button class="btn-icon" data-action="netmapTunnelsOpen" >Tunnels</button>
           <button class="btn-icon" data-action="netmapResetPositions" title="Clear all manual positions and revert to auto-layout">Reset positions</button>
+          <span class="netmap-scope-wrap row-8-center">
+            <label class="meta-sm" for="netmap-scope-site">Scope:</label>
+            <select id="netmap-scope-site" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by site"><option value="">All sites</option></select>
+            <select id="netmap-scope-group" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by group"><option value="">All groups</option></select>
+            <select id="netmap-scope-tag" class="form-input input-auto" data-change="loadNetmap" aria-label="Filter the map by tag"><option value="">All tags</option></select>
+          </span>
           <span id="netmap-stats" class="isl-174"></span>
         </div>
         <div class="table-card isl-175">

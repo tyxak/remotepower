@@ -28,6 +28,14 @@ flagged primary — edited with a live preview tree; mark an asset
 or by group / tag / site (a site represents a customer). **Accessibility:**
 every table column header carries `scope="col"`, icon-only buttons are
 `aria-label`led and decorative icons `aria-hidden`.
+**Backups:** migrate existing plaintext archives to encrypted **from the web UI**
+(Server status → Backup → "Encrypt existing backups", request-only passphrase).
+**Network map at fleet scale:** a **scope picker** (site / group / tag) renders
+one slice of the topology instead of all nodes at once. **Ticketing:** ready-made
+**Jira / ServiceNow / Zendesk** webhook formats for the on-ack opt-in, with the
+opened ticket's link shown on the alert. **Settings → Install:** a version check
+against the latest release + a guided **self-update** (runs an operator-set update
+script). **Settings:** an optional **login banner / security notice**.
 Deferred:
 user-configurable timezone. See docs/v5.0.0.md.
 
