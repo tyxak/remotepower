@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.0.0 — "CTRLMatters" — unreleased (test)
+## v5.0.0 — "CTRLMatters" — 2026-06-22
 
 Control-plane hardening + scale. **Security:** opt-in mutual TLS for agents
 (CA-verified client certs, optional per-device pin), AES-256-GCM encrypted DR
@@ -70,7 +70,7 @@ the debug instrumentation no longer runs on every request when disabled.
 Deferred:
 user-configurable timezone. See docs/v5.0.0.md.
 
-## v4.10.0 — "PerimeterMatters" — unreleased (test)
+## v4.10.0 — "PerimeterMatters" — folded into v5.0.0 (no standalone release)
 
 A perimeter-defense and AI release: a fleet-wide **Firewall + fail2ban** page
 (view *and* edit), **20 new AI features** in an AI Insights hub, four new
@@ -209,7 +209,7 @@ audited, and redaction-aware like the existing AI actions.
   now scroll-capped, plus a11y fixes (labelled toolbar filters, a no-emoji icon
   swap) and a themeable severity-orange.
 
-## v4.9.0 — "ResolutionMatters" — unreleased (test)
+## v4.9.0 — "ResolutionMatters" — 2026-06-18
 
 Adds an **Admin → DNS dashboard** that reads and writes DNS records directly
 through your provider's API, so you can manage zones without leaving RemotePower
