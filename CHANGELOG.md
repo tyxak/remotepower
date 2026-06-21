@@ -4689,7 +4689,7 @@ Total v3.0.2 suite: 1404 tests, all passing.
   - Server-side secret masking — env vars whose NAME matches
     PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE are redacted before
     the payload leaves the host.
-  - Markdown code-fence safety net — strips ``` wrappers from LLM output.
+  - Markdown code-fence safety net — strips triple-backtick code-fence wrappers from LLM output.
   - Categories + format + last device persist in browser localStorage.
 
 ### Changed
