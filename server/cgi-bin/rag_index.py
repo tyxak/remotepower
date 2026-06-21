@@ -507,7 +507,12 @@ def build_live_state_corpus(devices, facets=None, now=0):
                            ('cpu usage %', 'cpu_percent'),
                            ('memory usage %', 'mem_percent'),
                            ('swap usage %', 'swap_percent'),
-                           ('disk usage %', 'disk_percent')):
+                           ('disk usage %', 'disk_percent'),
+                           # Saturation signals that cause hard-to-debug outages
+                           # — index them so the AI can answer "is X running out
+                           # of file descriptors / conntrack entries?".
+                           ('open file descriptors %', 'fd_percent'),
+                           ('conntrack table %', 'conntrack_percent')):
             v = si.get(key)
             if v not in (None, ''):
                 usage.append(f"{label}: {v}")
@@ -517,6 +522,43 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 f"{name} current resource usage (load, CPU, memory, swap, "
                 f"disk):\n" + '\n'.join(usage),
                 title=f"{name} — current usage", device=dev_id, ts=ts))
+
+        # Mount problems (stalled NFS, read-only remounts, missing mounts) — a
+        # high-value reliability signal the agent already reports. Index it so
+        # "which hosts have a stalled / failed mount?" answers from real data
+        # instead of the model punting to a tool call.
+        mi = si.get('mount_issues')
+        if mi:
+            docs.append(make_doc(
+                f"live/{dev_id}#mountissues", 'live_state', 'device_mount_issues',
+                f"{name} mount problems (stalled / read-only / missing mounts):\n"
+                + _format_facet(mi),
+                title=f"{name} — mount issues", device=dev_id, ts=ts))
+
+        # Failing custom checks — index only the non-OK ones so "which checks
+        # are failing on X" is answerable from the corpus.
+        ccr = si.get('custom_check_results')
+        if isinstance(ccr, list):
+            failing = [c for c in ccr if isinstance(c, dict)
+                       and str(c.get('status', '')).lower()
+                       not in ('ok', 'pass', 'passing', 'up', '')]
+            if failing:
+                docs.append(make_doc(
+                    f"live/{dev_id}#checks", 'live_state', 'device_checks',
+                    f"{name} failing custom checks:\n" + _format_facet(failing),
+                    title=f"{name} — failing checks", device=dev_id, ts=ts))
+
+        # Running process NAMES (the unique set, sorted for a stable chunk hash)
+        # — answers "is nginx / postgres running on X" without a tool call. We
+        # index the name set (stable) NOT top_processes (CPU-sorted, volatile).
+        pn = si.get('proc_names')
+        if isinstance(pn, (list, tuple, set)):
+            pnames = sorted({str(p) for p in pn if p})[:120]
+            if pnames:
+                docs.append(make_doc(
+                    f"live/{dev_id}#processes", 'live_state', 'device_processes',
+                    f"{name} running process names:\n" + ', '.join(pnames),
+                    title=f"{name} — processes", device=dev_id, ts=ts))
 
         # Patch / reboot status. `upgradable` is a pending-update count on the
         # device record; reboot_required comes from sysinfo. Both answer

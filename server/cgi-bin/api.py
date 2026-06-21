@@ -5022,8 +5022,8 @@ def _record_alert(event, payload):
         'event':           str(event)[:64],
         'severity':        sev,
         'title':           _alert_title(event, payload)[:256],
-        'device_id':       (p.get('device_id') or '')[:64] if isinstance(p.get('device_id'), str) else p.get('device_id'),
-        'device_name':     (p.get('device_name') or p.get('name') or '')[:128],
+        'device_id':       str(p.get('device_id') or '')[:64],
+        'device_name':     str(p.get('device_name') or p.get('name') or '')[:128],
         'payload':         summary,
         'source':          p.get('_alert_source', 'internal'),
         'acknowledged_by': None,
@@ -11304,14 +11304,19 @@ def handle_heartbeat():
             _bak_state = (load(DATA_DIR / 'backup_state.json') or {}
                           if backend_exists(DATA_DIR / 'backup_state.json') else {})
             _bak_changed = False
+            # Index monitors by path once (first-wins) instead of an O(monitors)
+            # scan per reported backup path.
+            _mon_by_path = {}
+            for _m in _bak_monitors:
+                if isinstance(_m, dict):
+                    _mon_by_path.setdefault(str(_m.get('path', '')), _m)
             for entry in _backup_status:
                 _path   = str(entry.get('path', ''))
                 _exists = bool(entry.get('exists', False))
                 _mtime  = entry.get('mtime', 0)
                 _age_h  = round((now - _mtime) / 3600, 1) if _mtime else None
                 # Find matching monitor config
-                _mon = next((m for m in _bak_monitors
-                             if m.get('path') == _path), None)
+                _mon = _mon_by_path.get(_path)
                 if not _mon:
                     continue
                 _max_h = float(_mon.get('max_age_hours', 24))
@@ -11351,6 +11356,10 @@ def handle_heartbeat():
             _bv_state = (load(DATA_DIR / 'backup_state.json') or {}
                          if backend_exists(DATA_DIR / 'backup_state.json') else {})
             _bv_mons = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
+            _bv_label_by_path = {}
+            for _m in _bv_mons:
+                if isinstance(_m, dict):
+                    _bv_label_by_path.setdefault(str(_m.get('path', '')), _m.get('label'))
             _bv_changed = False
             for entry in _backup_verify:
                 if not isinstance(entry, dict):
@@ -11362,8 +11371,7 @@ def handle_heartbeat():
                 _prev = _bv_state.get(_state_key) or {}
                 _was_bad = _prev.get('verify_status') in ('failed', 'timeout', 'error')
                 _is_bad  = _vstatus in ('failed', 'timeout', 'error')
-                _label = next((m.get('label', _path) for m in _bv_mons
-                               if m.get('path') == _path), _path)
+                _label = _bv_label_by_path.get(_path) or _path
                 if _is_bad and not _was_bad:
                     try:
                         fire_webhook('backup_verify_failed', {
@@ -13679,11 +13687,15 @@ def handle_config_get():
         safe['gitops'] = _g
 
     # Slack / Discord / Teams webhook URLs embed a secret token in their path,
-    # so the raw URL is itself a credential. Only admins (who can already edit
-    # it) get the value; viewers / MCP keys get the webhook_configured boolean
-    # (set above) instead, and webhook_urls[].url is blanked the same way.
+    # so the raw URL is itself a credential. The legacy scalar `webhook_url` is
+    # NEVER returned to anyone (admins included) — only the webhook_configured
+    # boolean (set above); admins re-enter the URL to change it, mirroring how
+    # ai.api_key is surfaced as ai_configured. (Before v5.0.0 it was returned
+    # raw to admin tokens, putting a reusable secret in a GET response body.)
+    safe.pop('webhook_url', None)
+    # webhook_urls[].url stays visible to admins because the multi-webhook editor
+    # round-trips it on save; viewers / MCP keys get only the url_set indicator.
     if not _cfg_is_admin:
-        safe.pop('webhook_url', None)
         if isinstance(safe.get('webhook_urls'), list):
             for _e in safe['webhook_urls']:
                 if isinstance(_e, dict) and _e.get('url'):
@@ -24803,7 +24815,14 @@ def _ingest_hardware(dev_id, dev_name, body, now):
     The two underscore-prefixed booleans are the previous alert states so we
     only fire on a transition (matching every other monitor in this file).
     """
-    temp_sample = None   # v5.0.0: hottest reading, sampled for the trend AFTER the lock
+    # v5.0.0: trend/history samples are captured INSIDE the lock but written
+    # AFTER it. _maybe_sample_{temp,smart,gpu} each take their own *_HIST_FILE
+    # lock, and DATA_DIR shares one SQLite connection — calling them in here
+    # nests BEGIN IMMEDIATE and the write is lost (previously swallowed by a
+    # try/except). Stash the data, write once the HARDWARE_FILE lock exits.
+    temp_sample = None
+    smart_sample = None
+    gpu_sample = None
     with _locked_update(HARDWARE_FILE) as store:
         rec = store.setdefault(dev_id, {})
         events = []
@@ -24842,12 +24861,8 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                 disks.append(entry)
             rec['smart'] = disks
             # v3.14.0: snapshot per-disk SMART counters once/UTC-day for trend
-            # prediction (best-effort, outside the hardware lock would be ideal
-            # but the helper takes its own lock on a different file).
-            try:
-                _maybe_sample_smart(dev_id, disks, now)
-            except Exception:
-                pass
+            # prediction. Captured here, written after the lock (see top note).
+            smart_sample = disks
             # Edge-trigger on the *set* of failed disks, not a single device-level
             # bool: fire when a disk newly enters the failed set. This re-arms as
             # /dev/sdb, /dev/sdc fail after /dev/sda, and — because the key didn't
@@ -24981,7 +24996,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                         entry[k] = round(float(v), 1)
                 gpus.append(entry)
             rec['gpus'] = gpus
-            _maybe_sample_gpu(dev_id, gpus, now)   # v4.7.0: trend sparklines
+            gpu_sample = gpus   # v4.7.0: trend sparklines — written after the lock
 
         # ── v3.14.0: local x509 cert-file expiry inventory ───────────
         if isinstance(body.get('cert_files'), list):
@@ -25080,8 +25095,15 @@ def _ingest_hardware(dev_id, dev_name, body, now):
 
         rec['ts'] = now
 
-    # v5.0.0: append the thermal-trend sample outside the HARDWARE_FILE lock
-    # (it self-locks THERMAL_HIST_FILE; same-connection nesting would abort).
+    # v5.0.0: write the trend/history samples outside the HARDWARE_FILE lock —
+    # each self-locks its own *_HIST_FILE and DATA_DIR shares one SQLite
+    # connection, so doing this inside the lock nests BEGIN IMMEDIATE and the
+    # write is lost. (SMART/GPU previously sampled in-lock under try/except —
+    # silently dropped on the SQLite backend.)
+    if smart_sample is not None:
+        _maybe_sample_smart(dev_id, smart_sample, now)
+    if gpu_sample is not None:
+        _maybe_sample_gpu(dev_id, gpu_sample, now)
     if temp_sample is not None:
         _maybe_sample_temp(dev_id, temp_sample, now)
 

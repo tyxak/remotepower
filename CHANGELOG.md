@@ -42,6 +42,20 @@ and `uptime.json` are now per-device entity stores (O(1) single-row read/write
 on SQLite/Postgres instead of O(fleet)), with a safe one-time migration of
 existing databases. The dashboard's posture and bandwidth roll-ups are computed
 only when those widgets are actually on screen.
+**Thermal page:** expand any host to see every sensor (temperature + critical),
+a ~24h temperature **trend sparkline**, and a per-host **Thresholds** button to
+set the warning / critical temperatures. **CMDB:** a new **Business function**
+field (Application Operation / OS Operation / Server Camp) and a wider asset
+editor whose properties lay out in two columns. **AI knowledge index:** the
+live-state corpus now also covers mount problems, failing custom checks, running
+process names and file-descriptor / conntrack saturation, so the assistant can
+answer those reliability questions from real data.
+Follow-up hardening sweep (no Critical/High/Medium findings): the legacy
+`webhook_url` is no longer returned by `GET /api/config` (it embeds a secret —
+only a `webhook_configured` boolean is exposed now; rotate that webhook after
+upgrading if you used the legacy field); and per-disk SMART / per-GPU /
+temperature trend samples are now written outside the hardware lock so they're
+durable on the SQLite backend.
 Deferred:
 user-configurable timezone. See docs/v5.0.0.md.
 

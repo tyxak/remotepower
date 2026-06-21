@@ -161,7 +161,7 @@ class TestConfigGetRedactsSecrets(_ApiBase):
         })
         api._LOAD_CACHE.clear()
 
-    def test_admin_redacts_oidc_and_status_keeps_webhook(self):
+    def test_admin_redacts_oidc_status_and_webhook(self):
         self._seed_cfg()
         api.verify_token = lambda t: ("admin", "admin")
         st, body = self.call(api.handle_config_get)
@@ -170,9 +170,11 @@ class TestConfigGetRedactsSecrets(_ApiBase):
         self.assertNotIn("status_token", body)
         self.assertTrue(body["oidc_client_secret_set"])
         self.assertTrue(body["status_token_set"])
-        # admin still sees the webhook URL value (they can edit it)
-        self.assertEqual(body.get("webhook_url"),
-                         "https://hooks.slack.com/services/T/B/secretpath")
+        # v5.0.0: the legacy webhook URL embeds a secret in its path, so it is
+        # NO LONGER returned even to admins — only the configured boolean. Admins
+        # re-enter the URL to change it (same as the AI key / oidc secret).
+        self.assertNotIn("webhook_url", body)
+        self.assertTrue(body["webhook_configured"])
 
     def test_viewer_also_redacts_webhook_url(self):
         self._seed_cfg()

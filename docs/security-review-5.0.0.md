@@ -70,6 +70,31 @@ shipped vulnerability):
 - Request handlers **coerce a malformed top-level JSON body** to an empty object
   instead of returning a server error.
 
+## Follow-up sweep (post-release hardening)
+
+A second whole-project pass — six parallel audit streams (binding, bug-hunt,
+UI, performance, localization, docs) plus a live, authorized probe of a running
+instance and the usual SAST tooling (Bandit, Semgrep, gitleaks) — produced no
+Critical, High, or Medium findings. The items it did surface were fixed:
+
+- **Legacy webhook URL no longer returned by the config API.** Slack / Discord /
+  Teams webhook URLs embed a secret token in their path, so the URL *is* a
+  credential. The newer multi-webhook destinations were already redacted, but the
+  legacy single `webhook_url` field was still returned to admin callers of
+  `GET /api/config`. It is now withheld from everyone — the response carries only
+  a `webhook_configured` boolean, and an admin re-enters the URL to change it
+  (the same pattern used for the AI provider key). *(Low — admin-gated, but a
+  reusable secret should not travel in a response body. If you used the legacy
+  field, rotate that webhook once after upgrading.)*
+- **Trend/history writes are durable on the SQLite backend.** Per-disk SMART,
+  per-GPU and hottest-temperature trend samples were being written from inside an
+  outer table lock; because the SQLite backend shares one connection per data
+  directory, that nested transaction could be rolled back and the sample lost.
+  The samples are now captured under the lock and written after it commits.
+- The live probe confirmed the standing posture below end-to-end: a strict CSP
+  with no `unsafe-inline`, HSTS with preload, `frame-ancestors 'none'`,
+  unauthenticated API calls rejected, TLS 1.3, and no secrets in error responses.
+
 ## Standing posture
 
 CSP remains fully migrated (`script-src 'self'; style-src 'self'`, no

@@ -845,11 +845,17 @@ All opt-in and disabled until you configure a provider:
 
 ### RAG over your infrastructure
 The AI assistant retrieves the most relevant facts from *your* fleet —
-device state, watched services, CVEs, containers, CMDB metadata & asset
-docs, per-device runbooks, recent commands and alerts, plus the
-RemotePower product docs — and injects them into each request as a cited
+device state, watched services, CVEs, containers, firewalls, integrations,
+backups, DNS/email posture, **security-control posture** (mutual-TLS
+coverage, encrypted backups, audit-mode), CMDB metadata & asset docs,
+per-device runbooks, recent commands and alerts, plus the RemotePower
+product docs — and injects them into each request as a cited
 `<retrieved_context>` block, so answers reference your hosts and cite
-sources by id (e.g. `[live/web01#cves]`). Retrieval is **lexical-first**
+sources by id (e.g. `[live/web01#cves]`). Live-state coverage also includes
+mount problems, failing custom checks, running process names and
+file-descriptor / conntrack saturation, so the model can answer reliability
+questions ("which host has a stalled mount / a failing check?") from real
+data instead of guessing. Retrieval is **lexical-first**
 (BM25, pure stdlib) so it works with every provider including Anthropic;
 with an embedding-capable provider you can enable **semantic search**,
 fused with lexical via Reciprocal Rank Fusion. Privacy by construction:
@@ -1101,7 +1107,9 @@ Optional **PostgreSQL** backend with automatic failover + read replicas, **relay
 satellites** for segmented networks, and **load-balanced multi-node**; the
 agent→satellite hop can run over **HTTPS** and agents can trust an internal CA.
 A **macOS agent** joins Linux + Windows. Surfaces much more agent data:
-**Thermal** (hottest hosts), **Power/UPS** + energy cost, **SSH-key audit**,
+**Thermal** (hottest hosts — expand any host to see every sensor, a ~24h
+temperature **trend sparkline**, and a per-host **Thresholds** button to set
+warning / critical temperatures), **Power/UPS** + energy cost, **SSH-key audit**,
 SSD/NVMe **endurance**, **predictive disk health**, **GPU monitoring**, local
 **certificate-file** inventory, **local account audit**. **CVE prioritization**
 via CISA **KEV** + **EPSS**. **Customizable dashboard**, **interface language**

@@ -53,6 +53,10 @@ row to edit:
   tab. Validated 1–65535. Empty or 0 resets to the default.
 - **Environment** *(v3.12.0)* — `dev` / `test` / `staging` / `prod` (or
   blank). Drives colour-coding in the asset table.
+- **Business function** *(v5.0.0)* — a coarse operational-ownership bucket:
+  `Application Operation`, `OS Operation`, `Server Camp`, or blank. A fixed
+  allowlist (not free text) so it groups cleanly for reporting — "who runs this
+  box" rather than "what does it do" (that's Server function).
 - **VLAN** *(v3.12.0)* — free text: a single ID, a comma-separated list
   for a trunk, or a label like `100 (DMZ)`.
 - **Network interfaces & NAT** *(v5.0.0)* — record the host's NICs, one row

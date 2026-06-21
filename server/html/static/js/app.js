@@ -2829,13 +2829,19 @@ async function loadSettings() {
   if (meta.min_online_ttl) {
     document.getElementById('cfg-online-ttl-hint').textContent = `${meta.min_online_ttl}–7200 (default 180)`;
   }
-  // Notifications
-  document.getElementById('cfg-webhook').value = data.webhook_url || '';
+  // Notifications. The legacy webhook URL embeds a secret token in its path, so
+  // GET /api/config never returns it (like the AI key). Show a "configured"
+  // state and leave the input blank — typing replaces it, blank keeps it.
+  const whInput = document.getElementById('cfg-webhook');
+  whInput.value = '';
+  whInput.placeholder = data.webhook_configured
+    ? '•••••••• configured — leave blank to keep, type to replace'
+    : 'https://hooks.slack.com/services/…';
   const note = document.getElementById('cfg-webhook-note');
   note.style.display = data.webhook_configured ? 'block' : 'none';
   const currentEl = document.getElementById('cfg-webhook-current');
-  if (data.webhook_url) { currentEl.textContent = data.webhook_url; currentEl.style.display = 'block'; }
-  else                  { currentEl.style.display = 'none'; }
+  if (data.webhook_configured) { currentEl.textContent = 'A legacy webhook is configured.'; currentEl.style.display = 'block'; }
+  else                         { currentEl.style.display = 'none'; }
 
   renderEventToggleTable(data.webhook_events || {}, meta.webhook_event_descriptions || {}, data.email_events || {});
   const patchInput = document.getElementById('cfg-patch-threshold');
@@ -3030,7 +3036,6 @@ async function saveSettings(btn) {
     cve_cache_days:        parseInt(document.getElementById('cfg-cve-cache-days').value) || 7,
     wol_broadcast:         document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255',
     wol_port:              parseInt(document.getElementById('cfg-wol-port').value) || 9,
-    webhook_url:           document.getElementById('cfg-webhook').value.trim(),
     webhook_events,
     email_events,
     cve_severity_filter,
@@ -3078,6 +3083,11 @@ async function saveSettings(btn) {
       return el ? (parseInt(el.value, 10) || 0) : 10;
     })(),
   };
+  // Legacy webhook URL: only send it when the admin typed a new value (it's no
+  // longer pre-filled, since GET /api/config no longer returns the secret).
+  // Blank → omit → backend keeps the existing one.
+  const _wh = document.getElementById('cfg-webhook').value.trim();
+  if (_wh) payload.webhook_url = _wh;
   // Only send password fields if the user typed something — empty string
   // v3.0.2: multi-webhook destinations — collect current editor state
   if (Array.isArray(_webhookDests)) {
