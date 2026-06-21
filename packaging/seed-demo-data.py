@@ -300,6 +300,10 @@ def _demo_enrich_sysinfo(dev, rng, si):
             {'name': 'md0', 'kind': 'mdadm',
              'state': rng.choice(['active', 'active', 'degraded']),
              'capacity': rng.randint(40, 80), 'scrub': ''},
+            # btrfs carries a mountpoint so the Storage page's "Maintain…"
+            # actions (scrub / balance / snapshots) have a target.
+            {'name': 'btrfs:data', 'kind': 'btrfs', 'state': 'online',
+             'mount': '/mnt/vault', 'capacity': rng.randint(45, 88)},
         ]
     # ── host firewall posture + drift fingerprint ──
     _backend = rng.choice(['nftables', 'iptables', 'ufw'])

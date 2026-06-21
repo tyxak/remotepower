@@ -1051,7 +1051,14 @@ edge-triggered. Policy editor + violations table
 (`GET/POST /api/software-policy`, `GET /api/software-policy/violations`).
 
 **Storage / RAID health.** New agent probe for ZFS / mdadm / btrfs pool
-state, capacity and last-scrub. `storage_degraded` / `storage_recovered`
+state, capacity and last-scrub. **One-click maintenance** *(v5.0.0)*: each ZFS
+pool / btrfs filesystem on the Storage page has a **Maintain…** button that runs
+a scrub, trim, error-clear, balance, status/usage check, snapshot listing, or a
+named snapshot removal — the command is built server-side from a fixed template
+(only the validated pool / mountpoint / snapshot is interpolated, no shell
+metacharacters), queued through the audited, quarantine-aware command path
+(`POST /api/devices/{id}/storage-action`, admin + `command` permission), with
+output in the host's command view. `storage_degraded` / `storage_recovered`
 (auto-resolving) and `scrub_overdue` (threshold `scrub_overdue_days`, default
 35). New Storage page (`GET /api/storage`).
 

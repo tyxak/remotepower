@@ -8777,6 +8777,76 @@ def handle_device_firewall_rule(dev_id):
     _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
 
 
+# ── v5.0.0: ZFS / Btrfs storage maintenance — run pool health ops from the UI ─
+# Reuses the audited, quarantine-aware command queue. The (kind, action) pair
+# maps to a FIXED command template; the only interpolated value is the pool /
+# mountpoint / snapshot, each strictly validated by _valid_fw_token (no shell
+# metacharacters) so nothing the operator picks can break out of the command.
+_STORAGE_ACTIONS = {
+    'zfs': {
+        'status':   'zpool status -v {t}',
+        'scrub':    'zpool scrub {t}',
+        'clear':    'zpool clear {t}',
+        'trim':     'zpool trim {t}',
+        'snapshots':'zfs list -t snapshot -o name,used,creation -s creation -r {t}',
+    },
+    'btrfs': {
+        'usage':    'btrfs filesystem usage {t}',
+        'scrub':    'btrfs scrub start -B {t}',
+        'devstats': 'btrfs device stats {t}',
+        'balance':  'btrfs balance start -dusage=50 {t}',
+        'snapshots':'btrfs subvolume list -s {t}',
+    },
+}
+
+
+def handle_device_storage_action(dev_id):
+    """POST /api/devices/{id}/storage-action — run a ZFS/Btrfs maintenance command.
+
+    Body: {kind: zfs|btrfs, action, target, snapshot?}. `target` (pool name or
+    btrfs mountpoint) and `snapshot` are strictly validated; the command is built
+    server-side from a fixed template. Snapshot removal is a separate destructive
+    action (`destroy`/`delete`) that names the exact snapshot. Gated on `command`,
+    audited, quarantine-aware via _queue_command."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_body() or {}
+    kind = str(body.get('kind', '')).strip().lower()
+    action = str(body.get('action', '')).strip().lower()
+    target = str(body.get('target', '')).strip()
+    if kind not in _STORAGE_ACTIONS:
+        respond(400, {'error': 'kind must be zfs or btrfs'})
+    if not _valid_fw_token(target, maxlen=256):
+        respond(400, {'error': 'target (pool / mountpoint) is missing or has invalid characters'})
+
+    # Destructive snapshot removal — its own action so it can't be confused with
+    # the read-only "snapshots" listing; the exact snapshot is named + validated.
+    if action in ('destroy', 'delete'):
+        snap = str(body.get('snapshot', '')).strip()
+        if not _valid_fw_token(snap, maxlen=256):
+            respond(400, {'error': 'snapshot name is missing or has invalid characters'})
+        if kind == 'zfs':
+            if '@' not in snap:
+                respond(400, {'error': 'a ZFS snapshot name must contain "@" (pool/dataset@snap)'})
+            cmd = f'zfs destroy {snap}'
+        else:
+            cmd = f'btrfs subvolume delete {snap}'
+        audit_log(actor, 'storage_action',
+                  detail=f'device={dev_id} {kind} remove-snapshot {snap}'[:200])
+        _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+        return
+
+    tmpl = _STORAGE_ACTIONS[kind].get(action)
+    if not tmpl:
+        respond(400, {'error': f'unknown {kind} action'})
+    cmd = tmpl.format(t=target)
+    audit_log(actor, 'storage_action', detail=f'device={dev_id} {kind} {action} {target}'[:200])
+    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+
+
 def handle_device_fail2ban_action(dev_id):
     """POST /api/devices/{id}/fail2ban-action — ban/unban an IP or start/stop a
     jail. Body: {action: ban|unban|enable|disable, jail, ip?}. jail + ip strictly
@@ -10668,6 +10738,10 @@ def handle_heartbeat():
                         sp['capacity'] = cap
                     if p.get('scrub'):
                         sp['scrub'] = _sanitize_str(p.get('scrub'), 160)
+                    # v5.0.0: btrfs mountpoint — the actionable target for the
+                    # Storage-page maintenance buttons (zfs uses the pool name).
+                    if p.get('mount'):
+                        sp['mount'] = _sanitize_str(p.get('mount'), 256)
                     safe_pools.append(sp)
                 safe_si['storage_health'] = safe_pools
             # v3.11.0: recent logins / source IPs (access watch)
@@ -38798,12 +38872,17 @@ def handle_storage_overview():
             bad = any(b in st for b in _BAD)
             if bad:
                 degraded += 1
+            kind = p.get('kind', '')
+            # The actionable target for maintenance commands: a zpool is named by
+            # its pool, a btrfs fs by a mountpoint. mdraid has no run-actions.
+            target = p.get('name') if kind == 'zfs' else (p.get('mount') or '')
             rows.append({
                 'device_id': dev_id, 'device': d.get('name', dev_id),
                 'monitored': d.get('monitored') is not False,
-                'pool': p.get('name'), 'kind': p.get('kind', ''),
+                'pool': p.get('name'), 'kind': kind,
                 'state': p.get('state', ''), 'capacity': p.get('capacity'),
                 'scrub': p.get('scrub', ''), 'degraded': bad,
+                'target': target, 'online': (int(time.time()) - d.get('last_seen', 0)) < get_online_ttl(),
             })
     rows.sort(key=lambda r: (0 if r['degraded'] else 1, r['device'], r['pool'] or ''))
     respond(200, {'pools': rows, 'degraded': degraded, 'count': len(rows)})
@@ -45446,6 +45525,8 @@ def _dispatch(pi, m):
         handle_device_firewall_action(pi[len('/api/devices/'):-len('/firewall-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/firewall-rule') and m == 'POST':
         handle_device_firewall_rule(pi[len('/api/devices/'):-len('/firewall-rule')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST':
+        handle_device_storage_action(pi[len('/api/devices/'):-len('/storage-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST':
         handle_device_fail2ban_action(pi[len('/api/devices/'):-len('/fail2ban-action')])
     # v3.6.0: endpoint AV/malware posture

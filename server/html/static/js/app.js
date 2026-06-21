@@ -13541,13 +13541,19 @@ function _renderStorage() {
     scrub:    r.scrub || '',
   }));
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No ZFS / mdadm / btrfs pools reported. Agents must be on v3.11.0+.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No ZFS / mdadm / btrfs pools reported. Agents must be on v3.11.0+.</td></tr>';
     return;
   }
-  const { rows: shown, note } = _capFleetRows(rows, 6, 'pools');
+  const { rows: shown, note } = _capFleetRows(rows, 7, 'pools');
   tbody.innerHTML = shown.map(r => {
     const color = r.degraded ? 'var(--red)' : 'var(--green)';
     const cap = (r.capacity || r.capacity === 0) && r.capacity !== null ? `${r.capacity}%` : '—';
+    // ZFS/Btrfs pools get a one-click maintenance modal (scrub, trim/balance,
+    // snapshots, …). mdraid and unmounted btrfs have no actionable target.
+    const canAct = (r.kind === 'zfs' || r.kind === 'btrfs') && r.target;
+    const maintBtn = canAct
+      ? `<button class="btn-icon cell-sm" data-action="openStorageMaint" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.kind + '|' + r.target + '|' + (r.pool || ''))}" title="${r.online ? 'Run a maintenance command on this pool' : 'Host offline — the command queues until it reconnects'}">Maintain…</button>`
+      : '<span class="hint">—</span>';
     return `<tr>
       <td class="fw-500">${escHtml(r.device)}</td>
       <td>${escHtml(r.pool || '—')}</td>
@@ -13555,8 +13561,66 @@ function _renderStorage() {
       <td class="${r.degraded ? 'fw-600' : ''}" data-color="${color}">${escHtml(r.state || '—')}</td>
       <td>${cap}</td>
       <td class="hint">${escHtml(r.scrub || '—')}</td>
+      <td class="nowrap">${maintBtn}</td>
     </tr>`;
   }).join('') + note;
+}
+
+// ─── v5.0.0: one-click ZFS/Btrfs pool maintenance ───────────────────────────
+let _storageMaintCtx = null;   // {deviceId, kind, target, pool}
+const _STORAGE_MAINT_ACTIONS = {
+  zfs: [
+    { a: 'scrub',     l: 'Scrub',          mut: 1 },
+    { a: 'trim',      l: 'Trim SSDs',      mut: 1 },
+    { a: 'clear',     l: 'Clear errors',   mut: 1 },
+    { a: 'status',    l: 'Status',         mut: 0 },
+    { a: 'snapshots', l: 'List snapshots', mut: 0 },
+  ],
+  btrfs: [
+    { a: 'scrub',     l: 'Scrub',          mut: 1 },
+    { a: 'balance',   l: 'Balance (50%)',  mut: 1 },
+    { a: 'usage',     l: 'Usage',          mut: 0 },
+    { a: 'devstats',  l: 'Device stats',   mut: 0 },
+    { a: 'snapshots', l: 'List snapshots', mut: 0 },
+  ],
+};
+function openStorageMaint(deviceId, packed) {
+  const [kind, target, pool] = String(packed || '').split('|');
+  if (!_STORAGE_MAINT_ACTIONS[kind] || !target) { toast('No maintenance actions for this pool', 'error'); return; }
+  _storageMaintCtx = { deviceId, kind, target, pool: pool || target };
+  document.getElementById('storage-maint-title').textContent = `${kind.toUpperCase()} maintenance — ${pool || target}`;
+  document.getElementById('storage-maint-sub').textContent = `Target: ${target}. Commands run on the host and report back to its command output.`;
+  const snapInput = document.getElementById('storage-maint-snap');
+  if (snapInput) snapInput.value = '';
+  document.getElementById('storage-maint-actions').innerHTML = _STORAGE_MAINT_ACTIONS[kind].map(x =>
+    `<button class="btn-secondary cell-sm" data-action="storageRunAction" data-arg="${escAttr(x.a)}">${escHtml(x.l)}</button>`
+  ).join('');
+  openModal('storage-maint-modal');
+}
+async function storageRunAction(action) {
+  const c = _storageMaintCtx;
+  if (!c) return;
+  const def = (_STORAGE_MAINT_ACTIONS[c.kind] || []).find(x => x.a === action);
+  if (def && def.mut) {
+    if (!await uiConfirm(`Run "${def.l}" on ${c.kind} ${c.pool}?\n\nThe command queues on ${c.pool} and runs on the host. Scrubs/balances are IO-intensive and run in the background.`)) return;
+  }
+  const r = await api('POST', `/devices/${encodeURIComponent(c.deviceId)}/storage-action`,
+                      { kind: c.kind, action, target: c.target });
+  if (!r || r.error) { toast('Failed: ' + ((r && r.error) || 'unknown'), 'error'); return; }
+  toast(`Queued: ${action} on ${c.pool}. Output appears in the host's command output.`, 'success');
+}
+async function storageDeleteSnapshot() {
+  const c = _storageMaintCtx;
+  if (!c) return;
+  const snap = (document.getElementById('storage-maint-snap')?.value || '').trim();
+  if (!snap) { toast('Enter the exact snapshot name to delete', 'error'); return; }
+  if (!await uiConfirm(`Permanently DELETE snapshot:\n\n${snap}\n\nThis cannot be undone.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(c.deviceId)}/storage-action`,
+                      { kind: c.kind, action: c.kind === 'zfs' ? 'destroy' : 'delete', target: c.target, snapshot: snap });
+  if (!r || r.error) { toast('Failed: ' + ((r && r.error) || 'unknown'), 'error'); return; }
+  toast('Snapshot deletion queued.', 'success');
+  const snapInput = document.getElementById('storage-maint-snap');
+  if (snapInput) snapInput.value = '';
 }
 
 // ─── v3.14.0: Fleet thermal roll-up ("hottest hosts") ───────────────────────

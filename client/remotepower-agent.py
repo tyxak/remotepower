@@ -3734,16 +3734,36 @@ def get_host_health():
         pass
     try:
         if _which('btrfs'):
+            # v5.0.0: map each btrfs filesystem to a mountpoint so the server can
+            # offer one-click maintenance (scrub/balance/usage) against it. Build
+            # device->mountpoint from the kernel mount table (prefer the shortest
+            # mountpoint per device = the fs root, not a subvol bind).
+            btrfs_mounts = {}
+            try:
+                for ml in Path(host_path('/proc/self/mounts')).read_text().splitlines():
+                    parts = ml.split()
+                    if len(parts) >= 3 and parts[2] == 'btrfs':
+                        devp, mp = parts[0], parts[1].replace('\\040', ' ')
+                        if devp not in btrfs_mounts or len(mp) < len(btrfs_mounts[devp]):
+                            btrfs_mounts[devp] = mp
+            except Exception:
+                pass
             r = subprocess.run(['btrfs', 'filesystem', 'show'],
                                capture_output=True, text=True, timeout=8)
             if r.returncode == 0:
+                cur = None
                 for ln in r.stdout.splitlines():
                     s = ln.strip()
                     if s.startswith('Label:'):
                         nm = (s.split('uuid:')[-1].strip()[:16]
                               if 'uuid:' in s else s[:24])
-                        pools.append({'name': 'btrfs:' + nm, 'kind': 'btrfs',
-                                      'state': 'online'})
+                        cur = {'name': 'btrfs:' + nm, 'kind': 'btrfs', 'state': 'online'}
+                        pools.append(cur)
+                    elif s.startswith('devid') and cur is not None and 'path ' in s \
+                            and 'mount' not in cur:
+                        devp = s.split('path ', 1)[1].strip().split()[0]
+                        if devp in btrfs_mounts:
+                            cur['mount'] = btrfs_mounts[devp]
     except Exception:
         pass
     if pools:

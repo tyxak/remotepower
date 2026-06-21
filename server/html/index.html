@@ -5106,38 +5106,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <thead id="storage-thead"><tr>
               <th scope="col" data-col="device">Device</th><th scope="col" data-col="pool">Pool</th><th scope="col" data-col="kind">Type</th>
               <th scope="col" data-col="state">State</th><th scope="col" data-col="capacity">Capacity</th><th scope="col" data-col="scrub">Last scrub</th>
+              <th scope="col" class="th-actions"></th>
             </tr></thead>
-            <tbody id="storage-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+            <tbody id="storage-tbody"><tr><td colspan="7" class="hint">Loading…</td></tr></tbody>
           </table>
           </div>
         </div>
-
-        <!-- v5.0.0: copy-and-run maintenance commands for keeping ZFS / Btrfs
-             pools healthy. Reference snippets — run them via a device's command
-             console (Devices → a host → Run command). Placeholders in <angles>
-             are filled in before running. Destructive ones (destroy / delete /
-             balance) are flagged; list first, then remove a specific target. -->
-        <div class="dash-card mt-16">
-          <details>
-            <summary><strong>Maintenance commands</strong> — ZFS &amp; Btrfs health, scrubs and snapshot cleanup. Copy one and run it on a host via Run command.</summary>
-            <div class="scroll-cap mt-8">
-              <div class="section-title">ZFS</div>
-              <div class="row-8-center mb-6"><code>zpool status -v &lt;pool&gt;</code><span class="hint">detailed health + errors</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool status -v &lt;pool&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>zpool scrub &lt;pool&gt;</code><span class="hint">start a data-integrity scrub (schedule monthly)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool scrub &lt;pool&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>zpool clear &lt;pool&gt;</code><span class="hint">clear transient device errors after a fix</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool clear &lt;pool&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>zpool trim &lt;pool&gt;</code><span class="hint">TRIM SSDs to keep write performance up</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool trim &lt;pool&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>zfs list -t snapshot -o name,used,creation -s creation</code><span class="hint">snapshots, oldest first (what's eating space)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zfs list -t snapshot -o name,used,creation -s creation">Copy</button></div>
-              <div class="row-8-center mb-6"><code>zfs destroy &lt;pool&gt;/&lt;dataset&gt;@&lt;snapshot&gt;</code><span class="hint c-amber">remove one snapshot (destructive — name it exactly)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zfs destroy &lt;pool&gt;/&lt;dataset&gt;@&lt;snapshot&gt;">Copy</button></div>
-              <div class="section-title mt-12">Btrfs</div>
-              <div class="row-8-center mb-6"><code>btrfs filesystem usage &lt;mountpoint&gt;</code><span class="hint">real free space (df is misleading on btrfs)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs filesystem usage &lt;mountpoint&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>btrfs scrub start -B &lt;mountpoint&gt;</code><span class="hint">checksum scrub (foreground; schedule monthly)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs scrub start -B &lt;mountpoint&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>btrfs device stats &lt;mountpoint&gt;</code><span class="hint">per-device read/write/corruption error counters</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs device stats &lt;mountpoint&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>btrfs balance start -dusage=50 &lt;mountpoint&gt;</code><span class="hint c-amber">reclaim space by rewriting ≤50%-full chunks (IO heavy)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs balance start -dusage=50 &lt;mountpoint&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>btrfs subvolume list -s &lt;mountpoint&gt;</code><span class="hint">list snapshots on the filesystem</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs subvolume list -s &lt;mountpoint&gt;">Copy</button></div>
-              <div class="row-8-center mb-6"><code>btrfs subvolume delete &lt;snapshot-path&gt;</code><span class="hint c-amber">remove one snapshot/subvolume (destructive)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs subvolume delete &lt;snapshot-path&gt;">Copy</button></div>
-            </div>
-          </details>
-        </div>
+        <p class="hint mt-12">Pools with a <strong>Maintain…</strong> button can run scrubs, trims/balances, status checks and snapshot cleanup directly — the command is built server-side and queued on the host (admin-only, audited). Output appears under Devices → the host.</p>
       </div>
 
       <!-- ── v3.14.0: Fleet thermal roll-up (hottest hosts) ─────────────── -->
@@ -6410,6 +6385,25 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      so clicking Detail on the Patches page threw "can't access property
      textContent, document.getElementById(...) is null". Restored here. -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-patch-title" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
+
+<!-- v5.0.0: one-click ZFS/Btrfs maintenance. Each button queues a server-built,
+     validated command on the host via the audited command queue; output appears
+     under Devices → the host. Snapshot removal names the exact snapshot. -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="storage-maint-title" id="storage-maint-modal"><div class="modal">
+  <div class="modal-title" id="storage-maint-title">Pool maintenance</div>
+  <div class="modal-subtitle" id="storage-maint-sub"></div>
+  <div class="form-group"><label class="form-label">Run a command</label>
+    <div id="storage-maint-actions" class="row-8-center fl-wrap"></div>
+  </div>
+  <div class="form-group mt-16">
+    <label class="form-label">Remove a snapshot <span class="c-red">(destructive)</span></label>
+    <input type="text" id="storage-maint-snap" class="form-input ff-mono" placeholder="tank/data@auto-2026-06-01 or /mnt/btrfs/.snapshots/…" maxlength="256">
+    <div class="meta-sm">Run <strong>List snapshots</strong> first, copy the exact name from the command output, then paste it here.</div>
+    <button class="btn-secondary c-red mt-8" data-action="storageDeleteSnapshot">Delete snapshot</button>
+  </div>
+  <p class="hint">Commands run on the host through the audited command queue. Output appears under <strong>Devices → the host → command output</strong>. Scrubs and balances run in the background and update the pool's status on the next check-in.</p>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="storage-maint-modal">Close</button></div>
+</div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-detail-title" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>
 <!-- v3.14.0: on-demand container logs -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="container-logs-title" id="container-logs-modal"><div class="modal modal-wide"><div class="modal-title" id="container-logs-title">Container logs</div><pre id="container-logs-body" class="log-pre">…</pre><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="container-logs-modal" >Close</button></div></div></div>
