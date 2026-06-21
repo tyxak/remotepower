@@ -81,6 +81,7 @@
     'Dashboard':   { zh: '仪表板', hi: 'डैशबोर्ड', es: 'Panel', ar: 'لوحة المعلومات' },
     'Status Board': { zh: '状态板', hi: 'स्थिति बोर्ड', es: 'Tablero de estado', ar: 'لوحة الحالة' },
     'Status board': { zh: '状态板', hi: 'स्थिति बोर्ड', es: 'Tablero de estado', ar: 'لوحة الحالة' },
+    'Network metrics': { zh: '网络指标', hi: 'नेटवर्क मेट्रिक्स', es: 'Métricas de red', ar: 'مقاييس الشبكة' },
     'Alerts':      { zh: '警报', hi: 'अलर्ट', es: 'Alertas', ar: 'التنبيهات' },
     'Links':       { zh: '链接', hi: 'लिंक', es: 'Enlaces', ar: 'الروابط' },
     // ── fleet ──

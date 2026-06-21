@@ -238,6 +238,12 @@ _CMDB_FUNC_RE       = re.compile(r'^[A-Za-z0-9 _\-/]{0,64}$')
 # network team uses.
 _CMDB_VLAN_RE       = re.compile(r'^[A-Za-z0-9 _\-/,()]{0,64}$')
 
+# v5.0.0: the asset's PRIMARY network interface name (eth0, ens18, bond0.100, …)
+# — letters/digits/.:_- , max 32. A NAT/public IP can be attached to it as a
+# child (nat_ip), e.g. a host behind 1:1 NAT whose primary NIC carries a private
+# address but is reachable from outside on the NAT IP.
+_CMDB_IFACE_RE      = re.compile(r'^[A-Za-z0-9._:\-]{0,32}$')
+
 # v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
 CMDB_DEFAULT_SSH_PORT = 22
 CMDB_ENVIRONMENTS = ('', 'test', 'dev', 'staging', 'prod')  # v3.12.0
@@ -7376,6 +7382,8 @@ def handle_devices_list():
             'group': dev.get('group', ''), 'notes': dev.get('notes', ''),
             'site': dev.get('site', ''),   # v3.5.0: sites/teams
             'icon': dev.get('icon', ''), 'monitored': dev.get('monitored', True),
+            'decommissioned': bool(dev.get('decommissioned')),   # v5.0.0
+
             # v3.0.4: ship metric_state with the device list. Without this,
             # the Monitor page row aggregator iterates an empty dict for
             # every device and shows "OK" even when /api/attention is
@@ -7744,6 +7752,16 @@ def handle_device_save_bulk(dev_id):
     # monitored — bool
     if 'monitored' in body:
         updates['monitored'] = bool(body.get('monitored'))
+
+    # v5.0.0: decommissioned — a retired asset. Greyed out in the UI and fully
+    # silenced: setting it forces monitored=False so every existing per-device
+    # suppression (alerts, health, SLA, checks) applies with no new call sites;
+    # clearing it restores monitoring. An explicit `monitored` in the same bundle
+    # is overridden when decommissioning (a decommissioned host is never monitored).
+    if 'decommissioned' in body:
+        dc = bool(body.get('decommissioned'))
+        updates['decommissioned'] = dc
+        updates['monitored'] = False if dc else True
 
     # v3.14.0 #38: agent release channel (stable|beta). 'beta' devices are
     # advertised the beta binary by /api/agent/version when one is published;
@@ -9361,6 +9379,43 @@ def handle_device_monitored(dev_id):
         if changed:
             save(CONFIG_FILE, cfg)
     respond(200, {'ok': True, 'monitored': monitored})
+
+
+def handle_device_decommission(dev_id):
+    """v5.0.0: PATCH /api/devices/<id>/decommissioned — mark an asset retired.
+
+    A decommissioned device is greyed out in the UI and fully silenced: we force
+    `monitored=False` so every existing per-device suppression (alerts, health,
+    SLA, checks) applies with no new call sites. Clearing it restores monitoring.
+    """
+    actor = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    _scope_block_device(dev_id)
+    dc = bool(get_json_obj().get('decommissioned', True))
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    devices[dev_id]['decommissioned'] = dc
+    devices[dev_id]['monitored'] = False if dc else True
+    save(DEVICES_FILE, devices)
+    if dc:
+        # Clear any pending offline notification, exactly like disabling monitoring.
+        cfg = load(CONFIG_FILE)
+        changed = False
+        for key in ('offline_notified', 'offline_pending'):
+            d = cfg.get(key, {})
+            if dev_id in d:
+                del d[dev_id]
+                cfg[key] = d
+                changed = True
+        if changed:
+            save(CONFIG_FILE, cfg)
+    audit_log(actor, 'device_decommission',
+              detail=f'device={dev_id} decommissioned={dc}')
+    respond(200, {'ok': True, 'decommissioned': dc})
 
 
 # v3.1.0: per-device MCP confirmation gate. When require_confirmation is
@@ -34239,6 +34294,76 @@ def handle_board():
     respond(200, {'by': by, 'totals': totals, 'tiles': tile_list, 'problems': problems})
 
 
+def handle_network_metrics():
+    """v5.0.0: ``GET /api/network-metrics?by=fleet|group|tag|site`` — per-device
+    network throughput (RX/TX bits/sec from the agent's `network_io` samples),
+    scope-filtered and optionally rolled up by group / tag / site (a site
+    represents a customer). Fleet-wide totals + the top talkers + rollup tiles.
+
+    Telemetry view: shows unmonitored / decommissioned hosts too (flagged), per
+    the unmonitored-data-visibility principle — only alerting suppresses them."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    by = (qs.get('by') or ['fleet'])[0]
+    if by not in ('fleet', 'group', 'tag', 'site'):
+        by = 'fleet'
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+
+    def _dev_io(d):
+        rx = tx = 0
+        ifaces = []
+        for nio in ((d.get('sysinfo') or {}).get('network_io') or []):
+            if not isinstance(nio, dict):
+                continue
+            r = int(nio.get('rx_bps') or 0)
+            t = int(nio.get('tx_bps') or 0)
+            rx += r
+            tx += t
+            ifaces.append({'iface': nio.get('iface', ''), 'rx_bps': r, 'tx_bps': t})
+        ifaces.sort(key=lambda i: -(i['rx_bps'] + i['tx_bps']))
+        return rx, tx, ifaces[:12]
+
+    rows = []
+    totals = {'rx_bps': 0, 'tx_bps': 0, 'devices': 0, 'reporting': 0}
+    tiles = {}
+    for did, d in devices.items():
+        if not isinstance(d, dict):
+            continue
+        rx, tx, ifaces = _dev_io(d)
+        reporting = bool(ifaces)
+        totals['devices'] += 1
+        if reporting:
+            totals['reporting'] += 1
+        totals['rx_bps'] += rx
+        totals['tx_bps'] += tx
+        rows.append({
+            'id': did, 'name': d.get('name', did), 'group': d.get('group', ''),
+            'site': d.get('site_id') or d.get('site') or '',
+            'tags': d.get('tags') or [], 'rx_bps': rx, 'tx_bps': tx,
+            'ifaces': ifaces, 'reporting': reporting,
+            'monitored': d.get('monitored', True) is not False,
+            'decommissioned': bool(d.get('decommissioned')),
+        })
+        if by != 'fleet':
+            if by == 'tag':
+                keys = [t for t in (d.get('tags') or []) if t] or ['(untagged)']
+            elif by == 'site':
+                keys = [d.get('site_id') or d.get('site') or '(no site)']
+            else:
+                keys = [d.get('group') or '(no group)']
+            for k in keys:
+                ti = tiles.setdefault(str(k), {'key': str(k), 'name': str(k),
+                                               'rx_bps': 0, 'tx_bps': 0, 'devices': 0})
+                ti['rx_bps'] += rx
+                ti['tx_bps'] += tx
+                ti['devices'] += 1
+
+    rows.sort(key=lambda r: -(r['rx_bps'] + r['tx_bps']))
+    rows = rows[:300]
+    tile_list = sorted(tiles.values(), key=lambda t: -(t['rx_bps'] + t['tx_bps']))[:120]
+    respond(200, {'by': by, 'totals': totals, 'tiles': tile_list, 'devices': rows})
+
+
 def handle_nav_counts():
     """GET /api/nav-counts — tiny per-sidebar-group "needs attention" counts for
     the group-header badges. Scope-filtered, best-effort, cheap (three small
@@ -42590,6 +42715,9 @@ def _cmdb_record_default() -> dict:
         'server_function': '',
         'environment':     '',     # v3.12.0: test / dev / staging / prod
         'vlan':            '',
+        # v5.0.0: primary interface + a NAT/public IP attached to it as a child.
+        'primary_interface': '',
+        'nat_ip':            '',
         'hypervisor_url':  '',
         'ssh_port':        CMDB_DEFAULT_SSH_PORT,
         'documentation':   '',     # v1.x: single Markdown blob (kept for back-compat)
@@ -42839,6 +42967,9 @@ def handle_cmdb_list() -> None:
             'server_function': rec_safe.get('server_function', ''),
             'environment':     rec_safe.get('environment', ''),
             'vlan':            rec_safe.get('vlan', ''),
+            'primary_interface': rec_safe.get('primary_interface', ''),   # v5.0.0
+            'nat_ip':          rec_safe.get('nat_ip', ''),                # v5.0.0
+            'decommissioned':  bool(dev.get('decommissioned')),          # v5.0.0
             'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
             'ssh_port':        rec_safe.get('ssh_port', CMDB_DEFAULT_SSH_PORT),
             # True if EITHER the legacy single-blob `documentation` OR the v2.0
@@ -42961,6 +43092,7 @@ def handle_cmdb_get(dev_id: str) -> None:
     payload['version']   = dev.get('version', '')
     payload['group']     = dev.get('group', '')
     payload['tags']      = dev.get('tags', [])
+    payload['decommissioned'] = bool(dev.get('decommissioned'))   # v5.0.0
     # v1.10.0: send a trimmed sysinfo subset rather than the full dict.
     # Saves ~50 KB on busy assets, cuts CMDB modal load time noticeably.
     payload['sysinfo']   = _trim_sysinfo(dev.get('sysinfo', {}))
@@ -43035,6 +43167,27 @@ def handle_cmdb_update(dev_id: str) -> None:
             respond(400, {'error': 'vlan: alphanumerics/spaces/_-/,() , max 64 chars'})
         rec['vlan'] = vlan
         changed.append('vlan')
+
+    # v5.0.0: primary interface name (free-form NIC label).
+    if 'primary_interface' in body:
+        iface = str(body.get('primary_interface') or '').strip()
+        if iface and not _CMDB_IFACE_RE.match(iface):
+            respond(400, {'error': 'primary_interface: letters/digits/.:_- , max 32 chars'})
+        rec['primary_interface'] = iface
+        changed.append('primary_interface')
+
+    # v5.0.0: NAT / public IP attached to the primary interface as a child.
+    # Validated as a real IPv4/IPv6 literal (or '' to clear).
+    if 'nat_ip' in body:
+        nat = str(body.get('nat_ip') or '').strip()
+        if nat:
+            import ipaddress as _ipa
+            try:
+                nat = str(_ipa.ip_address(nat))
+            except ValueError:
+                respond(400, {'error': 'nat_ip must be a valid IPv4/IPv6 address or empty'})
+        rec['nat_ip'] = nat
+        changed.append('nat_ip')
 
     if 'hypervisor_url' in body:
         url = _cmdb_validate_url(body.get('hypervisor_url'))
@@ -44463,6 +44616,7 @@ def _build_exact_routes():
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/nav-counts'): handle_nav_counts,
         ('GET', '/api/board'): handle_board,                         # v5.0.0 T6 NOC board
+        ('GET', '/api/network-metrics'): handle_network_metrics,     # v5.0.0 net metrics
         ('GET', '/api/oncall'): handle_oncall,
         ('GET', '/api/setup-status'): handle_setup_status,
         ('GET', '/api/apikeys'): handle_apikeys_list,
@@ -44788,7 +44942,8 @@ def _dispatch(pi, m):
                                      # v1.11.10
                                      '/metric-thresholds',
                                      # v3.2.0 (B5)
-                                     '/snmp', '/snmp/poll', '/snmp/deep')):
+                                     '/snmp', '/snmp/poll', '/snmp/deep',
+                                     '/decommissioned')):   # v5.0.0
         handle_device_delete(pi[len('/api/devices/'):])
     # v3.0.4: bulk device settings save from the device drawer.
     # Matches POST /api/devices/<id> exactly — no further slashes.
@@ -44859,6 +45014,8 @@ def _dispatch(pi, m):
         handle_device_icon(pi[len('/api/devices/'):-len('/icon')])
     elif pi.startswith('/api/devices/') and pi.endswith('/monitored') and m == 'PATCH':
         handle_device_monitored(pi[len('/api/devices/'):-len('/monitored')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/decommissioned') and m == 'PATCH':
+        handle_device_decommission(pi[len('/api/devices/'):-len('/decommissioned')])
     elif pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH':
         handle_device_require_confirmation(
             pi[len('/api/devices/'):-len('/require_confirmation')])

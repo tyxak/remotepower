@@ -1282,6 +1282,15 @@
   .device-card.online::before  { background: var(--green); }
   .device-card.offline::before { background: var(--red); }
   .device-card:hover { border-color: rgba(59,126,255,0.3); }
+  /* v5.0.0: decommissioned assets are greyed out and desaturated. */
+  .device-card.decommissioned { opacity: 0.55; filter: grayscale(0.85); }
+  .device-card.decommissioned::before { background: var(--muted) !important; }
+  .device-card.decommissioned:hover { opacity: 0.8; }
+  .decomm-pill { background: rgba(124,135,154,0.16); color: var(--muted);
+    border: 1px solid var(--border); }
+  tr.decommissioned { opacity: 0.55; filter: grayscale(0.85); }
+  /* v5.0.0: NAT/public IP shown as a child of the primary interface. */
+  .cmdb-nat-child { padding-left: 10px; margin-top: 2px; opacity: 0.85; }
   .device-header {
     display: flex;
     align-items: flex-start;

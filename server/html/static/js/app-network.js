@@ -959,3 +959,91 @@ function _cmdbEsc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+
+// ── v5.0.0: Network metrics (per-device throughput, scoped) ──────────────────
+// Fleet-wide RX/TX or rolled up by group / tag / site (a site = a customer).
+// Data from /api/network-metrics (agent `network_io` samples). Mirrors the NOC
+// board's segmented-scope pattern.
+let _netMetricsBy   = 'fleet';
+let _netMetricsData = null;   // last response, so the sort re-render is local
+
+function netMetricsBy(by) {
+  if (!['fleet', 'group', 'tag', 'site'].includes(by)) by = 'fleet';
+  _netMetricsBy = by;
+  document.querySelectorAll('#netmetrics-by button').forEach(b =>
+    b.classList.toggle('active', b.dataset.arg === by));
+  loadNetMetrics();
+}
+
+async function loadNetMetrics() {
+  const body = document.getElementById('netmetrics-body');
+  if (!body) return;
+  // eager sort wire-up so the ↕ indicator shows before data arrives
+  tableCtl.wireSortOnly('netmetrics-thead', 'netmetrics', _renderNetMetricsBody);
+  const data = await api('GET', '/network-metrics?by=' + encodeURIComponent(_netMetricsBy));
+  if (!data || !data.totals) { body.innerHTML = '<div class="c-red">Failed to load network metrics.</div>'; return; }
+  _netMetricsData = data;
+  _renderNetMetricsBody();
+}
+
+function _renderNetMetricsBody() {
+  const body = document.getElementById('netmetrics-body');
+  if (!body || !_netMetricsData) return;
+  const data = _netMetricsData;
+  const t = data.totals || {};
+  const stat = (label, val, cls) =>
+    `<div class="board-stat"><span class="meta-label">${escHtml(label)}</span><span class="big ${cls || ''}">${val}</span></div>`;
+  const vitals = `<div class="board-vitals">
+    ${stat('Total RX', _fmtBps(t.rx_bps))}
+    ${stat('Total TX', _fmtBps(t.tx_bps))}
+    ${stat('Reporting', (t.reporting || 0) + ' / ' + (t.devices || 0))}
+  </div>`;
+
+  let tilesHtml = '';
+  if (_netMetricsBy !== 'fleet' && (data.tiles || []).length) {
+    const lbl = _netMetricsBy.charAt(0).toUpperCase() + _netMetricsBy.slice(1);
+    tilesHtml = `<div class="dash-card mb-16"><div class="section-title">By ${escHtml(lbl)}</div>
+      <div class="scrollable-table-wrap audit-scroll"><table><thead><tr>
+        <th scope="col">${escHtml(lbl)}</th><th scope="col" class="ta-right">RX</th>
+        <th scope="col" class="ta-right">TX</th><th scope="col" class="ta-right">Devices</th>
+      </tr></thead><tbody>` +
+      data.tiles.map(ti => `<tr><td>${escHtml(ti.name)}</td>
+        <td class="ta-right mono-12">${_fmtBps(ti.rx_bps)}</td>
+        <td class="ta-right mono-12">${_fmtBps(ti.tx_bps)}</td>
+        <td class="ta-right">${ti.devices}</td></tr>`).join('') +
+      `</tbody></table></div></div>`;
+  }
+
+  const rows = tableCtl.sortRows('netmetrics', data.devices || [], (r) => ({
+    name:  (r.name || '').toLowerCase(),
+    group: (r.group || '').toLowerCase(),
+    site:  (r.site || '').toLowerCase(),
+    rx:    r.rx_bps || 0,
+    tx:    r.tx_bps || 0,
+    iface: (r.ifaces && r.ifaces[0] ? r.ifaces[0].iface : '') || '',
+  }));
+  const devTable = `<div class="dash-card"><div class="section-title">Per-device throughput <span class="meta-sm">(top ${(data.devices || []).length})</span></div>
+    <div class="scrollable-table-wrap audit-scroll"><table id="netmetrics-table"><thead id="netmetrics-thead"><tr>
+      <th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th>
+      <th scope="col" data-col="site">Site</th>
+      <th scope="col" data-col="rx" class="ta-right">RX</th><th scope="col" data-col="tx" class="ta-right">TX</th>
+      <th scope="col" data-col="iface">Top interface</th>
+    </tr></thead><tbody>` +
+    (rows.length ? rows.map(r => {
+      const top = (r.ifaces && r.ifaces[0]) ? r.ifaces[0] : null;
+      const flag = r.decommissioned
+        ? ' <span class="patch-badge fs-10 c-muted" title="Decommissioned">decomm</span>'
+        : (!r.monitored ? ' <span class="patch-badge fs-10 c-muted" title="Unmonitored — collecting, no alerts">unmon</span>' : '');
+      return `<tr class="${r.decommissioned ? 'decommissioned' : ''}">
+        <td>${escHtml(r.name)}${flag}</td>
+        <td class="hint">${escHtml(r.group || '—')}</td>
+        <td class="hint">${escHtml(r.site || '—')}</td>
+        <td class="ta-right mono-12">${_fmtBps(r.rx_bps)}</td>
+        <td class="ta-right mono-12">${_fmtBps(r.tx_bps)}</td>
+        <td class="mono-12">${top ? escHtml(top.iface) : '<span class="c-muted">—</span>'}</td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="empty-state">No network throughput reported yet — agents send it on their next heartbeat.</td></tr>') +
+    `</tbody></table></div></div>`;
+
+  body.innerHTML = vitals + tilesHtml + devTable;
+  tableCtl.wireSortOnly('netmetrics-thead', 'netmetrics', _renderNetMetricsBody);
+}

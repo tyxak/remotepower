@@ -1445,6 +1445,7 @@ function showPage(name, btn) {
   if (name === 'containers') { enterContainers(); _showAllContainerPanels(); }
   if (name === 'virtualization') loadVirtualization();
   if (name === 'netmap')   { enterNetmap(); loadDiscovery(); }
+  if (name === 'netmetrics') loadNetMetrics();
   if (name === 'compliance') loadCompliance();
   if (name === 'tls')      { enterTLS(); _showAllTLSPanels(); }
   if (name === 'drift')    loadDrift();
@@ -1754,11 +1755,14 @@ function renderDevices() {
     const auditPill = ((si || {}).audit_mode)
       ? ` <span class="hw-pill hw-warn" title="Agent is in audit (read-only) mode — it observes and reports but refuses every command (exec, reboot, config, self-update). Remove /etc/remotepower/audit-mode on the host to re-enable.">${_icon('eye',12)} AUDIT</span>`
       : '';
-    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}">
+    const decommPill = d.decommissioned
+      ? ` <span class="hw-pill decomm-pill" title="Decommissioned — a retired asset. Monitoring, alerts, health and SLA are suppressed.">${_icon('power',12)} DECOMMED</span>`
+      : '';
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}${d.decommissioned ? ' decommissioned' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -1892,10 +1896,10 @@ function _registerDevicesMinimalTable() {
       // the actions cell already exposes the same commands; row
       // click → openDetail covers the most common action. Less
       // visual noise, fewer fiddly edge cases.
-      return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
+      return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
         <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
-        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
+        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>

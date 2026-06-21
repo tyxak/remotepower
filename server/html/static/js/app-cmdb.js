@@ -11,6 +11,7 @@ let _cmdbVaultMeta  = null;     // {configured, ...}
 let _cmdbAssetCache = null;     // last full list response
 let _cmdbCurrent    = null;     // {device_id, ...} — asset currently in the modal
 let _cmdbSearchTimer = null;
+let _cmdbDecommOrig = false;    // v5.0.0: decommissioned flag as loaded into the modal
 
 // Send the vault key on every CMDB credential request that needs it.
 async function cmdbApi(method, path, body, sendKey) {
@@ -309,14 +310,22 @@ function cmdbRenderTable(rows) {
     const fn = (r.server_function
       ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
       : (r.environment ? '' : '<span class="hint">—</span>')) + envPill;
+    // v5.0.0: show a NAT/public IP as a CHILD of the primary interface,
+    // nested under the asset's primary IP.
+    const natChild = r.nat_ip
+      ? `<div class="cmdb-nat-child mono-12"><span class="c-muted">↳ ${_cmdbEsc(r.primary_interface || 'NAT')}:</span> ${_cmdbEsc(r.nat_ip)} <span class="meta-sm">(NAT)</span></div>`
+      : '';
     // v3.3.0: clicking the Name cell opens the asset (same as the Open
     // button). The button stays in the actions column for discoverability.
-    return `<tr>
-      <td class="fw-500 pointer" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}</td>
+    // v5.0.0: grey out + badge decommissioned assets.
+    const decommChip = r.decommissioned
+      ? ' <span class="patch-badge fs-10 c-muted" title="Decommissioned — retired asset, fully silenced">DECOMMED</span>' : '';
+    return `<tr class="${r.decommissioned ? 'decommissioned' : ''}">
+      <td class="fw-500 pointer" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}${decommChip}</td>
       <td class="mono-12">${_cmdbEsc(r.asset_id) || '<span class="c-muted">—</span>'}</td>
       <td>${fn}</td>
       <td class="hint">${_cmdbEsc(r.os) || '—'}</td>
-      <td class="mono-12">${_cmdbEsc(r.ip) || '—'}</td>
+      <td class="mono-12">${_cmdbEsc(r.ip) || '—'}${natChild}</td>
       <td>${hyp}</td>
       <td class="ta-center">${r.has_documentation ? '<span class="c-green">●</span>' : '<span class="c-muted">○</span>'}</td>
       <td class="isl-430">${r.credential_count}</td>
@@ -350,6 +359,12 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
   document.getElementById('cmdb-asset-environment').value = res.data.environment || '';
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
+  document.getElementById('cmdb-asset-primary-interface').value = res.data.primary_interface || '';
+  document.getElementById('cmdb-asset-nat-ip').value     = res.data.nat_ip || '';
+  // v5.0.0: decommissioned is a DEVICE flag (admin-only, separate endpoint) —
+  // track the loaded value so save only PATCHes it when it actually changed.
+  _cmdbDecommOrig = !!res.data.decommissioned;
+  document.getElementById('cmdb-asset-decommissioned').checked = _cmdbDecommOrig;
   document.getElementById('cmdb-asset-hypervisor').value = res.data.hypervisor_url || '';
   document.getElementById('cmdb-asset-ssh-port').value   = res.data.ssh_port || 22;
   // v3.5.0: lifecycle expiry dates
@@ -781,6 +796,8 @@ async function cmdbAssetSave() {
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
     environment:     document.getElementById('cmdb-asset-environment').value,
     vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
+    primary_interface: document.getElementById('cmdb-asset-primary-interface').value.trim(),
+    nat_ip:          document.getElementById('cmdb-asset-nat-ip').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
     ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,
     // v3.5.0: lifecycle expiry dates (empty string clears)
@@ -796,6 +813,16 @@ async function cmdbAssetSave() {
   const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
   if (!res) return;
   if (!res.ok) { alert('Save failed: ' + (res.data && res.data.error || res.status)); return; }
+  // v5.0.0: persist the decommissioned flag separately (device-level, admin-only)
+  // and only when it changed, so a non-admin CMDB edit isn't blocked by a 403.
+  const decomm = document.getElementById('cmdb-asset-decommissioned').checked;
+  if (decomm !== _cmdbDecommOrig) {
+    const dr = await api('PATCH', '/devices/' + encodeURIComponent(deviceId) + '/decommissioned',
+                         { decommissioned: decomm });
+    if (dr && dr.ok) { _cmdbDecommOrig = decomm; if (typeof loadDevices === 'function') loadDevices(); }
+    else if (dr === null) { /* api() handled 401 */ }
+    else { toast((dr && dr.error) || 'Could not change decommissioned state (admin only)', 'error'); }
+  }
   closeModal('cmdb-asset-modal');
   cmdbReloadList();
   cmdbLoadServerFunctions();

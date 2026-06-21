@@ -1544,6 +1544,31 @@ A new **Status Board** rolls the fleet up into **group / site / tag tiles** with
 **problem-host strip** for an at-a-glance NOC wallboard view, alongside an
 industrial visual refresh across the dashboard.
 
+### CMDB: primary interface + NAT IP
+Each asset can record its **primary network interface** (the main NIC) and attach
+a **NAT / public IP** to it as a child — for a host behind 1:1 NAT whose primary
+interface carries a private address but is reachable from outside on the NAT IP.
+The NAT IP shows nested under the asset's address in the CMDB table.
+
+### Decommissioned assets
+Mark a retired server **Decommissioned** from its CMDB record. It greys out across
+the device list (card and minimal views) and the CMDB table with a *DECOMMED*
+badge, and is **fully silenced** — no monitoring, alerts, health scoring or SLA.
+Clearing the flag restores monitoring. (Decommissioning forces monitoring off, so
+nothing pages you about a box you've retired.)
+
+### Network Metrics page
+A new **Network metrics** page shows per-device throughput (RX/TX) from the
+agents' interface samples, with a **fleet-wide / by-group / by-tag / by-site**
+scope selector (a site represents a customer). It surfaces fleet totals, a
+top-talkers table (sortable, with the busiest interface per host), and per-scope
+roll-ups. Unmonitored and decommissioned hosts are shown but flagged.
+
+### Accessibility
+Every table column header now carries `scope="col"` so screen readers announce
+the right column; icon-only buttons expose an `aria-label`, and purely decorative
+icons are hidden from assistive tech.
+
 ## v4.10.0 additions — "PerimeterMatters"
 
 ### Firewall + fail2ban (Security → Firewall)
