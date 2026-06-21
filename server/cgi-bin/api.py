@@ -7490,15 +7490,13 @@ def handle_devices_list():
     respond(200, result)
 
 
-def handle_device_delete(dev_id):
-    require_admin_auth()
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
+def _purge_device(dev_id):
+    """v5.0.0 (#F1): remove a device + all its per-device data. Returns True if
+    the device existed and was deleted. Shared by single-delete and bulk-delete;
+    contains NO auth / respond (callers own those)."""
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
-            respond(404, {'error': 'Device not found'})
+            return False
         del devices[dev_id]
     # v3.3.0: was bare load/save — racing with a concurrent heartbeat
     # could lose the new command queued just after delete.
@@ -7569,7 +7567,41 @@ def handle_device_delete(dev_id):
 
     except Exception:
         pass  # device delete must succeed even if cleanup hits an edge case
+    return True
+
+
+def handle_device_delete(dev_id):
+    require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    if not _purge_device(dev_id):
+        respond(404, {'error': 'Device not found'})
     respond(200, {'ok': True})
+
+
+def handle_devices_bulk_delete():
+    """v5.0.0 (#F1): ``POST /api/devices/bulk-delete`` {device_ids:[...]} — delete
+    many devices in one action (e.g. everything matching a tag, selected in the
+    UI). Admin only; audit-logged with the count."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    ids = body.get('device_ids') or []
+    if not isinstance(ids, list) or not ids:
+        respond(400, {'error': 'device_ids must be a non-empty list'})
+    ids = [str(i) for i in ids if _validate_id(str(i))][:1000]
+    deleted = 0
+    for dev_id in ids:
+        try:
+            if _purge_device(dev_id):
+                deleted += 1
+        except Exception:
+            pass
+    audit_log(actor, 'devices_bulk_delete', detail=f'deleted={deleted}/{len(ids)}')
+    respond(200, {'ok': True, 'deleted': deleted, 'requested': len(ids)})
 
 
 def handle_device_tags(dev_id):
@@ -7590,6 +7622,44 @@ def handle_device_tags(dev_id):
     devices[dev_id]['tags'] = tags
     save(DEVICES_FILE, devices)
     respond(200, {'ok': True, 'tags': tags})
+
+
+def _clean_tags(raw):
+    out = [re.sub(r'[^a-zA-Z0-9_\-/]', '', str(t))[:MAX_TAG_LEN] for t in (raw or [])[:MAX_TAG_COUNT]]
+    return [t for t in out if t]
+
+
+def handle_devices_bulk_tags():
+    """v5.0.0 (#F2): ``POST /api/devices/bulk-tags`` — add and/or remove tags on
+    many devices at once. Body: {device_ids:[...], add:[...], remove:[...]}.
+    Add/remove are set-merged onto each device's existing tags (idempotent)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    ids = body.get('device_ids') or []
+    if not isinstance(ids, list) or not ids:
+        respond(400, {'error': 'device_ids must be a non-empty list'})
+    add = _clean_tags(body.get('add'))
+    remove = set(_clean_tags(body.get('remove')))
+    if not add and not remove:
+        respond(400, {'error': 'pass at least one tag in add or remove'})
+    ids = {str(i) for i in ids if _validate_id(str(i))}
+    updated = 0
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        for dev_id in ids:
+            dev = devices.get(dev_id)
+            if not dev:
+                continue
+            cur = [t for t in (dev.get('tags') or []) if t not in remove]
+            for t in add:
+                if t not in cur:
+                    cur.append(t)
+            dev['tags'] = cur[:MAX_TAG_COUNT]
+            updated += 1
+    audit_log(actor, 'devices_bulk_tags',
+              detail=f'updated={updated} add={",".join(add)[:80]} remove={",".join(remove)[:80]}')
+    respond(200, {'ok': True, 'updated': updated})
 
 
 def handle_device_notes(dev_id):
@@ -44344,6 +44414,8 @@ def _build_exact_routes():
         ('GET', '/api/version'): handle_version_check,
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
+        ('POST', '/api/devices/bulk-delete'): handle_devices_bulk_delete,  # v5.0.0 #F1
+        ('POST', '/api/devices/bulk-tags'): handle_devices_bulk_tags,      # v5.0.0 #F2
         ('GET', '/api/maintenance'): handle_maintenance_mode_get,    # v5.0.0 #R3
         ('POST', '/api/maintenance'): handle_maintenance_mode_set,
         ('GET', '/api/webhook/dlq'): handle_webhook_dlq_list,         # v5.0.0 #R2

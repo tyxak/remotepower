@@ -5719,6 +5719,32 @@ function _downscaleImage(file, size) {
 }
 
 function updateBatchBar() { const bar = document.getElementById('batch-bar'); const cnt = document.getElementById('batch-count'); if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; } else bar.classList.remove('visible'); }
+
+// v5.0.0 (#F1): bulk delete the selected devices.
+async function batchDelete() {
+  const n = selectedDevices.size;
+  if (!n) return;
+  if (!await uiConfirm(`Delete ${n} device(s)? This removes them and all their data permanently.`)) return;
+  const data = await api('POST', '/devices/bulk-delete', { device_ids: [...selectedDevices] });
+  if (data?.ok) { toast(`Deleted ${data.deleted} of ${data.requested} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// v5.0.0 (#F2): bulk add/remove tags across the selected devices.
+async function batchTags() {
+  const n = selectedDevices.size;
+  if (!n) return;
+  const addStr = await uiPrompt({ title: `Tag ${n} device(s)`, message: 'Tags to ADD (comma-separated, leave blank for none):', placeholder: 'production, rack-3' });
+  if (addStr === null) return;
+  const removeStr = await uiPrompt({ title: `Tag ${n} device(s)`, message: 'Tags to REMOVE (comma-separated, leave blank for none):', placeholder: 'staging' });
+  if (removeStr === null) return;
+  const split = s => (s || '').split(',').map(t => t.trim()).filter(Boolean);
+  const add = split(addStr), remove = split(removeStr);
+  if (!add.length && !remove.length) { toast('Nothing to change', 'info'); return; }
+  const data = await api('POST', '/devices/bulk-tags', { device_ids: [...selectedDevices], add, remove });
+  if (data?.ok) { toast(`Updated tags on ${data.updated} device(s)`, 'success'); clearSelection(); setTimeout(loadDevices, 500); }
+  else toast(data?.error || 'Failed', 'error');
+}
 async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!await uiConfirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
 async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }

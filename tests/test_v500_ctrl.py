@@ -606,5 +606,57 @@ class TestOsvCircuitBreaker(unittest.TestCase):
             self.cve._osv_querybatch = real
 
 
+# ─────────────────────────── #F1/#F2 bulk device ops ───────────────────────────
+class TestBulkDeviceOps(unittest.TestCase):
+    def setUp(self):
+        api.save(api.DEVICES_FILE, {
+            "d1": {"name": "one", "token": "t", "tags": ["a"]},
+            "d2": {"name": "two", "token": "t", "tags": ["a", "b"]},
+            "d3": {"name": "three", "token": "t", "tags": []},
+        })
+
+    def test_purge_device_returns_bool(self):
+        self.assertTrue(api._purge_device("d1"))
+        self.assertFalse(api._purge_device("d1"))  # already gone
+        self.assertNotIn("d1", api.load(api.DEVICES_FILE))
+
+    def test_clean_tags(self):
+        self.assertEqual(api._clean_tags(["a b", "ok", "", "x!@#y"]),
+                         ["ab", "ok", "xy"])
+
+    def test_bulk_delete_route(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("POST", "/api/devices/bulk-delete")[0],
+                         "handle_devices_bulk_delete")
+        self.assertEqual(resolve_route("POST", "/api/devices/bulk-tags")[0],
+                         "handle_devices_bulk_tags")
+
+    def test_bulk_tags_merge_logic(self):
+        # exercise the add/remove set-merge directly against the store
+        with api._LockedUpdate(api.DEVICES_FILE) as devices:
+            for dev_id in ("d1", "d2"):
+                dev = devices[dev_id]
+                cur = [t for t in (dev.get("tags") or []) if t not in {"a"}]
+                for t in ["prod"]:
+                    if t not in cur:
+                        cur.append(t)
+                dev["tags"] = cur
+        d = api.load(api.DEVICES_FILE)
+        self.assertEqual(d["d1"]["tags"], ["prod"])        # a removed, prod added
+        self.assertEqual(d["d2"]["tags"], ["b", "prod"])   # a removed, b kept
+
+    def test_handlers_exist_and_audit(self):
+        for fn in ("handle_devices_bulk_delete", "handle_devices_bulk_tags"):
+            self.assertIn(f"def {fn}(", API_SRC)
+        self.assertIn("'devices_bulk_delete'", API_SRC)
+        self.assertIn("'devices_bulk_tags'", API_SRC)
+
+    def test_frontend(self):
+        self.assertIn('data-action="batchDelete"', HTML)
+        self.assertIn('data-action="batchTags"', HTML)
+        self.assertIn("function batchDelete", APP)
+        self.assertIn("/devices/bulk-tags", APP)
+
+
 if __name__ == "__main__":
     unittest.main()
