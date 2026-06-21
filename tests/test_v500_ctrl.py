@@ -872,6 +872,19 @@ class TestT5Polish(unittest.TestCase):
         self.assertIn("function runSelfTest(", APP)
         self.assertIn('data-action="runSelfTest"', HTML)
 
+    def test_u3_snooze(self):
+        self.assertIn("function snoozeDeviceAlerts(", APP)
+        self.assertIn("'Snooze alerts 1h'", APP)
+        # builds a one-shot device maintenance window (which suppresses alerts)
+        i = APP.index("function snoozeDeviceAlerts(")
+        block = APP[i:i + 700]
+        self.assertIn("scope: 'device'", block)
+        self.assertIn("/maintenance'", block)
+
+    def test_u7_palette_command_history(self):
+        self.assertIn("window._cmdHistCache", APP)
+        self.assertIn("kind: 'history'", APP)
+
     def test_u9_self_test_runs(self):
         # behavioral: the helper builds a checks list with an overall ok bool
         # (can't call the handler directly — it needs auth/respond — so assert the

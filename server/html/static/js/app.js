@@ -18877,6 +18877,7 @@ const _ICONS = {
   unlock:      '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
   edit:        '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
   copy:        '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  bellOff:     '<path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/>',
   partyPopper: '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-1.53.84a2.91 2.91 0 0 1-3.18-.13c-.86-.6-2.08-.55-2.86.13l-.51.43"/><path d="M5 5c2 0 5 1 5 6 0 0 .35.21.61.34"/><path d="M3 21c.6-3.6 4-7 7-7"/>',
 };
 
@@ -18885,6 +18886,24 @@ function _icon(name, size) {
   if (!body) return '';
   const sz = size || 16;
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${sz}" height="${sz}" aria-hidden="true">${body}</svg>`;
+}
+
+// v5.0.0 (#U3): time-based alert snooze — creates a one-shot maintenance window
+// for this device (which the alert pipeline already suppresses), so noisy alerts
+// can be muted for an hour during active debugging.
+async function snoozeDeviceAlerts(devId, name) {
+  // seconds-precision ISO (no millis) so _parse_iso is happy on every Python.
+  const iso = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const now = new Date();
+  const end = new Date(now.getTime() + 3600 * 1000);
+  const data = await api('POST', '/maintenance', {
+    scope: 'device', target: devId,
+    start: iso(now), end: iso(end),
+    reason: 'Snoozed 1h from device drawer',
+  });
+  closeDeviceDrawer();
+  if (data?.ok) toast(`Alerts for ${name} snoozed for 1 hour`, 'success');
+  else toast(data?.error || 'Failed to snooze', 'error');
 }
 
 function _renderDrawerActions() {
@@ -18918,6 +18937,7 @@ function _renderDrawerActions() {
     ['building',  'Assign site',     () => { closeDeviceDrawer(); openDeviceSite(id, name); },                                                                                    false, false],
     ['bookOpen',  'Runbook',         () => { closeDeviceDrawer(); aiViewRunbook(id, name); },                                                                                     false, false],
     ['wrench',    'Maintenance',     () => { closeDeviceDrawer(); openNewMaintModal(); },                                                                                         false, false],
+    ['bellOff',   'Snooze alerts 1h', () => snoozeDeviceAlerts(id, name),                                                                                                         false, false],
     ['clock',     'Adjust poll',     () => _drawerAdjustPoll(),                                                                                                                   false, agentless],
     ['trash',     'Remove device',   () => { closeDeviceDrawer(); deleteDevice(id, name); },                                                                                      true,  false],
   ];
@@ -25155,6 +25175,17 @@ function _palBuildIndex() {
       action: () => openDeviceCVE(d.device_id, d.name),
     });
   }
+  // v5.0.0 (#U7): recent command history — jump to the History page.
+  for (const c of (window._cmdHistCache || [])) {
+    const cmd = (c.command || '').trim();
+    if (!cmd) continue;
+    items.push({
+      label: `Command: ${cmd.slice(0, 50)}`,
+      kind: 'history',
+      sub: `${c.device_name || c.device_id || ''}${c.actor ? ' · ' + c.actor : ''}`,
+      action: () => showPage('history'),
+    });
+  }
   return items;
 }
 function openCommandPalette() {
@@ -25183,6 +25214,12 @@ function openCommandPalette() {
   if (!cveReportData) {
     api('GET', '/cve/findings').then(d => {
       if (d) { cveReportData = d; _palRefresh(); }
+    }).catch(() => {});
+  }
+  // v5.0.0 (#U7): warm recent command history so the palette searches it too.
+  if (!window._cmdHistCache) {
+    api('GET', '/command-queue').then(d => {
+      if (d) { window._cmdHistCache = (d.recent || []).slice(0, 60); _palRefresh(); }
     }).catch(() => {});
   }
   _palItems = _palBuildIndex();
