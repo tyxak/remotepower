@@ -57,6 +57,11 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.0.0.md](v5.0.0.md)** — "CTRLMatters": control-plane hardening — opt-in
+ mutual TLS for agents, AES-256-GCM encrypted DR backups, break-glass vault
+ reveals and per-API-key rate limits, a webhook dead-letter queue, runtime
+ maintenance mode, bulk fleet ops, one-click rollout rollback, and cross-device
+ OSV batching. Every new control is opt-in; no breaking changes.
 - **[v4.10.0.md](v4.10.0.md)** — "PerimeterMatters": a fleet-wide Firewall +
  fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails),
  an AI Insights hub (20 one-click AI reports/advisors), and three new
@@ -76,10 +81,6 @@ The five most recent per-release notes are kept here:
 - **[v4.7.0.md](v4.7.0.md)** — homelab/fleet software integrations (26 read-only
  connectors → Alerts + dashboard, SSRF-guarded) + a containerized agent that
  monitors a Docker host with no install. No breaking changes.
-- **[v4.6.1.md](v4.6.1.md)** — a stability + hardening patch on v4.6.0: SCGI-worker
- fixes (CAP_NET_RAW for agentless ICMP ping, Postgres connection fork-safety), a
- ReDoS fix in `_valid_tls_host`, a defence-in-depth XSS coercion, and a subtitle
- reload-flash fix. No breaking changes.
 
 Older release notes (v4.5.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

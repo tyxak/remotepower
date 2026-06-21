@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=4.10.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.0.0">
 
 </head>
 <body>
@@ -2703,7 +2703,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v4.10.0 perimetermatters firewall fail2ban nftables iptables ufw firewalld rules jails ban unban ai insights hub reports advisors rag corpus sources backups integrations">
+          <details class="doc-card" open data-keywords="release notes changelog v5.0.0 ctrlmatters mutual tls mtls client certificate encrypted backup passphrase break-glass two-person vault reveal api key rate limit disk watchdog webhook dead-letter queue dlq retry replay maintenance mode rollback bulk delete tag per-command timeout version compatibility osv batching snooze run diagnostics clipboard">
+            <summary><strong>What's new — v5.0.0 "CTRLMatters"</strong> — control-plane hardening: opt-in mutual TLS for agents, encrypted DR backups, break-glass vault reveals and per-API-key rate limits, plus a webhook dead-letter queue, runtime maintenance mode, bulk fleet ops, one-click rollout rollback and cross-device CVE batching (every new control is opt-in; no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.0.0 hardens the path between operators, the server and agents — every new control is <strong>opt-in and off by default</strong>, so existing installs keep working unchanged. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.0.0</code>).</p>
+              <ul>
+                <li><strong>Mutual TLS for agents (opt-in).</strong> Require a CA-verified client certificate (optionally pinned per device) on top of the per-device token — a stolen token alone can't impersonate a host. Settings → Security → "Require agent mTLS" + the nginx block in <code>deploy/nginx/remotepower.conf</code>.</li>
+                <li><strong>Encrypted backups + break-glass + per-key limits.</strong> Set <code>RP_BACKUP_PASSPHRASE</code> for AES-256-GCM DR backups; flag a credential <strong>break-glass</strong> to require a second admin's approval to reveal (immutably audited); cap any API key's requests/minute.</li>
+                <li><strong>Reliability.</strong> Server disk-space watchdog, a webhook <strong>dead-letter queue</strong> with retry + event replay, a runtime <strong>maintenance mode</strong> that drains command dispatch during upgrades, graceful long-poll shutdown, and an OSV circuit breaker.</li>
+                <li><strong>Fleet power-ops.</strong> Bulk device delete + bulk tagging from multi-select, per-command timeout override, agent/server version-compat check, and one-click <strong>rollout rollback</strong> for script rollouts.</li>
+                <li><strong>Scale + polish.</strong> Cross-device OSV batching (one query per ecosystem for the whole fleet), copy-to-clipboard everywhere, per-device alert snooze, a pending-command nav badge, rename/duplicate saved queries, command-history in the palette, and one-click Run-diagnostics.</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.0.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v4.10.0 perimetermatters firewall fail2ban nftables iptables ufw firewalld rules jails ban unban ai insights hub reports advisors rag corpus sources backups integrations">
             <summary><strong>What's new — v4.10.0 "PerimeterMatters"</strong> — a fleet-wide Firewall + fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails), an AI Insights hub of 20 one-click AI reports and advisors, and three new AI-knowledge sources (no breaking changes)</summary>
             <div class="doc-body">
               <p>v4.10.0 adds a <strong>Security → Firewall</strong> page that shows every host's firewall posture and lets you edit rules and fail2ban jails fleet-wide, plus an <strong>AI Insights</strong> hub on the AI Assistant page. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.10.0</code>).</p>
@@ -2764,21 +2778,7 @@
               <p class="hint">See <code>docs/integrations.md</code> and <code>docs/docker-agent.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.6.1 patch stability hardening scgi worker cap_net_raw icmp ping offline postgres fork psycopg eof connection pid reconnect redos regex valid tls host denial of service xss upgradable innerhtml coerce subtitle flash fouc reload page info icon">
-            <summary><strong>What's new — v4.6.1</strong> — a stability + hardening patch on v4.6.0: SCGI-worker fixes (ICMP ping, Postgres fork-safety), a ReDoS and a defence-in-depth XSS fix, and no more subtitle flash on reload (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.6.1 is a small patch on top of v4.6.0. It fixes two issues that only surface under the optional <strong>SCGI prefork worker</strong>, closes a ReDoS and a defence-in-depth XSS finding, and removes a brief UI flash on page reload. No breaking changes, no schema changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.6.1</code>).</p>
-              <ul>
-                <li><strong>SCGI worker: agentless ICMP devices stay online.</strong> The persistent worker runs with <code>NoNewPrivileges</code>, which blocked <code>ping</code>'s capability elevation, so reachability sweeps reported agentless devices down. The unit now grants <code>CAP_NET_RAW</code> ambiently. Classic fcgiwrap/CGI was never affected.</li>
-                <li><strong>SCGI worker: Postgres fork-safety.</strong> A forked worker child inherited the parent's <code>psycopg</code> connection, corrupting the protocol stream (<em>consuming input failed: EOF detected</em>). Each connection is now tagged with its owning PID and transparently reconnected in a child — the same guard the SQLite backend already had.</li>
-                <li><strong>Security: ReDoS in TLS-host validation.</strong> <code>_valid_tls_host</code> used a nested-quantifier regex that backtracked catastrophically on a long letter/hyphen run. It now validates <strong>label by label</strong> in linear time, same accept/reject set.</li>
-                <li><strong>Security: package update count coerced before render.</strong> The per-device update badge coerces the upgradable count to a number (or <code>?</code>) before it reaches <code>innerHTML</code> — a non-numeric value can never become markup. The strict CSP is an independent second barrier.</li>
-                <li><strong>UI: no subtitle flash on reload.</strong> Each page's descriptive subtitle is folded into a hover info icon at runtime; on a hard reload it briefly painted as raw text before the script ran. The subtitle is now hidden by default in CSS and revealed inline only in the Old UI.</li>
-              </ul>
-              <p class="hint">A stability + hardening patch — every install keeps working exactly as before. See <code>docs/v4.6.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -7479,19 +7479,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=4.10.0"></script>
-<script defer src="static/js/app.js?v=4.10.0"></script>
+<script defer src="static/js/i18n.js?v=5.0.0"></script>
+<script defer src="static/js/app.js?v=5.0.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=4.10.0"></script>
-<script defer src="static/js/app-cmdb.js?v=4.10.0"></script>
-<script defer src="static/js/app-containers.js?v=4.10.0"></script>
-<script defer src="static/js/app-network.js?v=4.10.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.0.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.0.0"></script>
+<script defer src="static/js/app-containers.js?v=5.0.0"></script>
+<script defer src="static/js/app-network.js?v=5.0.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=4.10.0"></script>
-<script defer src="static/js/app-compliance.js?v=4.10.0"></script>
-<script defer src="static/js/app-integrations.js?v=4.10.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.0.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.0.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.0.0"></script>
 
-<script defer src="static/js/sw-register.js?v=4.10.0"></script>
+<script defer src="static/js/sw-register.js?v=5.0.0"></script>
 </body>
 </html>

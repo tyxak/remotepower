@@ -2,6 +2,24 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.0.0 — "CTRLMatters" — unreleased (test)
+
+Control-plane hardening + scale. **Security:** opt-in mutual TLS for agents
+(CA-verified client certs, optional per-device pin), AES-256-GCM encrypted DR
+backups (`RP_BACKUP_PASSPHRASE`), break-glass vault reveals (two-person rule +
+immutable audit + `vault_break_glass` alert), per-API-key rate limiting.
+**Reliability:** server disk-space watchdog (`server_disk_low`/`_ok`), webhook
+dead-letter queue with retry + event replay, runtime maintenance mode (drain
+command dispatch during upgrades), graceful SIGTERM for long-poll commands, OSV
+circuit breaker. **Fleet:** bulk device delete + bulk tag, per-command timeout
+override, agent/server version-compat check, one-click rollout rollback (script
+rollouts). **Scale:** cross-device OSV batching (one OSV sweep per ecosystem for
+the whole fleet). **Polish:** copy-to-clipboard everywhere, webhook delivery
+dots, per-device alert snooze, pending-command nav badge, rename/duplicate saved
+queries, palette command-history search, one-click Run-diagnostics. WEBHOOK_EVENTS
+now 78 (`vault_break_glass`, `server_disk_low`, `server_disk_ok`). Deferred:
+user-configurable timezone. See docs/v5.0.0.md.
+
 ## v4.10.0 — "PerimeterMatters" — unreleased (test)
 
 A perimeter-defense and AI release: a fleet-wide **Firewall + fail2ban** page
