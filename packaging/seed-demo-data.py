@@ -456,7 +456,7 @@ def build_devices() -> dict:
                 'mounts':       mounts,
                 'kernel':       rng.choice(['6.1.0-21-amd64', '6.8.0-31-generic', '6.6.32-current']),
                 'uptime_s':     rng.randint(86400, 86400 * 180),
-                'packages':     {'upgradable': rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]},
+                'packages':     (lambda u: {'upgradable': u, 'security_updates': rng.randint(0, u) if u else 0})(rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]),
             }
             # v3.11–v3.13: device-drawer cards — access watch (recent logins),
             # systemd timers, listening ports w/ scope (Exposure), per-host

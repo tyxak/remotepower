@@ -413,5 +413,32 @@ class TestComposeDeploy(unittest.TestCase):
         self.assertEqual(calls[1], ['docker', 'compose', '-p', 'web', 'up', '-d'])
 
 
+class TestSecurityUpdateCount(unittest.TestCase):
+    """v5.0.0: distro-flagged security-update counting (a supplement to OSV)."""
+
+    def test_apt_counts_security_archive_lines(self):
+        out = (
+            "Inst libssl3 [3.0.11-1] (3.0.13-1~deb12u1 Debian-Security:12/stable [amd64])\n"
+            "Inst bash [5.2-15] (5.2-16 Debian:12/stable [amd64])\n"
+            "Inst libc6 [2.36-9] (2.36-9+deb12u4 Debian-Security:12/stable [amd64])\n"
+            "Conf libssl3 (3.0.13-1~deb12u1 Debian-Security:12/stable [amd64])\n")
+        # 2 Inst lines hit a security archive; the Conf line is not an install.
+        self.assertEqual(agent._count_apt_security(out), 2)
+
+    def test_apt_ubuntu_security_suite(self):
+        self.assertEqual(agent._count_apt_security(
+            "Inst x [1] (2 Ubuntu:22.04/jammy-security [amd64])"), 1)
+
+    def test_apt_no_security(self):
+        self.assertEqual(agent._count_apt_security(
+            "Inst x [1] (2 Debian:12/stable [amd64])"), 0)
+        self.assertEqual(agent._count_apt_security(""), 0)
+
+    def test_pacman_security_none_without_arch_audit(self):
+        # No arch-audit installed -> unknown (None), never a false 0.
+        with patch.object(agent, '_which', return_value=None):
+            self.assertIsNone(agent._count_pacman_security())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

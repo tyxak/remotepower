@@ -749,6 +749,60 @@ def _parse_upgradable_names(manager, text):
     return sorted(set(names))[:_MAX_UPGRADABLE_NAMES]
 
 
+def _count_apt_security(simulate_out):
+    """v5.0.0: count the SECURITY updates in `apt-get --simulate upgrade` output.
+
+    Each `Inst <pkg> [old] (<new> <Archive> [<arch>])` line carries the candidate's
+    source archive; Debian tags it `Debian-Security:...` and Ubuntu/derivatives use
+    a `<codename>-security` suite. We count `Inst` lines whose annotation mentions
+    a security archive — the vendor's own classification, no extra command."""
+    n = 0
+    for line in (simulate_out or '').splitlines():
+        if not line.startswith('Inst '):
+            continue
+        low = line.lower()
+        if 'security' in low:   # matches '-security' suites + 'Debian-Security'
+            n += 1
+    return n
+
+
+def _count_dnf_security(cmd):
+    """v5.0.0: count SECURITY updates via `<cmd> check-update --security`.
+
+    dnf/yum report only the security-flagged upgradable packages here (rc 100 when
+    some exist, 0 when none). Best-effort: any failure (no plugin, locked, network)
+    returns None so the field reads "unknown" rather than a false 0."""
+    def _count(text):
+        return sum(1 for l in text.splitlines()
+                   if l.strip() and not l.startswith(' ')
+                   and not l.startswith(('Last', 'Obsoleting', 'Security:')))
+    try:
+        out = subprocess.check_output([cmd, 'check-update', '--security', '--quiet'],
+                                      text=True, timeout=30, stderr=subprocess.DEVNULL)
+        return _count(out)
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 100 and e.output:
+            return _count(e.output)
+        return None
+    except Exception:
+        return None
+
+
+def _count_pacman_security():
+    """v5.0.0: Arch has no security pocket, but `arch-audit` (community tool) maps
+    installed packages to known CVEs. If present, count its affected packages;
+    otherwise None (unknown — not a false 0). One name per line, deduped."""
+    if not _which('arch-audit'):
+        return None
+    try:
+        out = subprocess.check_output(['arch-audit', '-q', '-u'],
+                                      text=True, timeout=20, stderr=subprocess.DEVNULL)
+        names = {l.split()[0] for l in out.splitlines() if l.strip()}
+        return len(names)
+    except Exception:
+        return None
+
+
 def get_patch_info():
     result = {'manager': 'unknown', 'upgradable': None}
     # v3.4.2: non-OS package managers (flatpak/snap/pip/npm). Same periodic
@@ -777,6 +831,7 @@ def get_patch_info():
                     text=True, timeout=45, stderr=subprocess.DEVNULL)
                 result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
                 result['upgradable_names'] = _parse_upgradable_names('apt', out)
+                result['security_updates'] = _count_apt_security(out)
             except Exception:
                 pass
         return result
@@ -787,12 +842,19 @@ def get_patch_info():
                 text=True, timeout=30, stderr=subprocess.DEVNULL)
             result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
             result['upgradable_names'] = _parse_upgradable_names('apt', out)
+            # v5.0.0: how many of those are SECURITY updates. apt --simulate
+            # annotates each `Inst` line with its source archive in parens, e.g.
+            # `Inst libssl3 [..] (.. Debian-Security:12/stable ..)` or a
+            # `<codename>-security` suite — so we count them straight from the
+            # output the vendor itself flags (no extra subprocess).
+            result['security_updates'] = _count_apt_security(out)
         except Exception:
             # check failed (locked dpkg, repo error): report "unknown" rather
             # than 0, so the host doesn't look fully patched when it isn't.
             result['upgradable'] = None
     elif Path('/usr/bin/dnf').exists() or Path('/usr/bin/dnf5').exists():
         result['manager'] = 'dnf'
+        result['security_updates'] = _count_dnf_security('dnf')   # v5.0.0
         try:
             out = subprocess.check_output(['dnf', 'check-update', '--quiet'],
                 text=True, timeout=30, stderr=subprocess.DEVNULL)
@@ -809,6 +871,7 @@ def get_patch_info():
     # and CVE scanning paths Just Work — only the status check differs.
     elif Path('/usr/bin/yum').exists():
         result['manager'] = 'dnf'
+        result['security_updates'] = _count_dnf_security('yum')   # v5.0.0
         try:
             out = subprocess.check_output(['yum', 'check-update', '--quiet'],
                 text=True, timeout=30, stderr=subprocess.DEVNULL)
@@ -828,6 +891,7 @@ def get_patch_info():
             result['upgradable'] = None  # check failed -> "unknown", not "0"
     elif Path('/usr/bin/pacman').exists():
         result['manager'] = 'pacman'
+        result['security_updates'] = _count_pacman_security()   # v5.0.0 (arch-audit)
         # v3.0.1: pacman 7+ runs downloads as the unprivileged "alpm" sandbox
         # user. On CachyOS and some Arch derivatives, that user isn't usable
         # and `pacman -Sy` fails with "switching to sandbox user failed",

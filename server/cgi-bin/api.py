@@ -10347,6 +10347,11 @@ def handle_heartbeat():
                 safe_pkg['manager'] = _sanitize_str(pkg.get('manager', ''), 32)
                 upg = pkg.get('upgradable')
                 safe_pkg['upgradable'] = int(upg) if isinstance(upg, int) and 0 <= upg <= 100000 else None
+                # v5.0.0: how many pending updates the distro itself flags as
+                # SECURITY (apt -security pocket / dnf --security / arch-audit).
+                # A supplement to the OSV CVE scan, sourced from the vendor.
+                sec = pkg.get('security_updates')
+                safe_pkg['security_updates'] = int(sec) if isinstance(sec, int) and 0 <= sec <= 100000 else None
                 # v3.4.2: upgradable package names for the fleet patch catalog.
                 names = pkg.get('upgradable_names')
                 if isinstance(names, list):
@@ -32601,6 +32606,7 @@ def handle_patch_report():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
+        security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
         pkg_manager = pkg.get('manager', 'unknown')
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
 
@@ -32662,6 +32668,7 @@ def handle_patch_report():
             'last_seen': dev.get('last_seen', 0),
             'pkg_manager': pkg_manager,
             'upgradable': upgradable,
+            'security_updates': security_updates,
             'firmware': firmware,
             'patch_status': 'unknown',
             # reboot_required: True when /run/reboot-required exists on the host
@@ -32738,6 +32745,7 @@ def handle_patch_report_device(dev_id):
         'version': dev.get('version', ''),
         'pkg_manager': pkg.get('manager', 'unknown'),
         'upgradable': upgradable,
+        'security_updates': security_updates,
         'patch_status': 'no_data' if upgradable is None else ('fully_patched' if upgradable == 0 else 'patches_available'),
         'uptime': si.get('uptime', ''),
         'platform': si.get('platform', ''),
@@ -32791,6 +32799,7 @@ def handle_patch_report_csv():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
+        security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         status = 'no_data' if (upgradable is None or not is_online) else ('fully_patched' if upgradable == 0 else 'patches_available')
         last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(dev.get('last_seen', 0))) if dev.get('last_seen') else 'never'
@@ -32833,6 +32842,7 @@ def handle_patch_report_xml():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
+        security_updates = pkg.get('security_updates')   # v5.0.0: distro-flagged
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         d_el = SubElement(devs_el, 'Device')
         d_el.set('id', dev_id)
