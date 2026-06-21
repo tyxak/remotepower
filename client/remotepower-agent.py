@@ -5725,8 +5725,14 @@ def execute_command(cmd):
             is_pkg_upgrade = any(needle in actual_shell for needle in
                                  ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu'))
             is_tagged      = bool(acme_tag_m or mitigate_tag_m)
-            cap = 256 * 1024 if (is_pkg_upgrade or is_tagged) else 4096
-            return {'cmd': cmd, 'output': output[:cap], 'rc': result.returncode}
+            # v5.0.0: 4 KB was too small for routine diagnostics (zpool status -v,
+            # btrfs subvolume list, systemctl status, …) — they were silently cut
+            # mid-line. 32 KB covers those; upgrades/tagged keep the 256 KB cap.
+            cap = 256 * 1024 if (is_pkg_upgrade or is_tagged) else 32 * 1024
+            out = output[:cap]
+            if len(output) > cap:
+                out += '\n…(output truncated)'
+            return {'cmd': cmd, 'output': out, 'rc': result.returncode}
         except subprocess.TimeoutExpired:
             log.warning(f"Command timed out: {actual_shell!r}")
             return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}

@@ -6402,7 +6402,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="meta-sm">Run <strong>List snapshots</strong> first, copy the exact name from the command output, then paste it here.</div>
     <button class="btn-secondary c-red mt-8" data-action="storageDeleteSnapshot">Delete snapshot</button>
   </div>
-  <p class="hint">Commands run on the host through the audited command queue. Output appears under <strong>Devices → the host → command output</strong>. Scrubs and balances run in the background and update the pool's status on the next check-in.</p>
+  <p class="hint">Commands run on the host through the audited command queue. <strong>Read actions</strong> (status, usage, list snapshots, …) show their output here once the host checks in. <strong>Scrubs and balances</strong> run in the background and update the pool's status on the next check-in. Everything is also logged to the host's command output under Devices.</p>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="storage-maint-modal">Close</button></div>
 </div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cve-detail-title" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" class="isl-223"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>

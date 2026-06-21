@@ -13709,7 +13709,16 @@ function _renderSnapshotList(out, target, hit) {
   const rows = names.map(n =>
     `<div class="row-8-center mb-4"><code class="fl-1 ellipsis">${escHtml(n)}</code><button class="btn-icon cell-sm c-red" data-action="storageDeleteNamedSnapshot" data-arg="${escAttr(n)}" title="Delete this snapshot">Delete</button></div>`
   ).join('');
-  out.innerHTML = `<div class="row-8-center mb-8"><strong>${names.length} snapshot${names.length === 1 ? '' : 's'}</strong> on ${escHtml(c.pool)} — click Delete to remove one (destructive).</div>${rows}`;
+  // If the host truncated the output (very long list), say so + point at the
+  // right tool for bulk cleanup rather than implying the list is complete.
+  const truncated = /truncated/i.test(hit.output || '');
+  let note = '';
+  if (truncated) {
+    note = `<div class="c-amber mb-8 fs-12"><strong>The list was truncated</strong> — you have more snapshots than shown. For bulk cleanup use the host's snapshot manager (snapper: <code>snapper delete &lt;N&gt;</code> or a timeline-cleanup policy; or <code>zfs destroy</code> with a range), rather than deleting hundreds one by one.</div>`;
+  } else if (/\.snapshots\/\d+\/snapshot/.test(hit.output || '')) {
+    note = `<div class="hint mb-8 fs-12">These look like <strong>snapper</strong>-managed snapshots — deleting the subvolume reclaims space but leaves snapper's metadata; <code>snapper delete &lt;N&gt;</code> keeps it consistent.</div>`;
+  }
+  out.innerHTML = `<div class="row-8-center mb-8"><strong>${names.length} snapshot${names.length === 1 ? '' : 's'}</strong> on ${escHtml(c.pool)} — click Delete to remove one (destructive).</div>${note}${rows}`;
 }
 async function storageDeleteNamedSnapshot(snap) {
   const c = _storageMaintCtx;
