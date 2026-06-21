@@ -33,6 +33,16 @@ fleet. That's the itch RemotePower was built to scratch. The architectural ideas
 are mine. The code, honestly, is mostly written by AI, and I'd rather be upfront
 about that than pretend otherwise.
 
+## Every release is a "something Matters"
+
+A little habit I picked up along the way: every release gets a codename ending in
+"Matters". VisualMatters, TrustMatters, FortifyMatters, OnboardingMatters,
+ResolutionMatters, PerimeterMatters, CTRLMatters, and so on. It started as a bit
+of fun and just stuck around. It turned into a nice forcing function too, because
+each release gets one thing to care about most, whether that's the look of it, the
+security, getting you onboarded, or tightening the perimeter. In the end it all
+matters, really.
+
 ## Why it's free, and why it stays that way
 
 A lot of enterprise products lean on a heavy pay-per-host model. As a homelabber,
