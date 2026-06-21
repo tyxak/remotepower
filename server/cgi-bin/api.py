@@ -34124,6 +34124,78 @@ def handle_alerts_summary():
     respond(200, _alerts_summary(al.get('alerts', [])))
 
 
+def handle_board():
+    """v5.0.0 (T6): ``GET /api/board?by=group|site|tag`` — NOC status-board data.
+    Scope-filtered and computed server-side so it stays SMALL on a 1000-node
+    fleet: group/site/tag ROLLUP tiles + a capped problem-host strip + totals —
+    never 1000 raw tiles."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    by = (qs.get('by') or ['group'])[0]
+    if by not in ('group', 'site', 'tag'):
+        by = 'group'
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    # Open high/critical alerts → which hosts read as 'warn' (online but alerting).
+    alerted = {}
+    try:
+        for a in (load(ALERTS_FILE) or {}).get('alerts', []):
+            if a.get('resolved_at'):
+                continue
+            did = a.get('device_id')
+            if did and str(a.get('severity', '')).lower() in ('critical', 'high'):
+                alerted.setdefault(did, a.get('title') or a.get('event') or 'alert')
+    except Exception:
+        pass
+
+    def _status(did, d):
+        if d.get('monitored') is False:
+            return 'idle'
+        if d.get('agentless'):
+            online = _agentless_online(d)
+        else:
+            ls = d.get('last_seen', 0)
+            online = bool(ls) and (now - ls) < ttl
+        if not online:
+            return 'down'
+        return 'warn' if did in alerted else 'ok'
+
+    totals = {'total': 0, 'ok': 0, 'down': 0, 'warn': 0, 'idle': 0, 'agentless': 0}
+    tiles = {}
+    problems = []
+    for did, d in devices.items():
+        if not isinstance(d, dict):
+            continue
+        st = _status(did, d)
+        totals['total'] += 1
+        totals[st] += 1
+        if d.get('agentless'):
+            totals['agentless'] += 1
+        if st in ('down', 'warn') and len(problems) < 80:
+            problems.append({'id': did, 'name': d.get('name', did), 'status': st,
+                             'reason': 'offline' if st == 'down' else alerted.get(did, 'alert')})
+        if by == 'tag':
+            keys = [t for t in (d.get('tags') or []) if t] or ['(untagged)']
+        elif by == 'site':
+            keys = [d.get('site_id') or d.get('site') or '(no site)']
+        else:
+            keys = [d.get('group') or '(no group)']
+        for k in keys:
+            t = tiles.setdefault(str(k), {'key': str(k), 'name': str(k),
+                                          'total': 0, 'ok': 0, 'down': 0, 'warn': 0, 'idle': 0})
+            t['total'] += 1
+            t[st] += 1
+    tile_list = list(tiles.values())
+    tile_list.sort(key=lambda t: (-t['down'], -t['warn'], -t['total']))
+    tile_list = tile_list[:120]
+    problems.sort(key=lambda p: 0 if p['status'] == 'down' else 1)
+    respond(200, {'by': by, 'totals': totals, 'tiles': tile_list, 'problems': problems})
+
+
 def handle_nav_counts():
     """GET /api/nav-counts — tiny per-sidebar-group "needs attention" counts for
     the group-header badges. Scope-filtered, best-effort, cheap (three small
@@ -44341,6 +44413,7 @@ def _build_exact_routes():
         ('POST', '/api/alerts/bulk-ack'): handle_alerts_bulk_ack,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/nav-counts'): handle_nav_counts,
+        ('GET', '/api/board'): handle_board,                         # v5.0.0 T6 NOC board
         ('GET', '/api/oncall'): handle_oncall,
         ('GET', '/api/setup-status'): handle_setup_status,
         ('GET', '/api/apikeys'): handle_apikeys_list,

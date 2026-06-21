@@ -1413,6 +1413,7 @@ function showPage(name, btn) {
     }
   }
   if (name === 'home')     loadHome();
+  if (name === 'board')    loadBoard();
   if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
@@ -10358,6 +10359,14 @@ async function refreshNavCounts() {
     if (c.alerts) _paintAlertsBadge(c.alerts.open || 0);
     _paintConfirmationsBadge(
       typeof c.confirmations_pending === 'number' ? c.confirmations_pending : null);
+    _paintVitals(c);
+    // v5.0.0 (T6): Status Board nav badge = offline-host count (red when > 0).
+    { const bb = document.getElementById('board-badge');
+      if (bb) {
+        const off = typeof c.fleet === 'number' ? c.fleet : 0;
+        if (off > 0) { bb.classList.remove('d-none'); bb.classList.add('nav-badge-alert'); bb.textContent = off > 99 ? '99+' : String(off); bb.title = `${off} device(s) offline`; }
+        else bb.classList.add('d-none');
+      } }
     // v5.0.0 (#U4): live pending-command count on the Command Queue nav item.
     { const b = document.getElementById('cmdqueue-badge');
       if (b) {
@@ -15306,6 +15315,117 @@ function openDeviceTimeline(devId) {
   showPage('timeline', document.querySelector('.nav-btn[data-page="timeline"]'));
 }
 
+// ── v5.0.0 (T6): header fleet-vitals readout (instrument strip) ──────────────
+function _paintVitals(c) {
+  const el = document.getElementById('header-vitals');
+  if (!el || !c) return;
+  // nav-counts carries: fleet=offline monitored count, monitoring=monitors down,
+  // alerts.open=open alerts. A terse "needs attention" instrument readout.
+  const offline = typeof c.fleet === 'number' ? c.fleet : 0;
+  const openAlerts = (c.alerts && typeof c.alerts.open === 'number') ? c.alerts.open : 0;
+  const down = typeof c.monitoring === 'number' ? c.monitoring : 0;
+  el.innerHTML =
+    `<span class="vital${offline ? ' bad' : ''}" title="Monitored devices offline">${_icon('server', 12)}<b>${offline}</b> offline</span>`
+    + `<span class="vitals-sep"></span>`
+    + `<span class="vital${openAlerts ? ' bad' : ''}" title="Open alerts">${_icon('alertTriangle', 12)}<b>${openAlerts}</b> alerts</span>`
+    + `<span class="vitals-sep"></span>`
+    + `<span class="vital${down ? ' bad' : ''}" title="Monitors currently down">${_icon('activity', 12)}<b>${down}</b> down</span>`;
+}
+
+// ── v5.0.0 (T6): compact-density toggle — persisted, restored on load ────────
+function toggleDensity() {
+  const on = !document.body.classList.contains('density-compact');
+  document.body.classList.toggle('density-compact', on);
+  document.getElementById('density-toggle')?.classList.toggle('active', on);
+  try { localStorage.setItem('rp_density', on ? 'compact' : ''); } catch (_) {}
+}
+(function _restoreDensity() {
+  try {
+    if (localStorage.getItem('rp_density') === 'compact') {
+      const apply = () => {
+        document.body.classList.add('density-compact');
+        document.getElementById('density-toggle')?.classList.add('active');
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
+      else apply();
+    }
+  } catch (_) {}
+})();
+
+// ── v5.0.0 (T6): NOC status board ────────────────────────────────────────────
+let _boardBy = 'group';
+function boardBy(by) {
+  _boardBy = by;
+  document.querySelectorAll('#board-by button').forEach(b =>
+    b.classList.toggle('active', b.dataset.arg === by));
+  loadBoard();
+}
+async function loadBoard() {
+  const body = document.getElementById('board-body');
+  if (!body) return;
+  const data = await api('GET', '/board?by=' + encodeURIComponent(_boardBy));
+  if (!data || !data.totals) { body.innerHTML = '<div class="c-red">Failed to load the board.</div>'; return; }
+  const t = data.totals;
+  const online = (t.ok || 0) + (t.warn || 0);
+  const vital = (icon, label, val, cls) =>
+    `<div class="board-stat"><span class="meta-label">${_icon(icon, 11)} ${label}</span><span class="big ${cls || ''}">${val}</span></div>`;
+  const vitals = `<div class="board-vitals">
+    ${vital('layers', 'Devices', t.total || 0)}
+    ${vital('activity', 'Online', online, online === t.total ? 'c-green' : '')}
+    ${vital('server', 'Offline', t.down || 0, t.down ? 'c-red' : 'c-muted')}
+    ${vital('alertTriangle', 'Alerting', t.warn || 0, t.warn ? 'c-amber' : 'c-muted')}
+    ${vital('shield', 'Unmonitored', t.idle || 0, 'c-muted')}
+  </div>`;
+  // Problem strip — every offline/alerting host, surfaced regardless of fleet size.
+  // Map the reason text to a Lucide icon so the failure type reads at a glance.
+  const _reasonIcon = (r) => {
+    r = (r || '').toLowerCase();
+    if (r.includes('offline')) return 'wifiOff';
+    if (r.includes('smart') || r.includes('disk') || r.includes('storage')) return 'hardDrive';
+    if (r.includes('brute') || r.includes('login') || r.includes('ssh')) return 'shield';
+    if (r.includes('cve') || r.includes('vuln')) return 'bug';
+    return 'alertTriangle';
+  };
+  let strip = '';
+  if ((data.problems || []).length) {
+    strip = `<div class="board-problem-strip"><span class="meta-label">${_icon('alertTriangle', 11)} Needs attention (${data.problems.length})</span>
+      <div class="board-prob-chips">${data.problems.map(p =>
+        `<span class="board-prob-chip" data-action="openDetail" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}" title="Open ${escAttr(p.name)}">`
+        + `<span class="sem sem-${p.status === 'down' ? 'down' : 'warn'}"></span>`
+        + `<span class="machine">${escHtml(p.name)}</span> <span class="reason">${_icon(_reasonIcon(p.reason), 11)} ${escHtml(p.reason)}</span></span>`).join('')}</div></div>`;
+  }
+  // Rollup tiles.
+  const tiles = (data.tiles || []).map(tile => {
+    const onl = (tile.ok || 0) + (tile.warn || 0);
+    const cls = tile.down ? 'has-down' : (tile.warn ? 'has-warn' : '');
+    const seg = (k, n) => n > 0 ? `<span class="seg-${k}" data-w="${n}"></span>` : '';
+    // Segment widths are applied after render via .style.width (no inline style
+    // strings in the HTML → CSP-safe).
+    return `<div class="board-tile ${cls}" data-action="boardOpenGroup" data-arg="${escAttr(tile.key)}">
+      <div class="board-tile-head">
+        <span class="board-tile-name" title="${escAttr(tile.name)}">${_icon('layers', 12)} ${escHtml(tile.name)}</span>
+        <span class="board-tile-count">${onl}/${tile.total}</span>
+      </div>
+      <div class="board-bar" data-ok="${tile.ok||0}" data-warn="${tile.warn||0}" data-down="${tile.down||0}" data-idle="${tile.idle||0}">
+        ${seg('ok', tile.ok)}${seg('warn', tile.warn)}${seg('down', tile.down)}${seg('idle', tile.idle)}
+      </div>
+    </div>`;
+  }).join('');
+  body.innerHTML = vitals + strip + `<div class="board-grid">${tiles || '<div class="c-muted">No devices in scope.</div>'}</div>`;
+  // Set bar segment widths from data attributes (no inline style strings → CSP-safe).
+  body.querySelectorAll('.board-bar').forEach(bar => {
+    const total = ['ok','warn','down','idle'].reduce((s,k)=>s+(parseInt(bar.dataset[k]||'0',10)),0) || 1;
+    bar.querySelectorAll('span').forEach(s => {
+      const w = parseInt(s.dataset.w || '0', 10);
+      s.style.width = (w / total * 100).toFixed(2) + '%';
+    });
+  });
+}
+function boardOpenGroup(key) {
+  // Jump to Devices filtered to this group/site/tag.
+  showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+}
+
 async function loadHome() {
   // v3.3.0: was 7 parallel /api/* requests per 60s refresh — under CGI
   // that's 7 fresh Python processes per dashboard tick per operator.
@@ -18865,6 +18985,11 @@ const _ICONS = {
   printer:     '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
   globe:       '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
   server:      '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+  alertTriangle: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  activity:    '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  wifiOff:     '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  bug:         '<rect x="8" y="6" width="8" height="14" rx="4"/><path d="m19 7-3 2M5 7l3 2M19 19l-3-2M5 19l3-2M20 13h-4M8 13H4M12 2v2"/>',
+  layers:      '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
   hardDrive:   '<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>',
   gamepad:     '<line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="15" y1="13" x2="15.01" y2="13"/><line x1="18" y1="11" x2="18.01" y2="11"/><rect x="2" y="6" width="20" height="12" rx="2"/>',
   tv:          '<rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>',

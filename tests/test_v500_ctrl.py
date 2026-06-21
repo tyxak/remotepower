@@ -28,6 +28,7 @@ API_SRC = (_CGI / "api.py").read_text()
 APP = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
 APP_CMDB = (_ROOT / "server" / "html" / "static" / "js" / "app-cmdb.js").read_text()
 HTML = (_ROOT / "server" / "html" / "index.html").read_text()
+CSS = (_ROOT / "server" / "html" / "static" / "css" / "styles.css").read_text()
 
 
 # ─────────────────────────── #C4 per-API-key rate limit ────────────────────────
@@ -892,6 +893,76 @@ class TestT5Polish(unittest.TestCase):
         i = API_SRC.index("def handle_self_test(")
         self.assertIn("'ok': overall", API_SRC[i:i + 2500])
         self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 2500])
+
+
+# ─────────────────────────── T6 industrial design pass ─────────────────────────
+class TestT6Design(unittest.TestCase):
+    def test_board_route_and_handler(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route("GET", "/api/board")[0], "handle_board")
+        i = API_SRC.index("def handle_board(")
+        block = API_SRC[i:i + 3000]
+        # big-fleet shape: rollup tiles + capped problem strip + totals, not raw tiles
+        self.assertIn("not in ('group', 'site', 'tag')", block)
+        self.assertIn("len(problems) < 80", block)        # problem strip capped
+        self.assertIn("tile_list[:120]", block)           # tiles capped
+        self.assertIn("_scope_filter_devices", block)     # scoped
+        self.assertIn("'totals'", block)
+
+    def test_board_frontend(self):
+        self.assertIn('id="page-board"', HTML)
+        self.assertIn('data-page="board"', HTML)
+        self.assertIn("function loadBoard(", APP)
+        self.assertIn("function boardBy(", APP)
+        # bar widths set via .style (no inline style strings → CSP-safe)
+        self.assertIn("s.style.width", APP)
+
+    def test_css_tabular_numerals(self):
+        self.assertIn("font-variant-numeric: tabular-nums", CSS)
+
+    def test_css_semaphore_and_segmented(self):
+        for cls in (".sem-ok", ".sem-warn", ".sem-down", ".segmented"):
+            self.assertIn(cls, CSS, cls)
+
+    def test_css_density_and_board(self):
+        self.assertIn("body.density-compact td", CSS)
+        for cls in (".board-grid", ".board-tile", ".board-bar", ".vitals"):
+            self.assertIn(cls, CSS, cls)
+
+    def test_density_toggle_and_vitals_wired(self):
+        self.assertIn("function toggleDensity(", APP)
+        self.assertIn("rp_density", APP)
+        self.assertIn('id="density-toggle"', HTML)
+        self.assertIn('id="header-vitals"', HTML)
+        self.assertIn("function _paintVitals(", APP)
+
+    def test_icons_and_board_badge(self):
+        # Lucide icons (no emoji) on the board/vitals + a Status Board nav badge.
+        self.assertIn('id="board-badge"', HTML)
+        self.assertIn("board-badge", APP)               # painted in refreshNavCounts
+        self.assertIn("_reasonIcon", APP)               # problem-chip reason icons
+        self.assertIn("alertTriangle:", APP)            # new icon registered
+        self.assertIn("wifiOff", APP)
+        # vitals strip carries icons
+        i = APP.index("function _paintVitals(")
+        self.assertIn("_icon('server'", APP[i:i + 900])
+
+    def test_no_emoji_in_v5_surfaces(self):
+        import re
+        emoji = re.compile("[\U0001F000-\U0001FAFF☀-➿]")
+        for name, src in (("app.js", APP), ("index.html", HTML)):
+            # the board/vitals code must use SVG icons, not emoji
+            i = src.find("board-vitals")
+            if i >= 0:
+                self.assertIsNone(emoji.search(src[i:i + 4000]),
+                                  f"emoji found near board code in {name}")
+
+    def test_no_inline_style_or_handlers_in_board_markup(self):
+        # CSP discipline: the board page markup must not carry style= or on*=.
+        i = HTML.index('id="page-board"')
+        block = HTML[i:HTML.index('id="page-home"')]
+        self.assertNotIn("style=", block)
+        self.assertNotIn("onclick=", block)
 
 
 if __name__ == "__main__":

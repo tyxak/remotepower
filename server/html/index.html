@@ -92,6 +92,10 @@
           <div class="status-dot"></div>
           <span id="last-refresh-label">Live</span>
         </div>
+        <!-- v5.0.0 (T6): fleet vitals readout — populated from /nav-counts -->
+        <div class="vitals" id="header-vitals" aria-label="Fleet vitals"></div>
+        <!-- v5.0.0 (T6): compact-density toggle (more rows per screen for big fleets) -->
+        <button class="btn-icon density-toggle-btn" id="density-toggle" data-action="toggleDensity" title="Toggle compact density (more rows per screen)" aria-label="Toggle compact density"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="14" x2="21" y2="14"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
         <!-- v2.4.15: PWA install button — hidden until browser fires
              beforeinstallprompt, then shown for one session. Clicking it
              triggers the native Chrome install dialog. Hidden again after
@@ -150,6 +154,11 @@
     <button class="nav-btn active" data-page="home" title="Fleet overview — health, alerts and composable dashboard widgets">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
       <span>Dashboard</span>
+    </button>
+    <button class="nav-btn" data-page="board" title="NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span>Status Board</span>
+      <span class="nav-badge d-none" id="board-badge"></span>
     </button>
     <button class="nav-btn" data-page="alerts" title="Operational alert inbox — acknowledge, resolve and track every fired event">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -494,6 +503,25 @@
   <div class="app-content">
   <main>
     <div class="container">
+
+      <!-- ── v5.0.0 (T6): NOC status board ───────────────────────────────── -->
+      <div id="page-board" class="page">
+        <div class="page-title-row">
+          <div class="page-title">Status board</div>
+          <div class="row-8-center">
+            <div class="segmented" id="board-by" role="group" aria-label="Group by">
+              <button data-action="boardBy" data-arg="group" class="active">Group</button>
+              <button data-action="boardBy" data-arg="site">Site</button>
+              <button data-action="boardBy" data-arg="tag">Tag</button>
+            </div>
+            <button class="btn-icon" data-action="loadBoard" title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="page-subtitle">A glanceable wall view — rolled up by group/site/tag so it stays readable on a large fleet, with every problem host surfaced regardless of fleet size.</p>
+        <div id="board-body"><div class="c-muted">Loading…</div></div>
+      </div>
 
       <!-- ── v2.2.1: Home dashboard ───────────────────────────────────────── -->
       <div id="page-home" class="page active">
@@ -2569,7 +2597,7 @@
            strip whenever the panel went full-width (<820px viewport) — the
            "drawer splits across the screen" bug. Every other overlay (90
            .modal-overlay nodes) already lives at body level; the drawer was
-           the lone exception. See the moved block below `</div><!-- /app -->`. -->
+           the lone exception. See the moved block just after the /app close. -->
 
 
       <!-- ── History page (unchanged) ─────────────────────────────────────── -->
@@ -6085,7 +6113,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="group-modal-title" id="group-modal"><div class="modal"><div class="modal-title" id="group-modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="group-modal" >Cancel</button><button class="btn-primary" data-action="saveGroup" >Save</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="poll-modal-title" id="poll-modal"><div class="modal"><div class="modal-title" id="poll-modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="allowlist-modal-title" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title" id="allowlist-modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea isl-211" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="apikey-create-modal-title" id="apikey-create-modal"><div class="modal"><div class="modal-title" id="apikey-create-modal-title">Create API key</div><div class="modal-subtitle">Named keys for scripts and CI. The key is shown once — save it now. Set an optional expiry so forgotten keys don't live forever.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option><option value="mcp">MCP (AI assistant — allow-listed actions only)</option></select></div><div class="form-group"><label class="form-label">Expires (optional)</label><input type="date" id="apikey-expires" class="form-input"><span class="hint">Leave blank for a non-expiring key. After this date the key is rejected at auth.</span></div><div class="form-group"><label class="form-label">Rate limit (requests / minute)</label><input type="number" id="apikey-rate" class="form-input mw-160" min="0" max="100000" placeholder="0 = unlimited"><span class="hint">Caps this key alone — a leaked key can't saturate the API. 0 = unlimited.</span></div><div id="apikey-result" class="isl-212"><div class="form-label mb-6">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div><button class="btn-icon mt-6" data-action="copyApiKeyValue" >Copy key</button></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="apikey-create-modal-title" id="apikey-create-modal"><div class="modal"><div class="modal-title" id="apikey-create-modal-title">Create API key</div><div class="modal-subtitle">Named keys for scripts and CI. The key is shown once — save it now. Set an optional expiry so forgotten keys don't live forever.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option><option value="mcp">MCP (AI assistant — allow-listed actions only)</option></select></div><div class="form-group"><label class="form-label">Expires (optional)</label><input type="date" id="apikey-expires" class="form-input"><span class="hint">Leave blank for a non-expiring key. After this date the key is rejected at auth.</span></div><div class="form-group"><label class="form-label">Rate limit (requests / minute)</label><input type="number" id="apikey-rate" class="form-input mw-160" min="0" max="100000" placeholder="0 = unlimited"><span class="hint">Caps this key alone — a leaked key can't saturate the API. 0 = unlimited.</span></div><div id="apikey-result" class="isl-212"><div class="form-label mb-6">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div><button class="btn-icon mt-6" data-action="copyApiKeyValue" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy key</button></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
 <!-- v3.2.0 (B2/B6): inbound webhook create modal -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="inbound-webhook-create-modal-title" id="inbound-webhook-create-modal"><div class="modal"><div class="modal-title" id="inbound-webhook-create-modal-title">New inbound token</div>
   <div class="form-group"><label class="form-label">Type</label><select id="inbound-wh-kind" class="form-input" data-change="updateInboundWebhookKindHint">
