@@ -3763,7 +3763,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <ul>
                 <li><strong>Run backup now</strong> — immediately snapshots <code>/var/lib/remotepower</code> regardless of the 24h cadence.</li>
                 <li><strong>Export backup</strong> — also triggers a snapshot before streaming the ZIP download.</li>
-                <li><strong>Clear backup archives</strong> — deletes all <code>remotepower_data_*.tar.gz</code> from the backup directory and resets the backup state. Useful before a migration or to reclaim disk space. Requires confirmation.</li>
+                <li><strong>Clear backup archives</strong> — deletes all <code>remotepower_data_*.tar.gz</code> <em>and</em> encrypted <code>*.tar.gz.enc</code> archives from the backup directory and resets the backup state. Useful before a migration or to reclaim disk space. Requires confirmation.</li>
               </ul>
               <p><strong>Excluded from tarball</strong>: the backups directory itself, in-flight <code>.tmp.*</code> files, existing <code>.gz</code> archives. Owner/group stripped so restoring on a different host doesn't fail.</p>
               <p><strong>No in-UI restore</strong> — backups are tarballs you extract yourself. Procedure in <a href="docs/self-monitoring.md#restoring-from-a-backup" class="c-accent">docs/self-monitoring.md</a>.</p>
@@ -5110,6 +5110,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="storage-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
           </div>
+        </div>
+
+        <!-- v5.0.0: copy-and-run maintenance commands for keeping ZFS / Btrfs
+             pools healthy. Reference snippets — run them via a device's command
+             console (Devices → a host → Run command). Placeholders in <angles>
+             are filled in before running. Destructive ones (destroy / delete /
+             balance) are flagged; list first, then remove a specific target. -->
+        <div class="dash-card mt-16">
+          <details>
+            <summary><strong>Maintenance commands</strong> — ZFS &amp; Btrfs health, scrubs and snapshot cleanup. Copy one and run it on a host via Run command.</summary>
+            <div class="scroll-cap mt-8">
+              <div class="section-title">ZFS</div>
+              <div class="row-8-center mb-6"><code>zpool status -v &lt;pool&gt;</code><span class="hint">detailed health + errors</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool status -v &lt;pool&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>zpool scrub &lt;pool&gt;</code><span class="hint">start a data-integrity scrub (schedule monthly)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool scrub &lt;pool&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>zpool clear &lt;pool&gt;</code><span class="hint">clear transient device errors after a fix</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool clear &lt;pool&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>zpool trim &lt;pool&gt;</code><span class="hint">TRIM SSDs to keep write performance up</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zpool trim &lt;pool&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>zfs list -t snapshot -o name,used,creation -s creation</code><span class="hint">snapshots, oldest first (what's eating space)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zfs list -t snapshot -o name,used,creation -s creation">Copy</button></div>
+              <div class="row-8-center mb-6"><code>zfs destroy &lt;pool&gt;/&lt;dataset&gt;@&lt;snapshot&gt;</code><span class="hint c-amber">remove one snapshot (destructive — name it exactly)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="zfs destroy &lt;pool&gt;/&lt;dataset&gt;@&lt;snapshot&gt;">Copy</button></div>
+              <div class="section-title mt-12">Btrfs</div>
+              <div class="row-8-center mb-6"><code>btrfs filesystem usage &lt;mountpoint&gt;</code><span class="hint">real free space (df is misleading on btrfs)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs filesystem usage &lt;mountpoint&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>btrfs scrub start -B &lt;mountpoint&gt;</code><span class="hint">checksum scrub (foreground; schedule monthly)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs scrub start -B &lt;mountpoint&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>btrfs device stats &lt;mountpoint&gt;</code><span class="hint">per-device read/write/corruption error counters</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs device stats &lt;mountpoint&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>btrfs balance start -dusage=50 &lt;mountpoint&gt;</code><span class="hint c-amber">reclaim space by rewriting ≤50%-full chunks (IO heavy)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs balance start -dusage=50 &lt;mountpoint&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>btrfs subvolume list -s &lt;mountpoint&gt;</code><span class="hint">list snapshots on the filesystem</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs subvolume list -s &lt;mountpoint&gt;">Copy</button></div>
+              <div class="row-8-center mb-6"><code>btrfs subvolume delete &lt;snapshot-path&gt;</code><span class="hint c-amber">remove one snapshot/subvolume (destructive)</span><button class="btn-icon cell-sm" data-action="copyText" data-arg="btrfs subvolume delete &lt;snapshot-path&gt;">Copy</button></div>
+            </div>
+          </details>
         </div>
       </div>
 

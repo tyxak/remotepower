@@ -17356,12 +17356,17 @@ def handle_backup_clear():
     p_base = Path(base)
     deleted = 0
     if p_base.exists():
-        for f in p_base.glob('remotepower_data_*.tar.gz'):
-            try:
-                f.unlink()
-                deleted += 1
-            except OSError:
-                pass
+        # Both plaintext (*.tar.gz) AND encrypted (*.tar.gz.enc) archives — the
+        # glob `*.tar.gz` does NOT match `*.tar.gz.enc`, so clearing an
+        # encryption-armed instance used to leave every archive behind. Mirror
+        # the retention pruner, which iterates both patterns.
+        for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
+            for f in p_base.glob(pat):
+                try:
+                    f.unlink()
+                    deleted += 1
+                except OSError:
+                    pass
     bs_file = DATA_DIR / 'self_backup_state.json'
     if bs_file.exists():
         try: bs_file.unlink()

@@ -25368,7 +25368,7 @@ async function clearBackupState() {
   if (!await uiConfirm('Delete all backup archives (remotepower_data_*.tar.gz) and reset backup state?\n\nThis cannot be undone. The next scheduled or manual backup will create a fresh archive.')) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Clearing…'; }
   const r = await api('DELETE', '/self/backup-state');
-  if (btn) { btn.disabled = false; btn.textContent = '✕ Clear backup archives'; }
+  if (btn) { btn.disabled = false; btn.textContent = 'Clear backup archives'; }
   if (!r || r.error) { toast('Clear failed: ' + (r?.error || 'unknown'), 'error'); return; }
   toast(`Cleared ${r.deleted ?? 0} archive${r.deleted === 1 ? '' : 's'}`, 'success');
   loadSelfStatus();

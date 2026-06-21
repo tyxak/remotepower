@@ -188,6 +188,39 @@ class TestBackupEncryptMigration(unittest.TestCase):
         self.assertIn("encryptExistingBackups", APP)
 
 
+class TestBackupClear(unittest.TestCase):
+    """DELETE /api/self/backup-state must remove BOTH plaintext (*.tar.gz) and
+    encrypted (*.tar.gz.enc) archives — the glob `*.tar.gz` does not match
+    `*.tar.gz.enc`, so an encryption-armed instance used to clear nothing."""
+
+    def setUp(self):
+        self._bdir = Path(tempfile.mkdtemp(prefix="rp-bkc-"))
+        (self._bdir / "remotepower_data_20260101_000000.tar.gz").write_text("plain")
+        (self._bdir / "remotepower_data_20260102_000000.tar.gz.enc").write_text("enc1")
+        (self._bdir / "remotepower_data_20260103_000000.tar.gz.enc").write_text("enc2")
+        (self._bdir / "unrelated.txt").write_text("keep me")
+        api.save(api.CONFIG_FILE, {"backup": {"path": str(self._bdir)}})
+        self._auth, self._method, self._audit = (
+            api.require_admin_auth, api.method, api.audit_log)
+        api.require_admin_auth = lambda *a, **k: "admin"
+        api.method = lambda: "DELETE"
+        api.audit_log = lambda *a, **k: None
+
+    def tearDown(self):
+        (api.require_admin_auth, api.method, api.audit_log) = (
+            self._auth, self._method, self._audit)
+
+    def test_clears_plaintext_and_encrypted(self):
+        box = _capture()
+        with self.assertRaises(_Stop):
+            api.handle_backup_clear()
+        self.assertEqual(box["status"], 200)
+        self.assertEqual(box["body"]["deleted"], 3)              # 1 plaintext + 2 enc
+        left = {p.name for p in self._bdir.glob("remotepower_data_*")}
+        self.assertEqual(left, set())                           # all archives gone
+        self.assertTrue((self._bdir / "unrelated.txt").exists())  # non-archive kept
+
+
 # ───────────────────────── install update + extra settings ──────────────────────
 class TestUpdateAndSettings(unittest.TestCase):
     def test_self_update_route(self):
