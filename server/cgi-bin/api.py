@@ -23990,13 +23990,19 @@ def _compliance_facts():
     facts['pending_patches_devices'] = pending_bad
     facts['reboot_required'] = reboot
 
-    # CVEs (critical+high) from the findings store.
+    # CVEs (critical+high) from the findings store. EXCLUDE findings the operator
+    # has ignored/accepted (global or per-device) — an accepted-risk CVE is not
+    # "outstanding", and counting it here made Compliance disagree with the CVE
+    # Findings page and the Needs-Attention banner (both already drop ignored).
     try:
         cve_all = load(CVE_FINDINGS_FILE) or {}
+        cve_ignore = load(CVE_IGNORE_FILE) or {}
         cnt = 0
-        for rec in cve_all.values():
-            for f in (rec or {}).get('findings') or []:
-                if str(f.get('severity', '')).lower() in ('critical', 'high'):
+        for did, rec in cve_all.items():
+            for f in cve_scanner.apply_ignore_list((rec or {}).get('findings') or [],
+                                                   cve_ignore, did):
+                if not f.get('ignored') \
+                        and str(f.get('severity', '')).lower() in ('critical', 'high'):
                     cnt += 1
         facts['cve_critical_high'] = cnt
     except Exception:
