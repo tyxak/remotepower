@@ -5833,3 +5833,28 @@ body.density-compact .group-title { margin-bottom: 6px; }
 .board-bar .seg-warn { background: var(--amber); }
 .board-bar .seg-down { background: var(--red); }
 .board-bar .seg-idle { background: var(--border); }
+
+/* ── v5.0.1 "TemperMatters" — render-perf isolation ──────────────────────────
+   Encourage the browser to keep the fixed sidebar on its own compositor layer
+   so scrolling the main content (or the nav list) doesn't repaint it every
+   frame — the cause of the sidebar scroll/FPS sluggishness on long sessions.
+   will-change (not transform: translateZ(0)) is used deliberately: it's a layer
+   HINT on a separate property, so it never overrides the responsive
+   `transform: translateX(...)` rules that drive the mobile slide-in.
+   overscroll-behavior stops scroll-chaining repaints into the page. */
+.sidebar { will-change: transform; overscroll-behavior-y: contain; }
+
+/* Layout + style containment isolates each dashboard card's reflow / style
+   recalc from its siblings (a change in one card no longer reflows the rest).
+   NOT `contain: paint`/`content` — cards host overflowing ⋯ action dropdowns
+   that must not be clipped; layout+style contains without clipping. */
+.dash-card { contain: layout style; }
+
+/* ── v5.0.1 "TemperMatters" — tabular numerals ───────────────────────────────
+   Align digits to a fixed width in tables + big-number displays so columns of
+   numbers line up and read cleanly (proportional text is unaffected — this only
+   changes digit glyph width). A precise, technical touch that fits the
+   industrial language and improves the at-a-glance overview feel. */
+table { font-variant-numeric: tabular-nums; }
+.status-num, .hh-num, .pin-code, .board-num, .stat-num,
+.metric-value, .big-num, td .mono-12 { font-variant-numeric: tabular-nums; }
