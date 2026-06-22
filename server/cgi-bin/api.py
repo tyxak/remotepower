@@ -11473,8 +11473,10 @@ def handle_heartbeat():
         _bak_state = (load(_bs_path) or {}) if backend_exists(_bs_path) else {}
     if isinstance(_backup_status, list) and _backup_status:
         try:
-            _cfg_bak = load(CONFIG_FILE) or {}
-            _bak_monitors = _cfg_bak.get('backup_monitors') or []
+            # v5.0.1 perf: read-only config access — _config_ro() returns the
+            # shared cached dict without load()'s per-hit full-config deepcopy
+            # (we only read backup_monitors and never mutate it).
+            _bak_monitors = _config_ro().get('backup_monitors') or []
             # Index monitors by path once (first-wins) instead of an O(monitors)
             # scan per reported backup path.
             _mon_by_path = {}
@@ -11522,7 +11524,7 @@ def handle_heartbeat():
     if isinstance(_backup_verify, list) and _backup_verify:
         try:
             _bv_state = _bak_state if _bak_state is not None else {}
-            _bv_mons = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
+            _bv_mons = _config_ro().get('backup_monitors') or []  # v5.0.1 perf: read-only, no deepcopy
             _bv_label_by_path = {}
             for _m in _bv_mons:
                 if isinstance(_m, dict):
@@ -11710,13 +11712,16 @@ def handle_heartbeat():
         # v2.5.0: push assigned scripts so the agent runs them every 5 min
         'custom_scripts':   custom_scripts_for_device,
     }
+    # v5.0.1 perf: the response-build only READS config (backup_monitors,
+    # secrets flags, custom_checks) — use the shared cached view once instead
+    # of two full-config deepcopies. MUST NOT mutate _sec_cfg / its nested data.
+    _sec_cfg = _config_ro()
     # v2.8.1: push backup monitor list so agent can report file ages
-    _bak_cfg = load(CONFIG_FILE).get('backup_monitors') or []
+    _bak_cfg = _sec_cfg.get('backup_monitors') or []
     if _bak_cfg:
         common_resp['backup_monitors'] = _bak_cfg
     # v3.14.0 #35: opt-in secrets scan. Only advertised when enabled fleet-wide;
     # the agent stays inert otherwise. Custom scan paths override its defaults.
-    _sec_cfg = load(CONFIG_FILE)
     if _sec_cfg.get('secrets_scan_enabled'):
         common_resp['secrets_scan_enabled'] = True
         _sec_paths = _sec_cfg.get('secrets_scan_paths') or []
@@ -16896,6 +16901,18 @@ def handle_diagnostics_bundle():
     import copy as _copy
     scrubbed = _copy.deepcopy(cfg)
     _scrub_config_secrets(scrubbed)
+    # v5.0.1 (SECURITY): _scrub_config_secrets is NAME-based (matches keys ending
+    # password/secret/token/…), so it misses secrets whose key doesn't. The
+    # /api/config GET view strips these explicitly; mirror that here or the
+    # downloadable "contains NO secrets" support bundle leaks them.
+    scrubbed.pop('agentless_ssh_key', None)            # SSH private key
+    scrubbed.pop('webhook_url', None)                  # legacy URL w/ token in path
+    if isinstance(scrubbed.get('gitops'), dict):
+        scrubbed['gitops'].pop('auth_header', None)    # git PAT / bearer
+    for _wh in (scrubbed.get('webhook_urls') or []):
+        if isinstance(_wh, dict):
+            _wh.pop('url', None)                       # Slack/Discord/Teams token-in-path
+            _wh.pop('pushover_user', None)             # Pushover user key
     # Drop the noisy per-device bookkeeping maps — not useful for support and
     # they bloat the bundle.
     for noisy in ('offline_notified', 'offline_pending', 'patch_alerted',
@@ -33337,8 +33354,14 @@ def handle_site_report(site_id):
     require_auth()
     if not isinstance((load(SITES_FILE) or {}).get(site_id), dict):
         respond(404, {'error': 'site not found'})
+    # v5.0.1 (SECURITY): a whole-SITE posture report requires site-level scope.
+    # The old check only rejected sites-typed scopes, so a group/tag/host-scoped
+    # operator (non-None scope of another type) fell through and pulled the full
+    # site's device names/health/CVE/SLA — cross-scope leak. Now: unrestricted
+    # ('all', scope is None) OR a sites-scope that covers this site; else 403.
     scope = _caller_scope()
-    if scope is not None and scope.get('type') == 'sites' and site_id not in (scope.get('values') or []):
+    if scope is not None and not (
+            scope.get('type') == 'sites' and site_id in (scope.get('values') or [])):
         respond(403, {'error': 'site outside your role scope'})
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
@@ -35205,6 +35228,7 @@ def _escalation_tick(now=None):
         sevs = esc.get('severities') or ['critical', 'high']
         oncall = _oncall_now(cfg, now)
         fired_any = False
+        pending_sends = []   # (event, payload, msg) — fired AFTER the lock releases
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
                 if a.get('acknowledged_at') or a.get('resolved_at'):
@@ -35225,11 +35249,13 @@ def _escalation_tick(now=None):
                     msg = (f"ESCALATION tier {i + 1} — unacknowledged {int(age_min)}m: "
                            f"{a.get('title', a.get('event', 'alert'))}"
                            + (f" · on-call: {oncall}" if oncall else ""))
-                    try:
-                        _send_webhook_to_url(a.get('event', 'alert_escalated'),
-                                             dict(a.get('payload') or {}), msg, cfg)
-                    except Exception:
-                        pass
+                    # v5.0.1 (lock-nesting fix): buffer the send; fire it AFTER
+                    # the ALERTS_FILE lock releases. _send_webhook_to_url →
+                    # _dlq_record opens WEBHOOK_DLQ_FILE's own _LockedUpdate; under
+                    # SQLite a nested BEGIN IMMEDIATE errors and the failed-delivery
+                    # DLQ row was silently dropped (un-retryable missed escalation).
+                    pending_sends.append((a.get('event', 'alert_escalated'),
+                                          dict(a.get('payload') or {}), msg))
                     done.add(i)
                     fired_any = True
                 a['escalated_tiers'] = sorted(done)
@@ -35240,6 +35266,15 @@ def _escalation_tick(now=None):
         pass
     except Exception as e:
         sys.stderr.write(f'[remotepower] escalation tick failed: {e}\n')
+        return
+    # Fire the buffered escalation webhooks OUTSIDE the ALERTS_FILE lock so a
+    # delivery failure's DLQ write (its own _LockedUpdate) isn't nested. Empty
+    # when nothing escalated.
+    for _ev, _pl, _msg in pending_sends:
+        try:
+            _send_webhook_to_url(_ev, _pl, _msg, cfg)
+        except Exception:
+            pass
 
 
 class _NoEscalationChange(Exception):
@@ -48730,6 +48765,10 @@ def handle_acme_ignore(dev_id, action_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return
+    # v5.0.1 (SECURITY): this route isn't under /api/devices/, so the global
+    # device-scope chokepoint doesn't cover it. Block cross-scope deletes the
+    # same way the acme detail/log read siblings do (was an IDOR).
+    _scope_block_device(dev_id)
     if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
         respond(400, {'error': 'invalid action id'}); return
     log_path = _acme_log_path(dev_id, action_id)
