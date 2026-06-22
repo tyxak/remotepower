@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.0.1 — "TemperMatters" — unreleased (test)
+## v5.0.1 — "TemperMatters" — 2026-06-22
 
 A stability + polish release that tempers v5.0.0. No breaking changes.
 
