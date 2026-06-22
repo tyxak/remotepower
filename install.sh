@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# RemotePower — unified installer & wizard (v4.8.0)
+# RemotePower — unified installer & wizard (v5.0.1)
 #
-# ONE script for the whole server lifecycle. Supersedes install-server.sh,
-# tools/gen-ca.sh, `make tls-selfsigned` and remotepower-passwd:
+# ONE script for server install + device onboarding. nginx stays the front door —
+# this script writes the vhost + TLS so the operator never hand-edits nginx.
 #
-#     remotepower install     interactive wizard (default; this is what runs)
-#     remotepower tls         (re)issue / renew certificates
-#     remotepower passwd      manage admin accounts
-#     remotepower update      pull + redeploy in place
+#     remotepower install     interactive wizard (default): nginx + app + TLS + admin
+#     remotepower uninstall   remove the install   (keeps data; --purge wipes it)
+#     remotepower agent ...    print / SSH-push the device-enrol one-liner
 #     remotepower doctor      preflight / health check
-#     remotepower agent       print the one-line device-enrol command
+#   NOT YET WIRED: `tls` / `passwd` / `update` are stubs — for those today use
+#   install-server.sh, tools/gen-ca.sh + `make tls-selfsigned`, and deploy-server.sh.
 #
 # nginx stays the front door — the operator never edits an nginx file by hand;
 # this script writes the vhost + TLS for them. Heavy-fleet scaling (Postgres,
@@ -22,11 +22,12 @@
 #   --demo                     run the full visual flow WITHOUT touching the box
 #   --dry-run                  print each action instead of doing it
 #
-# STATUS: greeting + wizard skeleton. The destructive steps are gated behind
-# dry-run while we lock the look; wiring the real nginx/TLS/admin work is next.
+# The install / uninstall / agent flows are functional (they perform real
+# changes; use --dry-run to preview, or --demo to see the flow without touching
+# the box). The tls/passwd/update subcommands are not yet wired (see above).
 set -euo pipefail
 
-VERSION="4.8.0"
+VERSION="5.0.1"
 SELF="${0##*/}"
 
 # ── cosmetics ────────────────────────────────────────────────────────────────
@@ -315,6 +316,17 @@ run_install() {
   esac
   _write_nginx "$SRC"; step_ok "nginx vhost written (server_name=${HOST}, no hand-editing)"
   _create_admin && step_ok "Admin account '${ADMIN_USER}' created"
+
+  # The web process (fcgiwrap CGI) runs as the nginx user and must OWN its data
+  # dir to read/write config, users, devices, metrics, … Without this the 0700
+  # root-owned dir is unreadable and every API call — including the admin login
+  # just created — fails. (Code under $WWW stays root-owned; the web user only
+  # reads it.) Also ensure /etc/remotepower exists for operator config/secrets.
+  install -d -m 755 -o root -g root "$(_p "$RPETC")"
+  if [ "$SANDBOX" != 1 ] && [ -n "$NGINX_USER" ]; then
+    chown -R "$NGINX_USER:$NGINX_USER" "$(_p "$DATA")"
+    step_ok "Data dir owned by ${NGINX_USER}"
+  fi
 
   if [ "$SANDBOX" = 1 ]; then step_wait "Services (fcgiwrap/nginx) — skipped (sandbox)"
   else _enable_services && step_ok "Services started + health-checked"; fi

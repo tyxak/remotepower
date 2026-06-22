@@ -5227,6 +5227,26 @@ def check_for_update(server_url, force=False):
     if matches and not force:
         return False
 
+    # v5.0.1: refuse a silent DOWNGRADE. The update trigger is hash drift (a
+    # re-build of the same version legitimately differs), but if the server now
+    # advertises an OLDER version than we run — e.g. the agent was pointed at a
+    # rolled-back or stale server — swapping to it loses fixes/features. Never
+    # auto-downgrade; an operator who really wants a rollback uses a forced
+    # re-deploy (force=True bypasses this, exactly like the sha-match short-circuit).
+    def _vtuple(v):
+        try:
+            return tuple(int(x) for x in str(v).split('.')[:3])
+        except (TypeError, ValueError):
+            return ()
+    _lv, _rv = _vtuple(VERSION), _vtuple(remote_version)
+    if not force and _lv and _rv and _rv < _lv:
+        log.warning(
+            f"Server advertises agent v{remote_version}, OLDER than local v{VERSION} — "
+            f"refusing to auto-downgrade (hash drift notwithstanding). "
+            f"Point the agent at an up-to-date server, or force a re-deploy to override."
+        )
+        return False
+
     if force:
         log.info(
             f"Force-upgrade: re-downloading agent (server v{remote_version}, "
