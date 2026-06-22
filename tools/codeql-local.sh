@@ -50,9 +50,22 @@ for lang in $LANGS; do
   "$CODEQL" database analyze "$db" \
     "$lang-code-scanning.qls" \
     --format=sarif-latest --output="$sarif" --threads=0 >/dev/null
-  n=$(python3 - "$sarif" <<'PY'
-import json, sys
+  n=$(python3 - "$sarif" "$ROOT/.github/codeql/codeql-config.yml" <<'PY'
+import json, re, sys
 r = json.load(open(sys.argv[1]))['runs'][0].get('results', [])
+# Apply the config's query-filters excludes too (GitHub default setup does this
+# at analyze time; the CLI applies the config only at database-create for
+# paths-ignore). Each excluded RULE id is a reviewed by-design FP (see the
+# config comments + docs/security-review-5.0.1.md).
+excluded = set()
+try:
+    for ln in open(sys.argv[2]):
+        m = re.match(r'\s*id:\s*(\S+)', ln)
+        if m:
+            excluded.add(m.group(1).strip())
+except FileNotFoundError:
+    pass
+r = [x for x in r if x.get('ruleId') not in excluded]
 print(len(r))
 for x in r[:80]:
     rule = x.get('ruleId', '?')

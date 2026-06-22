@@ -77,7 +77,10 @@ def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
 
     if pkg_manager == 'apk':
         if ver_id:
-            return f'Alpine:v{ver_id}'
+            # OSV keys Alpine by major.minor (Alpine:v3.18), not the full
+            # VERSION_ID (3.18.4) — using the full string misses every match.
+            mm = '.'.join(str(ver_id).split('.')[:2])
+            return f'Alpine:v{mm}'
         return None
     return None
 
@@ -705,7 +708,17 @@ def _tuple_ge(installed: str, fixed: str) -> bool:
     n = max(len(a), len(b))
     a += [0] * (n - len(a))
     b += [0] * (n - len(b))
-    return a >= b
+    if a != b:
+        return a > b
+    # Equal numeric tuples: a prerelease (installed carries a -alpha/-beta/-rc
+    # suffix that the fixed version doesn't) sorts BELOW the release, so it is
+    # NOT patched — keep the finding (the documented "err toward keeping" intent;
+    # the old `>=` wrongly suppressed e.g. installed=1.2.0-beta vs fixed=1.2.0).
+    inst_pre = re.search(r'[-~][A-Za-z]', installed) is not None
+    fix_pre  = re.search(r'[-~][A-Za-z]', fixed) is not None
+    if inst_pre and not fix_pre:
+        return False
+    return True
 
 
 # ── Helper functions for fixed versions, JSON storage, etc. ──────────────────

@@ -25174,6 +25174,8 @@ function _homeNavAction(btn) {
     case 'storage':  showPage('storage',         document.querySelector('.nav-btn[data-page="storage"]')); break;
     case 'thermal':  showPage('thermal',         document.querySelector('.nav-btn[data-page="thermal"]')); break;
     case 'dmarc':    showPage('dmarc',           document.querySelector('.nav-btn[data-page="dmarc"]')); break;
+    case 'dns':      showPage('dns',             document.querySelector('.nav-btn[data-page="dns"]')); break;
+    case 'rollouts': showPage('rollouts',        document.querySelector('.nav-btn[data-page="rollouts"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
     // v5.0.0 (#C3): break-glass reveal request → CMDB page (approval card)

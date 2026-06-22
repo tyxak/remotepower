@@ -7363,7 +7363,7 @@ def handle_login():
     client_ip = _get_client_ip()
     if not _ip_ratelimit('login', client_ip, 20, window=60):
         respond(429, {'error': 'Too many login attempts from this address'})
-    body = get_json_body()
+    body = get_json_obj()
     username = _sanitize_str(body.get('username', ''), 32)
     password = body.get('password', '')
 
@@ -7965,7 +7965,7 @@ def handle_device_save_bulk(dev_id):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         respond(400, {'error': 'body must be a JSON object'})
 
@@ -9671,7 +9671,7 @@ def handle_device_monitored(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     monitored = bool(body.get('monitored', True))
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
@@ -9742,7 +9742,7 @@ def handle_device_require_confirmation(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     require = bool(body.get('require_confirmation', True))
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
@@ -9764,7 +9764,7 @@ def handle_device_compose_enabled(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     enabled = bool(body.get('compose_enabled', False))
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
@@ -10121,7 +10121,7 @@ def handle_enroll_register():
     # operator enrolling one device at a time never bumps this.
     if not _ip_ratelimit('enroll', _get_client_ip(), 10, window=60):
         respond(429, {'error': 'Too many enrollment attempts — retry in a minute'})
-    body = get_json_body()
+    body = get_json_obj()
 
     # v1.11.10: enrollment can use either a 6-digit PIN (interactive) OR
     # a long pre-shared one-time-use token (non-interactive — Ansible,
@@ -10319,7 +10319,7 @@ def handle_heartbeat():
         run_scheduled_scans_if_due()
     except Exception as _ss:
         sys.stderr.write(f'[remotepower] scheduled scan hook error: {_ss}\n')
-    body = get_json_body()
+    body = get_json_obj()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
 
@@ -11926,7 +11926,7 @@ def handle_drift_policies_set():
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     raw = body.get('policies') if isinstance(body, dict) else body
     if not isinstance(raw, list):
         respond(400, {'error': 'policies must be a list'})
@@ -12647,7 +12647,7 @@ def _handle_pkg_action(kind):
     progress."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     raw = body.get('packages')
     if isinstance(raw, list):
         names = [str(x).strip() for x in raw]
@@ -12761,7 +12761,7 @@ def _send_wol(dev):
 def handle_wol():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     dev_id = str(body.get('device_id', '')).strip()
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
@@ -15302,7 +15302,7 @@ def handle_scim_user(username):
 def handle_user_create():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     username = _sanitize_str(body.get('username', ''), 32)
     password = body.get('password', '')
     role     = body.get('role', 'admin')
@@ -15466,7 +15466,7 @@ def handle_role_delete(name):
 def handle_user_passwd():
     requester = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     username = _sanitize_str(body.get('username', requester), 32)
     old_pw   = body.get('old_password', '')
     new_pw   = body.get('new_password', '')
@@ -15729,7 +15729,7 @@ def handle_favorites_set():
     username = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     # Accept either a bare list or {"favorites": [...]} for forward-compat.
     raw = body.get('favorites') if isinstance(body, dict) else body
     clean = _clean_favorites(raw)
@@ -15755,7 +15755,7 @@ def handle_me_lang():
     username = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     lang = (body.get('lang') if isinstance(body, dict) else None) or ''
     if lang not in SUPPORTED_LANGS:
         respond(400, {'error': f'lang must be one of {", ".join(SUPPORTED_LANGS)}'})
@@ -15834,7 +15834,7 @@ def handle_totp_confirm():
     """Confirm TOTP setup by verifying a code from the authenticator app."""
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     code = str(body.get('code', '')).strip()
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
@@ -15879,7 +15879,7 @@ def handle_totp_disable():
     """Disable 2FA for the current user (requires password confirmation)."""
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     password = body.get('password', '')
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
@@ -18264,7 +18264,7 @@ def _cron_matches(cron, ts):
 def handle_schedule_add():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body    = get_json_body()
+    body    = get_json_obj()
     dev_id  = str(body.get('device_id', '')).strip()
     command = str(body.get('command', '')).strip()
     run_at  = body.get('run_at', 0)
@@ -18325,7 +18325,7 @@ def handle_schedule_update(job_id):
     actor = require_admin_auth()
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(job_id): respond(404, {'error': 'Job not found'})
-    body    = get_json_body()
+    body    = get_json_obj()
     dev_id  = str(body.get('device_id', '')).strip()
     command = str(body.get('command', '')).strip()
     run_at  = body.get('run_at', 0)
@@ -18454,7 +18454,7 @@ def process_schedule():
 
 def handle_custom_cmd():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body    = get_json_body()
+    body    = get_json_obj()
     cmd_str = str(body.get('cmd', '')).strip()
     if not cmd_str: respond(400, {'error': 'cmd required'})
     if len(cmd_str) > 512: respond(400, {'error': 'cmd too long (max 512 chars)'})
@@ -20064,7 +20064,7 @@ def handle_device_compose_action(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     action = str(body.get('action', '')).strip().lower()
     project_dir = str(body.get('dir', '')).strip()
 
@@ -20130,7 +20130,7 @@ def handle_device_container_action(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     action = str(body.get('action', '')).strip().lower()
     container_id = str(body.get('container_id', '')).strip()
     runtime = str(body.get('runtime', '')).strip().lower() or 'docker'
@@ -21035,7 +21035,7 @@ def handle_resolver_health_add() -> None:
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     name = str(body.get('name', '')).strip()
@@ -21141,7 +21141,7 @@ def handle_agentless_create() -> None:
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
 
     name = _sanitize_str(body.get('name', ''), 64, allow_empty=False)
     if not name:
@@ -21213,7 +21213,7 @@ def handle_device_connected_to(dev_id: str) -> None:
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
     if target == dev_id:
         respond(400, {'error': 'a device cannot connect to itself'})
@@ -21240,7 +21240,7 @@ def handle_device_depends_on(dev_id: str) -> None:
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
-    body = get_json_body()
+    body = get_json_obj()
     raw = body.get('depends_on') or []
     if not isinstance(raw, list):
         respond(400, {'error': 'depends_on must be a list of device ids'})
@@ -21416,7 +21416,7 @@ def handle_network_positions() -> None:
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     positions = body.get('positions')
     if not isinstance(positions, list):
         respond(400, {'error': 'positions must be a list'})
@@ -21497,7 +21497,7 @@ def handle_tunnel_add() -> None:
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     ends = body.get('endpoints') or []
     if not (isinstance(ends, list) and len(ends) == 2):
         respond(400, {'error': 'endpoints must be a list of exactly 2 device IDs'})
@@ -21743,7 +21743,7 @@ def handle_cmd_library_list():
 def handle_cmd_library_add():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 64)
     cmd  = _sanitize_str(body.get('cmd', ''), 512)
     desc = _sanitize_str(body.get('description', ''), 256)
@@ -21761,7 +21761,7 @@ def handle_cmd_library_update(snippet_id):
     require_admin_auth()
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
     if not _validate_id(snippet_id): respond(404, {'error': 'Snippet not found'})
-    body = get_json_body()
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 64)
     cmd  = _sanitize_str(body.get('cmd', ''), 512)
     desc = _sanitize_str(body.get('description', ''), 256)
@@ -21925,7 +21925,7 @@ def handle_scripts_add():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), MAX_SCRIPT_NAME, allow_empty=False)
     desc = _sanitize_str(body.get('description', ''), MAX_SCRIPT_DESC)
     script_body = _sanitize_script_body(body.get('body', ''))
@@ -22060,7 +22060,7 @@ def handle_exec_batch():
     require_auth()   # must be logged in; per-target exec perm checked below
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     script_id = str(body.get('script_id', '')).strip()
     if not _validate_id(script_id):
         respond(400, {'error': 'valid script_id required'})
@@ -22496,7 +22496,7 @@ def handle_ai_config_set():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
 
     # v4.6.0 (SECURITY): reject an admin-set base_url that targets cloud
     # metadata / link-local (SSRF). Loopback is allowed only for the local
@@ -23542,7 +23542,7 @@ def handle_ai_rag_search():
     cfg = _ai_cfg()
     if not (cfg.get('rag') or {}).get('enabled'):
         respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
-    body = get_json_body()
+    body = get_json_obj()
     query = str(body.get('query', '') or '').strip()
     if not query:
         respond(400, {'error': 'query is required'})
@@ -23598,7 +23598,7 @@ def handle_ai_chat():
     actor = require_auth()       # any authenticated user can use AI
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     cfg = _ai_cfg()
     if not cfg.get('enabled'):
         respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
@@ -25922,7 +25922,7 @@ def handle_custom_script_get(script_id):
 def handle_custom_script_create():
     """POST /api/custom-scripts — create a new script definition (admin)."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     scripts = _load_custom_scripts()
 
     if len(scripts) >= MAX_CUSTOM_SCRIPTS:
@@ -29999,7 +29999,7 @@ def handle_revoke_sessions():
     """Revoke all sessions for a specific user or all users."""
     requester = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     target_user = _sanitize_str(body.get('username', ''), 32)
     tokens = load(TOKENS_FILE)
     if target_user:
@@ -31085,7 +31085,7 @@ def handle_apikeys_list():
 def handle_apikeys_create():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 64)
     role = body.get('role', 'admin')
     user = _sanitize_str(body.get('user', 'api'), 32)
@@ -31156,7 +31156,7 @@ def handle_apikeys_update(kid):
     if not _validate_id(kid): respond(404, {'error': 'API key not found'})
     apikeys = load(APIKEYS_FILE)
     if kid not in apikeys: respond(404, {'error': 'API key not found'})
-    body = get_json_body()
+    body = get_json_obj()
     rec = apikeys[kid]
     if 'name' in body:
         name = _sanitize_str(body.get('name', ''), 64)
@@ -31202,7 +31202,7 @@ def _resolve_longpoll(dev_id, cmd_output):
 def handle_longpoll_exec():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body    = get_json_body()
+    body    = get_json_obj()
     dev_id  = str(body.get('device_id', '')).strip()
     cmd_str = str(body.get('cmd', '')).strip()
 
@@ -32119,7 +32119,7 @@ def handle_rollouts_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 80)
     if not name:
         respond(400, {'error': 'name required'})
@@ -32551,7 +32551,7 @@ def handle_scap_scan():
     fleet action), scoped."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     ids = _resolve_targets(body)
     if not ids:
         respond(400, {'error': 'No valid device targets'})
@@ -32572,7 +32572,7 @@ def handle_scap_report():
     Authenticated by device_id + token (like /api/packages)."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     dev_id = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
@@ -33545,7 +33545,7 @@ def handle_report_schedule_set():
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body = get_json_obj()
     enabled = bool(body.get('enabled'))
     cron = str(body.get('cron', '')).strip()
     if enabled and not _valid_cron(cron):
@@ -37311,7 +37311,7 @@ def handle_image_ignore_add():
     so the image is suppressed until a *newer* upstream digest appears.
     """
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     ref = _sanitize_str(body.get('ref', ''), 600, allow_empty=False)
     reason = _sanitize_str(body.get('reason', ''), 256)
     if not ref or not _IMAGE_REF_RE.match(ref):
@@ -37334,7 +37334,7 @@ def handle_image_ignore_add():
 def handle_image_ignore_remove():
     """DELETE /api/image-updates/ignore — stop ignoring an image. Body: {ref}."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     ref = _sanitize_str(body.get('ref', ''), 600, allow_empty=False)
     ignores = load(IMAGE_IGNORE_FILE) or {}
     if ref in ignores:
@@ -37405,7 +37405,7 @@ def handle_compose_stack_get(stack_id):
 def handle_compose_stack_create():
     """POST /api/compose/stacks — create a stack {name, device_id, yaml}."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 64).lower()
     device_id = _sanitize_str(body.get('device_id', ''), 64, allow_empty=False)
     yaml = body.get('yaml', '')
@@ -37453,7 +37453,7 @@ def handle_compose_stack_delete(stack_id):
 def handle_compose_stack_action(stack_id):
     """POST /api/compose/stacks/<id>/action {action} — queue up/down/redeploy."""
     actor = require_perm('containers')   # v3.12.0 RBAC: was admin-only
-    body = get_json_body()
+    body = get_json_obj()
     action = _sanitize_str(body.get('action', ''), 16).lower()
     if action not in _COMPOSE_ACTIONS:
         respond(400, {'error': f'action must be one of {_COMPOSE_ACTIONS}'})
@@ -37483,7 +37483,7 @@ def handle_compose_fetch():
     """POST /api/compose/fetch {device_id, token, stack_id} — agent fetches a
     stack's YAML with its device token. Kept off the command queue so the
     compose file never lands in the command log."""
-    body = get_json_body()
+    body = get_json_obj()
     device_id = str(body.get('device_id', '')).strip()
     token = str(body.get('token', '')).strip()
     stack_id = str(body.get('stack_id', '')).strip()
@@ -38711,7 +38711,7 @@ def handle_ldap_test_user():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body()
+    body = get_json_obj()
     username = _sanitize_str(body.get('username', ''), 64)
     password = body.get('password', '')
     if not username or not isinstance(password, str):
@@ -38776,7 +38776,7 @@ def handle_packages_submit():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body()
+    body = get_json_obj()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
@@ -38972,7 +38972,7 @@ def handle_software_policy():
         respond(200, _software_policy())
     elif m == 'POST':
         require_admin_auth()
-        body = get_json_body()
+        body = get_json_obj()
         rules_in = body.get('rules')
         if not isinstance(rules_in, list):
             respond(400, {'error': 'rules must be a list'})
@@ -40277,7 +40277,7 @@ def handle_cve_ignore_add():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
 
-    body     = get_json_body()
+    body     = get_json_obj()
     vuln_id  = _sanitize_str(body.get('vuln_id', ''), 64, allow_empty=False)
     reason   = _sanitize_str(body.get('reason', ''), 256)
     scope    = _sanitize_str(body.get('scope', 'global'), 64)
@@ -41130,7 +41130,7 @@ def handle_maintenance_add():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body()
+    body = get_json_obj()
     reason = _sanitize_str(body.get('reason', ''), 128)
     scope  = _sanitize_str(body.get('scope', 'device'), 16).lower()
     target = _sanitize_str(body.get('target', ''), 128)
@@ -42307,7 +42307,7 @@ def handle_services_config(dev_id):
             'log_watch':        devices[dev_id].get('log_watch', []),
         })
 
-    body = get_json_body()
+    body = get_json_obj()
     raw = body.get('services_watched') or []
     if not isinstance(raw, list):
         respond(400, {'error': 'services_watched must be a list'})
@@ -42403,7 +42403,7 @@ def handle_log_submit():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body()
+    body = get_json_obj()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
     if not _validate_id(dev_id):
@@ -43908,7 +43908,7 @@ def handle_cmdb_update(dev_id: str) -> None:
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
 
-    body = get_json_body()
+    body = get_json_obj()
     cmdb = _cmdb_load()
     rec = cmdb.get(dev_id) or _cmdb_record_default()
 
@@ -44108,7 +44108,7 @@ def handle_cmdb_doc_add(dev_id: str) -> None:
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
 
-    body = get_json_body()
+    body = get_json_obj()
     title = _cmdb_validate_doc_title(body.get('title'))
     if title is None:
         return
@@ -44163,7 +44163,7 @@ def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
     if dev_id not in devices:
         respond(404, {'error': 'device not found'})
 
-    body = get_json_body()
+    body = get_json_obj()
     cmdb = _cmdb_load()
     rec = cmdb.get(dev_id)
     if rec is None:
@@ -44314,7 +44314,7 @@ def handle_cmdb_vault_setup() -> None:
     meta = _cmdb_get_vault_meta()
     if cmdb_vault.is_configured(meta):
         respond(409, {'error': 'vault already configured'})
-    body = get_json_body()
+    body = get_json_obj()
     passphrase = body.get('passphrase') or ''
     try:
         new_meta = cmdb_vault.setup_vault(passphrase)
@@ -44349,7 +44349,7 @@ def handle_cmdb_vault_unlock() -> None:
     meta = _cmdb_get_vault_meta()
     if not cmdb_vault.is_configured(meta):
         respond(409, {'error': 'vault not configured', 'code': 'vault_not_configured'})
-    body = get_json_body()
+    body = get_json_obj()
     passphrase = body.get('passphrase') or ''
     try:
         key = cmdb_vault.derive_key_from_meta(passphrase, meta)
@@ -44385,7 +44385,7 @@ def handle_cmdb_vault_change() -> None:
     meta = _cmdb_get_vault_meta()
     if not cmdb_vault.is_configured(meta):
         respond(409, {'error': 'vault not configured'})
-    body = get_json_body()
+    body = get_json_obj()
     old_pw = body.get('old_passphrase') or ''
     new_pw = body.get('new_passphrase') or ''
 
@@ -44494,7 +44494,7 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
         respond(404, {'error': 'device not found'})
 
     key, _meta = _cmdb_require_unlocked()
-    body = get_json_body()
+    body = get_json_obj()
     label    = _sanitize_str(body.get('label', ''),    MAX_CMDB_LABEL,    allow_empty=False)
     username = _sanitize_str(body.get('username', ''), MAX_CMDB_USERNAME, allow_empty=True) or ''
     password = body.get('password', '')
@@ -44585,7 +44585,7 @@ def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
     if idx < 0:
         respond(404, {'error': 'credential not found'})
 
-    body = get_json_body()
+    body = get_json_obj()
     cred = dict(creds[idx])
     changed = []
 
@@ -44973,7 +44973,7 @@ def handle_scoped_credentials_add() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     key, _meta = _cmdb_require_unlocked()
-    body = get_json_body()
+    body = get_json_obj()
     scope_type  = str(body.get('scope_type', '')).strip().lower()
     scope_value = _sanitize_str(body.get('scope_value', ''), 128, allow_empty=False)
     label    = _sanitize_str(body.get('label', ''),    MAX_CMDB_LABEL,    allow_empty=False)
@@ -46711,7 +46711,7 @@ def handle_device_host_config_get(dev_id):
 def handle_device_host_config_put(dev_id):
     """PUT /api/devices/:id/host-config — save desired host configuration."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         respond(400, {'error': 'Expected JSON object'})
 
@@ -48220,7 +48220,7 @@ def handle_dns_vault_creds_set():
     if not cmdb_vault.verify_key(key, meta):
         respond(409, {'error': 'invalid vault key — unlock the vault',
                       'code': 'vault_locked'})
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     provider = str(body.get('provider', '')).strip()
@@ -48329,7 +48329,7 @@ def handle_dns_import_from_agent():
     command-output channel. One-shot, admin-only, audit-logged. From there, use
     'Import from config' to encrypt them into the vault and drop the plaintext."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     dev_id = str(body.get('device_id', '')).strip()
@@ -48367,7 +48367,7 @@ def handle_dns_vault_import():
                       'code': 'vault_locked'})
     if not cmdb_vault.verify_key(key, meta):
         respond(409, {'error': 'invalid vault key — unlock the vault', 'code': 'vault_locked'})
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     provider = str(body.get('provider', '')).strip()
@@ -48471,7 +48471,7 @@ def handle_dns_propagation():
 def handle_dns_record_create():
     """POST /api/dns/records — create a record. Admin-only, audit-logged."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     prov, zone, zone_name = _dns_target(body)
@@ -48489,7 +48489,7 @@ def handle_dns_record_create():
 def handle_dns_record_update():
     """POST /api/dns/records/update — edit a record. Admin-only, audit-logged."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     prov, zone, zone_name = _dns_target(body)
@@ -48510,7 +48510,7 @@ def handle_dns_record_update():
 def handle_dns_record_delete():
     """POST /api/dns/records/delete — delete a record. Admin-only, audit-logged."""
     actor = require_admin_auth()
-    body = get_json_body()
+    body = get_json_obj()
     if not isinstance(body, dict):
         body = {}
     prov, zone, zone_name = _dns_target(body)
