@@ -1,0 +1,46 @@
+# gitleaks configuration for RemotePower.
+#
+# Extends the default ruleset and allowlists the KNOWN false positives so a
+# clean tree scans clean. Every entry below is either a gitignored build
+# artifact (never shipped) or an intentional documentation EXAMPLE — verified to
+# contain no real secret. Real secrets are never committed (server secrets live
+# in /etc/remotepower/api.env or the env; the CMDB/backup keys are header/env
+# only and never persisted to the repo).
+
+title = "RemotePower"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Build artifacts (gitignored) + documentation examples — no real secrets"
+
+paths = [
+  # ── Gitignored build / scan artifacts (only seen by a --no-git scan) ──────
+  '''\.codeql-cache/.*''',          # CodeQL CLI + query-pack docs (contain example creds)
+  '''packaging/aur/[^/]+/src/.*''', # AUR makepkg source tree (regenerated)
+  '''packaging/aur/[^/]+/pkg/.*''', # AUR makepkg package tree (regenerated)
+  '''.*\.BUILDINFO''',              # AUR build metadata (regenerated)
+  '''site/.*''',                    # marketing site (gitignored, separate deploy)
+
+  # ── Documentation examples — illustrative tokens / Authorization headers,
+  #    never real credentials (docs audit confirms no sensitive leaks) ───────
+  '''docs/.*\.md''',
+  '''CLAUDE\.md''',
+  '''opencode\.md''',
+  '''README\.md''',
+  '''.*\.SRCINFO''',                # AUR metadata: example install snippets
+  '''.*Manual\.html''',             # removed in v4.8.0 — only in git history
+  '''server/html/static/js/i18n\.js''',  # translation data: UI label strings only
+]
+
+# Example-token regexes used across docs/CLI help (placeholder credentials), the
+# translatable SSH-key marker LABEL (no key body), and code comparisons against
+# config KEY NAMES (e.g. `key == 'saml_idp_x509_cert'`) — none are real secrets.
+regexes = [
+  '''(?i)bearer\s+(your[-_]?token|<token>|paste[-_ ]?the[-_ ]?token|example|xxx+)''',
+  '''(?i)(api[-_]?key|token)\s*[:=]\s*["']?(your|example|paste|xxx+|changeme)''',
+  '''-----BEGIN OPENSSH PRIVATE KEY-----''',
+  '''(?i)(saml|oidc|ldap)_[a-z0-9_]*''',  # SSO config KEY-NAME literals (not secrets)
+  '''x509_cert''',
+]

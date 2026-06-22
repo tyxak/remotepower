@@ -243,17 +243,30 @@ const tableCtl = (() => {
       th.setAttribute('data-label', baseLabel);
       // v4.1.0 (#36): aria-sort conveys the sorted state to screen readers; the
       // glyphs themselves are decorative, so hide them from the a11y tree.
+      // v5.0.1: build with textContent + appendChild rather than an innerHTML
+      // round-trip of DOM text, so a header label can never be reinterpreted as
+      // HTML (clears codeql js/xss-through-dom; the indicator glyphs are decorative).
+      th.textContent = baseLabel;
+      const _ind = document.createElement('span');
+      _ind.setAttribute('aria-hidden', 'true');
       if (idx === -1) {
         th.setAttribute('aria-sort', 'none');
-        th.innerHTML = baseLabel + ' <span class="isl-304" aria-hidden="true">↕</span>';
+        _ind.className = 'isl-304';
+        _ind.textContent = ' ↕';
       } else {
         const dir = sort[idx].dir;
-        const arrow = dir === 'asc' ? '▲' : '▼';
         th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
-        // Multi-column: show the priority order as a small superscript
-        const prio = sort.length > 1 ? `<sup class="isl-305" aria-hidden="true">${idx+1}</sup>` : '';
-        th.innerHTML = baseLabel + ` <span class="isl-306" aria-hidden="true">${arrow}${prio}</span>`;
+        _ind.className = 'isl-306';
+        _ind.textContent = ' ' + (dir === 'asc' ? '▲' : '▼');
+        if (sort.length > 1) {   // multi-column: priority order as a superscript
+          const _sup = document.createElement('sup');
+          _sup.className = 'isl-305';
+          _sup.setAttribute('aria-hidden', 'true');
+          _sup.textContent = String(idx + 1);
+          _ind.appendChild(_sup);
+        }
       }
+      th.appendChild(_ind);
     });
   }
 
@@ -19325,6 +19338,11 @@ let _drawerAuditLoaded = {};           // which audit sections have been fetched
 // ── Open / close ──────────────────────────────────────────────────────────────
 
 async function openDeviceDrawer(id, name, defaultTab = 'actions') {
+  // v5.0.1: validate the device id at the boundary — defensive, and a clean
+  // sanitizer barrier for static analysis. Device ids are always
+  // [A-Za-z0-9_-]{1,64} (server _validate_id); anything else can't be a real
+  // device and must never reach a fetch URL or a drawer-panel innerHTML.
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return;
   _drawerDeviceId   = id;
   _drawerDeviceName = name;
   _drawerAuditLoaded = {};
@@ -23015,7 +23033,7 @@ function dbg(msg, tag = 'ui') {
   if (!msg || !_dbgIsEnabled()) return;
   const ts = new Date().toISOString().slice(0, 19);
   const entry = { ts, tag, msg: String(msg).slice(0, 1024) };
-  console.log(`%c[dbg]%c [${tag}] ${msg}`, 'color:#888', '');
+  console.log('%c[dbg]%c [%s] %s', 'color:#888', '', String(tag), String(msg));
   _dbgBuffer.push(entry);
   // Debounce flushes so a burst of events makes one HTTP request
   if (_dbgFlushTimer) clearTimeout(_dbgFlushTimer);

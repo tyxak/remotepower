@@ -243,9 +243,11 @@ async function _fillTargetSelect(typeSel, valueSel) {
   if (t === 'group') opts = tg.groups.map(g => [g, g]);
   else if (t === 'tag') opts = tg.tags.map(g => [g, g]);
   else if (t === 'device') opts = tg.devices.map(d => [d.id, d.name]);
-  el.innerHTML = opts.length
-    ? opts.map(([v, label]) => `<option value="${escAttr(v)}">${escHtml(label)}</option>`).join('')
-    : `<option value="">(no ${t}s defined)</option>`;
+  // v5.0.1: build <option>s with the DOM API (new Option sets text via
+  // textContent — no innerHTML round-trip), clearing codeql js/xss-through-dom.
+  el.replaceChildren();
+  if (opts.length) opts.forEach(([v, label]) => el.add(new Option(String(label), String(v))));
+  else el.add(new Option(`(no ${t}s defined)`, ''));
   // v3.14.0: make every target value-picker a searchable device-combo (works
   // for group/tag too — it's just a searchable single-select). Idempotent.
   el.classList.add('device-combo');

@@ -5740,7 +5740,11 @@ def execute_command(cmd):
                 'pacman -Syu', 'zypper', 'apk upgrade', 'remotepower_update.log'))
             # v5.0.0 (#F3): an explicit per-command timeout wins over the heuristic.
             exec_timeout = exec_timeout_override or (1800 if _is_upgrade else 300)
-            result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)
+            # nosec B602 — this IS the agent's command channel: an authenticated
+            # admin-pushed command run as the agent user (root by design). Guarded
+            # by token auth + audit-mode refusal + the server's allowlist/4-eyes/
+            # quarantine controls. shell=True is intentional (operators paste shell).
+            result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)  # nosec B602
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")
             # v1.10.0: bump output cap to 256 KB for package-upgrade runs.

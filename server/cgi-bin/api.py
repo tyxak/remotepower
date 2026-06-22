@@ -45035,6 +45035,16 @@ def handle_scoped_credentials_reveal(cred_id: str) -> None:
     actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v5.0.1 (SECURITY): revealing a credential is privileged. Read-only roles
+    # (viewer/mcp/auditor) resolve to an EMPTY permission set + scope 'all', so
+    # the scope-cover check below would otherwise pass — a viewer holding the
+    # vault key could reveal any scoped credential. Require admin OR a role with
+    # at least one action permission (a scoped operator). Permission-based, not a
+    # role-string denylist (per the denylist-role bug class).
+    _su, _srole = verify_token(get_token_from_request())
+    _srr = _resolve_role(_srole)
+    if not _srr.get('admin') and not _srr.get('permissions'):
+        respond(403, {'error': 'your role cannot reveal credentials'})
     if not cred_id.startswith('scred_') or not _validate_id(cred_id[len('scred_'):]):
         respond(404, {'error': 'credential not found'})
     key, _meta = _cmdb_require_unlocked()

@@ -40,8 +40,11 @@ for lang in $LANGS; do
   echo "═══ $lang ═══"
   rm -rf "$db"
   # python + javascript are interpreted → no build step (build-mode none).
+  # --codescanning-config honors .github/codeql/codeql-config.yml (paths-ignore),
+  # exactly as GitHub's default setup does, so local == GitHub.
   "$CODEQL" database create "$db" \
     --language="$lang" --build-mode=none --source-root="$ROOT" \
+    --codescanning-config="$ROOT/.github/codeql/codeql-config.yml" \
     --overwrite >/dev/null
   # The DEFAULT code-scanning suite — exactly what GitHub's default setup runs.
   "$CODEQL" database analyze "$db" \

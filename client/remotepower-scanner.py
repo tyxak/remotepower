@@ -415,7 +415,12 @@ def _run_report_tool(argv_fn, parse_fn, target, profile, intensity):
     os.mkdir(workdir)
     try:
         try:
-            os.chmod(workdir, 0o777)
+            # nosec B103 — 0o777 on the INNER 'wrk' dir only, nested under the
+            # 0700 mkdtemp parent above (local users can't traverse it). The wide
+            # mode lets a containerized scanner (e.g. ZAP UID 1000, resolved by
+            # the Docker daemon as root) write its report into the bind mount; the
+            # 0700 parent prevents any local-user read / symlink race.
+            os.chmod(workdir, 0o777)  # nosec B103
         except OSError:
             pass
         stdout, stderr, err = _run(argv_fn(target, profile, intensity, workdir, _REPORT_NAME))
