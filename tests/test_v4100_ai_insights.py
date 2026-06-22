@@ -28,6 +28,8 @@ NEW_KEYS = [
     "reverse_iac", "cve_patch_plan", "compliance_plan", "capacity_forecast",
     "dr_readiness", "firewall_audit", "dns_hygiene", "email_deliverability",
     "integration_assist", "supply_chain", "host_profile",
+    # v5.0.1: surfaced three previously-orphan prompts as advisor cards
+    "explain_tls", "prioritise_cves", "investigate_alert",
 ]
 
 
@@ -67,7 +69,7 @@ class TestHub(unittest.TestCase):
     def test_every_card_categorised(self):
         block = _APP_JS[_APP_JS.index("const AI_INSIGHTS ="):_APP_JS.index("const _AI_CATS")]
         cats = re.findall(r"cat:\s*'([a-z]+)'", block)
-        self.assertEqual(len(cats), 20, "every card must carry a category")
+        self.assertEqual(len(cats), 23, "every card must carry a category")
         self.assertLessEqual(set(cats),
                              {"proactive", "incident", "planning", "nlconfig", "advisors"})
 
