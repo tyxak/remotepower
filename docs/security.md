@@ -4,7 +4,7 @@
 - Session tokens are configurable (default 7-day remember-me / 8-hour standard); API keys default to never-expire — set a per-key expiry, or rotate manually if compromised
 - Enrollment PINs are single-use, expire after 10 minutes
 - Device tokens are 256-bit random secrets
-- Passwords stored as **PBKDF2-HMAC-SHA256** (600 000 iterations, OWASP 2023 minimum); legacy SHA-256 hashes auto-upgraded on next login
+- Passwords hashed with **bcrypt** (cost 12), with a **PBKDF2-HMAC-SHA256** (600 000 iterations, OWASP 2023 minimum) fallback where bcrypt is unavailable; legacy hashes auto-upgraded on next login
 - Webhook URLs (legacy single + multi-destination) stored server-side only, redacted from backup exports
 - CMDB vault uses AES-GCM with PBKDF2-derived keys; passphrase never persisted server-side
 - Custom commands run as root - use the per-device command allowlist for untrusted operators
@@ -21,10 +21,13 @@ could be exploited is fixed before release, on both the server and the agent.
 
 Each release is reviewed for security at the code level and scanned with an
 external toolchain in addition to the CI guardrails. The current release,
-**v5.0.0**, underwent a whole-project server + agent security review with SAST
-tooling, held to the same bar — **no Critical, High, or Medium finding ships** —
-see [security-review-5.0.0.md](security-review-5.0.0.md). The previous release,
-**v4.10.0**, had the same whole-project audit and **passed clean** — see
+**v5.0.1**, had a whole-project server + agent security review with SAST tooling
+(Bandit, gitleaks) and a CodeQL code-scanning pass, held to the bar — **no
+Critical, High, or Medium finding ships** — see
+[security-review-5.0.1.md](security-review-5.0.1.md). It builds on **v5.0.0**,
+which underwent the same review — see
+[security-review-5.0.0.md](security-review-5.0.0.md). The earlier
+**v4.10.0** had the same whole-project audit and **passed clean** — see
 [security-review-4.10.0.md](security-review-4.10.0.md). The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
@@ -323,8 +326,16 @@ surface (e.g. non-cryptographic fingerprint hashes) were annotated or fixed.
 **v4.8.0** was independently tested with wapiti, nikto, nuclei, bandit and OWASP
 ZAP and passed clean.
 
-If you find a security issue, please report it privately rather than opening a
-public issue.
+If you find a security issue, please report it **privately** via GitHub's
+[**"Report a vulnerability"**](https://github.com/tyxak/remotepower/security/advisories/new)
+(see [SECURITY.md](../SECURITY.md) for the full policy and response window) —
+rather than opening a public issue.
+
+**Supply chain.** Release tarballs are published with a SHA-256 checksum and a
+detached **GPG signature** (`.tar.gz.asc`); the signing key fingerprint is
+`E7B5AD456728B8462A8B54BFD488AF115D2CCDBF`. AUR packages PGP-verify that
+signature at build time, and the agent self-update can be pinned to require a
+signed binary (fail-closed).
 
 ## Threat model
 

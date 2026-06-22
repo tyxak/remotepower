@@ -26,9 +26,14 @@ def _dict_entries():
     m = re.search(r'var DICT = \{(.*?)\n  \};', I18N, re.S)
     assert m, "DICT block not found in i18n.js"
     entries = {}
-    for em in re.finditer(r"'((?:[^'\\]|\\.)+)':\s*\{([^}]*)\}", m.group(1)):
-        key = em.group(1).replace("\\'", "'")
-        langs = set(re.findall(r'(\w+):', em.group(2)))
+    # DICT keys appear in two stacked blocks: a curated single-quoted block and
+    # a machine-generated double-quoted catalog (CLAUDE.md). Read BOTH quote
+    # styles — the curated chrome and the machine catalog both count as coverage.
+    for em in re.finditer(
+            r"""(?:'((?:[^'\\]|\\.)+)'|"((?:[^"\\]|\\.)+)"):\s*\{([^}]*)\}""",
+            m.group(1)):
+        key = (em.group(1) or em.group(2)).replace("\\'", "'").replace('\\"', '"')
+        langs = set(re.findall(r'["\']?(\w+)["\']?\s*:', em.group(3)))
         entries[key] = langs
     return entries
 
@@ -80,6 +85,45 @@ def _page_titles():
         if text:
             titles.add(text)
     return titles
+
+
+def _section_titles():
+    """Visible text of every `.section-title` element in index.html.
+
+    Mirrors the runtime text-node lookup: strip nested markup, collapse
+    whitespace. Titles with a trailing dynamic suffix (e.g. `Findings —`
+    followed by a JS-injected count) are normalized to their static head and
+    fall to the skip-list."""
+    titles = set()
+    for sm in re.finditer(
+            r'<(\w+)[^>]*class="[^"]*\bsection-title\b[^"]*"[^>]*>(.*?)</\1>',
+            INDEX, re.S):
+        body = re.sub(r'<svg\b.*?</svg>', '', sm.group(2), flags=re.S)
+        # The runtime translates the FIRST text node (the leading heading);
+        # a trailing `.hint`/`<span>` description is a separate node. Mirror
+        # _page_titles: take the text before the first child element.
+        first = body.split('<', 1)[0]
+        text = _html.unescape(re.sub(r'\s+', ' ', first)).strip()
+        if not text:
+            stripped = re.sub(r'<[^>]+>', '', body)
+            text = _html.unescape(re.sub(r'\s+', ' ', stripped)).strip()
+        if text:
+            titles.add(text)
+    return titles
+
+
+def _button_labels():
+    """Bare visible text node of every `<button>` in index.html (icons and
+    attributed/nested spans dropped — same extraction as nav labels)."""
+    labels = set()
+    for bm in re.finditer(r'<button\b[^>]*>(.*?)</button>', INDEX, re.S):
+        body = re.sub(r'<svg\b.*?</svg>', '', bm.group(1), flags=re.S)
+        body = re.sub(r'<span [^>]+>.*?</span>', '', body, flags=re.S)
+        body = re.sub(r'<[^>]+>', '', body)
+        text = _html.unescape(re.sub(r'\s+', ' ', body)).strip()
+        if text:
+            labels.add(text)
+    return labels
 
 
 def _page_subtitles():
@@ -159,6 +203,45 @@ class TestSubtitleTranslationCoverage(unittest.TestCase):
                       if not set(LANGS) <= langs}
         self.assertEqual(incomplete, {},
                          f"HTMLDICT entries missing languages: {incomplete}")
+
+
+class TestSectionAndButtonTranslationCoverage(unittest.TestCase):
+    """Static `.section-title` headings and static `<button>` labels must
+    carry a DICT entry in all four non-English languages, or they render
+    English-only in zh/hi/es/ar. This closed a coverage gap an audit found:
+    leaf-page section titles and clear-verb buttons had decayed to English."""
+
+    # Proper nouns (never translated) and dynamic/glyph-only labels that have
+    # no stable English text node to key on. Documented exemptions only.
+    SECTION_SKIP = frozenset({
+        'fail2ban',     # proper noun — product name, never translated
+        'Findings —',   # dynamic: a JS-injected count follows the em dash
+    })
+    BUTTON_SKIP = frozenset({
+        'fail2ban',          # proper noun
+        '‹', '›',            # glyph-only carousel/pager arrows
+        '{ } JSON',          # format-toggle glyph + acronym; nothing to translate
+        'Delete snapshot',   # destructive op label — covered via DICT 'Delete'
+    })
+
+    def setUp(self):
+        self.dict_entries = _dict_entries()
+
+    def test_every_section_title_is_in_dict(self):
+        titles = _section_titles() - self.SECTION_SKIP
+        self.assertGreater(len(titles), 10, "section-title extraction looks broken")
+        missing = sorted(t for t in titles if t not in self.dict_entries)
+        self.assertEqual(missing, [],
+                         "section titles with no DICT entry (new section shipped "
+                         f"without chrome translation?): {missing}")
+
+    def test_every_button_label_is_in_dict(self):
+        labels = _button_labels() - self.BUTTON_SKIP
+        self.assertGreater(len(labels), 30, "button extraction looks broken")
+        missing = sorted(l for l in labels if l not in self.dict_entries)
+        self.assertEqual(missing, [],
+                         "static button labels with no DICT entry (new button "
+                         f"shipped without a translation?): {missing}")
 
 
 if __name__ == '__main__':

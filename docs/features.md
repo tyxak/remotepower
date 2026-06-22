@@ -21,7 +21,7 @@ Day-to-day fleet operations, without leaving the browser:
 
 ---
 
-**It's small.** ~60,000 lines of Python on the server. ~7,000 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
+**It's small.** ~67,000 lines of Python on the server. ~7,000 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of vanilla JS files — no build step, no bundler, no framework. You can read every line.
 
 **It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
 
@@ -1540,6 +1540,29 @@ under Settings → AI → RAG.
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
+
+## What's new in v5.0.1 — "TemperMatters"
+
+A stability + polish release that tempers v5.0.0. No breaking changes.
+
+- **Backend-correctness sweep.** Fixed a class of presence-checks that silently
+  read empty under the optional SQLite/PostgreSQL backend — the SSH-key drift
+  audit, Proxmox stale-snapshot alerts, and the device-drawer host-config view
+  now work on every backend.
+- **Quieter upgrades.** Duplicate open alerts for the same condition now coalesce
+  into one row, and agent stop/start events no longer alert or webhook by default
+  (they're expected upgrade churn — still in Recent Activity, re-enableable).
+- **Edit in place.** API keys can be edited (name, role, expiry, rate limit)
+  without regenerating the secret; custom checks gained an Edit button.
+- **Backups survive redeploys.** `RP_BACKUP_PASSPHRASE` loads from
+  `/etc/remotepower/api.env` (the unit's `EnvironmentFile`), so an upgrade can't
+  wipe it; a turnkey self-update script ships for the "Run update now" button.
+- **More AI advisors.** Three new one-click AI Insights — TLS/cert triage, CVE
+  prioritisation, and "investigate the top alert."
+- **Signature button + polish.** A distinctive chamfer button treatment, EPSS
+  exploit-probability scores fixed (the feed had moved hosts), and a
+  whole-project security + SAST/CodeQL review (see
+  [security-review-5.0.1.md](security-review-5.0.1.md)).
 
 ## What's new in v5.0.0 — "CTRLMatters"
 

@@ -38,18 +38,17 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.0.0.md](security-review-5.0.0.md)** — Latest review:
- a whole-project server + agent audit (no Critical/High/Medium findings ship) —
- the new mutual-TLS agent auth, at-rest backup encryption, two-person break-glass
- credential reveals, and webhook dead-letter queue, with the static + dynamic
- tooling used each cycle.
+- **[security-review-5.0.1.md](security-review-5.0.1.md)** — Latest review:
+ whole-project audit + SAST (Bandit/gitleaks) + a CodeQL pass (no Critical/High/
+ Medium ships) — escalation DLQ reliability, diagnostics-bundle secret hygiene,
+ two cross-scope (IDOR) fixes, and the documented static-analysis FP triage.
+- **[security-review-5.0.0.md](security-review-5.0.0.md)** — A prior review:
+ a whole-project server + agent audit — the mutual-TLS agent auth, at-rest backup
+ encryption, two-person break-glass credential reveals, and webhook dead-letter
+ queue, with the static + dynamic tooling used each cycle.
 - **[security-review-4.10.0.md](security-review-4.10.0.md)** — A prior review:
  the Firewall/fail2ban edit surface, SSRF guards, and containerized-agent
  host-boundary hardening.
-- **[security-review-4.6.0.md](security-review-4.6.0.md)** — A prior full server +
- agent re-audit (independently pentested clean) — SSRF parity on the OPNsense/
- Proxmox/AI/TLS-monitor targets, resolved-role checks on two read endpoints, and
- agent credential-storage hardening on Windows/macOS/Linux.
 
 ## Release notes
 
