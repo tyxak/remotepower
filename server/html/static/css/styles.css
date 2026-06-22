@@ -5858,3 +5858,29 @@ body.density-compact .group-title { margin-bottom: 6px; }
 table { font-variant-numeric: tabular-nums; }
 .status-num, .hh-num, .pin-code, .board-num, .stat-num,
 .metric-value, .big-num, td .mono-12 { font-variant-numeric: tabular-nums; }
+
+/* ── v5.0.1 "TemperMatters" — design polish ──────────────────────────────────
+   Weight/contrast + tactile feedback on the dense data tables, within the
+   industrial language. (Keyboard focus rings, KPI-row density and tabular
+   numerals are handled elsewhere already, so this stays focused.) */
+
+/* Weight & contrast: column headers as crisp, tracked eyebrows — faster to scan
+   and reads deliberate (mirrors the mono-uppercase label language used for
+   stat/form labels). Text/weight only — doesn't touch the sticky-header bg. */
+.table-card thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Depth & micro-interaction: row hover on the big tables (CVE / patches / drawer
+   tables had none — only the minimal device table did). GPU-cheap: background
+   transition only, no layout. */
+.table-card tbody tr { transition: background .12s ease; }
+.table-card tbody tr:hover { background: var(--surface2); }
+
+/* Overview tiles: a quiet accent edge on hover so the KPI tiles feel responsive
+   without breaking the flat instrument-readout look. */
+.stat-card { transition: border-color .15s ease; }
+.stat-card:hover { border-color: var(--accent-edge); }
