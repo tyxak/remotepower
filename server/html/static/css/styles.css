@@ -5893,7 +5893,7 @@ table { font-variant-numeric: tabular-nums; }
    dull. CSS-only / CSP-safe; the shape is static (no motion). The SIDEBAR is
    explicitly excluded below (design intent). */
 .btn, .btn-primary, .btn-secondary, .btn-shutdown, .btn-reboot,
-.btn-update, .btn-upgrade {
+.btn-update, .btn-upgrade, .enroll-btn {
   clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px),
                      calc(100% - 7px) 100%, 0 100%, 0 7px);
   border-radius: 0;
@@ -5937,3 +5937,10 @@ table { font-variant-numeric: tabular-nums; }
   font-weight: normal;
 }
 .sidebar .btn:hover { background: transparent; border-color: var(--accent); color: var(--accent); }
+
+/* ── v5.0.1 "TemperMatters" — Network metrics spacing ────────────────────────
+   In the industrial theme the page subtitle is folded into the title info-icon
+   (.subtitle-hidden → display:none), so its margin-bottom collapses and the
+   RX/TX/Reporting vitals sat flush under the Fleet/Group/Tag/Site scope row.
+   Give the body its own breathing room above the boxes. */
+#netmetrics-body { margin-top: 22px; }
