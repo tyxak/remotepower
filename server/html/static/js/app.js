@@ -1632,8 +1632,16 @@ function renderDevices() {
     groupSel.value = cur;
   }
   document.getElementById('stat-total').textContent   = devices.length;
-  document.getElementById('stat-online').textContent  = online;
-  document.getElementById('stat-offline').textContent = devices.length - online;
+  const _offline = devices.length - online;
+  const _onEl = document.getElementById('stat-online');
+  const _offEl = document.getElementById('stat-offline');
+  _onEl.textContent  = online;
+  _offEl.textContent = _offline;
+  // v5.0.1: colour the value to match the icon for an at-a-glance read — but
+  // only flag Offline red when there's an actual outage (a red "0" is alarming
+  // and wrong). Online stays green; total stays neutral.
+  _onEl.classList.toggle('c-green', online > 0);
+  _offEl.classList.toggle('c-red', _offline > 0);
   const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
   const filterBar = document.getElementById('tag-filter-bar');
   if (filterBar) {

@@ -1761,6 +1761,25 @@ def load(path):
 # Process-local cache for load(). Lives only as long as the CGI handler.
 _LOAD_CACHE = {}
 
+
+def _config_ro():
+    """READ-ONLY view of CONFIG_FILE — the memoised dict WITHOUT the per-hit
+    deepcopy that load() performs to protect the cache from mutating callers.
+
+    The heartbeat path reads config ~8× and each load() deepcopies the whole
+    config dict (monitors, drift policies, thresholds, integrations, …). For
+    callers that only read a scalar (`int(_config_ro().get('x') or 0)`), that
+    copy is pure waste. This hands back the shared cached object, so the caller
+    MUST NOT mutate the result, mutate anything nested in it, or pass it to
+    save(). When the cache is cold it falls back to load() (which warms the
+    cache and returns a copy), so the value is always correct. NEVER use this
+    for a `cfg = ...; cfg['x'] = v; save(cfg)` pattern — use load() there."""
+    cached = _LOAD_CACHE.get(CONFIG_FILE)
+    if cached is not None and cached[1]:
+        return cached[0] or {}
+    return load(CONFIG_FILE) or {}
+
+
 def _invalidate_load_cache(path):
     """Mark a cached file as stale. Called by save()/_save_nb() so the next
     load() in the same handler re-reads from disk."""
@@ -2459,7 +2478,7 @@ def _enforce_session_cap(tokens, username):
     (config; 0 = unlimited), evicting the oldest. Mutates `tokens` in place — call
     while holding the TOKENS_FILE lock, just before inserting the new session."""
     try:
-        cap = int((load(CONFIG_FILE) or {}).get('max_sessions_per_user') or 0)
+        cap = int(_config_ro().get('max_sessions_per_user') or 0)
     except (TypeError, ValueError):
         cap = 0
     if cap <= 0:
@@ -2528,7 +2547,7 @@ def verify_token(token):
             # usable until TTL. Re-check that this session is among the user's
             # newest `cap`; if not, it's effectively evicted — kill it and deny.
             try:
-                _scap = int((load(CONFIG_FILE) or {}).get('max_sessions_per_user') or 0)
+                _scap = int(_config_ro().get('max_sessions_per_user') or 0)
             except (TypeError, ValueError):
                 _scap = 0
             if _scap > 0:
@@ -2608,7 +2627,7 @@ def _get_client_ip():
     REMOTE_ADDR, unchanged for single-node installs."""
     remote = os.environ.get('REMOTE_ADDR', '0.0.0.0')
     try:
-        if (load(CONFIG_FILE) or {}).get('trust_proxy'):
+        if _config_ro().get('trust_proxy'):
             xff = os.environ.get('HTTP_X_FORWARDED_FOR', '').strip()
             if xff:
                 ip = xff.split(',')[-1].strip()
@@ -3401,7 +3420,7 @@ def log_command(actor, device_id, device_name, command):
 
 def _slow_handler_threshold_ms():
     try:
-        return int((load(CONFIG_FILE) or {}).get('slow_handler_ms', 1500))
+        return int(_config_ro().get('slow_handler_ms', 1500))
     except (TypeError, ValueError):
         return 1500
 
@@ -8408,7 +8427,7 @@ def _caller_tenant():
 # RBAC scoping already uses (_scope_filter_devices / _scope_block_device /
 # _enforce_device_scope) plus the device-roster loop.
 def _tenancy_enforced():
-    return bool((load(CONFIG_FILE) or {}).get('tenancy_enforced'))
+    return bool(_config_ro().get('tenancy_enforced'))
 
 
 def _device_tenant(dev):
@@ -10388,7 +10407,7 @@ def handle_heartbeat():
     # Set it well below the fleet's poll interval (e.g. 10 for 60s polls) —
     # a healthy agent never sees it. load() is request-memoized: free here.
     try:
-        _hb_floor = int((load(CONFIG_FILE) or {}).get('heartbeat_min_interval_s') or 0)
+        _hb_floor = int(_config_ro().get('heartbeat_min_interval_s') or 0)
     except Exception:
         _hb_floor = 0
 
@@ -10667,7 +10686,7 @@ def handle_heartbeat():
                 if isinstance(off, (int, float)):
                     safe_clk['offset_ms'] = round(float(off), 1)
                 try:
-                    _ct = float((load(CONFIG_FILE) or {}).get('clock_skew_threshold_ms', 1000))
+                    _ct = float(_config_ro().get('clock_skew_threshold_ms', 1000))
                 except (TypeError, ValueError):
                     _ct = 1000.0
                 skewed = (not synced) or (isinstance(off, (int, float)) and abs(off) > _ct)
@@ -16604,7 +16623,7 @@ def handle_self_status():
         al = load(AUDIT_LOG_FILE)
         out['audit_log'] = {
             'entries':         len(al.get('entries') or []),
-            'retention_days':  int((load(CONFIG_FILE) or {}).get('audit_log_retention_days') or 90),
+            'retention_days':  int(_config_ro().get('audit_log_retention_days') or 90),
         }
         arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
         if arch.exists():
@@ -18440,7 +18459,7 @@ def handle_custom_cmd():
     # v3.7.0 maker-checker: when change approval is enabled, an arbitrary exec
     # is parked as a pending confirmation that a *different* admin must approve,
     # rather than queued immediately.
-    if (load(CONFIG_FILE) or {}).get('change_approval_enabled'):
+    if _config_ro().get('change_approval_enabled'):
         conf_ids = []
         for dev_id in ids:
             if dev_id not in devices:
@@ -19562,7 +19581,7 @@ def handle_proxmox_list(guest_type: str) -> None:
 
     respond(200, {'enabled': True, 'configured': True,
                   'node': pc['node'], 'guests': guests,
-                  'lifecycle': bool((load(CONFIG_FILE) or {}).get('proxmox_lifecycle_enabled'))})
+                  'lifecycle': bool(_config_ro().get('proxmox_lifecycle_enabled'))})
 
 
 def handle_proxmox_action(guest_type: str, rest: str) -> None:
@@ -25140,7 +25159,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             # (temp_normal auto-resolves the open temp_high). Threshold is
             # configurable (default 85 C); fires once when any sensor crosses it.
             try:
-                _t_thresh = float((load(CONFIG_FILE) or {}).get('temp_alert_threshold_c', 85))
+                _t_thresh = float(_config_ro().get('temp_alert_threshold_c', 85))
             except (TypeError, ValueError):
                 _t_thresh = 85.0
             _hot = [t for t in (safe.get('temps') or [])
@@ -25214,7 +25233,7 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             # cert_expiry_alerts_enabled) and only for the host's OWN service
             # certs, never the CA trust bundle. Coalesced to ONE alert per host
             # (soonest cert + a count) so it can't flood, edge-triggered.
-            if (load(CONFIG_FILE) or {}).get('cert_expiry_alerts_enabled'):
+            if _config_ro().get('cert_expiry_alerts_enabled'):
                 soon = now + 21 * 86400
                 _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
                        '/usr/share/ca-certificates', '/etc/ca-certificates')
@@ -27246,7 +27265,7 @@ def _compute_attention():
     _pbk_guests = _pbk.get('guests') if isinstance(_pbk, dict) else None
     if _pbk_guests:
         try:
-            _warn_days = int((load(CONFIG_FILE) or {}).get('proxmox_backup_warn_days', 7))
+            _warn_days = int(_config_ro().get('proxmox_backup_warn_days', 7))
         except Exception:
             _warn_days = 7
         for g in _pbk_guests:
@@ -31081,7 +31100,7 @@ def handle_apikeys_create():
     # keys aren't created immortal by default.
     if expires_at is None:
         try:
-            dd = int((load(CONFIG_FILE) or {}).get('apikey_default_expiry_days') or 0)
+            dd = int(_config_ro().get('apikey_default_expiry_days') or 0)
         except (TypeError, ValueError):
             dd = 0
         if dd > 0:
@@ -34328,7 +34347,7 @@ def handle_alerts_list():
         'summary': _alerts_summary(all_alerts),
         # v4.1.0 (#56): tells the UI whether to prompt for an optional comment
         # when acking. Default on.
-        'ack_comment_enabled': bool((load(CONFIG_FILE) or {}).get('ack_comment_enabled', True)),
+        'ack_comment_enabled': bool(_config_ro().get('ack_comment_enabled', True)),
     })
 
 
@@ -36820,7 +36839,7 @@ def _do_snmp_poll(dev_id, dev):
         # snmp_failures_before_alert (default 2 = unchanged), the SNMP sibling
         # of the monitor failures_before_alert flap-dampening knob.
         try:
-            _snmp_need = max(2, min(72, int((load(CONFIG_FILE) or {}).get('snmp_failures_before_alert', 2) or 2)))
+            _snmp_need = max(2, min(72, int(_config_ro().get('snmp_failures_before_alert', 2) or 2)))
         except (TypeError, ValueError):
             _snmp_need = 2
         if is_monitored and prev_fails == _snmp_need - 1 and new_fails == _snmp_need:
@@ -39894,7 +39913,7 @@ def refresh_kev_epss_if_due(force=False):
     feeds — up to ~60s stall — and every request arriving during that window
     also passed the stale gate, re-downloading in a daily thundering herd."""
     now = int(time.time())
-    last = int((load(CONFIG_FILE) or {}).get('last_kev_epss_refresh', 0))
+    last = int(_config_ro().get('last_kev_epss_refresh', 0))
     if not force and (now - last) < KEV_EPSS_INTERVAL:
         return
     with _LockedUpdate(CONFIG_FILE) as cfg_w:
@@ -41480,7 +41499,7 @@ def _metric_failures_before_alert():
     (the metrics sibling of the monitor / SNMP flap-dampening knob). 1 (default)
     = alert on the first breach, exactly as before."""
     try:
-        return max(1, min(10, int((load(CONFIG_FILE) or {}).get('metric_failures_before_alert', 1) or 1)))
+        return max(1, min(10, int(_config_ro().get('metric_failures_before_alert', 1) or 1)))
     except (TypeError, ValueError):
         return 1
 
