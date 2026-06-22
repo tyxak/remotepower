@@ -202,7 +202,9 @@ A few controls worth knowing about:
   upgrade without devices flapping offline.
 - **Self-update script** (Settings → Install) — an absolute path the **Run
   update** button executes; see [upgrading.md](upgrading.md).
-- **Backup encryption** — AES-256-GCM at rest via `RP_BACKUP_PASSPHRASE`, plus a
+- **Backup encryption** — AES-256-GCM at rest via `RP_BACKUP_PASSPHRASE` (put it
+  in `/etc/remotepower/api.env`, root-owned `0600` — **not** an inline
+  `Environment=` line in the unit, which is overwritten on every redeploy), plus a
   Server status → Backup button to encrypt existing archives.
 - **NOC Status Board** and the **Network Metrics** page give glanceable
   fleet-wide views for large estates.

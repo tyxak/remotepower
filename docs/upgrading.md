@@ -27,6 +27,14 @@ restarting the service the way your install expects, so it works for git, packag
 and container setups alike. The button's output is shown on success or failure.
 Self-update stays disabled until you set the script path.
 
+A ready-made, install-aware script ships in the repo at
+`packaging/remotepower-server-update.sh`. It auto-detects the install type (git
+checkout, pacman/AUR, or apt), pulls the new version, and restarts the SCGI
+worker. Because the API runs unprivileged, the script re-execs itself under
+scoped passwordless `sudo` — its header has the two install commands (drop it in
+`/usr/local/sbin/` and add a one-line sudoers entry for the API user). Then set
+the path to `/usr/local/sbin/remotepower-server-update`.
+
 The storage layout migrates itself transparently on first start after an upgrade
 (including the v5.0.0 promotion of a few per-device blobs), so there's nothing to
 run by hand.

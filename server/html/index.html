@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.0.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.0.1">
 
 </head>
 <body>
@@ -1180,8 +1180,9 @@
               <summary class="fw-600 pointer">Guided self-update (advanced)</summary>
               <div class="mt-8">
                 <p class="hint">Optionally point this at a server-side update script (absolute path). When set, "Run update now" executes it — your script pulls the new version and restarts the service the way your install expects (git / package / container). It runs directly, never through a shell, with no arguments. Leave empty to keep self-update disabled.</p>
+                <p class="hint">A ready-made, install-aware script ships in the repo at <code>packaging/remotepower-server-update.sh</code> (auto-detects git / pacman / apt and restarts the worker). Install it and grant the API user scoped passwordless sudo — the script's header has the two commands. Then set the path below to <code>/usr/local/sbin/remotepower-server-update</code>.</p>
                 <label class="form-label" for="self-update-cmd">Update script</label>
-                <input type="text" id="self-update-cmd" class="form-input mw-380 ff-mono" placeholder="/usr/local/sbin/remotepower-update.sh">
+                <input type="text" id="self-update-cmd" class="form-input mw-380 ff-mono" placeholder="/usr/local/sbin/remotepower-server-update">
                 <div class="mt-8">
                   <button class="btn-icon" data-action="saveSelfUpdateCmd">Save script path</button>
                   <button class="btn-shutdown" data-action="runSelfUpdate" id="run-selfupdate-btn" title="Run the configured update script now">Run update now</button>
@@ -2763,7 +2764,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.0.0 ctrlmatters mutual tls mtls client certificate encrypted backup passphrase break-glass two-person vault reveal api key rate limit disk watchdog webhook dead-letter queue dlq retry replay maintenance mode rollback bulk delete tag per-command timeout version compatibility osv batching snooze run diagnostics clipboard">
+          <details class="doc-card" open data-keywords="release notes changelog v5.0.1 tempermatters stability polish bugfix sqlite postgres backend exists ssh key drift proxmox snapshot host config current duplicate alert coalesce agent stopped started notification noise api key edit custom check edit backup passphrase environmentfile self-update script">
+            <summary><strong>What's new — v5.0.1 "TemperMatters"</strong> — a stability + polish release that tempers v5.0.0: fixes a class of bugs that silently broke features on the SQLite/PostgreSQL backend, makes upgrades much quieter, and adds Edit buttons for API keys and custom checks (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.0.1 is all hardening and polish — no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.0.1</code>).</p>
+              <ul>
+                <li><strong>Backend-correctness sweep.</strong> Fixed a class of presence-checks on database-backed storage that silently read empty under the SQLite/PostgreSQL backend — the <strong>SSH-key drift audit</strong>, <strong>Proxmox stale-snapshot</strong> alerts, and the device drawer's <strong>host-config "current state"</strong> view + export now work on every backend.</li>
+                <li><strong>Quieter upgrades.</strong> Duplicate open alerts for the same condition now <strong>coalesce</strong> into one row instead of stacking after a restart, and <strong>agent stop/start</strong> events no longer alert or webhook by default (they're expected upgrade churn — still in Recent Activity, re-enableable in Settings → Notifications).</li>
+                <li><strong>Edit in place.</strong> <strong>API keys</strong> can be edited (name, role, expiry, rate limit) without deleting + regenerating the secret and breaking your scripts; <strong>custom checks</strong> gained an Edit button too.</li>
+                <li><strong>Backups survive redeploys.</strong> <code>RP_BACKUP_PASSPHRASE</code> now loads from <code>/etc/remotepower/api.env</code> via the unit's <code>EnvironmentFile=</code>, so an upgrade can't wipe it and silently drop backup encryption. A turnkey <code>packaging/remotepower-server-update.sh</code> ships for the "Run update now" button.</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.0.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.0.0 ctrlmatters mutual tls mtls client certificate encrypted backup passphrase break-glass two-person vault reveal api key rate limit disk watchdog webhook dead-letter queue dlq retry replay maintenance mode rollback bulk delete tag per-command timeout version compatibility osv batching snooze run diagnostics clipboard">
             <summary><strong>What's new — v5.0.0 "CTRLMatters"</strong> — control-plane hardening: opt-in mutual TLS for agents, encrypted DR backups, break-glass vault reveals and per-API-key rate limits, plus a webhook dead-letter queue, runtime maintenance mode, bulk fleet ops, one-click rollout rollback and cross-device CVE batching (every new control is opt-in; no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.0.0 hardens the path between operators, the server and agents — every new control is <strong>opt-in and off by default</strong>, so existing installs keep working unchanged. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.0.0</code>).</p>
@@ -2826,21 +2840,7 @@
               <p class="hint">See <code>docs/install.md</code>, <code>docs/dmarc.md</code> and <code>docs/v4.8.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.7.0 integrations homelab software pihole adguard truenas unifi home assistant proxmox backup server kubernetes k3s vcenter esxi unraid traefik nginx proxy manager caddy netdata grafana uptime kuma jellyfin plex nextcloud qbittorrent transmission deluge sabnzbd nzbget sonarr radarr prowlarr lidarr servarr bazarr overseerr jellyseerr connector ssrf integration_down widget show homelab containerized agent docker host compose ghcr">
-            <summary><strong>What's new — v4.7.0 "IntegrationsMatters"</strong> — monitor the popular homelab/fleet software you already run (26 integrations), plus run the agent as a container to watch a Docker host (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.7.0 reaches outward: a new server-side <strong>integration subsystem</strong> polls popular self-hosted software for health and folds it into Alerts, and the Linux agent can now run <strong>as a container</strong> to monitor a Docker host with no install. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.7.0</code>).</p>
-              <ul>
-                <li><strong>26 homelab software integrations.</strong> Pi-hole, AdGuard, TrueNAS, UniFi, Home Assistant, Proxmox Backup Server, Kubernetes/k3s, vCenter/ESXi, Unraid, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, and Overseerr/Jellyseerr. Set them up under <strong>Settings → Integrations</strong>: pick a type, add a URL + token, Test.</li>
-                <li><strong>Health → Alerts + dashboard.</strong> An unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</li>
-                <li><strong>Read-only &amp; SSRF-guarded.</strong> Every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only.</li>
-                <li><strong>Containerized agent.</strong> <em>Enroll device → Generate Docker compose</em>, then <code>docker compose up -d</code> on a Docker host. The agent reads the host's facts (shared namespaces, host rootfs mounted read-only), names itself after the host, and persists credentials in a volume. Multi-arch image at <code>ghcr.io/tyxak/remotepower-agent</code>. Standard caps, no <code>--privileged</code>.</li>
-                <li><strong>Enterprise declutter.</strong> A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling, hides the section, and removes the widget.</li>
-              </ul>
-              <p class="hint">See <code>docs/integrations.md</code> and <code>docs/docker-agent.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -4285,7 +4285,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">About</div><div class="page-subtitle">RemotePower — self-hosted device management</div>
         <div class="settings-section isl-124"><div class="isl-125"><img src="static/img/logo-square.png" alt="RemotePower" class="isl-126"><div><div class="isl-127">RemotePower</div><div class="isl-100">Server version: <span id="about-server-version">—</span></div></div></div>
         <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr><tr><td class="isl-130">Report a bug</td><td><button class="btn-icon" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data."><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M12 8v4"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="10"/></svg> Report an issue</button></td></tr></table>
-        <p class="isl-131">Self-hosted remote device management — shutdown, reboot, Wake-on-LAN, monitoring, scheduled commands, and agent self-update.<br><br>No inbound firewall rules on clients. Agents poll the server over HTTPS. Flat JSON storage, Nginx + Python CGI. No Docker, no Node.js.</p></div>
+        <p class="isl-131">Self-hosted remote device management — shutdown, reboot, Wake-on-LAN, monitoring, scheduled commands, and agent self-update.<br><br>No inbound firewall rules on clients. Agents poll the server over HTTPS. Runs on Nginx + Python (classic CGI or the optional persistent SCGI worker); storage is flat JSON by default or an optional SQLite / PostgreSQL backend. Deploy from source or the official multi-arch Docker image. No Node.js, no build step.</p></div>
         <div class="settings-section dyk-card" id="about-tip-card">
           <div class="dyk-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>
@@ -6169,7 +6169,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="ansible-run-output" class="mt-8"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-run-modal">Close</button><button class="btn-primary" id="ansible-run-btn" data-action="runAnsiblePlaybook">Run</button></div>
 </div></div>
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="custom-checks-modal-title" id="custom-checks-modal"><div class="modal modal-wide"><div class="modal-title" id="custom-checks-modal-title">Custom checks</div><div class="page-subtitle">Operator-defined checks evaluated from what the agent already reports, assignable to a host, tag, group, or the whole fleet. They appear per-host in the Checks view.</div><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input type="text" id="cc-name" class="form-input" placeholder="nginx must run"></div><div class="form-group"><label class="form-label">Type</label><select id="cc-type" class="form-input" data-change="ccTypeChanged"><optgroup label="Evaluated on the server"><option value="process">Process running</option><option value="port_open">Port open</option><option value="port_closed">Port closed</option></optgroup><optgroup label="Evaluated on the host (agent)"><option value="file_present">File present</option><option value="file_absent">File absent</option><option value="job_fresh">Job freshness (file age)</option><option value="log_errors">Log error rate</option></optgroup></select></div></div><div class="form-row"><div class="form-group"><label class="form-label" id="cc-param-label">Process name</label><input type="text" id="cc-param" class="form-input" placeholder="nginx"></div><div class="form-group"><label class="form-label">Apply to</label><select id="cc-kind" class="form-input" data-change="ccKindChanged"><option value="all">Whole fleet</option><option value="host">A host</option><option value="tag">A tag</option><option value="group">A group</option></select></div><div class="form-group hidden" id="cc-target-grp"><label class="form-label" id="cc-target-label">Target</label><input type="text" id="cc-target" class="form-input" placeholder=""></div></div><div class="form-row hidden" id="cc-log-grp"><div class="form-group"><label class="form-label">Window (min)</label><input type="number" id="cc-window" class="form-input" min="1" max="1440" placeholder="15"></div><div class="form-group"><label class="form-label">Warn at</label><input type="number" id="cc-warn" class="form-input" min="1" placeholder="1"></div><div class="form-group"><label class="form-label">Crit at</label><input type="number" id="cc-crit" class="form-input" min="1" placeholder="10"></div><div class="form-group"><label class="form-label">Unit (optional)</label><input type="text" id="cc-unit" class="form-input" placeholder="nginx.service"></div></div><div class="form-row hidden" id="cc-job-grp"><div class="form-group"><label class="form-label">Max age (hours)</label><input type="number" id="cc-maxage" class="form-input" min="1" max="8760" placeholder="24"></div></div><div class="modal-actions"><button class="btn-primary" data-action="saveCustomCheck">Add check</button></div><div id="cc-list" class="mt-16"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="custom-checks-modal">Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="custom-checks-modal-title" id="custom-checks-modal"><div class="modal modal-wide"><div class="modal-title" id="custom-checks-modal-title">Custom checks</div><div class="page-subtitle">Operator-defined checks evaluated from what the agent already reports, assignable to a host, tag, group, or the whole fleet. They appear per-host in the Checks view.</div><div class="form-row"><div class="form-group"><label class="form-label">Name</label><input type="text" id="cc-name" class="form-input" placeholder="nginx must run"></div><div class="form-group"><label class="form-label">Type</label><select id="cc-type" class="form-input" data-change="ccTypeChanged"><optgroup label="Evaluated on the server"><option value="process">Process running</option><option value="port_open">Port open</option><option value="port_closed">Port closed</option></optgroup><optgroup label="Evaluated on the host (agent)"><option value="file_present">File present</option><option value="file_absent">File absent</option><option value="job_fresh">Job freshness (file age)</option><option value="log_errors">Log error rate</option></optgroup></select></div></div><div class="form-row"><div class="form-group"><label class="form-label" id="cc-param-label">Process name</label><input type="text" id="cc-param" class="form-input" placeholder="nginx"></div><div class="form-group"><label class="form-label">Apply to</label><select id="cc-kind" class="form-input" data-change="ccKindChanged"><option value="all">Whole fleet</option><option value="host">A host</option><option value="tag">A tag</option><option value="group">A group</option></select></div><div class="form-group hidden" id="cc-target-grp"><label class="form-label" id="cc-target-label">Target</label><input type="text" id="cc-target" class="form-input" placeholder=""></div></div><div class="form-row hidden" id="cc-log-grp"><div class="form-group"><label class="form-label">Window (min)</label><input type="number" id="cc-window" class="form-input" min="1" max="1440" placeholder="15"></div><div class="form-group"><label class="form-label">Warn at</label><input type="number" id="cc-warn" class="form-input" min="1" placeholder="1"></div><div class="form-group"><label class="form-label">Crit at</label><input type="number" id="cc-crit" class="form-input" min="1" placeholder="10"></div><div class="form-group"><label class="form-label">Unit (optional)</label><input type="text" id="cc-unit" class="form-input" placeholder="nginx.service"></div></div><div class="form-row hidden" id="cc-job-grp"><div class="form-group"><label class="form-label">Max age (hours)</label><input type="number" id="cc-maxage" class="form-input" min="1" max="8760" placeholder="24"></div></div><div class="modal-actions"><button class="btn-primary" id="cc-save-btn" data-action="saveCustomCheck">Add check</button></div><div id="cc-list" class="mt-16"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="custom-checks-modal">Close</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mon-history-title" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="notes-modal-title" id="notes-modal"><div class="modal"><div class="modal-title" id="notes-modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
 <!-- v3.5.0: create-site + assign-device-to-site modals -->
@@ -7612,19 +7612,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.0.0"></script>
-<script defer src="static/js/app.js?v=5.0.0"></script>
+<script defer src="static/js/i18n.js?v=5.0.1"></script>
+<script defer src="static/js/app.js?v=5.0.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.0.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.0.0"></script>
-<script defer src="static/js/app-containers.js?v=5.0.0"></script>
-<script defer src="static/js/app-network.js?v=5.0.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.0.1"></script>
+<script defer src="static/js/app-cmdb.js?v=5.0.1"></script>
+<script defer src="static/js/app-containers.js?v=5.0.1"></script>
+<script defer src="static/js/app-network.js?v=5.0.1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.0.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.0.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.0.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.0.1"></script>
+<script defer src="static/js/app-compliance.js?v=5.0.1"></script>
+<script defer src="static/js/app-integrations.js?v=5.0.1"></script>
 
-<script defer src="static/js/sw-register.js?v=5.0.0"></script>
+<script defer src="static/js/sw-register.js?v=5.0.1"></script>
 </body>
 </html>

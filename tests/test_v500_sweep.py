@@ -212,5 +212,89 @@ class TestSourceGuards(unittest.TestCase):
         self.assertIn("_SSRFGuardHTTPSConnection", PROXMOX_SRC)
 
 
+class TestAlertCoalescing(unittest.TestCase):
+    """A repeat firing of the same condition must coalesce into the existing
+    OPEN alert, not stack a duplicate row (the duplicate integration_down rows
+    that appeared after an upgrade restart purged the flap flag)."""
+
+    def setUp(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        api.save(api.CONFIG_FILE, {})
+
+    def _open_alerts(self, event=None):
+        rows = api.load(api.ALERTS_FILE).get('alerts', [])
+        return [a for a in rows if not a.get('resolved_at')
+                and (event is None or a.get('event') == event)]
+
+    def test_duplicate_integration_down_coalesces(self):
+        payload = {'label': 'Radarr', 'type': 'servarr', 'detail': 'unhealthy',
+                   'severity': 'medium', 'integration_id': 'radarr-1'}
+        a1 = api._record_alert('integration_down', dict(payload))
+        a2 = api._record_alert('integration_down', dict(payload))
+        self.assertIsNotNone(a1)
+        self.assertIsNotNone(a2)
+        opens = self._open_alerts('integration_down')
+        self.assertEqual(len(opens), 1, 'duplicate integration_down must coalesce')
+        self.assertEqual(opens[0].get('count'), 2, 'occurrence counter must bump')
+        self.assertEqual(a1['id'], a2['id'], 'second firing returns the same row')
+
+    def test_distinct_integrations_do_not_coalesce(self):
+        api._record_alert('integration_down', {'label': 'Radarr', 'severity': 'medium',
+                                               'integration_id': 'radarr-1'})
+        api._record_alert('integration_down', {'label': 'Sonarr', 'severity': 'medium',
+                                               'integration_id': 'sonarr-1'})
+        self.assertEqual(len(self._open_alerts('integration_down')), 2,
+                         'different integrations are different conditions')
+
+    def test_resolved_alert_does_not_absorb_new_firing(self):
+        a1 = api._record_alert('integration_down', {'label': 'Radarr', 'severity': 'medium',
+                                                    'integration_id': 'radarr-1'})
+        rows = api.load(api.ALERTS_FILE)
+        rows['alerts'][0]['resolved_at'] = int(time.time())
+        api.save(api.ALERTS_FILE, rows)
+        api._record_alert('integration_down', {'label': 'Radarr', 'severity': 'medium',
+                                              'integration_id': 'radarr-1'})
+        self.assertEqual(len(self._open_alerts('integration_down')), 1,
+                         'a new firing after resolution opens a fresh alert')
+
+
+class TestAgentLifecycleDefaultOff(unittest.TestCase):
+    """agent_stopped/started must NOT alert or webhook by default — they are
+    expected upgrade churn. Recent Activity stays on as an audit trail."""
+
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {})   # no saved channel_routing → defaults apply
+
+    def test_agentlifecycle_alerts_and_webhook_off_by_default(self):
+        self.assertFalse(api._channel_allowed('agent_stopped', 'alerts'))
+        self.assertFalse(api._channel_allowed('agent_stopped', 'webhook'))
+        self.assertFalse(api._channel_allowed('agent_started', 'alerts'))
+        self.assertFalse(api._channel_allowed('agent_started', 'webhook'))
+
+    def test_agentlifecycle_recent_activity_on_by_default(self):
+        self.assertTrue(api._channel_allowed('agent_stopped', 'recent_activity'))
+
+    def test_agent_stopped_records_no_alert_by_default(self):
+        api.save(api.ALERTS_FILE, {'alerts': []})
+        result = api._record_alert('agent_stopped', {'device_id': 'd', 'name': 'h'})
+        self.assertIsNone(result, 'agent_stopped must not create an inbox alert by default')
+
+
+class TestApiUnitEnvironmentFile(unittest.TestCase):
+    """The SCGI worker unit must read operator env/secrets from an external file.
+
+    deploy-server.sh / install-server.sh overwrite the unit on every redeploy, so
+    an inline `Environment=RP_BACKUP_PASSPHRASE=...` edit is silently wiped on the
+    next update. An optional EnvironmentFile keeps the operator's passphrase (and
+    other secrets) in a file the deploy never touches — mirrors the agent unit's
+    `EnvironmentFile=-/etc/remotepower/agent.env`.
+    """
+
+    def test_unit_loads_operator_env_file(self):
+        unit = (_ROOT / "server" / "conf" / "remotepower-api.service").read_text()
+        # `-` prefix → optional, no boot failure when the file is absent.
+        self.assertIn("EnvironmentFile=-/etc/remotepower/api.env", unit)
+
+
 if __name__ == "__main__":
     unittest.main()

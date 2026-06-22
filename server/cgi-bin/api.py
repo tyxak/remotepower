@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.0.0'
+SERVER_VERSION = '5.0.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -4570,6 +4570,13 @@ CHANNEL_DEFAULT = {c: True for c in CHANNELS}
 # wins over this default.
 CHANNEL_KIND_DEFAULTS = {
     'new_port': {'needs_attention': False, 'alerts': False, 'webhook': False},
+    # Agent stop/start is expected churn: every server OR agent upgrade restarts
+    # the agent, which would otherwise fire a high-severity alert + webhook for
+    # every host on each rollout (the "so much noise when you upgrade" problem).
+    # Default it to Recent Activity ONLY (keeps an audit trail) with alerts /
+    # webhook / needs_attention off. Operators who page on lifecycle can flip
+    # them back on in Settings → Notifications; a saved choice always wins.
+    'agentlifecycle': {'needs_attention': False, 'alerts': False, 'webhook': False},
 }
 
 
@@ -4937,6 +4944,30 @@ def _alert_title(event, payload):
     return f'{event}: {name}'
 
 
+# Fields that identify *which* thing an alert is about, beyond its event type +
+# device. Two open alerts for the same event + device + these identity values
+# are the SAME ongoing condition and must coalesce into one row, never stack up.
+_ALERT_IDENTITY_FIELDS = (
+    'integration_id', 'unit', 'metric', 'target', 'path', 'image', 'tag',
+    'ip', 'label', 'port', 'proto', 'script_name', 'cve_id', 'container', 'rtype',
+)
+
+
+def _alert_identity(event, summary, dev_id):
+    """A hashable identity for de-duplicating open alerts.
+
+    (event, device_id, <present identity fields>). Used by _record_alert to
+    coalesce a repeat firing into the existing OPEN alert instead of appending a
+    duplicate row. This is defence-in-depth: most events are flap-dampened
+    upstream, but any path that loses that dampening state (a server restart /
+    upgrade dropping an in-memory or purged `*_notified` flag) used to re-fire
+    and stack a second identical open alert. Reference: duplicate open
+    integration_down rows after an upgrade restart purged integration_notified."""
+    s = summary or {}
+    ident = tuple((k, s.get(k)) for k in _ALERT_IDENTITY_FIELDS if s.get(k) is not None)
+    return (str(event), str(dev_id or ''), ident)
+
+
 def _assign_alertid(store, alert):
     """v4.1.0 (#54): stamp a stable, monotonic, zero-padded id ('alertid_00001')
     on `alert` from a persisted counter in the open ALERTS_FILE `store`. The
@@ -5034,6 +5065,24 @@ def _record_alert(event, payload):
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             alerts = store.setdefault('alerts', [])
+            # Coalesce into an existing OPEN alert for the same condition rather
+            # than stacking a duplicate row. Scan newest-first; an alert is
+            # "open" while resolved_at is unset. Refresh its timestamp and bump
+            # an occurrence counter so the inbox shows one live row, not N.
+            # Only coalesce when the alert is identifiable (has a device_id or at
+            # least one identity field) — two anonymous same-event alerts may be
+            # genuinely distinct occurrences, so they still append.
+            ident = _alert_identity(event, summary, alert['device_id'])
+            if ident[1] or ident[2]:
+                for ex in reversed(alerts):
+                    if ex.get('resolved_at'):
+                        continue
+                    if _alert_identity(ex.get('event'), ex.get('payload') or {},
+                                       ex.get('device_id')) == ident:
+                        ex['ts'] = alert['ts']
+                        ex['count'] = int(ex.get('count') or 1) + 1
+                        ex['last_seen'] = alert['ts']
+                        return ex
             _assign_alertid(store, alert)
             alerts.append(alert)
             if len(alerts) > MAX_ALERTS:
@@ -7735,11 +7784,17 @@ def _purge_device(dev_id):
         except Exception:
             pass
 
-        # host_config_current per-device file
+        # host_config_current per-device storage key. backend_exists (not
+        # Path.exists) so it's found under the SQLite/Postgres backend too; the
+        # file unlink is the JSON-backend path, the save({}) clears the DB row
+        # (no storage delete API exists) so deleting a device doesn't orphan it.
         try:
             hcc = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
-            if hcc.exists():
-                hcc.unlink()
+            if backend_exists(hcc):
+                try:
+                    hcc.unlink()
+                except (FileNotFoundError, OSError):
+                    save(hcc, {})
         except Exception:
             pass
 
@@ -11514,7 +11569,7 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] process watch eval failed dev={dev_id}: {e}\n")
     _hcc_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
-    if _hcc_path.exists():
+    if backend_exists(_hcc_path):
         try:
             _hcc = load(_hcc_path) or {}
             _users = (_hcc.get('current') or {}).get('users') or []
@@ -13306,13 +13361,24 @@ def _persist_integration_results(results):
     # skipped by the per-cycle time budget this round.
     configured = {str(i.get('id') or i.get('label'))
                   for i in _get_integrations(cfg) if isinstance(i, dict)}
-    for stale in [k for k in latest if k not in configured]:
-        latest.pop(stale, None); hist.pop(stale, None)
+    # Only purge state for no-longer-configured integrations when we actually
+    # have a configured set. A transient empty/partial config load (e.g. during
+    # an upgrade restart) would otherwise drop EVERY `*_notified` flap flag, so
+    # the next healthy poll sees was_down=False for a still-down target and
+    # re-fires integration_down — stacking a duplicate open alert + webhook.
+    # Leaving stale state when configured is empty is harmless and self-heals
+    # the moment a real config load returns.
+    if configured:
+        for stale in [k for k in latest if k not in configured]:
+            latest.pop(stale, None); hist.pop(stale, None)
     state['latest'] = latest
     state['history'] = hist
     save(INTEG_STATE_FILE, state)
     if dirty_cfg:
-        cfg['integration_notified'] = {k: v for k, v in notified.items() if k in configured}
+        if configured:
+            cfg['integration_notified'] = {k: v for k, v in notified.items() if k in configured}
+        else:
+            cfg['integration_notified'] = notified
         save(CONFIG_FILE, cfg)
     for event, payload in pending:
         try:
@@ -27032,7 +27098,7 @@ def _compute_attention():
             pass
 
     # v2.7.0: stale Proxmox snapshots.
-    if PROXMOX_SNAPSHOT_CACHE.exists():
+    if backend_exists(PROXMOX_SNAPSHOT_CACHE):
         try:
             snap_cache = load(PROXMOX_SNAPSHOT_CACHE) or {}
             warn_days  = int(cfg.get('proxmox_snapshot_warn_days', 7))
@@ -31032,6 +31098,52 @@ def handle_apikeys_delete(kid):
     apikeys = load(APIKEYS_FILE)
     if kid not in apikeys: respond(404, {'error': 'API key not found'})
     del apikeys[kid]; save(APIKEYS_FILE, apikeys)
+    respond(200, {'ok': True})
+
+
+def handle_apikeys_update(kid):
+    """v5.0.1: PATCH /api/apikeys/{kid} — edit a key's metadata in place
+    (name / role / rate_limit / expiry). The secret itself is immutable and
+    never touched, so consumers keep working — you no longer have to delete +
+    regenerate (which mints a new secret and breaks scripts) just to extend an
+    expiry or change the rate limit. Only the fields present in the body change."""
+    require_admin_auth()
+    if method() not in ('PATCH', 'POST'): respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(kid): respond(404, {'error': 'API key not found'})
+    apikeys = load(APIKEYS_FILE)
+    if kid not in apikeys: respond(404, {'error': 'API key not found'})
+    body = get_json_body()
+    rec = apikeys[kid]
+    if 'name' in body:
+        name = _sanitize_str(body.get('name', ''), 64)
+        if not name: respond(400, {'error': 'name required'})
+        rec['name'] = name
+    if 'role' in body:
+        role = body.get('role', 'admin')
+        if role not in APIKEY_ROLES:
+            respond(400, {'error': "role must be 'admin', 'viewer', or 'mcp'"})
+        rec['role'] = role
+    if 'rate_limit' in body:
+        try:
+            rate_limit = int(body.get('rate_limit') or 0)
+        except (TypeError, ValueError):
+            respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
+        if rate_limit < 0 or rate_limit > 100000:
+            respond(400, {'error': 'rate_limit must be 0..100000'})
+        rec['rate_limit'] = rate_limit
+    if 'expires_at' in body:
+        expires_at = body.get('expires_at')
+        if expires_at in (None, '', 0):
+            rec['expires_at'] = None          # clear → never expires
+        else:
+            try:
+                expires_at = int(expires_at)
+            except (ValueError, TypeError):
+                respond(400, {'error': 'expires_at must be a unix timestamp'})
+            if expires_at <= int(time.time()):
+                respond(400, {'error': 'expires_at must be in the future'})
+            rec['expires_at'] = expires_at
+    save(APIKEYS_FILE, apikeys)
     respond(200, {'ok': True})
 
 
@@ -45840,6 +45952,8 @@ def _dispatch(pi, m):
         handle_force_package_scan(pi[len('/api/devices/'):-len('/scan-packages')])
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':
         handle_apikeys_delete(pi[len('/api/apikeys/'):])
+    elif pi.startswith('/api/apikeys/') and m in ('PATCH', 'POST'):
+        handle_apikeys_update(pi[len('/api/apikeys/'):])
     elif pi.startswith('/api/patch-report/device/') and m == 'GET':
         handle_patch_report_device(pi[len('/api/patch-report/device/'):])
     elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
@@ -46497,7 +46611,7 @@ def handle_device_host_config_get(dev_id):
     current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
     current_data = {}
     collected_at = hc.get('current_collected_at')
-    if current_path.exists():
+    if backend_exists(current_path):
         try:
             raw = load(current_path) or {}
             current_data = raw.get('current', {})
@@ -46564,7 +46678,7 @@ def handle_device_host_config_current(dev_id):
     current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
     current_data = {}
     collected_at = hc.get('current_collected_at')
-    if current_path.exists():
+    if backend_exists(current_path):
         try:
             raw = load(current_path) or {}
             current_data = raw.get('current', {})
@@ -46612,7 +46726,7 @@ def handle_host_config_export():
         hc = dev.get('host_config') or {}
         current_data, collected_at = {}, hc.get('current_collected_at')
         cpath = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
-        if cpath.exists():
+        if backend_exists(cpath):
             try:
                 raw = load(cpath) or {}
                 current_data = raw.get('current', {})

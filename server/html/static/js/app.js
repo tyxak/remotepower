@@ -6183,7 +6183,8 @@ function _registerApiKeysTable() {
         exp = `<span class="${cls}">${pre}${new Date(k.expires_at*1000).toLocaleDateString()}</span>`;
       }
       const rate = k.rate_limit ? `${k.rate_limit}/min` : '<span class="hint">unlimited</span>';
-      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`;
+      const editBtn = `<button class="btn-icon" data-action="editApiKey" data-arg="${escAttr(k.id)}" title="Edit name, role, expiry and rate limit (the key secret stays the same)"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Edit</button>`;
+      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td>${editBtn} <button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`;
     },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
@@ -6318,14 +6319,50 @@ async function clearDispatchLog() {
   else toast(r?.error || 'Failed to clear', 'error');
 }
 
+let _apiKeysCache = [];
+let _apiKeyEditId = null;
 async function loadApiKeys() {
   _registerApiKeysTable();
   const data = await api('GET', '/apikeys');
   if (!data) return;
+  _apiKeysCache = Array.isArray(data) ? data : [];
   tableCtl.render('apikeys', data);
 }
-function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
-async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const body = {name, role}; const exVal = (document.getElementById('apikey-expires')?.value || '').trim(); if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } body.expires_at = ts; } const rlVal = parseInt(document.getElementById('apikey-rate')?.value || '0', 10); if (rlVal > 0) body.rate_limit = rlVal; const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+function _apiKeyModalTitle() { return document.getElementById('apikey-create-modal-title'); }
+function openApiKeyCreate() { _apiKeyEditId = null; const t = _apiKeyModalTitle(); if (t) t.textContent = 'Create API key'; document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; document.getElementById('apikey-result').style.display = 'none'; const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Create'; openModal('apikey-create-modal'); }
+function editApiKey(id) {
+  const k = _apiKeysCache.find(x => x.id === id);
+  if (!k) { toast('Key not found', 'error'); return; }
+  _apiKeyEditId = id;
+  const t = _apiKeyModalTitle(); if (t) t.textContent = 'Edit API key';
+  document.getElementById('apikey-name').value = k.name || '';
+  document.getElementById('apikey-role').value = k.role || 'admin';
+  const ex = document.getElementById('apikey-expires');
+  if (ex) ex.value = k.expires_at ? new Date(k.expires_at * 1000).toISOString().slice(0, 10) : '';
+  const rl = document.getElementById('apikey-rate'); if (rl) rl.value = k.rate_limit || '';
+  document.getElementById('apikey-result').style.display = 'none';   // never show a secret on edit
+  const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Save changes';
+  openModal('apikey-create-modal');
+}
+async function createApiKey() {
+  const name = document.getElementById('apikey-name').value.trim();
+  const role = document.getElementById('apikey-role').value;
+  if (!name) { toast('Name required', 'error'); return; }
+  const exVal = (document.getElementById('apikey-expires')?.value || '').trim();
+  let expires_at = null;
+  if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } expires_at = ts; }
+  const rlVal = parseInt(document.getElementById('apikey-rate')?.value || '0', 10);
+  // Edit mode: PATCH metadata in place; the key secret is never touched.
+  if (_apiKeyEditId) {
+    const body = {name, role, expires_at, rate_limit: rlVal > 0 ? rlVal : 0};
+    const data = await api('PATCH', '/apikeys/' + _apiKeyEditId, body);
+    if (data?.ok) { toast('Key updated', 'info'); closeModal('apikey-create-modal'); _apiKeyEditId = null; loadApiKeys(); } else toast(data?.error || 'Failed', 'error');
+    return;
+  }
+  const body = {name, role};
+  if (expires_at) body.expires_at = expires_at;
+  if (rlVal > 0) body.rate_limit = rlVal;
+  const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteApiKey(id) { if (!await uiConfirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 
 // ─── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -9378,12 +9415,19 @@ function ccTypeChanged() {
   document.getElementById('cc-log-grp')?.classList.toggle('hidden', t !== 'log_errors');
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
 }
-async function openCustomChecks() {
+let _ccCache = [];
+let _ccEditId = null;
+function _ccResetForm() {
+  _ccEditId = null;
   ['cc-name', 'cc-param', 'cc-target', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
   const k = document.getElementById('cc-kind'); if (k) k.value = 'all';
   const t = document.getElementById('cc-type'); if (t) t.value = 'process';
+  const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Add check';
   ccKindChanged(); ccTypeChanged();
+}
+async function openCustomChecks() {
+  _ccResetForm();
   openModal('custom-checks-modal');
   loadCustomCheckList();
 }
@@ -9392,11 +9436,26 @@ async function loadCustomCheckList() {
   if (!el) return;
   const data = await api('GET', '/checks/custom');
   const checks = (data && data.checks) || [];
+  _ccCache = checks;
   if (!checks.length) { el.innerHTML = '<div class="empty-state">No custom checks yet.</div>'; return; }
   const scope = c => c.target_kind === 'all' ? 'whole fleet' : `${c.target_kind}: ${escHtml(c.target)}`;
+  const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>`;
   el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
-    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><button class="btn-icon btn-xs c-danger-outline" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">Delete</button></td></tr>`).join('')
+    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td>${editBtn(c.id)} <button class="btn-icon btn-xs c-danger-outline" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">Delete</button></td></tr>`).join('')
   }</tbody></table></div>`;
+}
+function editCustomCheck(id) {
+  const c = (_ccCache || []).find(x => x.id === id);
+  if (!c) { toast('Check not found', 'error'); return; }
+  _ccEditId = id;
+  const setv = (eid, v) => { const e = document.getElementById(eid); if (e) e.value = (v === undefined || v === null) ? '' : v; };
+  setv('cc-name', c.name); setv('cc-type', c.type || 'process'); setv('cc-param', c.param);
+  setv('cc-kind', c.target_kind || 'all'); setv('cc-target', c.target);
+  setv('cc-window', c.window_min); setv('cc-warn', c.warn); setv('cc-crit', c.crit);
+  setv('cc-unit', c.unit); setv('cc-maxage', c.max_age_hours);
+  ccKindChanged(); ccTypeChanged();
+  const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Save changes';
+  const nm = document.getElementById('cc-name'); if (nm) nm.focus();
 }
 async function saveCustomCheck() {
   const body = {
@@ -9406,6 +9465,7 @@ async function saveCustomCheck() {
     target_kind: document.getElementById('cc-kind')?.value || 'all',
     target: document.getElementById('cc-target')?.value.trim() || '',
   };
+  if (_ccEditId) body.id = _ccEditId;   // update-in-place keyed on id
   if (!body.param) { toast('A value is required', 'error'); return; }
   const numOf = id => { const v = parseInt(document.getElementById(id)?.value, 10); return isNaN(v) ? undefined : v; };
   if (body.type === 'log_errors') {
@@ -9418,9 +9478,8 @@ async function saveCustomCheck() {
   }
   const r = await api('POST', '/checks/custom', body);
   if (r && r.ok) {
-    toast('Custom check added', 'success');
-    document.getElementById('cc-name').value = '';
-    document.getElementById('cc-param').value = '';
+    toast(_ccEditId ? 'Custom check saved' : 'Custom check added', 'success');
+    _ccResetForm();
     loadCustomCheckList();
   } else { toast((r && r.error) || 'Failed', 'error'); }
 }
@@ -11263,6 +11322,7 @@ function _ragRenderSearch(semantic) {
     </tr>`).join('');
   out.innerHTML = `
     <div class="meta-sm isl-778">${_ragSearchRows.length} result(s) · ${semantic ? 'lexical + semantic (embeddings)' : 'lexical (keyword)'} retrieval</div>
+    <div class="scrollable-table-wrap audit-scroll">
     <table class="fs-13">
       <thead id="ai-rag-results-thead"><tr>
         <th data-col="id">Source id</th>
@@ -11271,7 +11331,7 @@ function _ragRenderSearch(semantic) {
         <th>Excerpt</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
   tableCtl.wireSortOnly('ai-rag-results-thead', 'ai-rag-results', () => _ragRenderSearch(semantic));
 }
 

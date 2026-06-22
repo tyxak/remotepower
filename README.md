@@ -14,7 +14,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-5.0.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -89,7 +89,7 @@ PIN, like pairing a console controller.
 
 Deliberately small and **readable**: nginx + Python CGI + flat JSON files — around
 **66,000 lines** of server Python, one HTML file, one CSS file and a handful of
-hand-written JS files. No external database, no Node.js, no Redis, no Kubernetes,
+vanilla JS files. No external database, no Node.js, no Redis, no Kubernetes,
 **no build step, no bundler, no framework** — you can read every line. The whole
 `/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs
 running 5–50 devices, fine up to a few

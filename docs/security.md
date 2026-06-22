@@ -78,7 +78,7 @@ security-header set (HSTS preload, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy, Permissions-Policy, COOP/CORP), same-origin enforcement on
 state-changing requests, and the SSRF-safe fetch path were all verified live. A
 durable, release-over-release summary lives in the
-[`security-review-*.md`](security-review-4.10.0.md) files.
+[`security-review-*.md`](security-review-5.0.0.md) files.
 
 ### v4.0.0 hardening pass
 
@@ -134,7 +134,7 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-4.10.0.md](security-review-4.10.0.md).
+summarised in the latest, [security-review-5.0.0.md](security-review-5.0.0.md).
 The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
 OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
@@ -307,7 +307,7 @@ RemotePower is reviewed and scanned on an ongoing basis:
 
 - **Manual security reviews** of the server and agent every few releases
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-4.10.0.md](security-review-4.10.0.md)).
+  [security-review-5.0.0.md](security-review-5.0.0.md)).
 - **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
   Python codebase.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,

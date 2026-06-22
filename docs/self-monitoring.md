@@ -14,7 +14,7 @@ The Server status page (`/api/self/status`) closes the "who monitors the monitor
 
 **Audit log** — active entry count, configured retention in days, archive size if any entries have been evicted.
 
-**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs. v5.0.0 adds an **encryption** row (AES-256-GCM armed or plaintext, whether the crypto library is present) and **archive counts** (encrypted vs plaintext), plus an **"Encrypt existing backups"** button that converts the plaintext archives on disk with a passphrase you supply for that run only (it's never stored). For ongoing scheduled backups, set `RP_BACKUP_PASSPHRASE` in the server environment.
+**Backup** — last run timestamp + age, file path, size, retention setting, last-prune count. Empty section until the first backup runs. v5.0.0 adds an **encryption** row (AES-256-GCM armed or plaintext, whether the crypto library is present) and **archive counts** (encrypted vs plaintext), plus an **"Encrypt existing backups"** button that converts the plaintext archives on disk with a passphrase you supply for that run only (it's never stored). For ongoing scheduled backups, set `RP_BACKUP_PASSPHRASE` in the server environment — put it in `/etc/remotepower/api.env` (root-owned `0600`), which the `remotepower-api` worker unit loads via `EnvironmentFile=`. Don't add it as an inline `Environment=` line in the unit: the deploy/update scripts overwrite the unit file, so an inline edit is wiped on the next redeploy.
 
 **Maintenance mode** (v5.0.0) — when on, new command dispatch is paused (heartbeats and browsing keep working). Surfaced as a banner; toggled under Settings → Advanced.
 

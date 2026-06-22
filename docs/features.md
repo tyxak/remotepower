@@ -1629,7 +1629,9 @@ Already have plaintext backup archives? Migrate them to **AES-256-GCM at rest**
 from **Server status → Backup → "Encrypt existing backups"** — you supply a
 passphrase that's used for that request only and never stored. (For ongoing
 scheduled backups, set `RP_BACKUP_PASSPHRASE` so new snapshots are encrypted at
-write time.)
+write time — put it in `/etc/remotepower/api.env`, which the SCGI worker unit
+reads via `EnvironmentFile=`; don't add it as an inline `Environment=` line, that
+file is overwritten on every redeploy.)
 
 ### Network map — scope to a slice
 The topology map now has a **site / group / tag scope picker** so a big fleet

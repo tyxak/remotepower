@@ -170,8 +170,10 @@ class TestAlertEndpoints(_ApiTestBase):
         return captured, orig
 
     def test_list_endpoint_returns_open_by_default(self):
-        self._alert()
-        self._alert()
+        # Distinct devices → two distinct open alerts. (Two device_offline for
+        # the SAME device now coalesce into one row by design.)
+        self._alert(dev='d-1')
+        self._alert(dev='d-2')
         os.environ['QUERY_STRING'] = ''
         captured, orig = self._respond_stub()
         try:

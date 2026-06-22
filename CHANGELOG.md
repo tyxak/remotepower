@@ -2,6 +2,16 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.0.1 — "TemperMatters" — unreleased (test)
+
+A stability + polish release that tempers v5.0.0. No breaking changes.
+
+- **Correctness (SQLite/PostgreSQL backends)** — fixed a class of `Path.exists()` checks on DB-backed storage keys that silently read empty under the SQLite/Postgres backend: the **SSH-key drift audit**, **Proxmox stale-snapshot alerts**, and the device drawer's **host-config "current state"** view + export now work on every backend (they were dead on a DB backend). Same root cause as the v5.0.0 backup-runaway fix — now swept across the remaining read paths.
+- **Quieter alerts** — duplicate open alerts for the same condition now **coalesce** into one row (with an occurrence count) instead of stacking up after an upgrade restart; and **agent stop/start** events no longer alert, webhook or raise needs-attention by default (they're expected upgrade churn — still recorded in Recent Activity, and re-enableable in Settings → Notifications).
+- **Edit, don't re-create** — **API keys** can now be edited in place (name, role, expiry, rate limit) without deleting + regenerating the secret (which broke consumers); **custom checks** gained an Edit button too.
+- **Backups survive redeploys** — `RP_BACKUP_PASSPHRASE` (and other server secrets) now load from `/etc/remotepower/api.env` via the unit's `EnvironmentFile=`, so an upgrade no longer wipes an inline `Environment=` line and silently drops backup encryption.
+- **Turnkey self-update** — a ready-made, install-aware update script ships at `packaging/remotepower-server-update.sh` (auto-detects git / pacman / apt, restarts the worker) for the Settings → Install "Run update now" button.
+
 ## v5.0.0 — "CTRLMatters" — 2026-06-22
 
 Control-plane hardening + scale. No breaking changes.

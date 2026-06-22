@@ -29,6 +29,16 @@ RuntimeDirectoryMode=0750
 Environment=RP_DATA_DIR=/var/lib/remotepower
 Environment=RP_SCGI_SOCKET=/run/remotepower/api.sock
 Environment=RP_WORKER_MAX=32
+# Operator-owned environment / secrets (e.g. RP_BACKUP_PASSPHRASE for encrypted
+# backups, RP_SMTP_PASSWORD, RP_LDAP_BIND_PASSWORD). Put `KEY=value` lines here —
+# NOT inline `Environment=` in this unit: deploy-server.sh / install-server.sh
+# overwrite this unit file on every update, so inline edits are wiped on the next
+# redeploy. The `-` prefix makes the file optional (no boot failure if absent).
+# Create it root-owned 0600 (it holds secrets):
+#   install -m 600 -o root -g root /dev/null /etc/remotepower/api.env
+#   printf 'RP_BACKUP_PASSPHRASE=%s\n' 'your-passphrase' >> /etc/remotepower/api.env
+#   systemctl restart remotepower-api
+EnvironmentFile=-/etc/remotepower/api.env
 ExecStart=/usr/bin/python3 /var/www/remotepower/cgi-bin/api_worker.py
 Restart=always
 RestartSec=2

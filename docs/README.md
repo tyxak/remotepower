@@ -58,6 +58,11 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.0.1.md](v5.0.1.md)** — "TemperMatters": a stability + polish release —
+ fixes a class of bugs that silently broke features on the SQLite/PostgreSQL
+ backend (SSH-key drift audit, Proxmox snapshot alerts, host-config view),
+ coalesces duplicate alerts, makes agent stop/start quiet by default, and adds
+ Edit buttons for API keys and custom checks. No breaking changes.
 - **[v5.0.0.md](v5.0.0.md)** — "CTRLMatters": control-plane hardening — opt-in
  mutual TLS for agents, AES-256-GCM encrypted DR backups, break-glass vault
  reveals and per-API-key rate limits, a webhook dead-letter queue, runtime
@@ -79,11 +84,8 @@ The five most recent per-release notes are kept here:
  monitor (IP reputation against DNS blocklists, plus SPF / DKIM / DMARC posture
  with IMAP aggregate-report ingestion), accessibility work, and macOS/Windows
  agent parity. No breaking changes.
-- **[v4.7.0.md](v4.7.0.md)** — homelab/fleet software integrations (26 read-only
- connectors → Alerts + dashboard, SSRF-guarded) + a containerized agent that
- monitors a Docker host with no install. No breaking changes.
 
-Older release notes (v4.5.0 and earlier) live in
+Older release notes (v4.7.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
