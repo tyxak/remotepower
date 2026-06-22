@@ -15729,7 +15729,7 @@ def handle_favorites_set():
     username = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
+    body = get_json_body()
     # Accept either a bare list or {"favorites": [...]} for forward-compat.
     raw = body.get('favorites') if isinstance(body, dict) else body
     clean = _clean_favorites(raw)
