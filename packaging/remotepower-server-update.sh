@@ -34,7 +34,9 @@
 # /etc/remotepower/api.env). Defaults match a standard install:
 #   RP_INSTALL_DIR   install root for a git checkout   (default /var/www/remotepower)
 #   RP_API_SERVICE   systemd unit to restart           (default remotepower-api)
-#   RP_UPDATE_REF    git ref to update to              (default origin/main)
+#   RP_UPDATE_REF    git ref to update to    (default: latest release TAG, not a
+#                    branch tip — set e.g. RP_UPDATE_REF=v5.0.0, or a branch only
+#                    if you deliberately want unreleased code)
 #   RP_PKG_NAME      OS package name                   (default remotepower-server)
 #   RP_API_USER      sudoers user (docs only)          (default www-data)
 # ---------------------------------------------------------------------------
@@ -42,7 +44,7 @@ set -euo pipefail
 
 INSTALL_DIR="${RP_INSTALL_DIR:-/var/www/remotepower}"
 API_SERVICE="${RP_API_SERVICE:-remotepower-api}"
-UPDATE_REF="${RP_UPDATE_REF:-origin/main}"
+UPDATE_REF="${RP_UPDATE_REF:-}"   # empty → resolve the latest release tag below
 PKG_NAME="${RP_PKG_NAME:-remotepower-server}"
 
 log() { printf '[remotepower-update] %s\n' "$*"; }
@@ -66,13 +68,26 @@ if [ -f /.dockerenv ] || [ "${RP_IN_CONTAINER:-0}" = "1" ]; then
   die "containerized install — update by pulling a new image and recreating the container (e.g. 'docker compose pull && docker compose up -d'); a container can't update itself from the inside"
 
 elif [ -d "$INSTALL_DIR/.git" ]; then
-  log "git checkout at $INSTALL_DIR → updating to $UPDATE_REF"
   command -v git >/dev/null 2>&1 || die "git not found"
-  git -C "$INSTALL_DIR" fetch --tags --prune origin
-  git -C "$INSTALL_DIR" reset --hard "$UPDATE_REF"
+  git -C "$INSTALL_DIR" fetch --tags --force --prune origin
+  ref="$UPDATE_REF"
+  if [ -z "$ref" ]; then
+    # Default to the latest RELEASE tag, NOT a branch tip: resetting to a branch
+    # like origin/main can land UNRELEASED code on a production server.
+    ref="$(git -C "$INSTALL_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+    [ -n "$ref" ] || die "no release tag found — set RP_UPDATE_REF to a tag (e.g. v5.0.0) or a branch explicitly"
+  fi
+  prev="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
+  log "git checkout at $INSTALL_DIR → updating $prev → $ref"
+  git -C "$INSTALL_DIR" reset --hard "$ref"
   if [ -x "$INSTALL_DIR/deploy-server.sh" ]; then
     log "running deploy-server.sh ..."
-    "$INSTALL_DIR/deploy-server.sh"          # installs files + restarts the worker
+    if ! "$INSTALL_DIR/deploy-server.sh"; then   # installs files + restarts the worker
+      log "deploy FAILED — rolling back to $prev"
+      git -C "$INSTALL_DIR" reset --hard "$prev"
+      "$INSTALL_DIR/deploy-server.sh" || log "rollback redeploy also failed — manual recovery needed"
+      die "update failed; rolled back to $prev"
+    fi
     UPDATED="git+deploy"
   else
     UPDATED="git"

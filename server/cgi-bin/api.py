@@ -12113,6 +12113,10 @@ def _queue_command_batch(dev_ids, command, actor):
                 results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
             if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
                 results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
+            # v5.0.1: mirror _queue_command — refuse to enqueue onto an audit-mode
+            # (read-only) host so bulk ops report a clear error, not false success.
+            if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
+                results[dev_id] = {'ok': False, 'error': 'Device is in audit (read-only) mode'}; continue
             if dev_id not in cmds:
                 cmds[dev_id] = []
             if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:

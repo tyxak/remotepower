@@ -27,6 +27,11 @@ services:
       # Admin password is GENERATED and printed ONCE to `docker logs` on first
       # boot — no insecure default to remember to change. Override if you must:
       # RP_ADMIN_PASS: "your-strong-password"
+      # Encrypt disaster-recovery backups at rest (AES-256-GCM). In Docker the
+      # passphrase goes HERE (or a docker secret) — NOT /etc/remotepower/api.env,
+      # which is the systemd path and doesn't exist in the container. Without it,
+      # scheduled backups are written in PLAINTEXT.
+      # RP_BACKUP_PASSPHRASE: "${RP_BACKUP_PASSPHRASE:-}"
     volumes:
       - remotepower_data:/var/lib/remotepower
     healthcheck:

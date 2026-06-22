@@ -142,6 +142,18 @@ class TestLongSessionPerf(unittest.TestCase):
         self.assertIn("localStorage.getItem('rp_perfhud')", self.APP_JS)
 
 
+class TestBatchAuditGuard(unittest.TestCase):
+    """Bulk command enqueue must refuse audit-mode (read-only) hosts the same way
+    the single-shot path does — else bulk ops report false success."""
+
+    def test_queue_command_batch_checks_audit_mode(self):
+        i = API_SRC.index("def _queue_command_batch(")
+        end = API_SRC.index("\ndef ", i + 1)
+        body = API_SRC[i:end]
+        self.assertIn("audit_mode", body,
+                      "_queue_command_batch must refuse audit-mode devices")
+
+
 class TestEpssFeedUrl(unittest.TestCase):
     """EPSS moved from epss.cyentia.com to epss.empiricalsecurity.com, and the
     `-current` URL serves the scores via a same-host relative redirect — so the

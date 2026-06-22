@@ -252,6 +252,11 @@ success "Web files installed"
 if [[ -f "$SCRIPT_DIR/server/conf/remotepower-api.service" ]]; then
     install -m 644 "$SCRIPT_DIR/server/conf/remotepower-api.service" \
         /etc/systemd/system/remotepower-api.service
+    # The unit reads operator env/secrets from /etc/remotepower/api.env via
+    # EnvironmentFile= (e.g. RP_BACKUP_PASSPHRASE). Create the dir so the operator
+    # can drop that 0600 file in per the unit's header (the secret file itself is
+    # never created here — only the directory).
+    install -d -m 755 -o root -g root /etc/remotepower
     systemctl daemon-reload
     success "SCGI worker unit installed (not started — enable with: systemctl enable --now remotepower-api)"
 fi

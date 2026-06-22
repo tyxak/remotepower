@@ -1,0 +1,36 @@
+# Keep the image clean + prevent internal/scratch files from leaking into the
+# served web root on a LOCAL `docker build` (a clean CI checkout omits the
+# gitignored ones, but a dev tree has them). Mirrors the `make dist` excludes.
+
+# Internal review/scoping docs — NEVER serve these (Dockerfile COPYs docs/ into
+# the public web root, and nginx doesn't block *.md).
+docs/*-internal.md
+docs/ROADMAP-internal.md
+
+# Local design scratch / mockups (gitignored)
+design/
+
+# Marketing site (separate deploy target, gitignored)
+site/
+
+# VCS, CI, caches, test/build artifacts
+.git/
+.github/
+.gitignore
+**/__pycache__/
+**/*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.codeql-cache/
+dist/
+*.tar.gz
+*.tar.gz.asc
+*.tar.gz.sha256
+
+# Local secrets / data that must never land in an image
+*.env
+.env
+/var/lib/remotepower/
+packaging/aur/*/src/
+packaging/aur/*/pkg/

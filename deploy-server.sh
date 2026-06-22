@@ -143,6 +143,10 @@ install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-
 # the new api_worker.py.
 SVC_SRC="$SCRIPT_DIR/server/conf/remotepower-api.service"
 SVC_DST="/etc/systemd/system/remotepower-api.service"
+# The unit loads operator secrets from /etc/remotepower/api.env (EnvironmentFile=,
+# e.g. RP_BACKUP_PASSPHRASE). Ensure the dir exists across redeploys so that file
+# — which deploy never touches, so the passphrase survives updates — has a home.
+[[ -d /etc/remotepower ]] || install -d -m 755 -o root -g root /etc/remotepower 2>/dev/null || true
 if [[ -f "$SVC_SRC" ]]; then
     if [[ -f "$SVC_DST" ]]; then
         install -m 644 "$SVC_SRC" "$SVC_DST"
