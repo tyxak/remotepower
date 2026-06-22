@@ -51,7 +51,9 @@ class TestV380Security(unittest.TestCase):
         # submit path: confirmation only created after _check_exec_allowlist.
         # Anchor on the exec-submit gate specifically (v3.14.0 added a
         # _needs_approval helper that also references change_approval_enabled).
-        block = API[API.index("(load(CONFIG_FILE) or {}).get('change_approval_enabled'):"):]
+        # v5.0.1: the gate now reads via the read-only config accessor
+        # (_config_ro()) to skip the per-heartbeat deepcopy.
+        block = API[API.index("_config_ro().get('change_approval_enabled'):"):]
         block = block[:block.index('respond(202')]
         self.assertIn('_check_exec_allowlist(dev_id, cmd_str, devices)', block)
         # execute path: re-check at approval time
