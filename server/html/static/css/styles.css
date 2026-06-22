@@ -5938,9 +5938,15 @@ table { font-variant-numeric: tabular-nums; }
 }
 .sidebar .btn:hover { background: transparent; border-color: var(--accent); color: var(--accent); }
 
-/* ── v5.0.1 "TemperMatters" — Network metrics spacing ────────────────────────
-   In the industrial theme the page subtitle is folded into the title info-icon
-   (.subtitle-hidden → display:none), so its margin-bottom collapses and the
-   RX/TX/Reporting vitals sat flush under the Fleet/Group/Tag/Site scope row.
-   Give the body its own breathing room above the boxes. */
-#netmetrics-body { margin-top: 22px; }
+/* ── v5.0.1 "TemperMatters" — page header → content spacing (proactive sweep) ─
+   In the industrial theme the inline page subtitle is folded into the title
+   info-icon (.subtitle-hidden → display:none), so the 40px gap that subtitle
+   used to put between the header and the first content vanished — leaving only
+   the title's 8px. Content elements space themselves with margin-BOTTOM, so
+   nothing restored that top gap and every page sat a little tight (Network
+   Metrics' heavy RX/TX/Reporting vitals made it obvious). Restore one consistent
+   header→content gap for every page, in one place — no per-page patches, and no
+   double-spacing since first-content margins are all bottom-side. Scoped to the
+   industrial theme; the classic UI keeps its visible-subtitle spacing. */
+body[data-ui="industrial"] .page > .page-title,
+body[data-ui="industrial"] .page > .page-title-row { margin-bottom: 24px; }
