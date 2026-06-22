@@ -36,3 +36,6 @@ docs/*-internal.md
 
 # Local CodeQL scan cache (bundle + DBs + SARIF) — see tools/codeql-local.sh
 .codeql-cache/
+
+# Local design scratch / mockups — never published
+design/

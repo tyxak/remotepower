@@ -5884,3 +5884,56 @@ table { font-variant-numeric: tabular-nums; }
    without breaking the flat instrument-readout look. */
 .stat-card { transition: border-color .15s ease; }
 .stat-card:hover { border-color: var(--accent-edge); }
+
+/* ── v5.0.1 "TemperMatters" — signature chamfer buttons ──────────────────────
+   Every ACTION button gets the chamfer (top-left + bottom-right corners clipped)
+   so it reads as RemotePower and stands out from the old soft-rounded / boring
+   grey look. Filled (not transparent) so the clip reveals the page behind the
+   cut corners — a crisp machined notch — and so secondary buttons stop looking
+   dull. CSS-only / CSP-safe; the shape is static (no motion). The SIDEBAR is
+   explicitly excluded below (design intent). */
+.btn, .btn-primary, .btn-secondary, .btn-shutdown, .btn-reboot,
+.btn-update, .btn-upgrade {
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px),
+                     calc(100% - 7px) 100%, 0 100%, 0 7px);
+  border-radius: 0;
+}
+.btn-icon {
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px),
+                     calc(100% - 5px) 100%, 0 100%, 0 5px);
+  border-radius: 0;
+}
+/* Kill the boring transparent grey: secondary + generic .btn become solid
+   chamfered chips with a readable label; accent-soft on hover. */
+.btn-secondary, .btn {
+  background: var(--surface2);
+  border-color: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+.btn-secondary:hover, .btn:hover {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent2);
+}
+/* Inline icon / table buttons (Edit, Delete, …): subtle fill so they're visible,
+   WITHOUT overriding per-button colour (danger keeps its red text/border). */
+.btn-icon { background: var(--surface2); }
+.btn-icon:hover { background: var(--accent-soft); }
+/* Device-drawer colour buttons already tint-fill — firm the fill so the chamfer
+   + colour read at a glance. */
+.btn-shutdown { background: var(--red-soft); }
+.btn-reboot   { background: var(--amber-soft); }
+.btn-update   { background: var(--green-soft); }
+.btn-upgrade  { background: rgba(124, 58, 237, 0.18); }
+
+/* ── Sidebar is untouched (design intent): restore its .btn to baseline ────── */
+.sidebar .btn {
+  clip-path: none;
+  border-radius: 8px;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  font-weight: normal;
+}
+.sidebar .btn:hover { background: transparent; border-color: var(--accent); color: var(--accent); }
