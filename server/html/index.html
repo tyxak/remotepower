@@ -1109,7 +1109,7 @@
           <p class="hint">Your default SSH username. Used by the quick-SSH link on the Devices page so you don't retype it each time. Stored per-user, not shared.</p>
           <div class="settings-row">
             <div class="form-group isl-49">
-              <label class="form-label">Default SSH username</label>
+              <label for="cfg-ssh-username" class="form-label">Default SSH username</label>
               <input type="text" id="cfg-ssh-username" class="form-input" placeholder="e.g. root, deploy, jmo" maxlength="32" autocomplete="off">
             </div>
           </div>
@@ -1217,7 +1217,7 @@
             <p class="hint">Display name shown in the page title, push notification subject lines, and webhook payloads. Helps tell instances apart when you have more than one.</p>
             <div class="settings-row">
               <div class="form-group isl-21">
-                <label class="form-label">Server name</label>
+                <label for="cfg-server-name" class="form-label">Server name</label>
                 <input type="text" id="cfg-server-name" class="form-input" placeholder="RemotePower" maxlength="80">
               </div>
             </div>
@@ -1233,7 +1233,7 @@
             <p class="hint">How often newly-enrolled agents heartbeat back to the server. Existing devices are not affected — change theirs from the device detail page.</p>
             <div class="settings-row">
               <div class="form-group mw-160">
-                <label class="form-label">Seconds</label>
+                <label for="cfg-default-poll" class="form-label">Seconds</label>
                 <input type="number" id="cfg-default-poll" class="form-input" min="10" max="3600" placeholder="60">
               </div>
               <div class="isl-22">10–3600 (default 60)</div>
@@ -1245,7 +1245,7 @@
             <p class="hint">A device is considered offline if no heartbeat is received within this window. Should be at least <code>2 × poll_interval</code> to avoid false offline alerts during a single missed poll.</p>
             <div class="settings-row">
               <div class="form-group mw-160">
-                <label class="form-label">Seconds</label>
+                <label for="cfg-online-ttl" class="form-label">Seconds</label>
                 <input type="number" id="cfg-online-ttl" class="form-input" min="90" max="7200" placeholder="180" title="Offline window in seconds. A device with no heartbeat for this long is marked offline. Keep it ≥ 2× the agent poll interval to avoid false offline alerts.">
               </div>
               <div id="cfg-online-ttl-hint" class="isl-22">90–7200 (default 180)</div>
@@ -1257,21 +1257,21 @@
             <p class="hint">How often monitors auto-check when the Monitor page is open. Also controls server-side offline/patch check frequency.</p>
             <div class="settings-row">
               <div class="form-group isl-23">
-                <label class="form-label">Seconds</label>
+                <label for="cfg-monitor-interval" class="form-label">Seconds</label>
                 <input type="number" id="cfg-monitor-interval" class="form-input" placeholder="300" min="60" max="3600">
               </div>
               <div class="isl-22">60–3600 (default 300)</div>
             </div>
             <div class="settings-row">
               <div class="form-group isl-23">
-                <label class="form-label">Metric alert dampening</label>
+                <label for="cfg-metric-fba" class="form-label">Metric alert dampening</label>
                 <input type="number" id="cfg-metric-fba" class="form-input" placeholder="1" min="1" max="10">
               </div>
               <div class="isl-22">consecutive over-threshold checks before a CPU/memory/disk/swap alert fires (1 = default, alert on first breach)</div>
             </div>
             <div class="settings-row">
               <div class="form-group isl-23">
-                <label class="form-label">SNMP alert dampening</label>
+                <label for="cfg-snmp-fba" class="form-label">SNMP alert dampening</label>
                 <input type="number" id="cfg-snmp-fba" class="form-input" placeholder="2" min="2" max="72">
               </div>
               <div class="isl-22">consecutive failed SNMP polls before <em>SNMP unreachable</em> fires (2 = default)</div>
@@ -1284,11 +1284,11 @@
             <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p>
             <div class="settings-row">
               <div class="form-group">
-                <label class="form-label">Broadcast address</label>
+                <label for="cfg-wol-bcast" class="form-label">Broadcast address</label>
                 <input type="text" id="cfg-wol-bcast" class="form-input" placeholder="255.255.255.255">
               </div>
               <div class="form-group isl-24">
-                <label class="form-label">Port</label>
+                <label for="cfg-wol-port" class="form-label">Port</label>
                 <input type="number" id="cfg-wol-port" class="form-input" placeholder="9">
               </div>
             </div>
@@ -1302,11 +1302,11 @@
             <p class="hint">RemotePower pings this URL on a fixed interval so an external watchdog (Healthchecks.io, BetterStack, your own) flips red when the server stops serving requests. Off by default. Cadence defaults to 60 s, minimum 30 s.</p>
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">Ping URL</label>
+                <label for="cfg-healthchecks-url" class="form-label">Ping URL</label>
                 <input type="url" id="cfg-healthchecks-url" class="form-input ff-mono" placeholder="https://hc-ping.com/00000000-0000-0000-0000-000000000000">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Interval (seconds)</label>
+                <label for="cfg-healthchecks-interval" class="form-label">Interval (seconds)</label>
                 <input type="number" id="cfg-healthchecks-interval" class="form-input" min="30" max="3600" value="60">
               </div>
             </div>
@@ -1335,7 +1335,7 @@
             <p class="hint">The original single-URL field, still honoured for backward compatibility. New setups should use "Webhook destinations" above — it supports the same formats plus Pushover, Teams, per-event filtering, and labeling.</p>
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">URL</label>
+                <label for="cfg-webhook" class="form-label">URL</label>
                 <input type="url" id="cfg-webhook" class="form-input" placeholder="https://ntfy.sh/your-topic">
               </div>
               <div class="form-group isl-28">
@@ -1369,15 +1369,15 @@
 
             <div class="settings-row">
               <div class="form-group isl-35">
-                <label class="form-label">SMTP host</label>
+                <label for="cfg-smtp-host" class="form-label">SMTP host</label>
                 <input type="text" id="cfg-smtp-host" class="form-input" placeholder="smtp.example.com">
               </div>
               <div class="form-group flex-1">
-                <label class="form-label">Port</label>
+                <label for="cfg-smtp-port" class="form-label">Port</label>
                 <input type="number" id="cfg-smtp-port" class="form-input" min="1" max="65535" placeholder="587">
               </div>
               <div class="form-group flex-1">
-                <label class="form-label">TLS mode</label>
+                <label for="cfg-smtp-tls" class="form-label">TLS mode</label>
                 <select id="cfg-smtp-tls" class="form-input">
                   <option value="starttls">STARTTLS (587)</option>
                   <option value="tls">Implicit TLS (465)</option>
@@ -1388,22 +1388,22 @@
 
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">From address</label>
+                <label for="cfg-smtp-from" class="form-label">From address</label>
                 <input type="email" id="cfg-smtp-from" class="form-input" placeholder="remotepower@example.com">
               </div>
               <div class="form-group flex-1">
-                <label class="form-label">HELO/EHLO name <span class="meta-sm-nm">(optional)</span></label>
+                <label for="cfg-smtp-helo" class="form-label">HELO/EHLO name <span class="meta-sm-nm">(optional)</span></label>
                 <input type="text" id="cfg-smtp-helo" class="form-input" placeholder="Defaults to hostname">
               </div>
             </div>
 
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">Username <span class="meta-sm-nm">(blank = no auth)</span></label>
+                <label for="cfg-smtp-username" class="form-label">Username <span class="meta-sm-nm">(blank = no auth)</span></label>
                 <input type="text" id="cfg-smtp-username" class="form-input" autocomplete="off" placeholder="">
               </div>
               <div class="form-group flex-1">
-                <label class="form-label">Password <span id="cfg-smtp-pw-set-badge" class="isl-36"> · saved</span></label>
+                <label for="cfg-smtp-password" class="form-label">Password <span id="cfg-smtp-pw-set-badge" class="isl-36"> · saved</span></label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
                 <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_SMTP_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
                 <p class="hint isl-37" id="smtp-env-hint">✓ Password is currently being read from <code>RP_SMTP_PASSWORD</code>. The field above is ignored.</p>
@@ -1411,7 +1411,7 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label">Recipients</label>
+              <label for="cfg-smtp-recipients" class="form-label">Recipients</label>
               <input type="text" id="cfg-smtp-recipients" class="form-input" placeholder="ops@example.com, admin@example.com">
               <div class="meta-sm">Comma-, semicolon- or whitespace-separated list. All listed addresses receive every enabled event.</div>
               <div class="meta-sm">Tip: add a self-hosted help-desk's inbound address (osTicket, Zammad, Request Tracker, FreeScout) here to turn alerts into tickets — no extra setup. See <a href="docs/webhooks.md" class="c-accent">Notifications docs</a>.</div>
@@ -1490,7 +1490,7 @@
               <div id="integrations-list" class="mb-12 scroll-cap"></div>
               <div class="settings-row isl-iadd">
                 <div class="form-group">
-                  <label class="form-label">Add integration</label>
+                  <label for="integration-add-type" class="form-label">Add integration</label>
                   <select id="integration-add-type" class="form-input mw-220"></select>
                 </div>
                 <button class="btn-secondary" data-action="addIntegration">Add</button>
@@ -1510,11 +1510,11 @@
             <p class="hint">Pull EC2 instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / <code>aws</code> / region). Read-only — uses an IAM access key with <code>ec2:DescribeInstances</code>. Re-running updates in place. Other providers come later.</p>
             <div id="cloud-accounts-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row isl-82">
-              <div class="form-group"><label class="form-label">Region</label>
+              <div class="form-group"><label for="cloud-region" class="form-label">Region</label>
                 <input type="text" id="cloud-region" class="form-input mw-160" placeholder="eu-west-1"></div>
-              <div class="form-group isl-83"><label class="form-label">Access key ID</label>
+              <div class="form-group isl-83"><label for="cloud-akid" class="form-label">Access key ID</label>
                 <input type="text" id="cloud-akid" class="form-input" placeholder="AKIA…"></div>
-              <div class="form-group isl-83"><label class="form-label">Secret access key</label>
+              <div class="form-group isl-83"><label for="cloud-secret" class="form-label">Secret access key</label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="cloud-secret" class="form-input" placeholder="secret" autocomplete="off"></form></div>
               <button class="btn-secondary" data-action="addCloudAccount">Add</button>
             </div>
@@ -1528,15 +1528,15 @@
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span class="fs-14">Enable metrics push</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">Pushgateway URL</label>
+                <label for="cfg-metrics-push-url" class="form-label">Pushgateway URL</label>
                 <input type="url" id="cfg-metrics-push-url" class="form-input ff-mono" placeholder="http://pushgateway.example.com:9091">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Interval (seconds)</label>
+                <label for="cfg-metrics-push-interval" class="form-label">Interval (seconds)</label>
                 <input type="number" id="cfg-metrics-push-interval" class="form-input" min="15" max="3600" value="60">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Job label</label>
+                <label for="cfg-metrics-push-job" class="form-label">Job label</label>
                 <input type="text" id="cfg-metrics-push-job" class="form-input" placeholder="remotepower">
               </div>
             </div>
@@ -1550,16 +1550,16 @@
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-gitops-enabled"> <span class="fs-14">Enable GitOps sync</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">Manifest URL (raw JSON)</label>
+                <label for="cfg-gitops-url" class="form-label">Manifest URL (raw JSON)</label>
                 <input type="url" id="cfg-gitops-url" class="form-input ff-mono" placeholder="https://raw.githubusercontent.com/org/repo/main/remotepower.json">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Interval (seconds)</label>
+                <label for="cfg-gitops-interval" class="form-label">Interval (seconds)</label>
                 <input type="number" id="cfg-gitops-interval" class="form-input" min="300" max="86400" value="900">
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">Auth header <span class="c-muted fs-12">(optional — for private repos, e.g. <span class="ff-mono">Bearer &lt;token&gt;</span>)</span></label>
+              <label for="cfg-gitops-auth" class="form-label">Auth header <span class="c-muted fs-12">(optional — for private repos, e.g. <span class="ff-mono">Bearer &lt;token&gt;</span>)</span></label>
               <input type="password" id="cfg-gitops-auth" class="form-input ff-mono" placeholder="leave blank to keep current" autocomplete="off">
             </div>
             <div class="row-8-center">
@@ -1687,7 +1687,7 @@
             <p class="hint">Let your identity provider (Okta, Azure AD, OneLogin, …) create and — importantly — <strong>deactivate</strong> users automatically. When the IdP offboards someone, their access and live sessions are revoked at once. SSO (OIDC/LDAP) only ever <em>creates</em> on first login; SCIM closes the offboarding gap. Endpoint base URL: <code class="ff-mono">&lt;your-server&gt;/api/scim/v2</code>. Provisioned users start as <strong>viewer</strong>.</p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-scim-enabled"> <span class="fs-14">Enable SCIM provisioning</span></label>
             <div class="form-group">
-              <label class="form-label">Bearer token <span class="c-muted fs-12">(the IdP authenticates with this)</span></label>
+              <label for="cfg-scim-token" class="form-label">Bearer token <span class="c-muted fs-12">(the IdP authenticates with this)</span></label>
               <input type="password" id="cfg-scim-token" class="form-input ff-mono" placeholder="leave blank to keep / auto-generate on enable" autocomplete="off">
             </div>
             <div class="row-8-center">
@@ -1705,7 +1705,7 @@
             <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
             <div class="settings-row">
               <div class="form-group mw-160">
-                <label class="form-label">Days</label>
+                <label for="cfg-cve-cache-days" class="form-label">Days</label>
                 <input type="number" id="cfg-cve-cache-days" class="form-input" min="1" max="90" placeholder="7">
               </div>
               <div class="isl-22">1–90 (default 7)</div>
@@ -1719,7 +1719,7 @@
               <span class="fs-14">Enforce IP allowlist</span>
             </label>
             <div class="form-group">
-              <label class="form-label">Allowed IPs and CIDR ranges (one per line)</label>
+              <label for="cfg-ipal-list" class="form-label">Allowed IPs and CIDR ranges (one per line)</label>
               <textarea id="cfg-ipal-list" class="form-input ff-mono" rows="6" placeholder="10.0.0.0/8&#10;192.168.1.42&#10;fd00::/8"></textarea>
               <div class="meta-sm">Your current IP: <code id="cfg-ipal-mine">(loading)</code>. Add it first if you plan to enable the gate — the save handler refuses to enforce the allowlist while your address isn't in it.</div>
             </div>
@@ -1859,11 +1859,11 @@
             <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>
             <div class="settings-row">
               <div class="form-group mw-200">
-                <label class="form-label">Short session (hours)</label>
+                <label for="cfg-session-short" class="form-label">Short session (hours)</label>
                 <input type="number" id="cfg-session-short" class="form-input" min="1" max="168" placeholder="24">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Long session (days)</label>
+                <label for="cfg-session-long" class="form-label">Long session (days)</label>
                 <input type="number" id="cfg-session-long" class="form-input" min="1" max="90" placeholder="30">
               </div>
             </div>
@@ -1892,7 +1892,7 @@
             <p class="hint">Alert when the RemotePower controller's own data directory fills up — <em>before</em> file-lock writes start failing. Fires a high-severity <code>server_disk_low</code> alert (and a recover when it drops back). Checked every 30 min on the heartbeat hook.</p>
             <div class="settings-row">
               <div class="form-group mw-200">
-                <label class="form-label">Alert at used % (0 = off)</label>
+                <label for="cfg-disk-watchdog-pct" class="form-label">Alert at used % (0 = off)</label>
                 <input type="number" id="cfg-disk-watchdog-pct" class="form-input" min="0" max="99" placeholder="85">
               </div>
             </div>
@@ -1907,7 +1907,7 @@
               <span class="fs-14">Enable maintenance mode (pause command dispatch)</span>
             </label>
             <div class="form-group mt-8 mw-200">
-              <label class="form-label">Reason (optional, shown in the banner)</label>
+              <label for="cfg-maintenance-reason" class="form-label">Reason (optional, shown in the banner)</label>
               <input type="text" id="cfg-maintenance-reason" class="form-input" maxlength="200" placeholder="Upgrading to v5.0.0">
             </div>
           </div>
@@ -1927,7 +1927,7 @@
                  flex row left its hint pushing the input above the Timeout/toggle
                  baseline (settings-row is align-items:flex-end). -->
             <div class="form-group">
-              <label class="form-label">LDAP URL</label>
+              <label for="cfg-ldap-url" class="form-label">LDAP URL</label>
               <input type="url" id="cfg-ldap-url" class="form-input" placeholder="ldaps://ldap.example.com:636">
               <div class="meta-sm"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
             </div>
@@ -1940,18 +1940,18 @@
                 </label>
               </div>
               <div class="form-group isl-52">
-                <label class="form-label">Timeout</label>
+                <label for="cfg-ldap-timeout" class="form-label">Timeout</label>
                 <input type="number" id="cfg-ldap-timeout" class="form-input" min="1" max="60" placeholder="5">
               </div>
             </div>
 
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">Service account DN <span class="meta-sm-nm">(searches the directory)</span></label>
+                <label for="cfg-ldap-bind-dn" class="form-label">Service account DN <span class="meta-sm-nm">(searches the directory)</span></label>
                 <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
               </div>
               <div class="form-group flex-1">
-                <label class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
+                <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
                 <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
                 <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
@@ -1959,23 +1959,23 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label">User search base</label>
+              <label for="cfg-ldap-user-base" class="form-label">User search base</label>
               <input type="text" id="cfg-ldap-user-base" class="form-input" placeholder="ou=Users,dc=example,dc=com">
             </div>
 
             <div class="form-group">
-              <label class="form-label">User filter <span class="meta-sm-nm">(use <code>{u}</code> for the username)</span></label>
+              <label for="cfg-ldap-user-filter" class="form-label">User filter <span class="meta-sm-nm">(use <code>{u}</code> for the username)</span></label>
               <input type="text" id="cfg-ldap-user-filter" class="form-input" placeholder="(uid={u})" aria-label="(uid={u})">
               <div class="meta-sm">AD: <code>(sAMAccountName={u})</code> · OpenLDAP: <code>(uid={u})</code> · FreeIPA: <code>(uid={u})</code></div>
             </div>
 
             <div class="form-group">
-              <label class="form-label">Required group DN <span class="meta-sm-nm">(optional, leave blank for "anyone with valid creds")</span></label>
+              <label for="cfg-ldap-required-group" class="form-label">Required group DN <span class="meta-sm-nm">(optional, leave blank for "anyone with valid creds")</span></label>
               <input type="text" id="cfg-ldap-required-group" class="form-input" placeholder="cn=remotepower-users,ou=groups,dc=example,dc=com">
             </div>
 
             <div class="form-group">
-              <label class="form-label">Admin group DN <span class="meta-sm-nm">(members get admin role; others stay viewer)</span></label>
+              <label for="cfg-ldap-admin-group" class="form-label">Admin group DN <span class="meta-sm-nm">(members get admin role; others stay viewer)</span></label>
               <input type="text" id="cfg-ldap-admin-group" class="form-input" placeholder="cn=remotepower-admins,ou=groups,dc=example,dc=com">
             </div>
 
@@ -2056,11 +2056,11 @@
             <p class="hint">Set the in-app product name and default accent colour shown to everyone — for MSPs reselling RemotePower. Users can still pick their own accent in <em>My Account → Appearance</em>; this is the org default. (The login-page logo image is unchanged.)</p>
             <div class="settings-row">
               <div class="form-group flex-1">
-                <label class="form-label">Product name <span class="c-muted fs-12">(blank = "RemotePower")</span></label>
+                <label for="cfg-brand-name" class="form-label">Product name <span class="c-muted fs-12">(blank = "RemotePower")</span></label>
                 <input type="text" id="cfg-brand-name" class="form-input" maxlength="40" placeholder="RemotePower" autocomplete="off">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Default accent</label>
+                <label for="cfg-brand-accent" class="form-label">Default accent</label>
                 <select id="cfg-brand-accent" class="form-input">
                   <option value="">Blue (default)</option>
                   <option value="emerald">Emerald</option>
@@ -2145,7 +2145,7 @@
               <button class="btn-icon" data-action="migrateStorage"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg> Migrate &amp; switch</button>
             </div>
             <div id="storage-backend-pg" class="form-group mt-8" hidden>
-              <label class="form-label">PostgreSQL connection string (DSN)</label>
+              <label for="storage-backend-dsn" class="form-label">PostgreSQL connection string (DSN)</label>
               <input type="text" id="storage-backend-dsn" class="form-input ff-mono" placeholder="postgresql://user:password@host:5432/remotepower" autocomplete="off">
               <p class="hint">Stored in <code>storage_backend.json</code> so the server reconnects on restart. The target database must exist and be empty; the migration creates the schema and copies your data in.</p>
             </div>
@@ -2189,29 +2189,29 @@
             <p class="hint isl-56" id="proxmox-env-hint">✓ The token secret is currently being read from the <code>RP_PROXMOX_TOKEN_SECRET</code> environment variable. The field below is ignored.</p>
             <div class="settings-row isl-57">
               <div class="form-group isl-58">
-                <label class="form-label">Enabled</label>
+                <label for="proxmox-enabled" class="form-label">Enabled</label>
                 <select id="proxmox-enabled" class="form-input"><option value="0">Off</option><option value="1">On</option></select>
               </div>
               <div class="form-group isl-59">
-                <label class="form-label">Host</label>
+                <label for="proxmox-host" class="form-label">Host</label>
                 <input type="text" id="proxmox-host" class="form-input" placeholder="pve.example.com or 10.0.0.5">
               </div>
               <div class="form-group isl-60">
-                <label class="form-label">Node name</label>
+                <label for="proxmox-node" class="form-label">Node name</label>
                 <input type="text" id="proxmox-node" class="form-input" placeholder="pve">
               </div>
             </div>
             <div class="settings-row isl-61">
               <div class="form-group isl-62">
-                <label class="form-label">Token ID</label>
+                <label for="proxmox-token-id" class="form-label">Token ID</label>
                 <input type="text" id="proxmox-token-id" class="form-input" placeholder="root@pam!remotepower">
               </div>
               <div class="form-group isl-62">
-                <label class="form-label">Token secret</label>
+                <label for="proxmox-token-secret" class="form-label">Token secret</label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="proxmox-token-secret" class="form-input" placeholder="••••••••  (leave blank to keep current)" autocomplete="new-password"></form>
               </div>
               <div class="form-group isl-63">
-                <label class="form-label">Verify TLS</label>
+                <label for="proxmox-verify-tls" class="form-label">Verify TLS</label>
                 <select id="proxmox-verify-tls" class="form-input"><option value="1">On (recommended)</option><option value="0">Off (self-signed)</option></select>
               </div>
             </div>
@@ -2233,7 +2233,7 @@
             <p class="hint">Count messages in a mailbox without IMAP/SMTP. Pick a device, give it one or more directory paths, and the agent counts the regular files in each (a Maildir <code>new</code> folder holds one file per unread message). Tick "Show on dashboard" to surface a device's count as a tile on the Home dashboard.</p>
             <div class="settings-row">
               <div class="form-group isl-65">
-                <label class="form-label">Device</label>
+                <label for="mailwatch-device" class="form-label">Device</label>
                 <select id="mailwatch-device" class="form-input device-combo" data-change="loadMailwatchForDevice" >
                   <option value="">— select a device —</option>
                 </select>
@@ -2241,7 +2241,7 @@
             </div>
             <div id="mailwatch-config" class="d-none">
               <div class="form-group">
-                <label class="form-label">Mailbox paths <span class="meta-sm-nm">(one absolute path per line)</span></label>
+                <label for="mailwatch-paths" class="form-label">Mailbox paths <span class="meta-sm-nm">(one absolute path per line)</span></label>
                 <textarea id="mailwatch-paths" class="form-input isl-66" rows="4" placeholder="/var/mail/vhosts/example.com/jmo/new"></textarea>
               </div>
               <label class="isl-67">
@@ -2252,7 +2252,7 @@
                 </div>
               </label>
               <div class="form-group isl-68">
-                <label class="form-label">Alert threshold <span class="meta-sm-nm">(optional)</span></label>
+                <label for="mailwatch-threshold" class="form-label">Alert threshold <span class="meta-sm-nm">(optional)</span></label>
                 <input type="number" id="mailwatch-threshold" class="form-input" min="1" placeholder="e.g. 50">
                 <div class="isl-69">When any watched mailbox reaches this many messages, RemotePower fires a webhook alert. Leave blank to disable.</div>
               </div>
@@ -2269,11 +2269,11 @@
             <p class="hint">Wire in an LLM for the AI buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
             <div class="settings-row isl-57">
               <div class="form-group isl-60">
-                <label class="form-label">Enabled</label>
+                <label for="ai-enabled" class="form-label">Enabled</label>
                 <select id="ai-enabled" class="form-input"><option value="0">Off</option><option value="1">On</option></select>
               </div>
               <div class="form-group isl-59">
-                <label class="form-label">Provider</label>
+                <label for="ai-provider" class="form-label">Provider</label>
                 <select id="ai-provider" class="form-input" data-change="onAIProviderChange" >
                   <option value="anthropic">Anthropic (Claude)</option>
                   <option value="openai">OpenAI (ChatGPT)</option>
@@ -2283,7 +2283,7 @@
                 </select>
               </div>
               <div class="form-group isl-71">
-                <label class="form-label">Model</label>
+                <label for="ai-model" class="form-label">Model</label>
                 <input type="text" id="ai-model" class="form-input" placeholder="(provider default)">
                 <div id="ai-model-hint" class="meta-sm"></div>
               </div>
@@ -2291,12 +2291,12 @@
 
             <div class="settings-row isl-72">
               <div class="form-group isl-73">
-                <label class="form-label">API key</label>
+                <label for="ai-api-key" class="form-label">API key</label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="ai-api-key" class="form-input" placeholder="(unchanged)" autocomplete="off"></form>
                 <div class="meta-sm">Leave blank to keep the saved key. Type <code>__clear__</code> to remove it. Not used for Ollama or LocalAI.</div>
               </div>
               <div class="form-group isl-73">
-                <label class="form-label">Base URL (optional override)</label>
+                <label for="ai-base-url" class="form-label">Base URL (optional override)</label>
                 <input type="text" id="ai-base-url" class="form-input" placeholder="(provider default)">
                 <div id="ai-base-url-hint" class="meta-sm"></div>
               </div>
@@ -2333,7 +2333,7 @@
             <label class="click-row-mb6"><input type="checkbox" id="ai-rag-enabled" checked> Enable the knowledge index</label>
 
             <div class="form-group isl-773">
-              <label class="form-label">Sources to index</label>
+              <label for="ai-rag-src-docs" class="form-label">Sources to index</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-docs" checked> Product docs &amp; per-device runbooks</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-live" checked> Live state (devices, services, CVEs, containers, SNMP)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-cmdb" checked> CMDB metadata &amp; asset docs (no credentials)</label>
@@ -2356,11 +2356,11 @@
 
             <div class="settings-row isl-72 isl-773">
               <div class="form-group mw-200">
-                <label class="form-label">Max chunks per question</label>
+                <label for="ai-rag-max-chunks" class="form-label">Max chunks per question</label>
                 <input type="number" id="ai-rag-max-chunks" class="form-input" min="1" max="30" value="6">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">History: keep last N days</label>
+                <label for="ai-rag-history-days" class="form-label">History: keep last N days</label>
                 <input type="number" id="ai-rag-history-days" class="form-input" min="0" max="3650" value="14">
               </div>
             </div>
@@ -2401,11 +2401,11 @@
             <p class="hint">Bounds to keep cloud-provider costs predictable. The token limit is per response. The daily request cap is per user — set to 0 to disable.</p>
             <div class="settings-row isl-72">
               <div class="form-group mw-200">
-                <label class="form-label">Max tokens per response</label>
+                <label for="ai-max-tokens" class="form-label">Max tokens per response</label>
                 <input type="number" id="ai-max-tokens" class="form-input" min="1" max="16000" value="4000">
               </div>
               <div class="form-group mw-200">
-                <label class="form-label">Daily requests per user</label>
+                <label for="ai-max-requests" class="form-label">Daily requests per user</label>
                 <input type="number" id="ai-max-requests" class="form-input" min="0" max="100000" value="100">
               </div>
             </div>
@@ -2438,17 +2438,17 @@
           <p class="hint">Counts failed login attempts per source IP in a rolling window. Fires a webhook and shows in Needs Attention when the threshold is exceeded.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
-              <label class="form-label">Enabled</label>
+              <label for="dash-bf-enabled" class="form-label">Enabled</label>
               <select id="dash-bf-enabled" class="form-input isl-79">
                 <option value="1">On</option><option value="0">Off</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Threshold (attempts)</label>
+              <label for="dash-bf-threshold" class="form-label">Threshold (attempts)</label>
               <input type="number" id="dash-bf-threshold" class="form-input isl-80" min="1" max="1000" value="20">
             </div>
             <div class="form-group">
-              <label class="form-label">Window (minutes)</label>
+              <label for="dash-bf-window" class="form-label">Window (minutes)</label>
               <input type="number" id="dash-bf-window" class="form-input isl-81" min="1" max="60" value="5">
             </div>
           </div>
@@ -2460,7 +2460,7 @@
           <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing, not every heartbeat. Set to <strong>0</strong> to disable.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
-              <label class="form-label">Alert below score (0 = off)</label>
+              <label for="health-alert-threshold" class="form-label">Alert below score (0 = off)</label>
               <input type="number" id="health-alert-threshold" class="form-input isl-80" min="0" max="100" value="0">
             </div>
           </div>
@@ -2472,19 +2472,19 @@
           <p class="hint">Hold non-critical webhook/email notifications during a daily window — events still land in the Alerts inbox and Recent Activity, they just don't page you overnight. Anything at or above the chosen severity always goes through. The window may cross midnight (e.g. 22:00–07:00).</p>
           <div class="settings-row isl-57">
             <div class="form-group">
-              <label class="form-label">Enabled</label>
+              <label for="qh-enabled" class="form-label">Enabled</label>
               <select id="qh-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
             </div>
             <div class="form-group">
-              <label class="form-label">Start (HH:MM)</label>
+              <label for="qh-start" class="form-label">Start (HH:MM)</label>
               <input type="time" id="qh-start" class="form-input isl-80" value="22:00">
             </div>
             <div class="form-group">
-              <label class="form-label">End (HH:MM)</label>
+              <label for="qh-end" class="form-label">End (HH:MM)</label>
               <input type="time" id="qh-end" class="form-input isl-80" value="07:00">
             </div>
             <div class="form-group">
-              <label class="form-label">Always deliver at/above</label>
+              <label for="qh-min-sev" class="form-label">Always deliver at/above</label>
               <select id="qh-min-sev" class="form-input isl-79">
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -2500,13 +2500,13 @@
           <p class="hint">Flag selected events that fire <strong>outside</strong> business hours (a login, a new port, a command at 3am is more suspicious). Surfaces as a Needs Attention item. Applies Mon–Fri within the window below; anything outside it counts as after-hours.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
-              <label class="form-label">Enabled</label>
+              <label for="ah-enabled" class="form-label">Enabled</label>
               <select id="ah-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
             </div>
             <div class="form-group"><label class="form-label">Business start</label><input type="time" id="ah-start" class="form-input isl-80" value="08:00"></div>
             <div class="form-group"><label class="form-label">Business end</label><input type="time" id="ah-end" class="form-input isl-80" value="18:00"></div>
           </div>
-          <div class="mb-12"><label class="form-label">Watch these events <span class="meta-sm-nm">(comma-separated)</span></label>
+          <div class="mb-12"><label for="ah-events" class="form-label">Watch these events <span class="meta-sm-nm">(comma-separated)</span></label>
             <input type="text" id="ah-events" class="form-input input-wide" placeholder="ssh_key_added, new_port_detected, command_executed, brute_force_detected"></div>
           <button class="btn-primary mt-8" data-action="saveAfterHours" >Save</button>
         </div>
@@ -2516,18 +2516,18 @@
           <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup.</p>
           <div class="mb-8 fs-13">Currently on call: <strong id="oncall-current">—</strong></div>
           <div class="settings-row isl-57">
-            <div class="form-group"><label class="form-label">On-call rotation</label>
+            <div class="form-group"><label for="oncall-enabled" class="form-label">On-call rotation</label>
               <select id="oncall-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
             <div class="form-group"><label class="form-label">Rotate every (days)</label><input type="number" id="oncall-rotation" class="form-input isl-80" min="1" max="365" value="7"></div>
           </div>
-          <div class="mb-12"><label class="form-label">Contacts <span class="meta-sm-nm">(comma-separated, rotate in order)</span></label>
+          <div class="mb-12"><label for="oncall-contacts" class="form-label">Contacts <span class="meta-sm-nm">(comma-separated, rotate in order)</span></label>
             <input type="text" id="oncall-contacts" class="form-input input-wide" placeholder="alice, bob, carol"></div>
           <div class="settings-row isl-57">
-            <div class="form-group"><label class="form-label">Escalation</label>
+            <div class="form-group"><label for="esc-enabled" class="form-label">Escalation</label>
               <select id="esc-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
             <div class="form-group"><label class="form-label">Severities</label><input type="text" id="esc-severities" class="form-input isl-80" placeholder="critical, high"></div>
           </div>
-          <div class="mb-12"><label class="form-label">Tiers — minutes unacked before re-notify <span class="meta-sm-nm">(comma-separated, e.g. 15, 60, 240)</span></label>
+          <div class="mb-12"><label for="esc-tiers" class="form-label">Tiers — minutes unacked before re-notify <span class="meta-sm-nm">(comma-separated, e.g. 15, 60, 240)</span></label>
             <input type="text" id="esc-tiers" class="form-input input-wide" placeholder="15, 60, 240"></div>
           <button class="btn-primary mt-8" data-action="saveOncall">Save</button>
         </div>
@@ -2538,19 +2538,19 @@
           <div id="backup-monitors-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
             <div class="form-group isl-83">
-              <label class="form-label">File path</label>
+              <label for="bm-path" class="form-label">File path</label>
               <input type="text" id="bm-path" class="form-input" placeholder="/backup/db-latest.tar.gz">
             </div>
             <div class="form-group isl-84">
-              <label class="form-label">Label</label>
+              <label for="bm-label" class="form-label">Label</label>
               <input type="text" id="bm-label" class="form-input" placeholder="Database backup">
             </div>
             <div class="form-group">
-              <label class="form-label">Max age (hours)</label>
+              <label for="bm-hours" class="form-label">Max age (hours)</label>
               <input type="number" id="bm-hours" class="form-input isl-81" value="24" min="1" max="8760">
             </div>
             <div class="form-group">
-              <label class="form-label">Verify integrity</label>
+              <label for="bm-verify" class="form-label">Verify integrity</label>
               <label class="click-row"><input type="checkbox" id="bm-verify"> run the tool's own check (restic/borg/tar)</label>
             </div>
             <button class="btn-secondary" data-action="addBackupMonitor" >Add</button>
@@ -2564,18 +2564,18 @@
           <div id="process-watches-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
             <div class="form-group isl-83">
-              <label class="form-label">Process name contains</label>
+              <label for="pw-name" class="form-label">Process name contains</label>
               <input type="text" id="pw-name" class="form-input" placeholder="postgres">
             </div>
             <div class="form-group">
-              <label class="form-label">Metric</label>
+              <label for="pw-metric" class="form-label">Metric</label>
               <select id="pw-metric" class="form-input">
                 <option value="cpu">CPU %</option>
                 <option value="mem">Memory %</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Threshold %</label>
+              <label for="pw-threshold" class="form-label">Threshold %</label>
               <input type="number" id="pw-threshold" class="form-input isl-81" value="80" min="1" max="100">
             </div>
             <button class="btn-secondary" data-action="addProcessWatch" >Add</button>
@@ -3862,7 +3862,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- Chat — v5.0.0: boxed as its own card. -->
         <div id="ai-page-chat-wrap" class="dash-card mt-16 d-none">
           <div class="isl-113">
-            <label class="form-label isl-42">Model</label>
+            <label for="ai-page-model" class="form-label isl-42">Model</label>
             <select id="ai-page-model" class="form-input isl-114">
               <option value="">(configured default)</option>
             </select>
@@ -4061,12 +4061,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <label class="form-label"><input type="checkbox" id="report-sched-enabled"> Enabled</label>
           </div>
           <div class="mb-12">
-            <label class="form-label">Cron schedule (min hour day month weekday)</label>
+            <label for="report-sched-cron" class="form-label">Cron schedule (min hour day month weekday)</label>
             <input type="text" id="report-sched-cron" class="form-input input-wide-sm" placeholder="0 8 * * 1" autocomplete="off">
             <div class="fs-12 c-muted mt-6">Example: <span class="ff-mono">0 8 * * 1</span> = every Monday at 08:00.</div>
           </div>
           <div class="mb-12">
-            <label class="form-label">Recipients (comma-separated)</label>
+            <label for="report-sched-recipients" class="form-label">Recipients (comma-separated)</label>
             <input type="text" id="report-sched-recipients" class="form-input input-wide" placeholder="ops@example.com, oncall@example.com" autocomplete="off">
           </div>
           <div class="row-8-center">
@@ -4081,7 +4081,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <p class="hint">Build a report from the sections you care about, download it, or schedule it to a specific audience. Saved per server.</p>
           <div id="report-defs-list" class="mb-12 scroll-cap-sm">—</div>
           <div class="report-builder">
-            <div class="form-group"><label class="form-label">Name</label>
+            <div class="form-group"><label for="rdef-name" class="form-label">Name</label>
               <input type="text" id="rdef-name" class="form-input" placeholder="Weekly ops report" maxlength="64" autocomplete="off"></div>
             <div class="form-group"><label class="form-label">Sections</label>
               <div id="rdef-sections" class="rdef-sections"></div></div>
@@ -4091,7 +4091,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <label class="form-label">Cron <input type="text" id="rdef-cron" class="form-input input-auto" placeholder="0 8 * * 1" autocomplete="off"></label>
               <label class="form-label"><input type="checkbox" id="rdef-enabled"> Email on schedule</label>
             </div>
-            <div class="form-group"><label class="form-label">Recipients (comma-separated)</label>
+            <div class="form-group"><label for="rdef-recipients" class="form-label">Recipients (comma-separated)</label>
               <input type="text" id="rdef-recipients" class="form-input input-wide" placeholder="ops@example.com" autocomplete="off"></div>
             <div class="sb-controls">
               <button class="btn-primary fs-12" data-action="saveReportDef">Save report</button>
@@ -4237,9 +4237,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="automation-editor" class="dash-card d-none">
           <h3 id="automation-editor-title">New rule</h3>
           <input type="hidden" id="auto-rule-id">
-          <div class="mb-12"><label class="form-label">Name</label>
+          <div class="mb-12"><label for="auto-name" class="form-label">Name</label>
             <input type="text" id="auto-name" class="form-input input-wide-sm" placeholder="e.g. Restart nginx on failure" autocomplete="off"></div>
-          <div class="mb-12"><label class="form-label">When these events fire <span class="meta-sm-nm">(comma-separated; blank = any)</span></label>
+          <div class="mb-12"><label for="auto-events" class="form-label">When these events fire <span class="meta-sm-nm">(comma-separated; blank = any)</span></label>
             <input type="text" id="auto-events" class="form-input input-wide" placeholder="service_down, container_stopped" autocomplete="off"></div>
           <div class="mb-12"><label class="form-label">…at these severities <span class="meta-sm-nm">(blank = any)</span></label>
             <div class="row-8-center" id="auto-sevs">
@@ -4597,7 +4597,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="page-subtitle mb-12">Recency of each guest's <strong>vzdump backup archives</strong> on the connected Proxmox node — distinct from VM/LXC snapshots. Stale or missing backups also raise a dashboard attention item.</div>
           <div class="row-8-center mb-12">
-            <label class="form-label mb-0">Flag backups older than</label>
+            <label for="pmbackup-threshold" class="form-label mb-0">Flag backups older than</label>
             <input type="number" id="pmbackup-threshold" class="form-input mw-160" min="1" max="365" value="7">
             <span class="hint">days</span>
             <button class="btn-secondary" data-action="saveProxmoxBackupThreshold">Save threshold</button>
@@ -5814,11 +5814,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal">
     <div class="modal-title" id="schedule-add-modal-title">Schedule command</div>
     <div class="form-group">
-      <label class="form-label">Device</label>
+      <label for="sched-device" class="form-label">Device</label>
       <select id="sched-device" class="form-input device-combo"></select>
     </div>
     <div class="form-group">
-      <label class="form-label">Command</label>
+      <label for="sched-command" class="form-label">Command</label>
       <select id="sched-command" class="form-input" data-change="onSchedCommandChange" >
         <option value="shutdown">Shut down</option>
         <option value="reboot">Reboot</option>
@@ -5830,12 +5830,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group d-none" id="sched-script-row">
-      <label class="form-label">Script</label>
+      <label for="sched-script-id" class="form-label">Script</label>
       <select id="sched-script-id" class="form-input"><option value="">Loading…</option></select>
     </div>
     <div class="meta-sm d-none isl-758" id="sched-upgrade-note">Output appended to <code>/var/log/remotepower/remotepower_update.log</code> on each device.</div>
     <div class="form-group">
-      <label class="form-label">When</label>
+      <label for="sched-recur-type" class="form-label">When</label>
       <select id="sched-recur-type" class="form-input" data-change="onSchedTypeChange" >
         <option value="once">One-shot</option>
         <option value="hourly">Every hour (:00)</option>
@@ -5847,15 +5847,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group" id="sched-once-row">
-      <label class="form-label">Date &amp; time</label>
+      <label for="sched-datetime" class="form-label">Date &amp; time</label>
       <input type="datetime-local" id="sched-datetime" class="form-input">
     </div>
     <div class="form-group d-none" id="sched-nhours-row">
-      <label class="form-label">Interval</label>
+      <label for="sched-nhours" class="form-label">Interval</label>
       <div class="isl-757">Every <input type="number" id="sched-nhours" class="form-input isl-754" value="4" min="1" max="23"> hours</div>
     </div>
     <div class="form-group d-none" id="sched-daily-row">
-      <label class="form-label">Time</label>
+      <label for="sched-daily-time" class="form-label">Time</label>
       <input type="time" id="sched-daily-time" class="form-input isl-755" value="03:00">
     </div>
     <div class="form-group d-none" id="sched-weekly-row">
@@ -5867,7 +5867,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="isl-757">Day <input type="number" id="sched-monthly-day" class="form-input isl-754" value="1" min="1" max="28"> of month, at <input type="time" id="sched-monthly-time" class="form-input isl-755" value="03:00"></div>
     </div>
     <div class="form-group d-none" id="sched-custom-row">
-      <label class="form-label">Cron expression</label>
+      <label for="sched-cron" class="form-label">Cron expression</label>
       <input type="text" id="sched-cron" class="form-input ff-mono" placeholder="0 3 * * 0  (every Sunday 03:00)">
       <div class="meta-sm">5 fields: min hour dom mon dow</div>
     </div>
@@ -5960,18 +5960,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="modal-title" id="webterm-modal-title">Open web terminal</div>
     <div class="modal-subtitle">SSH directly to the device. Credentials are not stored — you'll need to enter them again next session.</div>
     <input type="hidden" id="webterm-device-id">
-    <div class="form-group"><label class="form-label">SSH host</label>
+    <div class="form-group"><label for="webterm-host" class="form-label">SSH host</label>
       <input type="text" id="webterm-host" class="form-input" placeholder="10.0.0.4"></div>
     <div class="row-8">
-      <div class="form-group isl-35"><label class="form-label">SSH user</label>
+      <div class="form-group isl-35"><label for="webterm-user" class="form-label">SSH user</label>
         <input type="text" id="webterm-user" class="form-input" placeholder="root" autocomplete="username"></div>
-      <div class="form-group flex-1"><label class="form-label">Port</label>
+      <div class="form-group flex-1"><label for="webterm-port" class="form-label">Port</label>
         <input type="number" id="webterm-port" class="form-input" value="22" min="1" max="65535"></div>
     </div>
-    <div class="form-group"><label class="form-label">SSH password</label>
+    <div class="form-group"><label for="webterm-ssh-pw" class="form-label">SSH password</label>
       <form autocomplete="off" data-csp-pw-form><input type="password" id="webterm-ssh-pw" class="form-input" autocomplete="new-password"></form></div>
     <div class="form-group isl-204">
-      <label class="form-label">Your RemotePower admin password</label>
+      <label for="webterm-admin-pw" class="form-label">Your RemotePower admin password</label>
       <form autocomplete="off" data-csp-pw-form><input type="password" id="webterm-admin-pw" class="form-input" autocomplete="current-password"></form>
       <div class="meta-sm">Required every time you open a terminal.</div>
     </div>
@@ -6002,20 +6002,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="modal-title" id="vnc-modal-title">Remote desktop (VNC)</div>
     <div class="modal-subtitle">Tunnels a loopback-bound VNC server over SSH — the VNC port is never exposed to the network. Credentials are not stored.</div>
     <input type="hidden" id="vnc-device-id">
-    <div class="form-group"><label class="form-label">SSH host</label>
+    <div class="form-group"><label for="vnc-host" class="form-label">SSH host</label>
       <input type="text" id="vnc-host" class="form-input" placeholder="10.0.0.4"></div>
     <div class="row-8">
-      <div class="form-group isl-35"><label class="form-label">SSH user</label>
+      <div class="form-group isl-35"><label for="vnc-user" class="form-label">SSH user</label>
         <input type="text" id="vnc-user" class="form-input" placeholder="root" autocomplete="username"></div>
-      <div class="form-group flex-1"><label class="form-label">SSH port</label>
+      <div class="form-group flex-1"><label for="vnc-port" class="form-label">SSH port</label>
         <input type="number" id="vnc-port" class="form-input" value="22" min="1" max="65535"></div>
-      <div class="form-group flex-1"><label class="form-label">VNC port</label>
+      <div class="form-group flex-1"><label for="vnc-display-port" class="form-label">VNC port</label>
         <input type="number" id="vnc-display-port" class="form-input" value="5900" min="1" max="65535"></div>
     </div>
-    <div class="form-group"><label class="form-label">SSH password</label>
+    <div class="form-group"><label for="vnc-ssh-pw" class="form-label">SSH password</label>
       <form autocomplete="off" data-csp-pw-form><input type="password" id="vnc-ssh-pw" class="form-input" autocomplete="new-password"></form></div>
     <div class="form-group isl-204">
-      <label class="form-label">Your RemotePower admin password</label>
+      <label for="vnc-admin-pw" class="form-label">Your RemotePower admin password</label>
       <form autocomplete="off" data-csp-pw-form><input type="password" id="vnc-admin-pw" class="form-input" autocomplete="current-password"></form>
       <div class="meta-sm">Required every time you open a session. The host needs a VNC server bound to 127.0.0.1 (see the "Enable VNC" script).</div>
     </div>
@@ -6213,7 +6213,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Name</label><input type="text" id="script-edit-name" class="form-input" placeholder="rotate-nginx-logs.sh" maxlength="80"></div>
   <div class="form-group"><label class="form-label">Description</label><input type="text" id="script-edit-desc" class="form-input" placeholder="Rotate /var/log/nginx and reload nginx" maxlength="512"></div>
   <div class="form-group">
-    <label class="form-label">Body</label>
+    <label for="script-edit-body" class="form-label">Body</label>
     <textarea id="script-edit-body" class="form-input isl-213" placeholder="#!/usr/bin/env bash&#10;set -euo pipefail&#10;&#10;# your script here…"></textarea>
   </div>
   <div id="script-edit-lint" class="isl-214"></div>
@@ -6240,7 +6240,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle" id="script-run-target">Pick a script to queue.</div>
   <input type="hidden" id="script-run-device-id">
   <input type="hidden" id="script-run-mode"><!-- 'single' | 'batch' -->
-  <div class="form-group"><label class="form-label">Script</label>
+  <div class="form-group"><label for="script-run-pick" class="form-label">Script</label>
     <select id="script-run-pick" class="form-input" data-change="onScriptRunPick" >
       <option value="">— Choose a saved script —</option>
     </select>
@@ -6273,7 +6273,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="compose-title">docker compose</div>
   <div class="modal-subtitle" id="compose-sub">Choose a project, then an action. Output appears below.</div>
   <input type="hidden" id="compose-device-id">
-  <div class="form-group"><label class="form-label">Project</label>
+  <div class="form-group"><label for="compose-project-pick" class="form-label">Project</label>
     <select id="compose-project-pick" class="form-input"></select>
   </div>
   <div class="isl-221">
@@ -6371,7 +6371,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="lxc-delete-modal-title">Delete LXC container?</div>
   <div class="modal-subtitle">This permanently deletes <strong id="lxc-del-name"></strong> (VMID <span id="lxc-del-vmid"></span>) and its disk on Proxmox. <strong>This cannot be undone.</strong> A running container is force-stopped first.</div>
   <div class="form-group">
-    <label class="form-label">Type <code id="lxc-del-confirm-target"></code> to confirm</label>
+    <label for="lxc-del-confirm" class="form-label">Type <code id="lxc-del-confirm-target"></code> to confirm</label>
     <input type="text" id="lxc-del-confirm" class="form-input" autocomplete="off" placeholder="" data-input="lxcDelCheck">
   </div>
   <div id="lxc-del-result" class="mb-8"></div>
@@ -6397,7 +6397,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div id="storage-maint-output" class="journal-wrap scroll-cap d-none mt-8"></div>
   <div class="form-group mt-16">
-    <label class="form-label">Remove a snapshot <span class="c-red">(destructive)</span></label>
+    <label for="storage-maint-snap" class="form-label">Remove a snapshot <span class="c-red">(destructive)</span></label>
     <input type="text" id="storage-maint-snap" class="form-input ff-mono" placeholder="tank/data@auto-2026-06-01 or /mnt/btrfs/.snapshots/…" maxlength="256">
     <div class="meta-sm">Run <strong>List snapshots</strong> first, copy the exact name from the command output, then paste it here.</div>
     <button class="btn-secondary c-red mt-8" data-action="storageDeleteSnapshot">Delete snapshot</button>
@@ -6412,7 +6412,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="cve-ignore-modal-title">Ignore CVE</div>
   <div class="modal-subtitle isl-224">Mark <code id="cve-ignore-vuln" class="c-accent"></code> as an accepted risk. It stays recorded but stops counting as a finding or raising attention.</div>
   <div class="form-group">
-    <label class="form-label">Reason <span class="meta-sm-nm">(optional — e.g. false positive, accepted risk)</span></label>
+    <label for="cve-ignore-reason" class="form-label">Reason <span class="meta-sm-nm">(optional — e.g. false positive, accepted risk)</span></label>
     <input type="text" id="cve-ignore-reason" class="form-input" maxlength="256" placeholder="Why is this being ignored?">
   </div>
   <div class="form-group">
@@ -6437,11 +6437,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="cmdb-vault-setup-modal-title">Set up CMDB vault</div>
   <div class="modal-subtitle">Choose a passphrase that will encrypt every credential stored in the CMDB. <strong>This passphrase is never stored on the server</strong> — losing it permanently destroys access to the credentials. All admins share this passphrase.</div>
   <div class="form-group">
-    <label class="form-label">Vault passphrase (min 12 chars, mixed character classes)</label>
+    <label for="cmdb-vault-setup-pw" class="form-label">Vault passphrase (min 12 chars, mixed character classes)</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-setup-pw" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="form-group">
-    <label class="form-label">Confirm passphrase</label>
+    <label for="cmdb-vault-setup-pw2" class="form-label">Confirm passphrase</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-setup-pw2" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="modal-actions">
@@ -6454,7 +6454,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="cmdb-vault-unlock-modal-title">Unlock CMDB vault</div>
   <div class="modal-subtitle">The derived key is held only in this browser tab and cleared on logout or page reload.</div>
   <div class="form-group">
-    <label class="form-label">Passphrase</label>
+    <label for="cmdb-vault-unlock-pw" class="form-label">Passphrase</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-unlock-pw" class="form-input" autocomplete="current-password"></form>
   </div>
   <div class="modal-actions">
@@ -6467,15 +6467,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="cmdb-vault-rotate-modal-title">Rotate CMDB vault passphrase</div>
   <div class="modal-subtitle">All stored credentials will be re-encrypted under the new passphrase.</div>
   <div class="form-group">
-    <label class="form-label">Current passphrase</label>
+    <label for="cmdb-vault-rotate-old" class="form-label">Current passphrase</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-rotate-old" class="form-input" autocomplete="current-password"></form>
   </div>
   <div class="form-group">
-    <label class="form-label">New passphrase</label>
+    <label for="cmdb-vault-rotate-new" class="form-label">New passphrase</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-rotate-new" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="form-group">
-    <label class="form-label">Confirm new passphrase</label>
+    <label for="cmdb-vault-rotate-new2" class="form-label">Confirm new passphrase</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-rotate-new2" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="modal-actions">
@@ -6502,15 +6502,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="meta-sm">A retired asset — greyed out in the device list and fully silenced (no monitoring, alerts, health or SLA). Clearing it restores monitoring.</div>
     </div>
     <div class="form-group">
-      <label class="form-label">Asset ID (free text, e.g. inventory tag)</label>
+      <label for="cmdb-asset-id" class="form-label">Asset ID (free text, e.g. inventory tag)</label>
       <input type="text" id="cmdb-asset-id" class="form-input" placeholder="ASSET-12345" maxlength="64">
     </div>
     <div class="form-group">
-      <label class="form-label">Server function</label>
+      <label for="cmdb-asset-function" class="form-label">Server function</label>
       <input type="text" id="cmdb-asset-function" class="form-input" list="cmdb-func-datalist" placeholder="web, db, logging, dc, …" maxlength="64">
     </div>
     <div class="form-group">
-      <label class="form-label">Environment</label>
+      <label for="cmdb-asset-environment" class="form-label">Environment</label>
       <select id="cmdb-asset-environment" class="form-input">
         <option value="">— none —</option>
         <option value="test">test</option>
@@ -6520,7 +6520,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group">
-      <label class="form-label">Business function</label>
+      <label for="cmdb-asset-business-function" class="form-label">Business function</label>
       <select id="cmdb-asset-business-function" class="form-input">
         <option value="">— none —</option>
         <option value="Application Operation">Application Operation</option>
@@ -6529,7 +6529,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group">
-      <label class="form-label">VLAN</label>
+      <label for="cmdb-asset-vlan" class="form-label">VLAN</label>
       <input type="text" id="cmdb-asset-vlan" class="form-input" placeholder="10, 20 (trunk), DMZ" maxlength="64">
       <div class="meta-sm">Free text — a single ID, a comma-separated list for trunked, or a descriptive label.</div>
     </div>
@@ -6541,28 +6541,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="cmdb-interfaces-tree" class="cmdb-iface-tree mt-8"></div>
     </div>
     <div class="form-group">
-      <label class="form-label">Hypervisor URL (optional)</label>
+      <label for="cmdb-asset-hypervisor" class="form-label">Hypervisor URL (optional)</label>
       <input type="url" id="cmdb-asset-hypervisor" class="form-input" placeholder="https://esx1.local/" maxlength="512">
     </div>
     <div class="form-group">
-      <label class="form-label">SSH port</label>
+      <label for="cmdb-asset-ssh-port" class="form-label">SSH port</label>
       <input type="number" id="cmdb-asset-ssh-port" class="form-input mw-160" min="1" max="65535" placeholder="22">
       <div class="meta-sm">Default 22. Used by the SSH link buttons on credentials.</div>
     </div>
     <!-- v3.5.0: lifecycle expiry dates. Surface on the dashboard attention list
          (expired/≤30d → warning, ≤90d → info), same NA pattern as end-of-life OS. -->
     <div class="form-group">
-      <label class="form-label">Warranty expiry</label>
+      <label for="cmdb-asset-warranty" class="form-label">Warranty expiry</label>
       <input type="date" id="cmdb-asset-warranty" class="form-input mw-200">
       <div class="meta-sm">Hardware warranty end date. Alerts when within 90 days or past.</div>
     </div>
     <div class="form-group">
-      <label class="form-label">License expiry</label>
+      <label for="cmdb-asset-license" class="form-label">License expiry</label>
       <input type="date" id="cmdb-asset-license" class="form-input mw-200">
       <div class="meta-sm">Software/OS license end date.</div>
     </div>
     <div class="form-group">
-      <label class="form-label">Support contract expiry</label>
+      <label for="cmdb-asset-support" class="form-label">Support contract expiry</label>
       <input type="date" id="cmdb-asset-support" class="form-input mw-200">
       <div class="meta-sm">Vendor support / maintenance contract end date.</div>
     </div>
@@ -6617,12 +6617,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </label>
     </div>
     <div class="form-group">
-      <label class="form-label">Community string</label>
+      <label for="cmdb-snmp-community" class="form-label">Community string</label>
       <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-snmp-community" class="form-input" placeholder="public" maxlength="128" autocomplete="off"></form>
       <div class="meta-sm">Treated as a secret — never displayed after save; leave blank to keep current.</div>
     </div>
     <div class="form-group">
-      <label class="form-label">UDP port</label>
+      <label for="cmdb-snmp-port" class="form-label">UDP port</label>
       <input type="number" id="cmdb-snmp-port" class="form-input mw-160" min="1" max="65535" placeholder="161">
     </div>
     <div class="form-group">
@@ -6672,7 +6672,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="cmdb-doc-modal-deviceid">
   <input type="hidden" id="cmdb-doc-modal-docid">
   <div class="form-group">
-    <label class="form-label">Title</label>
+    <label for="cmdb-doc-modal-title-input" class="form-label">Title</label>
     <input type="text" id="cmdb-doc-modal-title-input" class="form-input" maxlength="120" placeholder="e.g. Runbook, Hardware spec, Vendor contacts">
   </div>
   <div class="form-group">
@@ -6695,23 +6695,23 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="cmdb-cred-modal-deviceid">
   <input type="hidden" id="cmdb-cred-modal-credid">
   <div class="form-group">
-    <label class="form-label">Label (e.g. root, ipmi, web-admin)</label>
+    <label for="cmdb-cred-label" class="form-label">Label (e.g. root, ipmi, web-admin)</label>
     <input type="text" id="cmdb-cred-label" class="form-input" maxlength="64" autocomplete="off">
   </div>
   <div class="form-group">
-    <label class="form-label">Username</label>
+    <label for="cmdb-cred-username" class="form-label">Username</label>
     <input type="text" id="cmdb-cred-username" class="form-input" maxlength="128" autocomplete="off">
   </div>
   <div class="form-group">
-    <label class="form-label">Password</label>
+    <label for="cmdb-cred-password" class="form-label">Password</label>
     <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-cred-password" class="form-input" maxlength="1024" autocomplete="new-password"></form>
   </div>
   <div class="form-group">
-    <label class="form-label">Note (optional)</label>
+    <label for="cmdb-cred-note" class="form-label">Note (optional)</label>
     <input type="text" id="cmdb-cred-note" class="form-input" maxlength="512">
   </div>
   <div class="form-group">
-    <label class="form-label">Rotate every (days, 0 = off)</label>
+    <label for="cmdb-cred-rotate" class="form-label">Rotate every (days, 0 = off)</label>
     <input type="number" id="cmdb-cred-rotate" class="form-input mw-160" min="0" max="3650" placeholder="0">
     <div class="meta-sm">Flags this credential on the dashboard when it's older than this since its last password change.</div>
   </div>
@@ -6767,16 +6767,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="tls-add-modal-title">Add TLS / DNS watch target</div>
   <div class="modal-subtitle">The server will probe this host periodically (cron) and on demand. Empty cert / connection errors show as red regardless of expiry.</div>
   <div class="form-group">
-    <label class="form-label">Hostname (SNI / cert name)</label>
+    <label for="tls-add-host" class="form-label">Hostname (SNI / cert name)</label>
     <input type="text" id="tls-add-host" class="form-input" placeholder="example.com" maxlength="255">
   </div>
   <div class="form-group">
-    <label class="form-label">Connect address (optional — IP or host)</label>
+    <label for="tls-add-connect-addr" class="form-label">Connect address (optional — IP or host)</label>
     <input type="text" id="tls-add-connect-addr" class="form-input" placeholder="leave empty to resolve hostname" maxlength="255">
     <div class="meta-sm">Override DNS resolution. Useful when probing a local cert by IP — the hostname above is still sent as SNI in the handshake.</div>
   </div>
   <div class="form-group">
-    <label class="form-label">STARTTLS protocol</label>
+    <label for="tls-add-starttls" class="form-label">STARTTLS protocol</label>
     <select id="tls-add-starttls" class="form-input">
       <option value="auto">Auto-detect from port (recommended)</option>
       <option value="none">None / direct TLS (HTTPS, IMAPS, etc.)</option>
@@ -6789,20 +6789,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="isl-241">
     <div class="form-group">
-      <label class="form-label">Port</label>
+      <label for="tls-add-port" class="form-label">Port</label>
       <input type="number" id="tls-add-port" class="form-input" min="1" max="65535" value="443">
     </div>
     <div class="form-group">
-      <label class="form-label">Warn (days)</label>
+      <label for="tls-add-warn" class="form-label">Warn (days)</label>
       <input type="number" id="tls-add-warn" class="form-input" min="0" max="365" value="14">
     </div>
     <div class="form-group">
-      <label class="form-label">Critical (days)</label>
+      <label for="tls-add-crit" class="form-label">Critical (days)</label>
       <input type="number" id="tls-add-crit" class="form-input" min="0" max="365" value="3">
     </div>
   </div>
   <div class="form-group">
-    <label class="form-label">Label (optional)</label>
+    <label for="tls-add-label" class="form-label">Label (optional)</label>
     <input type="text" id="tls-add-label" class="form-input" placeholder="e.g. Production app frontend" maxlength="128">
   </div>
   <div class="form-group">
@@ -6851,11 +6851,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <!-- Step 1: device + domain + alt + wildcard -->
   <div class="acme-step" data-step="1">
     <div class="form-group">
-      <label class="form-label">Device <span class="isl-244">— must have acme.sh installed</span></label>
+      <label for="acme-issue-device" class="form-label">Device <span class="isl-244">— must have acme.sh installed</span></label>
       <select id="acme-issue-device" class="form-input device-combo"></select>
     </div>
     <div class="form-group">
-      <label class="form-label">Primary domain</label>
+      <label for="acme-issue-domain" class="form-label">Primary domain</label>
       <input type="text" id="acme-issue-domain" class="form-input" placeholder="example.com" maxlength="253" autocomplete="off">
       <div class="meta-sm">FQDN. For wildcards, check the box below — don't put <code>*.</code> here.</div>
     </div>
@@ -6865,11 +6865,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </label>
     </div>
     <div class="form-group">
-      <label class="form-label">Additional SAN (optional, one per line)</label>
+      <label for="acme-issue-alt" class="form-label">Additional SAN (optional, one per line)</label>
       <textarea id="acme-issue-alt" class="form-input isl-66" rows="2" placeholder="www.example.com&#10;api.example.com"></textarea>
     </div>
     <div class="form-group">
-      <label class="form-label">Key length</label>
+      <label for="acme-issue-keylen" class="form-label">Key length</label>
       <select id="acme-issue-keylen" class="form-input">
         <option value="4096">RSA 4096 (default — broad compatibility)</option>
         <option value="2048">RSA 2048</option>
@@ -6882,7 +6882,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <!-- Step 2: DNS provider -->
   <div class="acme-step d-none" data-step="2">
     <div class="form-group">
-      <label class="form-label">DNS provider</label>
+      <label for="acme-issue-dns" class="form-label">DNS provider</label>
       <select id="acme-issue-dns" class="form-input"></select>
       <div class="meta-sm">acme.sh's <code>--dns</code> plugin. The API token must already be exported in the agent's environment or written to <code>~/.acme.sh/account.conf</code> on the device.</div>
     </div>
@@ -6960,13 +6960,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="mitigate-pane-fix" class="mitigate-pane isl-255">
     <div id="mitigate-fix-options" class="isl-262"></div>
     <div class="form-group">
-      <label class="form-label">Command to run</label>
+      <label for="mitigate-fix-cmd" class="form-label">Command to run</label>
       <textarea id="mitigate-fix-cmd" class="form-input isl-263" rows="3" placeholder="System will fill this from the option you pick above, or paste your own"></textarea>
       <div class="meta-sm">Runs on the device via the agent. All operations are audit-logged. Read-only diagnostics aren't here — those run via the Diagnostic tab automatically.</div>
     </div>
     <div id="mitigate-fix-safety" class="mb-12"></div>
     <div class="form-group d-none" id="mitigate-fix-confirm-row">
-      <label class="form-label">Type <code>RUN</code> to confirm</label>
+      <label for="mitigate-fix-confirm" class="form-label">Type <code>RUN</code> to confirm</label>
       <input type="text" id="mitigate-fix-confirm" class="form-input isl-264" placeholder="RUN" autocomplete="off">
       <div class="meta-sm">Confirmation required because the command is destructive, irreversible, or AI-suggested rather than pre-approved.</div>
     </div>
@@ -6987,12 +6987,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="agentless-add-modal-title">Add agentless device</div>
   <div class="modal-subtitle">For devices that can't run the agent — switches, APs, printers, IPMI, cameras, smart plugs. They appear in the device list, get CMDB metadata + vault credentials, and show on the Network map. Status is whatever you set it to.</div>
   <div class="form-group">
-    <label class="form-label">Name</label>
+    <label for="al-name" class="form-label">Name</label>
     <input type="text" id="al-name" class="form-input" placeholder="e.g. core-switch-1" maxlength="64">
   </div>
   <div class="grid-2col">
     <div class="form-group">
-      <label class="form-label">Type</label>
+      <label for="al-type" class="form-label">Type</label>
       <select id="al-type" class="form-input">
         <option value="">— pick —</option>
         <option value="switch">Switch</option>
@@ -7013,32 +7013,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group">
-      <label class="form-label">Connected to (upstream)</label>
+      <label for="al-connected-to" class="form-label">Connected to (upstream)</label>
       <select id="al-connected-to" class="form-input device-combo" data-combo-placeholder="Search devices…"><option value="">— none —</option></select>
     </div>
   </div>
   <div class="grid-2col">
     <div class="form-group">
-      <label class="form-label">Hostname</label>
+      <label for="al-hostname" class="form-label">Hostname</label>
       <input type="text" id="al-hostname" class="form-input" maxlength="128">
     </div>
     <div class="form-group">
-      <label class="form-label">IP</label>
+      <label for="al-ip" class="form-label">IP</label>
       <input type="text" id="al-ip" class="form-input" maxlength="64" placeholder="10.0.0.42">
     </div>
   </div>
   <div class="grid-2col">
     <div class="form-group">
-      <label class="form-label">MAC</label>
+      <label for="al-mac" class="form-label">MAC</label>
       <input type="text" id="al-mac" class="form-input" maxlength="32" placeholder="aa:bb:cc:dd:ee:ff">
     </div>
     <div class="form-group">
-      <label class="form-label">Group</label>
+      <label for="al-group" class="form-label">Group</label>
       <input type="text" id="al-group" class="form-input" maxlength="64" placeholder="optional">
     </div>
   </div>
   <div class="form-group">
-    <label class="form-label">Notes</label>
+    <label for="al-notes" class="form-label">Notes</label>
     <textarea id="al-notes" class="form-textarea" maxlength="1024" rows="3"></textarea>
   </div>
   <div class="form-group">
@@ -7067,15 +7067,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="link-edit-mode" value="add">
   <input type="hidden" id="link-edit-id">
   <div class="form-group">
-    <label class="form-label">Title</label>
+    <label for="link-edit-title-input" class="form-label">Title</label>
     <input type="text" id="link-edit-title-input" class="form-input" maxlength="128" placeholder="e.g. Proxmox cluster">
   </div>
   <div class="form-group">
-    <label class="form-label">URL</label>
+    <label for="link-edit-url" class="form-label">URL</label>
     <input type="url" id="link-edit-url" class="form-input" maxlength="1024" placeholder="https://…">
   </div>
   <div class="form-group">
-    <label class="form-label">Category</label>
+    <label for="link-edit-category" class="form-label">Category</label>
     <input type="text" id="link-edit-category" class="form-input" list="links-category-datalist" maxlength="64" placeholder="Uncategorised">
     <div class="meta-sm">Pick an existing category or type a new one. Empty = "Uncategorised".</div>
   </div>
@@ -7091,7 +7091,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
   </div>
   <div class="form-group">
-    <label class="form-label">Description (optional)</label>
+    <label for="link-edit-description" class="form-label">Description (optional)</label>
     <input type="text" id="link-edit-description" class="form-input" maxlength="512" placeholder="Short note shown on hover">
   </div>
   <div class="modal-actions">
@@ -7106,11 +7106,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle">Peer links between devices, drawn as dashed amber lines on the map. Use these for VPN tunnels, site-to-site links, or anything else that isn't physical wiring.</div>
   <div class="isl-268">
     <div class="isl-269">
-      <label class="form-label fs-12">From</label>
+      <label for="tun-from" class="form-label fs-12">From</label>
       <select id="tun-from" class="form-input"><option value="">— pick —</option></select>
     </div>
     <div class="isl-269">
-      <label class="form-label fs-12">To</label>
+      <label for="tun-to" class="form-label fs-12">To</label>
       <select id="tun-to" class="form-input"><option value="">— pick —</option></select>
     </div>
     <button class="btn-icon" data-action="tunnelAdd" >+ Add tunnel</button>
@@ -7126,16 +7126,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="compose-create-modal-title" id="compose-create-modal"><div class="modal modal-wide">
   <div class="modal-title" id="compose-create-modal-title">New compose stack</div>
   <div class="form-group">
-    <label class="form-label">Stack name</label>
+    <label for="compose-create-name" class="form-label">Stack name</label>
     <input type="text" id="compose-create-name" class="form-input" placeholder="lowercase, e.g. media-stack" maxlength="64">
   </div>
   <div class="form-group">
-    <label class="form-label">Target device</label>
+    <label for="compose-create-device" class="form-label">Target device</label>
     <select id="compose-create-device" class="form-input device-combo"></select>
     <div class="hint mt-6">Deploys only run on devices with compose enabled. If the target is off, enable it from the stack row after creating.</div>
   </div>
   <div class="form-group">
-    <label class="form-label">docker-compose.yml</label>
+    <label for="compose-create-yaml" class="form-label">docker-compose.yml</label>
     <textarea id="compose-create-yaml" class="form-input mono-12" rows="14" placeholder="services:&#10;  app:&#10;    image: nginx:latest&#10;    ports:&#10;      - 8080:80"></textarea>
   </div>
   <div class="modal-actions">
@@ -7408,11 +7408,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="hidden" id="cs-modal-id">
 
     <div class="form-group">
-      <label class="form-label">Script name</label>
+      <label for="cs-modal-name" class="form-label">Script name</label>
       <input type="text" id="cs-modal-name" class="form-input" placeholder="Check nginx" maxlength="80">
     </div>
     <div class="form-group">
-      <label class="form-label">Description (optional)</label>
+      <label for="cs-modal-desc" class="form-label">Description (optional)</label>
       <input type="text" id="cs-modal-desc" class="form-input" placeholder="Verifies nginx responds on localhost" maxlength="256">
     </div>
 
@@ -7428,12 +7428,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
 
     <div class="form-group">
-      <label class="form-label">Script body <span class="isl-289">Exit 0 = OK · anything else = FAIL · runs as agent user (root) · 30 s timeout</span></label>
+      <label for="cs-modal-body" class="form-label">Script body <span class="isl-289">Exit 0 = OK · anything else = FAIL · runs as agent user (root) · 30 s timeout</span></label>
       <textarea id="cs-modal-body" class="form-textarea isl-290" rows="10" placeholder="#!/bin/bash&#10;# Your check here&#10;systemctl is-active --quiet nginx"></textarea>
     </div>
 
     <div class="form-group">
-      <label class="form-label">Assign to devices</label>
+      <label for="cs-device-search" class="form-label">Assign to devices</label>
       <input type="text" id="cs-device-search" class="form-input mb-6" placeholder="Search devices by name or group…" autocomplete="off" aria-label="Search devices by name or group">
       <div class="cs-device-tools">
         <span id="cs-device-count" class="hint"></span>
