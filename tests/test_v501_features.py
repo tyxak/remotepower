@@ -118,5 +118,46 @@ class TestSqliteBlindExistsFixed(unittest.TestCase):
         self.assertIn("backend_exists(PROXMOX_SNAPSHOT_CACHE)", API_SRC)
 
 
+class TestLongSessionPerf(unittest.TestCase):
+    """The device grid must not rebuild its DOM on the 60s tick while hidden,
+    and page-scoped pollers stop on navigation — to keep a long-lived PWA from
+    degrading. Source-level guards (the behaviour is browser-side)."""
+
+    APP_JS = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+
+    def test_loaddevices_gates_render_on_visibility(self):
+        self.assertIn("_devicesRenderPending", self.APP_JS)
+        self.assertIn("page-devices')?.classList.contains('active')", self.APP_JS)
+
+    def test_showpage_renders_devices_on_entry(self):
+        self.assertIn("if (name === 'devices')  loadDevices();", self.APP_JS)
+
+    def test_showpage_stops_page_pollers(self):
+        self.assertIn("_stopPagePollers();", self.APP_JS)
+        self.assertIn("function _stopPagePollers()", self.APP_JS)
+
+    def test_perf_hud_present_and_off_by_default(self):
+        self.assertIn("window.rpPerfHud", self.APP_JS)
+        # gated on a localStorage flag → off unless explicitly enabled
+        self.assertIn("localStorage.getItem('rp_perfhud')", self.APP_JS)
+
+
+class TestEpssFeedUrl(unittest.TestCase):
+    """EPSS moved from epss.cyentia.com to epss.empiricalsecurity.com, and the
+    `-current` URL serves the scores via a same-host relative redirect — so the
+    fetch must point at the new host AND follow the redirect, or EPSS scores
+    never load (the no-redirect opener failed with HTTP 302/301)."""
+
+    def test_feed_url_is_current_host(self):
+        self.assertEqual(api.EPSS_FEED_URL,
+                         "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz")
+        self.assertNotIn("cyentia", api.EPSS_FEED_URL)
+
+    def test_epss_fetch_allows_redirect(self):
+        # The EPSS fetch must pass allow_redirect=True (the KEV fetch must not).
+        self.assertIn("_fetch_feed_bytes(EPSS_FEED_URL, allow_redirect=True)", API_SRC)
+        self.assertIn("def _fetch_feed_bytes(url, timeout=30, allow_redirect=False)", API_SRC)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -153,7 +153,11 @@ CVE_IGNORE_FILE     = DATA_DIR / 'cve_ignore.json'
 # v3.14.0: CVE prioritization feeds — CISA Known-Exploited (KEV) + FIRST EPSS.
 KEV_EPSS_FILE       = DATA_DIR / 'kev_epss.json'
 KEV_FEED_URL        = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
-EPSS_FEED_URL       = 'https://epss.cyentia.com/epss_scores-current.csv.gz'
+# FIRST.org moved EPSS hosting from epss.cyentia.com to epss.empiricalsecurity.com;
+# the old host now 301-redirects, and _fetch_feed_bytes is (correctly) no-redirect
+# for SSRF safety, so the old URL silently failed with "HTTP Error 301" and EPSS
+# scores never loaded. Point straight at the current canonical host.
+EPSS_FEED_URL       = 'https://epss.empiricalsecurity.com/epss_scores-current.csv.gz'
 KEV_EPSS_INTERVAL   = 86400        # refresh once a day
 
 MAX_PACKAGE_LIST    = 10000      # hard cap on packages per device payload
@@ -39862,11 +39866,18 @@ def _collect_finding_cve_ids():
     return ids
 
 
-def _fetch_feed_bytes(url, timeout=30):
+def _fetch_feed_bytes(url, timeout=30, allow_redirect=False):
     """Fetch an external prioritization feed through the SSRF-safe opener
-    (peer-IP re-validated at connect; external-only)."""
+    (peer-IP re-validated at connect; external-only).
+
+    allow_redirect: the EPSS `*-current.csv.gz` URL serves the live scores via a
+    same-host relative 302 to the dated file, so that fetch must follow one
+    redirect. This stays SSRF-safe because the guard re-validates the peer IP at
+    EVERY connect, including the redirected one (enforce_ip=True) — a redirect to
+    an internal/rebound host is still blocked. We keep no-redirect for credentialed
+    fetches elsewhere; these feeds carry no token to replay."""
     opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=_get_ssl_context(),
-                               no_redirect=True, enforce_ip=True)
+                               no_redirect=not allow_redirect, enforce_ip=True)
     req = urllib.request.Request(url, headers={'User-Agent': f'RemotePower/{SERVER_VERSION}'})
     with opener.open(req, timeout=timeout) as resp:
         return resp.read()
@@ -39916,7 +39927,7 @@ def _refresh_kev_epss_now():
         import io
         want = _collect_finding_cve_ids()
         epss = {}
-        with gzip.GzipFile(fileobj=io.BytesIO(_fetch_feed_bytes(EPSS_FEED_URL))) as gz:
+        with gzip.GzipFile(fileobj=io.BytesIO(_fetch_feed_bytes(EPSS_FEED_URL, allow_redirect=True))) as gz:
             for raw in gz:
                 line = raw.decode('utf-8', 'replace').strip()
                 if not line or line[0] == '#' or line.startswith('cve,'):

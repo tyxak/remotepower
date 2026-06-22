@@ -1374,8 +1374,18 @@ if (document.readyState === 'loading') {
   _initFavorites();
 }
 
+// v5.0.1 perf: stop continuous PAGE-scoped pollers when navigating away — they
+// self-restart on page entry. Without this, e.g. the Logs tail keeps fetching
+// every 30s after you leave the Logs page for the rest of the session. (Modal /
+// operation pollers are bounded by their own deadlines/close handlers and are
+// intentionally left alone here.)
+function _stopPagePollers() {
+  try { if (typeof logsState !== 'undefined' && logsState && logsState.timer) { clearInterval(logsState.timer); logsState.timer = null; } } catch (_) {}
+}
+
 function showPage(name, btn) {
   _markNavSeen(name);
+  _stopPagePollers();   // v5.0.1 perf: stop the leaving page's continuous pollers
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const el = document.getElementById('page-' + name);
@@ -1413,6 +1423,7 @@ function showPage(name, btn) {
     }
   }
   if (name === 'home')     loadHome();
+  if (name === 'devices')  loadDevices();   // v5.0.1 perf: render the grid on entry (was 60s-tick-only)
   if (name === 'board')    loadBoard();
   if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
@@ -1544,11 +1555,29 @@ async function loadDevices() {
     // changed since the last poll (idle/offline fleets) — one string compare
     // beats re-laying-out the whole grid every 60s.
     const raw = JSON.stringify(data);
-    const unchanged = window._devicesRawPrev === raw && window._devicesRendered;
+    // v5.0.1 perf: only rebuild the grid's DOM when the Devices page is actually
+    // visible. Rebuilding it on every 60s tick while it's display:none still
+    // creates + discards hundreds of nodes → steady GC churn that degrades a
+    // long-lived (never-reloaded) PWA session. When hidden we keep the data
+    // cache fresh but DEFER the render via _devicesRenderPending; showPage(
+    // 'devices') calls loadDevices() on entry so the grid paints fresh on arrival.
+    // The FIRST render always runs (even if hidden) so device-derived dropdowns /
+    // caches populate at startup regardless of which page is default.
+    const _devVisible = document.getElementById('page-devices')?.classList.contains('active');
+    const unchanged = window._devicesRawPrev === raw && window._devicesRendered
+                      && !window._devicesRenderPending;
     window._devicesRawPrev = raw;
     devices = data;
     window._devicesCache = data;  // v3.0.2: command palette consumes this
-    if (!unchanged) { renderDevices(); window._devicesRendered = true; }
+    if (!unchanged) {
+      if (_devVisible || !window._devicesRendered) {
+        renderDevices();
+        window._devicesRendered = true;
+        window._devicesRenderPending = false;
+      } else {
+        window._devicesRenderPending = true;   // changed while hidden → render on entry
+      }
+    }
   } catch(e) {
     toast('Failed to load devices', 'error');
   }
@@ -26399,3 +26428,52 @@ const _dynColorObserver = new MutationObserver((muts) => {
 });
 _dynColorObserver.observe(document.documentElement, { childList: true, subtree: true });
 
+
+// ── v5.0.1 perf HUD ────────────────────────────────────────────────────────
+// A tiny on-screen meter to PIN long-session degradation: watch the JS heap and
+// live DOM-node count climb (or not) while you use the app. If either grows
+// monotonically and never drops, that's the leak. Toggle from the console with
+// rpPerfHud(), or append ?perfhud=1 to the URL. Off by default and a no-op when
+// off (the 2s tick just reads one localStorage key and returns). CSP-safe: the
+// node is built with createElement + .style, never an inline style= attribute.
+function _perfHudTick() {
+  if (localStorage.getItem('rp_perfhud') !== '1') return;
+  let hud = document.getElementById('rp-perf-hud');
+  if (!hud) {
+    hud = document.createElement('div');
+    hud.id = 'rp-perf-hud';
+    Object.assign(hud.style, {
+      position: 'fixed', bottom: '8px', right: '8px', zIndex: '99999',
+      background: 'rgba(0,0,0,0.82)', color: '#3f6', font: '11px/1.45 monospace',
+      padding: '6px 9px', borderRadius: '5px', pointerEvents: 'none',
+      whiteSpace: 'pre', letterSpacing: '0', textAlign: 'left',
+    });
+    document.body.appendChild(hud);
+    hud.dataset.n0 = String(document.getElementsByTagName('*').length);
+    hud.dataset.h0 = String((performance.memory && performance.memory.usedJSHeapSize) || 0);
+    hud.dataset.t0 = String(Math.round(performance.now()));
+  }
+  const nodes = document.getElementsByTagName('*').length;
+  const heap = (performance.memory && performance.memory.usedJSHeapSize) || 0;
+  const dNodes = nodes - Number(hud.dataset.n0);
+  const heapMB = (heap / 1048576).toFixed(1);
+  const dHeapMB = ((heap - Number(hud.dataset.h0)) / 1048576).toFixed(1);
+  const mins = Math.max(1, Math.round((performance.now() - Number(hud.dataset.t0)) / 60000));
+  const sign = n => (n >= 0 ? '+' + n : String(n));
+  hud.textContent =
+    (heap ? `heap  ${heapMB} MB (${sign(dHeapMB)})\n` : 'heap  n/a (non-Chromium)\n') +
+    `DOM   ${nodes} nodes (${sign(dNodes)})\n` +
+    `since open: ${mins} min`;
+}
+window.rpPerfHud = function () {
+  const on = localStorage.getItem('rp_perfhud') === '1';
+  localStorage.setItem('rp_perfhud', on ? '0' : '1');
+  if (on) document.getElementById('rp-perf-hud')?.remove();
+  else _perfHudTick();
+  try { toast('Perf HUD ' + (on ? 'off' : 'on'), 'info'); } catch (_) {}
+  return !on;
+};
+try {
+  if (location.search.indexOf('perfhud') !== -1) localStorage.setItem('rp_perfhud', '1');
+} catch (_) {}
+setInterval(_perfHudTick, 2000);   // no-op while the HUD is off
