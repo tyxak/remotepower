@@ -8884,7 +8884,7 @@ def handle_device_firewall_rule(dev_id):
 # whole feature is opt-in (config.file_manager.enabled, default off) since it is
 # a powerful capability; every op is gated on the same `command` perm as exec.
 _FILE_MGR_DEFAULT_ROOTS = ('/etc', '/var/log', '/var/lib', '/home', '/opt',
-                           '/srv', '/tmp', '/usr/local')
+                           '/srv', '/tmp', '/usr/local')  # nosec B108 - allowlisted browse ROOT, not a temp-file path
 _FILE_MGR_DENY = ('/proc', '/sys', '/dev')   # never browsable, even if configured
 _FILE_MGR_MAX_WRITE = 512 * 1024
 _FILE_MGR_OPS_READ  = ('list', 'read')

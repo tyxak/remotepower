@@ -5791,7 +5791,7 @@ def _handle_cron_op(cmd):
 # containerized agent, and refuse mutations in audit mode (reads stay allowed —
 # read-only, useful for incident response).
 FILE_MGR_DEFAULT_ROOTS = ('/etc', '/var/log', '/var/lib', '/home', '/opt',
-                          '/srv', '/tmp', '/usr/local')
+                          '/srv', '/tmp', '/usr/local')  # nosec B108 - allowlisted browse ROOT, not a temp-file path
 FILE_MGR_DENY = ('/proc', '/sys', '/dev')
 FILE_MGR_MAX_READ = 256 * 1024
 FILE_MGR_ROOTS_FILE = CONF_DIR / 'file-roots'
