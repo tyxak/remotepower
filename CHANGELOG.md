@@ -18,6 +18,28 @@ Security-signal and localisation release on top of v5.0.1.
 - **More localized UI strings** across the Firewall, Reputation/DMARC, AI
   Insights, Alerts and Checks pages, in all five languages (en/zh/hi/es/ar).
 
+Operate-without-SSH feature batch (WolfStack-inspired; all on the test line):
+
+- **Public status page** — the tokenized `/api/public/status` + `status.html`
+  gained admin-defined component groups and a rolling incident history (no
+  hostname/IP/device-id/alert-title ever leaks to the public projection).
+- **Web file manager** — browse / view / edit host files through the enrolled
+  agent (no SSH), gated on the `command` permission, audited, and confined to
+  allowlisted roots (symlink-resolved). File ops ride a base64-wrapped `files:`
+  command (never a shell); mutations are refused in audit / quarantine, reads
+  stay allowed for incident response. Opt-in (`file_manager.enabled`).
+- **Cron & timer management** — view and edit crontabs and systemd timers from
+  the UI. Crontab content rides a base64 `cron:` command and is installed via a
+  temp file (`crontab -u <user> <file>`, never a shell); edits go through the
+  audited, quarantine-/audit-aware command queue.
+- **App catalog** — one-click deploy of curated self-hosted apps (Uptime Kuma,
+  IT-Tools, Dozzle, Linkding, whoami) via the existing Docker-Compose stack +
+  deploy path (per-device `compose_enabled` opt-in, `containers` perm, audited).
+- **Declarative plugin (custom HTTP probe)** — add a code-free integration: poll
+  a URL+path, gate on the status code and one optional JSON field. It is an
+  ordinary integration instance, so it inherits the SSRF-safe client, poll
+  cadence, alerts, secret-scrub and the generic Settings UI.
+
 ## v5.0.1 — "TemperMatters" — 2026-06-22
 
 A stability + polish release that tempers v5.0.0. No breaking changes.
