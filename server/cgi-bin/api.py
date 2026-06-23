@@ -13751,6 +13751,11 @@ def handle_config_get():
     # v1.11.4 — container staleness threshold (seconds). Floor of 300s
     # is enforced at read time by get_container_stale_ttl().
     safe.setdefault('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL)
+    # v5.1.0: public status page config (no secret — the share-token is the
+    # separate `status_token`). Surface a stable shape so the Settings UI renders.
+    safe.setdefault('status_page', {'enabled': False, 'title': '',
+                                    'show_incidents': True, 'incident_days': 30,
+                                    'components': []})
 
     # v3.3.0: surface the effective defaults so the Settings UI shows the
     # right state for users who haven't explicitly set these. Without
@@ -14707,6 +14712,43 @@ def handle_config_save():
                 'verify_max_age_hours': max(1, min(8760, int(bm.get('verify_max_age_hours', 168) or 168))),
             })
         cfg['backup_monitors'] = clean_bm
+
+    # v5.1.0: public status page — component groups + incident-history config for
+    # the tokenized /api/public/status endpoint and the standalone /status.html
+    # page. Admin-defined component names/groups only (never raw hostnames); the
+    # share-token is the existing `status_token`, not stored here.
+    if 'status_page' in body:
+        sp_in = body['status_page']
+        if not isinstance(sp_in, dict):
+            respond(400, {'error': 'status_page must be an object'})
+            return
+        try:
+            _idays = int(sp_in.get('incident_days', 30))
+        except (TypeError, ValueError):
+            _idays = 30
+        _sp_comps = []
+        for c in (sp_in.get('components') or [])[:20]:
+            if not isinstance(c, dict):
+                continue
+            _cname = _sanitize_str(str(c.get('name', '')), 64)
+            if not _cname:
+                continue
+            _sp_comps.append({
+                'id':    _sanitize_str(str(c.get('id') or _cname), 48),
+                'name':  _cname,
+                'group': _sanitize_str(str(c.get('group', '')), 48),
+                'device_ids': [_sanitize_str(str(x), 64)
+                               for x in (c.get('device_ids') or [])[:50] if x],
+                'monitors':   [_sanitize_str(str(x), 64)
+                               for x in (c.get('monitors') or [])[:50] if x],
+            })
+        cfg['status_page'] = {
+            'enabled':        bool(sp_in.get('enabled', False)),
+            'title':          _sanitize_str(str(sp_in.get('title', '')), 128),
+            'show_incidents': bool(sp_in.get('show_incidents', True)),
+            'incident_days':  max(1, min(90, _idays)),
+            'components':     _sp_comps,
+        }
 
     # v2.8.1: dashboard personalisation — what to show/hide
     if 'dashboard_hidden_attention_kinds' in body:
@@ -28909,6 +28951,102 @@ def _ct_token_eq(given, expected):
         return False
 
 
+def _status_page_component_state(comp, devices, now, ttl, mon_last):
+    """Derive a public component status from its member devices + monitors.
+    Returns (status, down, total) where status is operational|degraded|major_outage.
+    v5.1.0."""
+    total = down = 0
+    for did in comp.get('device_ids') or []:
+        d = devices.get(did)
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        total += 1
+        if d.get('agentless'):
+            up = _agentless_online(d)
+        else:
+            last = d.get('last_seen', 0)
+            up = bool(last) and (now - last) < ttl
+        if not up:
+            down += 1
+    for lbl in comp.get('monitors') or []:
+        last = mon_last.get(lbl)
+        if last is None:
+            continue
+        total += 1
+        if not bool(last.get('up', last.get('ok', True))):
+            down += 1
+    if total == 0:
+        return 'operational', 0, 0
+    if down == 0:
+        return 'operational', 0, total
+    if down >= total:
+        return 'major_outage', down, total
+    return 'degraded', down, total
+
+
+def _status_page_projection(cfg, devices, now, ttl):
+    """Build the public status-page projection (component groups + sanitized
+    incident history) for /api/public/status. Returns None when the status page
+    is not enabled. Output carries ONLY admin-chosen component/group names and
+    derived statuses/timestamps — never device names, IPs or alert payloads.
+    v5.1.0."""
+    sp = cfg.get('status_page') or {}
+    if not sp.get('enabled'):
+        return None
+    try:
+        window_days = max(1, min(90, int(sp.get('incident_days', 30))))
+    except (TypeError, ValueError):
+        window_days = 30
+    window_s = window_days * 86400
+    mon_hist = load(MON_HIST_FILE) or {}
+    mon_last = {lbl: ents[-1] for lbl, ents in mon_hist.items() if ents}
+    dev_to_comp = {}
+    out_comps = []
+    for c in sp.get('components') or []:
+        status, _down, _total = _status_page_component_state(c, devices, now, ttl, mon_last)
+        comp = {'id': str(c.get('id') or ''), 'group': str(c.get('group') or ''),
+                'name': str(c.get('name') or ''), 'status': status}
+        out_comps.append(comp)
+        for did in c.get('device_ids') or []:
+            dev_to_comp.setdefault(did, []).append(comp)
+    incidents = []
+    comp_downtime = {}
+    if sp.get('show_incidents', True):
+        alerts = (load(ALERTS_FILE) or {}).get('alerts', [])
+        cutoff = now - window_s
+        for a in alerts:
+            ts = int(a.get('ts') or 0)
+            if ts < cutoff:
+                continue
+            comps = dev_to_comp.get(a.get('device_id')) if a.get('device_id') else None
+            if not comps:
+                continue
+            st = 'major_outage' if a.get('severity') == 'critical' else 'degraded'
+            resolved = a.get('resolved_at')
+            dur = max(0, (int(resolved) if resolved else now) - ts)
+            for comp in comps:
+                incidents.append({'component': comp['name'], 'group': comp['group'],
+                                  'status': st, 'started_ts': ts,
+                                  'resolved_ts': int(resolved) if resolved else None,
+                                  'duration_s': dur})
+                comp_downtime[comp['id']] = comp_downtime.get(comp['id'], 0) + dur
+        incidents.sort(key=lambda i: i['started_ts'], reverse=True)
+        incidents = incidents[:30]
+    for comp in out_comps:
+        dt = min(comp_downtime.get(comp['id'], 0), window_s)
+        comp['uptime_pct'] = round(max(0.0, min(100.0, 100.0 * (1 - dt / window_s))), 2)
+    if any(c['status'] == 'major_outage' for c in out_comps):
+        overall = 'major_outage'
+    elif any(c['status'] == 'degraded' for c in out_comps):
+        overall = 'degraded'
+    else:
+        overall = 'operational'
+    return {'title': _sanitize_str(str(sp.get('title') or ''), 128) or get_server_name(),
+            'overall': overall, 'window_days': window_days,
+            'components': out_comps, 'incidents': incidents,
+            'status_page_enabled': True}
+
+
 def handle_public_status():
     """GET /api/public/status?token=<status_token> — read-only snapshot for a
     public status page. No session. Gated by the status token. Deliberately
@@ -28936,7 +29074,7 @@ def handle_public_status():
             mons.append({'label': str(label)[:64],
                          'up': bool(last.get('up', last.get('ok', True)))})
     mon_up = sum(1 for m in mons if m['up'])
-    respond(200, {
+    resp = {
         'server_name':  get_server_name(),
         'generated_ts': now,
         'health':       {'score': health['score'], 'grade': health['grade']},
@@ -28945,7 +29083,18 @@ def handle_public_status():
         'monitors':     {'total': len(mons), 'up': mon_up,
                          'down': len(mons) - mon_up,
                          'items': sorted(mons, key=lambda m: (m['up'], m['label']))},
-    })
+        'status_page_enabled': False,
+    }
+    # v5.1.0: merge the public status-page projection (component groups + sanitized
+    # incident history) when the operator has enabled it. Existing flat fields stay
+    # for back-compat (Uptime Kuma / Homepage / Grafana consumers).
+    try:
+        _sp = _status_page_projection(cfg, devices, now, ttl)
+    except Exception:
+        _sp = None
+    if _sp:
+        resp.update(_sp)
+    respond(200, resp)
 
 
 def handle_status():

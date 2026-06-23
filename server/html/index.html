@@ -1578,6 +1578,29 @@
               <button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>
             </div>
           </div>
+          <!-- v5.1.0: public status page (component groups + incident history) -->
+          <div class="settings-section">
+            <h3>Public status page</h3>
+            <p class="hint">A shareable, read-only status page at <code>/status.html?token=…</code> — group your devices and monitors into named components and show recent incident history. No login required. It uses the status token above; generate one if you haven't.</p>
+            <label class="click-row-mb6"><input type="checkbox" id="cfg-sp-enabled"> Enable the public status page</label>
+            <div class="form-group">
+              <label for="cfg-sp-title" class="form-label">Public title</label>
+              <input type="text" id="cfg-sp-title" class="form-input" placeholder="e.g. Acme Fleet Status" maxlength="128">
+            </div>
+            <label class="click-row-mb6"><input type="checkbox" id="cfg-sp-incidents"> Show incident history</label>
+            <div class="form-group">
+              <label for="cfg-sp-days" class="form-label">Incident window (days)</label>
+              <input type="number" id="cfg-sp-days" class="form-input" min="1" max="90" value="30">
+            </div>
+            <div class="section-title">Components</div>
+            <p class="hint">Each component groups one or more devices/monitors under a public name. A component's status is the worst state among its members.</p>
+            <div id="sp-components"></div>
+            <div class="row-8-center">
+              <button class="btn-secondary" data-action="spAddComponent">+ Add component</button>
+              <button class="btn-primary" data-action="saveStatusPage">Save status page</button>
+            </div>
+            <div id="sp-share" class="hint-mb6"></div>
+          </div>
           <div class="settings-section">
             <h3>Inbound webhooks &amp; syslog</h3>
             <p class="hint">Two token types share this table:</p>

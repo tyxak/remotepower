@@ -2688,6 +2688,7 @@ async function loadSettings() {
   // v3.12.0: refresh the Advanced → Storage backend card (best-effort).
   try { loadStorageBackendStatus(); } catch (e) {}
   try { loadSatellites(); } catch (e) {}
+  try { _loadStatusPageInto(data); } catch (e) {}
   // General
   document.getElementById('cfg-server-name').value = data.server_name || '';
   { const _lb = document.getElementById('cfg-login-banner'); if (_lb) _lb.value = data.login_banner || ''; }
@@ -18784,6 +18785,139 @@ function _renderStatusToken(token) {
       <button class="btn-icon" data-action="generateStatusToken" >Rotate token</button>
       <button class="btn-icon c-red" data-action="revokeStatusToken" >Disable endpoint</button>
     </div>`;
+}
+
+// v5.1.0: public status page (component groups + incident history) config editor.
+let _spComps = [];
+let _spDevCache = null;
+let _spMonCache = null;
+
+function _spDevName(id) {
+  if (_spDevCache) { const d = _spDevCache.find(x => x.id === id); if (d) return d.name || id; }
+  return id;
+}
+
+function _loadStatusPageInto(data) {
+  const sp = (data && data.status_page) || {};
+  const en = document.getElementById('cfg-sp-enabled'); if (en) en.checked = !!sp.enabled;
+  const ti = document.getElementById('cfg-sp-title'); if (ti) ti.value = sp.title || '';
+  const inc = document.getElementById('cfg-sp-incidents'); if (inc) inc.checked = sp.show_incidents !== false;
+  const dy = document.getElementById('cfg-sp-days'); if (dy) dy.value = sp.incident_days || 30;
+  _spComps = Array.isArray(sp.components) ? sp.components.map(c => ({
+    id: c.id || '', name: c.name || '', group: c.group || '',
+    device_ids: Array.isArray(c.device_ids) ? c.device_ids.slice() : [],
+    monitors: Array.isArray(c.monitors) ? c.monitors.slice() : [],
+  })) : [];
+  // Prime caches so chips show device names, not ids (best-effort).
+  if (!_spDevCache) { _scanDeviceList().then(l => { _spDevCache = l; _renderSpComponents(); }).catch(() => {}); }
+  _renderSpComponents();
+  _renderSpShare(data);
+}
+
+function _renderSpShare(data) {
+  const box = document.getElementById('sp-share'); if (!box) return;
+  const tok = data && data.status_token;
+  if (!tok) { box.textContent = 'Generate a status token above to get a shareable link.'; return; }
+  const url = `${location.origin}/status.html?token=${encodeURIComponent(tok)}`;
+  box.innerHTML = `<div class="hint-mb6">Share this link:</div><input type="text" class="form-input isl-66" readonly value="${escAttr(url)}" data-self-select="1">`;
+}
+
+function _renderSpComponents() {
+  const box = document.getElementById('sp-components'); if (!box) return;
+  if (!_spComps.length) { box.innerHTML = '<div class="empty-state">No components yet — add one to group devices/monitors.</div>'; return; }
+  box.innerHTML = _spComps.map((c, i) => `
+    <div class="dash-card mb-16">
+      <div class="row-8-center">
+        <input type="text" class="form-input sp-name" data-i="${i}" placeholder="Component name" value="${escAttr(c.name)}">
+        <input type="text" class="form-input sp-group" data-i="${i}" placeholder="Group (optional)" value="${escAttr(c.group)}">
+        <button class="btn-icon c-red" data-action="spRemoveComponent" data-arg="${i}">Remove</button>
+      </div>
+      <div class="hint-mb6">Devices:</div>
+      <div>${c.device_ids.map(d => `<span class="group-badge">${escHtml(_spDevName(d))} <button class="btn-icon" data-action="spRemoveDev" data-arg="${i}" data-arg2="${escAttr(d)}">×</button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
+      <input type="text" class="form-input sp-devsearch" data-i="${i}" placeholder="Search devices to add…" autocomplete="off">
+      <div class="sp-devres hidden" data-i="${i}"></div>
+      <div class="hint-mb6">Monitors:</div>
+      <div>${c.monitors.map(m => `<span class="group-badge">${escHtml(m)} <button class="btn-icon" data-action="spRemoveMon" data-arg="${i}" data-arg2="${escAttr(m)}">×</button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
+      <input type="text" class="form-input sp-monsearch" data-i="${i}" placeholder="Search monitors to add…" autocomplete="off">
+      <div class="sp-monres hidden" data-i="${i}"></div>
+    </div>`).join('');
+  _wireSpInputs();
+}
+
+function _wireSpInputs() {
+  document.querySelectorAll('#sp-components .sp-name').forEach(inp => {
+    inp.addEventListener('input', () => { _spComps[+inp.dataset.i].name = inp.value; });
+  });
+  document.querySelectorAll('#sp-components .sp-group').forEach(inp => {
+    inp.addEventListener('input', () => { _spComps[+inp.dataset.i].group = inp.value; });
+  });
+  document.querySelectorAll('#sp-components .sp-devsearch').forEach(inp => {
+    const i = +inp.dataset.i;
+    inp.addEventListener('input', () => _spDevResults(i, inp.value));
+    inp.addEventListener('focus', () => _spDevResults(i, inp.value));
+  });
+  document.querySelectorAll('#sp-components .sp-monsearch').forEach(inp => {
+    const i = +inp.dataset.i;
+    inp.addEventListener('input', () => _spMonResults(i, inp.value));
+    inp.addEventListener('focus', () => _spMonResults(i, inp.value));
+  });
+}
+
+async function _spDevResults(i, term) {
+  const box = document.querySelector(`#sp-components .sp-devres[data-i="${i}"]`); if (!box) return;
+  if (!_spDevCache) { try { _spDevCache = await _scanDeviceList(); } catch (e) { _spDevCache = []; } }
+  const q = (term || '').toLowerCase().trim();
+  const have = new Set(_spComps[i].device_ids);
+  let m = _spDevCache.filter(d => !have.has(d.id));
+  if (q) m = m.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q));
+  m = m.slice(0, 15);
+  box.innerHTML = m.length
+    ? m.map(d => `<div class="pointer mb-8" data-action="spAddDev" data-arg="${i}" data-arg2="${escAttr(d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="hint">No matching devices.</div>';
+  box.classList.remove('hidden');
+}
+
+async function _spMonResults(i, term) {
+  const box = document.querySelector(`#sp-components .sp-monres[data-i="${i}"]`); if (!box) return;
+  if (!_spMonCache) {
+    try {
+      const r = await api('GET', '/monitors');
+      const list = Array.isArray(r) ? r : (r && Array.isArray(r.monitors) ? r.monitors : []);
+      _spMonCache = list.map(x => (typeof x === 'string' ? x : (x.label || x.name || x.target || ''))).filter(Boolean);
+    } catch (e) { _spMonCache = []; }
+  }
+  const q = (term || '').toLowerCase().trim();
+  const have = new Set(_spComps[i].monitors);
+  let m = _spMonCache.filter(lbl => !have.has(lbl));
+  if (q) m = m.filter(lbl => lbl.toLowerCase().includes(q));
+  m = m.slice(0, 15);
+  box.innerHTML = m.length
+    ? m.map(lbl => `<div class="pointer mb-8" data-action="spAddMon" data-arg="${i}" data-arg2="${escAttr(lbl)}">${escHtml(lbl)}</div>`).join('')
+    : '<div class="hint">No matching monitors.</div>';
+  box.classList.remove('hidden');
+}
+
+function spAddComponent() { _spComps.push({ id: '', name: '', group: '', device_ids: [], monitors: [] }); _renderSpComponents(); }
+function spRemoveComponent(i) { _spComps.splice(+i, 1); _renderSpComponents(); }
+function spAddDev(i, id) { i = +i; if (!_spComps[i].device_ids.includes(id)) _spComps[i].device_ids.push(id); _renderSpComponents(); }
+function spRemoveDev(i, id) { i = +i; _spComps[i].device_ids = _spComps[i].device_ids.filter(x => x !== id); _renderSpComponents(); }
+function spAddMon(i, lbl) { i = +i; if (!_spComps[i].monitors.includes(lbl)) _spComps[i].monitors.push(lbl); _renderSpComponents(); }
+function spRemoveMon(i, lbl) { i = +i; _spComps[i].monitors = _spComps[i].monitors.filter(x => x !== lbl); _renderSpComponents(); }
+
+async function saveStatusPage() {
+  const comps = _spComps.filter(c => (c.name || '').trim()).map(c => ({
+    id: c.id || '', name: c.name.trim(), group: (c.group || '').trim(),
+    device_ids: c.device_ids || [], monitors: c.monitors || [],
+  }));
+  const body = { status_page: {
+    enabled: document.getElementById('cfg-sp-enabled').checked,
+    title: document.getElementById('cfg-sp-title').value.trim(),
+    show_incidents: document.getElementById('cfg-sp-incidents').checked,
+    incident_days: Math.max(1, Math.min(90, parseInt(document.getElementById('cfg-sp-days').value, 10) || 30)),
+    components: comps,
+  } };
+  try { await api('POST', '/config', body); toast('Status page saved', 'success'); }
+  catch (e) { toast('Failed: ' + (e.message || String(e)), 'error'); }
 }
 
 // ── moved to static/js/app-hostconfig.js (v3.13.0 split) ──

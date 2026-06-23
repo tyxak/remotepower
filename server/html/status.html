@@ -4,14 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Status</title>
-<link rel="stylesheet" href="/static/css/styles.css?v=3.4.2">
+<!-- Public, standalone status page. Does NOT load the authenticated SPA
+     (app.js) or any internal/admin endpoint. All behaviour lives in
+     status.js; all theming reuses styles.css. CSP-safe: no inline script,
+     no inline on*= handlers, no inline style="" attributes. -->
+<link rel="stylesheet" href="/static/css/styles.css?v=5.1.0">
+<link rel="stylesheet" href="/static/css/status.css?v=5.1.0">
 </head>
 <body class="status-page">
-  <div class="status-wrap">
-    <h1 id="status-title">Status</h1>
-    <div id="status-body"><div class="c-muted">Loading…</div></div>
-    <div class="status-foot" id="status-foot"></div>
-  </div>
-  <script src="/static/js/status.js?v=3.4.2"></script>
+  <main class="status-wrap">
+    <header class="status-head">
+      <h1 id="status-title" class="status-title">Status</h1>
+      <div id="status-banner" class="status-banner" role="status" aria-live="polite"></div>
+    </header>
+    <div id="status-body">
+      <p class="status-loading">Loading…</p>
+    </div>
+    <footer id="status-foot" class="status-foot"></footer>
+  </main>
+  <script src="/static/js/status.js?v=5.1.0"></script>
 </body>
 </html>
