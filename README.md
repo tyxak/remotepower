@@ -14,7 +14,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-5.0.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-5.1.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -162,6 +162,7 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
+- **v5.1.0 — VigilMatters** — fail2ban bans become a first-class alert/webhook event (the jail and banned IPs ride the payload, and repeat bans on a host coalesce into one live alert), Arabic gains a full right-to-left layout, and another batch of UI strings are localized — on top of the usual security and correctness finalize sweep. No breaking changes.
 - **v5.0.1 — TemperMatters** — a stability and polish release that tempers v5.0: it fixes a class of bugs that silently broke features on the SQLite / PostgreSQL backend (SSH-key drift audit, Proxmox snapshot alerts, host-config view), coalesces duplicate alerts into a single entry, makes agent stop / start quiet by default, and adds Edit buttons for API keys and custom checks — on top of a whole-project security and correctness finalize sweep. No breaking changes.
 - **v5.0 — CTRLMatters** — a control-plane hardening and scale release: **mutual-TLS agent authentication** (CA-verified, per-device-pinned client certs), **AES-256-GCM encrypted disaster-recovery backups**, **break-glass credential reveals** (a two-person rule for the most sensitive secrets), a **webhook dead-letter queue** with replay, and a NOC **Status Board** (group / site / tag rollup tiles with a problem-host strip).
 - **v4.10 — PerimeterMatters** — a fleet-wide **Security → Firewall** page that views *and* edits host firewalls (nftables / iptables / ufw / firewalld) and **fail2ban** jails, an **AI Insights** hub of 20 one-click AI reports and advisors, and three new sources (firewall, integrations, backups) in the fleet-knowledge index that powers "Ask my fleet".

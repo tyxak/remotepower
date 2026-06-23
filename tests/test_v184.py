@@ -302,6 +302,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'integration_down', 'integration_recovered',  # v4.7.0 integrations
             'ip_blacklisted', 'ip_blacklist_cleared',  # v4.8.0 IP reputation
             'resolver_unhealthy', 'resolver_recovered',  # v4.9.0 resolver health
+            'fail2ban_ban',                          # v5.1.0 fail2ban bans
             'mount_recovered',                       # v3.14.0 fix
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew

@@ -238,6 +238,49 @@
     '+ Add interface':         { zh: '+ 添加接口', hi: '+ इंटरफ़ेस जोड़ें', es: '+ Añadir interfaz', ar: '+ إضافة واجهة' },
     '+ Monitor name':          { zh: '+ 监控名称', hi: '+ मॉनिटर नाम', es: '+ Nombre del monitor', ar: '+ اسم المراقب' },
     '+ New record':            { zh: '+ 新建记录', hi: '+ नया रिकॉर्ड', es: '+ Nuevo registro', ar: '+ سجل جديد' },
+    // ── renderer empty-states / status / labels (translate-by-source-text;
+    //    these render as clean text nodes so the engine picks them up) ──
+    // Firewall page
+    'No firewall data reported yet. Agents must be on v3.12.0+.':
+      { zh: '尚未报告防火墙数据。代理需为 v3.12.0 及以上版本。',
+        hi: 'अभी तक कोई फ़ायरवॉल डेटा रिपोर्ट नहीं हुआ। एजेंट v3.12.0+ होने चाहिए।',
+        es: 'Aún no se han reportado datos del cortafuegos. Los agentes deben ser v3.12.0 o posterior.',
+        ar: 'لم يتم الإبلاغ عن بيانات جدار الحماية بعد. يجب أن تكون الوكلاء بإصدار v3.12.0 أو أحدث.' },
+    'Loading rules…':          { zh: '正在加载规则…', hi: 'नियम लोड हो रहे हैं…', es: 'Cargando reglas…', ar: 'جارٍ تحميل القواعد…' },
+    'No detail available.':    { zh: '无可用详情。', hi: 'कोई विवरण उपलब्ध नहीं।', es: 'No hay detalles disponibles.', ar: 'لا توجد تفاصيل متاحة.' },
+    'No rules listed (or not readable without root).':
+      { zh: '未列出规则（或在无 root 权限下不可读）。',
+        hi: 'कोई नियम सूचीबद्ध नहीं (या root के बिना पठनीय नहीं)।',
+        es: 'No hay reglas listadas (o no son legibles sin root).',
+        ar: 'لا توجد قواعد مدرجة (أو غير قابلة للقراءة بدون صلاحية root).' },
+    'No firewall backends present on this host.':
+      { zh: '此主机上没有防火墙后端。',
+        hi: 'इस होस्ट पर कोई फ़ायरवॉल बैकएंड मौजूद नहीं है।',
+        es: 'No hay backends de cortafuegos presentes en este host.',
+        ar: 'لا توجد خلفيات جدار حماية على هذا المضيف.' },
+    'AI audit':                { zh: 'AI 审计', hi: 'AI ऑडिट', es: 'Auditoría con IA', ar: 'تدقيق بالذكاء الاصطناعي' },
+    // Checks page
+    'No checks match.':        { zh: '没有匹配的检查。', hi: 'कोई जाँच मेल नहीं खाती।', es: 'Ninguna comprobación coincide.', ar: 'لا توجد فحوصات مطابقة.' },
+    'Failed to load checks.':  { zh: '加载检查失败。', hi: 'जाँचें लोड करने में विफल।', es: 'Error al cargar las comprobaciones.', ar: 'فشل تحميل الفحوصات.' },
+    'Enable':                  { zh: '启用', hi: 'सक्षम करें', es: 'Activar', ar: 'تفعيل' },
+    'Disable':                 { zh: '禁用', hi: 'अक्षम करें', es: 'Desactivar', ar: 'تعطيل' },
+    // Reputation / DMARC page
+    'No IPs monitored yet. Add one to watch its blocklist status.':
+      { zh: '尚未监控任何 IP。添加一个以监视其黑名单状态。',
+        hi: 'अभी तक कोई IP निगरानी में नहीं। इसकी ब्लॉकलिस्ट स्थिति देखने के लिए एक जोड़ें।',
+        es: 'Aún no se supervisa ninguna IP. Añada una para vigilar su estado en las listas de bloqueo.',
+        ar: 'لا توجد عناوين IP مُراقَبة بعد. أضف واحداً لمتابعة حالته في قوائم الحظر.' },
+    'not checked':             { zh: '未检查', hi: 'जाँचा नहीं गया', es: 'sin comprobar', ar: 'لم يُفحص' },
+    'Clean':                   { zh: '干净', hi: 'साफ़', es: 'Limpia', ar: 'نظيف' },
+    'never':                   { zh: '从不', hi: 'कभी नहीं', es: 'nunca', ar: 'أبداً' },
+    // Alerts / MTTR
+    'No resolved alerts in this window.':
+      { zh: '此时间窗口内没有已解决的告警。',
+        hi: 'इस विंडो में कोई हल किए गए अलर्ट नहीं।',
+        es: 'No hay alertas resueltas en esta ventana.',
+        ar: 'لا توجد تنبيهات محلولة في هذه النافذة الزمنية.' },
+    'recover event':           { zh: '恢复事件', hi: 'रिकवर इवेंट', es: 'evento de recuperación', ar: 'حدث تعافٍ' },
+    'Per host:':               { zh: '按主机：', hi: 'प्रति होस्ट:', es: 'Por host:', ar: 'لكل مضيف:' },
     // ── v4.1: full static-UI catalog — page titles, section titles, subtitles ──
     "6-hour rolling buffer across the fleet. Search, tail live, or manage alert rules.": { "zh": "全设备 6 小时滚动缓冲。搜索、实时跟踪或管理告警规则。", "hi": "पूरे fleet में 6-घंटे का रोलिंग बफ़र। खोजें, लाइव tail करें, या alert नियम प्रबंधित करें।", "es": "Búfer móvil de 6 horas en toda la flota. Busca, sigue en vivo o gestiona reglas de alerta.", "ar": "مخزن متجدد لمدة 6 ساعات عبر الأسطول. ابحث، أو تابع مباشرةً، أو أدر قواعد التنبيه." },
     "ACME certificates": { "zh": "ACME 证书", "hi": "ACME प्रमाणपत्र", "es": "Certificados ACME", "ar": "شهادات ACME" },

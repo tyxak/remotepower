@@ -2,6 +2,22 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.1.0 — "VigilMatters" — unreleased (test)
+
+Security-signal and localisation release on top of v5.0.1.
+
+- **fail2ban bans are now a first-class event.** A new fail2ban ban on a host
+  fires the `fail2ban_ban` webhook/alert event (jail + banned IPs in the payload)
+  — reaching the Alerts inbox, the dashboard activity feed and any configured
+  webhook/SIEM. Previously bans were audit-only. Edge-triggered against the prior
+  heartbeat snapshot (first snapshot seeded silently); repeat bans on a host
+  coalesce into one open alert. `WEBHOOK_EVENTS` now 81.
+- **Arabic right-to-left layout.** `styles.css` gained `[dir="rtl"]` layout
+  overrides so the Arabic locale mirrors the sidebar, navigation, cards, tables
+  and drawers — not just the text.
+- **More localized UI strings** across the Firewall, Reputation/DMARC, AI
+  Insights, Alerts and Checks pages, in all five languages (en/zh/hi/es/ar).
+
 ## v5.0.1 — "TemperMatters" — 2026-06-22
 
 A stability + polish release that tempers v5.0.0. No breaking changes.

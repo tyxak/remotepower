@@ -5950,3 +5950,101 @@ table { font-variant-numeric: tabular-nums; }
    industrial theme; the classic UI keeps its visible-subtitle spacing. */
 body[data-ui="industrial"] .page > .page-title,
 body[data-ui="industrial"] .page > .page-title-row { margin-bottom: 24px; }
+
+/* ===== v5.1.0: RTL (dir="rtl") layout overrides ===========================
+   The document sets dir="rtl" for the Arabic (ar) locale and the TEXT is
+   already correct, but none of the chrome layout was mirrored. These rules
+   mirror only the structural left/right that read wrong in RTL — they are
+   ADDITIVE (no existing rule is touched) and reference only selectors that
+   already exist above. Flexbox/grid/text flow already follow `direction`,
+   so we override only the explicit physical (left/right) properties the
+   layout hard-codes. No new design tokens; the canonical scale is unchanged.
+   ========================================================================== */
+
+/* 1. Fixed sidebar → right edge; main content margin swaps to the right. ---- */
+[dir="rtl"] .sidebar {
+  left: auto;
+  right: 0;
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+[dir="rtl"] .app-content {
+  margin-left: 0;
+  margin-right: 240px;
+}
+/* Collapsed icon-rail keeps the swapped side at its narrow width. */
+[dir="rtl"] body.sidebar-collapsed .app-content,
+body.sidebar-collapsed[dir="rtl"] .app-content {
+  margin-left: 0;
+  margin-right: 56px;
+}
+
+/* 2. Sidebar nav + search: text reads right-aligned; the group tree rail and
+      the active-branch accent move to the right side. ----------------------- */
+[dir="rtl"] .nav-btn,
+[dir="rtl"] .sidebar-group-toggle,
+[dir="rtl"] .sidebar-search-hit { text-align: right; }
+/* Icon→label flex rows visually order icon-then-label in LTR; reverse so the
+   icon sits on the leading (right) side in RTL. */
+[dir="rtl"] .nav-btn,
+[dir="rtl"] .sidebar-group-toggle { flex-direction: row-reverse; }
+/* The tree connector rail + child indent move to the right. */
+[dir="rtl"] .sidebar-group-items {
+  margin-left: 0;
+  margin-right: 16px;
+  border-left: none;
+  border-right: 1px solid var(--border);
+}
+[dir="rtl"] .sidebar-group.collapsed .sidebar-group-items {
+  border-right-color: transparent;
+}
+/* The active branch lights its segment of the (now-right) rail. */
+[dir="rtl"] .sidebar-group .nav-btn.active {
+  box-shadow: inset -2px 0 0 var(--accent, #4a9eff);
+  margin-left: 0;
+  margin-right: -1px;
+}
+/* margin-left:auto spacers (group badge + chevron) push to the leading edge. */
+[dir="rtl"] .sidebar-group-toggle .nav-group-badge,
+[dir="rtl"] .sidebar-group-toggle .chevron {
+  margin-left: 0;
+  margin-right: auto;
+}
+[dir="rtl"] .sidebar-group-toggle .nav-group-badge {
+  margin-left: 6px;   /* mirror the LTR margin-right:6px gap after the badge */
+}
+
+/* 3. Headings / table cells: left-aligned text → right. -------------------- */
+[dir="rtl"] th { text-align: right; }
+
+/* 4. Device drawer slides in from the LEFT in RTL (mirror of the right slide). */
+[dir="rtl"] .device-drawer .drawer-panel {
+  right: auto;
+  left: 0;
+  border-left: none;
+  border-right: 1px solid var(--border);
+  transform: translateX(-100%);
+}
+[dir="rtl"] .device-drawer.open .drawer-panel { transform: translateX(0); }
+/* Drawer action buttons: icon on the leading (right) side, text right-aligned. */
+[dir="rtl"] .drawer-action-btn {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+/* 5. Toasts slide in from the LEFT and stack at the left edge in RTL. ------- */
+[dir="rtl"] .toast-container {
+  right: auto;
+  left: 24px;
+}
+[dir="rtl"] .toast { transform: translateX(-120%); }
+[dir="rtl"] .toast.show { transform: translateX(0); }
+/* The status accent rail moves to the trailing (right) side. */
+[dir="rtl"] .toast.success { border-left: none; border-right: 3px solid var(--green); }
+[dir="rtl"] .toast.error   { border-left: none; border-right: 3px solid var(--red); }
+[dir="rtl"] .toast.info    { border-left: none; border-right: 3px solid var(--accent); }
+
+/* 6. Chrome margin utilities actually used in the nav/header — swap the side. */
+[dir="rtl"] .ml-8  { margin-left: 0; margin-right: 8px; }
+[dir="rtl"] .ml-12 { margin-left: 0; margin-right: 12px; }
+/* ===== end v5.1.0 RTL overrides =========================================== */

@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.0.1'
+SERVER_VERSION = '5.1.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -869,6 +869,9 @@ WEBHOOK_EVENTS = (
     # v4.9.0: resolver health — a monitored name stopped resolving / recovered.
     ('resolver_unhealthy',    'A monitored DNS name stopped resolving',              True),
     ('resolver_recovered',    'A monitored DNS name resolves again',                 True),
+    # v5.1.0: fail2ban banned a NEW IP on a host — a first-class security event
+    # (previously audit-only). No recover event: a ban expiry isn't actionable.
+    ('fail2ban_ban',          'fail2ban banned a new IP address on a host',          True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4406,6 +4409,7 @@ _ALERT_RULES = {
     'integration_down':           (None, None),          # v4.7.0: severity from payload.severity
     'ip_blacklisted':             ('high', None),        # v4.8.0
     'resolver_unhealthy':         ('high', None),        # v4.9.0
+    'fail2ban_ban':               ('medium', None),      # v5.1.0
 }
 
 # Map recover event → firing event it resolves
@@ -4536,6 +4540,7 @@ CHANNEL_KINDS = [
     ('integration',  'Integration health',       'operational',   ['integration_down', 'integration_recovered']),
     ('reputation',   'IP reputation (DNSBL)',    'operational',   ['ip_blacklisted', 'ip_blacklist_cleared']),
     ('resolver',     'DNS resolver health',      'operational',   ['resolver_unhealthy', 'resolver_recovered']),
+    ('fail2ban',     'fail2ban intrusion bans',  'operational',   ['fail2ban_ban']),  # v5.1.0
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4816,6 +4821,11 @@ def _alert_title(event, payload):
                 f'of {p.get("total", 0)} resolvers)')[:200]
     if event == 'resolver_recovered':
         return f'DNS resolution recovered: {p.get("rtype", "?")} {p.get("target", "?")}'[:200]
+    if event == 'fail2ban_ban':
+        _fn = p.get('new_count') or 1
+        return (f'fail2ban ban on {name}: {p.get("first_ip", "?")}'
+                + (f' +{_fn - 1} more' if _fn > 1 else '')
+                + (f' [{p.get("jail")}]' if p.get('jail') else ''))[:200]
     if event == 'ip_blacklist_cleared':
         return f'IP reputation cleared: {p.get("ip", "?")}'
     if event == 'drift_detected':
@@ -5765,6 +5775,7 @@ def _webhook_title(event):
         'ip_blacklist_cleared':  'IP Reputation Cleared',
         'resolver_unhealthy':    'DNS Resolution Failing',
         'resolver_recovered':    'DNS Resolution Recovered',
+        'fail2ban_ban':          'fail2ban Ban',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -6685,6 +6696,11 @@ def _webhook_message(event, payload):
                 f'{payload.get("nxdomain_count",0)} NXDOMAIN of {payload.get("total",0)})')
     elif event == 'resolver_recovered':
         return f'DNS name {payload.get("rtype","?")} {payload.get("target","?")} resolves again'
+    elif event == 'fail2ban_ban':
+        _fn = payload.get('new_count') or 1
+        return (f'{name}: fail2ban jail {payload.get("jail","?")} banned '
+                f'{payload.get("first_ip","?")}'
+                + (f' (+{_fn - 1} more new this cycle)' if _fn > 1 else ''))
     return f'{event}: {name}'
 
 
@@ -10418,6 +10434,7 @@ def handle_heartbeat():
     _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
     _reinstall_audit_pending = False  # audit AFTER the device lock (audit_log locks too)
     _agent_started_pending = None     # v4.10.0: ('agent resumed after graceful stop') payload
+    _fail2ban_pending = []            # v5.1.0: ('fail2ban_ban', payload) — new bans, fired post-lock
     # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
@@ -10938,6 +10955,31 @@ def handle_heartbeat():
                             'total_failed': int(jtf) if isinstance(jtf, int) and 0 <= jtf <= 10**9 else 0,
                         })
                     safe_si['fail2ban'] = {'available': True, 'jails': safe_jails}
+                    # v5.1.0: edge-trigger fail2ban_ban on IPs newly banned since
+                    # the previous heartbeat. Seed silently on first sight (no
+                    # prior snapshot → don't fire the whole banned set at once).
+                    # Buffer here; fire AFTER the DEVICES lock (B2 lock-nesting).
+                    _prev_f2b = (dev.get('sysinfo') or {}).get('fail2ban') or {}
+                    if _prev_f2b.get('available'):
+                        _prev_ban = {jp.get('name'): set(jp.get('banned') or [])
+                                     for jp in (_prev_f2b.get('jails') or [])
+                                     if isinstance(jp, dict)}
+                        _new_bans = []
+                        for jj2 in safe_jails:
+                            for _bip in sorted(set(jj2['banned']) - _prev_ban.get(jj2['name'], set())):
+                                _new_bans.append((jj2['name'], _bip))
+                        if _new_bans:
+                            _new_bans = _new_bans[:50]
+                            _jails_hit = sorted({jn for jn, _ in _new_bans})
+                            _fail2ban_pending.append(('fail2ban_ban', {
+                                'device_id': dev_id,
+                                'name':      dev.get('name', dev_id),
+                                'jail':      (_jails_hit[0] if len(_jails_hit) == 1
+                                              else ', '.join(_jails_hit[:5])),
+                                'first_ip':  _new_bans[0][1],
+                                'ips':       [bip for _, bip in _new_bans],
+                                'new_count': len(_new_bans),
+                            }))
                 else:
                     safe_si['fail2ban'] = {'available': False}
             # v3.8.0: persist failed systemd units. The agent has always
@@ -11128,6 +11170,13 @@ def handle_heartbeat():
     # held lock silently drops the alert under SQLite — the B2 lock-nesting class).
     for _mev, _mpl in metric_pending:
         fire_webhook(_mev, _mpl)
+    # v5.1.0: fire fail2ban_ban webhooks buffered inside the lock (B2 class —
+    # fire_webhook takes its own lock; nesting drops the alert under SQLite).
+    for _f2bev, _f2bpl in _fail2ban_pending:
+        try:
+            fire_webhook(_f2bev, _f2bpl)
+        except Exception:
+            pass
 
     # v1.8.0: process service report
     if 'services' in body and isinstance(body['services'], list):

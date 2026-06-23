@@ -21,14 +21,12 @@ could be exploited is fixed before release, on both the server and the agent.
 
 Each release is reviewed for security at the code level and scanned with an
 external toolchain in addition to the CI guardrails. The current release,
-**v5.0.1**, had a whole-project server + agent security review with SAST tooling
-(Bandit, gitleaks) and a CodeQL code-scanning pass, held to the bar — **no
-Critical, High, or Medium finding ships** — see
-[security-review-5.0.1.md](security-review-5.0.1.md). It builds on **v5.0.0**,
-which underwent the same review — see
-[security-review-5.0.0.md](security-review-5.0.0.md). The earlier
-**v4.10.0** had the same whole-project audit and **passed clean** — see
-[security-review-4.10.0.md](security-review-4.10.0.md). The v4.10.0
+**v5.1.0**, had a whole-project server + agent security review with SAST tooling
+(Bandit, gitleaks) held to the bar — **no Critical, High, or Medium finding
+ships** — see [security-review-5.1.0.md](security-review-5.1.0.md). It builds on
+**v5.0.1** (see [security-review-5.0.1.md](security-review-5.0.1.md)) and
+**v5.0.0** (see [security-review-5.0.0.md](security-review-5.0.0.md)), which
+underwent the same review. The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
 construction: every edit is **server-validated against a strict character

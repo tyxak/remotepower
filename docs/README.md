@@ -38,7 +38,11 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.0.1.md](security-review-5.0.1.md)** — Latest review:
+- **[security-review-5.1.0.md](security-review-5.1.0.md)** — Latest review:
+ the first-class `fail2ban_ban` event (no new sink, post-lock fire, per-host
+ coalescing), Arabic RTL CSS and the i18n batch, with SAST (Bandit/gitleaks)
+ held to the bar (no Critical/High/Medium ships).
+- **[security-review-5.0.1.md](security-review-5.0.1.md)** — A prior review:
  whole-project audit + SAST (Bandit/gitleaks) + a CodeQL pass (no Critical/High/
  Medium ships) — escalation DLQ reliability, diagnostics-bundle secret hygiene,
  two cross-scope (IDOR) fixes, and the documented static-analysis FP triage.
@@ -46,9 +50,6 @@ holds long-form docs that don't fit there.
  a whole-project server + agent audit — the mutual-TLS agent auth, at-rest backup
  encryption, two-person break-glass credential reveals, and webhook dead-letter
  queue, with the static + dynamic tooling used each cycle.
-- **[security-review-4.10.0.md](security-review-4.10.0.md)** — A prior review:
- the Firewall/fail2ban edit surface, SSRF guards, and containerized-agent
- host-boundary hardening.
 
 ## Release notes
 

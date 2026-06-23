@@ -17083,6 +17083,8 @@ function _renderHomeActivity(fleetEvents) {
     'ip_blacklisted', 'ip_blacklist_cleared',
     // v4.9.0: DNS resolver health monitor
     'resolver_unhealthy', 'resolver_recovered',
+    // v5.1.0: fail2ban intrusion bans
+    'fail2ban_ban',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -17275,6 +17277,9 @@ function _homeActivityAttrs(event, p) {
     // v4.9.0: resolver health → the DNS page
     case 'resolver_unhealthy': case 'resolver_recovered':
       return `${base} data-home-act="dns"`;
+    // v5.1.0: fail2ban bans → host drawer (or the Firewall page fleet-wide)
+    case 'fail2ban_ban':
+      return `${base} data-home-act="${devId ? 'detail' : 'firewall'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -25188,6 +25193,10 @@ function _homeNavAction(btn) {
     // v4.7.0: integration health → the dedicated Integrations page
     case 'integrations':
       showPage('integrations', document.querySelector('.nav-btn[data-page="integrations"]'));
+      break;
+    // v5.1.0: fail2ban ban → the fleet Firewall & fail2ban page
+    case 'firewall':
+      showPage('firewall', document.querySelector('.nav-btn[data-page="firewall"]'));
       break;
     default:
       if (devId) openDetail(devId, devName);

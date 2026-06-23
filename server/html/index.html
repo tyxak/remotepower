@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.0.1">
+<link rel="stylesheet" href="static/css/styles.css?v=5.1.0">
 
 </head>
 <body>
@@ -2764,7 +2764,19 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.0.1 tempermatters stability polish bugfix sqlite postgres backend exists ssh key drift proxmox snapshot host config current duplicate alert coalesce agent stopped started notification noise api key edit custom check edit backup passphrase environmentfile self-update script">
+          <details class="doc-card" open data-keywords="release notes changelog v5.1.0 vigilmatters fail2ban ban banned ip intrusion jail event alert webhook siem arabic rtl right-to-left layout localization i18n translation">
+            <summary><strong>What's new — v5.1.0 "VigilMatters"</strong> — fail2ban bans become a first-class alert / webhook event, Arabic gets a full right-to-left layout, and more of the UI is localized (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.1.0 turns intrusion bans into a signal you actually see, finishes Arabic localisation with a mirrored layout, and translates more of the dashboard. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.1.0</code>).</p>
+              <ul>
+                <li><strong>fail2ban bans reach your inbox.</strong> When a host's fail2ban jail bans a new IP, RemotePower now fires a first-class <code>fail2ban_ban</code> event — it lands in Alerts, the dashboard activity feed and any configured webhook / SIEM, carrying the jail and banned IPs. Bans were previously audit-only. Repeat bans on a host coalesce into one live alert so a brute-force flood doesn't drown the inbox.</li>
+                <li><strong>Arabic right-to-left layout.</strong> The Arabic locale now mirrors the whole chrome — sidebar, navigation, cards, tables and drawers flip to a true RTL layout, not just RTL text.</li>
+                <li><strong>More localized UI.</strong> Another batch of labels across the Firewall, Reputation/DMARC, AI Insights, Alerts and Checks pages are now translated in all five languages.</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.0.1 tempermatters stability polish bugfix sqlite postgres backend exists ssh key drift proxmox snapshot host config current duplicate alert coalesce agent stopped started notification noise api key edit custom check edit backup passphrase environmentfile self-update script">
             <summary><strong>What's new — v5.0.1 "TemperMatters"</strong> — a stability + polish release that tempers v5.0.0: fixes a class of bugs that silently broke features on the SQLite/PostgreSQL backend, makes upgrades much quieter, and adds Edit buttons for API keys and custom checks (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.0.1 is all hardening and polish — no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.0.1</code>).</p>
@@ -2821,23 +2833,6 @@
                 <li><strong>Import from config or from the agent.</strong> Move credentials you already have into the vault with no re-typing — either from RemotePower's own ACME store, or harvested on demand from a device's acme.sh <code>account.conf</code> (the agent reads the <code>SAVED_*</code> tokens locally and returns them over the authenticated heartbeat).</li>
               </ul>
               <p class="hint">Set provider tokens under <em>ACME → DNS credentials</em>, then open <em>Admin → DNS</em>. See <code>docs/v4.9.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.8.0 onboardingmatters install installer wizard one command docker compose quick install agent token baked /install endpoint ssh agent push bootstrap uninstall server agent demo dmarc spf dkim email authentication imap rua aggregate report mailbox monitor accessibility modal dialog aria confirm prompt macos loadavg fd_percent windows nvidia gpu cve scan all devices hang fix security hardening pentest wapiti nikto nuclei bandit zap host_path container">
-            <summary><strong>What's new — v4.8.0 "OnboardingMatters"</strong> — turnkey onboarding (a unified one-command installer, a self-hosted one-line agent install, SSH agent bootstrap and clean uninstall), a new DMARC / SPF / DKIM email-auth monitor, and an accessibility + security polish pass (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.8.0 makes RemotePower <strong>turnkey to stand up</strong>: one command brings up the server, one line installs an agent, and you can bootstrap agents over SSH or hand someone a baked installer that enrols their host on first run. It also adds an <strong>email-authentication monitor</strong> and a round of accessibility and security polish. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.8.0</code>).</p>
-              <ul>
-                <li><strong>One-command install + guided wizard.</strong> A unified <code>install.sh</code> stands up the server (and a <code>docker compose</code> path that serves HTTPS by default with no insecure default password). Run it with no arguments for an interactive wizard.</li>
-                <li><strong>Self-hosted one-line agent install.</strong> Your server now serves its own agent installer at <code>/install</code>, and a <strong>baked "Quick install" agent</strong> carries the server URL + an enrolment token (with an integrity check) so the operator just downloads and runs it — the host then appears in the device list by its hostname, nothing else to configure.</li>
-                <li><strong>Bootstrap agents over SSH.</strong> <code>install.sh agent push --server &lt;url&gt; --token &lt;token&gt; user@host …</code> installs the agent on remote hosts you can already SSH to.</li>
-                <li><strong>Clean uninstall.</strong> First-class uninstall for the server, the agent and the demo data — no leftover units, users or files.</li>
-                <li><strong>Reputation/DMARC monitor.</strong> A new page for mail-deliverability posture. It checks the <strong>IP reputation</strong> of your sending IPs against DNS blocklists (DNSBLs) and alerts when one gets listed; grades your domains' SPF / DKIM / DMARC over DNS; and can connect to a mailbox over <strong>IMAP</strong> to ingest DMARC aggregate (RUA) reports — who is sending as your domains and whether they pass, with per-source pass/fail tallies and mailbox health.</li>
-                <li><strong>Accessibility.</strong> Every modal dialog now carries an accessible name, and all native browser <code>confirm()</code> / <code>prompt()</code> pop-ups are replaced with styled, focus-managed in-app dialogs.</li>
-                <li><strong>Agent parity.</strong> macOS now reports saturation metrics (load average + file-descriptor pressure) and the Windows agent reports NVIDIA GPU telemetry.</li>
-                <li><strong>Reliability &amp; security.</strong> The CVE <em>Scan all devices</em> action no longer hangs the browser; containerized-agent host reads, credential-file permissions on macOS/Windows, and internal lock-safety were all hardened. Independently pentested with <strong>wapiti, nikto, nuclei, bandit and OWASP ZAP</strong> — clean.</li>
-              </ul>
-              <p class="hint">See <code>docs/install.md</code>, <code>docs/dmarc.md</code> and <code>docs/v4.8.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -7612,19 +7607,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.0.1"></script>
-<script defer src="static/js/app.js?v=5.0.1"></script>
+<script defer src="static/js/i18n.js?v=5.1.0"></script>
+<script defer src="static/js/app.js?v=5.1.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.0.1"></script>
-<script defer src="static/js/app-cmdb.js?v=5.0.1"></script>
-<script defer src="static/js/app-containers.js?v=5.0.1"></script>
-<script defer src="static/js/app-network.js?v=5.0.1"></script>
+<script defer src="static/js/app-calendar.js?v=5.1.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.1.0"></script>
+<script defer src="static/js/app-containers.js?v=5.1.0"></script>
+<script defer src="static/js/app-network.js?v=5.1.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.0.1"></script>
-<script defer src="static/js/app-compliance.js?v=5.0.1"></script>
-<script defer src="static/js/app-integrations.js?v=5.0.1"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.1.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.1.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.1.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.0.1"></script>
+<script defer src="static/js/sw-register.js?v=5.1.0"></script>
 </body>
 </html>
