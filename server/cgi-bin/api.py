@@ -13771,6 +13771,15 @@ def handle_integrations_save():
                 'slug': _no_ctrl(_sanitize_str(raw.get('slug', ''), 120)),
                 'interval': max(60, int(raw.get('interval', 0) or 0)) if raw.get('interval') else 0,
             }
+            # v5.1.0: declarative custom-probe plugin spec (no code). These
+            # ride into poll_instance → integrations_mod._custom_probe; the URL
+            # is already SSRF-checked above and polled via _SSRFIntegrationClient.
+            if typ == 'custom_probe':
+                inst['probe_path']       = _no_ctrl(_sanitize_str(raw.get('probe_path', ''), 255))
+                inst['probe_expect']     = _no_ctrl(_sanitize_str(str(raw.get('probe_expect', '')), 8))
+                inst['probe_json_field'] = _no_ctrl(_sanitize_str(raw.get('probe_json_field', ''), 128))
+                inst['probe_json_op']    = _no_ctrl(_sanitize_str(raw.get('probe_json_op', ''), 16))
+                inst['probe_json_value'] = _no_ctrl(_sanitize_str(str(raw.get('probe_json_value', '')), 255))
             # Preserve an existing secret when the field comes back blank.
             new_secret = raw.get('secret')
             if new_secret:

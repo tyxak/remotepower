@@ -67,7 +67,12 @@ class TestConnectorRegistry(unittest.TestCase):
             self.assertIn('category', c)
             self.assertIsInstance(c['fields'], list)
             for f in c['fields']:
-                self.assertIn(f['key'], ('secret', 'username', 'slug'))
+                # 'secret'/'username'/'slug' are the standard credential keys;
+                # the declarative custom_probe connector (v5.1.0) carries extra
+                # non-secret spec fields, all prefixed 'probe_'.
+                self.assertTrue(
+                    f['key'] in ('secret', 'username', 'slug') or f['key'].startswith('probe_'),
+                    f"unexpected field key {f['key']} on {c['type']}")
                 self.assertIn(f['kind'], (I.TEXT, I.PASSWORD))
 
     def test_secret_field_naming_redactable(self):

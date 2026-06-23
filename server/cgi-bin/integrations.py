@@ -1141,6 +1141,9 @@ def _overseerr(inst, c):
 # rate (KB/s, value already in KB/s), mb (123 MB), flag (yes/no), str. Surfaces
 # the metrics the connectors ALREADY collect — no extra API calls.
 _STATS: dict = {
+    "custom_probe": [
+        ("http_status", "HTTP", "num"),
+    ],
     "pihole": [
         ("queries_today", "Queries", "int"),
         ("blocked_pct", "Blocked", "pct"),
@@ -1224,6 +1227,77 @@ def _fmt_stat(kind, v):
     if kind == "flag":
         return "yes" if v else "no"
     return str(v)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# v5.1.0 — declarative plugin: a code-free custom HTTP health probe
+# ══════════════════════════════════════════════════════════════════════════════
+def _probe_compare(val, op, want):
+    """Compare a JSON value against the operator's expectation. Pure + total."""
+    if op == "contains":
+        return str(want) in str(val)
+    if op == "ne":
+        return str(val) != str(want)
+    if op in ("lt", "gt"):
+        try:
+            a, b = float(val), float(want)
+        except (TypeError, ValueError):
+            return False
+        return a < b if op == "lt" else a > b
+    return str(val) == str(want)   # default / "eq"
+
+
+@_register(
+    "custom_probe",
+    "Custom HTTP probe",
+    "custom",
+    [
+        _field("probe_path", "Health path (default /)", TEXT, optional=True, placeholder="/health"),
+        _field("probe_expect", "Expected HTTP status (blank = any 2xx)", TEXT, optional=True, placeholder="200"),
+        _field("probe_json_field", "JSON field to check (dotted, optional)", TEXT, optional=True, placeholder="data.status"),
+        _field("probe_json_op", "Compare: eq | ne | lt | gt | contains", TEXT, optional=True, placeholder="eq"),
+        _field("probe_json_value", "Expected value", TEXT, optional=True, placeholder="healthy"),
+        _field("secret", "Bearer token (optional)", PASSWORD, optional=True),
+    ],
+    notes="Declarative HTTP health probe — NO code. Polls <url><path>, checks the "
+          "status code and (optionally) one JSON field. SSRF-guarded like every "
+          "connector; the token is stored as a scrubbed secret. Lets you monitor "
+          "any HTTP service without forking.",
+)
+def _custom_probe(inst, c):
+    path = (inst.get("probe_path") or "/").strip() or "/"
+    headers = {}
+    tok = inst.get("secret")
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
+    r = c.get(path, headers=headers)
+    metrics = {"http_status": r.status}
+    expect = str(inst.get("probe_expect") or "").strip()
+    if expect:
+        if not expect.isdigit() or int(expect) != r.status:
+            return {"status": CRIT, "detail": f"HTTP {r.status} (expected {expect})", "metrics": metrics}
+    elif not r.ok:
+        return {"status": CRIT, "detail": f"HTTP {r.status}", "metrics": metrics}
+    field = (inst.get("probe_json_field") or "").strip()
+    if field:
+        try:
+            data = r.json()
+        except Exception:
+            return {"status": WARN, "detail": f"HTTP {r.status} but response is not JSON", "metrics": metrics}
+        val = data
+        for part in field.split("."):
+            if isinstance(val, dict) and part in val:
+                val = val[part]
+            else:
+                return {"status": WARN, "detail": f"JSON field '{field}' not found", "metrics": metrics}
+        op = (inst.get("probe_json_op") or "eq").strip().lower()
+        want = inst.get("probe_json_value")
+        if isinstance(val, (int, float, str, bool)):
+            metrics[field] = val
+        if not _probe_compare(val, op, want):
+            return {"status": CRIT, "detail": f"{field}={val} fails ({op} {want})", "metrics": metrics}
+        return {"status": OK, "detail": f"HTTP {r.status}, {field}={val}", "metrics": metrics}
+    return {"status": OK, "detail": f"HTTP {r.status}", "metrics": metrics}
 
 
 def format_stats(type_, metrics):
