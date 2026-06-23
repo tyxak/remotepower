@@ -1491,6 +1491,7 @@ function showPage(name, btn) {
   if (name === 'firewall')   loadFirewall();
   if (name === 'files')      loadFileMgr();
   if (name === 'cron')       loadCron();
+  if (name === 'catalog')    loadCatalog();
   if (name === 'storage')    loadStorage();
   if (name === 'integrations') loadIntegrationsPage();
   if (name === 'gpus')       loadGpus();
@@ -7311,6 +7312,66 @@ async function _scanDeviceList() {
   const d = await api('GET', '/devices?slim=1');
   if (Array.isArray(d)) window._devicesCache = d;
   return window._devicesCache || [];
+}
+
+// ── v5.1.0: app catalog (one-click compose deploy) ──────────────────────────
+let _catalogDev = null, _catalogApps = [];
+
+async function loadCatalog() {
+  if (!_catalogApps.length) {
+    try { const r = await api('GET', '/app-catalog'); _catalogApps = r.apps || []; }
+    catch (e) { /* render handles empty */ }
+  }
+  _renderCatalog();
+}
+
+async function _renderCatalogDeviceResults(term) {
+  const box = document.getElementById('catalog-device-results');
+  if (!box) return;
+  const devs = await _scanDeviceList();
+  const q = (term || '').toLowerCase().trim();
+  let matches = devs;
+  if (q) matches = devs.filter(d =>
+    (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) ||
+    (d.group || '').toLowerCase().includes(q) || (d.tags || []).some(t => (t || '').toLowerCase().includes(q)));
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d =>
+        `<div class="pointer mb-8" data-action="pickCatalogDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="empty-state">No matching devices.</div>';
+  box.classList.remove('hidden');
+}
+
+function pickCatalogDevice(id, name) {
+  _catalogDev = { id, name };
+  document.getElementById('catalog-device-results').classList.add('hidden');
+  document.getElementById('catalog-device-search').value = name;
+  const cur = document.getElementById('catalog-device-current');
+  if (cur) cur.textContent = 'Target: ' + name;
+  _renderCatalog();
+}
+
+function _renderCatalog() {
+  const box = document.getElementById('catalog-grid');
+  if (!box) return;
+  if (!_catalogApps.length) { box.innerHTML = '<div class="hint">No apps in the catalog.</div>'; return; }
+  box.innerHTML = _catalogApps.map(a => {
+    const dep = _catalogDev
+      ? `<button class="btn-primary" data-action="catalogDeploy" data-arg="${escAttr(a.id)}">Deploy to ${escHtml(_catalogDev.name)}</button>`
+      : `<span class="hint">Pick a target host above to deploy</span>`;
+    return `<div class="dash-card mb-16"><div class="section-title">${escHtml(a.name)} <span class="hint">· ${escHtml(a.category || '')}</span></div><div class="mb-8">${escHtml(a.description || '')}</div><div class="hint mb-8">Default port: ${escHtml(String(a.port || '—'))}</div>${dep}</div>`;
+  }).join('');
+}
+
+async function catalogDeploy(appId) {
+  if (!_catalogDev) { toast('Pick a target host first', 'error'); return; }
+  const app = _catalogApps.find(a => a.id === appId);
+  const label = app ? app.name : appId;
+  if (!await uiConfirm({ message: `Deploy ${label} to ${_catalogDev.name}? It will run via Docker Compose on the host.`, confirmText: 'Deploy' })) return;
+  try {
+    const r = await api('POST', '/app-catalog/deploy', { device_id: _catalogDev.id, app_id: appId });
+    toast(`${label} ${r.action === 'redeploy' ? 'redeploy' : 'deploy'} queued`, 'success');
+  } catch (e) { toast(String(e), 'error'); }
 }
 
 // ── v5.1.0: cron + systemd timer management ─────────────────────────────────

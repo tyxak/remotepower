@@ -37836,6 +37836,95 @@ def _compose_status_from(action, rc):
     return 'down' if action == 'down' else 'up'   # up / redeploy → up
 
 
+# ── v5.1.0: app catalog — one-click deploy of curated compose templates ──────
+# A curated set of popular, self-contained homelab apps. "Deploy" instantiates
+# the template as a compose STACK (reusing compose_stacks.json) and triggers the
+# existing, audited compose_deploy path — so the agent fetches + runs the YAML
+# exactly as for a hand-authored stack. No new agent code, no new privilege.
+APP_CATALOG = (
+    {'id': 'uptime-kuma', 'name': 'Uptime Kuma', 'category': 'Monitoring',
+     'description': 'Self-hosted uptime monitor with a clean status dashboard.',
+     'port': 3001,
+     'yaml': ('services:\n  uptime-kuma:\n    image: louislam/uptime-kuma:1\n'
+              '    container_name: uptime-kuma\n    restart: unless-stopped\n'
+              '    ports:\n      - "3001:3001"\n    volumes:\n'
+              '      - uptime-kuma:/app/data\nvolumes:\n  uptime-kuma:\n')},
+    {'id': 'it-tools', 'name': 'IT-Tools', 'category': 'Utilities',
+     'description': 'A handy collection of developer / sysadmin tools in one page.',
+     'port': 8080,
+     'yaml': ('services:\n  it-tools:\n    image: corentinth/it-tools:latest\n'
+              '    container_name: it-tools\n    restart: unless-stopped\n'
+              '    ports:\n      - "8080:80"\n')},
+    {'id': 'dozzle', 'name': 'Dozzle', 'category': 'Monitoring',
+     'description': 'Real-time Docker container log viewer in the browser.',
+     'port': 8888,
+     'yaml': ('services:\n  dozzle:\n    image: amir20/dozzle:latest\n'
+              '    container_name: dozzle\n    restart: unless-stopped\n'
+              '    ports:\n      - "8888:8080"\n    volumes:\n'
+              '      - /var/run/docker.sock:/var/run/docker.sock:ro\n')},
+    {'id': 'linkding', 'name': 'Linkding', 'category': 'Productivity',
+     'description': 'Minimal self-hosted bookmark manager.',
+     'port': 9090,
+     'yaml': ('services:\n  linkding:\n    image: sissbruecker/linkding:latest\n'
+              '    container_name: linkding\n    restart: unless-stopped\n'
+              '    ports:\n      - "9090:9090"\n    volumes:\n'
+              '      - linkding:/etc/linkding/data\nvolumes:\n  linkding:\n')},
+    {'id': 'whoami', 'name': 'whoami', 'category': 'Utilities',
+     'description': 'Tiny test service that echoes request info — handy to verify a deploy.',
+     'port': 8088,
+     'yaml': ('services:\n  whoami:\n    image: traefik/whoami:latest\n'
+              '    container_name: whoami\n    restart: unless-stopped\n'
+              '    ports:\n      - "8088:80"\n')},
+)
+_APP_CATALOG_BY_ID = {a['id']: a for a in APP_CATALOG}
+
+
+def handle_app_catalog():
+    """GET /api/app-catalog — the curated template list (incl. YAML for preview)."""
+    require_auth()
+    respond(200, {'apps': [dict(a) for a in APP_CATALOG]})
+
+
+def handle_app_catalog_deploy():
+    """POST /api/app-catalog/deploy {device_id, app_id} — instantiate a catalog
+    template as a compose stack and queue its deploy. Idempotent: redeploys an
+    existing same-named stack on that device. Gated on `containers`, scope- and
+    compose_enabled-checked, audited; the deploy itself rides the proven
+    compose_deploy command path."""
+    actor = require_perm('containers')
+    body = get_json_obj()
+    app_id = _sanitize_str(body.get('app_id', ''), 64)
+    device_id = _sanitize_str(body.get('device_id', ''), 64, allow_empty=False)
+    tpl = _APP_CATALOG_BY_ID.get(app_id)
+    if not tpl:
+        respond(404, {'error': 'unknown app'})
+    devices = load(DEVICES_FILE)
+    if device_id not in devices:
+        respond(404, {'error': 'device not found'})
+    _scope_block_device(device_id)
+    if not devices[device_id].get('compose_enabled', False):
+        respond(403, {'error': 'compose deploys are disabled on this device — enable them first'})
+    name, yaml = tpl['id'], tpl['yaml']
+    with _LockedUpdate(COMPOSE_STACKS_FILE) as stacks:
+        existing = next((sid for sid, st in stacks.items()
+                         if st.get('device_id') == device_id and st.get('name') == name), None)
+        if existing:
+            stack_id, action = existing, 'redeploy'
+            stacks[stack_id].update({'yaml': yaml, 'status': 'deploying',
+                                     'last_action': action, 'last_action_ts': int(time.time())})
+        else:
+            stack_id, action = 's-' + os.urandom(6).hex(), 'up'
+            stacks[stack_id] = {
+                'name': name, 'device_id': device_id, 'yaml': yaml, 'app_id': app_id,
+                'status': 'deploying', 'created_by': actor, 'created_ts': int(time.time()),
+                'last_action': action, 'last_action_ts': int(time.time()),
+                'last_rc': None, 'last_output': '',
+            }
+    audit_log(actor, 'app_catalog_deploy', f'{app_id} dev={device_id} ({action})')
+    _queue_command_batch([device_id], f'compose_deploy:{action}:{stack_id}', actor)
+    respond(200, {'ok': True, 'id': stack_id, 'action': action})
+
+
 def handle_compose_stacks_list():
     """GET /api/compose/stacks — list stacks (metadata only, no YAML)."""
     require_auth()
@@ -45936,6 +46025,8 @@ def _build_exact_routes():
         ('POST', '/api/cmdb/vault/unlock'): handle_cmdb_vault_unlock,
         ('POST', '/api/compose/fetch'): handle_compose_fetch,
         ('GET', '/api/compose/stacks'): handle_compose_stacks_list,
+        ('GET', '/api/app-catalog'): handle_app_catalog,
+        ('POST', '/api/app-catalog/deploy'): handle_app_catalog_deploy,
         ('POST', '/api/compose/stacks'): handle_compose_stack_create,
         ('GET', '/api/config'): handle_config_get,
         ('POST', '/api/config'): handle_config_save,

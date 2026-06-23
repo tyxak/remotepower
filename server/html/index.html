@@ -313,6 +313,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           <span>Cron</span>
         </button>
+        <button class="nav-btn" data-page="catalog" title="One-click deploy of curated self-hosted apps via Docker Compose">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span>App catalog</span>
+        </button>
         <button class="nav-btn" data-page="patches" title="Pending system updates across all devices">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
@@ -5070,6 +5074,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </div>
         </div>
+      </div>
+      <!-- ── v5.1.0: App catalog — one-click compose deploy ───────────────── -->
+      <div id="page-catalog" class="page">
+        <div class="page-title">App catalog</div>
+        <div class="page-subtitle">One-click deploy of curated, self-contained apps to a host via <span class="fw-600">Docker Compose</span>. Requires compose deploys enabled on the target device (per-device opt-in, Devices → drawer). Gated on the <span class="fw-600">containers</span> permission and audited; the deploy rides the existing compose path. <a href="https://github.com/tyxak/remotepower/wiki" class="c-accent">Documentation</a>.</div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Target host</div>
+          <input type="text" id="catalog-device-search" class="form-input" placeholder="Search a device by name / IP / tag…" data-input="_renderCatalogDeviceResults" data-input-value="1" data-input-debounce="150" aria-label="Search device">
+          <div id="catalog-device-results" class="scroll-cap hidden mt-8"></div>
+          <div id="catalog-device-current" class="hint mt-8"></div>
+        </div>
+        <div id="catalog-grid"></div>
       </div>
       <!-- ── v5.1.0: Cron + systemd timer management ─────────────────────── -->
       <div id="page-cron" class="page">
