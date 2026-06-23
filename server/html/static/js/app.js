@@ -1489,6 +1489,7 @@ function showPage(name, btn) {
   if (name === 'trends')     loadTrends();
   if (name === 'exposure')   loadExposure();
   if (name === 'firewall')   loadFirewall();
+  if (name === 'files')      loadFileMgr();
   if (name === 'storage')    loadStorage();
   if (name === 'integrations') loadIntegrationsPage();
   if (name === 'gpus')       loadGpus();
@@ -7309,6 +7310,147 @@ async function _scanDeviceList() {
   const d = await api('GET', '/devices?slim=1');
   if (Array.isArray(d)) window._devicesCache = d;
   return window._devicesCache || [];
+}
+
+// ── v5.1.0: web file manager ────────────────────────────────────────────────
+let _fmDev = null;        // {id, name}
+let _fmCwd = '/etc';
+let _fmEditing = null;    // path currently open in the editor
+let _fmRows = [];
+
+async function loadFileMgr() {
+  const tbody = document.getElementById('fm-tbody');
+  if (tbody && !_fmDev) tbody.innerHTML = '<tr><td colspan="6" class="hint">Pick a host, then Open a path.</td></tr>';
+}
+
+async function _renderFmDeviceResults(term) {
+  const box = document.getElementById('fm-device-results');
+  if (!box) return;
+  const devs = await _scanDeviceList();
+  const q = (term || '').toLowerCase().trim();
+  let matches = devs;
+  if (q) matches = devs.filter(d =>
+    (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) ||
+    (d.hostname || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q) ||
+    (d.tags || []).some(t => (t || '').toLowerCase().includes(q)));
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d =>
+        `<div class="pointer mb-8" data-action="pickFmDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="empty-state">No matching devices.</div>';
+  box.classList.remove('hidden');
+}
+
+function pickFmDevice(id, name) {
+  _fmDev = { id, name };
+  const box = document.getElementById('fm-device-results');
+  if (box) box.classList.add('hidden');
+  const inp = document.getElementById('fm-device-search');
+  if (inp) inp.value = name;
+  const cur = document.getElementById('fm-device-current');
+  if (cur) cur.textContent = 'Host: ' + name;
+  document.getElementById('fm-browser').classList.remove('hidden');
+  fmListPath('/etc');
+}
+
+async function fmListPath(p) {
+  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  const path = (typeof p === 'string' && p) ? p : (document.getElementById('fm-path').value.trim() || '/');
+  _fmCwd = path;
+  document.getElementById('fm-path').value = path;
+  fmCloseEditor();
+  const tbody = document.getElementById('fm-tbody');
+  tbody.innerHTML = _skeletonRows(6);
+  try {
+    const r = await api('GET', `/devices/${_fmDev.id}/files?op=list&path=${encodeURIComponent(path)}`);
+    if (!r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="hint">${escHtml((r.result && r.result.error) || r.message || 'Failed to list')}</td></tr>`; return; }
+    _fmRows = (r.result && r.result.entries) || [];
+    const sm = document.getElementById('fm-summary');
+    if (sm) sm.textContent = `${_fmRows.length} entr${_fmRows.length === 1 ? 'y' : 'ies'}`;
+    _renderFm();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="hint">Failed: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+
+function _renderFm() {
+  const tbody = document.getElementById('fm-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('fm-thead', 'files', () => _renderFm());
+  const rows = tableCtl.sortRows('filemgr', _fmRows || [], r => ({
+    name: r.name, type: r.type, size: r.size, mtime: r.mtime, mode: r.mode }));
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Empty directory.</td></tr>'; return; }
+  const base = _fmCwd.endsWith('/') ? _fmCwd : _fmCwd + '/';
+  tbody.innerHTML = rows.map(r => {
+    const isDir = r.type === 'dir';
+    const child = base + r.name;
+    const act = isDir
+      ? `<button class="btn-icon" data-action="fmListPath" data-arg="${escAttr(child)}">Open</button>`
+      : `<button class="btn-icon" data-action="fmOpen" data-arg="${escAttr(child)}">View / edit</button>`;
+    return `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.type)}</td><td>${isDir ? '' : _fmtBytes(r.size || 0)}</td><td>${escHtml(_fmtTs(r.mtime))}</td><td><span class="hint">${escHtml(r.mode || '')}</span></td><td>${act}</td></tr>`;
+  }).join('');
+}
+
+async function fmOpen(path) {
+  try {
+    const r = await api('GET', `/devices/${_fmDev.id}/files?op=read&path=${encodeURIComponent(path)}`);
+    if (!r.ok) { toast((r.result && r.result.error) || r.message || 'Read failed', 'error'); return; }
+    const res = r.result || {};
+    if (res.binary) { toast('Binary file — not editable', 'error'); return; }
+    _fmEditing = path;
+    document.getElementById('fm-editor').classList.remove('hidden');
+    document.getElementById('fm-editor-path').textContent = path;
+    document.getElementById('fm-editor-meta').textContent =
+      `${_fmtBytes(res.size || 0)}${res.truncated ? ' · truncated — read-only preview of the first 256 KiB (saving would overwrite the whole file, so editing a truncated file is blocked)' : ''}`;
+    const ta = document.getElementById('fm-editor-content');
+    ta.value = res.content || '';
+    ta.readOnly = !!res.truncated;
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+async function fmSave() {
+  if (!_fmEditing) return;
+  const ta = document.getElementById('fm-editor-content');
+  if (ta.readOnly) { toast('File was truncated on read — refusing to overwrite', 'error'); return; }
+  try {
+    const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'write', path: _fmEditing, content: ta.value });
+    if (r.ok) toast('Saved', 'success');
+    else toast((r.result && r.result.error) || r.message || 'Save failed', 'error');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+async function fmDelete() {
+  if (!_fmEditing) return;
+  if (!await uiConfirm({ message: `Delete ${_fmEditing}?`, danger: true, confirmText: 'Delete' })) return;
+  try {
+    const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'delete', path: _fmEditing });
+    if (r.ok) { toast('Deleted', 'success'); fmCloseEditor(); fmListPath(_fmCwd); }
+    else toast((r.result && r.result.error) || r.message || 'Delete failed', 'error');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+function fmCloseEditor() {
+  _fmEditing = null;
+  const ed = document.getElementById('fm-editor');
+  if (ed) ed.classList.add('hidden');
+}
+
+async function fmMkdir() {
+  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  const name = await uiPrompt({ title: 'New folder', message: `Created under ${_fmCwd}`, placeholder: 'folder-name' });
+  if (!name) return;
+  const base = _fmCwd.endsWith('/') ? _fmCwd : _fmCwd + '/';
+  try {
+    const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'mkdir', path: base + name });
+    if (r.ok) { toast('Created', 'success'); fmListPath(_fmCwd); }
+    else toast((r.result && r.result.error) || r.message || 'mkdir failed', 'error');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+function fmUp() {
+  const parts = _fmCwd.replace(/\/+$/, '').split('/');
+  parts.pop();
+  fmListPath(parts.join('/') || '/');
 }
 
 async function _renderScanDeviceResults(term) {

@@ -305,6 +305,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v6M15 9v6M9 15v6"/></svg>
           <span>Firewall</span>
         </button>
+        <button class="nav-btn" data-page="files" title="Browse, view and edit files on a host (allowlisted paths, audited) — no SSH needed">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
+          <span>Files</span>
+        </button>
         <button class="nav-btn" data-page="patches" title="Pending system updates across all devices">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
@@ -5021,6 +5025,48 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── v5.1.0: Web file manager (browse/view/edit, allowlisted) ────── -->
+      <div id="page-files" class="page">
+        <div class="page-title">File manager</div>
+        <div class="page-subtitle">Browse, view and edit files on a host without SSH. Confined to <span class="fw-600">allowlisted roots</span>, gated on the <span class="fw-600">command</span> permission, and fully audited. Reads work on quarantined / audit-mode hosts; writes do not. Enable per-server under Settings → Advanced. <a href="https://github.com/tyxak/remotepower/wiki" class="c-accent">Documentation</a>.</div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Host</div>
+          <input type="text" id="fm-device-search" class="form-input" placeholder="Search a device by name / IP / tag…" data-input="_renderFmDeviceResults" data-input-value="1" data-input-debounce="150" aria-label="Search device">
+          <div id="fm-device-results" class="scroll-cap hidden mt-8"></div>
+          <div id="fm-device-current" class="hint mt-8"></div>
+        </div>
+        <div id="fm-browser" class="hidden">
+          <div class="toolbar">
+            <input type="text" id="fm-path" class="form-input page-filter" placeholder="/etc" value="/etc" aria-label="Path">
+            <button class="btn-primary" data-action="fmListPath"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg> Open</button>
+            <button class="btn-icon" data-action="fmUp">Up</button>
+            <button class="btn-icon" data-action="fmMkdir">New folder</button>
+            <span id="fm-summary" class="isl-100"></span>
+          </div>
+          <div class="table-card">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table class="data-table w-full">
+                <thead id="fm-thead"><tr>
+                  <th scope="col" data-col="name">Name</th><th scope="col" data-col="type">Type</th>
+                  <th scope="col" data-col="size">Size</th><th scope="col" data-col="mtime">Modified</th>
+                  <th scope="col" data-col="mode">Mode</th><th scope="col"></th>
+                </tr></thead>
+                <tbody id="fm-tbody"><tr><td colspan="6" class="hint">Pick a host, then Open a path.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="fm-editor" class="dash-card mt-16 hidden">
+            <div class="section-title">Editing — <span id="fm-editor-path" class="hint"></span></div>
+            <div id="fm-editor-meta" class="hint mb-8"></div>
+            <textarea id="fm-editor-content" class="form-input w-full" rows="18" spellcheck="false" aria-label="File content"></textarea>
+            <div class="toolbar mt-8">
+              <button class="btn-primary" data-action="fmSave"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save</button>
+              <button class="btn-icon" data-action="fmCloseEditor">Close</button>
+              <button class="btn-shutdown" data-action="fmDelete">Delete file</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <!-- ── v4.10.0: Firewall + fail2ban (visibility + edit) ───────────── -->
       <div id="page-firewall" class="page">
         <div class="page-title">Firewall</div>

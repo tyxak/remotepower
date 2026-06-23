@@ -8877,6 +8877,121 @@ def handle_device_firewall_rule(dev_id):
     _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
 
 
+# ── v5.1.0: web file manager — browse / read / edit host files (opt-in) ──────
+# File ops ride a base64-wrapped `files:` command (NEVER a shell) through the
+# longpoll round-trip; the agent confines every path to an allowlisted root
+# (pathlib, symlink-resolved) and refuses mutations in audit / quarantine. The
+# whole feature is opt-in (config.file_manager.enabled, default off) since it is
+# a powerful capability; every op is gated on the same `command` perm as exec.
+_FILE_MGR_DEFAULT_ROOTS = ('/etc', '/var/log', '/var/lib', '/home', '/opt',
+                           '/srv', '/tmp', '/usr/local')
+_FILE_MGR_DENY = ('/proc', '/sys', '/dev')   # never browsable, even if configured
+_FILE_MGR_MAX_WRITE = 512 * 1024
+_FILE_MGR_OPS_READ  = ('list', 'read')
+_FILE_MGR_OPS_WRITE = ('write', 'mkdir', 'delete')
+
+
+def _file_mgr_cfg():
+    fm = (load(CONFIG_FILE) or {}).get('file_manager') or {}
+    return fm if isinstance(fm, dict) else {}
+
+
+def _valid_abs_path(p, maxlen=4096):
+    """An absolute host path with no NUL and no '..' segment. It is base64-wrapped
+    into the queued command and the agent uses pathlib (never a shell), so shell
+    metacharacters are irrelevant — the danger is traversal, guarded here AND
+    re-checked symlink-resolved on the agent."""
+    if not isinstance(p, str) or not (0 < len(p) <= maxlen):
+        return False
+    if not p.startswith('/') or '\x00' in p:
+        return False
+    return '..' not in p.split('/')
+
+
+def _file_path_under_roots(path, roots):
+    norm = os.path.normpath(path)
+    if norm.startswith(_FILE_MGR_DENY):
+        return False
+    for r in roots:
+        r = os.path.normpath(r)
+        if norm == r or norm.startswith(r.rstrip('/') + '/'):
+            return True
+    return False
+
+
+def handle_device_files(dev_id):
+    """GET  /api/devices/{id}/files?path=/dir            — list a directory
+       GET  /api/devices/{id}/files?path=/file&op=read   — read a file (capped)
+       POST /api/devices/{id}/files  {op,path,content?}  — write|mkdir|delete
+    Opt-in (config.file_manager.enabled). Reads stay allowed under quarantine /
+    audit-mode (read-only, useful for incident response); mutations do not."""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    fm = _file_mgr_cfg()
+    if not fm.get('enabled'):
+        respond(403, {'error': 'File manager is disabled — enable it in Settings → Advanced.'})
+    roots = [str(r) for r in (fm.get('roots') or [])
+             if isinstance(r, str) and r.startswith('/')] or list(_FILE_MGR_DEFAULT_ROOTS)
+    m = method()
+    content = None
+    if m == 'GET':
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        op = (qs.get('op', ['list'])[0] or 'list').strip().lower()
+        path = (qs.get('path', [''])[0] or '').strip()
+        if op not in _FILE_MGR_OPS_READ:
+            respond(400, {'error': 'GET supports op=list or op=read'})
+    elif m == 'POST':
+        body = get_json_obj()
+        op = str(body.get('op', '')).strip().lower()
+        path = str(body.get('path', '')).strip()
+        content = body.get('content')
+        if op not in _FILE_MGR_OPS_WRITE:
+            respond(400, {'error': "POST op must be 'write', 'mkdir' or 'delete'"})
+    else:
+        respond(405, {'error': 'Method not allowed'})
+    if not _valid_abs_path(path):
+        respond(400, {'error': 'path must be an absolute path with no ".." segment'})
+    if not _file_path_under_roots(path, roots):
+        respond(403, {'error': 'path is outside the allowlisted file-manager roots'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    if op in _FILE_MGR_OPS_WRITE:
+        if _device_quarantined(devices[dev_id]):
+            respond(409, {'error': 'Device is quarantined — file writes are disabled.'})
+        if (devices[dev_id].get('sysinfo') or {}).get('audit_mode'):
+            respond(409, {'error': 'Device is in audit (read-only) mode — file writes are disabled.'})
+    parts = ['files', op, _base64.urlsafe_b64encode(path.encode()).decode()]
+    if op == 'write':
+        c = '' if content is None else str(content)
+        if len(c.encode('utf-8', 'replace')) > _FILE_MGR_MAX_WRITE:
+            respond(413, {'error': f'content exceeds {_FILE_MGR_MAX_WRITE} bytes'})
+        parts.append(_base64.urlsafe_b64encode(c.encode('utf-8', 'replace')).decode())
+    command = ':'.join(parts)
+    audit_log(actor, 'file_manager', detail=f'device={dev_id} op={op} path={path}'[:200])
+    lp = load(LONGPOLL_FILE)
+    lp[dev_id] = {'cmd': command, 'ready': False, 'output': None, 'ts': int(time.time())}
+    save(LONGPOLL_FILE, lp)
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, [])
+        if command not in cmds[dev_id]:
+            cmds[dev_id].append(command)
+    status, output = _longpoll_wait(dev_id, 90)
+    if status == 'shutdown':
+        respond(503, {'ok': False, 'message': 'Server is restarting — retry shortly.'})
+    if status == 'timeout':
+        respond(200, {'ok': False, 'timeout': True,
+                      'message': 'No response from the agent within timeout — it may be offline.'})
+    result = {}
+    try:
+        result = json.loads((output or {}).get('output') or '{}')
+    except (ValueError, TypeError):
+        result = {'error': 'agent returned a malformed result'}
+    rc = (output or {}).get('rc', 1)
+    respond(200, {'ok': rc == 0, 'op': op, 'path': path, 'result': result})
+
+
 # ── v5.0.0: ZFS / Btrfs storage maintenance — run pool health ops from the UI ─
 # Reuses the audited, quarantine-aware command queue. The (kind, action) pair
 # maps to a FIXED command template; the only interpolated value is the pool /
@@ -13756,6 +13871,10 @@ def handle_config_get():
     safe.setdefault('status_page', {'enabled': False, 'title': '',
                                     'show_incidents': True, 'incident_days': 30,
                                     'components': []})
+    # v5.1.0: web file manager (opt-in, powerful) — surface a stable shape so the
+    # Settings UI renders. No secret here; the allowlisted roots are operator data.
+    safe.setdefault('file_manager', {'enabled': False,
+                                     'roots': list(_FILE_MGR_DEFAULT_ROOTS)})
 
     # v3.3.0: surface the effective defaults so the Settings UI shows the
     # right state for users who haven't explicitly set these. Without
@@ -14748,6 +14867,23 @@ def handle_config_save():
             'show_incidents': bool(sp_in.get('show_incidents', True)),
             'incident_days':  max(1, min(90, _idays)),
             'components':     _sp_comps,
+        }
+
+    # v5.1.0: web file manager — opt-in enable + allowlisted root prefixes. The
+    # agent re-enforces the allowlist symlink-resolved; this is defence in depth.
+    if 'file_manager' in body:
+        fm_in = body['file_manager']
+        if not isinstance(fm_in, dict):
+            respond(400, {'error': 'file_manager must be an object'})
+            return
+        _fm_roots = []
+        for r in (fm_in.get('roots') or [])[:40]:
+            r = _sanitize_str(str(r), 256).strip()
+            if r.startswith('/') and '..' not in r.split('/') and not r.startswith(_FILE_MGR_DENY):
+                _fm_roots.append(os.path.normpath(r))
+        cfg['file_manager'] = {
+            'enabled': bool(fm_in.get('enabled', False)),
+            'roots':   _fm_roots or list(_FILE_MGR_DEFAULT_ROOTS),
         }
 
     # v2.8.1: dashboard personalisation — what to show/hide
@@ -31389,6 +31525,40 @@ def handle_apikeys_update(kid):
     respond(200, {'ok': True})
 
 
+def _longpoll_wait(dev_id, timeout):
+    """Block up to `timeout`s for the agent to return this device's queued
+    longpoll command output (set by _resolve_longpoll on the next heartbeat).
+    Returns ('ok', output_dict) | ('timeout', None) | ('shutdown', None).
+    Used by the file manager round-trip (v5.1.0)."""
+    import signal as _signal
+    _sd = {'flag': False}
+    _prev = None
+    try:
+        _prev = _signal.signal(_signal.SIGTERM, lambda *_a: _sd.__setitem__('flag', True))
+    except (ValueError, OSError):
+        _prev = None
+    try:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if _sd['flag']:
+                lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
+                return ('shutdown', None)
+            time.sleep(1)
+            slot = load(LONGPOLL_FILE).get(dev_id, {})
+            if slot.get('ready'):
+                output = slot.get('output', {})
+                lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
+                return ('ok', output)
+        lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
+        return ('timeout', None)
+    finally:
+        if _prev is not None:
+            try:
+                _signal.signal(_signal.SIGTERM, _prev)
+            except (ValueError, OSError):
+                pass
+
+
 def _resolve_longpoll(dev_id, cmd_output):
     lp = load(LONGPOLL_FILE)
     if dev_id in lp:
@@ -45980,6 +46150,8 @@ def _dispatch(pi, m):
         handle_device_firewall_action(pi[len('/api/devices/'):-len('/firewall-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/firewall-rule') and m == 'POST':
         handle_device_firewall_rule(pi[len('/api/devices/'):-len('/firewall-rule')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST'):
+        handle_device_files(pi[len('/api/devices/'):-len('/files')])
     elif pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST':
         handle_device_storage_action(pi[len('/api/devices/'):-len('/storage-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST':

@@ -5657,7 +5657,125 @@ def run_netscan(subnet=None):
 
 
 # ─── Command execution ──────────────────────────────────────────────────────────
+# ── v5.1.0: web file manager — server-driven file ops, allowlist-confined ────
+# The server queues a base64-wrapped `files:<op>:<b64path>[:<b64content>]`
+# command (NEVER a shell). We confine every path to an allowlisted root, resolve
+# it symlink-following so a link can't escape, map it through host_path() for the
+# containerized agent, and refuse mutations in audit mode (reads stay allowed —
+# read-only, useful for incident response).
+FILE_MGR_DEFAULT_ROOTS = ('/etc', '/var/log', '/var/lib', '/home', '/opt',
+                          '/srv', '/tmp', '/usr/local')
+FILE_MGR_DENY = ('/proc', '/sys', '/dev')
+FILE_MGR_MAX_READ = 256 * 1024
+FILE_MGR_ROOTS_FILE = CONF_DIR / 'file-roots'
+
+
+def _file_mgr_roots():
+    """Allowlisted roots. Operator may override via CONF_DIR/file-roots (one
+    absolute path per line); otherwise the conservative built-in set."""
+    try:
+        if FILE_MGR_ROOTS_FILE.exists():
+            roots = [ln.strip() for ln in FILE_MGR_ROOTS_FILE.read_text().splitlines()
+                     if ln.strip().startswith('/')]
+            if roots:
+                return roots
+    except Exception:
+        pass
+    return list(FILE_MGR_DEFAULT_ROOTS)
+
+
+def _file_mgr_allowed(logical_path):
+    """logical_path is a HOST-namespace absolute path (HOST_ROOT already stripped).
+    True iff under an allowlisted root and not under a denied prefix."""
+    rp = os.path.normpath(logical_path)
+    if rp.startswith(FILE_MGR_DENY):
+        return False
+    for r in _file_mgr_roots():
+        r = os.path.normpath(r)
+        if rp == r or rp.startswith(r.rstrip('/') + '/'):
+            return True
+    return False
+
+
+def _handle_file_op(cmd):
+    """Execute a `files:` op → standard cmd_output dict with a JSON `output`.
+    Never raises; the danger is path-traversal, blocked by a symlink-resolved
+    allowlist re-check."""
+    import json as _json
+    import base64 as _b64
+    res, rc = {}, 0
+    try:
+        bits = cmd.split(':', 3)            # files:<op>:<b64path>[:<b64content>]
+        op = bits[1] if len(bits) > 1 else ''
+        raw_path = (_b64.urlsafe_b64decode(bits[2]).decode('utf-8', 'replace')
+                    if len(bits) > 2 else '')
+        logical = os.path.normpath(raw_path)
+        if not logical.startswith('/') or not _file_mgr_allowed(logical):
+            return {'cmd': cmd, 'rc': 1,
+                    'output': _json.dumps({'error': 'path is outside the allowlisted roots'})}
+        if op in ('write', 'mkdir', 'delete') and _audit_mode():
+            return {'cmd': cmd, 'rc': 126,
+                    'output': _json.dumps({'error': 'agent is in audit (read-only) mode'})}
+        fs = Path(host_path(logical))       # where it is actually readable
+        # Symlink-resolved re-check: realpath the mapped path, un-map it back to
+        # the host namespace, and confirm it is STILL inside an allowed root.
+        logical_real = unhost_path(os.path.realpath(fs))
+        if not _file_mgr_allowed(logical_real):
+            return {'cmd': cmd, 'rc': 1,
+                    'output': _json.dumps({'error': 'resolved path escapes the allowlisted roots'})}
+        if op == 'list':
+            entries = []
+            for ent in sorted(fs.iterdir(), key=lambda e: e.name)[:2000]:
+                try:
+                    st = ent.lstat()
+                    entries.append({
+                        'name':  ent.name,
+                        'type':  'dir' if ent.is_dir() else ('link' if ent.is_symlink() else 'file'),
+                        'size':  st.st_size,
+                        'mtime': int(st.st_mtime),
+                        'mode':  oct(st.st_mode & 0o777)[2:],
+                    })
+                except Exception:
+                    continue
+            res = {'path': logical, 'entries': entries}
+        elif op == 'read':
+            data = fs.read_bytes()[:FILE_MGR_MAX_READ + 1]
+            truncated = len(data) > FILE_MGR_MAX_READ
+            data = data[:FILE_MGR_MAX_READ]
+            try:
+                text, binary = data.decode('utf-8'), False
+            except UnicodeDecodeError:
+                text, binary = '', True
+            res = {'path': logical, 'binary': binary, 'truncated': truncated,
+                   'size': fs.stat().st_size, 'content': text}
+        elif op == 'write':
+            content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
+                       if len(bits) > 3 else '')
+            tmp = fs.with_name(fs.name + '.rp-tmp')
+            tmp.write_text(content)
+            os.replace(str(tmp), str(fs))   # atomic same-dir replace
+            res = {'path': logical, 'written': len(content)}
+        elif op == 'mkdir':
+            fs.mkdir(parents=True, exist_ok=True)
+            res = {'path': logical, 'created': True}
+        elif op == 'delete':
+            if fs.is_dir():
+                fs.rmdir()                  # only empty dirs
+            else:
+                fs.unlink()
+            res = {'path': logical, 'deleted': True}
+        else:
+            rc, res = 1, {'error': f'unknown file op: {op}'}
+    except Exception as e:
+        rc, res = 1, {'error': str(e)[:300]}
+    return {'cmd': cmd, 'rc': rc, 'output': _json.dumps(res)}
+
+
 def execute_command(cmd):
+    # v5.1.0: file-manager ops carry their own audit-mode policy (reads allowed,
+    # mutations refused) so dispatch them BEFORE the blanket audit-mode guard.
+    if isinstance(cmd, str) and cmd.startswith('files:'):
+        return _handle_file_op(cmd)
     # v4.11.0: audit (read-only) mode refuses EVERY server command. The result
     # rides the normal cmd_output channel so the operator sees the refusal in the
     # UI. Read-only assessments and the passive heartbeat are unaffected (they
