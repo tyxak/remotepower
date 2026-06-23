@@ -1490,6 +1490,7 @@ function showPage(name, btn) {
   if (name === 'exposure')   loadExposure();
   if (name === 'firewall')   loadFirewall();
   if (name === 'files')      loadFileMgr();
+  if (name === 'cron')       loadCron();
   if (name === 'storage')    loadStorage();
   if (name === 'integrations') loadIntegrationsPage();
   if (name === 'gpus')       loadGpus();
@@ -7310,6 +7311,112 @@ async function _scanDeviceList() {
   const d = await api('GET', '/devices?slim=1');
   if (Array.isArray(d)) window._devicesCache = d;
   return window._devicesCache || [];
+}
+
+// ── v5.1.0: cron + systemd timer management ─────────────────────────────────
+let _cronDev = null, _cronData = null;
+
+async function loadCron() {
+  const t = document.getElementById('cron-timers-tbody');
+  if (t && !_cronDev) t.innerHTML = '<tr><td colspan="4" class="hint">Pick a host.</td></tr>';
+}
+
+async function _renderCronDeviceResults(term) {
+  const box = document.getElementById('cron-device-results');
+  if (!box) return;
+  const devs = await _scanDeviceList();
+  const q = (term || '').toLowerCase().trim();
+  let matches = devs;
+  if (q) matches = devs.filter(d =>
+    (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) ||
+    (d.group || '').toLowerCase().includes(q) || (d.tags || []).some(t => (t || '').toLowerCase().includes(q)));
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d =>
+        `<div class="pointer mb-8" data-action="pickCronDevice" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="empty-state">No matching devices.</div>';
+  box.classList.remove('hidden');
+}
+
+function pickCronDevice(id, name) {
+  _cronDev = { id, name };
+  document.getElementById('cron-device-results').classList.add('hidden');
+  document.getElementById('cron-device-search').value = name;
+  const cur = document.getElementById('cron-device-current');
+  if (cur) cur.textContent = 'Host: ' + name;
+  document.getElementById('cron-body').classList.remove('hidden');
+  cronRefresh();
+}
+
+async function cronRefresh() {
+  if (!_cronDev) return;
+  try {
+    const r = await api('GET', `/cron?device=${encodeURIComponent(_cronDev.id)}`);
+    _cronData = r.device || {};
+    _renderCronTimers();
+    _renderCronSystemwide();
+    cronLoadUser();
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+function _renderCronTimers() {
+  const tb = document.getElementById('cron-timers-tbody');
+  if (!tb) return;
+  tableCtl.wireSortOnly('cron-timers-thead', 'crontimers', () => _renderCronTimers());
+  const list = (_cronData && _cronData.timer_list) || [];
+  const rows = tableCtl.sortRows('crontimers', list, t => ({
+    unit: t.unit, activates: t.activates, failed: t.failed ? 1 : 0 }));
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="4" class="empty-state">No timers reported.</td></tr>'; return; }
+  tb.innerHTML = rows.map(t => {
+    const u = escAttr(t.unit);
+    const btns = ['enable', 'disable', 'start', 'stop'].map(a =>
+      `<button class="btn-icon" data-action="cronTimer" data-arg="${escAttr(a)}" data-arg2="${u}">${a}</button>`).join(' ');
+    const state = t.failed ? '<span class="c-accent">failed</span>' : '<span class="hint">ok</span>';
+    return `<tr><td>${escHtml(t.unit)}</td><td>${escHtml(t.activates || '')}</td><td>${state}</td><td>${btns}</td></tr>`;
+  }).join('');
+}
+
+function _renderCronSystemwide() {
+  const box = document.getElementById('cron-systemwide');
+  if (!box) return;
+  const cd = (_cronData && _cronData.cron_d) || [];
+  box.innerHTML = cd.length
+    ? cd.map(fl => `<div class="mb-8"><strong>${escHtml(fl.file)}</strong><pre class="hint">${escHtml((fl.lines || []).join('\n'))}</pre></div>`).join('')
+    : '<div class="hint">None reported.</div>';
+}
+
+function cronLoadUser() {
+  const user = (document.getElementById('cron-user').value || 'root').trim() || 'root';
+  const ct = ((_cronData && _cronData.crontabs) || []).find(c => c.user === user);
+  document.getElementById('cron-content').value = ct ? (ct.lines || []).join('\n') : '';
+}
+
+async function cronSaveUser() {
+  if (!_cronDev) { toast('Pick a host first', 'error'); return; }
+  const user = (document.getElementById('cron-user').value || 'root').trim() || 'root';
+  const content = document.getElementById('cron-content').value;
+  try {
+    await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'set', user, content });
+    toast(`Crontab for ${user} queued`, 'success');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+async function cronDelUser() {
+  if (!_cronDev) return;
+  const user = (document.getElementById('cron-user').value || 'root').trim() || 'root';
+  if (!await uiConfirm({ message: `Remove ${user}'s crontab on ${_cronDev.name}?`, danger: true, confirmText: 'Remove' })) return;
+  try {
+    await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'del', user });
+    toast('Removal queued', 'success');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+async function cronTimer(action, unit) {
+  if (!_cronDev) return;
+  try {
+    await api('POST', `/devices/${_cronDev.id}/cron-action`, { op: 'timer', action, unit });
+    toast(`${action} ${unit} queued`, 'success');
+  } catch (e) { toast(String(e), 'error'); }
 }
 
 // ── v5.1.0: web file manager ────────────────────────────────────────────────

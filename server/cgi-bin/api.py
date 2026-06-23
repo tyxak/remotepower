@@ -8992,6 +8992,90 @@ def handle_device_files(dev_id):
     respond(200, {'ok': rc == 0, 'op': op, 'path': path, 'result': result})
 
 
+# ── v5.1.0: host cron + systemd-timer management ─────────────────────────────
+# Viewing reads the heartbeat sysinfo (cron / timers). Edits ride a structured
+# `cron:` command (base64-wrapped, NEVER a shell) through the audited
+# _queue_command path, because a crontab line legitimately contains shell
+# metacharacters and so can't be metachar-validated like a firewall spec.
+_CRON_USER_RE  = re.compile(r'^[a-z_][a-z0-9_-]{0,31}$')
+_TIMER_UNIT_RE = re.compile(r'^[A-Za-z0-9@._-]{1,128}\.timer$')
+_CRON_MAX_CONTENT = 64 * 1024
+
+
+def handle_cron_overview():
+    """GET /api/cron — fleet cron + timer posture. ?device=<id> returns that
+    host's full crontabs / cron.d / timers; otherwise a lean fleet summary.
+    Telemetry view: unmonitored hosts still show, flagged."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    want = (qs.get('device', [''])[0] or '').strip()
+    devices = load(DEVICES_FILE)
+    rows = []
+    for dev_id, d in (devices or {}).items():
+        if want and dev_id != want:
+            continue
+        si = d.get('sysinfo') or {}
+        cron = si.get('cron') or {}
+        timers = [t for t in (si.get('timers') or []) if isinstance(t, dict)]
+        n_jobs = (sum(len(c.get('lines') or []) for c in (cron.get('crontabs') or []))
+                  + sum(len(c.get('lines') or []) for c in (cron.get('cron_d') or [])))
+        row = {
+            'id': dev_id, 'name': d.get('name', dev_id),
+            'monitored': bool(d.get('monitored', True)),
+            'jobs': n_jobs, 'timers': len(timers),
+            'failed_timers': sum(1 for t in timers if t.get('failed')),
+        }
+        if want:
+            row['crontabs']   = cron.get('crontabs') or []
+            row['cron_d']     = cron.get('cron_d') or []
+            row['timer_list'] = timers
+        rows.append(row)
+    if want:
+        respond(200, {'device': rows[0] if rows else None})
+    respond(200, {'count': len(rows), 'devices': rows})
+
+
+def handle_device_cron_action(dev_id):
+    """POST /api/devices/{id}/cron-action — manage cron + systemd timers.
+    Body: {op: set|del|timer, user?, content?, unit?, action?}. Crontab content
+    rides base64 (no shell); users/units are regex-pinned. Gated on `command`,
+    audited, quarantine- and audit-mode-aware via _queue_command."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_obj()
+    op = str(body.get('op', '')).strip().lower()
+    if op in ('set', 'del'):
+        user = str(body.get('user', 'root')).strip()
+        if not _CRON_USER_RE.match(user):
+            respond(400, {'error': 'invalid user name'})
+        if op == 'set':
+            content = str(body.get('content', ''))
+            if len(content.encode('utf-8', 'replace')) > _CRON_MAX_CONTENT:
+                respond(413, {'error': f'crontab exceeds {_CRON_MAX_CONTENT} bytes'})
+            command = 'cron:set:%s:%s' % (
+                _base64.urlsafe_b64encode(user.encode()).decode(),
+                _base64.urlsafe_b64encode(content.encode('utf-8', 'replace')).decode())
+        else:
+            command = 'cron:del:%s' % _base64.urlsafe_b64encode(user.encode()).decode()
+        _detail = f'device={dev_id} cron {op} user={user}'
+    elif op == 'timer':
+        action = str(body.get('action', '')).strip().lower()
+        unit = str(body.get('unit', '')).strip()
+        if action not in ('enable', 'disable', 'start', 'stop'):
+            respond(400, {'error': 'action must be enable/disable/start/stop'})
+        if not _TIMER_UNIT_RE.match(unit):
+            respond(400, {'error': 'invalid timer unit (must end in .timer)'})
+        command = 'cron:timer_%s:%s' % (action, _base64.urlsafe_b64encode(unit.encode()).decode())
+        _detail = f'device={dev_id} timer {action} {unit}'
+    else:
+        respond(400, {'error': "op must be 'set', 'del' or 'timer'"})
+    audit_log(actor, 'host_cron', detail=_detail[:200])
+    _queue_command(dev_id, command, actor)   # responds 200 + exits
+
+
 # ── v5.0.0: ZFS / Btrfs storage maintenance — run pool health ops from the UI ─
 # Reuses the audited, quarantine-aware command queue. The (kind, action) pair
 # maps to a FIXED command template; the only interpolated value is the pool /
@@ -10994,6 +11078,24 @@ def handle_heartbeat():
                         'failed':    bool(t.get('failed')),
                     })
                 safe_si['timers'] = safe_timers
+            # v5.1.0: cron posture (root + user crontabs + /etc/cron.d) for the
+            # Cron page. Persist or the Cron page never sees it (sanitizer rule).
+            if isinstance(si.get('cron'), dict):
+                cr = si['cron']
+                _sc, _scd = [], []
+                for e in (cr.get('crontabs') or [])[:60]:
+                    if isinstance(e, dict):
+                        _sc.append({'user': _sanitize_str(e.get('user', ''), 64),
+                                    'lines': [_sanitize_str(x, 512)
+                                              for x in (e.get('lines') or [])[:100]
+                                              if isinstance(x, str)]})
+                for e in (cr.get('cron_d') or [])[:60]:
+                    if isinstance(e, dict):
+                        _scd.append({'file': _sanitize_str(e.get('file', ''), 256),
+                                     'lines': [_sanitize_str(x, 512)
+                                               for x in (e.get('lines') or [])[:100]
+                                               if isinstance(x, str)]})
+                safe_si['cron'] = {'crontabs': _sc, 'cron_d': _scd}
             # v3.11.0: host firewall fingerprint (drift baseline)
             if isinstance(si.get('firewall_fp'), dict):
                 fw = si['firewall_fp']
@@ -46012,6 +46114,7 @@ def _build_exact_routes():
         ('GET', '/api/software-policy/violations'): handle_software_policy_violations,
         ('GET', '/api/exposure'): handle_exposure_overview,
         ('GET', '/api/firewall'): handle_firewall_overview,
+        ('GET', '/api/cron'): handle_cron_overview,
         ('GET', '/api/fail2ban'): handle_fail2ban_overview,
         ('POST', '/api/exposure/mute'): handle_exposure_mute,
         ('GET', '/api/storage'): handle_storage_overview,
@@ -46152,6 +46255,8 @@ def _dispatch(pi, m):
         handle_device_firewall_rule(pi[len('/api/devices/'):-len('/firewall-rule')])
     elif pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST'):
         handle_device_files(pi[len('/api/devices/'):-len('/files')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/cron-action') and m == 'POST':
+        handle_device_cron_action(pi[len('/api/devices/'):-len('/cron-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST':
         handle_device_storage_action(pi[len('/api/devices/'):-len('/storage-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST':

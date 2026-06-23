@@ -3906,6 +3906,14 @@ def get_host_health():
     except Exception:
         pass
 
+    # v5.1.0: cron posture (root + user crontabs + /etc/cron.d) for the Cron page.
+    try:
+        _cron = collect_cron()
+        if _cron:
+            out['cron'] = _cron
+    except Exception:
+        pass
+
     return out
 
 
@@ -5657,6 +5665,125 @@ def run_netscan(subnet=None):
 
 
 # ─── Command execution ──────────────────────────────────────────────────────────
+# ── v5.1.0: cron / timer posture + management ────────────────────────────────
+def collect_cron():
+    """Read root + user crontabs, /etc/crontab and /etc/cron.d for the Cron page.
+    Best-effort; needs root to read other users' crontabs. systemd timers are
+    collected separately (out['timers']). Returns {} on total failure."""
+    out = {'crontabs': [], 'cron_d': []}
+    try:
+        users = ['root']
+        try:
+            for ln in Path(host_path('/etc/passwd')).read_text().splitlines():
+                p = ln.split(':')
+                if len(p) >= 3 and p[0] != 'root':
+                    try:
+                        uid = int(p[2])
+                    except ValueError:
+                        continue
+                    if uid >= 1000:
+                        users.append(p[0])
+        except Exception:
+            pass
+        for u in users[:50]:
+            try:
+                r = subprocess.run(['crontab', '-u', u, '-l'],
+                                   capture_output=True, text=True, timeout=6)
+            except Exception:
+                continue
+            if r.returncode == 0:
+                lines = [l for l in r.stdout.splitlines()
+                         if l.strip() and not l.lstrip().startswith('#')]
+                if lines:
+                    out['crontabs'].append({'user': u, 'lines': lines[:100]})
+        for src in ('/etc/crontab',):
+            try:
+                txt = Path(host_path(src)).read_text()
+            except Exception:
+                continue
+            lines = [l for l in txt.splitlines() if l.strip() and not l.lstrip().startswith('#')]
+            if lines:
+                out['cron_d'].append({'file': src, 'lines': lines[:100]})
+        try:
+            crond = Path(host_path('/etc/cron.d'))
+            if crond.is_dir():
+                for fp in sorted(crond.iterdir())[:50]:
+                    try:
+                        lines = [l for l in fp.read_text().splitlines()
+                                 if l.strip() and not l.lstrip().startswith('#')]
+                    except Exception:
+                        continue
+                    if lines:
+                        out['cron_d'].append({'file': '/etc/cron.d/' + fp.name,
+                                              'lines': lines[:100]})
+        except Exception:
+            pass
+    except Exception:
+        return {}
+    return out
+
+
+def _handle_cron_op(cmd):
+    """Execute a `cron:` mutation. The crontab CONTENT rides base64 (never a
+    shell) because a cron line legitimately contains shell metacharacters — it is
+    written to a temp file and installed with `crontab -u <user> <file>` (argv,
+    no shell), so the content can't inject. Timer units / users are regex-pinned.
+    Returns the standard cmd_output dict; never raises."""
+    import json as _json
+    import base64 as _b64
+    import re as _re
+    import tempfile as _tf
+    res, rc = {}, 0
+    try:
+        bits = cmd.split(':', 3)          # cron:<op>:<arg_b64>[:<content_b64>]
+        op = bits[1] if len(bits) > 1 else ''
+        arg = (_b64.urlsafe_b64decode(bits[2]).decode('utf-8', 'replace')
+               if len(bits) > 2 else '')
+        if op in ('set', 'del'):
+            if not _re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', arg):
+                return {'cmd': cmd, 'rc': 1, 'output': _json.dumps({'error': 'invalid user'})}
+            if op == 'set':
+                content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
+                           if len(bits) > 3 else '')
+                tmp = None
+                try:
+                    with _tf.NamedTemporaryFile('w', suffix='.crontab', delete=False) as fo:
+                        fo.write(content if content.endswith('\n') else content + '\n')
+                        tmp = fo.name
+                    r = subprocess.run(['crontab', '-u', arg, tmp],
+                                       capture_output=True, text=True, timeout=10)
+                finally:
+                    if tmp:
+                        try:
+                            os.unlink(tmp)
+                        except OSError:
+                            pass
+                rc = 0 if r.returncode == 0 else 1
+                res = {'user': arg, 'installed': rc == 0,
+                       'error': (r.stderr or '')[:200] if rc else ''}
+            else:
+                r = subprocess.run(['crontab', '-u', arg, '-r'],
+                                   capture_output=True, text=True, timeout=10)
+                # crontab -r on an empty crontab returns non-zero ("no crontab"); treat as ok.
+                rc = 0
+                res = {'user': arg, 'removed': True}
+        elif op in ('timer_enable', 'timer_disable', 'timer_start', 'timer_stop'):
+            action = op.split('_', 1)[1]
+            unit = arg
+            if not _re.fullmatch(r'[A-Za-z0-9@._\-]{1,128}\.timer', unit):
+                return {'cmd': cmd, 'rc': 1, 'output': _json.dumps({'error': 'invalid timer unit'})}
+            r = subprocess.run(['systemctl', action, unit],
+                               capture_output=True, text=True, timeout=15)
+            rc = 0 if r.returncode == 0 else 1
+            res = {'unit': unit, 'action': action, 'ok': rc == 0,
+                   'error': (r.stderr or '')[:200] if rc else ''}
+        else:
+            rc, res = 1, {'error': f'unknown cron op: {op}'}
+    except Exception as e:
+        rc, res = 1, {'error': str(e)[:300]}
+    return {'cmd': cmd, 'rc': rc, 'output': _json.dumps(res)}
+
+
 # ── v5.1.0: web file manager — server-driven file ops, allowlist-confined ────
 # The server queues a base64-wrapped `files:<op>:<b64path>[:<b64content>]`
 # command (NEVER a shell). We confine every path to an allowlisted root, resolve
@@ -5822,6 +5949,9 @@ def execute_command(cmd):
             _safe_state_write('poll-interval', str(new_interval))
         except Exception as e:
             log.warning(f"Failed to set poll interval: {e}")
+    elif cmd.startswith('cron:'):
+        # v5.1.0: cron / timer mutation (audit mode already refused above).
+        return _handle_cron_op(cmd)
     elif cmd.startswith('exec:'):
         shell_cmd = cmd[5:]
         import re as _tag_re

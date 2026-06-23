@@ -309,6 +309,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/></svg>
           <span>Files</span>
         </button>
+        <button class="nav-btn" data-page="cron" title="Cron jobs and systemd timers on a host — view and edit">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Cron</span>
+        </button>
         <button class="nav-btn" data-page="patches" title="Pending system updates across all devices">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
@@ -5065,6 +5069,41 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <button class="btn-shutdown" data-action="fmDelete">Delete file</button>
             </div>
           </div>
+        </div>
+      </div>
+      <!-- ── v5.1.0: Cron + systemd timer management ─────────────────────── -->
+      <div id="page-cron" class="page">
+        <div class="page-title">Cron &amp; timers</div>
+        <div class="page-subtitle">View and manage crontabs and <span class="fw-600">systemd timers</span> on a host. Edits run through the audited, permission-gated command queue (quarantined / audit-mode hosts are skipped); crontab content is installed via a temp file, <span class="fw-600">never a shell</span>. <a href="https://github.com/tyxak/remotepower/wiki" class="c-accent">Documentation</a>.</div>
+        <div class="dash-card mb-16">
+          <div class="section-title">Host</div>
+          <input type="text" id="cron-device-search" class="form-input" placeholder="Search a device by name / IP / tag…" data-input="_renderCronDeviceResults" data-input-value="1" data-input-debounce="150" aria-label="Search device">
+          <div id="cron-device-results" class="scroll-cap hidden mt-8"></div>
+          <div id="cron-device-current" class="hint mt-8"></div>
+        </div>
+        <div id="cron-body" class="hidden">
+          <div class="section-title">systemd timers</div>
+          <div class="table-card">
+            <div class="scrollable-table-wrap audit-scroll">
+              <table class="data-table w-full">
+                <thead id="cron-timers-thead"><tr>
+                  <th scope="col" data-col="unit">Unit</th><th scope="col" data-col="activates">Activates</th>
+                  <th scope="col" data-col="failed">State</th><th scope="col"></th>
+                </tr></thead>
+                <tbody id="cron-timers-tbody"><tr><td colspan="4" class="hint">—</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="section-title mt-16">Crontab</div>
+          <div class="toolbar">
+            <input type="text" id="cron-user" class="form-input input-auto" value="root" placeholder="user" aria-label="Crontab user">
+            <button class="btn-icon" data-action="cronLoadUser">Load</button>
+            <button class="btn-primary" data-action="cronSaveUser">Save crontab</button>
+            <button class="btn-shutdown" data-action="cronDelUser">Remove crontab</button>
+          </div>
+          <textarea id="cron-content" class="form-input w-full" rows="12" spellcheck="false" placeholder="# m h dom mon dow   command" aria-label="Crontab content"></textarea>
+          <div class="section-title mt-16">/etc/crontab &amp; /etc/cron.d <span class="hint">(read-only)</span></div>
+          <div id="cron-systemwide" class="scroll-cap"></div>
         </div>
       </div>
       <!-- ── v4.10.0: Firewall + fail2ban (visibility + edit) ───────────── -->
