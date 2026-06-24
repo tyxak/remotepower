@@ -873,6 +873,11 @@ WEBHOOK_EVENTS = (
     # v5.1.0: fail2ban banned a NEW IP on a host — a first-class security event
     # (previously audit-only). No recover event: a ban expiry isn't actionable.
     ('fail2ban_ban',          'fail2ban banned a new IP address on a host',          True),
+    # v5.1.0: endpoint AV/malware — ClamAV/rkhunter reported an ACTIVE infection
+    # (rising edge; previously a posture card only, so a detected infection never
+    # alerted). No recover event — a malware finding stays actionable until an
+    # operator clears it; coalescing keeps repeat reports to one open alert.
+    ('av_infected',           'Antivirus / rootkit scan found an active infection',  True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4154,6 +4159,18 @@ def _log_webhook(event, url, status, detail=''):
 MAX_WEBHOOK_DLQ = 200  # v5.0.0 #R2
 
 
+def _redact_url_to_host(url):
+    """Reduce a URL to ``scheme://host[:port]`` — drops the path/query/fragment
+    where Slack/Discord/Teams etc. embed the secret token. For display only."""
+    try:
+        p = urllib.parse.urlsplit(str(url))
+        if p.scheme and p.netloc:
+            return f'{p.scheme}://{p.netloc}'
+    except Exception:
+        pass
+    return ''
+
+
 def _dlq_record(event, dest, safe_payload, message, title, priority, error):
     """v5.0.0 (#R2): persist a permanently-failed webhook delivery to the
     dead-letter queue so an operator can SEE it and retry from the UI — unlike
@@ -4411,6 +4428,7 @@ _ALERT_RULES = {
     'ip_blacklisted':             ('high', None),        # v4.8.0
     'resolver_unhealthy':         ('high', None),        # v4.9.0
     'fail2ban_ban':               ('medium', None),      # v5.1.0
+    'av_infected':                ('high', None),        # v5.1.0: active malware/rootkit
 }
 
 # Map recover event → firing event it resolves
@@ -4557,8 +4575,9 @@ CHANNEL_KINDS = [
     ('warranty_expiry', 'Warranty expiry (NA)',  'informational', []),
     ('license_expiry',  'License expiry (NA)',   'informational', []),
     ('support_expiry',  'Support expiry (NA)',   'informational', []),
-    # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA)
-    ('av_posture',      'Malware / AV posture (NA)',   'operational', []),
+    # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA).
+    # v5.1.0: av_posture now also carries the av_infected alert event.
+    ('av_posture',      'Malware / AV posture',        'operational', ['av_infected']),
     ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
     # v3.7.0: CMDB credential rotation due (NA)
     ('cred_rotation',   'Credential rotation due (NA)', 'operational', []),
@@ -4827,6 +4846,11 @@ def _alert_title(event, payload):
         return (f'fail2ban ban on {name}: {p.get("first_ip", "?")}'
                 + (f' +{_fn - 1} more' if _fn > 1 else '')
                 + (f' [{p.get("jail")}]' if p.get('jail') else ''))[:200]
+    if event == 'av_infected':
+        _tool = p.get('tool', 'AV')
+        _n = p.get('infected') or 0
+        return (f'Malware detected on {name}: {_tool}'
+                + (f' — {_n} infected item(s)' if _n else ' reported an infection'))[:200]
     if event == 'ip_blacklist_cleared':
         return f'IP reputation cleared: {p.get("ip", "?")}'
     if event == 'drift_detected':
@@ -5777,6 +5801,7 @@ def _webhook_title(event):
         'resolver_unhealthy':    'DNS Resolution Failing',
         'resolver_recovered':    'DNS Resolution Recovered',
         'fail2ban_ban':          'fail2ban Ban',
+        'av_infected':           'Malware Detected',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -11892,7 +11917,7 @@ def handle_heartbeat():
     # v3.6.0: endpoint AV/malware posture.
     if 'av' in body and isinstance(body['av'], dict):
         try:
-            _ingest_av(dev_id, body['av'], now)
+            _ingest_av(dev_id, body['av'], now, saved_dev.get('name', dev_id))
         except Exception as e:
             sys.stderr.write(f"[remotepower] av ingest failed dev={dev_id}: {e}\n")
 
@@ -12160,7 +12185,9 @@ def _drift_policy_mode(dev):
     """v3.14.0: strongest fleet drift-enforcement mode matching this device by
     tag/group ('apply' beats 'enforce'); None if none match. Per-device
     host_config flags take precedence (the caller ORs this in)."""
-    policies = (load(CONFIG_FILE) or {}).get('drift_enforce_policies') or []
+    # read-only scalar/list read on the heartbeat hot path → skip load()'s
+    # whole-config deepcopy (we only iterate, never mutate, the policies).
+    policies = (_config_ro() or {}).get('drift_enforce_policies') or []
     if not policies:
         return None
     tags = set(dev.get('tags') or [])
@@ -25329,9 +25356,12 @@ def _smart_disk_failed(d):
 
 # ── v3.6.0: endpoint AV/malware posture ─────────────────────────────────────
 
-def _ingest_av(dev_id, av, now):
+def _ingest_av(dev_id, av, now, dev_name=None):
     """Persist the agent's AV posture report. Sanitised, last-writer-wins per
-    device. Drives the av-posture attention items (NA — no webhook event)."""
+    device. Drives the av-posture attention items AND fires av_infected (v5.1.0)
+    on the rising edge of an active infection (ClamAV/rkhunter ``infected``
+    count climbing from 0). Edge-triggered against the previously-stored rec so
+    it doesn't re-fire every heartbeat; coalescing keeps repeats to one alert."""
     def _clean_tool(t):
         if not isinstance(t, dict):
             return None
@@ -25347,8 +25377,26 @@ def _ingest_av(dev_id, av, now):
         if c is not None:
             rec[tool] = c
     store = load(AV_FILE)
+    prev = store.get(dev_id) or {}
     store[dev_id] = rec
     save(AV_FILE, store)
+    # Edge-trigger av_infected: fire only when a tool's infected count rises
+    # above its previously-seen value (so re-reports of a known infection don't
+    # re-fire, and a first sighting on a never-seen host still alerts). This is
+    # the post-lock heartbeat ingest section (like _ingest_hardware), so a
+    # direct fire_webhook is safe — no enclosing _DeviceUpdate lock.
+    try:
+        nm = dev_name or (device_get(dev_id) or {}).get('name') or dev_id
+        for tool in ('clamav', 'rkhunter'):
+            new_inf = int((rec.get(tool) or {}).get('infected') or 0)
+            old_inf = int((prev.get(tool) or {}).get('infected') or 0)
+            if new_inf > 0 and new_inf > old_inf:
+                fire_webhook('av_infected', {
+                    'device_id': dev_id, 'name': nm,
+                    'tool': tool, 'infected': new_inf,
+                })
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] av_infected fire failed dev={dev_id}: {e}\n")
 
 
 def handle_av_status(dev_id):
@@ -27986,18 +28034,21 @@ def _attention_payload(use_cache=True):
     cache_file = _attention_cache_file()
     if use_cache:
         try:
-            if cache_file.exists():
-                cache_mtime = cache_file.stat().st_mtime
+            if backend_exists(cache_file):
+                cache_mtime = backend_mtime(cache_file)
                 age = time.time() - cache_mtime
                 if age < _ATTENTION_CACHE_TTL:
                     # Bust the cache if any underlying data file has been
-                    # written more recently than the cache.
+                    # written more recently than the cache. backend_mtime()
+                    # works under SQLite/Postgres too (these are storage keys,
+                    # not on-disk files) — a raw .exists()/.stat() left the
+                    # cache permanently cold on the DB backend.
                     fresher = False
                     for src in (DEVICES_FILE, FLEET_EVENTS_FILE,
                                 CVE_FINDINGS_FILE, DRIFT_STATE_FILE,
                                 IGNORED_ITEMS_FILE):
                         try:
-                            if src.exists() and src.stat().st_mtime > cache_mtime:
+                            if backend_mtime(src) > cache_mtime:
                                 fresher = True
                                 break
                         except Exception:
@@ -28248,15 +28299,15 @@ def _fleet_risk_cached(use_cache=True):
     cache_file = _fleet_risk_cache_file()
     if use_cache:
         try:
-            if cache_file.exists():
-                cache_mtime = cache_file.stat().st_mtime
+            if backend_exists(cache_file):
+                cache_mtime = backend_mtime(cache_file)
                 if (time.time() - cache_mtime) < _FLEET_RISK_CACHE_TTL:
                     fresher = False
                     for src in (DEVICES_FILE, CMDB_FILE, CVE_FINDINGS_FILE,
                                 SOFTWARE_VIOLATIONS_FILE, HARDWARE_FILE,
                                 CVE_IGNORE_FILE, CONFIG_FILE, PACKAGES_FILE):
                         try:
-                            if src.exists() and src.stat().st_mtime > cache_mtime:
+                            if backend_mtime(src) > cache_mtime:
                                 fresher = True
                                 break
                         except Exception:
@@ -35562,7 +35613,9 @@ def handle_nav_counts():
     # scope (the counts are scope-filtered). At fleet scale this collapses every
     # operator's 60s sidebar poll from N full-fleet reads to one recompute per
     # scope per 15s. Busted when any source file changes. Mirrors
-    # _fleet_risk_cached (JSON backend only; a no-op fall-through under SQLite).
+    # _fleet_risk_cached, and uses backend_mtime/backend_exists so the cache
+    # is live on the SQLite/Postgres backend too (a raw .exists()/.stat() left
+    # it permanently cold under a DB backend — this is the prod default).
     _nc_admin = bool(_resolve_role(_nc_role).get('admin'))
     try:
         _nc_scope = _caller_scope()
@@ -35574,14 +35627,14 @@ def handle_nav_counts():
     _nc_skey += '_a' if _nc_admin else '_n'
     _nc_cache = DATA_DIR / f'nav_counts_cache_{_nc_skey}.json'
     try:
-        if _nc_cache.exists():
-            _cmt = _nc_cache.stat().st_mtime
+        if backend_exists(_nc_cache):
+            _cmt = backend_mtime(_nc_cache)
             if (time.time() - _cmt) < 15:
                 _fresh = True
                 for _src in (DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE,
                              ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE):
                     try:
-                        if _src.exists() and _src.stat().st_mtime > _cmt:
+                        if backend_mtime(_src) > _cmt:
                             _fresh = False
                             break
                     except Exception:
@@ -39186,6 +39239,11 @@ def handle_webhook_dlq_list():
     for e in reversed(entries):
         d = dict(e)
         d.pop('dest', None)          # may carry tokens/keys — never echo it
+        # The convenience top-level `url` embeds the secret for Slack/Discord/
+        # Teams (token in the path) — same secret-bearing-URL-in-GET class as
+        # the webhook_url→webhook_configured fix. Show host only, never the path.
+        if d.get('url'):
+            d['url'] = _redact_url_to_host(d['url'])
         out.append(d)
     respond(200, out)
 

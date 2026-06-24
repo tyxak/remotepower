@@ -14221,6 +14221,8 @@ function _renderHomeActivity(fleetEvents) {
     'resolver_unhealthy', 'resolver_recovered',
     // v5.1.0: fail2ban intrusion bans
     'fail2ban_ban',
+    // v5.1.0: endpoint AV/malware detection
+    'av_infected',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -14416,6 +14418,9 @@ function _homeActivityAttrs(event, p) {
     // v5.1.0: fail2ban bans → host drawer (or the Firewall page fleet-wide)
     case 'fail2ban_ban':
       return `${base} data-home-act="${devId ? 'detail' : 'firewall'}"`;
+    // v5.1.0: malware/rootkit detection → the affected host's drawer
+    case 'av_infected':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }

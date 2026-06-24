@@ -3160,7 +3160,13 @@ def collect_backup_verify(backup_monitors):
     if not mons:
         return out
     try:
-        state = json.loads(_safe_read(str(CONF_DIR / _BACKUP_VERIFY_STATE)) or '{}')
+        # Read from the SAME place the verify-state is written
+        # (_safe_state_write → STATE_DIR). The old read went through
+        # _safe_read(CONF_DIR/…), which host_path()-maps to the *host's* /etc
+        # in a container — so the rate-gate never saw its own writes and re-ran
+        # `restic/borg check` on every heartbeat. Agent-owned state is not a
+        # host fact; don't host_path() it.
+        state = json.loads(_safe_state_read(_BACKUP_VERIFY_STATE) or '{}')
         if not isinstance(state, dict):
             state = {}
     except Exception:

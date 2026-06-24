@@ -122,7 +122,7 @@ class TestActivityClickable(_AssetTests):
         # every event in the server's WEBHOOK_EVENTS tuple.
         idx = self.js.find('function _homeActivityAttrs')
         self.assertGreater(idx, 0, "_homeActivityAttrs missing")
-        chunk = self.js[idx:idx + 5200]   # widened as event cases grew (v4.1.0)
+        chunk = self.js[idx:idx + 5800]   # widened as event cases grew (v4.1.0; v5.1.0 +fail2ban/av)
         for ev in api.WEBHOOK_EVENT_NAMES:
             if ev == 'test':
                 continue

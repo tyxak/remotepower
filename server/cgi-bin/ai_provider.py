@@ -114,6 +114,46 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# v5.x SSRF: the set-time pre-flight blocks obvious local/metadata targets, but a
+# saved cloud base_url is re-resolved on every call — a DNS-rebinding window where
+# the API key could be replayed to 169.254.169.254 / loopback. Guard the peer IP
+# at connect (mirrors proxmox_client._ssrf_opener; cloud calls are HTTPS, so the
+# HTTPS handler is the right chokepoint). Local providers (ollama/localai) use
+# plain HTTP and never hit this; an internal self-signed HTTPS endpoint sets
+# insecure_ssl, which relaxes the loopback block (metadata/link-local stay blocked).
+import http.client as _httpclient
+
+
+def _peer_ip_blocked(ip_str, allow_loopback=False):
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    if ip.is_link_local or ip.is_unspecified:   # 169.254.169.254 metadata, 0.0.0.0
+        return True
+    return bool(ip.is_loopback) and not allow_loopback
+
+
+def _ssrf_opener(ctx, allow_loopback=False):
+    class _GuardConn(_httpclient.HTTPSConnection):
+        def connect(self):
+            super().connect()
+            try:
+                peer = self.sock.getpeername()[0]
+            except (OSError, AttributeError, IndexError):
+                return
+            if _peer_ip_blocked(peer, allow_loopback):
+                self.close()
+                raise OSError(f'SSRF guard: AI endpoint peer {peer} is a blocked address')
+
+    class _GuardHTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_GuardConn, req, context=ctx)
+
+    return urllib.request.build_opener(_NoRedirect, _GuardHTTPSHandler())
+
+
 # ── Redaction ──────────────────────────────────────────────────────────────
 
 # Cheap regex-based redaction for hostnames / IPs / common secret-shaped
@@ -249,8 +289,7 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=Fal
         # replay the API key (Authorization header) to an attacker-chosen host.
         # Any 3xx becomes an error. (SSRF hardening — set-time pre-flight already
         # blocks the obvious local/metadata targets.)
-        opener = urllib.request.build_opener(
-            _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+        opener = _ssrf_opener(ctx, allow_loopback=insecure_ssl)
         with opener.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))  # 2 MB cap
     except urllib.error.HTTPError as e:
@@ -544,8 +583,8 @@ def _http_get_json(url, headers=None, timeout=10, insecure_ssl=False):
         # v4.8.0 (SSRF): refuse 3xx redirects (matches _http_post_json) so a
         # provider base_url that passed the set-time preflight can't 302 us to
         # loopback / cloud-metadata and replay the Authorization header there.
-        opener = urllib.request.build_opener(
-            _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+        # v5.x: also recheck the peer IP at connect (DNS-rebinding window).
+        opener = _ssrf_opener(ctx, allow_loopback=insecure_ssl)
         with opener.open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))
     except urllib.error.HTTPError as e:
