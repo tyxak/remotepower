@@ -1,4 +1,4 @@
-# Security review — v5.1.0 "VigilMatters"
+# Security review — v5.1.0 "FidelityMatters"
 
 Status: test (origin/main), pre-promotion. No breaking changes.
 

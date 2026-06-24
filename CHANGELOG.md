@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.1.0 — "VigilMatters" — unreleased (test)
+## v5.1.0 — "FidelityMatters" — unreleased (test)
 
 Security-signal and localisation release on top of v5.0.1.
 

@@ -58,7 +58,7 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v5.1.0.md](v5.1.0.md)** — "VigilMatters": security-signal + localisation —
+- **[v5.1.0.md](v5.1.0.md)** — "FidelityMatters": security-signal + localisation —
  fail2ban bans and active malware/rootkit detections are now first-class alert
  events, an admin App Catalog (add your own one-click Docker Compose apps), an
  opt-in host file manager, host cron/timer management, a code-free custom HTTP

@@ -1545,7 +1545,7 @@ under Settings → AI → RAG.
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
 
-## What's new in v5.1.0 — "VigilMatters"
+## What's new in v5.1.0 — "FidelityMatters"
 
 A security-signal and reach-outward release. No breaking changes.
 

@@ -485,7 +485,7 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   Also done this cycle: About-page + README copy de-staled (Docker/SCGI/SQLite now
   mentioned, "vanilla JS" not "hand-written"), `docs/security.md` review pointers →5.0.0,
   RAG search-results table box-capped.
-- **v5.1.0 = "VigilMatters"** (current — ON TEST `origin/main`, unsigned, NOT prod;
+- **v5.1.0 = "FidelityMatters"** (current — ON TEST `origin/main`, unsigned, NOT prod;
   last prod = v5.0.1) — security-signal + localisation release. **Flagship: fail2ban
   bans are now a first-class event** (`fail2ban_ban`) — previously audit-only, now wired
   through every registry (WEBHOOK_EVENTS **81**, `_ALERT_RULES` medium, CHANNEL_KINDS
