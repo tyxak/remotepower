@@ -154,7 +154,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
 | **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
-| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 80 event types, per-event toggles, test-event button |
+| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 82 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
 | **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
 | **Patch alerts** | Webhook when pending updates exceed configurable threshold |
@@ -914,10 +914,14 @@ filter on the Devices roster.
 
 ## v3.6.0 additions
 
-### Remote file manager (SFTP)
-A **Files** device action browses and transfers files in the browser over
-SFTP, tunnelled through the same daemon + ticket + SSH path as the
-terminal and VNC — no new inbound ports.
+### Remote file manager (agent, no SSH)
+A **Files** device action browses, views, and edits files on a host
+straight through the agent — no SSH session, no SFTP, no inbound ports.
+Every operation is confined to an allowlisted set of browse roots,
+gated on the same `command` permission as remote exec, and fully
+audited. Reads stay available under quarantine / audit-mode (useful for
+incident response); writes, mkdir, and delete do not. The whole feature
+is **opt-in per server** under Settings → Advanced (off by default).
 
 ### Backup orchestration
 Define a backup command per device (restic / borg / rsync) under Planning
@@ -1540,6 +1544,29 @@ under Settings → AI → RAG.
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
+
+## What's new in v5.1.0 — "VigilMatters"
+
+A security-signal and reach-outward release. No breaking changes.
+
+- **App catalog.** One-click deploy of curated, self-contained apps to a host
+  via Docker Compose — pick an app, pick a host, and RemotePower instantiates
+  the compose stack through the proven, audited deploy path. v5.1.0 adds
+  admin-managed **custom catalog entries**: paste your own compose template to
+  add it to the shared catalog. Gated on the `containers` permission, audited.
+- **Cron & timer management.** View and manage a host's crontabs and systemd
+  timers. Edits ride the same audited, permission-gated command queue as remote
+  exec; crontab content is installed via a temporary file, never a shell, and
+  is quarantine- and audit-mode-aware.
+- **Custom HTTP probe plugin.** A code-free, declarative integration plugin:
+  point it at an HTTP endpoint and turn the response (status, body, or a JSON
+  field) into a health / integration signal — no connector code to write. The
+  target URL is SSRF-guarded like every other outbound integration.
+- **Malware / AV alerting.** Active-infection detections from ClamAV or
+  rkhunter now raise a first-class `av_infected` alert (edge-triggered when an
+  infected count rises) instead of only surfacing as a posture card.
+- **Arabic right-to-left layout** and additional UI translations across the
+  Firewall, Reputation, AI, Alerts, and Checks pages.
 
 ## What's new in v5.0.1 — "TemperMatters"
 

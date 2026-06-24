@@ -58,6 +58,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.1.0.md](v5.1.0.md)** — "VigilMatters": security-signal + localisation —
+ fail2ban bans and active malware/rootkit detections are now first-class alert
+ events, an admin App Catalog (add your own one-click Docker Compose apps), an
+ opt-in host file manager, host cron/timer management, a code-free custom HTTP
+ probe plugin, full Arabic right-to-left layout, and a whole-project finalize
+ sweep. No breaking changes.
 - **[v5.0.1.md](v5.0.1.md)** — "TemperMatters": a stability + polish release —
  fixes a class of bugs that silently broke features on the SQLite/PostgreSQL
  backend (SSH-key drift audit, Proxmox snapshot alerts, host-config view),
@@ -78,12 +84,6 @@ The five most recent per-release notes are kept here:
  (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), reusing the scoped API
  tokens already stored for ACME DNS-01. Admin-only, audited, SSRF-guarded. No
  breaking changes.
-- **[v4.8.0.md](v4.8.0.md)** — "OnboardingMatters": turnkey onboarding (unified
- `install.sh` wizard, one-command Docker with HTTPS-by-default, a self-hosted
- one-line agent installer, SSH agent-push, clean uninstall) + a Reputation/DMARC
- monitor (IP reputation against DNS blocklists, plus SPF / DKIM / DMARC posture
- with IMAP aggregate-report ingestion), accessibility work, and macOS/Windows
- agent parity. No breaking changes.
 
 Older release notes (v4.7.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

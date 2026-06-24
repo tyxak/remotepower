@@ -3151,6 +3151,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+          <details class="doc-card" data-keywords="app catalog apps deploy docker compose stack one-click curated self-hosted custom template add containers permission audited v5.1">
+            <summary><strong>App catalog</strong> — one-click app deploys via Docker Compose</summary>
+            <div class="doc-body">
+              <p>The <strong>App catalog</strong> deploys curated, self-contained apps to a host in one click. Pick an app, pick a target host, and RemotePower instantiates the bundled Docker Compose template as a stack on that device — redeploying an existing same-named stack is idempotent. The target device must have <strong>compose deploys enabled</strong> (a per-device opt-in in the Devices drawer).</p>
+              <p><strong>Custom entries (admin):</strong> add your own app to the shared catalog by pasting a compose template — name it, give it a category and description, and it appears alongside the curated apps for everyone. Built-in entries can't be removed.</p>
+              <p>Gated on the <code>containers</code> permission, scope-checked and audited; the deploy itself rides the existing, proven compose-deploy command path — adding a catalog entry never runs anything on its own.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="file manager files browse view edit read write delete mkdir host allowlist root command permission audit quarantine no ssh sftp settings advanced v5.1">
+            <summary><strong>File manager</strong> — browse / view / edit host files, no SSH</summary>
+            <div class="doc-body">
+              <p>The <strong>Files</strong> device action browses, views, and edits files on a host straight through the agent — no SSH session, no SFTP, no inbound ports. Open a path, read a file (size-capped), edit it in the browser, create folders, or delete a file.</p>
+              <p>Every operation is confined to an <strong>allowlisted set of browse roots</strong> (symlink-resolved, with <code>/proc</code>, <code>/sys</code> and <code>/dev</code> always off-limits), gated on the same <code>command</code> permission as remote exec, and fully audited. Reads stay available on quarantined / audit-mode hosts (useful for incident response); writes, folder creation, and delete do not.</p>
+              <p>The whole feature is <strong>opt-in per server</strong> under <strong>Settings → Advanced</strong> (off by default), since it is a powerful capability.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="cron crontab systemd timer schedule job manage edit delete unit failed command queue audit quarantine temp file no shell v5.1">
+            <summary><strong>Cron &amp; timers</strong> — manage crontabs and systemd timers</summary>
+            <div class="doc-body">
+              <p>The <strong>Cron &amp; timers</strong> page shows a fleet summary of scheduled work and, for a chosen host, its full crontabs, <code>cron.d</code> entries, and <strong>systemd timers</strong> (with failed-timer state). Edits run through the same audited, permission-gated command queue as remote exec, and quarantined / audit-mode hosts are skipped.</p>
+              <p>Crontab content is installed via a temporary file, <strong>never a shell</strong>, so its contents can't be interpreted as commands. Telemetry view: unmonitored hosts still appear, flagged.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="network map topology graph connected_to switch ap">
             <summary><strong>Network page</strong> — topology graph</summary>
             <div class="doc-body">

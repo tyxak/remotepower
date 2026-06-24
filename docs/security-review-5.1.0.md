@@ -58,7 +58,46 @@ code plus the standard SAST sweep.
 - Additive DICT keys (curated block) for existing English source strings; no
   logic change. The translate-by-source-text engine is unchanged.
 
+### `av_infected` event (server `api.py`)
+- Same shape as `fail2ban_ban`: reuses `fire_webhook` / `_record_alert`, no new
+  sink. Fired from `_ingest_av` in the **post-lock** heartbeat ingest section
+  (like `_ingest_hardware`), so no lock-nesting. Edge-triggered on the rising
+  infected-count edge (re-reports don't re-fire); payload carries device id/name,
+  tool and count only. No recover event — a malware finding stays actionable.
+
+## Finalize sweep
+
+Beyond the new-feature review above, v5.1.0 received a whole-project finalize
+sweep — a structured audit of the **entire** codebase (server, agent, frontend,
+docs), not just the changed lines, run as several independent review passes plus
+a live authenticated pentest of the production deployment and the local SAST
+suite. Headline result: the live security posture is strong — the production
+site serves a strict Content-Security-Policy with **no** `unsafe-inline`
+(`script-src 'self'; style-src 'self'`), HSTS with preload, `X-Frame-Options:
+DENY`, `nosniff`, cross-origin opener/resource isolation and `frame-ancestors
+'none'`; every unauthenticated API call returns `401`. The agent audit found no
+Critical/High/Medium issues (every command channel is audit-mode-gated, the
+self-update is signature/checksum-verified and fail-closed, TLS is strict on all
+three agents, and every host-fact read is rootfs-mapped for the containerised
+agent). Two real issues were found and **fixed in this release**:
+
+- **(High) Webhook dead-letter queue leaked a secret-bearing destination URL.**
+  The admin `GET /api/webhook/dlq` listing scrubbed the destination object but
+  still echoed a convenience top-level `url`; for Slack/Discord/Teams the token
+  is embedded in the URL path (the same class closed for `webhook_url` in v5.0.0).
+  The listing now redacts the URL to `scheme://host`, dropping the secret path.
+- **(Medium) AI-provider HTTP lacked a connect-time peer-IP recheck.** The cloud
+  provider base URL was validated only when saved; a DNS-rebinding window between
+  save and call could have replayed the API key to a loopback / link-local /
+  cloud-metadata address. The AI HTTP client now re-validates the peer IP at
+  connect (mirroring the Proxmox client), rejecting those ranges; loopback is
+  permitted only for an explicitly internal/self-signed endpoint.
+
+A handful of low-severity hardening notes (connect-time rechecks on a couple of
+other admin-configured outbound integrations, response byte caps) are tracked for
+a later pass; none is exploitable in the shipped configuration.
+
 ## Bar
 
-No Critical / High / Medium findings ship. Nothing exploitable was identified in
-the new code.
+No Critical / High / Medium findings ship. The two issues above were fixed in
+this release; nothing exploitable remains in the reviewed code.

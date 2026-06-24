@@ -11,12 +11,41 @@ Security-signal and localisation release on top of v5.0.1.
   — reaching the Alerts inbox, the dashboard activity feed and any configured
   webhook/SIEM. Previously bans were audit-only. Edge-triggered against the prior
   heartbeat snapshot (first snapshot seeded silently); repeat bans on a host
-  coalesce into one open alert. `WEBHOOK_EVENTS` now 81.
+  coalesce into one open alert.
+- **Active malware/rootkit detections now alert.** A ClamAV/rkhunter scan that
+  reports an active infection fires the new `av_infected` event (previously a
+  posture card only, so a real detection never reached the inbox or a webhook).
+  Edge-triggered on the rising infected-count; high severity; no recover event —
+  a malware finding stays actionable until an operator clears it. `WEBHOOK_EVENTS`
+  now 82.
 - **Arabic right-to-left layout.** `styles.css` gained `[dir="rtl"]` layout
   overrides so the Arabic locale mirrors the sidebar, navigation, cards, tables
   and drawers — not just the text.
 - **More localized UI strings** across the Firewall, Reputation/DMARC, AI
-  Insights, Alerts and Checks pages, in all five languages (en/zh/hi/es/ar).
+  Insights, Alerts, Checks and the cron / app-catalog / file-manager pages, in all
+  five languages (en/zh/hi/es/ar).
+
+Whole-project finalize sweep (security, performance, polish — audited across the
+entire codebase, not just the changes above):
+
+- **Security.** Fixed a high-severity webhook dead-letter-queue leak (the admin
+  listing echoed a secret-bearing destination URL — now redacted to host) and a
+  medium-severity SSRF gap (the AI provider now re-validates the peer IP at
+  connect, closing a DNS-rebinding window). Live posture re-verified: strict CSP
+  with no `unsafe-inline`, HSTS preload, full security-header set, 401 on every
+  unauthenticated API call. See [docs/security-review-5.1.0.md](docs/security-review-5.1.0.md).
+- **Performance.** The Needs-Attention, fleet-risk/health and nav-counts caches
+  now use the storage-backend mtime helpers, so they actually hit on the
+  SQLite/PostgreSQL backend (they were silently recomputing the full-fleet scan on
+  every poll in production); the drift-policy heartbeat read skips a config copy.
+- **App catalog — add your own apps.** Admins can now add custom one-click Docker
+  Compose templates to the catalog (name + compose YAML), alongside the curated
+  set; deploys still ride the audited, permission-gated compose path.
+- **Polish.** Capped three more variable-length tables (drift files, Proxmox
+  snapshots, the netmap dependency editor) so they scroll instead of growing;
+  mirrored three RTL accent rails; added a Settings toggle for the
+  `allow_internal_monitors` SSRF opt-in; agent backup-verify rate-gate fixed in the
+  containerised agent.
 
 Operate-without-SSH feature batch (WolfStack-inspired; all on the test line):
 
