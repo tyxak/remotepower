@@ -5391,6 +5391,7 @@ body[data-ui="industrial"] {
   --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.55);
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
   --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
+  --card-grad:linear-gradient(180deg,#15191f 0%,#0d1014 100%);  /* darker card + slight gradient */
   --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
   --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
   --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
@@ -5405,6 +5406,7 @@ body[data-ui="industrial"].light {
   --text:#1b2230; --muted:#5c6675;
   --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.55);
   --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
+  --card-grad:linear-gradient(180deg,#ffffff 0%,#eef1f5 100%);
 }
 body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 body[data-ui="industrial"] { font-family:var(--font); }
@@ -5535,10 +5537,11 @@ body[data-ui="industrial"] .login-card {
     linear-gradient(var(--border),var(--border)),
     linear-gradient(var(--border),var(--border)),
     linear-gradient(var(--border),var(--border)),
-    linear-gradient(var(--border),var(--border));
+    linear-gradient(var(--border),var(--border)),
+    var(--card-grad);
   background-repeat:no-repeat;
-  background-size:9px 1px, 1px 9px, 9px 1px, 1px 9px;
-  background-position:7px 7px, 7px 7px, right 7px bottom 7px, right 7px bottom 7px;
+  background-size:9px 1px, 1px 9px, 9px 1px, 1px 9px, 100% 100%;
+  background-position:7px 7px, 7px 7px, right 7px bottom 7px, right 7px bottom 7px, 0 0;
 }
 
 /* ── Eyebrow labels: mono, uppercase, tracked ───────────────────────────── */
@@ -6217,3 +6220,13 @@ body[data-ui="industrial"] #page-watermark svg{
   width:min(72vw,820px); height:min(72vw,820px);
   fill:none; stroke:rgba(160,175,200,.04); stroke-width:1;
 }
+
+/* v5.1.0 · roomier rhythm — double the gap between stacked boxes and give
+   headlines more breathing room (industrial skin only). */
+body[data-ui="industrial"] .dash-card{ margin-bottom:40px; }
+body[data-ui="industrial"] .table-card + .table-card{ margin-top:40px; }
+body[data-ui="industrial"] .settings-section{ margin-bottom:40px; }
+body[data-ui="industrial"] .section-title{ margin-top:34px; margin-bottom:18px; }
+/* first section title on a page shouldn't get the extra top gap */
+body[data-ui="industrial"] .page > .section-title:first-child,
+body[data-ui="industrial"] .page-title + .section-title{ margin-top:0; }
