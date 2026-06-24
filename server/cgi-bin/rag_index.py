@@ -1213,6 +1213,7 @@ class InfraIndex:
         self._n = 0
         self.emb_cache = {}            # content_hash -> {'v': [...]}
         self.emb_model = ''            # model that produced the cached vectors
+        self.emb_fingerprint = ''      # provider|base_url|model the cache belongs to
         self.built_at = 0
         self._device_tokens = {}       # dev_id -> set of identifying tokens
 
@@ -1267,10 +1268,23 @@ class InfraIndex:
 
     # -- embeddings ------------------------------------------------------------
 
-    def missing_embeddings(self):
+    def missing_embeddings(self, fingerprint=''):
         """Return [(hash, text)] for chunks not yet embedded. The caller
         embeds these (deduped by hash) and feeds the result back via
-        set_embeddings()."""
+        set_embeddings().
+
+        `fingerprint` identifies the embedding space (provider/base_url/model)
+        the caller will embed with. When it differs from the space that
+        produced the cached vectors, those vectors live in a different (and
+        possibly different-dimension) space; mixing them makes cosine() return
+        0.0 on a dimension mismatch and silently collapses semantic search to
+        lexical-only. So on a change the whole cache is dropped and every chunk
+        re-embedded. Called without a fingerprint the cache is left untouched."""
+        if fingerprint:
+            if self.emb_fingerprint and self.emb_fingerprint != fingerprint:
+                self.emb_cache = {}
+                self.emb_model = ''
+            self.emb_fingerprint = fingerprint
         seen = set()
         out = []
         for d in self.docs:
@@ -1422,6 +1436,7 @@ class InfraIndex:
             'doc_len':   self._doc_len,
             'emb_cache': self.emb_cache,
             'emb_model': self.emb_model,
+            'emb_fingerprint': self.emb_fingerprint,
         }
 
     @classmethod
@@ -1437,6 +1452,7 @@ class InfraIndex:
         idx._n = data.get('n') or len(idx.docs)
         idx.emb_cache = data.get('emb_cache') or {}
         idx.emb_model = data.get('emb_model') or ''
+        idx.emb_fingerprint = data.get('emb_fingerprint') or ''
         idx.built_at = data.get('built_at') or 0
         idx._index_device_tokens()     # derived, not persisted
         return idx
