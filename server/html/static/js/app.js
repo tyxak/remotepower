@@ -2735,6 +2735,7 @@ async function loadSettings() {
   try { loadSatellites(); } catch (e) {}
   try { _loadStatusPageInto(data); } catch (e) {}
   // General
+  { const e = document.getElementById('cfg-file-manager'); if (e) e.checked = !!(data.file_manager && data.file_manager.enabled); }
   document.getElementById('cfg-server-name').value = data.server_name || '';
   { const _lb = document.getElementById('cfg-login-banner'); if (_lb) _lb.value = data.login_banner || ''; }
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
@@ -19660,6 +19661,12 @@ async function saveDebugLogging(enabled) {
     toast(enabled ? 'Debug logging enabled — logs at /var/lib/remotepower/debug.log' : 'Debug logging disabled', 'info');
     if (enabled) console.info('[RemotePower] Debug logging enabled. Server writes to debug.log; client logs to this console.');
   } else toast(r?.error || 'Failed', 'error');
+}
+
+async function saveFileManager(enabled) {
+  const r = await api('POST', '/config', { file_manager: { enabled: !!enabled } });
+  if (r?.ok) toast(enabled ? 'File manager enabled — browse host files from a device drawer' : 'File manager disabled', 'success');
+  else toast(r?.error || 'Failed to save', 'error');
 }
 
 function downloadDebugLog() {

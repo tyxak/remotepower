@@ -2158,6 +2158,14 @@
           </div>
 
           <div class="settings-section">
+            <h3>File manager</h3>
+            <p class="hint">Browse, read and edit host files from the device drawer (under an allow-listed set of roots: <code>/etc, /var/log, /var/lib, /home, /opt, /srv, /tmp, /usr/local</code>). Off by default — it's a powerful capability gated on the same <code>command</code> permission as remote exec; reads stay allowed under quarantine/audit mode, writes do not.</p>
+            <div class="settings-row">
+              <label class="click-row"><input type="checkbox" id="cfg-file-manager" data-change="saveFileManager" data-change-checked="1"> <span class="form-label">Enable the host file manager</span></label>
+            </div>
+          </div>
+
+          <div class="settings-section">
             <h3>Backup &amp; restore</h3>
             <p class="hint">Two kinds of backup. The <strong>redacted export</strong> is a ZIP with API keys and integration secrets stripped — safe to store or share. The <strong>full disaster-recovery backup</strong> is a tar.gz of the <em>entire</em> data directory <em>including</em> the encrypted credentials vault and integration secrets — it can fully rebuild this controller, so keep it private. <strong>Restore</strong> applies a full backup and <em>overwrites current data</em>; a safety snapshot of the existing data is taken first (under <code>restore-snapshots/</code> in the data dir).</p>
             <div class="sb-controls">
