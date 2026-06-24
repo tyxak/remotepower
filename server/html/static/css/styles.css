@@ -6242,7 +6242,6 @@ body[data-ui="industrial"] #page-watermark svg{
 body[data-ui="industrial"] [class*="-card"]:not(.stat-card):not(.table-card):not(.dash-card):not(.home-widget):not(.login-card):not(.skeleton-card),
 body[data-ui="industrial"] .card,
 body[data-ui="industrial"] .settings-section,
-body[data-ui="industrial"] .settings-pane,
 body[data-ui="industrial"] .hc-panel,
 body[data-ui="industrial"] .iac-section,
 body[data-ui="industrial"] .compliance-fw,
@@ -6301,23 +6300,23 @@ body[data-ui="industrial"] .page:not(#page-home) .settings-section{ padding-bott
 body[data-ui="industrial"] select,
 body[data-ui="industrial"] select.form-input{
   -webkit-appearance:none !important; appearance:none !important;
-  border:1.5px solid transparent !important; border-radius:0 !important;
-  box-shadow:none !important;
+  border:none !important; border-radius:0 !important; box-shadow:none !important;
   padding:9px 36px 9px 13px !important;
-  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px) !important;
+  clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px) !important;
   background:
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237c879a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='5' x2='12' y2='19'/><polyline points='6 13 12 19 18 13'/></svg>") no-repeat right 13px center,
-    linear-gradient(var(--surface2),var(--surface2)) padding-box,
-    linear-gradient(var(--accent-edge),var(--accent-edge)) border-box !important;
+    var(--surface2) !important;
 }
-/* focus: brighten the border ring to full accent + accent-coloured arrow */
-body[data-ui="industrial"] select:focus,
-body[data-ui="industrial"] select.form-input:focus{
-  background:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235c9fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><line x1='12' y1='5' x2='12' y2='19'/><polyline points='6 13 12 19 18 13'/></svg>") no-repeat right 13px center,
-    linear-gradient(var(--surface2),var(--surface2)) padding-box,
-    linear-gradient(var(--accent),var(--accent)) border-box !important;
+/* JS wraps each <select> in .rp-ddwrap; the wrapper draws the accent border on a
+   LARGER octagon so it shows on all edges incl. the chamfer cuts (selects can't
+   render ::before). The select is inset 1.5px by the wrapper padding. */
+body[data-ui="industrial"] .rp-ddwrap{ position:relative; display:inline-block; padding:1.5px; vertical-align:middle; max-width:100%; }
+body[data-ui="industrial"] .rp-ddwrap::before{
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:var(--accent-edge);
+  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
 }
+body[data-ui="industrial"] .rp-ddwrap:focus-within::before{ background:var(--accent); }
+body[data-ui="industrial"] .rp-ddwrap select{ position:relative; z-index:1; display:block; width:100%; }
 
 /* v5.1.0 · space between sections/cards — scoped to .page:not(#page-home) so the
    DASHBOARD is never matched (no resets, no risk of tampering). */
@@ -6346,19 +6345,18 @@ body[data-ui="industrial"] optgroup{ background:var(--surface2); color:var(--tex
 /* #8 · warm-amber chamfered checkboxes everywhere */
 body[data-ui="industrial"] input[type="checkbox"]{
   -webkit-appearance:none; appearance:none; width:19px; height:19px; margin:0;
-  cursor:pointer; position:relative; flex:none; vertical-align:middle;
-  border:1.5px solid transparent; box-shadow:none;
+  cursor:pointer; position:relative; z-index:0; flex:none; vertical-align:middle;
+  border:none; box-shadow:none; background:var(--warm);   /* the border layer */
   clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
-  /* warm border tracing the full chamfer (double-bg, like the buttons) */
-  background:linear-gradient(var(--surface2),var(--surface2)) padding-box,
-             linear-gradient(var(--warm),var(--warm)) border-box;
+}
+/* inset fill clipped to a SMALLER octagon → warm border shows on ALL edges incl. the cuts */
+body[data-ui="industrial"] input[type="checkbox"]::before{
+  content:""; position:absolute; inset:1.5px; z-index:-1; background:var(--surface2);
+  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
 }
 body[data-ui="industrial"] input[type="checkbox"]::after{
   content:""; position:absolute; left:6px; top:2px; width:5px; height:10px;
   border:solid #1a1205; border-width:0 2px 2px 0; transform:rotate(45deg) scale(0); transition:transform .12s;
 }
-body[data-ui="industrial"] input[type="checkbox"]:checked{
-  background:linear-gradient(var(--warm),var(--warm)) padding-box,
-             linear-gradient(var(--warm),var(--warm)) border-box;
-}
+body[data-ui="industrial"] input[type="checkbox"]:checked::before{ background:var(--warm); }
 body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rotate(45deg) scale(1); }

@@ -655,6 +655,7 @@ async function showApp() {
   // v5.1.0: seed the page-icon watermark for the default landing page (showApp
   // doesn't route through showPage; deep-link inits call showPage, which updates it).
   try { _setPageWatermark('home', document.querySelector('.nav-btn[data-page="home"]')); } catch (_) {}
+  try { _wrapSelects(document); } catch (_) {}
   loadDevices();
   _applyInitialViewHash();   // v3.14.0: honor a shared #devices?view=Name link
   _openDeviceFromHash();     // v4.3.0: honor a #device/<id> deep link
@@ -1523,14 +1524,34 @@ function showPage(name, btn) {
   // loader has rendered (dynamic section titles), so i18n covers more than the
   // sidebar. RPi18n.apply is a no-op when the language is English.
   if (el) {
-    enhanceDeviceCombos(el); enhanceLongSelects(el);
+    enhanceDeviceCombos(el); enhanceLongSelects(el); _wrapSelects(el);
     if (window.RPi18n) window.RPi18n.apply(el);
     setTimeout(() => {
-      enhanceDeviceCombos(el); enhanceLongSelects(el);
+      enhanceDeviceCombos(el); enhanceLongSelects(el); _wrapSelects(el);
       if (window.RPi18n) window.RPi18n.apply(el);
     }, 350);
   }
   try { _setPageWatermark(name, btn); } catch (_) {}
+}
+
+// v5.1.0: wrap each <select> in a .rp-ddwrap span so the industrial skin can draw
+// a full chamfer border around it (selects don't render ::before). Idempotent;
+// skips multi/size list-boxes. Sized selects (input-auto/narrow/mw-N) get an
+// inline-block wrapper; default full-width .form-input selects get a block wrapper.
+function _wrapSelects(root) {
+  try {
+    (root || document).querySelectorAll('select:not([data-ddw])').forEach(sel => {
+      sel.setAttribute('data-ddw', '1');
+      if (sel.multiple || sel.size > 1 || sel.closest('.rp-ddwrap')) return;
+      const w = document.createElement('span');
+      w.className = 'rp-ddwrap';
+      const autoWidth = sel.classList.contains('input-auto') ||
+                        sel.classList.contains('input-narrow') || /\bmw-\d/.test(sel.className);
+      w.style.display = autoWidth ? 'inline-block' : 'block';
+      sel.parentNode.insertBefore(w, sel);
+      w.appendChild(sel);
+    });
+  } catch (_) {}
 }
 
 // v5.1.0: faint oversized page-icon watermark (idea #05 — full-bleed centre).
