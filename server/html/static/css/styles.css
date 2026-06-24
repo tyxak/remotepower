@@ -6288,16 +6288,11 @@ body[data-ui="industrial"] #devices-container{
 }
 
 /* v5.1.0 · double the bottom padding inside boxes/cards — but NOT on the Dashboard */
-body[data-ui="industrial"] [class*="-card"],
-body[data-ui="industrial"] .card,
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .table-card,
-body[data-ui="industrial"] .settings-section,
-body[data-ui="industrial"] .hc-panel{ padding-bottom:34px; }
-body[data-ui="industrial"] #page-home [class*="-card"],
-body[data-ui="industrial"] #page-home .card,
+body[data-ui="industrial"] .settings-section{ padding-bottom:30px; }
 body[data-ui="industrial"] #page-home .dash-card,
-body[data-ui="industrial"] #page-home .home-widget{ padding-bottom:16px; }
+body[data-ui="industrial"] #page-home .table-card{ padding-bottom:16px; }
 
 /* v5.1.0 · ALL <select> dropdowns → chamfered full-border (idea 02) + line-arrow
    icon, industrial skin. CSS-only (no wrapper needed): border:transparent +
@@ -6324,3 +6319,44 @@ body[data-ui="industrial"] select.form-input:focus{
     linear-gradient(var(--surface2),var(--surface2)) padding-box,
     linear-gradient(var(--accent),var(--accent)) border-box !important;
 }
+
+/* v5.1.0 · space between sections/cards (NOT on the dashboard) ───────────── */
+body[data-ui="industrial"] .dash-card{ margin-bottom:28px; }
+body[data-ui="industrial"] .table-card + .table-card{ margin-top:28px; }
+body[data-ui="industrial"] .settings-section{ margin-bottom:28px; }
+body[data-ui="industrial"] .section-title{ margin-top:30px; }
+body[data-ui="industrial"] .page-title + .section-title,
+body[data-ui="industrial"] .page-title-row + .section-title,
+body[data-ui="industrial"] .page > .section-title:first-child{ margin-top:0; }
+/* hard reset for the dashboard — spacing/padding must not change there */
+body[data-ui="industrial"] #page-home .dash-card{ margin-bottom:22px; }
+body[data-ui="industrial"] #page-home .table-card + .table-card{ margin-top:0; }
+body[data-ui="industrial"] #page-home .section-title{ margin-top:0; }
+
+/* #2 · button-styled anchors must not be underlined (e.g. "View SP metadata") */
+body[data-ui="industrial"] a.btn,
+body[data-ui="industrial"] a.btn-primary,
+body[data-ui="industrial"] a.btn-secondary,
+body[data-ui="industrial"] a.btn-icon,
+body[data-ui="industrial"] a.login-btn{ text-decoration:none; }
+
+/* #4 · native <select> open menu honours dark mode */
+body[data-ui="industrial"]{ color-scheme:dark; }
+body[data-ui="industrial"].light{ color-scheme:light; }
+body[data-ui="industrial"] option,
+body[data-ui="industrial"] optgroup{ background:var(--surface2); color:var(--text); }
+
+/* #8 · warm-amber chamfered checkboxes everywhere */
+body[data-ui="industrial"] input[type="checkbox"]{
+  -webkit-appearance:none; appearance:none; width:19px; height:19px; margin:0;
+  cursor:pointer; position:relative; flex:none; vertical-align:middle;
+  border:1.5px solid var(--warm); background:var(--surface2);
+  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
+  box-shadow:none;
+}
+body[data-ui="industrial"] input[type="checkbox"]::after{
+  content:""; position:absolute; left:6px; top:2px; width:5px; height:10px;
+  border:solid #1a1205; border-width:0 2px 2px 0; transform:rotate(45deg) scale(0); transition:transform .12s;
+}
+body[data-ui="industrial"] input[type="checkbox"]:checked{ background:var(--warm); border-color:var(--warm); }
+body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rotate(45deg) scale(1); }
