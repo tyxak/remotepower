@@ -6229,12 +6229,3 @@ body[data-ui="industrial"] #page-watermark svg{
   fill:none; stroke:rgba(160,175,200,.04); stroke-width:1;
 }
 
-/* v5.1.0 · roomier rhythm — double the gap between stacked boxes and give
-   headlines more breathing room (industrial skin only). */
-body[data-ui="industrial"] .dash-card{ margin-bottom:40px; }
-body[data-ui="industrial"] .table-card + .table-card{ margin-top:40px; }
-body[data-ui="industrial"] .settings-section{ margin-bottom:40px; }
-body[data-ui="industrial"] .section-title{ margin-top:34px; margin-bottom:18px; }
-/* first section title on a page shouldn't get the extra top gap */
-body[data-ui="industrial"] .page > .section-title:first-child,
-body[data-ui="industrial"] .page-title + .section-title{ margin-top:0; }
