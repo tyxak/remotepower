@@ -25,7 +25,10 @@ class TestAuditModeLinuxAgent(unittest.TestCase):
 
     def test_execute_command_refuses(self):
         i = AGENT.index('def execute_command(cmd):')
-        head = AGENT[i:i + 500]
+        # v5.1.0: a `files:` op is dispatched BEFORE the blanket guard (it carries
+        # its own audit policy — reads allowed, mutations refused), so the blanket
+        # _audit_mode() guard moved a few lines down; widen the head window.
+        head = AGENT[i:i + 900]
         self.assertIn('_audit_mode()', head)
         self.assertIn('audit (read-only) mode', head)
 

@@ -55,5 +55,38 @@ class TestFail2banAlertCoalesce(unittest.TestCase):
         self.assertGreaterEqual(int(a2.get('count') or 1), 2)
 
 
+class TestAvInfectedEventWiring(unittest.TestCase):
+    """v5.1.0: ClamAV/rkhunter active-infection → first-class av_infected event."""
+
+    def test_registries(self):
+        self.assertIn('av_infected', api.WEBHOOK_EVENT_NAMES)
+        self.assertEqual(api._alert_severity('av_infected', {}), 'high')
+        self.assertEqual(api.EVENT_KIND_MAP.get('av_infected'), 'av_posture')
+        self.assertEqual(api._webhook_title('av_infected'), 'Malware Detected')
+        self.assertNotIn('av_infected', api._ALERT_RECOVER)  # sticky, no recover
+
+    def test_alert_title(self):
+        t = api._alert_title('av_infected', {'name': 'web01', 'tool': 'clamav', 'infected': 3})
+        self.assertIn('web01', t)
+        self.assertIn('clamav', t)
+
+    def test_edge_trigger_rising_only(self):
+        fired = []
+        orig = api.fire_webhook
+        api.fire_webhook = lambda ev, p: fired.append((ev, p))
+        try:
+            api.save(api.DEVICES_FILE, {'avd': {'name': 'host-av'}})
+            now = int(api.time.time())
+            api._ingest_av('avd', {'clamav': {'installed': True, 'infected': 0}}, now, 'host-av')
+            api._ingest_av('avd', {'clamav': {'installed': True, 'infected': 2}}, now, 'host-av')
+            api._ingest_av('avd', {'clamav': {'installed': True, 'infected': 2}}, now, 'host-av')
+            api._ingest_av('avd', {'clamav': {'installed': True, 'infected': 5}}, now, 'host-av')
+        finally:
+            api.fire_webhook = orig
+        av = [f for f in fired if f[0] == 'av_infected']
+        self.assertEqual(len(av), 2, "fire only on the rising infected-count edge")
+        self.assertEqual([p['infected'] for _, p in av], [2, 5])
+
+
 if __name__ == "__main__":
     unittest.main()

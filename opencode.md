@@ -509,6 +509,35 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   the gate); bandit 0-new + gitleaks clean. Test-window pins widened (v248 4800→5200, v250
   82000→84000, v260 78000→80000). New `test_v510.py` + `test_v510_features.py`; loosened
   `test_v501.py`→dynamic. `docs/security-review-5.1.0.md` (pruned 4.10.0, keep-3).
+  **WHOLE-PROJECT FINALIZE SWEEP folded into v5.1.0 (2026-06-24, on test, no bump):**
+  7 parallel dimension audits + live authenticated pentest of remote.tvipper.com +
+  bandit/gitleaks. Live posture strong (full CSP no-unsafe-inline, HSTS preload,
+  COOP/CORP, 401 unauth). **2 real findings FIXED:** (HIGH) webhook DLQ list echoed
+  the secret-bearing top-level `url` (Slack/Discord token in path) → `_redact_url_to_host`
+  to scheme://host; (MED) AI-provider HTTP had no connect-time peer-IP recheck → added
+  `_ssrf_opener` in ai_provider.py mirroring proxmox_client (allow_loopback only when
+  insecure_ssl). **Perf:** the attention / fleet-risk-health / nav-counts mtime caches
+  used `.exists()/.stat()` on storage keys → DEAD under prod Postgres (recomputed full-
+  fleet scan every poll) → swapped to `backend_exists()/backend_mtime()`; `_drift_policy_mode`
+  → `_config_ro()`. **Agent:** backup-verify rate-gate read `_safe_read(CONF_DIR/…)`
+  (host_path-mapped → read host /etc in a container, never its own writes) → `_safe_state_read`.
+  **NEW EVENT av_infected (WEBHOOK_EVENTS 81→82):** ClamAV/rkhunter active infection was
+  posture-card-only → now high-severity event, edge-triggered in `_ingest_av` (post-lock,
+  rising infected-count), reuses existing `av_posture` CHANNEL_KIND (populated its empty
+  event list — no new kind), no recover (sticky). Brittle FLEET_EVENTS windows bumped again
+  (test_v223 4800→5200, v225 5200→5800, v248 5200→5600). **Gap-fills:** App-catalog CUSTOM
+  apps (admin add/delete compose templates: `_app_catalog_all`/`_app_by_id`, POST
+  /api/app-catalog/custom[/delete]); `allow_internal_monitors` Settings toggle (backend
+  existed, no UI); `mitigate_failed_units` AI label. **UI:** 3 more tables capped
+  (drift/proxmox-snaps/netmap-deps); 3 RTL accent rails mirrored; section-title flex-row
+  margin fix (the `:not(#page-home)` id-specificity trap — reset MUST carry the same prefix);
+  netmap svg un-capped from .table-card. **i18n:** +17 DICT + 3 HTMLDICT subtitle entries
+  (cron/catalog/file-manager chrome) → test_v430_i18n_gate GREEN; fixed 7 visible Hindi
+  half-translations. **DEFERRED (documented, low-risk):** alert recovers for container_stopped
+  /backup_stale (coalescing mitigates), failed_unit + scap_noncompliant events, fail2ban AI
+  card, webhook-replay UI button, opnsense/routeros connect-time IP recheck (LOW, admin-set),
+  response byte caps. Commits d97eeb6/8fc97ff/06a9415/dc6416e/d8d30c9. Per-release detail in
+  memory [[project_v510_vigilmatters]] + [[project_v510_finalize_sweep]].
 
 ## Last production release: v5.0.1 "TemperMatters" — RELEASED TO PRODUCTION 2026-06-22
 

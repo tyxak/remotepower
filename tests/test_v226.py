@@ -234,7 +234,9 @@ class TestAgentHostHealth(unittest.TestCase):
                    # v3.12.0 per-backend firewall posture
                    'firewall',
                    # v4.10.0 fail2ban posture (jails + banned IPs)
-                   'fail2ban'}
+                   'fail2ban',
+                   # v5.1.0 host cron + systemd-timer management
+                   'cron'}
         for k in result:
             self.assertIn(k, allowed, f'undocumented key {k!r}')
 
