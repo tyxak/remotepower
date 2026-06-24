@@ -6201,3 +6201,19 @@ body[data-ui="industrial"] .login-card:has(.login-btn-oidc:not(.d-none)) #login-
 /* #2 · SSO/SAML/passkey login buttons stay GHOST (they also carry .login-btn, which
    would otherwise give them the primary accent fill) — surface fill + accent border. */
 body[data-ui="industrial"] .login-btn-oidc{ background:var(--accent-edge); --rp-fill:var(--surface2); color:var(--accent2); }
+
+/* v5.1.0 · full-bleed ultra-faint per-page icon watermark (idea #05). Industrial
+   skin only; behind content (.container is z-index:1); never intercepts clicks.
+   Centred in the viewport — the opaque sidebar (z-index:90) covers its left
+   strip, so it reads as centred in the content area. */
+#page-watermark{ display:none; }
+body[data-ui="industrial"] #page-watermark{
+  display:flex; position:fixed; inset:0; z-index:0; pointer-events:none;
+  align-items:center; justify-content:center;
+}
+/* keep page content above the z-index:0 watermark */
+body[data-ui="industrial"] .app-content{ position:relative; z-index:1; }
+body[data-ui="industrial"] #page-watermark svg{
+  width:min(72vw,820px); height:min(72vw,820px);
+  fill:none; stroke:rgba(160,175,200,.04); stroke-width:1;
+}

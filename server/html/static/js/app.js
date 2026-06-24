@@ -652,6 +652,9 @@ async function showApp() {
   // loadDevices() so the device search/group dropdowns and the cached
   // devices array are warm for whenever the operator clicks Devices.
   loadHome();
+  // v5.1.0: seed the page-icon watermark for the default landing page (showApp
+  // doesn't route through showPage; deep-link inits call showPage, which updates it).
+  try { _setPageWatermark('home', document.querySelector('.nav-btn[data-page="home"]')); } catch (_) {}
   loadDevices();
   _applyInitialViewHash();   // v3.14.0: honor a shared #devices?view=Name link
   _openDeviceFromHash();     // v4.3.0: honor a #device/<id> deep link
@@ -1527,6 +1530,20 @@ function showPage(name, btn) {
       if (window.RPi18n) window.RPi18n.apply(el);
     }, 350);
   }
+  try { _setPageWatermark(name, btn); } catch (_) {}
+}
+
+// v5.1.0: faint oversized page-icon watermark (idea #05 — full-bleed centre).
+// Reuses the current page's sidebar icon, so it swaps per page automatically.
+// Styling (size/opacity/visibility) lives in styles.css, industrial skin only.
+function _setPageWatermark(name, btn) {
+  const wm = document.getElementById('page-watermark');
+  if (!wm) return;
+  const src = (btn && btn.querySelector('svg')) ||
+              document.querySelector('.nav-btn[data-page="' + name + '"] svg');
+  if (!src) { wm.innerHTML = ''; return; }
+  wm.innerHTML = '<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                 src.innerHTML + '</svg>';
 }
 
 const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
