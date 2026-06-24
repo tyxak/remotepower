@@ -5392,6 +5392,7 @@ body[data-ui="industrial"] {
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
   --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
   --card-grad:linear-gradient(180deg,#15191f 0%,#0d1014 100%);  /* darker card + slight gradient */
+  --well-bg:#0b0e12;  /* recessed text well */
   --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
   --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
   --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
@@ -5407,6 +5408,7 @@ body[data-ui="industrial"].light {
   --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.55);
   --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
   --card-grad:linear-gradient(180deg,#ffffff 0%,#eef1f5 100%);
+  --well-bg:#e9edf2;
 }
 body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 body[data-ui="industrial"] { font-family:var(--font); }
@@ -6250,3 +6252,10 @@ body[data-ui="industrial"] .drawer{
   background-repeat: no-repeat;
   background-size: 100% 100%;
 }
+
+/* v5.1.0 · inset well — a recessed, contrasting surface for text inside a card */
+body[data-ui="industrial"] .rp-well{
+  background:var(--well-bg); border:1px solid var(--border); border-radius:3px;
+  padding:12px 14px; box-shadow:inset 0 2px 6px rgba(0,0,0,.55);
+}
+body[data-ui="industrial"].light .rp-well{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
