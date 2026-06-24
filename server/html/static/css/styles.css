@@ -6230,3 +6230,23 @@ body[data-ui="industrial"] #page-watermark svg{
   fill:none; stroke:rgba(160,175,200,.05); stroke-width:1;
 }
 
+
+/* v5.1.0 · CONSISTENCY SWEEP — every card/panel surface gets the same --card-grad
+   gradient, not just the 6 in the corner-tick rule. [class*="-card"] catches all
+   X-card containers in one shot (doc-card, gpu-card, integration-card, …);
+   the tick'd 6 + skeleton are excluded (they already have it / animate). Plus the
+   non-"-card" panels (settings, hc-panel, iac, compliance, modal, drawer). */
+body[data-ui="industrial"] [class*="-card"]:not(.stat-card):not(.table-card):not(.dash-card):not(.home-widget):not(.login-card):not(.skeleton-card),
+body[data-ui="industrial"] .card,
+body[data-ui="industrial"] .settings-section,
+body[data-ui="industrial"] .settings-pane,
+body[data-ui="industrial"] .hc-panel,
+body[data-ui="industrial"] .iac-section,
+body[data-ui="industrial"] .compliance-fw,
+body[data-ui="industrial"] .sticky-head-scroll,
+body[data-ui="industrial"] .modal,
+body[data-ui="industrial"] .drawer{
+  background-image: var(--card-grad) !important;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
