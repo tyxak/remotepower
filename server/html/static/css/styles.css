@@ -6060,6 +6060,14 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 /* 6. Chrome margin utilities actually used in the nav/header — swap the side. */
 [dir="rtl"] .ml-8  { margin-left: 0; margin-right: 8px; }
 [dir="rtl"] .ml-12 { margin-left: 0; margin-right: 12px; }
+/* 7. Content-area status/indent accent rails — mirror the left border + pad so
+   the rail sits on the leading (right) edge under RTL, not the trailing one. */
+[dir="rtl"] .board-tile.has-down { border-left: none; border-right: 3px solid var(--red); }
+[dir="rtl"] .board-tile.has-warn { border-left: none; border-right: 3px solid var(--amber); }
+[dir="rtl"] .alerts-row.alert-symptom .alert-symptom-cell {
+  padding-left: 0; padding-right: 22px; border-left: none; border-right: 2px solid var(--border);
+}
+[dir="rtl"] .isl-520 { border-left: none; border-right: 3px solid var(--border); }
 /* ===== end v5.1.0 RTL overrides =========================================== */
 
 .icon-sprite { display: none; }

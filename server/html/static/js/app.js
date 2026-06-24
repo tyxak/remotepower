@@ -7166,6 +7166,7 @@ function _renderCatalog() {
 }
 
 async function catalogDeploy(appId) {
+  appId = String(appId);   // the data-action dispatcher coerces all-numeric args to Number
   if (!_catalogDev) { toast('Pick a target host first', 'error'); return; }
   const app = _catalogApps.find(a => a.id === appId);
   const label = app ? app.name : appId;
@@ -7206,6 +7207,7 @@ async function saveCatalogApp() {
 }
 
 async function removeCatalogApp(appId, label) {
+  appId = String(appId);   // dispatcher coerces all-numeric args to Number
   if (!await uiConfirm({ message: `Remove ${label || appId} from the catalog? This does not affect already-deployed stacks.`, confirmText: 'Remove', danger: true })) return;
   try {
     await api('POST', '/app-catalog/custom/delete', { id: appId });
@@ -15030,7 +15032,7 @@ async function loadSnapshots() {
     list.innerHTML = '<div class="isl-585">No snapshots.</div>';
     return;
   }
-  list.innerHTML = `<table class="isl-540"><thead>
+  list.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="isl-540"><thead>
     <tr class="isl-468">
       <th class="cell-pad">Name</th><th class="cell-pad">Taken</th>
       <th class="cell-pad">Description</th><th></th></tr></thead><tbody>` +
@@ -15044,7 +15046,7 @@ async function loadSnapshots() {
           <button class="btn-icon isl-590" data-action="snapshotRollback" data-arg="${escAttr(s.name)}" >Rollback</button>
           <button class="btn-icon isl-591" data-action="snapshotDelete" data-arg="${escAttr(s.name)}" >Delete</button>
         </td></tr>`;
-    }).join('') + '</tbody></table>';
+    }).join('') + '</tbody></table></div>';
 }
 
 async function snapshotCreate() {

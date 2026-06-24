@@ -341,7 +341,7 @@ async function openDriftDetail(devId, devName) {
       <button class="btn-secondary fs-12 ml-8" data-action="aiExplainDrift" title="AI: explain what changed and whether it's risky">${_icon('sparkles', 12)} Explain drift</button>
     </div>`;
 
-    html += '<table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';
+    html += '<div class="scrollable-table-wrap audit-scroll"><table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';
 
     for (const p of fileKeys) {
       const f = files[p];
@@ -412,7 +412,7 @@ async function openDriftDetail(devId, devName) {
           </div></details></td></tr>`;
       }
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
 
     body.innerHTML = html;
   } catch (e) {
