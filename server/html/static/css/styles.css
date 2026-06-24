@@ -6267,3 +6267,34 @@ body[data-ui="industrial"] .journal-wrap{
   box-shadow:inset 0 2px 6px rgba(0,0,0,.55);
 }
 body[data-ui="industrial"].light .journal-wrap{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
+
+/* v5.1.0 · INSET WELL on every text input — "anywhere you can type" (industrial).
+   Recessed --well-bg + inner shadow so inputs read as wells, matching the spec. */
+body[data-ui="industrial"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+body[data-ui="industrial"] textarea,
+body[data-ui="industrial"] select.form-input,
+body[data-ui="industrial"] .form-input{
+  background:var(--well-bg) !important;
+  box-shadow:inset 0 2px 5px rgba(0,0,0,.5);
+}
+body[data-ui="industrial"].light input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+body[data-ui="industrial"].light textarea,
+body[data-ui="industrial"].light .form-input{ box-shadow:inset 0 1px 3px rgba(0,0,0,.10); }
+
+/* v5.1.0 · devices list/table view sits on a gradient panel like every other page */
+body[data-ui="industrial"] #devices-container{
+  background-image:var(--card-grad); background-repeat:no-repeat; background-size:100% 100%;
+  border:1px solid var(--border); border-radius:3px; padding:8px;
+}
+
+/* v5.1.0 · double the bottom padding inside boxes/cards — but NOT on the Dashboard */
+body[data-ui="industrial"] [class*="-card"],
+body[data-ui="industrial"] .card,
+body[data-ui="industrial"] .dash-card,
+body[data-ui="industrial"] .table-card,
+body[data-ui="industrial"] .settings-section,
+body[data-ui="industrial"] .hc-panel{ padding-bottom:34px; }
+body[data-ui="industrial"] #page-home [class*="-card"],
+body[data-ui="industrial"] #page-home .card,
+body[data-ui="industrial"] #page-home .dash-card,
+body[data-ui="industrial"] #page-home .home-widget{ padding-bottom:16px; }
