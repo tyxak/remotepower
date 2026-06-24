@@ -6168,10 +6168,18 @@ body[data-ui="industrial"] .status-badge-dot{ animation:rp-pulse 1.8s ease-in-ou
 body[data-ui="industrial"] .rp-tag,
 body[data-ui="industrial"] .group-badge,
 body[data-ui="industrial"] .tag-chip{
-  display:inline-flex; align-items:center; gap:6px; background:var(--surface2);
-  border:1px solid var(--accent-edge); color:var(--accent2); padding:3px 9px;
+  position:relative; z-index:0; display:inline-flex; align-items:center; gap:6px;
+  border:none; color:var(--accent2); padding:3px 9px;
   font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em;
-  clip-path:polygon(5px 0,100% 0,100% 100%,0 100%,0 5px);
+  /* full-border chamfer (TL+BR), like the buttons: bg = border colour, inset ::before = fill */
+  background:var(--accent-edge); --rp-fill:var(--surface2);
+  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
+}
+body[data-ui="industrial"] .rp-tag::before,
+body[data-ui="industrial"] .group-badge::before,
+body[data-ui="industrial"] .tag-chip::before{
+  content:""; position:absolute; inset:1px; z-index:-1; background:var(--rp-fill);
+  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
 }
 
 /* #11 · Hazard stripe (critical / destructive zones) */
