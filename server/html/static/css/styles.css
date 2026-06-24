@@ -6104,11 +6104,26 @@ body[data-ui="industrial"] .btn-update { background:var(--green); --rp-fill:var(
 body[data-ui="industrial"] .btn:hover,
 body[data-ui="industrial"] .btn-secondary:hover,
 body[data-ui="industrial"] .login-btn-oidc:hover{ background:var(--accent); }
-/* icon/table buttons: smaller chamfer, keep simple (no double layer — they're tiny) */
+/* icon/table buttons (Refresh, Add IP, Detail, Scan, Manage, …): same full-border
+   chamfer so the outline traces all 8 edges, not just the straight ones. */
 body[data-ui="industrial"] .btn-icon{
+  position:relative; z-index:0; border:none !important; border-radius:0 !important;
+  background:var(--border);
   clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
-  border-radius:0;
+  --rp-fill:var(--surface2);
 }
+body[data-ui="industrial"] .btn-icon::before{
+  content:""; position:absolute; inset:1px; z-index:-1; background:var(--rp-fill);
+  clip-path:polygon(4px 0,100% 0,100% calc(100% - 4px),calc(100% - 4px) 100%,0 100%,0 4px);
+}
+body[data-ui="industrial"] .btn-icon:hover{ background:var(--accent-edge); --rp-fill:var(--accent-soft); }
+/* coloured icon-button variants keep their meaning in the border */
+body[data-ui="industrial"] .btn-icon.c-danger-outline,
+body[data-ui="industrial"] .btn-icon.c-red{ background:var(--red); }
+body[data-ui="industrial"] .btn-icon.c-danger-outline:hover,
+body[data-ui="industrial"] .btn-icon.c-red:hover{ background:var(--red); --rp-fill:var(--red-soft); }
+body[data-ui="industrial"] .btn-icon.c-success{ background:var(--green); }
+body[data-ui="industrial"] .btn-icon.c-success:hover{ background:var(--green); --rp-fill:var(--green-soft); }
 
 /* #4 · Scanline-sweep skeletons */
 body[data-ui="industrial"] .skeleton,
