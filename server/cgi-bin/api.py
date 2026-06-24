@@ -16854,9 +16854,11 @@ def handle_self_test():
         total = st.f_blocks * st.f_frsize
         free = st.f_bavail * st.f_frsize
         used_pct = round((1 - free / total) * 100, 1) if total else 0
-        thr = int(cfg.get('disk_watchdog_pct', 85) or 85)
-        _add('Disk space', used_pct < thr,
-             f'{used_pct}% used (alert at {thr}%), {round(free/1e9,1)} GB free')
+        thr = int(cfg.get('disk_watchdog_pct', 85))   # 0 = off (mirrors _disk_watchdog)
+        off = thr <= 0
+        _add('Disk space', off or used_pct < thr,
+             f'{used_pct}% used ({"watchdog off" if off else f"alert at {thr}%"}), '
+             f'{round(free/1e9,1)} GB free')
     except Exception as e:
         _add('Disk space', False, str(e))
     # Audit chain integrity

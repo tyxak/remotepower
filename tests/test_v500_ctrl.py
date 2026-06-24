@@ -891,8 +891,8 @@ class TestT5Polish(unittest.TestCase):
         # (can't call the handler directly — it needs auth/respond — so assert the
         # shape via the source contract instead).
         i = API_SRC.index("def handle_self_test(")
-        self.assertIn("'ok': overall", API_SRC[i:i + 2500])
-        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 2500])
+        self.assertIn("'ok': overall", API_SRC[i:i + 3000])
+        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 3000])
 
 
 # ─────────────────────────── T6 industrial design pass ─────────────────────────
