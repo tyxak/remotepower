@@ -96,6 +96,29 @@ class TestIndustrialTheme(unittest.TestCase):
         self.assertTrue((fdir / 'ibm-plex-mono-latin-400-normal.woff2').exists())
 
 
+class TestIndustrialLayoutRegressions(unittest.TestCase):
+    """Layout fixes that regressed repeatedly under the industrial skin."""
+
+    def test_section_title_flexrow_reset_outspecifies_margin(self):
+        # The 34px inter-section spacing must NOT win inside a flex header row.
+        # The reset has to carry the SAME `.page:not(#page-home)` prefix as the
+        # margin rule — its `:not(#page-home)` adds an id (specificity 1,3,1),
+        # so a reset without it (0,3,1) loses and the title is pushed 34px
+        # off-centre from its tags/filter sibling (Enrolled Devices, Top
+        # Processes). Reference fix: this commit.
+        self.assertIn('body[data-ui="industrial"] .page:not(#page-home) '
+                      '.section-header .section-title', _CSS)
+        self.assertIn('body[data-ui="industrial"] .page:not(#page-home) '
+                      '[class*="row-"] .section-title', _CSS)
+
+    def test_netmap_card_not_scroll_capped(self):
+        # The network-map <svg> (600px tall) lives in a .table-card for its
+        # border/background; the bare .table-card 480px cap + overflow:auto grew
+        # a redundant inner scrollbar. The id-scoped override lifts the cap.
+        self.assertRegex(_CSS, r'#page-netmap > \.table-card\s*\{[^}]*max-height:\s*none')
+        self.assertRegex(_CSS, r'#page-netmap > \.table-card\s*\{[^}]*overflow:\s*visible')
+
+
 class TestUIVersionToggle(unittest.TestCase):
     """New UI / Old UI toggle: default new, CSP-safe wiring, reachable by all users."""
 

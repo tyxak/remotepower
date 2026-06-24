@@ -4026,6 +4026,12 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .isl-174 { color:var(--muted); font-size:13px; margin-left:auto }
 .isl-175 { padding:16px }
 .isl-176 { background:var(--surface); border-radius:6px }
+/* The network map is a 600px-tall <svg>, but it's wrapped in a .table-card
+   (overflow:auto; max-height:480px) for its border/background — which clipped
+   the map and added a redundant inner scrollbar. The map isn't a table: let it
+   size to its content and scroll with the page instead. #page-netmap id-scope
+   beats the bare .table-card rule. */
+#page-netmap > .table-card { max-height:none; overflow:visible; contain:none; }
 .isl-177 { flex:1; min-width:200px; max-width:340px; padding:8px 12px; font-size:13px }
 .isl-178 { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px }
 .isl-179 { margin-bottom:4px }
@@ -6316,9 +6322,14 @@ body[data-ui="industrial"] .page:not(#page-home) .dash-card{ margin-bottom:30px;
 body[data-ui="industrial"] .page:not(#page-home) .table-card + .table-card{ margin-top:30px; }
 body[data-ui="industrial"] .page:not(#page-home) .settings-section{ margin-bottom:34px; }
 body[data-ui="industrial"] .page:not(#page-home) .section-title{ margin-top:34px; }
-/* but not when the heading shares a flex row with tags/filters/buttons */
-body[data-ui="industrial"] .section-header .section-title,
-body[data-ui="industrial"] [class*="row-"] .section-title{ margin-top:0; }
+/* but not when the heading shares a flex row with tags/filters/buttons.
+   NB: these MUST carry the same `.page:not(#page-home)` prefix as the rule
+   above — its `:not(#page-home)` contributes an id to specificity (1,3,1),
+   so a reset without it (0,3,1) loses and the 34px margin pushes the title
+   off-centre inside the flex row (Enrolled Devices tags, Top Processes
+   filter). With the prefix the reset is (1,4,1) and wins. */
+body[data-ui="industrial"] .page:not(#page-home) .section-header .section-title,
+body[data-ui="industrial"] .page:not(#page-home) [class*="row-"] .section-title{ margin-top:0; }
 body[data-ui="industrial"] .page:not(#page-home) .page-title + .section-title,
 body[data-ui="industrial"] .page:not(#page-home) .page-title-row + .section-title,
 body[data-ui="industrial"] .page:not(#page-home) > .section-title:first-child,
