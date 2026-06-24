@@ -95,6 +95,7 @@
     'Links':       { zh: '链接', hi: 'लिंक', es: 'Enlaces', ar: 'الروابط' },
     // ── fleet ──
     'Devices':     { zh: '设备', hi: 'डिवाइस', es: 'Dispositivos', ar: 'الأجهزة' },
+    'Apps':        { zh: '应用', hi: 'ऐप्स', es: 'Aplicaciones', ar: 'التطبيقات' },
     'CMDB':        { zh: 'CMDB', hi: 'CMDB', es: 'CMDB', ar: 'CMDB' },
     'Agent Containers': { zh: '代理容器', hi: 'एजेंट कंटेनर', es: 'Contenedores del agente', ar: 'حاويات الوكيل' },
     'Proxmox LXC': { zh: 'Proxmox LXC', hi: 'Proxmox LXC', es: 'Proxmox LXC', ar: 'Proxmox LXC' },

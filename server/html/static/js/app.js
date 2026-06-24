@@ -7147,6 +7147,9 @@ function pickCatalogDevice(id, name) {
 }
 
 function _renderCatalog() {
+  const isAdmin = !!(_meCache && _meCache.admin);
+  const addBtn = document.getElementById('catalog-add-btn');
+  if (addBtn) addBtn.classList.toggle('hidden', !isAdmin);
   const box = document.getElementById('catalog-grid');
   if (!box) return;
   if (!_catalogApps.length) { box.innerHTML = '<div class="hint">No apps in the catalog.</div>'; return; }
@@ -7154,7 +7157,11 @@ function _renderCatalog() {
     const dep = _catalogDev
       ? `<button class="btn-primary" data-action="catalogDeploy" data-arg="${escAttr(a.id)}">Deploy to ${escHtml(_catalogDev.name)}</button>`
       : `<span class="hint">Pick a target host above to deploy</span>`;
-    return `<div class="dash-card mb-16"><div class="section-title">${escHtml(a.name)} <span class="hint">· ${escHtml(a.category || '')}</span></div><div class="mb-8">${escHtml(a.description || '')}</div><div class="hint mb-8">Default port: ${escHtml(String(a.port || '—'))}</div>${dep}</div>`;
+    const badge = a.custom ? ' <span class="rp-tag">custom</span>' : '';
+    const rm = (a.custom && isAdmin)
+      ? ` <button class="btn-icon c-danger-outline" data-action="removeCatalogApp" data-arg="${escAttr(a.id)}" data-arg2="${escAttr(a.name)}">Remove</button>`
+      : '';
+    return `<div class="dash-card mb-16"><div class="section-title">${escHtml(a.name)}${badge} <span class="hint">· ${escHtml(a.category || '')}</span></div><div class="mb-8">${escHtml(a.description || '')}</div><div class="hint mb-8">Default port: ${escHtml(String(a.port || '—'))}</div>${dep}${rm}</div>`;
   }).join('');
 }
 
@@ -7166,6 +7173,45 @@ async function catalogDeploy(appId) {
   try {
     const r = await api('POST', '/app-catalog/deploy', { device_id: _catalogDev.id, app_id: appId });
     toast(`${label} ${r.action === 'redeploy' ? 'redeploy' : 'deploy'} queued`, 'success');
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+// v5.1.0: admin can add a custom app (compose template) to the catalog.
+function addCatalogApp() {
+  ['catalog-add-name', 'catalog-add-category', 'catalog-add-port',
+   'catalog-add-desc', 'catalog-add-yaml'].forEach(id => {
+    const e = document.getElementById(id); if (e) e.value = '';
+  });
+  openModal('catalog-add-modal');
+}
+
+async function saveCatalogApp() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const name = val('catalog-add-name');
+  const yaml = document.getElementById('catalog-add-yaml')?.value || '';
+  if (!name) { toast('Name is required', 'error'); return; }
+  if (!yaml.includes('services:')) { toast('Compose YAML must contain a "services:" block', 'error'); return; }
+  try {
+    await api('POST', '/app-catalog/custom', {
+      name, yaml,
+      category: val('catalog-add-category'),
+      description: val('catalog-add-desc'),
+      port: parseInt(val('catalog-add-port'), 10) || 0,
+    });
+    toast(`${name} added to the catalog`, 'success');
+    closeModal('catalog-add-modal');
+    _catalogApps = [];
+    loadCatalog();
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+async function removeCatalogApp(appId, label) {
+  if (!await uiConfirm({ message: `Remove ${label || appId} from the catalog? This does not affect already-deployed stacks.`, confirmText: 'Remove', danger: true })) return;
+  try {
+    await api('POST', '/app-catalog/custom/delete', { id: appId });
+    toast('Removed from the catalog', 'success');
+    _catalogApps = [];
+    loadCatalog();
   } catch (e) { toast(String(e), 'error'); }
 }
 

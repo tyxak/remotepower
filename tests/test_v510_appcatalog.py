@@ -51,5 +51,48 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn("compose_deploy:", h)                    # reuses the proven path
 
 
+class TestCustomApps(unittest.TestCase):
+    """v5.1.0: admin-added custom catalog entries, merged with the curated list."""
+
+    def setUp(self):
+        # start from an empty custom store for each test
+        api.save(api.APP_CATALOG_CUSTOM_FILE, {})
+
+    def test_custom_add_route_and_admin_gate(self):
+        src = (_CGI / 'api.py').read_text()
+        self.assertIn("('POST', '/api/app-catalog/custom'): handle_app_catalog_custom_add", src)
+        self.assertIn("('POST', '/api/app-catalog/custom/delete'): handle_app_catalog_custom_delete", src)
+        for fn in ('handle_app_catalog_custom_add', 'handle_app_catalog_custom_delete'):
+            seg = src[src.index('def ' + fn): src.index('def ' + fn) + 2600]
+            self.assertIn('require_admin_auth()', seg, f'{fn} not admin-gated')
+            self.assertIn('audit_log(', seg, f'{fn} not audited')
+
+    def test_merge_flags_custom_and_lookup(self):
+        with api._LockedUpdate(api.APP_CATALOG_CUSTOM_FILE) as apps:
+            apps['my-app'] = {'id': 'my-app', 'name': 'My App', 'category': 'Custom',
+                              'description': 'd', 'port': 8080,
+                              'yaml': 'services:\n  x:\n    image: y\n'}
+        allapps = api._app_catalog_all()
+        ids = [a['id'] for a in allapps]
+        self.assertIn('my-app', ids)
+        # curated stay un-flagged, custom flagged
+        cur = next(a for a in allapps if a['id'] == 'uptime-kuma')
+        cust = next(a for a in allapps if a['id'] == 'my-app')
+        self.assertFalse(cur.get('custom'))
+        self.assertTrue(cust.get('custom'))
+        # lookup resolves both curated and custom
+        self.assertEqual(api._app_by_id('dozzle')['name'], 'Dozzle')
+        self.assertEqual(api._app_by_id('my-app')['name'], 'My App')
+        self.assertIsNone(api._app_by_id('does-not-exist'))
+
+    def test_custom_id_is_valid_stack_name(self):
+        # the derived id is reused as the compose stack name → must match the rule
+        with api._LockedUpdate(api.APP_CATALOG_CUSTOM_FILE) as apps:
+            apps['custom-uptime-kuma'] = {'id': 'custom-uptime-kuma', 'name': 'x',
+                                          'yaml': 'services:\n  a:\n    image: b\n'}
+        for a in api._custom_apps():
+            self.assertTrue(api._STACK_NAME_RE.match(a['id']), a['id'])
+
+
 if __name__ == '__main__':
     unittest.main()

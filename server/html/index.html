@@ -5098,6 +5098,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="catalog-device-results" class="scroll-cap hidden mt-8"></div>
           <div id="catalog-device-current" class="hint mt-8"></div>
         </div>
+        <div class="row-between mb-16">
+          <div class="section-title">Apps</div>
+          <button id="catalog-add-btn" class="btn-secondary hidden" data-action="addCatalogApp">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            Add app
+          </button>
+        </div>
         <div id="catalog-grid"></div>
       </div>
       <!-- ── v5.1.0: Cron + systemd timer management ─────────────────────── -->
@@ -6336,6 +6343,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdlib-add-modal-title" id="cmdlib-add-modal"><div class="modal"><div class="modal-title" id="cmdlib-add-modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input ff-mono" placeholder="apt-get clean"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="catalog-add-modal-title" id="catalog-add-modal"><div class="modal modal-wide"><div class="modal-title" id="catalog-add-modal-title">Add app to catalog</div><div class="modal-subtitle">Save a Docker Compose template so it can be one-click deployed to any host. Deploying still rides the audited, permission-gated compose path — this just manages the shared catalog.</div><div class="form-group"><label class="form-label" for="catalog-add-name">Name</label><input type="text" id="catalog-add-name" class="form-input" placeholder="My App" maxlength="64"></div><div class="form-group"><label class="form-label" for="catalog-add-category">Category (optional)</label><input type="text" id="catalog-add-category" class="form-input" placeholder="Custom" maxlength="32"></div><div class="form-group"><label class="form-label" for="catalog-add-port">Default port (optional)</label><input type="number" id="catalog-add-port" class="form-input" min="1" max="65535" placeholder="8080"></div><div class="form-group"><label class="form-label" for="catalog-add-desc">Description (optional)</label><input type="text" id="catalog-add-desc" class="form-input" placeholder="What this app does" maxlength="240"></div><div class="form-group"><label class="form-label" for="catalog-add-yaml">Compose YAML</label><textarea id="catalog-add-yaml" class="form-input ff-mono" rows="10" placeholder="services:&#10;  myapp:&#10;    image: org/myapp:latest&#10;    restart: unless-stopped&#10;    ports:&#10;      - &quot;8080:80&quot;"></textarea><span class="hint">Must contain a <code>services:</code> block. 64 KB max.</span></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="catalog-add-modal" >Cancel</button><button class="btn-primary" data-action="saveCatalogApp" >Add app</button></div></div></div>
 
 <!-- v2.1.0: script editor modal (handles both add + edit; mode flag in script-edit-id) -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="script-edit-title" id="script-edit-modal"><div class="modal modal-wide">

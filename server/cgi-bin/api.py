@@ -311,6 +311,7 @@ IMAGE_IGNORE_FILE  = DATA_DIR / 'image_ignore.json'
 # Deploying is gated behind a per-device `compose_enabled` opt-in (default
 # off) since it runs an arbitrary compose file as root on the host.
 COMPOSE_STACKS_FILE = DATA_DIR / 'compose_stacks.json'
+APP_CATALOG_CUSTOM_FILE = DATA_DIR / 'app_catalog_custom.json'  # admin-added catalog entries
 # Sweep cadence + per-run caps. The sweep runs at most once per interval
 # (default 12h); each run refreshes at most MAX_PER_RUN of the most-overdue
 # images within a wall-time budget, so a big fleet spreads across sweeps
@@ -37888,10 +37889,82 @@ APP_CATALOG = (
 _APP_CATALOG_BY_ID = {a['id']: a for a in APP_CATALOG}
 
 
+def _custom_apps():
+    """Admin-added catalog entries — stored as a dict {id: app}; returned as a list."""
+    raw = load(APP_CATALOG_CUSTOM_FILE) or {}
+    return [a for a in raw.values() if isinstance(a, dict) and a.get('id')]
+
+
+def _app_catalog_all():
+    """Curated apps + admin-added custom apps (custom ones flagged `custom:True`)."""
+    apps = [dict(a) for a in APP_CATALOG]
+    apps.extend({**a, 'custom': True} for a in _custom_apps())
+    return apps
+
+
+def _app_by_id(app_id):
+    tpl = _APP_CATALOG_BY_ID.get(app_id)
+    if tpl:
+        return dict(tpl)
+    return next((dict(a) for a in _custom_apps() if a.get('id') == app_id), None)
+
+
 def handle_app_catalog():
-    """GET /api/app-catalog — the curated template list (incl. YAML for preview)."""
+    """GET /api/app-catalog — the curated + custom template list (incl. YAML for preview)."""
     require_auth()
-    respond(200, {'apps': [dict(a) for a in APP_CATALOG]})
+    respond(200, {'apps': _app_catalog_all()})
+
+
+def handle_app_catalog_custom_add():
+    """POST /api/app-catalog/custom — add a custom app to the catalog (admin only).
+    Body {name, yaml, category?, description?, port?}. The compose YAML is stored as
+    a template; deploying it still rides the audited, permission-gated compose path
+    (so this only manages the shared catalog, it never runs anything). Idempotent on
+    a slugified id derived from the name (re-adding updates the entry)."""
+    actor = require_admin_auth()
+    body = get_json_obj()
+    name = _sanitize_str(body.get('name', ''), 64, allow_empty=False)
+    yaml = body.get('yaml', '')
+    if not isinstance(yaml, str) or 'services:' not in yaml:
+        respond(400, {'error': 'compose YAML is required and must contain a "services:" block'})
+    if len(yaml) > COMPOSE_YAML_MAX:
+        respond(400, {'error': f'compose YAML is too large ({COMPOSE_YAML_MAX // 1024} KB max)'})
+    category = _sanitize_str(body.get('category', '') or 'Custom', 32, allow_empty=True) or 'Custom'
+    description = _sanitize_str(body.get('description', ''), 240, allow_empty=True) or ''
+    try:
+        port = int(body.get('port') or 0) or None
+    except (TypeError, ValueError):
+        port = None
+    if port is not None and not (1 <= port <= 65535):
+        respond(400, {'error': 'port must be 1–65535'})
+    # slugify the name into a stable id; the id is reused as the compose stack
+    # name, so it must satisfy _STACK_NAME_RE. Never collide with a curated id.
+    slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:48] or 'app'
+    if slug in _APP_CATALOG_BY_ID:
+        slug = 'custom-' + slug
+    if not _STACK_NAME_RE.match(slug):
+        respond(400, {'error': 'could not derive a valid id from that name'})
+    entry = {'id': slug, 'name': name, 'category': category,
+             'description': description, 'port': port, 'yaml': yaml}
+    with _LockedUpdate(APP_CATALOG_CUSTOM_FILE) as apps:
+        apps[slug] = entry
+    audit_log(actor, 'app_catalog_custom_add', f'{slug} ({name})')
+    respond(200, {'ok': True, 'id': slug})
+
+
+def handle_app_catalog_custom_delete():
+    """POST /api/app-catalog/custom/delete {id} — remove a custom app (admin only).
+    Curated apps cannot be removed."""
+    actor = require_admin_auth()
+    app_id = _sanitize_str(get_json_obj().get('id', ''), 64, allow_empty=False)
+    if app_id in _APP_CATALOG_BY_ID:
+        respond(400, {'error': 'built-in catalog apps cannot be removed'})
+    with _LockedUpdate(APP_CATALOG_CUSTOM_FILE) as apps:
+        if app_id not in apps:
+            respond(404, {'error': 'unknown custom app'})
+        del apps[app_id]
+    audit_log(actor, 'app_catalog_custom_delete', app_id)
+    respond(200, {'ok': True})
 
 
 def handle_app_catalog_deploy():
@@ -37904,7 +37977,7 @@ def handle_app_catalog_deploy():
     body = get_json_obj()
     app_id = _sanitize_str(body.get('app_id', ''), 64)
     device_id = _sanitize_str(body.get('device_id', ''), 64, allow_empty=False)
-    tpl = _APP_CATALOG_BY_ID.get(app_id)
+    tpl = _app_by_id(app_id)
     if not tpl:
         respond(404, {'error': 'unknown app'})
     devices = load(DEVICES_FILE)
@@ -46036,6 +46109,8 @@ def _build_exact_routes():
         ('GET', '/api/compose/stacks'): handle_compose_stacks_list,
         ('GET', '/api/app-catalog'): handle_app_catalog,
         ('POST', '/api/app-catalog/deploy'): handle_app_catalog_deploy,
+        ('POST', '/api/app-catalog/custom'): handle_app_catalog_custom_add,
+        ('POST', '/api/app-catalog/custom/delete'): handle_app_catalog_custom_delete,
         ('POST', '/api/compose/stacks'): handle_compose_stack_create,
         ('GET', '/api/config'): handle_config_get,
         ('POST', '/api/config'): handle_config_save,
