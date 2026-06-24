@@ -48065,6 +48065,7 @@ _AI_PROMPT_LABELS = {
     'mitigate_memory':        'Mitigation — Memory pressure',
     'mitigate_disk':          'Mitigation — Disk pressure',
     'mitigate_service':       'Mitigation — Service / runtime issue',
+    'mitigate_failed_units':  'Mitigation — Failed systemd units',
     'mitigate_patches':       'Mitigation — Pending patches',
     'mitigate_cve':           'Mitigation — CVE findings',
     'mitigate_container':     'Mitigation — Container stopped / restarting',

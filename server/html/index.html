@@ -1295,6 +1295,13 @@
               </div>
               <div class="isl-22">consecutive failed SNMP polls before <em>SNMP unreachable</em> fires (2 = default)</div>
             </div>
+            <div class="settings-row">
+              <label class="isl-33">
+                <input type="checkbox" id="cfg-allow-internal-monitors" class="isl-34">
+                <span class="fs-14">Allow monitoring of internal / loopback targets</span>
+              </label>
+              <div class="isl-22">Off by default: monitor targets that resolve to loopback or link-local / cloud-metadata addresses are rejected (SSRF guard). RFC1918 LAN targets are always allowed. Enable only if you intentionally monitor a service on the RemotePower host itself.</div>
+            </div>
           </div>
 
 

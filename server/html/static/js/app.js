@@ -2741,6 +2741,7 @@ async function loadSettings() {
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
   document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
   document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
+  { const e = document.getElementById('cfg-allow-internal-monitors'); if (e) e.checked = !!data.allow_internal_monitors; }
   { const e = document.getElementById('cfg-metric-fba'); if (e) e.value = data.metric_failures_before_alert || 1; }
   { const e = document.getElementById('cfg-snmp-fba'); if (e) e.value = data.snmp_failures_before_alert || 2; }
   document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
@@ -3131,6 +3132,7 @@ async function saveSettings(btn) {
     default_poll_interval: parseInt(document.getElementById('cfg-default-poll').value) || 60,
     online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
     monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
+    allow_internal_monitors: (document.getElementById('cfg-allow-internal-monitors') || {}).checked || false,
     metric_failures_before_alert: parseInt(document.getElementById('cfg-metric-fba')?.value) || 1,
     snmp_failures_before_alert:   parseInt(document.getElementById('cfg-snmp-fba')?.value) || 2,
     cve_cache_days:        parseInt(document.getElementById('cfg-cve-cache-days').value) || 7,
