@@ -6124,12 +6124,8 @@ body[data-ui="industrial"] .btn-icon::before{
 }
 body[data-ui="industrial"] .btn-icon:hover{ background:var(--accent-edge); --rp-fill:var(--accent-soft); }
 /* coloured icon-button variants keep their meaning in the border */
-body[data-ui="industrial"] .btn-icon.c-danger-outline,
-body[data-ui="industrial"] .btn-icon.c-red{ background:var(--red); }
-body[data-ui="industrial"] .btn-icon.c-danger-outline:hover,
-body[data-ui="industrial"] .btn-icon.c-red:hover{ background:var(--red); --rp-fill:var(--red-soft); }
-body[data-ui="industrial"] .btn-icon.c-success{ background:var(--green); }
-body[data-ui="industrial"] .btn-icon.c-success:hover{ background:var(--green); --rp-fill:var(--green-soft); }
+/* coloured icon-buttons keep the NEUTRAL chamfer border (the colour is in the text);
+   a green/red outline on Resolve/Delete was too loud. */
 
 /* #4 · Scanline-sweep skeletons */
 body[data-ui="industrial"] .skeleton,
@@ -6243,9 +6239,6 @@ body[data-ui="industrial"] [class*="-card"]:not(.stat-card):not(.table-card):not
 body[data-ui="industrial"] .card,
 body[data-ui="industrial"] .settings-section,
 body[data-ui="industrial"] .hc-panel,
-body[data-ui="industrial"] .iac-section,
-body[data-ui="industrial"] .compliance-fw,
-body[data-ui="industrial"] .sticky-head-scroll,
 body[data-ui="industrial"] .modal,
 body[data-ui="industrial"] .drawer{
   background-image: var(--card-grad) !important;
@@ -6289,7 +6282,6 @@ body[data-ui="industrial"] #devices-container{
 
 /* v5.1.0 · double the bottom padding inside boxes/cards — but NOT on the Dashboard */
 body[data-ui="industrial"] .page:not(#page-home) .dash-card,
-body[data-ui="industrial"] .page:not(#page-home) .table-card,
 body[data-ui="industrial"] .page:not(#page-home) .settings-section{ padding-bottom:28px; }
 
 /* v5.1.0 · ALL <select> dropdowns → chamfered full-border (idea 02) + line-arrow
@@ -6324,6 +6316,9 @@ body[data-ui="industrial"] .page:not(#page-home) .dash-card{ margin-bottom:30px;
 body[data-ui="industrial"] .page:not(#page-home) .table-card + .table-card{ margin-top:30px; }
 body[data-ui="industrial"] .page:not(#page-home) .settings-section{ margin-bottom:34px; }
 body[data-ui="industrial"] .page:not(#page-home) .section-title{ margin-top:34px; }
+/* but not when the heading shares a flex row with tags/filters/buttons */
+body[data-ui="industrial"] .section-header .section-title,
+body[data-ui="industrial"] [class*="row-"] .section-title{ margin-top:0; }
 body[data-ui="industrial"] .page:not(#page-home) .page-title + .section-title,
 body[data-ui="industrial"] .page:not(#page-home) .page-title-row + .section-title,
 body[data-ui="industrial"] .page:not(#page-home) > .section-title:first-child,
