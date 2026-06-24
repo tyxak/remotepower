@@ -5388,8 +5388,9 @@ body[data-ui="industrial"] {
   --bg:#0f1217; --surface:#171b22; --surface2:#1f242d; --border:#313a47;
   --text:#dfe4ec; --muted:#7c879a;
   --accent:#3b7eff; --accent2:#5c9fff;                       /* our logo blue, kept */
-  --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.40);
+  --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.55);
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+  --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
   --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
   --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
   --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
@@ -5402,7 +5403,8 @@ body[data-ui="industrial"] {
 body[data-ui="industrial"].light {
   --bg:#e7ebf0; --surface:#f7f9fb; --surface2:#eef1f5; --border:#cbd2dc;
   --text:#1b2230; --muted:#5c6675;
-  --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.45);
+  --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.55);
+  --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
 }
 body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 body[data-ui="industrial"] { font-family:var(--font); }
@@ -6050,3 +6052,137 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 /* ===== end v5.1.0 RTL overrides =========================================== */
 
 .icon-sprite { display: none; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   v5.1.0 INDUSTRIAL — curated treatment set (12 items, industrial skin only).
+   CSP-safe (classes only), font-size on the {28,16,14,13,12,11,10} scale,
+   motion gated by prefers-reduced-motion. Tokens (--warm/--accent-edge) live
+   in the industrial dark+light blocks above.
+   ════════════════════════════════════════════════════════════════════════ */
+body[data-ui="industrial"]{ --rp-cham:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+  --rp-cham-in:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
+
+/* #3/#2/#12 · Chamfered buttons with a CONTINUOUS border on all 8 edges.
+   Technique: the button background is the BORDER colour + octagon clip; an inset
+   ::before (the fill, same octagon) sits 1.5px in, so the border colour shows as
+   a uniform outline around the whole shape — including the two cut corners. */
+body[data-ui="industrial"] .btn,
+body[data-ui="industrial"] .btn-primary,
+body[data-ui="industrial"] .btn-secondary,
+body[data-ui="industrial"] .btn-shutdown,
+body[data-ui="industrial"] .btn-reboot,
+body[data-ui="industrial"] .btn-update,
+body[data-ui="industrial"] .btn-upgrade,
+body[data-ui="industrial"] .enroll-btn,
+body[data-ui="industrial"] .login-btn,
+body[data-ui="industrial"] .login-btn-oidc{
+  position:relative; z-index:0; border:none !important; border-radius:0 !important;
+  clip-path:var(--rp-cham); background:var(--accent-edge);
+  --rp-fill:var(--surface2);
+}
+body[data-ui="industrial"] .btn::before,
+body[data-ui="industrial"] .btn-primary::before,
+body[data-ui="industrial"] .btn-secondary::before,
+body[data-ui="industrial"] .btn-shutdown::before,
+body[data-ui="industrial"] .btn-reboot::before,
+body[data-ui="industrial"] .btn-update::before,
+body[data-ui="industrial"] .btn-upgrade::before,
+body[data-ui="industrial"] .enroll-btn::before,
+body[data-ui="industrial"] .login-btn::before,
+body[data-ui="industrial"] .login-btn-oidc::before{
+  content:""; position:absolute; inset:1.5px; z-index:-1;
+  background:var(--rp-fill); clip-path:var(--rp-cham-in);
+}
+/* per-variant fill + border colour */
+body[data-ui="industrial"] .btn-primary,
+body[data-ui="industrial"] .login-btn,
+body[data-ui="industrial"] .enroll-btn{ background:var(--accent); --rp-fill:var(--accent); color:#fff; }
+body[data-ui="industrial"] .btn-shutdown{ background:var(--red); --rp-fill:var(--red-soft); }
+body[data-ui="industrial"] .btn-reboot { background:var(--amber); --rp-fill:var(--warm-soft); }
+body[data-ui="industrial"] .btn-update { background:var(--green); --rp-fill:var(--green-soft); }
+/* hover: brighten the border ring */
+body[data-ui="industrial"] .btn:hover,
+body[data-ui="industrial"] .btn-secondary:hover,
+body[data-ui="industrial"] .login-btn-oidc:hover{ background:var(--accent); }
+/* icon/table buttons: smaller chamfer, keep simple (no double layer — they're tiny) */
+body[data-ui="industrial"] .btn-icon{
+  clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
+  border-radius:0;
+}
+
+/* #4 · Scanline-sweep skeletons */
+body[data-ui="industrial"] .skeleton,
+body[data-ui="industrial"] .skeleton-line,
+body[data-ui="industrial"] .skeleton-card{ position:relative; overflow:hidden; background:var(--surface2); }
+body[data-ui="industrial"] .skeleton::after,
+body[data-ui="industrial"] .skeleton-line::after,
+body[data-ui="industrial"] .skeleton-card::after{
+  content:""; position:absolute; inset:0; transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,var(--accent-soft) 40%,var(--accent2),var(--accent-soft) 60%,transparent);
+  animation:rp-sweep 1.5s linear infinite;
+}
+@keyframes rp-sweep{ to{ transform:translateX(100%); } }
+
+/* #5 · Schematic empty state */
+body[data-ui="industrial"] .empty-state{ border:1px dashed var(--border); border-radius:3px; }
+body[data-ui="industrial"] .empty-icon svg{ stroke:var(--accent-edge); }
+body[data-ui="industrial"] .empty-title{ font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.08em; }
+
+/* #6 · Keycap shortcuts */
+body[data-ui="industrial"] kbd{
+  background:var(--surface2); border:1px solid var(--border); border-bottom-width:2px;
+  border-radius:3px; padding:2px 7px; font-family:var(--font-mono); font-size:11px; font-weight:600; color:var(--text);
+}
+
+/* #1 · Animated icons — pulsing status dots + spin-on-load utility */
+body[data-ui="industrial"] .status-dot.online,
+body[data-ui="industrial"] .status-badge-dot{ animation:rp-pulse 1.8s ease-in-out infinite; }
+@keyframes rp-pulse{ 50%{ opacity:.35; } }
+.rp-spin{ animation:rp-spin 1.1s linear infinite; transform-origin:50% 50%; }
+@keyframes rp-spin{ to{ transform:rotate(360deg); } }
+
+/* #8 · Divider with centre label */
+.rp-divider{ display:flex; align-items:center; gap:12px; color:var(--muted);
+  font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.15em; margin:14px 0; }
+.rp-divider::before,.rp-divider::after{ content:""; height:1px; background:var(--border); flex:1; }
+
+/* #10 · Tag & filter chips */
+body[data-ui="industrial"] .rp-tag,
+body[data-ui="industrial"] .group-badge,
+body[data-ui="industrial"] .tag-chip{
+  display:inline-flex; align-items:center; gap:6px; background:var(--surface2);
+  border:1px solid var(--accent-edge); color:var(--accent2); padding:3px 9px;
+  font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+  clip-path:polygon(5px 0,100% 0,100% 100%,0 100%,0 5px);
+}
+
+/* #11 · Hazard stripe (critical / destructive zones) */
+.rp-haz{ height:12px; border-radius:2px;
+  background:repeating-linear-gradient(45deg,#1a1205,#1a1205 9px,var(--warm) 9px,var(--warm) 18px); }
+
+/* #9 · Top scanline progress bar (pinned to viewport top, shown during loads) */
+#rp-topbar{ position:fixed; left:0; top:0; height:2px; width:100%; z-index:9999;
+  background:transparent; overflow:hidden; opacity:0; transition:opacity .2s; pointer-events:none; }
+#rp-topbar.on{ opacity:1; }
+#rp-topbar::after{ content:""; position:absolute; inset:0; transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,var(--accent2,#5c9fff),transparent); animation:rp-sweep 1.1s linear infinite; }
+
+/* #7 · Path breadcrumb readout */
+.rp-crumb{ font-family:var(--font-mono); font-size:12px; color:var(--muted); }
+.rp-crumb b{ color:var(--text); } .rp-crumb i{ color:var(--accent2); font-style:normal; padding:0 4px; }
+
+@media (prefers-reduced-motion: reduce){
+  body[data-ui="industrial"] .skeleton::after,
+  body[data-ui="industrial"] .skeleton-line::after,
+  body[data-ui="industrial"] .skeleton-card::after,
+  body[data-ui="industrial"] .status-dot.online,
+  .rp-spin, #rp-topbar::after{ animation:none; }
+}
+
+/* #8 · login divider shows only when an alt sign-in method is visible (CSS :has, no JS) */
+body[data-ui="industrial"] #login-sso-divider{ display:none; }
+body[data-ui="industrial"] .login-card:has(.login-btn-oidc:not(.d-none)) #login-sso-divider{ display:flex; }
+
+/* #2 · SSO/SAML/passkey login buttons stay GHOST (they also carry .login-btn, which
+   would otherwise give them the primary accent fill) — surface fill + accent border. */
+body[data-ui="industrial"] .login-btn-oidc{ background:var(--accent-edge); --rp-fill:var(--surface2); color:var(--accent2); }

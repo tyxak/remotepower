@@ -991,6 +991,15 @@ function retryConnection() {
     if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
   } catch (_) {}
 }
+// v5.1.0 industrial #9: top scanline progress bar — a ref-counted load indicator
+// pinned to the viewport top, driven by in-flight api() calls.
+let _rpLoadN = 0, _rpBar;
+function _rpLoad(d) {
+  _rpLoadN = Math.max(0, _rpLoadN + d);
+  if (_rpBar === undefined) _rpBar = document.getElementById('rp-topbar');
+  if (_rpBar) _rpBar.classList.toggle('on', _rpLoadN > 0);
+}
+
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
@@ -1010,13 +1019,16 @@ async function api(method, path, body, extra) {
     }
   }
   let r;
+  _rpLoad(1);
   try {
     r = await fetch('/api' + path, opts);
   } catch (e) {
+    _rpLoad(-1);
     // Deliberate aborts (AbortController) are not connectivity failures.
     if (!e || e.name !== 'AbortError') _setApiDown(true);
     throw e;   // preserve every caller's existing .catch() behaviour
   }
+  _rpLoad(-1);
   _setApiDown(false);
   if (r.status === 401) { doLogout(); return null; }
   // v2.0: surface a friendly toast for demo-mode 403s. The server
@@ -16087,9 +16099,10 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
     const online = _drawerDeviceData.online;
     const status = online ? '● Online' : '○ Offline';
     const color  = online ? 'var(--green)' : 'var(--red)';
+    // v5.1.0 #7: path breadcrumb readout (fleet / <group> / <host>)
+    const crumb = `<span class="rp-crumb">fleet<i>/</i>${_drawerDeviceData.group ? escHtml(_drawerDeviceData.group) + '<i>/</i>' : ''}<b>${escHtml(_drawerDeviceName)}</b></span>`;
     document.getElementById('drawer-device-sub').innerHTML =
-      `<span class="isl-401" data-color="${color}">${status}</span>` +
-      (_drawerDeviceData.group ? ` · ${escHtml(_drawerDeviceData.group)}` : '');
+      crumb + ` <span class="isl-401" data-color="${color}">${status}</span>`;
   } catch(e) {
     _drawerDeviceData = {};
     document.getElementById('drawer-device-sub').textContent = '';
