@@ -7304,7 +7304,7 @@ async function fmListPath(p) {
   tbody.innerHTML = _skeletonRows(6);
   try {
     const r = await api('GET', `/devices/${_fmDev.id}/files?op=list&path=${encodeURIComponent(path)}`);
-    if (!r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="hint">${escHtml((r.result && r.result.error) || r.message || 'Failed to list')}</td></tr>`; return; }
+    if (!r.ok) { tbody.innerHTML = `<tr><td colspan="6" class="hint">${escHtml((r.result && r.result.error) || r.error || r.message || 'Failed to list')}</td></tr>`; return; }
     _fmRows = (r.result && r.result.entries) || [];
     const sm = document.getElementById('fm-summary');
     if (sm) sm.textContent = `${_fmRows.length} entr${_fmRows.length === 1 ? 'y' : 'ies'}`;
@@ -7335,7 +7335,7 @@ function _renderFm() {
 async function fmOpen(path) {
   try {
     const r = await api('GET', `/devices/${_fmDev.id}/files?op=read&path=${encodeURIComponent(path)}`);
-    if (!r.ok) { toast((r.result && r.result.error) || r.message || 'Read failed', 'error'); return; }
+    if (!r.ok) { toast((r.result && r.result.error) || r.error || r.message || 'Read failed', 'error'); return; }
     const res = r.result || {};
     if (res.binary) { toast('Binary file — not editable', 'error'); return; }
     _fmEditing = path;
@@ -7356,7 +7356,7 @@ async function fmSave() {
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'write', path: _fmEditing, content: ta.value });
     if (r.ok) toast('Saved', 'success');
-    else toast((r.result && r.result.error) || r.message || 'Save failed', 'error');
+    else toast((r.result && r.result.error) || r.error || r.message || 'Save failed', 'error');
   } catch (e) { toast(String(e), 'error'); }
 }
 
@@ -7366,7 +7366,7 @@ async function fmDelete() {
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'delete', path: _fmEditing });
     if (r.ok) { toast('Deleted', 'success'); fmCloseEditor(); fmListPath(_fmCwd); }
-    else toast((r.result && r.result.error) || r.message || 'Delete failed', 'error');
+    else toast((r.result && r.result.error) || r.error || r.message || 'Delete failed', 'error');
   } catch (e) { toast(String(e), 'error'); }
 }
 
@@ -7384,7 +7384,7 @@ async function fmMkdir() {
   try {
     const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'mkdir', path: base + name });
     if (r.ok) { toast('Created', 'success'); fmListPath(_fmCwd); }
-    else toast((r.result && r.result.error) || r.message || 'mkdir failed', 'error');
+    else toast((r.result && r.result.error) || r.error || r.message || 'mkdir failed', 'error');
   } catch (e) { toast(String(e), 'error'); }
 }
 

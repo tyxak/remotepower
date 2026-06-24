@@ -6219,13 +6219,14 @@ body[data-ui="industrial"] .login-btn-oidc{ background:var(--accent-edge); --rp-
    strip, so it reads as centred in the content area. */
 #page-watermark{ display:none; }
 body[data-ui="industrial"] #page-watermark{
-  display:flex; position:fixed; inset:0; z-index:0; pointer-events:none;
-  align-items:center; justify-content:center;
+  display:block; position:fixed; inset:auto; right:0; bottom:0; z-index:0; pointer-events:none;
 }
 /* keep page content above the z-index:0 watermark */
 body[data-ui="industrial"] .app-content{ position:relative; z-index:1; }
 body[data-ui="industrial"] #page-watermark svg{
-  width:min(72vw,820px); height:min(72vw,820px);
-  fill:none; stroke:rgba(160,175,200,.04); stroke-width:1;
+  width:min(78vw,1000px); height:min(78vw,1000px);
+  /* centre the icon on the bottom-right corner → it bleeds off the screen */
+  transform:translate(50%,50%);
+  fill:none; stroke:rgba(160,175,200,.05); stroke-width:1;
 }
 
