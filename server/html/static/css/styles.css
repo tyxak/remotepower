@@ -6224,10 +6224,10 @@ body[data-ui="industrial"] #page-watermark{
 /* keep page content above the z-index:0 watermark */
 body[data-ui="industrial"] .app-content{ position:relative; z-index:1; }
 body[data-ui="industrial"] #page-watermark svg{
-  width:min(58vw,760px); height:min(58vw,760px);
-  /* anchored bottom-right, bleeding ~1/3 off each edge so it stays mostly visible */
-  transform:translate(33%,33%);
-  fill:none; stroke:rgba(160,175,200,.05); stroke-width:1;
+  width:min(56vw,740px); height:min(56vw,740px);
+  /* anchored bottom-right, only ~1/5 bleeding off so most of the icon shows */
+  transform:translate(20%,20%);
+  fill:none; stroke:rgba(160,175,200,.06); stroke-width:1;
 }
 
 
