@@ -12220,7 +12220,7 @@ def handle_drift_policies_set():
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
+    body = get_json_body()   # accept a bare list too (b7327ea); the isinstance branch below handles both
     raw = body.get('policies') if isinstance(body, dict) else body
     if not isinstance(raw, list):
         respond(400, {'error': 'policies must be a list'})
