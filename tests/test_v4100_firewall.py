@@ -20,9 +20,11 @@ _spec = importlib.util.spec_from_file_location('api_v4100_fw', _CGI / 'api.py')
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
+from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
+
 _API_SRC = (_CGI / 'api.py').read_text()
 _AGENT_SRC = (_ROOT / 'client' / 'remotepower-agent.py').read_text()
-_APP_JS = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+_APP_JS = client_js()
 _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text()
 _I18N = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'i18n.js').read_text()
 

@@ -11,9 +11,11 @@ _spec = importlib.util.spec_from_file_location("api_feat2", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
+from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
+
 API_SRC = (_CGI_BIN / "api.py").read_text()
 AGENT = (_ROOT / "client" / "remotepower-agent.py").read_text()
-APP = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+APP = client_js()
 
 
 class TestBackupVerifyAgent(unittest.TestCase):

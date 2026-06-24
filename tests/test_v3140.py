@@ -2447,7 +2447,7 @@ class TestDeviceComboCoverage(unittest.TestCase):
     one multi-select, gets the searchable filter). Pins the 5 fixed gaps."""
 
     HTML = (_ROOT / "server/html/index.html").read_text()
-    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    APP = client_js()
     NET = (_ROOT / "server/html/static/js/app-network.js").read_text()
     COMP = (_ROOT / "server/html/static/js/app-compliance.js").read_text()
 
@@ -2509,7 +2509,7 @@ class TestRosterAndTransport(unittest.TestCase):
     """v3.14.0 — home roster cap/sort, satellite TLS, agent CA bundle, and the
     deployment scripts all present."""
 
-    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    APP = client_js()
     SAT = (_ROOT / "client/remotepower-satellite.py").read_text()
     AGENT = (_ROOT / "client/remotepower-agent.py").read_text()
     AGENT_X = (_ROOT / "client/remotepower-agent").read_text()
@@ -2601,7 +2601,7 @@ class TestLargeFleetCapsAndUX(unittest.TestCase):
     """v4 — no page floods on an extremely large fleet; SNMP Trend button;
     in-app 'Report an issue' button; ROADMAP* removed."""
 
-    APP = (_ROOT / "server/html/static/js/app.js").read_text()
+    APP = client_js()
     HTML = (_ROOT / "server/html/index.html").read_text()
 
     def test_device_card_grid_is_capped(self):

@@ -2676,14 +2676,6 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
   }).join('');
 }
 
-function renderCveSeverityRow(severities, current) {
-  const row = document.getElementById('cfg-cve-severity-row');
-  if (!row) return;
-  row.innerHTML = severities.map(s => {
-    const checked = current.includes(s) ? 'checked' : '';
-    return `<label class="isl-339"><input type="checkbox" class="cfg-cve-sev isl-340" value="${escHtml(s)}" ${checked}>${escHtml(s)}</label>`;
-  }).join('');
-}
 
 async function loadSettings() {
   const data = await api('GET', '/config');
@@ -5319,22 +5311,6 @@ async function userAction(action) {
 }
 
 // ─── v3.6.0: host firewall management ────────────────────────────────────────
-function openFirewall(id, name) {
-  document.getElementById('firewall-devid').value = id;
-  document.getElementById('firewall-port').value = '';
-  document.querySelector('#firewall-modal .modal-title').textContent = `Firewall — ${name}`;
-  openModal('firewall-modal');
-}
-async function firewallAction(action) {
-  const id = document.getElementById('firewall-devid').value;
-  const backend = document.getElementById('firewall-backend').value;
-  const proto = document.getElementById('firewall-proto').value;
-  const port = parseInt(document.getElementById('firewall-port').value, 10);
-  if (!port || port < 1 || port > 65535) { toast('Enter a valid port', 'error'); return; }
-  const r = await api('POST', `/devices/${id}/firewall-action`, { backend, action, port, proto });
-  if (r?.ok) toast(`Queued: ${backend} ${action} ${port}/${proto}`, 'success');
-  else toast(r?.error || 'Failed', 'error');
-}
 
 // ─── v3.6.0: endpoint AV/malware posture ─────────────────────────────────────
 async function openAvScan(id, name) {
@@ -6037,12 +6013,6 @@ async function _loadMetrics() {
     `<div class="isl-354">${_metricsOverlayChart(metrics)}${charts}</div>` +
     `<p class="isl-357">Longer windows are downsampled to keep the charts readable. Metric history is stored on the SQLite/PostgreSQL backend.</p>`;
 }
-function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
-
-// v3.13.0: full disaster-recovery backup (complete data dir, incl. vault) + restore.
-function downloadBackup() {
-  _downloadAuthed('/api/backup/download', 'remotepower-backup.tar.gz', 'Full backup downloaded');
-}
 function pickRestoreFile() { document.getElementById('restore-file-input')?.click(); }
 async function restoreBackup() {
   const inp = document.getElementById('restore-file-input');
@@ -6593,225 +6563,14 @@ async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may b
 
 // ─── v3.6.0: backup orchestration ────────────────────────────────────────────
 let _backupJobsRegistered = false;
-function _registerBackupJobsTable() {
-  if (_backupJobsRegistered) return;
-  _backupJobsRegistered = true;
-  tableCtl.register({
-    name: 'backups', tbody: 'backups-tbody', filterInput: 'backups-filter',
-    sortHeaders: 'backups-thead', colspan: 6,
-    columns: ['name', 'device_name', 'cron', 'last_run', 'enabled'],
-    getColumns: (j) => ({ name: j.name || '', device_name: j.device_name || '',
-      cron: j.cron || '', last_run: j.last_run || 0, enabled: j.enabled ? 1 : 0 }),
-    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button><button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
-    emptyMsg: 'No backup jobs. Create one to run or schedule a backup command.',
-    emptyMsgFiltered: 'No jobs match the filter.',
-  });
-}
 let _backupJobsCache = [];
-async function loadBackupJobs() {
-  _registerBackupJobsTable();
-  const d = await api('GET', '/backup-jobs');
-  if (!d) return;
-  _backupJobsCache = d.jobs || [];
-  tableCtl.render('backups', _backupJobsCache);
-  loadProxmoxBackups();   // v3.6.0: Proxmox vzdump recency lives on this page too
-}
-function _backupPopulateDevices(sel, current) {
-  const list = (typeof devices !== 'undefined' ? devices : []);
-  sel.innerHTML = list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id===current?' selected':''}>${escHtml(dv.name)}</option>`).join('');
-}
-function openBackupJobCreate() {
-  document.getElementById('backupjob-edit-id').value = '';
-  document.getElementById('backupjob-name').value = '';
-  document.getElementById('backupjob-command').value = '';
-  document.getElementById('backupjob-cron').value = '';
-  _backupPopulateDevices(document.getElementById('backupjob-device'), '');
-  document.getElementById('backupjob-modal-title').textContent = 'New backup job';
-  document.getElementById('backupjob-save-btn').textContent = 'Create';
-  openModal('backupjob-modal');
-}
-function _backupEditBtn(btn) {
-  const j = _backupJobsCache.find(x => x.id === btn.dataset.id); if (!j) return;
-  document.getElementById('backupjob-edit-id').value = j.id;
-  document.getElementById('backupjob-name').value = j.name;
-  document.getElementById('backupjob-command').value = j.command;
-  document.getElementById('backupjob-cron').value = j.cron || '';
-  _backupPopulateDevices(document.getElementById('backupjob-device'), j.device_id);
-  document.getElementById('backupjob-device').disabled = true;   // device is fixed after creation
-  document.getElementById('backupjob-modal-title').textContent = 'Edit backup job';
-  document.getElementById('backupjob-save-btn').textContent = 'Save';
-  openModal('backupjob-modal');
-}
-async function saveBackupJob() {
-  const id = document.getElementById('backupjob-edit-id').value;
-  const dsel = document.getElementById('backupjob-device');
-  const body = {
-    name: document.getElementById('backupjob-name').value.trim(),
-    command: document.getElementById('backupjob-command').value.trim(),
-    cron: document.getElementById('backupjob-cron').value.trim(),
-  };
-  if (!id) body.device_id = dsel.value;
-  if (!body.name || !body.command) { toast('Name and command required', 'error'); return; }
-  const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
-               : await api('POST', '/backup-jobs', body);
-  dsel.disabled = false;
-  if (d?.ok) { toast(id ? 'Job saved' : 'Job created', 'success'); closeModal('backupjob-modal'); loadBackupJobs(); }
-  else toast(d?.error || 'Failed', 'error');
-}
-async function _backupRunBtn(btn) {
-  const d = await api('POST', '/backup-jobs/' + encodeURIComponent(btn.dataset.id) + '/run', {});
-  if (d?.ok) toast('Backup queued — output appears in the device command history', 'success');
-  else toast(d?.error || 'Failed', 'error');
-}
-async function deleteBackupJob(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!await uiConfirm('Delete this backup job?')) return;
-  const d = await api('DELETE', '/backup-jobs/' + encodeURIComponent(id));
-  if (d?.ok) { toast('Job deleted', 'info'); loadBackupJobs(); } else toast(d?.error || 'Failed', 'error');
-}
 
 // v3.6.0: Proxmox per-guest backup recency (vzdump archives — distinct from
 // snapshots). Lives on the Backups page; threshold is adjustable here.
-async function loadProxmoxBackups() {
-  const card = document.getElementById('pmbackup-card');
-  const body = document.getElementById('pmbackup-body');
-  if (!card || !body) return;
-  const d = await api('GET', '/proxmox/backups');
-  if (!d) { body.innerHTML = '<div class="empty-state">Failed to load.</div>'; return; }
-  if (!d.enabled || !d.configured) {
-    body.innerHTML = '<div class="hint">No Proxmox node connected. Configure one under Settings → Proxmox to see per-guest backup recency here.</div>';
-    return;
-  }
-  const th = document.getElementById('pmbackup-threshold');
-  if (th && document.activeElement !== th) th.value = d.warn_days;
-  if (!d.guests.length) {
-    body.innerHTML = '<div class="empty-state">No guests found on the node.</div>';
-    return;
-  }
-  const cls = { ok: 'c-green', stale: 'c-amber', missing: 'c-red' };
-  const label = { ok: 'OK', stale: 'Stale', missing: 'No backup' };
-  // v3.8.0: wire sort (CLAUDE.md — every table must sort). age/status sort
-  // numerically (missing backups sort worst-first via a high age sentinel).
-  const sorted = tableCtl.sortRows('pmbackup', d.guests.slice(), g => ({
-    name: g.name || ('VM ' + g.vmid),
-    vmid: g.vmid,
-    last: g.last_backup || 0,
-    age: g.age_days == null ? Number.MAX_SAFE_INTEGER : g.age_days,
-    status: g.status,
-  }));
-  const rows = sorted.map(g => {
-    const last = g.last_backup ? new Date(g.last_backup * 1000).toLocaleString() : '—';
-    const age = g.age_days == null ? '—' : `${g.age_days}d`;
-    return `<tr><td class="fw-500">${escHtml(g.name || ('VM ' + g.vmid))}</td><td class="hint">${g.vmid}</td><td class="hint">${last}</td><td>${age}</td><td><span class="patch-badge ${cls[g.status] || 'c-muted'}">${label[g.status] || g.status}</span></td></tr>`;
-  }).join('');
-  const updated = d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : '';
-  body.innerHTML = `<div class="table-card"><table><thead id="pmbackup-thead"><tr><th data-col="name">Guest</th><th data-col="vmid">VMID</th><th data-col="last">Last backup</th><th data-col="age">Age</th><th data-col="status">Status</th></tr></thead><tbody>${rows}</tbody></table></div>${updated ? `<div class="meta-sm-nm mt-6">Node ${escHtml(d.node)} · refreshed ${updated}</div>` : ''}`;
-  tableCtl.wireSortOnly('pmbackup-thead', 'pmbackup', loadProxmoxBackups);
-}
-async function saveProxmoxBackupThreshold() {
-  const days = parseInt(document.getElementById('pmbackup-threshold').value, 10);
-  if (!days || days < 1 || days > 365) { toast('Enter 1–365 days', 'error'); return; }
-  const d = await api('POST', '/proxmox/backups/threshold', { days });
-  if (d?.ok) { toast(`Threshold set to ${d.warn_days} days`, 'success'); loadProxmoxBackups(); }
-  else toast(d?.error || 'Failed', 'error');
-}
 
 // ─── v3.7.0: Ansible playbook runner ─────────────────────────────────────────
 let _ansibleRegistered = false;
 let _ansibleCache = [];
-function _registerAnsibleTable() {
-  if (_ansibleRegistered) return;
-  _ansibleRegistered = true;
-  tableCtl.register({
-    name: 'ansible', tbody: 'ansible-tbody', filterInput: 'ansible-filter',
-    sortHeaders: 'ansible-thead', colspan: 4,
-    columns: ['name', 'last_run', 'last_rc'],
-    getColumns: (p) => ({ name: p.name || '', last_run: p.last_run || 0, last_rc: p.last_rc ?? -1 }),
-    row: (p) => {
-      const res = p.last_rc == null ? '<span class="hint">never</span>'
-        : (p.last_rc === 0 ? '<span class="patch-badge c-green">ok</span>' : `<span class="patch-badge c-red">rc=${p.last_rc}</span>`);
-      return `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${p.last_run ? new Date(p.last_run*1000).toLocaleString() : 'never'}</td><td>${res}</td><td class="row-6"><button class="btn-icon" data-action-btn="_ansibleRunBtn" data-id="${escAttr(p.id)}">Run</button><button class="btn-icon" data-action-btn="_ansibleEditBtn" data-id="${escAttr(p.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteAnsiblePlaybook" data-arg="${escAttr(p.id)}">Delete</button></td></tr>`;
-    },
-    emptyMsg: 'No playbooks yet. Create one to run against the fleet.',
-    emptyMsgFiltered: 'No playbooks match the filter.',
-  });
-}
-async function loadAnsible() {
-  _registerAnsibleTable();
-  const d = await api('GET', '/ansible/playbooks');
-  if (!d) return;
-  _ansibleCache = d.playbooks || [];
-  const avail = document.getElementById('ansible-availability');
-  if (avail) avail.innerHTML = d.available
-    ? '<span class="c-green">ansible-playbook detected on the server.</span>'
-    : '<span class="c-amber">ansible-playbook is NOT installed on the server — install ansible-core to run playbooks.</span>';
-  tableCtl.render('ansible', _ansibleCache);
-}
-function openAnsibleCreate() {
-  document.getElementById('ansible-edit-id').value = '';
-  document.getElementById('ansible-name').value = '';
-  document.getElementById('ansible-content').value = '';
-  document.getElementById('ansible-modal-title').textContent = 'New playbook';
-  document.getElementById('ansible-save-btn').textContent = 'Create';
-  openModal('ansible-modal');
-}
-function _ansibleEditBtn(btn) {
-  const p = _ansibleCache.find(x => x.id === btn.dataset.id); if (!p) return;
-  document.getElementById('ansible-edit-id').value = p.id;
-  document.getElementById('ansible-name').value = p.name;
-  document.getElementById('ansible-content').value = p.content || '';
-  document.getElementById('ansible-modal-title').textContent = 'Edit playbook';
-  document.getElementById('ansible-save-btn').textContent = 'Save';
-  openModal('ansible-modal');
-}
-async function saveAnsiblePlaybook() {
-  const id = document.getElementById('ansible-edit-id').value;
-  const body = { name: document.getElementById('ansible-name').value.trim(),
-                 content: document.getElementById('ansible-content').value };
-  if (!body.name || !body.content.trim()) { toast('Name and playbook content required', 'error'); return; }
-  const d = id ? await api('PUT', '/ansible/playbooks/' + encodeURIComponent(id), body)
-               : await api('POST', '/ansible/playbooks', body);
-  if (d?.ok) { toast(id ? 'Playbook saved' : 'Playbook created', 'success'); closeModal('ansible-modal'); loadAnsible(); }
-  else toast(d?.error || 'Failed', 'error');
-}
-async function deleteAnsiblePlaybook(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
-  if (!await uiConfirm('Delete this playbook?')) return;
-  const d = await api('DELETE', '/ansible/playbooks/' + encodeURIComponent(id));
-  if (d?.ok) { toast('Playbook deleted', 'info'); loadAnsible(); } else toast(d?.error || 'Failed', 'error');
-}
-function _ansibleRunBtn(btn) {
-  document.getElementById('ansible-run-id').value = btn.dataset.id;
-  document.getElementById('ansible-target-type').value = 'all';
-  document.getElementById('ansible-target-value').value = '';
-  document.getElementById('ansible-ssh-user').value = 'root';
-  document.getElementById('ansible-ssh-key').value = '';
-  document.getElementById('ansible-ssh-pass').value = '';
-  document.getElementById('ansible-become').checked = true;
-  document.getElementById('ansible-run-output').innerHTML = '';
-  openModal('ansible-run-modal');
-}
-async function runAnsiblePlaybook() {
-  const id = document.getElementById('ansible-run-id').value;
-  const body = {
-    target: { type: document.getElementById('ansible-target-type').value,
-              value: document.getElementById('ansible-target-value').value.trim() },
-    ssh_user: document.getElementById('ansible-ssh-user').value.trim(),
-    ssh_key: document.getElementById('ansible-ssh-key').value,
-    ssh_password: document.getElementById('ansible-ssh-pass').value,
-    become: document.getElementById('ansible-become').checked,
-  };
-  if (!body.ssh_user) { toast('SSH user required', 'error'); return; }
-  if (!body.ssh_key.trim() && !body.ssh_password) { toast('Provide an SSH key or password', 'error'); return; }
-  const out = document.getElementById('ansible-run-output');
-  const btn = document.getElementById('ansible-run-btn');
-  btn.disabled = true; out.innerHTML = `<div class="diag-pending">${_icon('clock',13)} Running… (up to 15 min)</div>`;
-  const d = await api('POST', '/ansible/playbooks/' + encodeURIComponent(id) + '/run', body);
-  btn.disabled = false;
-  if (!d) { out.innerHTML = '<span class="c-red">Run failed.</span>'; return; }
-  if (d.error && !d.output) { out.innerHTML = `<span class="c-red">${escHtml(d.error)}</span>`; loadAnsible(); return; }
-  const cls = d.rc === 0 ? 'c-green' : 'c-red';
-  out.innerHTML = `<div class="${cls} mb-6">Finished on ${d.hosts} host(s) — rc=${d.rc}</div><pre class="journal-wrap">${escHtml(d.output || '')}</pre>`;
-  loadAnsible();
-}
 // v1.11.6: command library gets filter+sort
 let _cmdlibRegistered = false;
 function _registerCmdLibTable() {
@@ -7248,21 +7007,6 @@ function _registerCveTable() {
   });
 }
 
-async function loadCVEReport() {
-  _registerCveTable();
-  const tbody = document.getElementById('cve-tbody');
-  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="10"><div class="skeleton skeleton-line long"></div></td></tr>';
-  const data = await api('GET', '/cve/findings');
-  if (!data) return;
-  cveReportData = data;
-  document.getElementById('cve-stat-critical').textContent = data.summary.critical;
-  document.getElementById('cve-stat-high').textContent = data.summary.high;
-  document.getElementById('cve-stat-medium').textContent = data.summary.medium;
-  document.getElementById('cve-stat-low').textContent = data.summary.low;
-  document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
-  _renderKevFeedStatus(data.kev_feed);
-  tableCtl.render('cves', data.devices || []);
-}
 
 // ── v4.2.0 (B5): Security Scans — authorized scans against enrolled hosts ────
 let _scansRegistered = false;
@@ -7943,97 +7687,6 @@ async function deleteScanSchedule(id) {
 
 // v3.14.0 fix: show the KEV/EPSS feed state so "why is there no KEV?" is clear —
 // distinguishes a not-yet-loaded / errored feed from genuinely-zero KEV hits.
-function _renderKevFeedStatus(f) {
-  const el = document.getElementById('cve-kev-feed-text');
-  if (!el) return;
-  if (!f) { el.textContent = ''; return; }
-  if (f.kev_error) { el.innerHTML = `<span class="c-red">KEV feed failed: ${escHtml(f.kev_error)}</span> — KEV flags unavailable until it loads.`; return; }
-  if (!f.kev_count) { el.textContent = 'KEV feed not loaded yet (refreshes daily, or click below). KEV stays 0 until then.'; return; }
-  const when = f.last_checked ? timeAgo(f.last_checked) : 'unknown';
-  el.textContent = `KEV feed: ${f.kev_count.toLocaleString()} known-exploited CVEs loaded (updated ${when}). A 0 here means none of that host's CVEs are on CISA's KEV list.`;
-}
-async function refreshCveFeeds() {
-  toast('Refreshing KEV/EPSS feeds…', 'info');
-  const r = await api('POST', '/cve/refresh-feeds', {}).catch(() => null);
-  if (r?.ok) {
-    toast(`KEV feed: ${r.kev_count} CVEs${r.kev_error ? ' (error: ' + r.kev_error + ')' : ''}`, r.kev_error ? 'error' : 'success');
-    loadCVEReport();
-  } else toast(r?.error || 'Feed refresh failed', 'error');
-}
-async function triggerCVEScan(devId, btn) {
-  // v4.1.0: the scan now runs in a detached background process and returns
-  // immediately ("Queued"), so the page never blocks. We poll scan-status for
-  // progress and refresh the report when it finishes.
-  // v5.0.0 fix: the "Scan all" button is wired via data-action-btn, which calls
-  // us with the BUTTON ELEMENT as the first arg (per-device callers pass a
-  // string id). Normalise so we never POST the element as device_id — that
-  // serialised to {} and the server rejected it with 400 Bad Request.
-  if (devId && typeof devId === 'object') { btn = devId; devId = null; }
-  const origText = btn?.textContent || '';
-  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
-  const r = await api('POST', '/cve/scan', devId ? { device_id: devId } : {});
-  if (!r || !(r.queued || r.ok)) {
-    const msg = (r && r.error) || 'Could not queue the scan';
-    toast(r && r.status && r.status.running ? 'A scan is already running' : msg, 'error');
-    if (btn) { btn.disabled = false; btn.textContent = origText; }
-    return;
-  }
-  toast(`Scan started${r.total ? ` (${r.total} device${r.total === 1 ? '' : 's'})` : ''} — running in the background.`, 'info');
-  // Poll progress with a NON-OVERLAPPING self-scheduling loop: the next request
-  // is queued only AFTER the previous one resolves. A plain setInterval fires
-  // every 2s regardless, so a slow/blocked server piles up hundreds of pending
-  // fetches and Firefox flags the page as "slowing the browser". Bounded by a
-  // wall-clock cap so a stuck scan can't poll forever.
-  let ticks = 0;
-  const MAX_TICKS = 600;
-  const finish = (st) => {
-    if (btn) {
-      btn.disabled = false;
-      btn.style.color = (st && st.errors) ? 'var(--red)' : 'var(--green)';
-      setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
-    }
-    if (st && !st.running) {
-      toast(`Scan complete: ${st.scanned || 0} scanned, ${st.skipped || 0} skipped, ${st.errors || 0} errors`,
-            st.errors ? 'error' : 'success');
-      loadCVEReport();
-    }
-  };
-  const tick = async () => {
-    ticks++;
-    const st = await api('GET', '/cve/scan-status').catch(() => null);
-    if (st && btn && st.total) btn.textContent = st.running ? `Scanning ${st.done}/${st.total}…` : 'Done';
-    if (!st || !st.running || ticks > MAX_TICKS) { finish(st); return; }
-    setTimeout(tick, 2000);              // schedule the next poll only now
-  };
-  setTimeout(tick, 2000);
-}
-async function openDeviceCVE(devId, devName) {
-  document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
-  document.getElementById('cve-detail-body').innerHTML = '<div class="empty-state">Loading…</div>';
-  openModal('cve-detail-modal');
-  const data = await api('GET', `/devices/${devId}/cve`);
-  if (!data) return;
-  const sevColor = {critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
-  let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
-  html += `<div class="mb-14 row-6"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">${_icon('refresh',14)} Send package list now</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="cyclonedx" title="Download a CycloneDX SBOM (with CVE findings) for this host">${_icon('download',14)} SBOM (CycloneDX)</button><button class="btn-icon" data-action-btn="_sbomDeviceBtn" data-dev-id="${escAttr(devId)}" data-fmt="spdx" title="Download an SPDX 2.3 SBOM for this host">${_icon('download',14)} SBOM (SPDX)</button></div>`;
-  if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
-  if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found.</div>'; }
-  else {
-    // v3.14.0: surface exploited-in-wild + high-EPSS first.
-    const _sevRank = {critical: 4, high: 3, medium: 2, low: 1, unknown: 0};
-    data.findings.sort((a, b) =>
-      (b.kev ? 1 : 0) - (a.kev ? 1 : 0)
-      || (_sevRank[b.severity] || 0) - (_sevRank[a.severity] || 0)
-      || (b.epss || 0) - (a.epss || 0));
-    html += data.findings.map(f => {
-      const color = sevColor[f.severity] || 'var(--muted)';
-      const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
-      const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.kev ? '<span class="kev-badge" title="Actively exploited in the wild (CISA KEV)">KEV</span>' : ''}${f.epss ? `<span class="epss-chip" title="EPSS — probability of exploitation in the next 30 days">EPSS ${(f.epss*100).toFixed(f.epss>=0.1?0:1)}%</span>` : ''}${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
-    }).join('');
-  }
-  document.getElementById('cve-detail-body').innerHTML = html;
-}
 // v2.4.11: CVE ignore used to use prompt() + confirm() — two native
 // dialogs. After a handful of ignores in a row (exactly what doing a
 // fleet-wide sweep looks like), browsers suppress repeated dialogs;
@@ -8043,37 +7696,7 @@ async function openDeviceCVE(devId, devName) {
 // browsers never throttle.
 let _cveIgnoreCtx = null;
 
-function ignoreCVE(vulnId, devId, devName) {
-  _cveIgnoreCtx = {vulnId, devId, devName};
-  document.getElementById('cve-ignore-vuln').textContent = vulnId;
-  document.getElementById('cve-ignore-reason').value = '';
-  const dev = document.querySelector('input[name="cve-ignore-scope"][value="device"]');
-  if (dev) dev.checked = true;
-  openModal('cve-ignore-modal');
-}
 
-async function _confirmCveIgnore() {
-  if (!_cveIgnoreCtx) return;
-  const {vulnId, devId, devName} = _cveIgnoreCtx;
-  const reason = document.getElementById('cve-ignore-reason').value.trim();
-  const scopeSel = document.querySelector('input[name="cve-ignore-scope"]:checked');
-  const scope = (scopeSel && scopeSel.value === 'global') ? 'global' : devId;
-  const btn = document.getElementById('cve-ignore-confirm');
-  if (btn) btn.disabled = true;
-  try {
-    const result = await api('POST', '/cve/ignore', {vuln_id: vulnId, reason, scope});
-    if (result && result.ok) {
-      closeModal('cve-ignore-modal');
-      toast(`${vulnId} ignored (${scope === 'global' ? 'fleet-wide' : 'this device'})`, 'success');
-      openDeviceCVE(devId, devName);
-      loadCVEReport();
-    }
-  } catch (e) {
-    toast('Ignore failed: ' + (e.message || String(e)), 'error');
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
 
 // ─── v1.8.0: Services ─────────────────────────────────────────────────────────
 let servicesCurrentDeviceId = null;
@@ -8473,15 +8096,6 @@ const _ROLLOUT_STATE_CLASS = {
   done: 'rs-done', cancelled: 'rs-cancelled', failed: 'rs-failed',
 };
 
-async function loadRollouts() {
-  loadBatchJobs();   // v3.4.2: refresh the install/job tracker alongside rollouts
-  const out = document.getElementById('rollouts-list');
-  if (!out) return;
-  const r = await api('GET', '/rollouts').catch(() => null);
-  if (!r || !Array.isArray(r.rollouts)) { out.innerHTML = '<div class="c-red">Failed to load rollouts.</div>'; return; }
-  if (!r.rollouts.length) { out.innerHTML = '<div class="empty-state">No rollouts yet. Click <strong>New rollout</strong> to stage one.</div>'; return; }
-  out.innerHTML = r.rollouts.map(_renderRollout).join('');
-}
 
 // v3.4.2: install / batch-job tracker — per-host checkmarks, live while running.
 let _batchPollTimer = null;
@@ -8548,125 +8162,11 @@ async function _renderJobDetail(id) {
   }).join('');
 }
 
-function _renderRollout(roll) {
-  const rings = (roll.rings || []).map((ring, i) => {
-    const st = (roll.rings_state || [])[i] || {};
-    const cur = roll.current_ring === i && roll.state === 'running';
-    const cls = 'ro-ring-pill ' + (st.state === 'done' ? 'rs-done'
-      : st.state === 'failed' ? 'rs-failed'
-      : st.state === 'verifying' ? 'rs-running' : 'rs-draft');
-    const prog = (st.total ? ` ${st.ok_count || 0}/${st.total}` : '')
-      + (st.failed_count ? ` · ${st.failed_count} stalled` : '');
-    return `<span class="${cls}" title="${escAttr(st.state || 'pending')}">${cur ? '▶ ' : ''}${escHtml(ring.name || ('ring ' + (i + 1)))}<span class="ro-ring-prog">${escHtml(st.state || 'pending')}${escHtml(prog)}</span></span>`;
-  }).join('<span class="ro-arrow">→</span>');
-  const last = (roll.history || []).slice(-1)[0];
-  const sc = _ROLLOUT_STATE_CLASS[roll.state] || '';
-  const canStart = roll.state === 'draft';
-  const canPause = roll.state === 'running';
-  const canResume = roll.state === 'paused';
-  const canPromote = (roll.state === 'running' || roll.state === 'paused');
-  const canCancel = !['done', 'cancelled'].includes(roll.state);
-  const btn = (label, act) => `<button class="btn-icon fs-12" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="${act}">${label}</button>`;
-  let actions = '';
-  if (canStart)   actions += btn('Start', 'start');
-  if (canResume)  actions += btn('Resume', 'resume');
-  if (canPause)   actions += btn('Pause', 'pause');
-  if (canPromote) actions += btn('Promote', 'promote');
-  if (canCancel)  actions += btn('Cancel', 'cancel');
-  // v5.0.0 (#F5): one-click rollback for a script rollout with a rollback script.
-  if (roll.action === 'script' && roll.rollback_script_id && roll.state !== 'draft' && !roll.rolled_back_by)
-    actions += `<button class="btn-icon fs-12 c-amber" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="rollback">Rollback</button>`;
-  actions += `<button class="btn-icon fs-12 c-red" data-action="deleteRollout" data-arg="${escAttr(roll.id)}">Delete</button>`;
-  return `<div class="dash-card mb-12">
-    <div class="row-8-center mb-8">
-      <strong>${escHtml(roll.name || '(unnamed)')}</strong>
-      <span class="ro-badge ${sc}">${escHtml(roll.state)}</span>
-      <span class="c-muted fs-12">${escHtml(roll.action === 'script' ? 'saved script' : 'package upgrade')}${roll.auto_promote ? ' · auto-promote' : ' · manual promote'}${roll.health_gate && roll.health_gate.enabled ? ` · health-gate &lt;${roll.health_gate.threshold}` : ''}</span>
-    </div>
-    <div class="ro-rings mb-8">${rings || '<span class="c-muted">no rings</span>'}</div>
-    ${last ? `<div class="c-muted fs-12">${escHtml(timeAgo(last.ts))} — ${escHtml(last.msg)}</div>` : ''}
-    <div class="row-8-center mt-8">${actions}</div>
-  </div>`;
-}
 
-async function openRolloutModal() {
-  document.getElementById('ro-name').value = '';
-  document.getElementById('ro-action').value = 'upgrade';
-  document.getElementById('ro-verify').value = 30;
-  document.getElementById('ro-auto').checked = false;
-  document.querySelectorAll('#ro-rings .ro-ring').forEach((row, i) => {
-    row.querySelector('.ro-ring-name').value = ['canary', 'pilot', 'broad'][i] || '';
-    row.querySelector('.ro-ring-type').value = 'group';
-    row.querySelector('.ro-ring-value').value = '';
-  });
-  // Populate the saved-script dropdown
-  const sel = document.getElementById('ro-script');
-  const scripts = await api('GET', '/scripts').catch(() => []);
-  const opts = (Array.isArray(scripts) ? scripts : []).map(s =>
-    `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('') || '<option value="">(no saved scripts)</option>';
-  sel.innerHTML = opts;
-  // v5.0.0 (#F5): rollback-script picker (optional) — same options + a "none".
-  const rbSel = document.getElementById('ro-rollback-script');
-  if (rbSel) rbSel.innerHTML = '<option value="">— none —</option>' + opts;
-  onRolloutActionChange();
-  openModal('new-rollout-modal');
-}
 
-function onRolloutActionChange() {
-  const isScript = document.getElementById('ro-action').value === 'script';
-  document.getElementById('ro-script-row').classList.toggle('d-none', !isScript);
-}
 
-async function saveRollout() {
-  const name = document.getElementById('ro-name').value.trim();
-  if (!name) { toast('Name is required', 'error'); return; }
-  const action = document.getElementById('ro-action').value;
-  const rings = [];
-  document.querySelectorAll('#ro-rings .ro-ring').forEach(row => {
-    const rname = row.querySelector('.ro-ring-name').value.trim();
-    const type = row.querySelector('.ro-ring-type').value;
-    const value = row.querySelector('.ro-ring-value').value.trim();
-    if (!value) return;
-    const selector = type === 'ids'
-      ? { type: 'ids', ids: value.split(',').map(s => s.trim()).filter(Boolean) }
-      : { type, value };
-    rings.push({ name: rname || ('ring ' + (rings.length + 1)), selector });
-  });
-  if (!rings.length) { toast('Add at least one ring with a target', 'error'); return; }
-  const body = {
-    name, action, rings,
-    verify_minutes: parseInt(document.getElementById('ro-verify').value) || 30,
-    auto_promote: document.getElementById('ro-auto').checked,
-    health_gate: {
-      enabled: !!document.getElementById('ro-health-gate')?.checked,
-      threshold: parseInt(document.getElementById('ro-health-threshold')?.value) || 70,
-    },
-  };
-  if (action === 'script') {
-    body.script_id = document.getElementById('ro-script').value;
-    if (!body.script_id) { toast('Pick a saved script', 'error'); return; }
-    const rb = document.getElementById('ro-rollback-script')?.value || '';
-    if (rb) body.rollback_script_id = rb;   // v5.0.0 #F5
-  }
-  const r = await api('POST', '/rollouts', body).catch(() => null);
-  if (r?.ok) { toast('Rollout created (draft) — press Start to begin', 'success'); closeModal('new-rollout-modal'); loadRollouts(); }
-  else toast(r?.error || 'Failed to create rollout', 'error');
-}
 
-async function rolloutAction(id, action) {
-  if (action === 'cancel' && !await uiConfirm('Cancel this rollout? Already-dispatched rings keep running on their devices.')) return;
-  if (action === 'rollback' && !await uiConfirm('Roll back? This starts a NEW rollout running the rollback script on every device this rollout reached.')) return;
-  const r = await api('POST', `/rollouts/${id}/${action}`, {}).catch(() => null);
-  if (r?.ok) { toast(action === 'rollback' ? 'Rollback started' : `Rollout ${action} ok`, 'success'); loadRollouts(); }
-  else toast(r?.error || `Failed to ${action}`, 'error');
-}
 
-async function deleteRollout(id) {
-  if (!await uiConfirm('Delete this rollout? This removes its record only; it does not undo dispatched changes.')) return;
-  const r = await api('DELETE', `/rollouts/${id}`).catch(() => null);
-  if (r?.ok) { toast('Rollout deleted', 'success'); loadRollouts(); }
-  else toast(r?.error || 'Failed to delete', 'error');
-}
 
 // ─── v3.4.2: Trends — zero-dependency multi-series time-series charts ─────────
 const _CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4'];
@@ -10080,29 +9580,6 @@ async function resolveAlert(id) {
   else toast((r && r.error) || 'Failed', 'error');
 }
 
-function aiInvestigateAlert(id) {
-  const a = (_alertsCache || []).find(x => x.id === id);
-  if (!a) { toast('Alert not found', 'error'); return; }
-  const lines = [
-    `Severity: ${a.severity || 'unknown'}`,
-    `Event: ${a.event || '—'}`,
-  ];
-  if (a.device_name || a.device_id) lines.push(`Device: ${a.device_name || a.device_id}`);
-  if (a.ts) lines.push(`Time: ${new Date(a.ts * 1000).toISOString()}`);
-  lines.push('', `Alert: ${a.title || a.event || ''}`);
-  if (a.payload && typeof a.payload === 'object' && Object.keys(a.payload).length) {
-    let payloadStr = '';
-    try { payloadStr = JSON.stringify(a.payload, null, 2).slice(0, 3000); } catch (e) {}
-    if (payloadStr) lines.push('', `Details:\n${payloadStr}`);
-  }
-  openAIModal({
-    title:    'Investigate alert',
-    system:   'investigate_alert',
-    userMsg:  lines.join('\n'),
-    context:  `alert:${a.event || a.id}`,
-    maxTokens: 1200,
-  });
-}
 
 function toggleAllAlerts(checked) {
   document.querySelectorAll('.alerts-row-cb').forEach(cb => { cb.checked = checked; });
@@ -10563,68 +10040,8 @@ async function loadIntegrationsPage() {
 }
 
 // ── v4.7.0: fleet GPU page (Monitoring → GPUs) — NVIDIA + AMD, rich cards ─────
-function _gpuMem(mb) {
-  if (mb == null) return '—';
-  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : Math.round(mb) + ' MB';
-}
-function _gpuCard(g) {
-  const vend = String(g.vendor || '').toLowerCase();
-  const vlabel = vend === 'nvidia' ? 'NVIDIA' : vend === 'amd' ? 'AMD' : (g.vendor || 'GPU');
-  const tcls = (g.temp_c >= 85) ? 'c-red' : (g.temp_c >= 75) ? 'c-amber' : 'c-green';
-  const stat = (l, v, cls) => `<div class="gpu-stat"><span class="gpu-stat-l">${l}</span><b class="${cls || ''}">${v}</b></div>`;
-  const bar = (pct, cls) => {
-    const p = Math.max(0, Math.min(100, Number(pct) || 0));
-    return `<div class="gpu-bar"><div class="gpu-bar-fill ${cls}" data-w="${p}"></div></div>`;
-  };
-  const util = g.util_pct == null ? '—' : Math.round(g.util_pct) + '%';
-  return `<div class="gpu-card${g.online ? '' : ' gpu-off'}" data-vendor="${escAttr(vend)}">
-    <div class="gpu-card-top">
-      <span class="gpu-vendor gpu-vendor-${escAttr(vend)}">${escHtml(vlabel)}</span>
-      <span class="gpu-name" title="${escAttr(g.name || '')}">${escHtml(g.name || 'GPU')}</span>
-    </div>
-    <div class="gpu-host hint">${escHtml(g.device || '')}${g.online ? '' : ' · offline'}${g.monitored === false ? ' · unmonitored' : ''}</div>
-    <div class="gpu-meter"><div class="gpu-meter-h"><span>Utilisation</span><span>${util}</span></div>${bar(g.util_pct, 'gpu-bar-util')}</div>
-    <div class="gpu-meter"><div class="gpu-meter-h"><span>Memory</span><span>${g.mem_pct != null ? Math.round(g.mem_pct) + '%' : '—'}</span></div>${bar(g.mem_pct, 'gpu-bar-mem')}<div class="hint gpu-mem-txt">${_gpuMem(g.mem_used_mb)} / ${_gpuMem(g.mem_total_mb)}</div></div>
-    <div class="gpu-stats">
-      ${stat('Temp', g.temp_c != null ? Math.round(g.temp_c) + '°C' : '—', tcls)}
-      ${stat('Power', g.power_w != null ? Math.round(g.power_w) + ' W' : '—', '')}
-      ${stat('Fan', g.fan_pct != null ? Math.round(g.fan_pct) + '%' : '—', '')}
-    </div>${_gpuTrend(g)}
-  </div>`;
-}
 // v4.7.0: temperature + utilisation trend sparklines (last ~4h of samples).
 // Renders nothing until there are ≥2 points, so a fresh host shows no empty box.
-function _gpuTrend(g) {
-  const tt = (g.trend_temp || []), tu = (g.trend_util || []);
-  if (tt.length < 2 && tu.length < 2) return '';
-  const tcolor = (g.temp_c >= 85) ? 'var(--red)' : (g.temp_c >= 75) ? 'var(--amber)' : 'var(--green)';
-  const row = (label, vals, color) => vals.length >= 2
-    ? `<div class="gpu-trend-row"><span class="gpu-trend-l">${label}</span>${renderSparkline(vals, {width: 120, height: 18, color, fill: true})}</div>`
-    : '';
-  return `<div class="gpu-trend" title="Last ~4h, sampled each hardware cycle (~5 min)">${row('Temp', tt, tcolor)}${row('Util', tu, 'var(--accent)')}</div>`;
-}
-async function loadGpus() {
-  const grid = document.getElementById('gpus-grid');
-  const sum = document.getElementById('gpus-summary');
-  if (!grid) return;
-  try {
-    const data = await api('GET', '/fleet/gpus');
-    const gpus = (data && data.gpus) || [];
-    const s = (data && data.summary) || {};
-    if (sum) sum.textContent = gpus.length
-      ? `${s.gpus} GPU${s.gpus === 1 ? '' : 's'} on ${s.devices} host${s.devices === 1 ? '' : 's'} · ${s.nvidia} NVIDIA, ${s.amd} AMD · ${Math.round(s.total_power_w || 0)} W total${s.hot ? ` · ${s.hot} hot` : ''}`
-      : '';
-    if (!gpus.length) {
-      grid.innerHTML = '<div class="empty-state">No GPUs reported yet. Hosts report GPU telemetry via nvidia-smi / rocm-smi (or the amdgpu sysfs fallback) on their next hardware cycle — within a minute for a freshly (re)started agent, otherwise up to ~5&nbsp;min. Hosts without a GPU never appear here.</div>';
-      return;
-    }
-    grid.innerHTML = gpus.map(_gpuCard).join('');
-    // CSP-safe: set the meter widths from data-w via JS (no inline style attrs).
-    grid.querySelectorAll('.gpu-bar-fill').forEach(el => { el.style.width = (el.dataset.w || 0) + '%'; });
-  } catch (e) {
-    grid.innerHTML = '<div class="empty-state">Failed to load GPU data.</div>';
-  }
-}
 
 async function loadInboundWebhooks() {
   try {
@@ -11436,341 +10853,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let _aiCfgCache = null;   // cached config from last loadAISettings()
 
-async function loadAISettings() {
-  const cfg = await api('GET', '/ai/config');
-  if (!cfg) return;
-  _aiCfgCache = cfg;
-  document.getElementById('ai-enabled').value  = cfg.enabled ? '1' : '0';
-  document.getElementById('ai-provider').value = cfg.provider || 'anthropic';
-  document.getElementById('ai-model').value    = cfg.model    || '';
-  document.getElementById('ai-base-url').value = cfg.base_url || '';
-  // Show the masked key as placeholder; never put it in the value or
-  // it gets re-submitted on every save.
-  const keyInput = document.getElementById('ai-api-key');
-  keyInput.value = '';
-  keyInput.placeholder = cfg.api_key ? cfg.api_key : '(none — type to set)';
-  const p = cfg.privacy || {};
-  document.getElementById('ai-priv-hostnames').checked  = !!p.send_hostnames;
-  document.getElementById('ai-priv-ips').checked        = !!p.send_ips;
-  document.getElementById('ai-priv-journal').checked    = !!p.send_journal;
-  document.getElementById('ai-priv-cmd-output').checked = p.send_cmd_output !== false;
-  const lim = cfg.limits || {};
-  document.getElementById('ai-max-tokens').value   = lim.max_tokens_per_response   ?? 4000;
-  document.getElementById('ai-max-requests').value = lim.max_requests_per_user_day ?? 100;
-  // v2.1.7: context toggles
-  const ctx = cfg.context || {};
-  document.getElementById('ai-ctx-project').checked = ctx.include_project_context !== false;
-  document.getElementById('ai-ctx-fleet').checked   = ctx.include_fleet_context !== false;
-  document.getElementById('ai-ctx-rag').checked     = ctx.include_rag !== false;
-  // v3.4.0: RAG config
-  const rag = cfg.rag || {};
-  const rs  = rag.sources || {};
-  document.getElementById('ai-rag-enabled').checked     = rag.enabled !== false;
-  document.getElementById('ai-rag-src-docs').checked    = rs.docs !== false;
-  document.getElementById('ai-rag-src-live').checked    = rs.live_state !== false;
-  document.getElementById('ai-rag-src-cmdb').checked    = rs.cmdb !== false;
-  document.getElementById('ai-rag-src-history').checked = !!rs.history;
-  // v4.1.0: drift + compliance default on; metrics opt-in.
-  const _setSrc = (id, on) => { const e = document.getElementById(id); if (e) e.checked = on; };
-  _setSrc('ai-rag-src-drift',      rs.drift !== false);
-  _setSrc('ai-rag-src-compliance', rs.compliance !== false);
-  _setSrc('ai-rag-src-metrics',    !!rs.metrics);
-  // v4.10.0: firewall/fail2ban, integrations, backups (default on).
-  _setSrc('ai-rag-src-firewall',     rs.firewall !== false);
-  _setSrc('ai-rag-src-integrations', rs.integrations !== false);
-  _setSrc('ai-rag-src-backups',      rs.backups !== false);
-  _setSrc('ai-rag-src-dnsemail',     rs.dns_email !== false);
-  _setSrc('ai-rag-src-posture',      rs.posture !== false);
-  document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
-  document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
-  document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
-  document.getElementById('ai-rag-history-days').value  = (rag.history_limits || {}).max_age_days ?? 14;
-  onAIProviderChange();   // refresh per-provider hint
-  loadRAGStatus();        // index freshness + counts
-}
 
-function onAIProviderChange() {
-  const provider = document.getElementById('ai-provider').value;
-  const defaults = (_aiCfgCache && _aiCfgCache._defaults) || {};
-  const d = defaults[provider] || {};
-  document.getElementById('ai-base-url').placeholder = d.base_url || '';
-  document.getElementById('ai-base-url-hint').textContent =
-    d.base_url ? `default: ${d.base_url}` : '';
-  document.getElementById('ai-model').placeholder = d.model || '';
-  document.getElementById('ai-model-hint').textContent =
-    d.model ? `default: ${d.model}` : '';
-  // Local providers don't need an API key; dim the field as a UX hint
-  const local = (provider === 'ollama' || provider === 'localai');
-  document.getElementById('ai-api-key').disabled = local;
-  if (local) document.getElementById('ai-api-key').placeholder =
-    '(not required for local providers)';
-  // v3.4.0: embeddings availability + egress guidance per provider.
-  const embChk  = document.getElementById('ai-rag-embeddings');
-  const embHint = document.getElementById('ai-rag-embeddings-hint');
-  if (embChk && embHint) {
-    const supports = (provider === 'openai' || provider === 'ollama' || provider === 'localai');
-    embChk.disabled = !supports;
-    if (!supports) {
-      embChk.checked = false;
-      embHint.textContent = `${provider} has no embeddings endpoint — lexical (keyword) search is used. Run a local Ollama embedding model for semantic search.`;
-      embHint.style.color = 'var(--muted)';
-    } else if (local) {
-      embHint.textContent = 'Local provider — embeddings stay on-prem, no data egress. Recommended.';
-      embHint.style.color = 'var(--green)';
-    } else {
-      embHint.textContent = `Embeddings send indexed content to ${provider} (data egress). Leave off if that's a concern.`;
-      embHint.style.color = 'var(--amber, var(--muted))';
-    }
-  }
-}
 
 // ── v3.4.0: RAG index controls ─────────────────────────────────────────────
 
-function _ragFmtAge(builtAt) {
-  if (!builtAt) return 'never built';
-  const secs = Math.max(0, Math.floor(Date.now() / 1000) - builtAt);
-  if (secs < 60)    return 'just now';
-  if (secs < 3600)  return `${Math.floor(secs / 60)} min ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)} h ago`;
-  return `${Math.floor(secs / 86400)} d ago`;
-}
 
-async function loadRAGStatus() {
-  const el = document.getElementById('ai-rag-status');
-  if (!el) return;
-  const s = await api('GET', '/ai/rag/status');
-  if (!s || s.error) { el.textContent = s?.error ? `(${s.error})` : ''; return; }
-  const bits = [`${s.docs || 0} chunks indexed`, `built ${_ragFmtAge(s.built_at)}`];
-  if (s.index_backend === 'postgres') bits.push('store: Postgres / pgvector');
-  if (s.embedded)  bits.push(`${s.embedded} embedded (${s.emb_model || 'semantic'})`);
-  if (s.stale)     bits.push('— sources changed since last build');
-  el.textContent = bits.join(' · ');
-  el.style.color = s.stale ? 'var(--amber, var(--muted))' : 'var(--muted)';
-  // v4.1.0: offer the pgvector switch only when the storage backend is Postgres.
-  const btn = document.getElementById('ai-rag-backend-btn');
-  const hint = document.getElementById('ai-rag-backend-hint');
-  if (btn) {
-    const onPg = s.index_backend === 'postgres';
-    const canPg = s.storage_backend === 'postgres';
-    if (onPg || canPg) {
-      btn.hidden = false;
-      btn.textContent = onPg ? 'Move index back to JSON' : 'Move index to Postgres (pgvector)';
-      btn.dataset.target = onPg ? 'json' : 'postgres';
-    } else {
-      btn.hidden = true;
-    }
-  }
-  if (hint) {
-    if (s.storage_backend !== 'postgres' && s.index_backend !== 'postgres') {
-      hint.hidden = false;
-      hint.textContent = 'Tip: switch the storage backend to Postgres to enable the pgvector index (native semantic search at fleet scale).';
-    } else {
-      hint.hidden = true;
-    }
-  }
-  // v4.1.0: reflect an in-progress migration (e.g. started from another tab) —
-  // show it and lock the button until it finishes.
-  const mig = s.migration || {};
-  const out = document.getElementById('ai-rag-backend-result');
-  if (mig.state === 'running') {
-    if (out) {
-      out.hidden = false;
-      out.textContent = `Migrating the AI index to ${mig.target === 'postgres' ? 'Postgres / pgvector' : 'JSON'}… `
-        + `(running ${Math.max(0, Math.floor(Date.now() / 1000) - (mig.started || 0))}s) — do not close this tab.`;
-    }
-    if (btn) btn.disabled = true;
-  } else if (btn) {
-    btn.disabled = false;
-  }
-}
 
-async function switchRagIndexBackend() {
-  const btn = document.getElementById('ai-rag-backend-btn');
-  const out = document.getElementById('ai-rag-backend-result');
-  const target = btn && btn.dataset.target;
-  if (!target) return;
-  const toPg = target === 'postgres';
-  const where = toPg ? 'Postgres / pgvector' : 'the bundled JSON index';
-  if (!await uiConfirm(toPg
-      ? 'Move the AI retrieval index into Postgres (pgvector) and rebuild it there now?\n\n'
-        + 'It rebuilds the whole index; with embeddings enabled this can take a while on '
-        + 'large fleets. Keep this tab open until it finishes.'
-      : 'Move the AI retrieval index back to the bundled JSON index and rebuild it now?')) return;
-  // Persistent in-progress status (a transient toast was too easy to miss), and
-  // disable the button so it can't be double-fired mid-migration.
-  if (btn) { btn.disabled = true; }
-  if (out) {
-    out.hidden = false;
-    out.textContent = `Migrating the AI index to ${where}… do not close this tab.`;
-  }
-  let r = null;
-  try {
-    r = await api('POST', '/ai/rag/index-backend/migrate', { target });
-  } catch (e) {
-    r = null;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-  if (r && r.ok) {
-    // r.target reflects where the index ACTUALLY landed (server-confirmed).
-    const dest = r.target === 'postgres' ? 'Postgres / pgvector' : 'JSON';
-    if (out) out.textContent = `✓ AI index now on ${dest} — ${r.docs} chunk(s) rebuilt in ${r.elapsed_ms} ms.`;
-    toast(`AI index moved to ${dest}`, 'success');
-  } else {
-    if (out) out.textContent = '✗ Switch failed: '
-      + (r?.error || 'the request failed or timed out — the index was not changed.');
-    toast('AI index switch failed', 'error');
-  }
-  loadRAGStatus();   // refresh the counts/backend line (leaves the result box intact)
-}
 
-async function aiRagReindex() {
-  const el = document.getElementById('ai-rag-status');
-  if (el) { el.textContent = 'Rebuilding index…'; el.style.color = 'var(--muted)'; }
-  // Persist any unsaved config first — reindex reads server-side config.
-  const saved = await saveAISettings();
-  if (!saved) { if (el) { el.textContent = '(save failed)'; el.style.color = 'var(--red)'; } return; }
-  const r = await api('POST', '/ai/rag/reindex', {});
-  if (r && r.ok) {
-    let msg = `Rebuilt: ${r.docs} chunks in ${r.elapsed_ms} ms`;
-    if (r.embedded) msg += ` · ${r.embedded} embedded`;
-    if (r.embed_error) msg += ` · embeddings: ${r.embed_error}`;
-    toast(msg, r.embed_error ? 'error' : 'success');
-    loadRAGStatus();
-  } else {
-    toast('Reindex: ' + (r?.error || 'unknown error'), 'error');
-    if (el) { el.textContent = '✗ ' + (r?.error || 'failed'); el.style.color = 'var(--red)'; }
-  }
-}
 
 // Last search results, kept module-scoped so the sort re-render can re-use
 // them without re-querying the server.
 let _ragSearchRows = [];
 
-async function aiRagTestSearch() {
-  const query = document.getElementById('ai-rag-query').value.trim();
-  const out = document.getElementById('ai-rag-search-result');
-  if (!query) { out.innerHTML = ''; return; }
-  out.innerHTML = '<div class="meta-sm">Searching…</div>';
-  const r = await api('POST', '/ai/rag/search', { query });
-  if (!r || r.error) { out.innerHTML = `<div class="meta-sm err-text">${escHtml(r?.error || 'search failed')}</div>`; return; }
-  _ragSearchRows = r.results || [];
-  if (!_ragSearchRows.length) {
-    out.innerHTML = '<div class="meta-sm">No matching chunks. Try different terms, or rebuild the index if it looks stale.</div>';
-    return;
-  }
-  _ragRenderSearch(r.semantic);
-}
 
-function _ragRenderSearch(semantic) {
-  const out = document.getElementById('ai-rag-search-result');
-  if (!out) return;
-  // Apply the stored sort to the rows before building the table; the
-  // thead is wired (with ↕ indicators) right after innerHTML below, since
-  // this renderer rebuilds the whole table — header included — each call.
-  const sorted = tableCtl.sortRows('ai-rag-results', _ragSearchRows, r => ({
-    rank:   _ragSearchRows.indexOf(r),
-    source: r.source || '',
-    device: r.device || '',
-    id:     r.id || '',
-  }));
-  const rows = sorted.map(r => `
-    <tr>
-      <td><code>${escHtml(r.id)}</code></td>
-      <td>${escHtml(r.source || '')}</td>
-      <td>${escHtml(r.device || '—')}</td>
-      <td class="meta-sm">${escHtml((r.excerpt || '').slice(0, 240))}${(r.excerpt || '').length > 240 ? '…' : ''}</td>
-    </tr>`).join('');
-  out.innerHTML = `
-    <div class="meta-sm isl-778">${_ragSearchRows.length} result(s) · ${semantic ? 'lexical + semantic (embeddings)' : 'lexical (keyword)'} retrieval</div>
-    <div class="scrollable-table-wrap audit-scroll">
-    <table class="fs-13">
-      <thead id="ai-rag-results-thead"><tr>
-        <th data-col="id">Source id</th>
-        <th data-col="source">Kind</th>
-        <th data-col="device">Device</th>
-        <th>Excerpt</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
-  tableCtl.wireSortOnly('ai-rag-results-thead', 'ai-rag-results', () => _ragRenderSearch(semantic));
-}
 
-async function saveAISettings() {
-  const payload = {
-    enabled:  document.getElementById('ai-enabled').value === '1',
-    provider: document.getElementById('ai-provider').value,
-    model:    document.getElementById('ai-model').value.trim(),
-    base_url: document.getElementById('ai-base-url').value.trim(),
-    privacy: {
-      send_hostnames:  document.getElementById('ai-priv-hostnames').checked,
-      send_ips:        document.getElementById('ai-priv-ips').checked,
-      send_journal:    document.getElementById('ai-priv-journal').checked,
-      send_cmd_output: document.getElementById('ai-priv-cmd-output').checked,
-    },
-    limits: {
-      max_tokens_per_response:   parseInt(document.getElementById('ai-max-tokens').value, 10)   || 4000,
-      max_requests_per_user_day: parseInt(document.getElementById('ai-max-requests').value, 10) || 100,
-    },
-    context: {
-      include_project_context: document.getElementById('ai-ctx-project').checked,
-      include_fleet_context:   document.getElementById('ai-ctx-fleet').checked,
-      include_rag:             document.getElementById('ai-ctx-rag').checked,
-    },
-    rag: {
-      enabled:            document.getElementById('ai-rag-enabled').checked,
-      embeddings_enabled: document.getElementById('ai-rag-embeddings').checked,
-      embedding_model:    document.getElementById('ai-rag-embed-model').value.trim(),
-      max_chunks:         parseInt(document.getElementById('ai-rag-max-chunks').value, 10) || 6,
-      sources: {
-        docs:       document.getElementById('ai-rag-src-docs').checked,
-        live_state: document.getElementById('ai-rag-src-live').checked,
-        cmdb:       document.getElementById('ai-rag-src-cmdb').checked,
-        history:    document.getElementById('ai-rag-src-history').checked,
-        drift:      !!document.getElementById('ai-rag-src-drift')?.checked,
-        compliance: !!document.getElementById('ai-rag-src-compliance')?.checked,
-        metrics:    !!document.getElementById('ai-rag-src-metrics')?.checked,
-        firewall:     !!document.getElementById('ai-rag-src-firewall')?.checked,
-        integrations: !!document.getElementById('ai-rag-src-integrations')?.checked,
-        backups:      !!document.getElementById('ai-rag-src-backups')?.checked,
-        dns_email:    !!document.getElementById('ai-rag-src-dnsemail')?.checked,
-        posture:      !!document.getElementById('ai-rag-src-posture')?.checked,
-      },
-      history_limits: {
-        max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
-      },
-    },
-  };
-  // Only submit api_key if the user typed something — keeps the existing
-  // key when the field is left blank. '__clear__' wipes the stored key.
-  const k = document.getElementById('ai-api-key').value;
-  if (k) payload.api_key = k;
-  const resp = await api('POST', '/ai/config', payload);
-  if (resp && !resp.error) {
-    document.getElementById('ai-api-key').value = '';
-    return true;
-  }
-  if (resp?.error) toast('AI: ' + resp.error, 'error');
-  return false;
-}
 
-async function testAIConnection() {
-  const out = document.getElementById('ai-test-result');
-  out.textContent = '…';
-  out.style.color = 'var(--muted)';
-  // Save first if there are unsaved changes — the test endpoint reads
-  // from server-side config, not whatever's in the form.
-  const saved = await saveAISettings();
-  if (!saved) { out.textContent = '(save failed)'; out.style.color = 'var(--red)'; return; }
-  const resp = await api('POST', '/ai/test', {});
-  if (resp && resp.ok) {
-    out.textContent = `✓ ${resp.model || ''} responded (${resp.tokens_in}+${resp.tokens_out} tokens)`;
-    out.style.color = 'var(--green)';
-  } else {
-    out.textContent = '✗ ' + (resp?.error || 'unknown error');
-    out.style.color = 'var(--red)';
-  }
-}
 
 // ─── Reusable AImodal ─────────────────────────────────────────────────────
 //
@@ -11786,99 +10883,9 @@ async function testAIConnection() {
 
 let _aiModalEl = null;
 
-function _ensureAIModal() {
-  if (_aiModalEl) return _aiModalEl;
-  const wrap = document.createElement('div');
-  wrap.className = 'modal-overlay';
-  wrap.id = 'ai-modal';
-  wrap.innerHTML = `
-    <div class="modal isl-508">
-      <div class="modal-header row-between">
-        <div id="ai-modal-title" class="fw-600">AI</div>
-        <button class="btn-icon isl-44" data-action="closeAIModal" >✕</button>
-      </div>
-      <div id="ai-modal-meta" class="isl-509">—</div>
-      <div id="ai-modal-body" class="isl-510">
-        <div class="c-muted">Thinking…</div>
-      </div>
-      <div class="isl-511">
-        <button class="btn-icon" id="ai-modal-copy" data-action="aiModalCopy" disabled>Copy response</button>
-        <button class="btn-icon d-none" id="ai-modal-action"></button>
-        <div class="flex-1"></div>
-        <button class="btn-icon" data-action="closeAIModal" >Close</button>
-      </div>
-    </div>`;
-  document.body.appendChild(wrap);
-  _aiModalEl = wrap;
-  return wrap;
-}
 
-function closeAIModal() {
-  if (_aiModalEl) _aiModalEl.classList.remove('active');
-}
 
-function aiModalCopy() {
-  const body = document.getElementById('ai-modal-body');
-  navigator.clipboard.writeText(body.dataset.rawText || body.textContent || '');
-  toast('Copied to clipboard', 'success');
-}
 
-async function openAIModal({title, system, userMsg, context, onResult, actionLabel, maxTokens}) {
-  _ensureAIModal();
-  _aiModalEl.classList.add('active');
-  document.getElementById('ai-modal-title').textContent = title || 'AI';
-  document.getElementById('ai-modal-meta').textContent  =
-    `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
-  const body = document.getElementById('ai-modal-body');
-  body.innerHTML = `<div class="isl-512">${aiThinkingHtml()} <span>Thinking… <span id="ai-modal-elapsed" class="fs-11"></span></span></div>`;
-  body.dataset.rawText = '';
-  document.getElementById('ai-modal-copy').disabled = true;
-  const actionBtn = document.getElementById('ai-modal-action');
-  actionBtn.style.display = 'none';
-
-  // Live "Xs elapsed" ticker so it doesn't look frozen during long
-  // local-model thinks (smallthinker / qwq / deepseek-r1 etc.)
-  const t0 = Date.now();
-  const tickEl = document.getElementById('ai-modal-elapsed');
-  const tick = setInterval(() => {
-    const s = Math.floor((Date.now() - t0) / 1000);
-    if (tickEl) tickEl.textContent = `(${s}s elapsed)`;
-  }, 1000);
-
-  const reqBody = {
-    messages: [{role: 'user', content: userMsg}],
-    system: system,
-    context: context || '',
-  };
-  if (maxTokens) reqBody.max_tokens = maxTokens;
-
-  const resp = await aiApi('POST', '/ai/chat', reqBody);
-  clearInterval(tick);
-
-  if (!resp.ok) {
-    // aiApi() gives us a structured error even when the server returned
-    // HTML or a timeout — show it intelligibly. Most common: nginx 504
-    // because fastcgi_read_timeout is shorter than the model's actual
-    // think time.
-    body.innerHTML = `<div class="isl-513">${escHtml(resp.error)}</div>`;
-    return;
-  }
-  // v2.1.5: render markdown so **bold** and # headers and `code`
-  // don't show as literal punctuation. dataset.rawText keeps the
-  // original for the Copy button.
-  body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.text || '(empty response)')}</div>`;
-  body.dataset.rawText = resp.text || '';
-  document.getElementById('ai-modal-copy').disabled = false;
-  document.getElementById('ai-modal-meta').textContent =
-    `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${resp.elapsed_ms}ms` +
-    (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
-
-  if (onResult && actionLabel) {
-    actionBtn.style.display = 'block';
-    actionBtn.textContent = actionLabel;
-    actionBtn.onclick = () => { onResult(resp.text || ''); closeAIModal(); };
-  }
-}
 
 // ─── Inline AItriggers ────────────────────────────────────────────────────
 //
@@ -11889,206 +10896,16 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
 // local model was sitting waiting for 4000 tokens worth of output and
 // tripping nginx's fastcgi_read_timeout.
 
-function aiExplainOutput(deviceName, command, output) {
-  if (!output || !output.trim()) { toast('Nothing to explain', 'info'); return; }
-  const userMsg = `Device: ${deviceName}\nCommand: ${command}\n\nOutput:\n${output}`;
-  openAIModal({
-    title:    'Explain command output',
-    system:   'explain_output',
-    userMsg:  userMsg,
-    context:  `device:${deviceName}`,
-    maxTokens: 1500,
-  });
-}
 
-function aiFindProblemInJournal(deviceName, journalLines) {
-  if (!journalLines || !journalLines.length) { toast('No journal lines', 'info'); return; }
-  const lines = Array.isArray(journalLines) ? journalLines : String(journalLines).split('\n');
-  const interestingIdx = new Set();
-  const errorRe = /\b(error|err|warning|warn|critical|crit|fatal|fail|panic|denied|refused)\b/i;
-  lines.forEach((line, i) => {
-    if (errorRe.test(line)) {
-      for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j++) {
-        interestingIdx.add(j);
-      }
-    }
-  });
-  const sliced = Array.from(interestingIdx).sort((a, b) => a - b).map(i => lines[i]);
-  const userText = sliced.length ? sliced.join('\n') : lines.slice(-50).join('\n');
-  openAIModal({
-    title:    'Find the problem',
-    system:   'find_problem',
-    userMsg:  `Device: ${deviceName}\n\nJournal slice:\n${userText}`,
-    context:  `device:${deviceName}`,
-    maxTokens: 1500,
-  });
-}
 
-function aiExplainAlert(eventType, deviceName, message, samplePayload) {
-  let payload = '';
-  if (samplePayload && typeof samplePayload === 'object') {
-    try { payload = JSON.stringify(samplePayload, null, 2).slice(0, 4000); } catch(e){}
-  }
-  openAIModal({
-    title:    'Explain alert',
-    system:   'explain_alert',
-    userMsg:  `Event: ${eventType}\nDevice: ${deviceName}\nMessage: ${message}\n\nPayload:\n${payload}`,
-    context:  `alert:${eventType}`,
-    maxTokens: 800,           // alerts get a one-paragraph answer
-  });
-}
 
-function aiTriageCve(cveId, packageName, version, deviceName, description) {
-  openAIModal({
-    title:    `Triage ${cveId}`,
-    system:   'triage_cve',
-    userMsg:  `CVE: ${cveId}\nDevice: ${deviceName}\nAffected package: ${packageName} ${version}\n\nDescription:\n${description || '(no description available — assess based on the CVE ID alone)'}`,
-    context:  `cve:${cveId}`,
-    maxTokens: 1000,
-  });
-}
 
-function aiInvestigateDevice(devId, deviceName) {
-  // v2.1.5 fix: there is NO top-level GET /api/devices/<id> route — the
-  // detail data is split across /sysinfo, /output, etc. The old call
-  // silently returned null, leading to "No data provided" from the
-  // model. Now we fetch the right endpoints, in parallel, and bail
-  // visibly if there's genuinely nothing to send.
-  (async () => {
-    const idEnc = encodeURIComponent(devId);
-    const [sysData, outData, allDevs] = await Promise.all([
-      api('GET', `/devices/${idEnc}/sysinfo`).catch(() => null),
-      api('GET', `/devices/${idEnc}/output`).catch(() => null),
-      api('GET', '/devices').catch(() => null),
-    ]);
 
-    const si = sysData?.sysinfo || {};
-    const journal = sysData?.journal || [];
-    const outputs = outData?.outputs || [];
-    const dev = (allDevs?.devices || allDevs || []).find?.(d => d.id === devId) || {};
 
-    // Top-level device facts (from the devices list, since they aren't
-    // in /sysinfo). Skip lines we couldn't determine — emptiness is
-    // an honest signal to the model, dont fake it.
-    const facts = [];
-    if (dev.last_seen) facts.push(`Last seen: ${new Date(dev.last_seen * 1000).toISOString()}`);
-    if (dev.os)        facts.push(`OS: ${dev.os}`);
-    if (dev.version)   facts.push(`Agent version: ${dev.version}`);
-    if (dev.ip)        facts.push(`IP: ${dev.ip}`);
-    if (dev.group)     facts.push(`Group: ${dev.group}`);
-    if (typeof dev.online === 'boolean') facts.push(`Status: ${dev.online ? 'online' : 'offline'}`);
-
-    // Recent commands: most useful for diagnostics, especially failures
-    let recentCmds = '';
-    if (outputs.length) {
-      recentCmds = outputs.slice(-10).map(o =>
-        `[rc=${o.rc}] ${new Date(o.ts*1000).toISOString()} — ${o.cmd}\n` +
-        `${(o.output || '').slice(0, 400)}`
-      ).join('\n---\n');
-    }
-
-    // Honest empty-data check: if we have nothing useful, say so and
-    // skip the AI call. Better than asking the model to invent.
-    const hasFacts   = facts.length > 0;
-    const hasSysInfo = Object.keys(si).length > 0;
-    const hasJournal = journal.length > 0;
-    const hasCmds    = recentCmds.length > 0;
-    if (!hasFacts && !hasSysInfo && !hasJournal && !hasCmds) {
-      toast('No data available for this device yet — has the agent checked in?', 'info');
-      return;
-    }
-
-    const sections = [`Device: ${deviceName}`];
-    if (hasFacts)   sections.push(facts.join('\n'));
-    if (hasSysInfo) sections.push('Sysinfo:\n' + JSON.stringify(si, null, 2).slice(0, 3000));
-    if (hasJournal) sections.push(`Recent journal (last ${journal.slice(-30).length} lines):\n` + journal.slice(-30).join('\n').slice(0, 4000));
-    if (hasCmds)    sections.push('Recent commands:\n' + recentCmds.slice(0, 4000));
-
-    openAIModal({
-      title:    `Investigate ${deviceName}`,
-      system:   'investigate_device',
-      userMsg:  sections.join('\n\n'),
-      context:  `device:${devId}`,
-      maxTokens: 2000,
-    });
-  })();
-}
-
-function aiExplainScript(scriptBody) {
-  openAIModal({
-    title:    'Explain script',
-    system:   'explain_script',
-    userMsg:  scriptBody,
-    context:  'script',
-    maxTokens: 1500,
-  });
-}
-
-function aiAuditScript(scriptBody) {
-  openAIModal({
-    title:    'Audit script for risks',
-    system:   'audit_script',
-    userMsg:  scriptBody,
-    context:  'script',
-    maxTokens: 2000,
-  });
-}
 
 // ── v3.13.0: targeted AI helpers (frontend-only — openAIModal accepts a raw
 // system-prompt string, so no server prompt keys needed). Each builds a focused
 // context from already-loaded data and asks a single, scoped question. ──────────
-function aiPackageSafety(pkg) {
-  const p = (typeof _swCatalog !== 'undefined' ? _swCatalog : []).find(x => x.package === pkg);
-  const vers = p ? p.versions.map(v => `${v.version} (on ${v.hosts} host${v.hosts === 1 ? '' : 's'})`).join(', ') : 'unknown';
-  openAIModal({
-    title: `AI — is ${pkg} safe?`,
-    system: 'You are a Linux security advisor. Given a package and the versions deployed across a fleet, assess whether those versions are current and safe, flag any well-known CVEs affecting them, and recommend the minimum safe version plus the upgrade action. Be concise and concrete. If unsure whether a specific CVE applies, say so rather than inventing one.',
-    userMsg: `Package: ${pkg}\nInstalled versions across the fleet: ${vers}`,
-    context: `package:${pkg}`, maxTokens: 1200,
-  });
-}
-function aiExposureAdvice(device, hostport, proc) {
-  openAIModal({
-    title: `AI — exposure: ${proc || hostport}`,
-    system: 'You are a Linux network-security advisor. A service is listening and WORLD-reachable (bound to a public/wildcard address). Advise whether it should be reachable from the internet, the concrete risk, and specific steps to restrict it (bind to localhost, host firewall rule, reverse proxy, or disable). Be concise and specific to the named service.',
-    userMsg: `Host: ${device}\nWorld-reachable socket: ${hostport}\nProcess: ${proc || 'unknown'}`,
-    context: `exposure:${device}`, maxTokens: 1000,
-  });
-}
-function aiForecastAdvice(device, path) {
-  const m = (typeof _forecastRows !== 'undefined' ? _forecastRows : []).find(r => r.device_name === device && r.path === path);
-  const facts = m ? `current ${m.current_gb}/${m.total_gb} GB (${m.current_percent}%), trend ${m.trend_gb_per_day} GB/day, ${m.days_to_full != null ? 'fills in ~' + m.days_to_full + ' days' : 'no projected fill'}` : '';
-  openAIModal({
-    title: `AI — ${path} filling on ${device}`,
-    system: 'You are a Linux storage/ops advisor. A filesystem is trending toward full. Suggest the most likely space consumers for THIS mount and concrete, safe commands to investigate and reclaim space (journald, package cache, old kernels, logs, docker, temp), ordered safest-first. Call out anything that must NOT be deleted. Be concise and command-oriented.',
-    userMsg: `Host: ${device}\nMount: ${path}\n${facts}`,
-    context: `forecast:${device}`, maxTokens: 1200,
-  });
-}
-function aiRemediateControl(controlId, title) {
-  openAIModal({
-    title: `AI — remediate ${controlId}`,
-    system: 'You are a Linux compliance/hardening advisor. Given a failing compliance control, briefly explain why it matters and give concrete, minimal remediation steps (commands or config) to make it pass, plus how to verify. Warn about any operational risk. Be concise.',
-    userMsg: `Failing control: ${controlId} — ${title}`,
-    context: `compliance:${controlId}`, maxTokens: 1200,
-  });
-}
-function aiDiagnoseUnits(devId, deviceName, unitsCsv) {
-  openAIModal({
-    title: `AI — failed units on ${deviceName}`,
-    system: 'You are a Linux systemd troubleshooter. For each failed unit, give the likely cause and the exact commands to diagnose (systemctl status, journalctl -u …) and the most probable fix. Be concise and command-oriented.',
-    userMsg: `Host: ${deviceName}\nFailed units:\n${(unitsCsv || '').split(',').join('\n')}`,
-    context: `device:${devId}`, maxTokens: 1500,
-  });
-}
-function aiDiagnoseContainer(devId, deviceName, name) {
-  openAIModal({
-    title: `AI — container ${name}`,
-    system: 'You are a Docker/Podman troubleshooter. The named container is unhealthy, restarting, or stopped. Give likely causes and concrete commands to diagnose (docker logs/inspect/stats) and fix. Be concise.',
-    userMsg: `Host: ${deviceName}\nContainer: ${name}`,
-    context: `device:${devId}`, maxTokens: 1200,
-  });
-}
 
 // v3.14.0: on-demand container logs. The agent runs `<rt> logs --tail` when it
 // next drains the command queue (~one heartbeat); we then poll the device's
@@ -12127,29 +10944,6 @@ async function fetchContainerLogs(devId, name, runtime) {
     }
   }, 10000);
 }
-function aiExplainDrift() {
-  const d = window._driftDetail || {};
-  const files = d.files || {};
-  const drifted = Object.keys(files).filter(p =>
-    files[p].current_hash !== files[p].baseline_hash || !files[p].exists);
-  openAIModal({
-    title: `AI — config drift on ${d.name || ''}`,
-    system: 'You are a Linux change-management advisor. Given watched config files that drifted from baseline on a host, explain what each controls, whether a change there is typically benign or security-significant, and what to check. Recommend whether to accept the new baseline or investigate. Be concise.',
-    userMsg: `Host: ${d.name || ''}\nDrifted/changed files:\n${drifted.join('\n') || '(none)'}`,
-    context: `drift:${d.id || ''}`, maxTokens: 1200,
-  });
-}
-function aiAskFleet() {
-  const inp = document.getElementById('home-ai-q');
-  const q = (inp && inp.value || '').trim();
-  if (!q) { toast('Ask a question about your fleet', 'info'); return; }
-  openAIModal({
-    title: 'Ask about my fleet',
-    system: "You are RemotePower's fleet assistant. Answer the operator's question about their Linux fleet using the provided context (RAG over fleet state is attached automatically). If context is insufficient, say what you'd need. Be concise and actionable.",
-    userMsg: q,
-    context: 'fleet', maxTokens: 1500,
-  });
-}
 // v3.13.0: generic Enter-to-action for inputs marked data-enter="<globalFn>".
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target && e.target.matches && e.target.matches('input[data-enter]')) {
@@ -12158,49 +10952,11 @@ document.addEventListener('keydown', e => {
   }
 });
 
-function aiGenerateScript(prompt, targetElementId) {
-  if (!prompt || !prompt.trim()) { toast('Describe what the script should do', 'info'); return; }
-  openAIModal({
-    title:    'Generate script',
-    system:   'generate_script',
-    userMsg:  prompt,
-    context:  'script-generate',
-    maxTokens: 4000,          // scripts can legitimately be long
-    actionLabel: 'Insert into editor',
-    onResult: (text) => {
-      const el = document.getElementById(targetElementId);
-      if (el) {
-        let body = text.trim();
-        body = body.replace(/^```(?:bash|sh)?\s*\n/, '').replace(/\n```\s*$/, '');
-        el.value = body;
-        el.dispatchEvent(new Event('input'));
-        toast('Script inserted — review before saving', 'success');
-      }
-    },
-  });
-}
 
 // ─── Script editor AIbuttons ──────────────────────────────────────────────
 
-async function scriptEditorAIGenerate() {
-  const desc = await uiPrompt({title: 'Generate script',
-    message: 'Describe what the script should do:', multiline: true,
-    placeholder: 'e.g. restart nginx and tail its error log', confirmText: 'Generate'});
-  if (!desc) return;
-  aiGenerateScript(desc, 'script-edit-body');
-}
 
-function scriptEditorAIExplain() {
-  const body = document.getElementById('script-edit-body').value;
-  if (!body.trim()) { toast('Nothing to explain — paste a script first', 'info'); return; }
-  aiExplainScript(body);
-}
 
-function scriptEditorAIAudit() {
-  const body = document.getElementById('script-edit-body').value;
-  if (!body.trim()) { toast('Nothing to audit — paste a script first', 'info'); return; }
-  aiAuditScript(body);
-}
 
 // ─── v2.1.5: tolerant fetch + AI page ──────────────────────────────────────
 //
@@ -12320,51 +11076,6 @@ function renderMarkdown(text) {
   return html;
 }
 
-async function aiApi(method, path, body) {
-  const opts = {method, headers: {'X-Token': getToken()}};
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  let r, text = '';
-  try {
-    r = await fetch('/api' + path, opts);
-  } catch (e) {
-    // Network-level failure (DNS, refused, aborted). The browser already
-    // distinguishes these from HTTP error responses.
-    return {ok: false, error: `Network error: ${String(e)}`};
-  }
-  if (r.status === 401) { doLogout(); return {ok: false, error: 'Not authenticated'}; }
-  try { text = await r.text(); } catch (e) {
-    return {ok: false, error: `Failed to read response body: ${String(e)}`};
-  }
-  // Try to parse the body as JSON. Most failures come back here as an
-  // nginx/fcgiwrap HTML error page — we surface the status + first
-  // bit of the body so the operator can see what actually happened.
-  let parsed = null;
-  try { parsed = JSON.parse(text); } catch (e) { /* not JSON */ }
-  if (!parsed) {
-    const snippet = text.slice(0, 240).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    let hint = '';
-    if (r.status === 504 || /timeout|timed.?out/i.test(text)) {
-      hint = '\n\nLikely cause: nginx fastcgi_read_timeout is shorter than the model needed to think. ' +
-             'Set `fastcgi_read_timeout 300s` in the /api/ai/ location block of your nginx config and reload nginx.';
-    } else if (r.status === 502 || r.status === 503) {
-      hint = '\n\nLikely cause: the CGI script crashed or the upstream provider is unreachable. ' +
-             'Check the server\'s nginx error log and the AI provider\'s liveness.';
-    } else if (r.status === 0) {
-      hint = '\n\nLikely cause: the connection was dropped before any response was received.';
-    }
-    return {ok: false, error: `HTTP ${r.status || '?'} — response was not JSON.${hint}\n\nFirst 240 chars: ${snippet || '(empty)'}`};
-  }
-  // JSON parsed. The server returns {error: "..."} on failure (any
-  // 4xx/5xx with valid JSON body); promote that to ok:false.
-  if (parsed.error && parsed.ok !== true) {
-    return {ok: false, error: parsed.error, _status: r.status, ...parsed};
-  }
-  // Server response shape already has ok:true on success; pass through.
-  return parsed.ok ? parsed : {ok: true, ...parsed};
-}
 
 // ─── AI Assistant page ────────────────────────────────────────────────────
 
@@ -12372,154 +11083,16 @@ let _aiPageConv = [];            // [{role: 'user'|'assistant', content: '...'}]
 const _AI_PAGE_STORAGE_KEY = 'rp.ai.conv';
 const _AI_PAGE_MAX_TURNS = 40;   // bounded so localStorage doesn't grow forever
 
-function _aiPageLoadConv() {
-  try {
-    const raw = localStorage.getItem(_AI_PAGE_STORAGE_KEY);
-    _aiPageConv = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(_aiPageConv)) _aiPageConv = [];
-  } catch (e) { _aiPageConv = []; }
-}
 
-function _aiPageSaveConv() {
-  // Trim to the last N turns so we don't blow out localStorage on long
-  // sessions, and so we don't send the entire history with every request.
-  if (_aiPageConv.length > _AI_PAGE_MAX_TURNS) {
-    _aiPageConv = _aiPageConv.slice(-_AI_PAGE_MAX_TURNS);
-  }
-  try { localStorage.setItem(_AI_PAGE_STORAGE_KEY, JSON.stringify(_aiPageConv)); } catch (e) {}
-}
 
-function _aiPageRenderConv() {
-  const wrap = document.getElementById('ai-page-history');
-  if (!wrap) return;
-  if (!_aiPageConv.length) {
-    wrap.innerHTML = '<div class="isl-117">' +
-      'No messages yet — type a prompt below.<br>' +
-      '<span class="fs-11">Conversation history is kept in your browser (localStorage) — not on the server. ' +
-      'Clearing the conversation clears only your view.</span></div>';
-    return;
-  }
-  wrap.innerHTML = _aiPageConv.map(m => {
-    const isUser = m.role === 'user';
-    const isPending = m.pending;
-    const bg = isUser ? 'rgba(59,126,255,0.08)' : 'var(--surface)';
-    const border = isUser ? 'rgba(59,126,255,0.25)' : 'var(--border)';
-    const label = isUser ? 'You' : (m.model ? `Assistant · ${escHtml(m.model)}` : 'Assistant');
-    const meta = m.meta ? `<div class="isl-522">${escHtml(m.meta)}</div>` : '';
-    // v2.1.5: render markdown for assistant turns. User turns stay
-    // plain — what the user typed shouldn't be re-interpreted.
-    let content;
-    if (isPending) {
-      content = '<div class="c-muted">Thinking… <span class="ai-page-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
-    } else if (isUser) {
-      content = `<div class="isl-523">${escHtml(m.content || '')}</div>`;
-    } else {
-      content = `<div class="ai-content">${renderMarkdown(m.content || '')}</div>`;
-    }
-    return `<div class="mb-12"><div class="isl-524">${label}</div>` +
-           `<div class="isl-525" data-bg="${bg}" data-bd="${border}">${content}${meta}</div></div>`;
-  }).join('');
-  wrap.scrollTop = wrap.scrollHeight;
-}
 
 let _aiPageStatsRefreshing = false;
 
-async function aiPageRefreshStats() {
-  if (_aiPageStatsRefreshing) return;
-  _aiPageStatsRefreshing = true;
-  try {
-    const stats = await aiApi('GET', '/ai/stats');
-    if (!stats.ok) {
-      document.getElementById('ai-page-stat-status').innerHTML =
-        '<span class="c-red">● Error</span>';
-      document.getElementById('ai-page-stat-provider').textContent = '—';
-      return;
-    }
-    document.getElementById('ai-page-stat-provider').textContent = stats.provider || '—';
-    document.getElementById('ai-page-stat-baseurl').textContent  = stats.base_url || '';
-    document.getElementById('ai-page-stat-version').textContent  = stats.version || (stats.local ? 'unknown' : '(cloud)');
-    document.getElementById('ai-page-stat-status').innerHTML = stats.reachable
-      ? '<span class="c-green">● Reachable</span>'
-      : '<span class="c-amber">● Unreachable</span>';
-    const loadedEl = document.getElementById('ai-page-stat-loaded');
-    if (Array.isArray(stats.loaded_models) && stats.loaded_models.length) {
-      loadedEl.innerHTML = stats.loaded_models.map(m =>
-        `<div><strong>${escHtml(m.name)}</strong>` +
-        (m.vram_mb ? ` <span class="c-muted">· ${m.vram_mb} MB VRAM</span>` : '') +
-        (m.expires_at ? ` <span class="meta-sm-nm">· expires ${escHtml(String(m.expires_at).slice(0,19).replace('T',' '))}</span>` : '') +
-        '</div>'
-      ).join('');
-    } else if (stats.local) {
-      loadedEl.innerHTML = '<span class="c-muted">No models currently loaded (will load on first request)</span>';
-    } else {
-      loadedEl.innerHTML = '<span class="c-muted">(cloud provider — no introspection)</span>';
-    }
-  } finally {
-    _aiPageStatsRefreshing = false;
-  }
-}
 
-async function _aiPageLoadModels() {
-  const sel = document.getElementById('ai-page-model');
-  const cur = sel.value;
-  const models = await aiApi('GET', '/ai/models');
-  if (!models.ok) {
-    sel.innerHTML = `<option value="">(configured default)</option><option disabled>error: ${escHtml(models.error.slice(0,60))}</option>`;
-    return;
-  }
-  const list = models.models || [];
-  let html = '<option value="">(configured default)</option>';
-  for (const m of list) {
-    const size = m.size_bytes ? ` — ${(m.size_bytes / (1024*1024*1024)).toFixed(1)} GB` : '';
-    const param = m.param_size ? ` (${escHtml(m.param_size)})` : '';
-    html += `<option value="${escAttr(m.name)}">${escHtml(m.name)}${size}${param}</option>`;
-  }
-  sel.innerHTML = html;
-  if (cur) sel.value = cur;   // preserve user's pick across reloads
-  if (models.note) {
-    // best-effort surface — visible only in console; not worth a toast
-    console.info('ai/models:', models.note);
-  }
-}
 
 // v4.10.0: AI Insights hub. Each entry runs one SYSTEM_PROMPTS key against the
 // configured provider via openAIModal (RAG + fleet context attached). `input`
 // (when set) prompts the operator for a target/question, folded into `msg` at %s.
-const AI_INSIGHTS = [
-  { key: 'ai_briefing',         cat: 'proactive', label: 'Daily fleet briefing',        desc: 'What needs attention + what changed in the last day.', msg: "Write today's fleet operations briefing." },
-  // v5.0.1: surface three mature prompts that previously had no card (only ad-hoc
-  // inline buttons / no path). Backend SYSTEM_PROMPTS already exist.
-  { key: 'explain_tls',         cat: 'advisors',  label: 'TLS / cert triage',          desc: "The fleet's TLS/cert posture — what to renew or fix first.", msg: "Review the fleet's TLS certificate posture (expiry, chain, hostname match) and tell me what to renew or fix first." },
-  { key: 'prioritise_cves',     cat: 'advisors',  label: 'CVE prioritisation',         desc: 'Which CVEs to patch first across the fleet, and why.', msg: "Prioritise the fleet's outstanding CVEs — which to patch first and why (severity, exploitability, exposure)." },
-  { key: 'investigate_alert',   cat: 'advisors',  label: 'Investigate top alert',      desc: 'Diagnose the most significant current alert + next steps.', msg: "Investigate the most significant currently-open alert: likely cause, blast radius, and the next steps to resolve it." },
-  { key: 'log_anomaly',         cat: 'proactive', label: 'Log-anomaly digest',          desc: "What's abnormal or new in recent logs across the fleet.", msg: "What is abnormal or new in the recent logs across the fleet?" },
-  { key: 'alert_tuning',        cat: 'proactive', label: 'Alert-noise tuning',          desc: 'Thresholds/mutes/dependencies to cut alert noise.', msg: "Recommend alert-noise reductions from recent alert and resolution history." },
-  { key: 'predict_maintenance', cat: 'proactive', label: 'Predictive maintenance',      desc: 'Hardware likely to fail soon, and roughly when.', msg: "Which hardware is likely to fail soon, and roughly when?" },
-  { key: 'incident_rca',        cat: 'incident',  label: 'Incident RCA',                desc: 'Root-cause narrative for the current top incident.', msg: "Write a root-cause analysis for the most significant current incident." },
-  { key: 'alert_group',         cat: 'incident',  label: 'Group related alerts',        desc: 'Cluster open alerts into likely incidents.', msg: "Group the current open alerts into likely incidents." },
-  { key: 'change_risk',         cat: 'incident',  label: 'Change-risk review',          desc: 'Assess a command/script before it runs.', input: 'Paste the command or script to review:', msg: "Assess the risk of running this before it runs:\n%s" },
-  { key: 'cve_patch_plan',      cat: 'planning',  label: 'CVE remediation plan',        desc: 'Staged KEV-first patch plan across the fleet.', msg: "Produce a staged CVE remediation plan for the fleet." },
-  { key: 'compliance_plan',     cat: 'planning',  label: 'Compliance remediation plan', desc: 'Fleet-wide plan to close failing controls.', msg: "Produce a fleet-wide compliance remediation plan." },
-  { key: 'capacity_forecast',   cat: 'planning',  label: 'Capacity & cost forecast',    desc: 'Where the fleet will hit limits, and when.', msg: "Write a capacity and growth forecast for the fleet." },
-  { key: 'dr_readiness',        cat: 'planning',  label: 'Backup / DR readiness',       desc: 'Unprotected/stale backups and recovery gaps.', msg: "Assess the fleet's backup and disaster-recovery readiness." },
-  { key: 'nl_fleet_query',      cat: 'nlconfig',  label: 'Fleet query (NL)',            desc: 'Plain-English → a structured fleet filter.', input: 'Describe the hosts you are looking for:', msg: "%s" },
-  { key: 'nl_monitor',          cat: 'nlconfig',  label: 'Create monitor from text',    desc: 'Plain-English → monitor/check definitions.', input: 'Describe what to monitor:', msg: "%s" },
-  { key: 'reverse_iac',         cat: 'nlconfig',  label: 'Reverse-IaC (Ansible)',       desc: "Generate Ansible reproducing a host's state.", input: 'Which host should I reverse-engineer into Ansible?', msg: "Generate an Ansible role reproducing the current state of host: %s" },
-  { key: 'firewall_audit',      cat: 'advisors',  label: 'Firewall auditor',            desc: "Audit a host's firewall ruleset for gaps.", input: "Which host's firewall should I audit?", msg: "Audit the firewall ruleset on host: %s" },
-  { key: 'dns_hygiene',         cat: 'advisors',  label: 'DNS hygiene advisor',         desc: 'Find DNS problems in a zone before they bite.', input: 'Which DNS zone / domain?', msg: "Audit DNS hygiene for zone: %s" },
-  { key: 'email_deliverability',cat: 'advisors',  label: 'Email deliverability',        desc: 'DMARC/SPF/DKIM/DNSBL posture and fixes.', msg: "Assess our email deliverability (DMARC/SPF/DKIM/DNSBL) and recommend fixes." },
-  { key: 'integration_assist',  cat: 'advisors',  label: 'Homelab assistant',           desc: 'Ask about your self-hosted services.', input: 'Your question about your homelab services:', msg: "%s" },
-  { key: 'supply_chain',        cat: 'advisors',  label: 'Supply-chain / SBOM Q&A',     desc: 'Are we exposed to a given CVE or package?', input: 'Which CVE or package are you asking about?', msg: "Supply-chain question — are we exposed to: %s" },
-  { key: 'host_profile',        cat: 'advisors',  label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
-];
-
-const _AI_CATS = [
-  ['proactive', 'Proactive'],
-  ['incident',  'Incident response'],
-  ['planning',  'Planning & remediation'],
-  ['nlconfig',  'Natural language → config'],
-  ['advisors',  'Advisors'],
-];
 const _AI_CAT_ICON = {
   proactive: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
   incident:  '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
@@ -12527,159 +11100,13 @@ const _AI_CAT_ICON = {
   nlconfig:  '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
   advisors:  '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
 };
-function _aiIcon(cat) {
-  return `<svg class="ai-insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round">${_AI_CAT_ICON[cat] || ''}</svg>`;
-}
 
-function _renderAIInsights() {
-  const grid = document.getElementById('ai-insights-grid');
-  if (!grid) return;
-  let html = '';
-  for (const [cat, label] of _AI_CATS) {
-    const items = AI_INSIGHTS.filter(x => x.cat === cat);
-    if (!items.length) continue;
-    html += `<div class="section-title ai-insight-cat">${escHtml(label)}</div>`;
-    html += '<div class="ai-insights-grid">' + items.map(it =>
-      `<button class="ai-insight-card" data-action="aiInsight" data-arg="${escAttr(it.key)}" title="${escAttr(it.desc)}">
-         <div class="ai-insight-top">${_aiIcon(cat)}<span class="ai-insight-label">${escHtml(it.label)}</span></div>
-         <div class="ai-insight-desc">${escHtml(it.desc)}</div>
-       </button>`).join('') + '</div>';
-  }
-  grid.innerHTML = html;
-}
 
-function aiFirewallAudit(devName) {
-  openAIModal({ title: 'Firewall auditor', system: 'firewall_audit',
-    userMsg: `Audit the firewall ruleset on host: ${devName}`, context: 'fleet', maxTokens: 1800 });
-}
 
-async function aiInsight(key) {
-  const it = AI_INSIGHTS.find(x => x.key === key);
-  if (!it) return;
-  let msg = it.msg;
-  if (it.input) {
-    const v = await uiPrompt({ title: it.label, message: it.input, confirmText: 'Run' });
-    if (!v || !v.trim()) return;
-    msg = it.msg.replace('%s', v.trim());
-  }
-  openAIModal({ title: it.label, system: it.key, userMsg: msg, context: 'fleet', maxTokens: 1800 });
-}
 
-async function loadAIPage() {
-  _aiPageLoadConv();
-  _aiPageRenderConv();
 
-  const cfg = await aiApi('GET', '/ai/config');
-  // CSP L1 (v3.0.4): the initial-hide for these elements is now a CSS
-  // class with `display: none` (auto-generated from the original
-  // inline style="display:none"). `element.style.display = ''` removes
-  // only the *inline* property — the class rule keeps the element
-  // hidden. Reveal must use an explicit display value (same lesson as
-  // the v3.0.3 #pwa-install-btn fix).
-  { const _iw0 = document.getElementById('ai-insights-wrap'); if (_iw0) _iw0.style.display = 'none'; }
-  if (!cfg.ok && cfg.error && /disabled/i.test(cfg.error)) {
-    document.getElementById('ai-page-disabled').style.display = 'block';
-    document.getElementById('ai-page-status').style.display = 'none';
-    document.getElementById('ai-page-chat-wrap').style.display = 'none';
-    document.getElementById('ai-page-tools').style.display = 'none';
-    return;
-  }
-  if (!cfg.ok || !cfg.enabled) {
-    document.getElementById('ai-page-disabled').style.display = 'block';
-    document.getElementById('ai-page-status').style.display = 'none';
-    document.getElementById('ai-page-chat-wrap').style.display = 'none';
-    document.getElementById('ai-page-tools').style.display = 'none';
-    return;
-  }
-  document.getElementById('ai-page-disabled').style.display = 'none';
-  document.getElementById('ai-page-status').style.display = 'block';
-  document.getElementById('ai-page-chat-wrap').style.display = 'block';
-  document.getElementById('ai-page-tools').style.display = 'block';
-  const _iw = document.getElementById('ai-insights-wrap');
-  if (_iw) { _iw.style.display = 'block'; _renderAIInsights(); }
 
-  // Fire these in parallel — they don't depend on each other
-  aiPageRefreshStats();
-  _aiPageLoadModels();
-}
 
-function aiPageInputKey(ev) {
-  // Ctrl/⌘+Enter sends; plain Enter inserts a newline (standard chat UX)
-  if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
-    ev.preventDefault();
-    aiPageSend();
-  }
-}
-
-async function aiPageClear() {
-  if (_aiPageConv.length && !await uiConfirm('Clear the conversation? This wipes the local history; the audit log on the server is untouched.')) {
-    return;
-  }
-  _aiPageConv = [];
-  _aiPageSaveConv();
-  _aiPageRenderConv();
-}
-
-async function aiPageSend() {
-  const inp = document.getElementById('ai-page-input');
-  const txt = (inp.value || '').trim();
-  if (!txt) return;
-  const sendBtn = document.getElementById('ai-page-send');
-  sendBtn.disabled = true;
-  sendBtn.textContent = '…';
-  inp.value = '';
-
-  _aiPageConv.push({role: 'user', content: txt});
-  _aiPageConv.push({role: 'assistant', content: '', pending: true});
-  _aiPageSaveConv();
-  _aiPageRenderConv();
-
-  // Live elapsed ticker
-  const tickHandles = [];
-  const tickFn = () => {
-    document.querySelectorAll('.ai-page-elapsed').forEach(el => {
-      const s = Math.floor((Date.now() - parseInt(el.dataset.start || '0', 10)) / 1000);
-      el.textContent = `(${s}s elapsed)`;
-    });
-  };
-  const tick = setInterval(tickFn, 1000);
-  tickHandles.push(tick);
-
-  // Build the messages list to send — strip 'pending' flag, model, meta
-  const sendMessages = _aiPageConv
-    .filter(m => !m.pending)
-    .map(m => ({role: m.role, content: m.content}));
-
-  const modelSel = document.getElementById('ai-page-model').value;
-  const reqBody = {
-    messages: sendMessages,
-    system:   'free_form',
-    context:  'ai-page',
-  };
-  if (modelSel) reqBody.model = modelSel;
-
-  const resp = await aiApi('POST', '/ai/chat', reqBody);
-  clearInterval(tick);
-
-  // Replace the pending placeholder with the result (or the error)
-  const last = _aiPageConv[_aiPageConv.length - 1];
-  if (resp.ok) {
-    last.content = resp.text || '(empty response)';
-    last.pending = false;
-    last.model = resp.model;
-    last.meta = `${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s` +
-                (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
-  } else {
-    last.content = `${resp.error}`;
-    last.pending = false;
-    last.meta = 'error';
-  }
-  _aiPageSaveConv();
-  _aiPageRenderConv();
-  sendBtn.disabled = false;
-  sendBtn.textContent = 'Send';
-  inp.focus();
-}
 
 // ─── v2.1.5: compact grouped device dropdown ───────────────────────────────
 //
@@ -12707,181 +11134,12 @@ function deviceDropdownHtml(d, isMonitored) {
   return `<button class="btn-icon isl-526" title="Actions &amp; Settings"
     data-stop-prop="1" data-action="openDeviceDrawer" data-arg="${idEsc}" data-arg2="${nameEsc}" data-arg3="actions" >⋮</button>`;
 }
-function aiDiagnoseService(serviceName, deviceName, state, subState, recentLogs) {
-  const logs = Array.isArray(recentLogs) ? recentLogs.join('\n') : (recentLogs || '');
-  openAIModal({
-    title:    `Diagnose ${serviceName}`,
-    system:   'diagnose_service',
-    userMsg:  `Service: ${serviceName}\nDevice: ${deviceName}\nState: ${state || '?'}/${subState || '?'}\n\nRecent journal:\n${logs.slice(0, 6000)}`,
-    context:  `service:${serviceName}`,
-    maxTokens: 1500,
-  });
-}
 
-function aiExplainTls(host, port, expiryEpoch, issuer, extraContext) {
-  const now = Math.floor(Date.now() / 1000);
-  const daysLeft = expiryEpoch ? Math.floor((expiryEpoch - now) / 86400) : '?';
-  const lines = [
-    `Host: ${host}:${port || 443}`,
-    `Expires: ${expiryEpoch ? new Date(expiryEpoch * 1000).toISOString() : '?'} (${daysLeft} days from now)`,
-    issuer ? `Issuer: ${issuer}` : '',
-    extraContext || '',
-  ].filter(Boolean);
-  openAIModal({
-    title:    `Triage cert for ${host}`,
-    system:   'explain_tls',
-    userMsg:  lines.join('\n'),
-    context:  `tls:${host}`,
-    maxTokens: 800,
-  });
-}
 
-function aiPrioritisePatches(deviceName, packageList) {
-  // packageList: either a string of one-per-line or array of {name, version}
-  let listText = '';
-  if (Array.isArray(packageList)) {
-    listText = packageList.map(p =>
-      typeof p === 'string' ? p : `${p.name || '?'} ${p.version || ''}`.trim()
-    ).join('\n');
-  } else {
-    listText = String(packageList || '');
-  }
-  if (!listText.trim()) { toast('No pending packages to prioritise', 'info'); return; }
-  openAIModal({
-    title:    `Prioritise updates for ${deviceName}`,
-    system:   'prioritise_patches',
-    userMsg:  `Device: ${deviceName}\n\nPending updates:\n${listText.slice(0, 6000)}`,
-    context:  `patches:${deviceName}`,
-    maxTokens: 1500,
-  });
-}
 
-function aiPrioritiseCves(deviceName, cveListText) {
-  if (!cveListText.trim()) { toast('No CVE findings to prioritise', 'info'); return; }
-  openAIModal({
-    title:    `Prioritise CVEs for ${deviceName}`,
-    system:   'prioritise_cves',
-    userMsg:  `Device: ${deviceName}\n\nCVE findings:\n${cveListText.slice(0, 6000)}`,
-    context:  `cves:${deviceName}`,
-    maxTokens: 1500,
-  });
-}
 
-async function aiPrioritiseCvesForDevice(devId, devName, btn) {
-  const originalLabel = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.innerHTML = '…'; btn.title = 'Fetching CVE findings…'; }
-  const restore = () => {
-    if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; btn.title = "AI: prioritise this device's CVEs"; }
-  };
-  let data;
-  try {
-    data = await api('GET', `/devices/${encodeURIComponent(devId)}/cve`);
-  } finally {
-    restore();
-  }
-  if (!data) return;  // api() already toasted the error
-  const findings = (data.findings || []).filter(f => !f.ignored);
-  if (!findings.length) { toast('No active CVE findings to prioritise', 'info'); return; }
-  const listText = findings.map(f =>
-    `${(f.severity || 'unknown').toUpperCase()} ${f.vuln_id} — ${f.package} ${f.version}` +
-    (f.fixed_version ? ` (fixed in ${f.fixed_version})` : ' (no fix listed)')
-  ).join('\n');
-  aiPrioritiseCves(devName, listText);
-}
 
-function aiExplainContainerLogs(containerName, image, logs) {
-  if (!logs || !logs.trim()) { toast('No logs to explain', 'info'); return; }
-  openAIModal({
-    title:    `Explain ${containerName} logs`,
-    system:   'explain_container_logs',
-    userMsg:  `Container: ${containerName}\nImage: ${image || '?'}\n\nLogs:\n${logs.slice(0, 8000)}`,
-    context:  `container:${containerName}`,
-    maxTokens: 1500,
-  });
-}
 
-async function aiPrioritisePatchesForDevice(devId, devName, btn) {
-  // v3.0.4: show visible button feedback during the API call. The
-  // previous version toasted silently on the negative paths; operators
-  // reported the button felt unresponsive ("I clicked it, nothing
-  // happened"). Now the button visibly disables, shows a spinner glyph
-  // while the request is in flight, and restores on completion.
-  //
-  // v3.0.4 (iter 2): when patch_history doesn't yet contain an upgrade
-  // listing, the previous version pointed the operator at "Force
-  // re-scan packages" — but that flag only re-syncs the upgradable
-  // COUNT, not the listing (the agent's get_patch_info() discards `out`
-  // and only keeps len()). The only path that populates patch_history
-  // with a real listing is an operator-triggered exec command. Rather
-  // than make the operator dig for that, AInow queues the right
-  // listing command for the device's package manager automatically.
-  // One click → next click in ~60s → AI engages.
-  const originalLabel = btn ? btn.innerHTML : null;
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '…';
-    btn.title = 'Fetching patch history…';
-  }
-  const restore = () => {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = originalLabel;
-      btn.title = 'AI: prioritise these updates';
-    }
-  };
-  let data;
-  try {
-    data = await api('GET', `/patch-report/device/${encodeURIComponent(devId)}`);
-  } finally {
-    restore();
-  }
-  if (!data) return;   // api() already toasted the error
-
-  // Happy path: listing exists, hand it to the AI.
-  const listing = (data.patch_history || []).slice().reverse().find(o =>
-    /upgradable|check-update|list-upgrades|outdated|pacman -Qu/i.test(o.cmd) && o.output
-  );
-  if (listing) {
-    aiPrioritisePatches(devName, listing.output);
-    return;
-  }
-
-  // No listing — figure out which command WOULD produce one for this
-  // package manager, then offer to queue it on the device. The result
-  // arrives in CMD_OUTPUT_FILE on the next heartbeat (~60s) and shows
-  // up in patch_history on subsequent /patch-report/device fetches.
-  const LISTING_CMD_FOR = {
-    apt:    'apt list --upgradable',
-    dnf:    'dnf check-update',
-    pacman: 'pacman -Qu',
-  };
-  const pkgManager = data.pkg_manager;
-  const listingCmd = LISTING_CMD_FOR[pkgManager];
-
-  if (!listingCmd) {
-    toast(`No upgrade listing in patch history, and no built-in listing `
-          + `command for "${pkgManager || 'unknown'}". Run an appropriate `
-          + `"list upgradable packages" command via Run Command, then `
-          + `click again.`, 'info');
-    return;
-  }
-
-  if (!await uiConfirm(
-        `No upgrade listing recorded for ${devName} yet.\n\n`
-      + `Queue "${listingCmd}" on the device now?\n\n`
-      + `Output arrives in ~60s. Click again after that to get the `
-      + `AI's upgrade-prioritisation summary.`)) {
-    return;
-  }
-
-  const r = await api('POST', '/exec', {device_id: devId, cmd: listingCmd});
-  if (r?.ok) {
-    toast(`Queued ${listingCmd} on ${devName}. Click again in ~60s `
-          + `to get the AI analysis.`, 'success');
-  } else {
-    toast(r?.error || 'Failed to queue the listing command', 'error');
-  }
-}
 
 // ─── v2.1.7: Device runbooks ───────────────────────────────────────────────
 //
@@ -12942,92 +11200,10 @@ async function runbookModalRegen() {
   aiGenerateRunbook(_runbookCurrentDevice.id, _runbookCurrentDevice.name);
 }
 
-async function aiGenerateRunbook(devId, deviceName) {
-  _ensureRunbookModal();
-  _runbookModalEl.classList.add('active');
-  _runbookCurrentDevice = {id: devId, name: deviceName};
-  document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
-  document.getElementById('runbook-modal-meta').textContent =
-    'Gathering device snapshot and asking the AI to write a runbook — this can take 30–120 s on slow local models.';
-  const body = document.getElementById('runbook-modal-body');
-  body.innerHTML = '<div class="c-muted">Thinking… <span id="runbook-modal-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
-  body.dataset.rawText = '';
-  document.getElementById('runbook-modal-copy').disabled = true;
-  document.getElementById('runbook-modal-regen').style.display = 'none';
-
-  // Tick elapsed time so the modal doesn't look frozen during the
-  // 30-120s round-trip on slow local models.
-  const tick = setInterval(() => {
-    const el = document.getElementById('runbook-modal-elapsed');
-    if (!el) return;
-    const s = Math.floor((Date.now() - parseInt(el.dataset.start || '0', 10)) / 1000);
-    el.textContent = `(${s}s elapsed)`;
-  }, 1000);
-
-  const resp = await aiApi('POST', `/devices/${encodeURIComponent(devId)}/runbook/generate`, {});
-  clearInterval(tick);
-
-  if (!resp.ok) {
-    body.innerHTML = `<div class="isl-513">${escHtml(resp.error)}</div>`;
-    return;
-  }
-  body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
-  body.dataset.rawText = resp.content || '';
-  document.getElementById('runbook-modal-copy').disabled = false;
-  document.getElementById('runbook-modal-regen').style.display = 'flex';
-  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
-  document.getElementById('runbook-modal-meta').textContent =
-    `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s · generated ${when}`;
-
-  // If the device detail modal is open, refresh its runbook section.
-  if (typeof refreshDetailRunbookSection === 'function') {
-    refreshDetailRunbookSection(devId);
-  }
-}
 
 // View an existing runbook (used by the device detail modal's
 // "View runbook" button when there's a stored one already).
-async function aiViewRunbook(devId, deviceName) {
-  _ensureRunbookModal();
-  _runbookModalEl.classList.add('active');
-  _runbookCurrentDevice = {id: devId, name: deviceName};
-  document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
-  document.getElementById('runbook-modal-meta').textContent = 'Loading…';
-  const body = document.getElementById('runbook-modal-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
-  document.getElementById('runbook-modal-copy').disabled = true;
-  document.getElementById('runbook-modal-regen').style.display = 'flex';
 
-  const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
-  if (!resp.ok) {
-    body.innerHTML = `<div class="c-red">${escHtml(resp.error)}</div>`;
-    return;
-  }
-  if (!resp.exists) {
-    body.innerHTML = '<div class="empty-state">No runbook generated yet. Click <strong>Regenerate</strong> to create one.</div>';
-    document.getElementById('runbook-modal-meta').textContent = 'No runbook stored.';
-    return;
-  }
-  body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
-  body.dataset.rawText = resp.content || '';
-  document.getElementById('runbook-modal-copy').disabled = false;
-  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
-  document.getElementById('runbook-modal-meta').textContent =
-    `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · generated ${when} by ${resp.generated_by || '?'}`;
-}
-
-async function aiDeleteRunbook(devId) {
-  if (!await uiConfirm('Delete the stored runbook? You can always regenerate.')) return;
-  const resp = await aiApi('DELETE', `/devices/${encodeURIComponent(devId)}/runbook`);
-  if (resp.ok) {
-    toast('Runbook deleted', 'success');
-    if (typeof refreshDetailRunbookSection === 'function') {
-      refreshDetailRunbookSection(devId);
-    }
-  } else {
-    toast('Delete failed: ' + (resp.error || '?'), 'error');
-  }
-}
 
 // Refresh the runbook section inside the device detail modal — called
 // after generate / delete so the view stays in sync. Implementation
@@ -13091,196 +11267,15 @@ let _driftAssignments = [];
 
 // v3.14.0: fleet drift-enforcement policy (by tag/group)
 let _driftPolicies = [];
-async function loadDriftPolicies() {
-  const body = document.getElementById('drift-policy-body');
-  if (!body) return;
-  const data = await api('GET', '/drift-policies').catch(() => null);
-  _driftPolicies = (data && data.policies) || [];
-  if (!_driftPolicies.length) { body.innerHTML = '<div class="c-muted">No enforcement policies — drift is monitor-only unless set per device.</div>'; return; }
-  const modeLabel = { apply: 'Apply every poll', enforce: 'Correct on drift' };
-  body.innerHTML = _driftPolicies.map((p, i) =>
-    `<div class="rdef-row">
-      <span><code>${escHtml(p.scope)}=${escHtml(p.value)}</code> → <strong>${escHtml(modeLabel[p.mode] || p.mode)}</strong></span>
-      <button class="btn-icon cell-sm c-danger-outline" data-action="removeDriftPolicy" data-arg="${i}">Remove</button>
-    </div>`).join('');
-}
-async function _saveDriftPolicies() {
-  const r = await api('PUT', '/drift-policies', { policies: _driftPolicies }).catch(() => null);
-  if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return false; }
-  _driftPolicies = r.policies || [];
-  loadDriftPolicies();
-  return true;
-}
-async function addDriftPolicy() {
-  const scope = document.getElementById('dpol-scope').value;
-  const value = document.getElementById('dpol-value').value.trim();
-  const mode = document.getElementById('dpol-mode').value;
-  if (!value) { toast('Enter a tag or group value', 'error'); return; }
-  _driftPolicies = _driftPolicies.concat([{ scope, value, mode }]);
-  if (await _saveDriftPolicies()) {
-    document.getElementById('dpol-value').value = '';
-    toast('Enforcement policy added', 'success');
-  }
-}
-async function removeDriftPolicy(i) {
-  _driftPolicies = _driftPolicies.filter((_, idx) => idx !== Number(i));
-  await _saveDriftPolicies();
-}
 
-async function loadDriftProfiles() {
-  const body = document.getElementById('drift-profiles-body');
-  if (!body) return;
-  const data = await api('GET', '/drift/profiles').catch(() => null);
-  if (!data) { body.innerHTML = '<div class="c-muted">Failed to load profiles.</div>'; return; }
-  _driftProfiles = data.profiles || [];
-  _driftAssignments = data.assignments || [];
-  if (!_driftProfiles.length) {
-    body.innerHTML = '<div class="c-muted fs-13">No drift profiles yet. Create one to apply a reusable watched-file set to a device, tag, or group.</div>';
-    return;
-  }
-  const scopeChip = (a) => `<span class="tag-pill">${escHtml(a.scope_type)}: ${escHtml(a.scope_value)}` +
-    `<button class="tag-x" title="Unassign" data-action="unassignDriftProfile" data-arg="${escAttr(a.scope_type)}" data-arg2="${escAttr(a.scope_value)}">×</button></span>`;
-  body.innerHTML = _driftProfiles.map(p => {
-    const files = p.files || [];
-    const preview = files.slice(0, 4).map(f => escHtml(f)).join(', ') + (files.length > 4 ? ` +${files.length - 4} more` : '');
-    const assigns = _driftAssignments.filter(a => a.profile_id === p.id);
-    return `<div class="drift-prof-item">
-      <div class="drift-prof-row">
-        <div><strong>${escHtml(p.name)}</strong> <span class="hint">${files.length} file${files.length === 1 ? '' : 's'}</span></div>
-        <div class="drift-prof-actions">
-          <button class="btn-icon cell-sm" data-action="openDriftAssignModal" data-arg="${escAttr(p.id)}">Assign</button>
-          <button class="btn-icon cell-sm" data-action="openDriftProfileModal" data-arg="${escAttr(p.id)}">Edit</button>
-          <button class="btn-icon cell-sm c-red" data-action="deleteDriftProfile" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}">Delete</button>
-        </div>
-      </div>
-      <div class="hint drift-prof-files">${preview || '<em>no files</em>'}</div>
-      ${assigns.length ? `<div class="drift-prof-assigns">${assigns.map(scopeChip).join('')}</div>` : ''}
-    </div>`;
-  }).join('');
-}
 
-function _ensureDriftProfileModal() {
-  if (document.getElementById('drift-profile-modal')) return;
-  const m = document.createElement('div');
-  m.id = 'drift-profile-modal';
-  m.className = 'modal-overlay';
-  m.innerHTML = `<div class="modal">
-    <div class="modal-title" id="drift-profile-title">New drift profile</div>
-    <input type="hidden" id="drift-profile-id">
-    <div class="form-group"><label class="form-label">Name</label>
-      <input id="drift-profile-name" class="form-input" placeholder="e.g. web-server set" maxlength="80"></div>
-    <div class="form-group"><label class="form-label">Watched files — one absolute path per line</label>
-      <textarea id="drift-profile-files" class="form-textarea" rows="10" placeholder="/etc/nginx/nginx.conf&#10;/etc/ssh/sshd_config"></textarea></div>
-    <div class="modal-actions">
-      <button class="btn-secondary" data-action="closeModal" data-arg="drift-profile-modal">Cancel</button>
-      <button class="btn-primary" data-action="saveDriftProfile">Save profile</button>
-    </div></div>`;
-  document.body.appendChild(m);
-}
 
-function openDriftProfileModal(pid) {
-  _ensureDriftProfileModal();
-  const prof = pid ? _driftProfiles.find(p => p.id === pid) : null;
-  document.getElementById('drift-profile-title').textContent = prof ? `Edit profile — ${prof.name}` : 'New drift profile';
-  document.getElementById('drift-profile-id').value = prof ? prof.id : '';
-  document.getElementById('drift-profile-name').value = prof ? prof.name : '';
-  document.getElementById('drift-profile-files').value = prof ? (prof.files || []).join('\n') : '';
-  openModal('drift-profile-modal');
-}
 
-async function saveDriftProfile() {
-  const id = document.getElementById('drift-profile-id').value;
-  const name = document.getElementById('drift-profile-name').value.trim();
-  const files = document.getElementById('drift-profile-files').value
-    .split('\n').map(s => s.trim()).filter(Boolean);
-  if (!name) { toast('Name is required', 'error'); return; }
-  const r = id
-    ? await api('PUT', `/drift/profiles/${encodeURIComponent(id)}`, {name, files})
-    : await api('POST', '/drift/profiles', {name, files});
-  if (!r || r.error) { toast('Save failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  closeModal('drift-profile-modal');
-  toast(id ? 'Profile updated' : 'Profile created', 'success');
-  loadDriftProfiles();
-}
 
-async function deleteDriftProfile(pid, name) {
-  if (!await uiConfirm(`Delete drift profile "${name}"? Devices assigned to it fall back to their group/global watched-file set.`)) return;
-  const r = await api('DELETE', `/drift/profiles/${encodeURIComponent(pid)}`);
-  if (!r || r.error) { toast('Delete failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  toast('Profile deleted', 'success');
-  loadDriftProfiles();
-}
 
-function _ensureDriftAssignModal() {
-  if (document.getElementById('drift-assign-modal')) return;
-  const m = document.createElement('div');
-  m.id = 'drift-assign-modal';
-  m.className = 'modal-overlay';
-  m.innerHTML = `<div class="modal">
-    <div class="modal-title" id="drift-assign-title">Assign profile</div>
-    <input type="hidden" id="drift-assign-pid">
-    <div class="form-group"><label class="form-label">Apply to</label>
-      <select id="drift-assign-type" class="form-input">
-        <option value="device">Device</option>
-        <option value="group">Group</option>
-        <option value="tag">Tag</option>
-      </select></div>
-    <div class="form-group"><label class="form-label">Name / value</label>
-      <input id="drift-assign-value" class="form-input" list="drift-assign-options" placeholder="group / tag name, or device id">
-      <datalist id="drift-assign-options"></datalist></div>
-    <p class="hint">An explicit per-device file list (set in the device drawer) always overrides a profile.</p>
-    <div class="modal-actions">
-      <button class="btn-secondary" data-action="closeModal" data-arg="drift-assign-modal">Cancel</button>
-      <button class="btn-primary" data-action="assignDriftProfile">Assign</button>
-    </div></div>`;
-  document.body.appendChild(m);
-}
 
-async function openDriftAssignModal(pid) {
-  _ensureDriftAssignModal();
-  const prof = _driftProfiles.find(p => p.id === pid);
-  document.getElementById('drift-assign-title').textContent = prof ? `Assign “${prof.name}”` : 'Assign profile';
-  document.getElementById('drift-assign-pid').value = pid;
-  document.getElementById('drift-assign-value').value = '';
-  // Populate suggestions from the fleet (groups, tags, device names/ids).
-  const devs = await api('GET', '/devices?slim=1').catch(() => null) || [];
-  const groups = [...new Set(devs.map(d => d.group).filter(Boolean))];
-  const tags = [...new Set(devs.flatMap(d => d.tags || []))];
-  window._driftAssignDevices = devs;
-  const dl = document.getElementById('drift-assign-options');
-  const typeSel = document.getElementById('drift-assign-type');
-  const fill = () => {
-    const t = typeSel.value;
-    const opts = t === 'group' ? groups : t === 'tag' ? tags
-      : devs.map(d => `${d.id}`);
-    const labels = t === 'device'
-      ? devs.map(d => `<option value="${escAttr(d.id)}">${escAttr(d.name || d.id)}</option>`)
-      : opts.map(o => `<option value="${escAttr(o)}">`);
-    dl.innerHTML = labels.join('');
-  };
-  typeSel.onchange = fill;
-  fill();
-  openModal('drift-assign-modal');
-}
 
-async function assignDriftProfile() {
-  const pid = document.getElementById('drift-assign-pid').value;
-  const scope_type = document.getElementById('drift-assign-type').value;
-  const scope_value = document.getElementById('drift-assign-value').value.trim();
-  if (!scope_value) { toast('Enter a device, group, or tag', 'error'); return; }
-  const r = await api('POST', '/drift/assign', {scope_type, scope_value, profile_id: pid});
-  if (!r || r.error) { toast('Assign failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  closeModal('drift-assign-modal');
-  toast('Profile assigned', 'success');
-  loadDriftProfiles();
-}
 
-async function unassignDriftProfile(scope_type, scope_value) {
-  const r = await api('POST', '/drift/assign', {scope_type, scope_value, profile_id: null});
-  if (!r || r.error) { toast('Unassign failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  toast('Unassigned', 'success');
-  loadDriftProfiles();
-}
 
 // v3.13.0: fleet-wide host-config collect + export (Drift page).
 async function collectAllHostConfigs() {
@@ -13293,62 +11288,7 @@ function exportAllHostConfigs() {
   _downloadAuthed('/api/host-config/export', 'host-configs.json', 'Host configs exported');
 }
 
-async function loadDrift() {
-  const tbody = document.getElementById('drift-tbody');
-  const summary = document.getElementById('drift-summary');
-  if (!tbody) return;
-  loadDriftProfiles();   // v3.13.0: named drift profiles panel
-  loadDriftPolicies();   // v3.14.0: fleet enforcement policy by tag/group
-  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
-  try {
-    const data = await api('GET', '/drift');
-    _driftLastResponse = data;
-    _renderDrift(data.devices || []);
-    const totalDrift = (data.devices || []).reduce((s, d) => s + (d.drifted || 0), 0);
-    const totalMissing = (data.devices || []).reduce((s, d) => s + (d.missing || 0), 0);
-    summary.textContent = `${(data.devices || []).length} devices reporting · ${totalDrift} files drifted · ${totalMissing} files missing`;
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
-  }
-}
 
-function _renderDrift(rows) {
-  const tbody = document.getElementById('drift-tbody');
-  const filter = (document.getElementById('drift-filter')?.value || '').toLowerCase().trim();
-  let visible = rows.filter(r =>
-    !filter ||
-    (r.device_name || '').toLowerCase().includes(filter) ||
-    (r.group || '').toLowerCase().includes(filter)
-  );
-  // v3.2.1: sortable
-  tableCtl.wireSortOnly('drift-thead', 'drift', () => _renderDrift(_driftLastResponse?.devices || []));
-  visible = tableCtl.sortRows('drift', visible, (r) => ({
-    name:       (r.device_name || '').toLowerCase(),
-    group:      r.group || '',
-    watched:    r.total || 0,
-    drift:      r.drifted || 0,
-    missing:    r.missing || 0,
-    last_check: r.last_check || 0,
-  }));
-  if (visible.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No drift data yet. Wait for the first agent heartbeat with v2.2.0+ and drift enabled.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = visible.map(r => {
-    const lastCheck = r.last_check ? new Date(r.last_check * 1000).toLocaleString() : '—';
-    const driftColor = r.drifted > 0 ? 'var(--amber)' : 'var(--muted)';
-    const missingColor = r.missing > 0 ? 'var(--red)' : 'var(--muted)';
-    return `<tr>
-      <td class="fw-500">${escHtml(r.device_name)}</td>
-      <td class="hint">${escHtml(r.group || '—')}</td>
-      <td>${r.total}</td>
-      <td class="isl-535 ${r.drifted > 0 ? 'fw-600' : ''}" data-color="${driftColor}">${r.drifted}</td>
-      <td class="isl-536" data-color="${missingColor}">${r.missing}</td>
-      <td class="hint">${lastCheck}</td>
-      <td><button class="btn-icon cell-sm" data-action="openDriftDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}">Detail</button></td>
-    </tr>`;
-  }).join('');
-}
 
 // Re-render when filter changes
 let _driftFilterT = null;
@@ -13373,59 +11313,7 @@ function _fwStateBadge(active) {
   return '<span class="pill" data-color="var(--muted)">unknown</span>';
 }
 
-async function loadFirewall() {
-  const tbody = document.getElementById('firewall-tbody');
-  if (!tbody) return;
-  tableCtl.wireSortOnly('firewall-thead', 'firewall', () => _renderFirewall());
-  tbody.innerHTML = _skeletonRows(6);
-  try {
-    const data = await api('GET', '/firewall');
-    _firewallResp = data;
-    const sm = document.getElementById('firewall-summary');
-    if (sm) {
-      const off = (data.devices || []).filter(d => d.active === false).length;
-      sm.textContent = `${data.count} host(s) · ${off} with no active firewall`;
-    }
-    _renderFirewall();
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="hint">Failed to load: ${escHtml(String(e))}</td></tr>`;
-  }
-  loadFail2ban();   // sibling table on the same page
-}
 
-function _renderFirewall() {
-  const tbody = document.getElementById('firewall-tbody');
-  if (!tbody || !_firewallResp) return;
-  let rows = (_firewallResp.devices || []).slice();
-  rows = tableCtl.sortRows('firewall', rows, (r) => ({
-    device:  (r.device || '').toLowerCase(),
-    backend: (r.backends || []).map(b => b.name).join(','),
-    active:  r.active === false ? 0 : (r.active === true ? 2 : 1),
-    rules:   (r.backends || []).reduce((a, b) => a + (b.rules || 0), 0),
-    fp:      r.fp || '',
-  }));
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="hint">No firewall data reported yet. Agents must be on v3.12.0+.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = rows.map(r => {
-    const bes = (r.backends || []).filter(b => b.present);
-    const beHtml = bes.length
-      ? bes.map(b => `<span class="pill" data-color="var(--muted)" title="${escAttr((b.policy ? ('policy ' + b.policy) : '') || (b.default ? ('default ' + b.default) : ''))}">${escHtml(b.name)}${b.active === false ? ' off' : ''}</span>`).join(' ')
-      : '<span class="hint">none</span>';
-    const totalRules = (r.backends || []).reduce((a, b) => a + (b.rules || 0), 0);
-    const fp = r.fp ? `<code class="hint" title="${escAttr(r.fp_backend + ' · ' + r.fp_rules + ' rules')}">${escHtml(String(r.fp).slice(0, 12))}</code>` : '<span class="hint">—</span>';
-    const mon = r.monitored === false ? ' <span class="pill" data-color="var(--muted)">unmonitored</span>' : '';
-    return `<tr data-fwrow="${escAttr(r.device_id)}">
-      <td class="fw-500">${escHtml(r.device)}${mon}</td>
-      <td>${beHtml}</td>
-      <td>${_fwStateBadge(r.active)}</td>
-      <td class="hint">${totalRules}</td>
-      <td>${fp}</td>
-      <td><button class="btn-icon cell-sm" data-action="firewallDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}">Rules</button></td>
-    </tr>`;
-  }).join('');
-}
 
 function _fwRuleRow(devId, backend, r, editable) {
   const del = (editable && r.ref)
@@ -13458,66 +11346,8 @@ function _fwRenderRules(devId, backend, rl, editable) {
   return html + '</div>';
 }
 
-async function firewallDetail(devId, devName) {
-  const panel = document.getElementById('firewall-detail');
-  if (!panel) return;
-  panel.innerHTML = '<div class="hint">Loading rules…</div>';
-  let data;
-  try { data = await api('GET', '/firewall?device=' + encodeURIComponent(devId)); }
-  catch (e) { panel.innerHTML = `<div class="hint">Failed: ${escHtml(String(e))}</div>`; return; }
-  const dev = (data.devices || [])[0];
-  if (!dev) { panel.innerHTML = '<div class="hint">No detail available.</div>'; return; }
-  const editable = new Set(['nftables', 'iptables', 'ufw', 'firewalld']);
-  const _dn = devName || dev.device;
-  let html = `<div class="dash-card"><div class="fw-detail-hdr"><div class="section-title">Firewall rules — ${escHtml(_dn)}</div><div class="fw-detail-actions"><button class="btn-icon cell-sm" data-action="aiFirewallAudit" data-arg="${escAttr(_dn)}" title="AI: audit this firewall for gaps">AI audit</button><button class="btn-icon cell-sm" data-action="firewallDetailClose" title="Close" aria-label="Close">${_FW_X_SVG}</button></div></div>`;
-  let any = false;
-  for (const be of (dev.backends || [])) {
-    if (!be.present) continue;
-    any = true;
-    const ed = editable.has(be.name);
-    html += `<div class="mt-12"><strong>${escHtml(be.name)}</strong> ${_fwStateBadge(be.active)} <span class="hint">${be.rules || 0} rule(s)${be.policy ? (' · policy ' + escHtml(be.policy)) : ''}${be.default ? (' · ' + escHtml(be.default)) : ''}</span></div>`;
-    html += _fwRenderRules(dev.device_id, be.name, be.rule_list || [], ed);
-    if (ed) {
-      html += `<div class="mt-8"><button class="btn-icon cell-sm" data-action="firewallRuleAdd" data-arg="${escAttr(dev.device_id)}" data-arg2="${escAttr(be.name)}">+ Add ${escHtml(be.name)} rule</button></div>`;
-    }
-  }
-  if (!any) html += '<div class="hint mt-8">No firewall backends present on this host.</div>';
-  html += '</div>';
-  panel.innerHTML = html;
-  _fwSelectRow('firewall-tbody', 'fwrow', dev.device_id);
-  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
 
-async function firewallRuleAdd(devId, backend) {
-  const examples = {
-    iptables:  '-A INPUT -p tcp --dport 22 -j ACCEPT',
-    nftables:  'add rule inet filter input tcp dport 22 accept',
-    ufw:       'allow 22/tcp',
-    firewalld: '--add-port=22/tcp',
-  };
-  const spec = await uiPrompt({
-    title: `Add ${backend} rule`,
-    message: `Enter the rule spec (e.g. "${examples[backend] || ''}"). Only letters, digits and rule punctuation are allowed — no shell characters.`,
-    placeholder: examples[backend] || '',
-    confirmText: 'Queue rule',
-  });
-  if (!spec) return;
-  try {
-    await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'add', spec });
-    toast('Rule queued — applies on the next agent check-in', 'success');
-    _fwQueuedNote('firewall-detail');
-  } catch (e) { toast('Failed: ' + String(e), 'error'); }
-}
 
-async function firewallRuleDelete(devId, backend, ref, btn) {
-  const ok = await uiConfirm({ title: 'Delete firewall rule', message: `Delete this ${backend} rule from the host? It is removed on the next agent check-in.`, confirmText: 'Delete', danger: true });
-  if (!ok) return;
-  try {
-    await api('POST', `/devices/${encodeURIComponent(devId)}/firewall-rule`, { backend, op: 'delete', ref: String(ref) });
-    toast('Delete queued', 'success');
-    _fwMarkPending(btn); _fwQueuedNote('firewall-detail');
-  } catch (e) { toast('Failed: ' + String(e), 'error'); }
-}
 
 async function loadFail2ban() {
   const tbody = document.getElementById('fail2ban-tbody');
@@ -13660,10 +11490,6 @@ function _fwQueuedNote(panelId) {
   const n = (parseInt(note.dataset.n || '0', 10) || 0) + 1;
   note.dataset.n = n;
   note.textContent = `Queued: ${n} change${n > 1 ? 's' : ''} — apply on the host's next check-in.`;
-}
-function firewallDetailClose() {
-  const p = document.getElementById('firewall-detail'); if (p) p.innerHTML = '';
-  _fwClearSel('firewall-tbody');
 }
 function fail2banDetailClose() {
   const p = document.getElementById('fail2ban-detail'); if (p) p.innerHTML = '';
@@ -14160,34 +11986,6 @@ async function storageDeleteNamedSnapshot(snap) {
 let _thermalResp = null;
 // ─── v4.8.0: DMARC posture monitor ───────────────────────────────────────────
 let _dmarcRegistered = false;
-function _registerDmarcTable() {
-  if (_dmarcRegistered) return;
-  _dmarcRegistered = true;
-  tableCtl.register({
-    name: 'dmarc', tbody: 'dmarc-tbody', filterInput: 'dmarc-filter',
-    sortHeaders: 'dmarc-thead', colspan: 8,
-    columns: ['domain', 'status', 'dmarc', 'spf', 'dkim', 'checked'],
-    getColumns: (d) => ({
-      domain: d.domain || '',
-      status: ({ fail: 0, weak: 1, unknown: 2, ok: 3 })[d.status] ?? 2,
-      dmarc:  (d.dmarc && d.dmarc.policy) || '',
-      spf:    (d.spf && d.spf.all) || '',
-      dkim:   d.dkim && d.dkim.present ? 1 : 0,
-      checked: d.checked_at || 0,
-    }),
-    row: (d) => {
-      const cls = { ok: 'c-green', weak: 'c-amber', fail: 'c-red', unknown: 'c-muted' }[d.status] || 'c-muted';
-      const pol = (d.dmarc && d.dmarc.policy) ? escHtml(d.dmarc.policy) : '—';
-      const spf = (d.spf && d.spf.all) ? escHtml(d.spf.all + 'all') : '—';
-      const dkim = d.dkim_selector ? (d.dkim && d.dkim.present ? 'ok' : 'missing') : '—';
-      const reasons = (d.reasons || []).map(escHtml).join('; ') || (d.status === 'ok' ? 'enforcing + reporting' : '');
-      const when = d.checked_at ? new Date(d.checked_at * 1000).toLocaleString() : 'never';
-      return `<tr><td class="fw-500">${escHtml(d.domain)}</td><td class="${cls}">${escHtml(d.status)}</td><td>${pol}</td><td>${spf}</td><td>${dkim}</td><td class="hint">${reasons}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteDmarc" data-arg="${escAttr(d.id)}" title="Remove domain">Remove</button></td></tr>`;
-    },
-    emptyMsg: 'No domains yet. Add one to monitor its SPF / DKIM / DMARC posture.',
-    emptyMsgFiltered: 'No domains match the filter.',
-  });
-}
 // ── v4.9.0: DNS dashboard — read/write DNS records via provider APIs ─────────
 let _dnsProviders = [];
 let _dnsRecords = [];
@@ -14198,25 +11996,7 @@ let _dnsAcmeDevices = [];         // devices reporting acme.sh — "Import from 
 
 // Send the in-browser vault key on DNS calls so the server can decrypt any
 // vault-stored provider token for THIS request only (never persisted in clear).
-function _dnsExtra() {
-  return _dnsVaultKey ? { headers: { 'X-RP-Vault-Key': _dnsVaultKey } } : undefined;
-}
 
-function _renderDnsVaultBar() {
-  const el = document.getElementById('dns-vault-bar');
-  if (!el) return;
-  if (!_dnsVaultConfigured) {
-    el.innerHTML = '<span class="hint">Vault not set up — provider tokens are stored in clear text in config. Set up the CMDB vault (Admin → CMDB) to store them encrypted instead.</span>';
-    return;
-  }
-  const unlocked = !!_dnsVaultKey;
-  const btns = unlocked
-    ? '<button class="btn-icon" data-action="dnsVaultImport">Import from config</button>'
-      + '<button class="btn-icon" data-action="dnsVaultStore">Enter token manually</button>'
-      + '<button class="btn-icon" data-action="dnsVaultLock">Lock</button>'
-    : '<button class="btn-icon" data-action="dnsVaultUnlock">Unlock vault</button>';
-  el.innerHTML = `<span class="hint">Vault ${unlocked ? 'unlocked' : 'locked'} ·</span> ` + btns;
-}
 
 // Device selection is a SEARCH typeahead, never a dropdown (it would pile up at
 // fleet scale — same rule as the scan picker / global omnisearch). Type → match
@@ -14224,824 +12004,50 @@ function _renderDnsVaultBar() {
 let _dnsSelectedAgent = null;
 let _dnsAgentOutsideWired = false;
 
-function _renderDnsAgentBar() {
-  const el = document.getElementById('dns-agent-bar');
-  if (!el) return;
-  const devs = _dnsAcmeDevices || [];
-  if (!devs.length) {
-    el.innerHTML = '<span class="hint">No agent devices enrolled — install the agent (running as root) on the host that holds your acme.sh DNS credentials.</span>';
-    return;
-  }
-  _dnsSelectedAgent = null;
-  el.innerHTML = '<span class="hint">Import token from a device\'s acme.sh into the vault:</span> '
-    + '<span class="dns-agent-search-wrap">'
-    + '<input id="dns-agent-search" class="form-input isl-177" type="text" autocomplete="off" placeholder="Search devices…" aria-label="search agent device">'
-    + '<div id="dns-agent-results" class="dns-agent-results hidden"></div>'
-    + '</span> <button class="btn-icon" data-action="dnsImportFromAgent">Import from agent</button>'
-    + ' <span id="dns-agent-status" class="hint"></span>';
-  const inp = document.getElementById('dns-agent-search');
-  if (inp) {
-    inp.addEventListener('input', () => { _dnsSelectedAgent = null; _renderDnsAgentResults(inp.value); });
-    inp.addEventListener('focus', () => _renderDnsAgentResults(inp.value));
-  }
-  if (!_dnsAgentOutsideWired) {
-    _dnsAgentOutsideWired = true;
-    document.addEventListener('click', (e) => {
-      const cur = document.getElementById('dns-agent-search');
-      if (!e.target.closest('#dns-agent-results') && e.target !== cur) {
-        document.getElementById('dns-agent-results')?.classList.add('hidden');
-      }
-    });
-  }
-}
 
-function _renderDnsAgentResults(term) {
-  const box = document.getElementById('dns-agent-results');
-  if (!box) return;
-  const q = (term || '').toLowerCase().trim();
-  let matches = _dnsAcmeDevices || [];
-  if (q) matches = matches.filter(d =>
-    (d.name || '').toLowerCase().includes(q) || (d.id || '').toLowerCase().includes(q));
-  matches = matches.slice(0, 25);
-  box.innerHTML = matches.length
-    ? matches.map(d =>
-        `<div class="pointer mb-8" data-action="pickDnsAgent" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}"><strong>${escHtml(d.name || d.id)}</strong>${d.online ? '' : ' <span class="hint">(offline)</span>'}${d.acme ? ' <span class="hint">· acme.sh</span>' : ''}</div>`).join('')
-    : '<div class="empty-state">No matching devices.</div>';
-  box.classList.remove('hidden');
-}
 
-function pickDnsAgent(id, name) {
-  _dnsSelectedAgent = { id, name };
-  const inp = document.getElementById('dns-agent-search');
-  if (inp) inp.value = name;
-  document.getElementById('dns-agent-results')?.classList.add('hidden');
-}
 
 // Full flow: trigger the one-shot harvest, poll until the agent's next check-in
 // delivers the creds, then encrypt them straight into the vault. Vault must be
 // unlocked first (the encrypt step needs the in-browser key).
-async function dnsImportFromAgent() {
-  const did = _dnsSelectedAgent ? _dnsSelectedAgent.id : '';
-  const dname = _dnsSelectedAgent ? _dnsSelectedAgent.name : did;
-  if (!did) { toast('Search for and pick a device', 'error'); return; }
-  if (!_dnsVaultConfigured) { toast('Set up the CMDB vault first (Admin → CMDB), then unlock it here.', 'error'); return; }
-  if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
-  if (!await uiConfirm({ title: 'Import from agent', message: `Ask ${dname}'s agent to read its acme.sh DNS credentials and import them into the vault (encrypted)? The agent reads account.conf locally and returns them over the authenticated heartbeat.`, confirmText: 'Import' })) return;
-  const setSt = (m) => { const st = document.getElementById('dns-agent-status'); if (st) st.textContent = m; };
-  setSt('Asking the agent…');
-  const r = await api('POST', '/dns/import-from-agent', { device_id: did });
-  if (!r || !r.ok) { setSt(''); toast((r && r.error) || 'Request failed', 'error'); return; }
-  setSt("Waiting for the agent's next check-in…");
-  _dnsImportPoll(did, 0);
-}
 
-async function _dnsImportPoll(did, tries) {
-  const MAX = 60;   // ~5 min at 5s intervals
-  const setSt = (m) => { const st = document.getElementById('dns-agent-status'); if (st) st.textContent = m; };
-  let s = null;
-  try { s = await api('GET', '/dns/import-from-agent/status?device_id=' + encodeURIComponent(did)); } catch (e) { s = null; }
-  if (s && s.state === 'ready' && (s.providers || []).length) {
-    setSt('Agent delivered — encrypting into the vault…');
-    const names = [];
-    for (const prov of s.providers) {
-      const ir = await api('POST', '/dns/vault-credentials/import', { provider: prov, clear_plaintext: true }, _dnsExtra());
-      if (ir && ir.ok) names.push(prov);
-    }
-    setSt('');
-    toast(names.length ? `Imported ${names.join(', ')} into the vault — pick it below to load zones` : 'Agent delivered, but the vault import failed', names.length ? 'success' : 'error');
-    loadDns();
-    return;
-  }
-  if (s && s.state === 'empty') {
-    setSt('');
-    toast('The agent ran but found no DNS credentials in acme.sh on that host.', 'error');
-    return;
-  }
-  if (tries >= MAX) { setSt(''); toast('Timed out waiting for the agent — is it online and on the latest build?', 'error'); return; }
-  setTimeout(() => _dnsImportPoll(did, tries + 1), 5000);
-}
 
-async function dnsVaultUnlock() {
-  const pw = await uiPrompt({ title: 'Unlock vault', message: 'CMDB vault passphrase:', type: 'password', confirmText: 'Unlock' });
-  if (!pw) return;
-  const r = await api('POST', '/cmdb/vault/unlock', { passphrase: pw });
-  if (r && r.ok && r.key) {
-    _dnsVaultKey = r.key;
-    toast('Vault unlocked', 'success');
-    _renderDnsVaultBar();
-    loadDnsZones();
-  } else {
-    toast((r && r.error) || 'Unlock failed', 'error');
-  }
-}
 
-function dnsVaultLock() {
-  _dnsVaultKey = null;
-  toast('Vault locked', 'info');
-  _renderDnsVaultBar();
-  loadDnsZones();
-}
 
-async function dnsVaultImport() {
-  const prov = _dnsCurrentProvider();
-  if (!prov) { toast('Pick a provider first', 'error'); return; }
-  if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
-  if (!prov.creds_set) {
-    toast(`No ${prov.label} credentials in config to import — set them under ACME → DNS credentials first`, 'error');
-    return;
-  }
-  if (!await uiConfirm({ title: 'Import into vault', message: `Encrypt ${prov.label}'s existing API credentials (from ACME → DNS credentials) into the vault?`, confirmText: 'Import' })) return;
-  const clear = await uiConfirm({ title: 'Remove plaintext copy?', message: 'Also remove the plaintext copy from config so the credentials exist ONLY encrypted in the vault? Recommended — but skip this if RemotePower drives automated ACME issuance with them (the vault needs a passphrase it cannot supply unattended).', confirmText: 'Remove plaintext', danger: true });
-  const r = await api('POST', '/dns/vault-credentials/import', { provider: prov.key, clear_plaintext: !!clear }, _dnsExtra());
-  if (r && r.ok) {
-    toast(`Imported ${(r.imported || []).length} field(s) into the vault${r.cleared_plaintext ? ' · plaintext removed' : ''}`, 'success');
-    loadDns();
-  } else {
-    toast((r && r.error) || 'Import failed', 'error');
-  }
-}
 
-async function dnsVaultStore() {
-  const prov = _dnsCurrentProvider();
-  if (!prov) { toast('Pick a provider first', 'error'); return; }
-  if (!_dnsVaultKey) { await dnsVaultUnlock(); if (!_dnsVaultKey) return; }
-  const fields = prov.cred_fields || [];
-  if (!fields.length) { toast('No credential fields for this provider', 'error'); return; }
-  // One modal with all fields (was a chain of one-prompt-per-field dialogs).
-  document.getElementById('dns-vault-creds-title').textContent = `Store ${prov.label} credentials in vault`;
-  document.getElementById('dns-vault-creds-result').textContent = '';
-  const body = document.getElementById('dns-vault-creds-body');
-  body.innerHTML = fields.map(f =>
-    `<div class="form-group">`
-    + `<label class="form-label" for="dns-vc-${escAttr(f.name)}">${escHtml(f.label)} <span class="hint">(${escHtml(f.name)})</span></label>`
-    + `<input id="dns-vc-${escAttr(f.name)}" class="form-input" type="${f.secret ? 'password' : 'text'}" autocomplete="off" placeholder="leave blank to skip">`
-    + `</div>`).join('');
-  openModal('dns-vault-creds-modal');
-  const first = body.querySelector('input');
-  if (first) first.focus();
-}
 
-async function dnsVaultStoreSave() {
-  const prov = _dnsCurrentProvider();
-  if (!prov) { closeModal('dns-vault-creds-modal'); return; }
-  const result = document.getElementById('dns-vault-creds-result');
-  const creds = {};
-  for (const f of (prov.cred_fields || [])) {
-    const el = document.getElementById('dns-vc-' + f.name);
-    const v = el ? el.value.trim() : '';
-    if (v) creds[f.name] = v;
-  }
-  if (!Object.keys(creds).length) { if (result) result.textContent = 'Enter at least one field.'; return; }
-  const r = await api('POST', '/dns/vault-credentials', { provider: prov.key, credentials: creds }, _dnsExtra());
-  if (r && r.ok) { closeModal('dns-vault-creds-modal'); toast('Stored in vault (encrypted)', 'success'); loadDns(); }
-  else if (result) result.textContent = (r && r.error) || 'Could not store';
-}
 
-async function loadDns() {
-  _registerDnsTable();
-  const sel = document.getElementById('dns-provider');
-  const data = await api('GET', '/dns/providers');
-  _dnsProviders = (data && data.providers) || [];
-  _dnsVaultConfigured = !!(data && data.vault_configured);
-  _dnsAcmeDevices = (data && data.agent_devices) || [];
-  _renderDnsVaultBar();
-  _renderDnsAgentBar();
-  if (sel) {
-    sel.innerHTML = _dnsProviders.map(p => {
-      // Credentials may live in the plaintext ACME store (creds_set) OR encrypted
-      // in the vault (vault_set) — the latter is the intended end state after a
-      // vault import clears the plaintext. Either counts as "configured".
-      const suffix = p.creds_set ? '' : (p.vault_set ? ' — vault' : ' — no credentials');
-      return `<option value="${escAttr(p.key)}">${escHtml(p.label)}${suffix}</option>`;
-    }).join('');
-    sel.onchange = loadDnsZones;
-  }
-  const zsel = document.getElementById('dns-zone');
-  if (zsel) zsel.onchange = loadDnsRecords;
-  _dnsEnsureResolveTypes();
-  loadResolverHealth();
-  await loadDnsZones();
-}
 
 // ── v4.9.0 ResolutionMatters: live resolve/dig + propagation ────────────────
 const _DNS_RESOLVE_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'CAA', 'SRV', 'PTR'];
 
-function _dnsEnsureResolveTypes() {
-  const sel = document.getElementById('dns-resolve-type');
-  if (sel && !sel.options.length) {
-    sel.innerHTML = _DNS_RESOLVE_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
-  }
-}
 
-function _dnsAnswerList(answers, error) {
-  if (error) return `<span class="hint c-amber">${escHtml(error)}</span>`;
-  if (!answers || !answers.length) return '<span class="hint">(no records)</span>';
-  return answers.map(a => `<code class="dns-content-cell">${escHtml(a)}</code>`).join('<br>');
-}
 
-async function dnsResolve() {
-  const name = (document.getElementById('dns-resolve-name')?.value || '').trim();
-  const type = document.getElementById('dns-resolve-type')?.value || 'A';
-  const status = document.getElementById('dns-resolve-status');
-  const box = document.getElementById('dns-resolve-results');
-  if (!name) { toast('Enter a name to resolve', 'error'); return; }
-  if (status) status.textContent = 'Resolving…';
-  if (box) box.innerHTML = '';
-  const data = await api('GET', `/dns/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`);
-  if (!data || data.error) { if (status) status.textContent = (data && data.error) || 'Resolution failed'; return; }
-  if (status) status.textContent = '';
-  const authRows = (data.authoritative || []).map(r =>
-    `<tr><td class="fw-500">${escHtml(r.ns)}<div class="hint">${escHtml(r.ip)}</div></td><td>${_dnsAnswerList(r.answers, r.error)}</td></tr>`).join('')
-    || '<tr><td colspan="2" class="hint">No authoritative nameservers found.</td></tr>';
-  const pubRows = (data.public || []).map(r =>
-    `<tr><td class="fw-500">${escHtml(r.resolver)}<div class="hint">${escHtml(r.ip)}</div></td><td>${_dnsAnswerList(r.answers, r.error)}</td></tr>`).join('');
-  if (box) box.innerHTML =
-    `<div class="dns-resolve-grid">
-       <div class="dash-card"><div class="section-title">Authoritative · ${escHtml(data.name)} ${escHtml(data.type)}</div>
-         <div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Nameserver</th><th>Answer</th></tr></thead><tbody>${authRows}</tbody></table></div></div>
-       <div class="dash-card"><div class="section-title">Public resolvers</div>
-         <div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Resolver</th><th>Answer</th></tr></thead><tbody>${pubRows}</tbody></table></div></div>
-     </div>`;
-}
 
-async function dnsPropagation(name, type, expected) {
-  name = (name !== undefined ? name : (document.getElementById('dns-resolve-name')?.value || '')).trim();
-  type = type || document.getElementById('dns-resolve-type')?.value || 'A';
-  const status = document.getElementById('dns-resolve-status');
-  const box = document.getElementById('dns-resolve-results');
-  if (!name) { toast('Enter a name to check', 'error'); return; }
-  if (status) status.textContent = 'Checking propagation…';
-  if (box) box.innerHTML = '';
-  let url = `/dns/propagation?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`;
-  if (expected) url += `&expected=${encodeURIComponent(expected)}`;
-  const data = await api('GET', url);
-  if (!data || data.error) { if (status) status.textContent = (data && data.error) || 'Propagation check failed'; return; }
-  if (status) status.textContent = '';
-  const full = data.propagated === data.total;
-  const chipCls = full ? 'c-green' : (data.propagated ? 'c-amber' : 'c-red');
-  const rows = (data.resolvers || []).map(r =>
-    `<tr><td class="fw-500">${escHtml(r.resolver)}<div class="hint">${escHtml(r.ip)}</div></td>`
-    + `<td>${r.match ? '<span class="c-green">●</span>' : '<span class="c-muted">○</span>'}</td>`
-    + `<td>${_dnsAnswerList(r.answers, r.error)}</td></tr>`).join('');
-  if (box) box.innerHTML =
-    `<div class="dash-card">
-       <div class="section-title">Propagation · ${escHtml(data.name)} ${escHtml(data.type)}
-         <span class="${chipCls}">propagated ${data.propagated}/${data.total}</span></div>
-       ${data.expected ? `<div class="hint mb-8">Expecting: <code>${escHtml(data.expected)}</code></div>` : ''}
-       <div class="scrollable-table-wrap audit-scroll"><table><thead><tr><th>Resolver</th><th>Match</th><th>Answer</th></tr></thead><tbody>${rows}</tbody></table></div>
-     </div>`;
-}
 
 // Per-record "check propagation" — pre-fills the panel from the row and runs it
 // against that record's expected content (the "after an edit" workflow).
-function dnsCheckRecordProp(id) {
-  const rec = (_dnsRecords || []).find(r => String(r.id) === String(id));
-  if (!rec) return;
-  const nameEl = document.getElementById('dns-resolve-name');
-  const typeEl = document.getElementById('dns-resolve-type');
-  if (nameEl) nameEl.value = rec.name || '';
-  _dnsEnsureResolveTypes();
-  if (typeEl && rec.type) typeEl.value = rec.type;
-  dnsPropagation(rec.name || '', rec.type || 'A', rec.content || '');
-  document.getElementById('dns-resolve-results')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
 
 // ── v4.9.0 ResolutionMatters #3: resolver health monitor ────────────────────
-async function loadResolverHealth() {
-  const sel = document.getElementById('rslv-type');
-  if (sel && !sel.options.length) {
-    sel.innerHTML = _DNS_RESOLVE_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
-  }
-  const data = await api('GET', '/resolver-health/targets');
-  const tb = document.getElementById('rslv-tbody');
-  if (!tb || !data) return;
-  const rows = data.targets || [];
-  tb.innerHTML = rows.length ? rows.map(t => {
-    let status, cls;
-    if (!t.checked_at) { status = 'not checked'; cls = 'c-muted'; }
-    else if (t.down) { status = `Not resolving (${t.fail_count} fail / ${t.nxdomain_count} NXDOMAIN)`; cls = 'c-red'; }
-    else if (t.healthy === false) { status = `Degraded ${t.ok_count}/${t.total}`; cls = 'c-amber'; }
-    else { status = `Healthy ${t.ok_count}/${t.total}`; cls = 'c-green'; }
-    const lat = t.checked_at ? `${t.latency_ms || 0} ms<span class="hint"> · max ${t.max_latency_ms || 0}</span>` : '—';
-    const per = (t.per_resolver || []).map(r => {
-      const dot = r.status === 'ok' ? 'c-green' : (r.status === 'nxdomain' ? 'c-amber' : 'c-red');
-      const title = `${r.resolver} (${r.ip}): ${r.status}${r.error ? ' — ' + r.error : ''} · ${r.latency_ms}ms`;
-      return `<span class="${dot}" title="${escAttr(title)}">●</span>`;
-    }).join(' ') || '<span class="hint">—</span>';
-    const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
-    return `<tr><td class="fw-500">${escHtml(t.name)}${t.label ? `<div class="hint">${escHtml(t.label)}</div>` : ''}</td>`
-      + `<td>${escHtml(t.type || 'A')}</td><td class="${cls}">${status}</td>`
-      + `<td class="meta-sm-nm">${lat}</td><td>${per}</td><td class="meta-sm-nm">${escHtml(when)}</td>`
-      + `<td><button class="btn-icon cell-sm" data-action="resolverHealthDelete" data-arg="${escAttr(t.id)}" title="Stop monitoring this name">Remove</button></td></tr>`;
-  }).join('') : '<tr><td colspan="7" class="hint">No names monitored yet. Add one to watch its resolution health.</td></tr>';
-}
 
-async function resolverHealthAdd() {
-  const name = (document.getElementById('rslv-name')?.value || '').trim();
-  const type = document.getElementById('rslv-type')?.value || 'A';
-  const label = (document.getElementById('rslv-label')?.value || '').trim();
-  if (!name) { toast('Enter a name to monitor', 'error'); return; }
-  const r = await api('POST', '/resolver-health/targets', { name, type, label });
-  if (r && r.ok) {
-    toast('Monitoring — checking…', 'success');
-    const n = document.getElementById('rslv-name'); if (n) n.value = '';
-    const l = document.getElementById('rslv-label'); if (l) l.value = '';
-    await resolverHealthScan();
-  } else toast((r && r.error) || 'Could not add', 'error');
-}
 
-async function resolverHealthScan() {
-  const status = document.getElementById('rslv-status');
-  if (status) status.textContent = 'Checking…';
-  const r = await api('POST', '/resolver-health/scan', {});
-  if (status) status.textContent = '';
-  if (r && r.ok) { toast(`Checked ${r.scanned} name(s)`, 'success'); loadResolverHealth(); }
-  else toast((r && r.error) || 'Scan failed', 'error');
-}
 
-async function resolverHealthDelete(id) {
-  if (!await uiConfirm('Stop monitoring this name?')) return;
-  const r = await api('DELETE', '/resolver-health/targets/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Removed', 'info'); loadResolverHealth(); }
-  else toast((r && r.error) || 'Failed', 'error');
-}
 
-function _registerDnsTable() {
-  tableCtl.wireSortOnly('dns-thead', 'dns', _renderDnsRecords);
-}
 
-function _dnsCurrentProvider() {
-  const sel = document.getElementById('dns-provider');
-  const key = sel ? sel.value : '';
-  return _dnsProviders.find(p => p.key === key) || null;
-}
 
-function _dnsCurrentZone() {
-  const zsel = document.getElementById('dns-zone');
-  if (!zsel || !zsel.value) return null;
-  const opt = zsel.options[zsel.selectedIndex];
-  return { id: zsel.value, name: (opt && opt.dataset.name) || '' };
-}
 
-async function loadDnsZones() {
-  const prov = _dnsCurrentProvider();
-  const zsel = document.getElementById('dns-zone');
-  const tb = document.getElementById('dns-tbody');
-  const status = document.getElementById('dns-status');
-  if (zsel) zsel.innerHTML = '';
-  if (tb) tb.innerHTML = '';
-  if (!prov) return;
-  if (!prov.creds_set && !prov.vault_set) {
-    if (status) status.textContent = prov.cred_hint || 'No API credentials configured for this provider.';
-    return;
-  }
-  // Vault-only creds need the vault unlocked to decrypt; give a clear hint
-  // instead of firing a request the server would reject with a 409.
-  if (prov.vault_set && !prov.creds_set && !_dnsVaultKey) {
-    if (status) status.textContent = `${prov.label} credentials are stored in the vault — unlock the vault above to load zones.`;
-    return;
-  }
-  if (status) status.textContent = 'Loading zones…';
-  const data = await api('GET', '/dns/zones?provider=' + encodeURIComponent(prov.key), undefined, _dnsExtra());
-  if (!data || data.error) {
-    if (status) status.textContent = (data && data.error) || 'Could not load zones.';
-    return;
-  }
-  const zones = data.zones || [];
-  if (zsel) zsel.innerHTML = zones.map(z =>
-    `<option value="${escAttr(String(z.id))}" data-name="${escAttr(z.name)}">${escHtml(z.name)}</option>`).join('');
-  if (status) status.textContent = zones.length ? `${zones.length} zone(s)` : 'No zones visible to this token.';
-  await loadDnsRecords();
-}
 
-async function loadDnsRecords() {
-  const prov = _dnsCurrentProvider();
-  const zone = _dnsCurrentZone();
-  const tb = document.getElementById('dns-tbody');
-  const status = document.getElementById('dns-status');
-  if (!prov || !zone) { if (tb) tb.innerHTML = ''; return; }
-  if (tb) tb.innerHTML = _skeletonRows(5);
-  const data = await api('GET', `/dns/records?provider=${encodeURIComponent(prov.key)}&zone=${encodeURIComponent(zone.id)}&zone_name=${encodeURIComponent(zone.name)}`, undefined, _dnsExtra());
-  if (!data || data.error) {
-    if (tb) tb.innerHTML = `<tr><td colspan="6" class="isl-533">${escHtml((data && data.error) || 'Failed to load records')}</td></tr>`;
-    return;
-  }
-  _dnsRecords = data.records || [];
-  if (status) status.textContent = `${zone.name} · ${_dnsRecords.length} record(s)`;
-  _renderDnsRecords();
-}
 
-function _renderDnsRecords() {
-  const tb = document.getElementById('dns-tbody');
-  if (!tb) return;
-  let rows = (_dnsRecords || []).slice();
-  rows = tableCtl.sortRows('dns', rows, r => ({
-    name: (r.name || '').toLowerCase(),
-    type: r.type || '',
-    content: (r.content || '').toLowerCase(),
-    ttl: r.ttl || 0,
-  }));
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="6" class="isl-533">No records in this zone.</td></tr>`; return; }
-  tb.innerHTML = rows.map(r => {
-    const flags = [];
-    if (r.proxied) flags.push('proxied');
-    if (r.priority !== null && r.priority !== undefined && r.priority !== '') flags.push('prio ' + escHtml(String(r.priority)));
-    const rid = escAttr(String(r.id));
-    return `<tr>
-      <td>${escHtml(r.name || '')}</td>
-      <td>${escHtml(r.type || '')}</td>
-      <td><code class="dns-content-cell" title="${escAttr(r.content || '')}">${escHtml(r.content || '')}</code></td>
-      <td>${escHtml(String(r.ttl || 0))}</td>
-      <td>${flags.join(' · ')}</td>
-      <td class="ta-right">
-        <button class="btn-icon" data-action="dnsCheckRecordProp" data-arg="${rid}" title="Check how far this record has propagated across public resolvers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg></button>
-        <button class="btn-icon" data-action="openDnsRecord" data-arg="${rid}">Edit</button>
-        <button class="btn-icon" data-action="deleteDnsRecord" data-arg="${rid}">Delete</button>
-      </td>
-    </tr>`;
-  }).join('');
-}
 
-function _dnsSyncModalFields() {
-  const t = (document.getElementById('dns-rec-type') || {}).value;
-  document.getElementById('dns-rec-prio-row').classList.toggle('d-none', !(t === 'MX' || t === 'SRV'));
-}
 
-function openDnsRecord(id) {
-  const prov = _dnsCurrentProvider();
-  const zone = _dnsCurrentZone();
-  if (!prov || !zone) { toast('Pick a provider and zone first', 'error'); return; }
-  const typeSel = document.getElementById('dns-rec-type');
-  typeSel.innerHTML = (prov.record_types || []).map(t => `<option value="${escAttr(t)}">${escHtml(t)}</option>`).join('');
-  document.getElementById('dns-record-zone').textContent = `${prov.label} · ${zone.name}`;
-  document.getElementById('dns-record-result').textContent = '';
-  document.getElementById('dns-rec-proxied-row').classList.toggle('d-none', !prov.supports_proxied);
-  document.getElementById('dns-rec-content-hint').textContent =
-    prov.key === 'desec' ? 'deSEC groups records into RRsets — one value per line; minimum TTL 3600.' : '';
-  let rec = null;
-  if (id !== undefined && id !== null && id !== '') {
-    rec = (_dnsRecords || []).find(r => String(r.id) === String(id)) || null;
-  }
-  _dnsEditId = rec ? rec.id : null;
-  document.getElementById('dns-record-title').textContent = rec ? 'Edit record' : 'New record';
-  typeSel.value = rec ? rec.type : (prov.record_types[0] || 'A');
-  document.getElementById('dns-rec-name').value = rec ? (rec.name || '') : '';
-  document.getElementById('dns-rec-content').value = rec ? (rec.content || '') : '';
-  document.getElementById('dns-rec-ttl').value = rec ? (rec.ttl || 0) : 0;
-  document.getElementById('dns-rec-prio').value = (rec && rec.priority != null) ? rec.priority : '';
-  document.getElementById('dns-rec-proxied').checked = !!(rec && rec.proxied);
-  _dnsSyncModalFields();
-  typeSel.onchange = _dnsSyncModalFields;
-  openModal('dns-record-modal');
-}
 
-async function dnsRecordSave() {
-  const prov = _dnsCurrentProvider();
-  const zone = _dnsCurrentZone();
-  if (!prov || !zone) return;
-  const result = document.getElementById('dns-record-result');
-  const rec = {
-    provider: prov.key, zone: zone.id, zone_name: zone.name,
-    type: document.getElementById('dns-rec-type').value,
-    name: document.getElementById('dns-rec-name').value.trim(),
-    content: document.getElementById('dns-rec-content').value.trim(),
-    ttl: parseInt(document.getElementById('dns-rec-ttl').value, 10) || 0,
-  };
-  const prio = document.getElementById('dns-rec-prio').value;
-  if (prio !== '') rec.priority = parseInt(prio, 10) || 0;
-  if (prov.supports_proxied) rec.proxied = document.getElementById('dns-rec-proxied').checked;
-  if (!rec.content) { if (result) result.textContent = 'Content is required.'; return; }
-  let r;
-  if (_dnsEditId !== null && _dnsEditId !== undefined) {
-    rec.id = _dnsEditId;
-    r = await api('POST', '/dns/records/update', rec, _dnsExtra());
-  } else {
-    r = await api('POST', '/dns/records', rec, _dnsExtra());
-  }
-  if (r && r.ok) { closeModal('dns-record-modal'); toast('Saved', 'success'); loadDnsRecords(); }
-  else if (result) result.textContent = (r && r.error) || 'Save failed';
-}
 
-async function deleteDnsRecord(id) {
-  const rec = (_dnsRecords || []).find(r => String(r.id) === String(id));
-  if (!rec) return;
-  if (!await uiConfirm({ title: 'Delete DNS record', message: `Permanently delete ${rec.type} ${rec.name || ''} (${rec.content || ''})? This changes live DNS immediately and can take services offline.`, confirmText: 'Delete', danger: true })) return;
-  const prov = _dnsCurrentProvider();
-  const zone = _dnsCurrentZone();
-  if (!prov || !zone) return;
-  const r = await api('POST', '/dns/records/delete', {
-    provider: prov.key, zone: zone.id, zone_name: zone.name,
-    id: rec.id, type: rec.type, name: rec.name,
-  }, _dnsExtra());
-  if (r && r.ok) { toast('Deleted', 'info'); loadDnsRecords(); }
-  else toast((r && r.error) || 'Delete failed', 'error');
-}
 
-async function loadDmarc() {
-  _registerDmarcTable();
-  const data = await api('GET', '/dmarc/targets');
-  if (data) tableCtl.render('dmarc', data || []);
-  loadReputation();
-  loadDmarcReports();
-}
 let _reputationResp = null;
-async function loadReputation() {
-  tableCtl.wireSortOnly('reputation-thead', 'reputation', () => _renderReputation());
-  const data = await api('GET', '/reputation/targets');
-  if (!data) return;
-  _reputationResp = data;
-  const dn = document.getElementById('reputation-dnsbls');
-  if (dn) dn.textContent = `Checking ${(data.dnsbls || []).length} blocklist(s): `
-    + (data.dnsbls || []).map(z => z.name).join(', ');
-  _renderReputation();
-}
-function _renderReputation() {
-  const data = _reputationResp;
-  if (!data) return;
-  const tb = document.getElementById('reputation-tbody');
-  if (!tb) return;
-  let rows = data.targets || [];
-  rows = tableCtl.sortRows('reputation', rows.slice(), t => ({
-    ip:         (t.ip || '').toLowerCase(),
-    label:      (t.label || '').toLowerCase(),
-    status:     t.error ? 0 : (t.listed_count || 0),
-    blocklists: t.listed_count || 0,
-    checked:    t.checked_at || 0,
-  }));
-  tb.innerHTML = rows.length ? rows.map(t => {
-    const errs = t.errors && typeof t.errors === 'object' ? t.errors : {};
-    const errCount = Object.keys(errs).length;
-    let status, cls;
-    if (t.error) { status = escHtml(t.error); cls = 'c-muted'; }
-    else if (!t.checked_at) { status = 'not checked'; cls = 'c-muted'; }
-    else if ((t.listed_count || 0) > 0) { status = `Listed on ${t.listed_count}`; cls = 'c-red'; }
-    // At this branch listed_count is 0 — the reachable blocklists found no listing
-    // (clean); we just couldn't reach `errCount` of them. Say so explicitly rather
-    // than a bare "Partial", which left "are the rest clean?" ambiguous.
-    else if (errCount) { status = `Clean — ${errCount} unreachable`; cls = 'c-amber'; }
-    else { status = 'Clean'; cls = 'c-green'; }
-    // Show each listing's return codes + the DNSBL's TXT reason (delisting URL) on
-    // hover. Both come from DNS, so escape them. Unreachable blocklists are surfaced
-    // as an amber chip rather than being folded into a false "Clean".
-    const listed = (t.listed_on || []).map(z => {
-      const codes = (z.codes || []).join(',');
-      const title = z.reason ? ` title="${escAttr(z.reason)}"` : '';
-      return `<span${title}>${escHtml(z.name)}${codes ? ' (' + escHtml(codes) + ')' : ''}</span>`;
-    });
-    if (errCount) {
-      const detail = Object.entries(errs).map(([z, m]) => z + ': ' + m).join('\n');
-      listed.push(`<span class="c-amber" title="${escAttr(detail)}">${errCount} unreachable</span>`);
-    }
-    const lists = listed.join(', ') || '<span class="c-muted">—</span>';
-    const when = t.checked_at ? new Date(t.checked_at * 1000).toLocaleString() : 'never';
-    return `<tr><td class="ff-mono fw-500">${escHtml(t.ip)}</td><td>${escHtml(t.label || '')}</td><td class="${cls}">${status}</td><td class="hint">${lists}</td><td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-action="deleteReputation" data-arg="${escAttr(t.id)}" title="Stop monitoring this IP">Remove</button></td></tr>`;
-  }).join('') : '<tr><td colspan="6" class="hint">No IPs monitored yet. Add one to watch its blocklist status.</td></tr>';
-}
-async function reputationAdd() {
-  const ip = await uiPrompt({ title: 'Add IP', message: "IPv4 address to monitor (e.g. your mail server's public IP):", confirmText: 'Add' });
-  if (!ip) return;
-  const label = await uiPrompt({ title: 'Label (optional)', message: 'A label for this IP (e.g. "mx1"), or leave blank:', confirmText: 'Add' });
-  const r = await api('POST', '/reputation/targets', { ip: ip.trim(), label: (label || '').trim() });
-  if (r && r.ok) { toast('IP added — checking…', 'success'); await reputationScan(); }
-  else toast((r && r.error) || 'Could not add IP', 'error');
-}
-async function reputationScan() {
-  toast('Checking blocklists…', 'info');
-  const r = await api('POST', '/reputation/scan', {});
-  if (r && r.ok) { toast(`Checked ${r.scanned} IP(s)`, 'success'); loadReputation(); }
-  else toast((r && r.error) || 'Scan failed', 'error');
-}
-async function deleteReputation(id) {
-  if (!await uiConfirm("Stop monitoring this IP's reputation?")) return;
-  const r = await api('DELETE', '/reputation/targets/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Removed', 'info'); loadReputation(); }
-  else toast((r && r.error) || 'Failed', 'error');
-}
 let _dmarcReportsResp = null;
-async function loadDmarcReports() {
-  tableCtl.wireSortOnly('dmarc-reports-thead', 'dmarc_reports', () => _renderDmarcReports());
-  tableCtl.wireSortOnly('dmarc-sources-thead', 'dmarc_sources', () => _renderDmarcSources());
-  const data = await api('GET', '/dmarc/reports');
-  if (!data) return;
-  _dmarcReportsResp = data;
-  const mb = data.mailbox || {};
-  const mbEl = document.getElementById('dmarc-mailbox');
-  if (mbEl) {
-    if (mb.error) mbEl.textContent = 'Mailbox: ' + mb.error;
-    else if (mb.checked_at) mbEl.textContent = `Mailbox: ${mb.messages || 0} messages, ${mb.unseen || 0} unseen — checked ${new Date(mb.checked_at * 1000).toLocaleString()}`;
-    else mbEl.textContent = 'Mailbox: not polled yet — configure IMAP and fetch.';
-  }
-  _renderDmarcReports();
-  _renderDmarcSources();
-}
-function _renderDmarcReports() {
-  if (!_dmarcReportsResp) return;
-  const rtb = document.getElementById('dmarc-reports-tbody');
-  if (!rtb) return;
-  let rows = _dmarcReportsResp.reports || [];
-  rows = tableCtl.sortRows('dmarc_reports', rows.slice(), r => {
-    const s = r.summary || {};
-    return {
-      reporter: (r.org_name || '').toLowerCase(),
-      domain:   (r.domain || '').toLowerCase(),
-      policy:   (r.policy || '').toLowerCase(),
-      window:   r.date_begin || 0,
-      messages: s.total || 0,
-      pass:     s.pass || 0,
-      fail:     s.fail || 0,
-    };
-  });
-  rtb.innerHTML = rows.length ? rows.map(r => {
-    const s = r.summary || {};
-    const win = r.date_begin ? `${new Date(r.date_begin * 1000).toLocaleDateString()} – ${new Date((r.date_end || r.date_begin) * 1000).toLocaleDateString()}` : '—';
-    const fail = s.fail || 0;
-    return `<tr><td>${escHtml(r.org_name || '—')}</td><td class="fw-500">${escHtml(r.domain || '')}</td><td>${escHtml(r.policy || '—')}</td><td class="hint">${win}</td><td>${s.total || 0}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td></tr>`;
-  }).join('') : '<tr><td colspan="7" class="hint">No reports ingested yet.</td></tr>';
-}
-function _renderDmarcSources() {
-  if (!_dmarcReportsResp) return;
-  const stb = document.getElementById('dmarc-sources-tbody');
-  if (!stb) return;
-  let rows = _dmarcReportsResp.sources || [];
-  rows = tableCtl.sortRows('dmarc_sources', rows.slice(), s => ({
-    ip:       (s.ip || '').toLowerCase(),
-    pass:     s.pass || 0,
-    fail:     s.fail || 0,
-    domains:  (s.domains || []).join(', ').toLowerCase(),
-    lastseen: s.last_seen || 0,
-  }));
-  stb.innerHTML = rows.length ? rows.map(s => {
-    const fail = s.fail || 0;
-    return `<tr><td class="ff-mono">${escHtml(s.ip || '')}</td><td class="c-green">${s.pass || 0}</td><td class="${fail > 0 ? 'c-red' : 'c-muted'}">${fail}</td><td class="hint">${escHtml((s.domains || []).join(', '))}</td><td class="meta-sm-nm">${s.last_seen ? new Date(s.last_seen * 1000).toLocaleDateString() : '—'}</td></tr>`;
-  }).join('') : '<tr><td colspan="5" class="hint">No sending sources seen yet.</td></tr>';
-}
-async function dmarcFetch() {
-  toast('Fetching reports from IMAP…', 'info');
-  const r = await api('POST', '/dmarc/fetch', {});
-  if (r && r.ok) { toast(`Ingested ${r.ingested || 0} report(s)`, 'success'); loadDmarcReports(); }
-  else toast((r && r.error) || 'Fetch failed — check IMAP settings', 'error');
-}
-async function dmarcClearReports() {
-  if (!await uiConfirm('Clear all ingested DMARC reports, sending sources and mailbox status? Your IMAP settings are kept; a later fetch re-ingests from scratch.')) return;
-  const r = await api('DELETE', '/dmarc/reports');
-  if (r && r.ok) { toast('Reports cleared', 'info'); loadDmarcReports(); }
-  else toast((r && r.error) || 'Clear failed', 'error');
-}
-async function dmarcImapOpen() {
-  const c = await api('GET', '/dmarc/imap');
-  if (!c) return;
-  document.getElementById('dmarc-imap-enabled').checked = !!c.enabled;
-  document.getElementById('dmarc-imap-host').value = c.host || '';
-  document.getElementById('dmarc-imap-port').value = c.port || 993;
-  document.getElementById('dmarc-imap-user').value = c.username || '';
-  const pwEl = document.getElementById('dmarc-imap-pass');
-  pwEl.value = '';
-  pwEl.placeholder = c.password_set ? 'Password (stored — blank keeps it)' : 'Password';
-  document.getElementById('dmarc-imap-folder').value = c.folder || 'INBOX';
-  document.getElementById('dmarc-imap-interval').value = c.interval || 900;
-  document.getElementById('dmarc-imap-ssl').checked = c.use_ssl !== false;
-  document.getElementById('dmarc-imap-verify').checked = c.verify_tls !== false;
-  openModal('dmarc-imap-modal');
-}
-async function dmarcImapSave() {
-  const body = {
-    enabled:  document.getElementById('dmarc-imap-enabled').checked,
-    host:     document.getElementById('dmarc-imap-host').value.trim(),
-    port:     parseInt(document.getElementById('dmarc-imap-port').value, 10) || 993,
-    username: document.getElementById('dmarc-imap-user').value,
-    folder:   document.getElementById('dmarc-imap-folder').value.trim() || 'INBOX',
-    interval: parseInt(document.getElementById('dmarc-imap-interval').value, 10) || 900,
-    use_ssl:  document.getElementById('dmarc-imap-ssl').checked,
-    verify_tls: document.getElementById('dmarc-imap-verify').checked,
-  };
-  const pw = document.getElementById('dmarc-imap-pass').value;
-  if (pw) body.password = pw;
-  const r = await api('POST', '/dmarc/imap', body);
-  if (r && r.ok) { toast('IMAP settings saved', 'success'); closeModal('dmarc-imap-modal'); loadDmarcReports(); }
-  else toast((r && r.error) || 'Save failed', 'error');
-}
-async function dmarcAdd() {
-  const domain = await uiPrompt({ title: 'Add domain', message: 'Domain to monitor (e.g. example.com):', confirmText: 'Add' });
-  if (!domain) return;
-  const selector = await uiPrompt({ title: 'DKIM selector (optional)', message: 'DKIM selector to check (e.g. "google", "default"), or leave blank:', confirmText: 'Add' });
-  const r = await api('POST', '/dmarc/targets', { domain: domain, dkim_selector: selector || '' });
-  if (r && r.ok) { toast('Domain added — checking…', 'success'); await dmarcScan(); }
-  else toast((r && r.error) || 'Could not add domain', 'error');
-}
-async function dmarcScan() {
-  toast('Checking DNS records…', 'info');
-  const r = await api('POST', '/dmarc/scan', {});
-  if (r && r.ok) { toast(`Scanned ${r.scanned} domain(s)`, 'success'); loadDmarc(); }
-  else toast((r && r.error) || 'Scan failed', 'error');
-}
-async function deleteDmarc(id) {
-  if (!await uiConfirm('Remove this domain from the DMARC monitor?')) return;
-  const r = await api('DELETE', '/dmarc/targets/' + encodeURIComponent(id));
-  if (r && r.ok) { toast('Removed', 'info'); loadDmarc(); }
-  else toast((r && r.error) || 'Failed', 'error');
-}
 
-async function loadThermal() {
-  const tbody = document.getElementById('thermal-tbody');
-  const summary = document.getElementById('thermal-summary');
-  if (!tbody) return;
-  tableCtl.wireSortOnly('thermal-thead', 'thermal', () => _renderThermal());
-  tbody.innerHTML = _skeletonRows(5);
-  try {
-    const data = await api('GET', '/fleet/thermal');
-    _thermalResp = data;
-    if (summary) summary.textContent = `${data.count} host${data.count === 1 ? '' : 's'} · ${data.hot} hot`;
-    _renderThermal();
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="9" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
-  }
-}
 // v5.0.0: hosts whose per-sensor breakdown row is expanded (survives re-sort).
 const _thermalExpanded = new Set();
-function toggleThermalDetail(id) {
-  if (_thermalExpanded.has(id)) _thermalExpanded.delete(id); else _thermalExpanded.add(id);
-  _renderThermal();
-}
-function _renderThermal() {
-  const tbody = document.getElementById('thermal-tbody');
-  if (!tbody || !_thermalResp) return;
-  // Server returns hosts hottest-first; sortRows preserves that until a column
-  // header is clicked.
-  let rows = (_thermalResp.hosts || []).slice();
-  rows = tableCtl.sortRows('thermal', rows, (r) => ({
-    device:       (r.device || '').toLowerCase(),
-    max_temp:     r.max_temp || 0,
-    sensor_label: (r.sensor_label || '').toLowerCase(),
-    sensor_type:  r.sensor_type || '',
-    crit_c:       (typeof r.crit_c === 'number') ? r.crit_c : 9999,
-    headroom:     (typeof r.headroom === 'number') ? r.headroom : 9999,
-    sensors:      r.sensors || 0,
-  }));
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="isl-534">No temperature sensors reported across the fleet. Hosts report CPU / disk temps via the agent hardware inventory.</td></tr>';
-    return;
-  }
-  const { rows: shown, note } = _capFleetRows(rows, 9, 'hosts');
-  tbody.innerHTML = shown.map(r => {
-    const cls = r.critical ? 'c-red fw-600' : r.hot ? 'c-amber fw-600' : '';
-    const t = (typeof r.max_temp === 'number') ? `${r.max_temp.toFixed(1)}°C` : '—';
-    const thr = (typeof r.crit_c === 'number') ? `${r.crit_c.toFixed(0)}°C` : '<span class="c-muted">—</span>';
-    let head = '<span class="c-muted">—</span>';
-    if (typeof r.headroom === 'number') {
-      const hc = r.headroom <= 5 ? 'c-red fw-600' : r.headroom <= 15 ? 'c-amber' : 'c-green';
-      head = `<span class="${hc}">${r.headroom.toFixed(1)}°C</span>`;
-    }
-    let lbl = escHtml(r.sensor_label || '—');
-    if (r.gpu) {  // GPU is the hottest sensor — show its fan/util/power
-      const bits = [];
-      if (typeof r.gpu.util_pct === 'number') bits.push(`${r.gpu.util_pct}% util`);
-      if (typeof r.gpu.fan_pct === 'number') bits.push(`${r.gpu.fan_pct}% fan`);
-      if (typeof r.gpu.power_w === 'number') bits.push(`${r.gpu.power_w}W`);
-      if (bits.length) lbl += ` <span class="hint">· ${escHtml(bits.join(' · '))}</span>`;
-    }
-    // Trend sparkline — hottest reading over ~4h; coloured by current state.
-    const sparkColor = r.critical ? 'var(--red)' : r.hot ? 'var(--amber)' : 'var(--green)';
-    const spark = (Array.isArray(r.trend) && r.trend.length >= 2)
-      ? renderSparkline(r.trend, {width: 110, height: 20, color: sparkColor, fill: true})
-      : '<span class="c-muted">—</span>';
-    const open = _thermalExpanded.has(r.device_id);
-    const caret = `<button class="btn-icon thermal-expand" data-action="toggleThermalDetail" data-arg="${escAttr(r.device_id)}" aria-expanded="${open ? 'true' : 'false'}" title="${open ? 'Hide' : 'Show'} all sensors"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${open ? 'rot-180' : ''}"><polyline points="6 9 12 15 18 9"/></svg> ${r.sensors || 0}</button>`;
-    const main = `<tr>
-      <td class="fw-500">${escHtml(r.device)}</td>
-      <td class="${cls}">${t}</td>
-      <td>${lbl}</td>
-      <td class="hint">${escHtml(r.sensor_type || '—')}</td>
-      <td class="hint">${thr}</td>
-      <td>${head}</td>
-      <td>${spark}</td>
-      <td class="hint">${caret}</td>
-      <td class="nowrap"><button class="btn-icon" data-action="openMetricThresholds" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Set warning / critical temperature thresholds">Thresholds</button></td>
-    </tr>`;
-    if (!open) return main;
-    // Expanded: every sensor on the host, hottest-first. Capped + scrolled so a
-    // host with many sensors never blows past the box.
-    const sensorRows = (r.detail || []).map(s => {
-      const sc = (typeof s.crit === 'number' && typeof s.temp === 'number')
-        ? (s.temp >= s.crit ? 'c-red fw-600' : (s.crit - s.temp) <= 10 ? 'c-amber' : '')
-        : '';
-      return `<tr>
-        <td>${escHtml(s.label || 'sensor')}</td>
-        <td class="${sc}">${(typeof s.temp === 'number') ? s.temp.toFixed(1) + '°C' : '—'}</td>
-        <td class="hint">${escHtml(s.type || '—')}</td>
-        <td class="hint">${(typeof s.crit === 'number') ? s.crit.toFixed(0) + '°C' : '—'}</td>
-      </tr>`;
-    }).join('');
-    const detail = `<tr class="thermal-detail-row"><td colspan="9">
-      <div class="scroll-cap-sm">
-        <table class="data-table w-full thermal-sensor-table">
-          <thead><tr><th>Sensor</th><th>Temp</th><th>Type</th><th>Critical</th></tr></thead>
-          <tbody>${sensorRows || '<tr><td colspan="4" class="hint">No per-sensor detail.</td></tr>'}</tbody>
-        </table>
-      </div>
-    </td></tr>`;
-    return main + detail;
-  }).join('') + note;
-}
 
 // ─── v3.14.0: SSH key audit ─────────────────────────────────────────────────
 let _sshKeysResp = null;
@@ -15097,33 +12103,9 @@ function _renderSshKeys() {
 
 // ─── v3.14.0: Fleet power / UPS + energy ────────────────────────────────────
 let _powerResp = null;
-async function loadPower() {
-  const tbody = document.getElementById('power-tbody');
-  if (!tbody) return;
-  tableCtl.wireSortOnly('power-thead', 'power', () => _renderPower());
-  tbody.innerHTML = _skeletonRows(6);
-  // restore the saved cost/kWh
-  try {
-    const saved = localStorage.getItem('rp_cost_kwh');
-    const inp = document.getElementById('power-cost-kwh');
-    if (saved && inp) inp.value = saved;
-  } catch (_) {}
-  try {
-    _powerResp = await api('GET', '/fleet/power');
-    _renderPower();
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
-  }
-  loadChargeback();   // v3.14.0 (#41): cost allocation card
-}
 function _costKwh() {
   const v = parseFloat(document.getElementById('power-cost-kwh')?.value);
   return (isFinite(v) && v >= 0) ? v : 0;
-}
-function renderPowerCost() {
-  try { localStorage.setItem('rp_cost_kwh', String(_costKwh())); } catch (_) {}
-  _renderPowerSummary();
-  _renderChargeback();
 }
 
 let _chargebackResp = null;
@@ -15159,70 +12141,9 @@ function _renderChargeback() {
   el.innerHTML = `<div class="hint mb-8">Fleet: ${t.hosts || 0} host(s) · ${t.watts || 0} W · ~${(t.kwh_month || 0)} kWh/mo · ~${((t.kwh_month || 0) * rate).toFixed(2)}/mo</div>`
     + `<div class="chargeback-grid">${grp}${tag}</div>`;
 }
-function _renderPowerSummary() {
-  const el = document.getElementById('power-summary');
-  if (!el || !_powerResp) return;
-  const w = _powerResp.total_watts || 0;
-  const perDay = (w / 1000) * 24 * _costKwh();
-  const ob = _powerResp.on_battery || 0;
-  el.textContent = `${_powerResp.count} host${_powerResp.count === 1 ? '' : 's'} · ${w} W`
-    + (w ? ` · ~${(perDay).toFixed(2)}/day · ~${(perDay * 30).toFixed(0)}/mo` : '')
-    + (ob ? ` · ${ob} on battery` : '');
-}
-function _renderPower() {
-  const tbody = document.getElementById('power-tbody');
-  if (!tbody || !_powerResp) return;
-  _renderPowerSummary();
-  let rows = (_powerResp.hosts || []).slice();
-  rows = tableCtl.sortRows('power', rows, (r) => ({
-    device: (r.device || '').toLowerCase(),
-    status: r.status || '',
-    battery_pct: r.battery_pct || 0,
-    load_pct: r.load_pct || 0,
-    runtime_s: r.runtime_s || 0,
-    watts: r.watts || 0,
-  }));
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No UPS or power data reported. Hosts report UPS status via NUT (upsc) or apcupsd; GPU power also counts.</td></tr>';
-    return;
-  }
-  const { rows: shown, note } = _capFleetRows(rows, 6, 'hosts');
-  tbody.innerHTML = shown.map(r => {
-    const rt = (typeof r.runtime_s === 'number' && r.runtime_s) ? `${Math.round(r.runtime_s / 60)} min` : '—';
-    const statusCell = r.ups
-      ? `<span class="${r.on_battery ? 'c-red fw-600' : 'c-green'}">${escHtml(r.status || '—')}</span>`
-      : '<span class="hint">no UPS</span>';
-    const wattsCell = r.watts != null
-      ? `${r.watts} W${r.watts_source === 'gpu' ? ' <span class="hint">(GPU)</span>' : ''}`
-      : '—';
-    return `<tr>
-      <td class="fw-500">${escHtml(r.device)}</td>
-      <td>${statusCell}</td>
-      <td class="ta-center ${(r.battery_pct != null && r.battery_pct < 50) ? 'c-amber' : ''}">${r.battery_pct != null ? r.battery_pct + '%' : '—'}</td>
-      <td class="ta-center">${r.load_pct != null ? r.load_pct + '%' : '—'}</td>
-      <td class="ta-center">${rt}</td>
-      <td class="ta-center">${wattsCell}</td>
-    </tr>`;
-  }).join('') + note;
-}
 
 // ─── v3.14.0: predictive disk-failure maintenance ──────────────────────────
 let _diskHealthResp = null;
-async function loadDiskHealth() {
-  const tbody = document.getElementById('disk-health-tbody');
-  const summary = document.getElementById('disk-health-summary');
-  if (!tbody) return;
-  tableCtl.wireSortOnly('disk-health-thead', 'diskhealth', () => _renderDiskHealth());
-  tableCtl.wireSortOnly('unstable-thead', 'unstablehosts', () => _renderUnstableHosts());
-  tbody.innerHTML = _skeletonRows(6);
-  try {
-    _diskHealthResp = await api('GET', '/fleet/disk-health');
-    if (summary) summary.innerHTML = `${_diskHealthResp.count} disk(s) at risk · <span class="${_diskHealthResp.critical > 0 ? 'c-red fw-600' : ''}">${_diskHealthResp.critical}</span> critical · <span class="${_diskHealthResp.high > 0 ? 'c-amber' : ''}">${_diskHealthResp.high}</span> high · ${_diskHealthResp.unstable_count || 0} unstable host(s)`;
-    _renderDiskHealth();
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
-  }
-}
 function _renderUnstableHosts() {
   const tbody = document.getElementById('unstable-tbody');
   const sub = document.getElementById('disk-health-unstable-sub');
@@ -15460,211 +12381,18 @@ async function _saveSwPolicy() {
   }
 }
 
-function _ensureDriftModal() {
-  if (_driftDeviceModal) return _driftDeviceModal;
-  const wrap = document.createElement('div');
-  wrap.className = 'modal-overlay';
-  wrap.id = 'drift-detail-modal';
-  wrap.innerHTML = `
-    <div class="modal isl-537">
-      <div class="modal-header row-between">
-        <div id="drift-detail-title" class="fw-600">Drift detail</div>
-        <button class="btn-icon isl-44" data-action="closeDriftDetail" >✕</button>
-      </div>
-      <div id="drift-detail-body" class="isl-538">
-        <div class="c-muted">Loading…</div>
-      </div>
-      <div class="isl-529">
-        <button class="btn-icon d-none" id="drift-accept-all" data-action="driftAcceptAll" >Accept all current as new baseline</button>
-        <div class="flex-1"></div>
-        <button class="btn-icon" data-action="closeDriftDetail" >Close</button>
-      </div>
-    </div>`;
-  document.body.appendChild(wrap);
-  _driftDeviceModal = wrap;
-  return wrap;
-}
 
 let _driftCurrentDevice = null;
 
-function closeDriftDetail() {
-  if (_driftDeviceModal) _driftDeviceModal.classList.remove('active');
-}
 
-async function openDriftDetail(devId, devName) {
-  _ensureDriftModal();
-  _driftDeviceModal.classList.add('active');
-  _driftCurrentDevice = {id: devId, name: devName};
-  document.getElementById('drift-detail-title').textContent = `Drift detail — ${devName}`;
-  const body = document.getElementById('drift-detail-body');
-  body.innerHTML = '<div class="c-muted">Loading…</div>';
-  document.getElementById('drift-accept-all').style.display = 'none';
 
-  try {
-    const data = await api('GET', `/devices/${encodeURIComponent(devId)}/drift`);
-    const files = data.files || {};
-    const watched = data.watched_files || [];
-    const fileKeys = Object.keys(files).sort();
-    window._driftDetail = {id: devId, name: devName, files};   // for aiExplainDrift
-
-    if (fileKeys.length === 0) {
-      body.innerHTML = `<div class="empty-p20">
-        No drift report received yet for this device.<br>
-        <span class="fs-12">The agent submits hashes for ${watched.length} watched ${watched.length === 1 ? 'file' : 'files'} every few heartbeats once the device has checked in.</span>
-      </div>`;
-      return;
-    }
-
-    const anyDrifted = fileKeys.some(p =>
-      files[p].current_hash !== files[p].baseline_hash);
-    if (anyDrifted) {
-      document.getElementById('drift-accept-all').style.display = 'flex';
-    }
-
-    // v3.13.0: explain where this device's watched list comes from.
-    const _srcLabel = {
-      'device-override': 'per-device override (set in the device drawer)',
-      'profile:device':  'drift profile (assigned to this device)',
-      'profile:tag':     'drift profile (assigned to a tag)',
-      'profile:group':   'drift profile (assigned to its group)',
-      'default':         'global default',
-      'disabled':        'drift disabled',
-    }[data.source] || data.source || '—';
-    const _srcText = _srcLabel + (data.profile ? ` — “${data.profile}”` : '');
-    let html = `<div class="isl-539">
-      Watched: ${watched.length} ${watched.length === 1 ? 'path' : 'paths'} · Reported: ${fileKeys.length}
-      <span class="hint"> · via ${escHtml(_srcText)}</span>
-      <button class="btn-secondary fs-12 ml-8" data-action="aiExplainDrift" title="AI: explain what changed and whether it's risky">${_icon('sparkles', 12)} Explain drift</button>
-    </div>`;
-
-    html += '<table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';
-
-    for (const p of fileKeys) {
-      const f = files[p];
-      const drifted = f.current_hash !== f.baseline_hash;
-      const missing = !f.exists;
-      const ignored = !!f.ignored;          // v2.3.4
-      const dormant = !!f.dormant;
-      const lastCheck = f.last_check ? new Date(f.last_check * 1000).toLocaleString() : '—';
-
-      // v2.3.4: an ignored file renders muted regardless of its
-      // underlying drift/missing state — it's been explicitly marked
-      // non-critical. Its real state is still shown in parentheses so
-      // the operator knows what they ignored.
-      let statusHtml;
-      if (ignored) {
-        const underlying = missing ? 'missing' : (drifted ? 'drifted' : 'baseline');
-        statusHtml = `<span class="c-muted">○ Ignored <span class="fs-10">(${underlying})</span></span>`;
-      } else if (missing) {
-        statusHtml = '<span class="c-red">● Missing</span>';
-      } else if (dormant) {
-        statusHtml = '<span class="c-muted">○ Dormant</span>';
-      } else if (drifted) {
-        statusHtml = '<span class="c-amber">● Drifted</span>';
-      } else {
-        statusHtml = '<span class="c-green">● Baseline</span>';
-      }
-
-      const acceptBtn = (drifted && !ignored)
-        ? `<button class="btn-icon isl-464" data-action="driftAcceptPath" data-arg="${escAttr(p)}" >Accept as baseline</button>`
-        : '';
-
-      // v2.3.4: per-file ignore toggle. Marking a file ignored makes
-      // it non-critical (drops out of drift/missing counts, no red
-      // status) — the fix for drift false positives like a watched
-      // file legitimately absent on this host.
-      const ignoreBtn = ignored
-        ? `<button class="btn-icon isl-541" data-action-btn="_driftSetIgnoreFalse" data-arg="${escAttr(p)}">Un-ignore</button>`
-        : `<button class="btn-icon isl-541" data-action-btn="_driftSetIgnoreTrue" data-arg="${escAttr(p)}">Ignore</button>`;
-
-      const DENYLIST = new Set(['/etc/shadow','/etc/gshadow','/etc/shadow-','/etc/gshadow-']);
-      const isDenylist = DENYLIST.has(p);
-      const diffBtn = (drifted && !missing && !isDenylist && !ignored)
-        ? `<button class="btn-icon isl-541" data-action="openDriftDiff" data-arg="${escAttr(_driftCurrentDevice.id)}" data-arg2="${escAttr(p)}" >Show diff</button>`
-        : (isDenylist
-          ? `<span title="Content retrieval refused for sensitive files" class="isl-542">no content</span>`
-          : '');
-
-      const rowStyle = ignored
-        ? 'border-bottom:1px solid var(--border);opacity:0.55'
-        : 'border-bottom:1px solid var(--border)';
-      html += `<tr class="isl-543">
-        <td class="isl-544">${escHtml(p)}</td>
-        <td class="cell-pad">${statusHtml}</td>
-        <td class="isl-545">${lastCheck}</td>
-        <td class="cell-pad">${f.drift_count || 0}</td>
-        <td class="isl-546">${diffBtn}${ignoreBtn}${acceptBtn}</td>
-      </tr>`;
-      if (ignored && f.ignore_reason) {
-        html += `<tr class="isl-547"><td colspan="5" class="isl-548">Ignore reason: ${escHtml(f.ignore_reason)}</td></tr>`;
-      }
-
-      if (drifted && f.history && f.history.length > 0) {
-        html += `<tr><td colspan="5" class="isl-549"><details><summary class="isl-550">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
-          <div class="isl-551">
-          ${f.history.slice().reverse().slice(0, 10).map(h =>
-            `${new Date(h.ts * 1000).toLocaleString()}: ${(h.hash || '').substring(0, 24)}… ${h.exists === false ? ' [missing]' : ''}`
-          ).join('<br>')}
-          </div></details></td></tr>`;
-      }
-    }
-    html += '</tbody></table>';
-
-    body.innerHTML = html;
-  } catch (e) {
-    body.innerHTML = `<div class="c-red-p20">Failed to load: ${escHtml(String(e))}</div>`;
-  }
-}
-
-async function driftAcceptPath(path) {
-  if (!_driftCurrentDevice) return;
-  if (!await uiConfirm(`Accept current hash as new baseline for:\n${path}\n\nFuture changes from this hash will count as drift.`)) return;
-  try {
-    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
-              {paths: [path]});
-    toast('Baseline updated', 'success');
-    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
-  } catch (e) {
-    toast('Failed: ' + e, 'error');
-  }
-}
 
 // v2.3.4: mark a watched file as ignored (or un-ignore it). An
 // ignored file is non-critical — it drops out of the drift / missing
 // counts and stops driving a red status, but stays visible in this
 // detail view. Used to silence drift false positives, e.g. a watched
 // file that's legitimately absent on a particular host.
-async function driftSetIgnore(path, ignored) {
-  if (!_driftCurrentDevice) return;
-  let reason = '';
-  if (ignored) {
-    reason = await uiPrompt({title: 'Ignore drift',
-      message: `Ignore drift for ${path}. Optional reason (why this is expected):`,
-      placeholder: 'reason (optional)', confirmText: 'Ignore'});
-    if (reason === null) return;   // operator cancelled
-  }
-  try {
-    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/ignore`,
-              {path: path, ignored: ignored, reason: reason || ''});
-    toast(ignored ? 'File ignored' : 'File no longer ignored', 'success');
-    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
-  } catch (e) {
-    toast('Failed: ' + e, 'error');
-  }
-}
 
-async function driftAcceptAll() {
-  if (!_driftCurrentDevice) return;
-  if (!await uiConfirm('Accept current hashes as new baseline for all drifted files on this device?\n\nFuture changes from these new baselines will count as drift.')) return;
-  try {
-    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
-              {all: true});
-    toast('All drifted baselines updated', 'success');
-    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
-  } catch (e) {
-    toast('Failed: ' + e, 'error');
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // v2.2.1 — Design polish JS infrastructure
@@ -17688,86 +14416,14 @@ async function _renderHomeFleet(devs) {
 
 window._aiConfigCache = null;
 
-async function _getAiConfigCached() {
-  if (window._aiConfigCache !== null) return window._aiConfigCache;
-  try {
-    const cfg = await api('GET', '/ai/config');
-    if (cfg && cfg.enabled && cfg.provider) {
-      // Local providers: ollama, localai, lmstudio, anything with a base_url
-      // pointing to 127.0.0.1 / 10.* / 192.168.* / local hostnames.
-      const provider = (cfg.provider || '').toLowerCase();
-      const url = (cfg.base_url || '').toLowerCase();
-      const isLocal = ['ollama', 'localai', 'lmstudio', 'llama.cpp'].includes(provider) ||
-                      /127\.0\.0\.1|localhost|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\./.test(url);
-      window._aiConfigCache = {enabled: true, isLocal};
-    } else {
-      window._aiConfigCache = {enabled: false, isLocal: false};
-    }
-  } catch (e) {
-    window._aiConfigCache = {enabled: false, isLocal: false};
-  }
-  return window._aiConfigCache;
-}
 
-async function applyAiIdentity() {
-  // v5.0.0: don't fetch /api/ai/config before login — the body MutationObserver
-  // fires this on the login screen (401 in console). It re-fires post-login when
-  // showApp() mutates the DOM, so the AI identity still applies once authed.
-  if (!getToken()) return;
-  const cfg = await _getAiConfigCached();
-  if (!cfg.enabled) return;
-  // v3.3.0: was a text.indexOf('AI') sniff. Emoji are gone from the UI,
-  // so we detect AI buttons by the action name pattern instead. Every
-  // AI button's data-action / data-action-btn starts with "ai" or
-  // contains "aiExplain" / "aiTriage" / "aiPrioritise" / etc., or
-  // explicitly carries data-ai-btn="1". Idempotent — adding a class
-  // twice is a no-op.
-  const AI_ACTION_RX = /^(ai[A-Z]|_ai[A-Z]|scriptEditorAI|aiGenerateRunbook|aiInvestigate|aiViewRunbook|testAIConnection|csGenerateWithAI)/;
-  document.querySelectorAll('button, .btn-icon').forEach(btn => {
-    const act = btn.dataset.action || btn.dataset.actionBtn || '';
-    if (btn.dataset.aiBtn === '1' || AI_ACTION_RX.test(act)) {
-      btn.classList.add('ai-btn');
-      btn.classList.add(cfg.isLocal ? 'local' : 'available');
-    }
-  });
-}
 
 // Hook into MutationObserver so any newly rendered content gets the
 // treatment without callers having to remember to call applyAiIdentity.
 // Throttled: at most once per 400ms, since renders can be bursty.
-(function _setupAiIdentityObserver() {
-  let pending = false;
-  const trigger = () => {
-    if (pending) return;
-    pending = true;
-    setTimeout(() => {
-      pending = false;
-      applyAiIdentity().catch(() => {});
-    }, 400);
-  };
-  // Wait for DOM ready before attaching the observer
-  const attach = () => {
-    if (document.readyState !== 'loading' && document.body) {
-      new MutationObserver(trigger).observe(document.body, {
-        childList: true, subtree: true,
-      });
-      // Initial application
-      applyAiIdentity().catch(() => {});
-    } else {
-      setTimeout(attach, 50);
-    }
-  };
-  attach();
-})();
 
 // Helper: render the three-sparkle "thinking" indicator for AI loading
 // states. Replaces the generic spinner in AI-aware modals.
-function aiThinkingHtml() {
-  // v3.3.0: emoji sparkle replaced with three pulsing dots that animate
-  // via existing .sparkle-dot CSS (defined alongside .sparkle's
-  // animation, fallback works without the CSS update).
-  return '<span class="ai-thinking"><span class="sparkle">·</span><span class="sparkle">·</span><span class="sparkle">·</span></span>';
-}
 
 // ─── v2.2.1: helper used by per-row hover affordances ───────────────────
 //
@@ -17885,182 +14541,13 @@ document.addEventListener('click', e => {
 
 let _driftDiffModal = null;
 
-function _ensureDriftDiffModal() {
-  if (_driftDiffModal) return _driftDiffModal;
-  const wrap = document.createElement('div');
-  wrap.className = 'modal-overlay';
-  wrap.id = 'drift-diff-modal';
-  wrap.style.zIndex = '1100';  // v2.2.6: nested-modal tier — above the
-                               // base drift detail modal (1000)
-  wrap.innerHTML = `
-    <div class="modal isl-561">
-      <div class="modal-header row-between">
-        <div>
-          <div id="drift-diff-title" class="fw-600">Drift diff</div>
-          <div id="drift-diff-path" class="isl-562"></div>
-        </div>
-        <button class="btn-icon isl-44" data-action="closeDriftDiff" >✕</button>
-      </div>
-      <div id="drift-diff-body" class="isl-538">
-        <div class="c-muted">Loading…</div>
-      </div>
-      <div class="isl-529">
-        <button class="btn-icon" id="drift-diff-fetch-btn" data-action="driftFetchCurrent" >Fetch current content</button>
-        <span id="drift-diff-status" class="hint"></span>
-        <div class="flex-1"></div>
-        <button class="btn-icon" data-action="closeDriftDiff" >Close</button>
-      </div>
-    </div>`;
-  document.body.appendChild(wrap);
-  _driftDiffModal = wrap;
-  return wrap;
-}
 
 let _driftDiffCurrent = null;
 let _driftDiffPollHandle = null;
 
-function closeDriftDiff() {
-  if (_driftDiffModal) _driftDiffModal.classList.remove('active');
-  if (_driftDiffPollHandle) {
-    clearInterval(_driftDiffPollHandle);
-    _driftDiffPollHandle = null;
-  }
-  _driftDiffCurrent = null;
-}
 
-async function openDriftDiff(devId, path) {
-  _ensureDriftDiffModal();
-  _driftDiffModal.classList.add('active');
-  _driftDiffCurrent = {devId, path, startedAt: Date.now()};
-  document.getElementById('drift-diff-title').textContent = 'Drift diff';
-  document.getElementById('drift-diff-path').textContent = path;
-  document.getElementById('drift-diff-status').textContent = '';
-  document.getElementById('drift-diff-fetch-btn').disabled = false;
-  await _refreshDriftDiff();
-}
 
-async function _refreshDriftDiff() {
-  if (!_driftDiffCurrent) return;
-  const {devId, path} = _driftDiffCurrent;
-  const body = document.getElementById('drift-diff-body');
-  try {
-    const data = await api('GET',
-      `/devices/${encodeURIComponent(devId)}/drift/content?path=${encodeURIComponent(path)}`);
-    if (!data) {
-      body.innerHTML = '<div class="c-red-p20">Failed to load captures.</div>';
-      return;
-    }
-    if (data.denied) {
-      body.innerHTML = `<div class="empty-state">
-        <div class="empty-state-icon">${_icon('lock',32)}</div>
-        <div class="empty-state-title">Content retrieval refused</div>
-        <div class="empty-state-body">${escHtml(data.error || 'Path is on the drift-content denylist.')}</div>
-      </div>`;
-      document.getElementById('drift-diff-fetch-btn').style.display = 'none';
-      return;
-    }
-    const captures = data.captures || [];
-    if (captures.length === 0) {
-      body.innerHTML = `<div class="empty-state">
-        <div class="empty-state-icon">○</div>
-        <div class="empty-state-title">No content captured yet</div>
-        <div class="empty-state-body">
-          Click <strong>Fetch current content</strong> to queue a <code>cat ${escHtml(path)}</code>
-          command on the device. After the agent's next heartbeat (typically within
-          ~60 seconds) the output arrives and is stored for the diff.
-          <br><br>
-          The first fetch becomes the baseline. A second fetch after another change
-          will give you a real before/after diff.
-        </div>
-      </div>`;
-    } else if (captures.length === 1) {
-      const c = captures[0];
-      const ts = new Date(c.ts * 1000).toLocaleString();
-      body.innerHTML = `
-        <div class="isl-563">
-          One capture so far · ${ts} · rc=${c.rc} · ${c.sha256.substring(0, 27)}…
-          <br>
-          Fetch again after another change to see a diff between the two captures.
-        </div>
-        <div class="diff-view">${c.content.split('\n').map((l, i) =>
-          `<div class="diff-line"><span class="ln">${i+1}</span><span class="marker"> </span>${escHtml(l)}</div>`
-        ).join('')}</div>`;
-    } else {
-      // ≥2 captures — diff the newest two
-      const newer = captures[captures.length - 1];
-      const older = captures[captures.length - 2];
-      const olderTs = new Date(older.ts * 1000).toLocaleString();
-      const newerTs = new Date(newer.ts * 1000).toLocaleString();
-      body.innerHTML = `
-        <div class="isl-564">
-          <div><span class="c-red">− Older</span> · ${olderTs} · rc=${older.rc}<br>
-            <code class="fs-10">${older.sha256.substring(0, 27)}…</code></div>
-          <div><span class="c-green">+ Newer</span> · ${newerTs} · rc=${newer.rc}<br>
-            <code class="fs-10">${newer.sha256.substring(0, 27)}…</code></div>
-        </div>
-        ${renderDiff(older.content, newer.content)}`;
-    }
-  } catch (e) {
-    body.innerHTML = `<div class="c-red-p20">Failed to load: ${escHtml(String(e))}</div>`;
-  }
-}
 
-async function driftFetchCurrent() {
-  if (!_driftDiffCurrent) return;
-  const {devId, path} = _driftDiffCurrent;
-  const fetchBtn = document.getElementById('drift-diff-fetch-btn');
-  const status   = document.getElementById('drift-diff-status');
-  fetchBtn.disabled = true;
-  status.textContent = 'Queued — waiting for agent…';
-  try {
-    const resp = await api('POST',
-      `/devices/${encodeURIComponent(devId)}/drift/fetch_content`,
-      {paths: [path]});
-    if (!resp || !resp.ok) {
-      status.textContent = 'Failed to queue fetch';
-      fetchBtn.disabled = false;
-      return;
-    }
-    if ((resp.denied || []).includes(path)) {
-      status.textContent = 'Denied: ' + path + ' is on the content denylist';
-      fetchBtn.style.display = 'none';
-      return;
-    }
-    if ((resp.not_watched || []).includes(path)) {
-      status.textContent = 'Path is not in the watched-files list for this device';
-      fetchBtn.disabled = false;
-      return;
-    }
-
-    // Poll until we have a new capture (or 90 s elapses). 5 s
-    // intervals — matches typical agent heartbeat granularity.
-    const startCaptures = await _captureCount(devId, path);
-    let attempts = 0;
-    const maxAttempts = 18;   // 18 × 5 s = 90 s
-    if (_driftDiffPollHandle) clearInterval(_driftDiffPollHandle);
-    _driftDiffPollHandle = setInterval(async () => {
-      attempts++;
-      const now = await _captureCount(devId, path);
-      if (now > startCaptures) {
-        clearInterval(_driftDiffPollHandle);
-        _driftDiffPollHandle = null;
-        status.textContent = 'Captured ✓';
-        fetchBtn.disabled = false;
-        _refreshDriftDiff();
-      } else if (attempts >= maxAttempts) {
-        clearInterval(_driftDiffPollHandle);
-        _driftDiffPollHandle = null;
-        status.textContent = 'Timed out — agent did not phone home in 90 s. Try again.';
-        fetchBtn.disabled = false;
-      } else {
-        status.textContent = `Queued — waiting for agent… (${attempts * 5}s)`;
-      }
-    }, 5000);
-  } catch (e) {
-    status.textContent = 'Error: ' + String(e);
-    fetchBtn.disabled = false;
-  }
-}
 
 async function _captureCount(devId, path) {
   try {
@@ -18087,61 +14574,9 @@ async function _captureCount(devId, path) {
 
 // Show/hide the Virtualization nav entry based on whether Proxmox is
 // configured. Called once at startup.
-async function refreshProxmoxNav() {
-  // v2.3.3: the Virtualization nav entry is now ALWAYS visible — it
-  // used to be hidden until Proxmox was enabled, which was a
-  // discoverability dead-end (you configure Proxmox in Settings, but
-  // couldn't find the feature without the nav entry). The
-  // Virtualization page itself handles the not-configured state with
-  // a "configure it under Settings -> Proxmox" message. This function
-  // is kept as a harmless no-op so existing call sites don't break.
-}
 
 // Render one guest (VM or LXC) as a card. `kind` is 'qemu' or 'lxc'
 // and decides which action endpoint the buttons hit.
-function _renderProxmoxGuest(g, kind) {
-  const running = (g.status || '').toLowerCase() === 'running';
-  const statusColor = running ? 'var(--green)'
-                     : (g.status === 'paused' ? 'var(--amber)' : 'var(--muted)');
-  // Resource line — only when the guest is running and reported values
-  const res = [];
-  if (g.cpu_percent != null) res.push(`CPU ${g.cpu_percent}%`);
-  if (g.mem_percent != null) res.push(`MEM ${g.mem_percent}%`);
-  const resLine = (running && res.length)
-    ? `<div class="isl-572">${res.join('  ·  ')}</div>`
-    : '';
-  const upLine = (running && g.uptime)
-    ? `<span class="meta-sm-nm">up ${_fmtDuration(g.uptime)}</span>`
-    : '';
-  // Actions: start when stopped, graceful shutdown when running.
-  // `stop` (hard) is intentionally not exposed in the UI.
-  const ep = kind === 'qemu' ? 'qemu' : 'lxc';
-  const actions = `
-    <div class="isl-458">
-      ${!running ? `<button class="btn-icon badge-sm" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="start" data-arg4="${escAttr(g.name)}">Start</button>` : ''}
-      ${running  ? `<button class="btn-icon isl-573" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="shutdown" data-arg4="${escAttr(g.name)}">Shutdown</button>` : ''}
-      <button class="btn-icon badge-sm" data-action="openSnapshots" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}">Snapshots</button>
-      ${window._proxmoxLifecycle && running ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="reboot" data-arg4="${escAttr(g.name)}">Reboot</button>` : ''}
-      ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="migrate" data-arg4="${escAttr(g.name)}">Migrate</button>` : ''}
-      ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="clone" data-arg4="${escAttr(g.name)}">Clone</button>` : ''}
-      ${ep === 'lxc' ? `<button class="btn-icon badge-sm btn-danger-soft" data-action="lxcDeleteOpen" data-arg="${g.vmid}" data-arg2="${escAttr(g.name)}" title="Delete this container">Delete</button>` : ''}
-    </div>`;
-  return `<div class="isl-460">
-    <div class="isl-461">
-      <div class="fw-600">
-        <span class="isl-574">${g.vmid}</span>
-        ${escHtml(g.name)}
-        ${g.tags ? `<span class="isl-575">${escHtml(g.tags)}</span>` : ''}
-      </div>
-      <div class="row-8-center">
-        ${upLine}
-        <span class="isl-576" data-color="${statusColor}">${escHtml(g.status || '?')}</span>
-      </div>
-    </div>
-    ${resLine}
-    ${actions}
-  </div>`;
-}
 
 // v3.14.0 #48: poll an agentless host's metrics over SSH (uses the global key).
 async function sshPollDevice(devId) {
@@ -18153,29 +14588,6 @@ async function sshPollDevice(devId) {
 
 // v3.14.0 #33: destructive VM/CT lifecycle. reboot is one-shot; migrate/clone
 // collect a target/newid; everything confirms first.
-async function proxmoxLifecycle(guestType, vmid, action, name) {
-  const params = {};
-  if (action === 'migrate') {
-    const target = await uiPrompt({ title: `Migrate ${name} (#${vmid})`,
-      message: 'Target node to migrate to:', confirmText: 'Migrate', danger: true });
-    if (!target) return;
-    params.target = target.trim(); params.online = true;
-  } else if (action === 'clone') {
-    const newid = await uiPrompt({ title: `Clone ${name} (#${vmid})`,
-      message: 'New VMID for the clone (must be unused):', confirmText: 'Clone' });
-    if (!newid) return;
-    params.newid = parseInt(newid.trim(), 10);
-    if (!(params.newid > 0)) { toast('VMID must be a number', 'error'); return; }
-  } else {
-    if (!await uiConfirm(`${action} ${name} (#${vmid})? This acts directly on the VM.`)) return;
-  }
-  const r = await api('POST', '/proxmox/lifecycle',
-    { guest_type: guestType, vmid, action, params }).catch(() => null);
-  if (r?.approval_required) toast('Parked — a second admin must approve it', 'info');
-  else if (r?.ok) toast(`${action} requested${r.task ? ' (task ' + String(r.task).slice(-8) + ')' : ''}`, 'success');
-  else { toast(r?.error || `${action} failed`, 'error'); return; }
-  setTimeout(loadVirtualization, 1500);
-}
 
 function _fmtDuration(secs) {
   secs = parseInt(secs, 10) || 0;
@@ -18254,36 +14666,6 @@ function filterVirtualization() {
 
 // Load + render the LXC section on the Containers page.
 // focused=true: user navigated directly here — show a hint instead of hiding.
-async function loadProxmoxLXC(focused = false) {
-  const section = document.getElementById('containers-lxc-section');
-  const body = document.getElementById('containers-lxc-body');
-  if (!section || !body) return;
-  let data;
-  try {
-    data = await api('GET', '/proxmox/lxc');
-  } catch (_) {
-    if (!focused) section.style.display = 'none';
-    else body.innerHTML = '<p class="hint">Unable to reach the Proxmox API. Check <strong>Admin → Settings → Proxmox</strong>.</p>';
-    return;
-  }
-  if (!data || !data.enabled || !data.configured) {
-    if (!focused) {
-      section.style.display = 'none';
-    } else {
-      body.innerHTML = '<p class="hint">Proxmox is not configured. Go to <strong>Admin → Settings → Proxmox</strong> to connect your node.</p>';
-    }
-    return;
-  }
-  section.style.display = 'block';
-  const guests = data.guests || [];
-  if (!guests.length) {
-    body.innerHTML = '<div class="table-card isl-580">No LXC containers on the Proxmox node.</div>';
-    return;
-  }
-  body.innerHTML = `<div class="table-card isl-579">
-    ${guests.map(g => _renderProxmoxGuest(g, 'lxc')).join('')}
-  </div>`;
-}
 
 // v3.4.0: LXC create wizard. Opens the modal, pulls options from Proxmox
 // (templates / storages / bridges / next vmid), then POSTs the create.
@@ -18429,22 +14811,6 @@ async function submitVmCreate() {
 }
 
 // Perform a guest action then refresh whichever view is showing.
-async function proxmoxAction(kind, vmid, action, name) {
-  const verb = action === 'shutdown' ? 'Shut down' : 'Start';
-  if (!await uiConfirm(`${verb} ${kind.toUpperCase()} ${vmid} (${name})?`)) return;
-  try {
-    await api('POST', `/proxmox/${kind}/${vmid}/${action}`, {});
-    toast(`${verb} sent to ${name}`, 'success');
-    // Proxmox actions are async on its side — give it a moment, then
-    // refresh the relevant view.
-    setTimeout(() => {
-      if (kind === 'qemu') loadVirtualization();
-      else loadProxmoxLXC();
-    }, 1500);
-  } catch (e) {
-    toast(`Action failed: ${e.message || String(e)}`, 'error');
-  }
-}
 
 // v3.4.0: LXC delete — type-to-confirm, auto-stop, no purge.
 let _lxcDelPending = null;
@@ -18497,52 +14863,8 @@ async function confirmLxcDelete() {
 // Collect the Proxmox form fields into a config payload. The token
 // secret is only included when the operator typed something — a blank
 // field means "keep the saved secret" (same convention as SMTP).
-function _collectProxmoxForm() {
-  const payload = {
-    proxmox_enabled:    document.getElementById('proxmox-enabled').value === '1',
-    proxmox_host:       document.getElementById('proxmox-host').value.trim(),
-    proxmox_node:       document.getElementById('proxmox-node').value.trim(),
-    proxmox_token_id:   document.getElementById('proxmox-token-id').value.trim(),
-    proxmox_verify_tls: document.getElementById('proxmox-verify-tls').value === '1',
-    proxmox_lifecycle_enabled: !!document.getElementById('cfg-proxmox-lifecycle')?.checked,   // v3.14.0 #33
-  };
-  const secret = document.getElementById('proxmox-token-secret').value;
-  if (secret) payload.proxmox_token_secret = secret;
-  return payload;
-}
 
-async function saveProxmoxSettings() {
-  try {
-    await api('POST', '/config', _collectProxmoxForm());
-    toast('Proxmox settings saved', 'success');
-    // Clear the secret field + refresh the masked placeholder state
-    document.getElementById('proxmox-token-secret').value = '';
-    refreshProxmoxNav();
-    loadSettings();
-  } catch (e) {
-    toast(`Save failed: ${e.message || String(e)}`, 'error');
-  }
-}
 
-async function testProxmoxConnection() {
-  const resultEl = document.getElementById('proxmox-test-result');
-  resultEl.textContent = 'Testing…';
-  resultEl.style.color = 'var(--muted)';
-  try {
-    // Send the current form values so Test works before Save.
-    const r = await api('POST', '/proxmox/test', _collectProxmoxForm());
-    if (r && r.ok) {
-      resultEl.textContent = '✓ ' + (r.message || 'Connected');
-      resultEl.style.color = 'var(--green)';
-    } else {
-      resultEl.textContent = '✗ ' + ((r && r.message) || 'Connection failed');
-      resultEl.style.color = 'var(--red)';
-    }
-  } catch (e) {
-    resultEl.textContent = '✗ ' + (e.message || String(e));
-    resultEl.style.color = 'var(--red)';
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // v2.4.0 — Proxmox snapshots
@@ -19608,63 +15930,8 @@ let _backupMonitors = [];
 // (Add button morphs into Save and replaces the row at that index).
 let _backupEditIdx = -1;
 
-function renderBackupMonitors(monitors) {
-  _backupMonitors = monitors || [];
-  const el = document.getElementById('backup-monitors-list');
-  if (!el) return;
-  // Refresh the Add/Save button label to reflect current mode
-  const addBtn = document.querySelector('[data-action="addBackupMonitor"]');
-  if (addBtn) addBtn.textContent = _backupEditIdx >= 0 ? 'Save' : 'Add';
-  if (!_backupMonitors.length) {
-    el.innerHTML = '<div class="isl-616">No backup monitors configured.</div>';
-    return;
-  }
-  el.innerHTML = _backupMonitors.map((m, i) => `
-    <div class="isl-617">
-      <span class="isl-618"><code>${escHtml(m.path)}</code></span>
-      <span class="hint">${escHtml(m.label||m.path)}</span>
-      <span class="cmd-badge">${m.max_age_hours}h</span>
-      ${m.verify_enabled ? '<span class="cmd-badge" title="integrity verification enabled">verify</span>' : ''}
-      <button class="btn-icon" data-action="editBackupMonitor" data-arg="${i}">Edit</button>
-      <button class="btn-icon c-red" data-action="removeBackupMonitor" data-arg="${i}">✕</button>
-    </div>`).join('');
-}
 
-function editBackupMonitor(idx) {
-  const m = _backupMonitors[idx];
-  if (!m) return;
-  document.getElementById('bm-path').value  = m.path  || '';
-  document.getElementById('bm-label').value = m.label || '';
-  document.getElementById('bm-hours').value = String(m.max_age_hours || 24);
-  const _bv = document.getElementById('bm-verify'); if (_bv) _bv.checked = !!m.verify_enabled;
-  _backupEditIdx = idx;
-  renderBackupMonitors(_backupMonitors);  // re-render so the button flips to "Save"
-  document.getElementById('bm-path').focus();
-}
 
-async function addBackupMonitor() {
-  const path  = document.getElementById('bm-path').value.trim();
-  const label = document.getElementById('bm-label').value.trim();
-  const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
-  if (!path) { toast('Path required', 'error'); return; }
-  const verify = !!document.getElementById('bm-verify')?.checked;
-  const entry = {path, label: label || path, max_age_hours: hours, tool: 'auto', verify_enabled: verify};
-  if (_backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length) {
-    _backupMonitors[_backupEditIdx] = entry;
-  } else {
-    _backupMonitors.push(entry);
-  }
-  const wasEdit = _backupEditIdx >= 0;
-  const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
-  if (r?.ok) {
-    toast(wasEdit ? 'Backup monitor updated' : 'Backup monitor added', 'success');
-    document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
-    document.getElementById('bm-hours').value = '24';
-    const _bvr = document.getElementById('bm-verify'); if (_bvr) _bvr.checked = false;
-    _backupEditIdx = -1;
-    renderBackupMonitors(_backupMonitors);
-  } else toast(r?.error || 'Failed', 'error');
-}
 
 // ─── v3.14.0 #32: cloud import accounts (AWS EC2) ──────────────────────────
 let _cloudAccounts = [];
@@ -19727,14 +15994,6 @@ async function runCloudImport() {
   } else { if (st) st.textContent = ''; toast(r?.error || 'Import failed', 'error'); }
 }
 
-async function removeBackupMonitor(idx) {
-  _backupMonitors.splice(idx, 1);
-  if (_backupEditIdx === idx) _backupEditIdx = -1;
-  else if (_backupEditIdx > idx) _backupEditIdx -= 1;
-  const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
-  if (r?.ok) { renderBackupMonitors(_backupMonitors); toast('Removed', 'info'); }
-  else toast('Failed', 'error');
-}
 
 // ─── v3.14.0 #36: watched-process CPU/memory thresholds ────────────────────
 // Same list-editor shape as backup monitors: add/remove rows, each POSTs the
@@ -21724,25 +17983,8 @@ function _renderDiagResult(kind, res) {
 
 let _aiInsightLastMd = '';
 
-function _openAiInsight(title) {
-  document.getElementById('ai-insight-title').textContent = title;
-  document.getElementById('ai-insight-body').innerHTML =
-    '<div class="empty-state">Generating… this calls the AI provider and may take a few seconds.</div>';
-  _aiInsightLastMd = '';
-  openModal('ai-insight-modal');
-}
 
-function _fillAiInsight(md) {
-  _aiInsightLastMd = md || '';
-  document.getElementById('ai-insight-body').innerHTML = renderMarkdown(md || '_No content returned._');
-}
 
-function aiInsightCopy() {
-  if (!_aiInsightLastMd) return;
-  navigator.clipboard?.writeText(_aiInsightLastMd)
-    .then(() => toast('Copied Markdown to clipboard', 'success'))
-    .catch(() => toast('Copy failed', 'error'));
-}
 
 // #3 runbook suggestion (per-device, RAG-aware). Triggered from the drawer,
 // or cross-linked from anomaly findings / SMART / forecast with a prefilled
@@ -21768,44 +18010,6 @@ async function deviceDocDraft(id, name) {
 }
 
 // #9 fleet anomaly scan (AI page).
-async function aiAnomalyScan() {
-  const btn = document.getElementById('ai-anomaly-btn');
-  const out = document.getElementById('ai-anomaly-results');
-  if (btn) btn.disabled = true;
-  out.innerHTML = '<div class="c-muted">Scanning the fleet…</div>';
-  const r = await api('POST', '/ai/anomaly', {});
-  if (btn) btn.disabled = false;
-  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
-  const items = r.anomalies || [];
-  if (!items.length) {
-    out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} device(s).</div>`;
-    return;
-  }
-  // Cross-feature: map the AI's device names back to ids so each finding can
-  // open that device's drawer or kick off a prefilled runbook.
-  _lastAnomalies = items;
-  _anomalyDevMap = {};
-  try {
-    const devs = await api('GET', '/devices');
-    (devs || []).forEach(d => { _anomalyDevMap[d.name] = d.id; });
-  } catch (_) {}
-  const sevCls = s => s === 'high' ? 'sev-critical' : s === 'medium' ? 'sev-medium' : 'sev-low';
-  out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} device(s)</div>` +
-    items.map((a, i) => {
-      const hasDev = !!_anomalyDevMap[a.device];
-      const devCell = hasDev
-        ? `<a class="anomaly-dev anomaly-link" data-action="anomalyOpenDevice" data-arg="${escAttr(a.device)}">${escHtml(a.device)}</a>`
-        : `<span class="anomaly-dev">${escHtml(a.device || '—')}</span>`;
-      return `<div class="anomaly-row">
-        <span class="anomaly-sev"><span class="sev-pill ${sevCls(a.severity)}">${escHtml(a.severity)}</span></span>
-        <div class="anomaly-main">
-          <div>${devCell} — ${escHtml(a.finding)}</div>
-          <div class="fs-12 c-muted">${escHtml(a.why)}</div>
-        </div>
-        ${hasDev ? `<button class="btn-icon fs-11 anomaly-act" data-action="anomalyRunbook" data-arg="${i}" title="AI runbook for this finding">${_icon('bookOpen',13)} Runbook</button>` : ''}
-      </div>`;
-    }).join('');
-}
 
 let _lastAnomalies = [];
 let _anomalyDevMap = {};
@@ -21824,34 +18028,7 @@ function anomalyRunbook(idx) {
 }
 
 // #10 cron builder (AI page).
-async function aiCronBuild() {
-  const input = document.getElementById('ai-cron-input');
-  const out = document.getElementById('ai-cron-result');
-  const desc = (input.value || '').trim();
-  if (!desc) { toast('Describe a schedule first', 'error'); return; }
-  const btn = document.getElementById('ai-cron-btn');
-  if (btn) btn.disabled = true;
-  out.innerHTML = '<div class="c-muted">Thinking…</div>';
-  const r = await api('POST', '/ai/cron', {description: desc});
-  if (btn) btn.disabled = false;
-  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
-  if (!r.valid) {
-    out.innerHTML = `<div class="c-amber">Couldn't build a valid expression: ${escHtml(r.explanation || r.error || '')}</div>`;
-    return;
-  }
-  const runs = (r.next_runs || []).map(ts => new Date(ts * 1000).toLocaleString());
-  out.innerHTML = `
-    <div class="cron-result-expr"><code>${escHtml(r.cron)}</code>
-      <button class="btn-icon fs-11" data-action="aiCronCopy" data-arg="${escAttr(r.cron)}">Copy</button></div>
-    <div class="fs-12 mt-4">${escHtml(r.explanation || '')}</div>
-    ${runs.length ? `<div class="fs-11 c-muted mt-6">Next runs:</div><ul class="cron-runs">${runs.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul>` : ''}`;
-}
 
-function aiCronCopy(expr) {
-  navigator.clipboard?.writeText(String(expr))
-    .then(() => toast('Cron expression copied', 'success'))
-    .catch(() => toast('Copy failed', 'error'));
-}
 
 // #5 network discovery aggregate (netmap page).
 async function loadDiscovery() {
@@ -21913,15 +18090,6 @@ function complianceFix(topic) {
 }
 
 // Cross-feature: "What changed" → Drift, pre-filtered to this device.
-function openDriftForDevice(name) {
-  const btn = document.querySelector('.nav-btn[data-page="drift"]');
-  showPage('drift', btn);
-  if (!name) return;
-  setTimeout(() => {
-    const f = document.getElementById('drift-filter');
-    if (f) { f.value = name; f.dispatchEvent(new Event('input', { bubbles: true })); }
-  }, 80);
-}
 
 // #14 compliance report (Compliance page).
 // ─── v3.4.0: Forecast page — fleet disk-fill projection + regression chart ───
@@ -23418,11 +19586,6 @@ loadDashboardSettings = async function() {
 };
 
 // CVE table button helper — stops propagation reliably then calls fn
-function _cveBtn(event, fn) {
-  event.stopPropagation();
-  event.preventDefault();
-  fn();
-}
 
 // ── v2.9.1: Global button press feedback ──────────────────────────────────────
 // Gives every button a tactile scale-down on click so the user always knows
@@ -23731,463 +19894,30 @@ let _iacLastRequestId = '';   // v3.0.0: kept so user can re-run AI or download 
 let _iacLastConvo     = null; // v3.0.0: full system+user+assistant for the Conversation tab
 let _iacPollTimer = null;
 
-async function loadIacPage() {
-  // Populate device dropdown
-  const devs = await api('GET', '/devices');
-  const sel  = document.getElementById('iac-device-select');
-  if (sel && Array.isArray(devs)) {
-    const stored = localStorage.getItem('rp_iac_last_device') || '';
-    sel.innerHTML = '<option value="">— select a device —</option>' +
-      devs.map(d => {
-        const status = d.online ? '● online' : '○ offline';
-        return `<option value="${escAttr(d.id)}" ${d.id===stored?'selected':''}>${escHtml(d.name)} (${status})</option>`;
-      }).join('');
-  }
 
-  // Render category checkboxes
-  // v3.0.1: default to NO categories selected. Previously all-on, which led
-  // to massive payloads on first run before the user realised they could
-  // narrow it down. Empty selection = user must pick at least one before
-  // Generate is enabled (validated in _iacRequestGenerate).
-  const storedCats = JSON.parse(localStorage.getItem('rp_iac_categories') || 'null');
-  const defaultCats = Array.isArray(storedCats) ? storedCats : [];
-  const list = document.getElementById('iac-categories');
-  if (list) {
-    list.innerHTML = IAC_CATEGORIES.map(c => `
-      <label class="iac-cat-row">
-        <input type="checkbox" value="${escAttr(c.key)}" ${defaultCats.includes(c.key)?'checked':''} data-change="_iacSavePref">
-        <span>${escHtml(c.label)}</span>
-        <span class="hint">${c.source}</span>
-      </label>`).join('');
-  }
 
-  // Restore format
-  const fmt = localStorage.getItem('rp_iac_format') || 'terraform';
-  const fmtSel = document.getElementById('iac-format-select');
-  if (fmtSel) fmtSel.value = fmt;
 
-  // Restore custom user instructions
-  const instr = localStorage.getItem('rp_iac_instructions') || '';
-  const instrEl = document.getElementById('iac-user-instructions');
-  if (instrEl) instrEl.value = instr;
-}
 
-function _iacSelectedCategories() {
-  return Array.from(document.querySelectorAll('#iac-categories input:checked')).map(i => i.value);
-}
 
-function _iacSelectAll(on) {
-  document.querySelectorAll('#iac-categories input[type=checkbox]').forEach(i => i.checked = on);
-  _iacSavePref();
-}
 
-function _iacSavePref() {
-  localStorage.setItem('rp_iac_categories', JSON.stringify(_iacSelectedCategories()));
-  const fmt = document.getElementById('iac-format-select')?.value;
-  if (fmt) localStorage.setItem('rp_iac_format', fmt);
-  const dev = document.getElementById('iac-device-select')?.value;
-  if (dev) localStorage.setItem('rp_iac_last_device', dev);
-  const instr = document.getElementById('iac-user-instructions')?.value;
-  if (instr != null) localStorage.setItem('rp_iac_instructions', instr);
-}
 
-function _iacStatus(msg, cls='') {
-  const el = document.getElementById('iac-status');
-  if (!el) return;
-  el.style.display = msg ? '' : 'none';
-  el.className = 'iac-status ' + cls;
-  el.textContent = msg;
-}
-
-async function iacGenerate(btn, withAi) {
-  // v3.0.1: withAi=false → skip the LLM call and just download the masked
-  // JSON state as soon as the agent collects it. Useful for inspecting what
-  // gets sent (or feeding into a different tool).
-  if (withAi === undefined) withAi = true;
-  const devId = document.getElementById('iac-device-select')?.value;
-  const fmt   = document.getElementById('iac-format-select')?.value;
-  const cats  = _iacSelectedCategories();
-
-  if (!devId)       { toast('Select a device first', 'error'); return; }
-  if (!cats.length) { toast('Select at least one category', 'error'); return; }
-  if (!fmt)         { toast('Select an output format', 'error'); return; }
-
-  // Check AI is configured before going further
-  const aiCfg = await api('GET', '/ai/config').catch(() => null);
-  if (!aiCfg?.enabled) {
-    toast('AI provider not configured. Configure in Settings → AI.', 'error');
-    return;
-  }
-
-  _iacSavePref();
-  const origText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Requesting collection…';
-  _iacStatus('Asking agent to collect data… (~60s on next heartbeat)');
-  document.getElementById('iac-code-output').textContent = '';
-
-  // Step 1: kick off the request
-  const req = await api('POST', '/iac/request', { device_id: devId, categories: cats });
-  if (!req?.ok || !req.request_id) {
-    btn.disabled = false; btn.textContent = origText;
-    _iacStatus(req?.error || 'Failed to start collection', 'error');
-    return;
-  }
-
-  // Step 2: poll status
-  let elapsed = 0;
-  const POLL_MS = 5000;
-  const TIMEOUT_MS = 180_000;   // 3 min
-  if (_iacPollTimer) clearInterval(_iacPollTimer);
-
-  _iacPollTimer = setInterval(async () => {
-    elapsed += POLL_MS;
-    if (elapsed > TIMEOUT_MS) {
-      clearInterval(_iacPollTimer);
-      btn.disabled = false; btn.textContent = origText;
-      _iacStatus('Timeout waiting for agent — try again', 'error');
-      return;
-    }
-    btn.textContent = `Collecting (${Math.floor(elapsed/1000)}s)…`;
-    const status = await api('GET', `/iac/status/${encodeURIComponent(req.request_id)}`);
-    if (!status) return;
-    if (status.status === 'error') {
-      clearInterval(_iacPollTimer);
-      btn.disabled = false; btn.textContent = origText;
-      _iacStatus('Collection error: ' + (status.error || 'unknown'), 'error');
-      return;
-    }
-    if (status.status === 'ready') {
-      clearInterval(_iacPollTimer);
-      _iacLastRequestId = req.request_id;
-      _iacLastDev       = devId;
-      // v3.0.1: "Gather RAW JSON" path — fetch the masked state and download
-      // it as a file. No LLM call, no token spend.
-      if (!withAi) {
-        _iacStatus('Data collected — preparing JSON download…');
-        btn.textContent = 'Preparing…';
-        const payload = await api('GET', `/iac/payload/${encodeURIComponent(req.request_id)}`);
-        btn.disabled = false; btn.textContent = origText;
-        if (!payload) { _iacStatus('Failed to fetch payload', 'error'); return; }
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url  = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `iac-state-${devId}-${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        document.getElementById('iac-json-btn').disabled  = false;
-        document.getElementById('iac-rerun-btn').disabled = false;
-        _iacStatus(`Done — JSON downloaded (${(JSON.stringify(payload).length/1024).toFixed(1)} KB). Click "Re-run AI" to feed this same data to the LLM.`, 'done');
-        return;
-      }
-      _iacStatus('Data collected — calling AI provider…');
-      btn.textContent = 'Generating…';
-      // Step 3: generate
-      const instr = document.getElementById('iac-user-instructions')?.value || '';
-      const gen = await api('POST', '/iac/generate', {
-        request_id:        req.request_id,
-        output_format:     fmt,
-        categories:        cats,
-        user_instructions: instr,
-      });
-      btn.disabled = false; btn.textContent = origText;
-      if (!gen?.ok) {
-        _iacStatus(gen?.error || 'Generation failed', 'error');
-        return;
-      }
-      _iacLastCode      = gen.code || '';
-      _iacLastFmt       = fmt;
-      _iacLastDev       = devId;
-      _iacLastRequestId = req.request_id;
-      _iacLastConvo     = gen.conversation || null;
-      const out = document.getElementById('iac-code-output');
-      out.textContent = _iacLastCode;
-      document.getElementById('iac-output-title').textContent =
-        `${fmt} · ${gen.tokens_in||'?'} in / ${gen.tokens_out||'?'} out tokens`;
-      document.getElementById('iac-copy-btn').disabled     = false;
-      document.getElementById('iac-download-btn').disabled = false;
-      document.getElementById('iac-json-btn').disabled     = false;
-      document.getElementById('iac-rerun-btn').disabled    = false;
-      _iacRenderConversation();
-      const sizeKb = (_iacLastCode.length/1024).toFixed(1);
-      if (gen.markers_used === false) {
-        _iacStatus(`Model ignored the BEGIN_IAC/END_IAC markers — output may include reasoning prose. Try Re-run AI or check the Conversation tab. (${sizeKb} KB)`, 'error');
-      } else {
-        _iacStatus(`Done — ${sizeKb} KB of ${fmt}`, 'done');
-      }
-    }
-  }, POLL_MS);
-}
-
-async function _iacCopy(btn) {
-  if (!_iacLastCode) return;
-  try {
-    await navigator.clipboard.writeText(_iacLastCode);
-    const orig = btn.textContent;
-    btn.textContent = '✓ Copied';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
-  } catch (e) {
-    toast('Copy failed: ' + e.message, 'error');
-  }
-}
-
-function _iacDownload() {
-  if (!_iacLastCode) return;
-  const ext = {
-    'terraform':     'tf',
-    'ansible':       'yml',
-    'pulumi-python': 'py',
-    'pulumi-ts':     'ts',
-    'cloud-init':    'yml',
-  }[_iacLastFmt] || 'txt';
-  const blob = new Blob([_iacLastCode], { type: 'text/plain' });
-  const url  = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `iac-${_iacLastDev || 'device'}-${Date.now()}.${ext}`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 // v3.0.0: download the raw masked JSON state — what would be sent to the LLM.
 // Useful for verifying what data the LLM actually saw, or for feeding into a
 // different tool entirely (jq pipeline, custom script, different AI provider).
-async function _iacDownloadJson() {
-  if (!_iacLastRequestId) return;
-  const payload = await api('GET', `/iac/payload/${encodeURIComponent(_iacLastRequestId)}`);
-  if (!payload) { toast('Failed to fetch JSON payload', 'error'); return; }
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `iac-state-${_iacLastDev || 'device'}-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 // v3.0.0: re-prompt the LLM with the SAME collected data — no agent wait.
 // Useful when the first generation hallucinates or you want a different
 // output format without re-collecting.
-async function _iacRerunAi(btn) {
-  if (!_iacLastRequestId) return;
-  const fmt   = document.getElementById('iac-format-select')?.value;
-  const cats  = _iacSelectedCategories();
-  const instr = document.getElementById('iac-user-instructions')?.value || '';
-  if (!fmt) { toast('Select an output format', 'error'); return; }
-  const origText = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Re-prompting…';
-  _iacStatus('Re-prompting AI with cached data…');
-  try {
-    const gen = await api('POST', '/iac/generate', {
-      request_id:        _iacLastRequestId,
-      output_format:     fmt,
-      categories:        cats,
-      user_instructions: instr,
-    });
-    if (!gen?.ok) {
-      _iacStatus(gen?.error || 'Re-run failed', 'error');
-      return;
-    }
-    _iacLastCode  = gen.code || '';
-    _iacLastFmt   = fmt;
-    _iacLastConvo = gen.conversation || null;
-    document.getElementById('iac-code-output').textContent = _iacLastCode;
-    document.getElementById('iac-output-title').textContent =
-      `${fmt} · ${gen.tokens_in||'?'} in / ${gen.tokens_out||'?'} out tokens (re-run)`;
-    _iacRenderConversation();
-    _iacStatus(`Done — ${(_iacLastCode.length/1024).toFixed(1)} KB of ${fmt}`, 'done');
-  } finally {
-    btn.disabled = false; btn.textContent = origText;
-  }
-}
 
-function _iacSwitchTab(tab) {
-  document.getElementById('iac-code-output').style.display  = tab === 'code'  ? '' : 'none';
-  document.getElementById('iac-convo-output').style.display = tab === 'convo' ? '' : 'none';
-  document.getElementById('iac-tab-btn-code').classList.toggle('active',  tab === 'code');
-  document.getElementById('iac-tab-btn-convo').classList.toggle('active', tab === 'convo');
-}
 
-function _iacRenderConversation() {
-  const el = document.getElementById('iac-convo-output');
-  if (!el) return;
-  if (!_iacLastConvo) {
-    el.innerHTML = '<div class="empty-state">No conversation yet.</div>';
-    return;
-  }
-  const c = _iacLastConvo;
-  el.innerHTML = `
-    <div class="isl-658">
-      Provider: <strong>${escHtml(c.provider||'?')}</strong> · Model: <strong>${escHtml(c.model||'?')}</strong>
-    </div>
-    <div class="iac-convo-block">
-      <div class="iac-convo-role system">System prompt</div>
-      <div class="iac-convo-content">${escHtml(c.system||'')}</div>
-    </div>
-    <div class="iac-convo-block">
-      <div class="iac-convo-role user">User prompt</div>
-      <div class="iac-convo-content">${escHtml(c.user||'')}</div>
-    </div>
-    <div class="iac-convo-block">
-      <div class="iac-convo-role assistant">Assistant response (raw — before code-fence stripping)</div>
-      <div class="iac-convo-content">${escHtml(c.assistant||'')}</div>
-    </div>`;
-}
 
 // ══ v3.0.1: AI prompt customization (Settings → AI Assistant) ════════════════
 
-async function loadAiPrompts() {
-  const list = document.getElementById('ai-prompts-list');
-  if (!list) return;
-  list.innerHTML = '<div class="isl-78">Loading prompts…</div>';
-  const [r, paramsResp] = await Promise.all([
-    api('GET', '/ai/prompts'),
-    api('GET', '/ai/params'),
-  ]);
-  if (!r?.prompts) {
-    list.innerHTML = '<div class="isl-657">Failed to load prompts.</div>';
-    return;
-  }
-  // Index params by key for easy lookup
-  const paramsByKey = {};
-  for (const p of (paramsResp?.params || [])) paramsByKey[p.key] = p;
-  list.innerHTML = r.prompts.map(p => {
-    const params = paramsByKey[p.key] || {};
-    const hasParams = (params.temperature != null) || (params.top_p != null)
-                   || (params.max_tokens != null)  || (params.num_ctx != null);
-    return `
-    <div class="prompt-card isl-659" data-key="${escAttr(p.key)}">
-      <div class="isl-660">
-        <div>
-          <strong class="fs-14">${escHtml(p.label)}</strong>
-          <span class="isl-640">${escHtml(p.key)}</span>
-          ${p.is_customized ? '<span class="isl-661">● customized</span>' : ''}
-          ${hasParams ? '<span class="isl-662">● tuned</span>' : ''}
-        </div>
-        <div class="row-6">
-          <button class="btn-secondary badge-sm" data-action-btn="_saveAiPromptBtn" data-key="${escAttr(p.key)}" >Save prompt</button>
-          <button class="btn-secondary badge-sm" data-action-btn="_resetAiPromptBtn" data-key="${escAttr(p.key)}" >Default</button>
-        </div>
-      </div>
-      <textarea class="form-input prompt-textarea isl-663"
-                data-default="${escAttr(p.default)}"
-                placeholder="(empty = use default)">${escHtml(p.current)}</textarea>
 
-      <details ${hasParams ? 'open' : ''} class="isl-26">
-        <summary class="isl-664">Fine-tuning (temperature, top_p, tokens, context)</summary>
-        <div class="isl-665">
-          <div>
-            <label class="isl-666">Temperature (0.0–2.0)</label>
-            <input type="number" step="0.1" min="0" max="2" class="form-input prompt-temp fs-12" value="${params.temperature != null ? params.temperature : ''}" placeholder="default">
-          </div>
-          <div>
-            <label class="isl-666">top_p (0.0–1.0)</label>
-            <input type="number" step="0.05" min="0" max="1" class="form-input prompt-topp fs-12" value="${params.top_p != null ? params.top_p : ''}" placeholder="default">
-          </div>
-          <div>
-            <label class="isl-666">max_tokens (1–16000)</label>
-            <input type="number" step="100" min="1" max="16000" class="form-input prompt-maxtok fs-12" value="${params.max_tokens != null ? params.max_tokens : ''}" placeholder="default">
-          </div>
-          <div>
-            <label class="isl-666">num_ctx (Ollama/LocalAI)</label>
-            <input type="number" step="1024" min="512" max="131072" class="form-input prompt-numctx fs-12" value="${params.num_ctx != null ? params.num_ctx : ''}" placeholder="16384">
-          </div>
-        </div>
-        <div class="isl-667">
-          <button class="btn-secondary badge-sm" data-action-btn="_saveAiParamsBtn" data-key="${escAttr(p.key)}" >Save tuning</button>
-          <button class="btn-secondary badge-sm" data-action-btn="_resetAiParamsBtn" data-key="${escAttr(p.key)}" >Reset tuning</button>
-        </div>
-      </details>
-    </div>`;
-  }).join('');
-}
 
-async function saveAiParams(key, btn) {
-  const card = btn.closest('.prompt-card');
-  if (!card) return;
-  const _v = sel => {
-    const el = card.querySelector(sel);
-    const v = el ? el.value.trim() : '';
-    return v === '' ? null : v;
-  };
-  const body = {
-    key,
-    temperature: _v('.prompt-temp'),
-    top_p:       _v('.prompt-topp'),
-    max_tokens:  _v('.prompt-maxtok'),
-    num_ctx:     _v('.prompt-numctx'),
-  };
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '…';
-  const r = await api('POST', '/ai/params', body);
-  btn.disabled = false;
-  if (r?.ok) {
-    btn.textContent = '✓ Saved';
-    toast(`Tuning saved for "${card.querySelector('strong')?.textContent || key}"`, 'success');
-    setTimeout(() => { btn.textContent = orig; loadAiPrompts(); }, 1500);
-  } else {
-    btn.textContent = '✗';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
-    toast(r?.error || 'Save failed', 'error');
-  }
-}
 
-async function resetAiParams(key, btn) {
-  const card = btn.closest('.prompt-card');
-  const r = await api('POST', '/ai/params', { key });
-  if (r?.ok) {
-    toast(`Tuning reset for "${card?.querySelector('strong')?.textContent || key}"`, 'info');
-    loadAiPrompts();
-  } else {
-    toast(r?.error || 'Reset failed', 'error');
-  }
-}
 
-async function saveAiPrompt(key, btn) {
-  const card = btn.closest('.prompt-card');
-  const ta   = card?.querySelector('.prompt-textarea');
-  if (!ta) return;
-  const text     = ta.value.trim();
-  const defaultV = ta.dataset.default || '';
-  // If user typed the default exactly, treat that as a reset
-  const payload  = (text && text !== defaultV) ? text : '';
-  const label    = card?.querySelector('strong')?.textContent || key;
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Saving…';
-  const r = await api('POST', '/ai/prompts', { key, text: payload });
-  btn.disabled = false;
-  if (r?.ok) {
-    btn.textContent = '✓ Saved';
-    toast(payload ? `Saved custom prompt for "${label}"` : `Reverted "${label}" to default`, 'success');
-    setTimeout(() => { btn.textContent = orig; loadAiPrompts(); }, 1500);
-  } else {
-    btn.textContent = '✗ Failed';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
-    toast(r?.error || 'Save failed', 'error');
-  }
-}
-
-async function resetAiPrompt(key, btn) {
-  const card = btn.closest('.prompt-card');
-  const ta   = card?.querySelector('.prompt-textarea');
-  if (!ta) return;
-  const label = card?.querySelector('strong')?.textContent || key;
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '…';
-  const r = await api('POST', '/ai/prompts', { key, text: '' });
-  btn.disabled = false;
-  if (r?.ok) {
-    ta.value = ta.dataset.default || '';
-    btn.textContent = '✓ Reverted';
-    toast(`"${label}" reverted to default`, 'info');
-    setTimeout(() => { btn.textContent = orig; loadAiPrompts(); }, 1500);
-  } else {
-    btn.textContent = '✗ Failed';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
-    toast(r?.error || 'Reset failed', 'error');
-  }
-}
 
 // Hook into the existing settings tab switcher — load prompts when AI pane opens
 const _origSwitchSettingsTab2 = typeof switchSettingsTab === 'function' ? switchSettingsTab : null;
@@ -24281,12 +20011,6 @@ async function loadIgnoredItems() {
   list.innerHTML = html;
 }
 
-async function unignoreCVE(vulnId) {
-  if (!await uiConfirm(`Stop ignoring ${vulnId}? It will count as a finding again.`)) return;
-  const r = await api('DELETE', '/cve/ignore/' + encodeURIComponent(vulnId)).catch(() => null);
-  if (r && r.ok) { toast(`No longer ignoring ${vulnId}`, 'success'); loadIgnoredItems(); }
-  else toast((r && r.error) || 'Failed to remove ignore', 'error');
-}
 
 async function restoreIgnored(category, entry) {
   const body = { category };
@@ -24384,529 +20108,32 @@ let _acmeData = { devices: [], providers: {} };
 // when issuing certs. Blank input fields = "leave unchanged" (the
 // server preserves existing values), so secrets never have to be
 // re-entered to make a different change.
-async function openAcmeDnsCreds() {
-  openModal('acme-dns-creds-modal');
-  const body = document.getElementById('acme-dns-creds-body');
-  if (body) body.innerHTML = '<div class="isl-78">Loading…</div>';
-  const data = await api('GET', '/acme/dns-credentials').catch(() => null);
-  if (!data || !data.providers) {
-    if (body) body.innerHTML = '<div class="hint">Failed to load credentials.</div>';
-    return;
-  }
-  _renderAcmeDnsCreds(data.providers);
-}
 
-function _renderAcmeDnsCreds(providers) {
-  const body = document.getElementById('acme-dns-creds-body');
-  if (!body) return;
-  // Sort: any provider with at least one field set first, then alphabetical.
-  providers.sort((a, b) => {
-    const aSet = (a.fields || []).some(f => f.set) ? 0 : 1;
-    const bSet = (b.fields || []).some(f => f.set) ? 0 : 1;
-    if (aSet !== bSet) return aSet - bSet;
-    return a.label.localeCompare(b.label);
-  });
-  body.innerHTML = providers.map(p => {
-    const anySet = (p.fields || []).some(f => f.set);
-    const fields = (p.fields || []).map(f => `
-      <div class="form-group">
-        <label class="form-label">${escHtml(f.label)}${f.required ? ' <span class="c-red">*</span>' : ''}${f.set ? ' <span class="meta-sm c-green">(set)</span>' : ''}</label>
-        <input type="${f.secret ? 'password' : 'text'}" class="form-input ff-mono"
-               data-cred-field="${escAttr(f.name)}"
-               placeholder="${f.set ? '••••••• (leave blank to keep)' : (f.hint || '')}"
-               autocomplete="off">
-        ${f.hint && !f.set ? `<div class="meta-sm c-muted">${escHtml(f.hint)}</div>` : ''}
-      </div>
-    `).join('');
-    return `
-      <details class="settings-section" ${anySet ? 'open' : ''} data-provider="${escAttr(p.provider)}">
-        <summary><strong>${escHtml(p.label)}</strong>${anySet ? ' <span class="meta-sm c-green">(configured)</span>' : ''} <span class="meta-sm c-muted">${escHtml(p.provider)}</span></summary>
-        ${fields}
-        <div class="row-6">
-          <button class="btn-primary" data-action="saveAcmeDnsCreds" data-arg="${escAttr(p.provider)}">Save</button>
-          ${anySet ? `<button class="btn-secondary c-danger-outline" data-action="clearAcmeDnsCreds" data-arg="${escAttr(p.provider)}">Clear all</button>` : ''}
-        </div>
-      </details>
-    `;
-  }).join('');
-}
 
-async function saveAcmeDnsCreds(providerKey) {
-  const block = document.querySelector(`[data-provider="${providerKey}"]`);
-  if (!block) return;
-  const creds = {};
-  block.querySelectorAll('[data-cred-field]').forEach(inp => {
-    const name = inp.dataset.credField;
-    const v = (inp.value || '').trim();
-    if (v) creds[name] = v;  // blank = leave unchanged
-  });
-  const r = await api('POST', '/acme/dns-credentials', {
-    provider:    providerKey,
-    credentials: creds,
-  });
-  if (r?.ok) {
-    toast(`${providerKey} credentials saved`, 'success');
-    openAcmeDnsCreds();  // refresh to pick up "set" flags
-  } else {
-    toast(r?.error || 'Failed to save', 'error');
-  }
-}
 
-async function clearAcmeDnsCreds(providerKey) {
-  if (!await uiConfirm(`Clear ALL stored credentials for ${providerKey}?\n\nFuture issuances/renewals will fall back to whatever the agent has in ~/.acme.sh/account.conf.`)) return;
-  // Send explicit nulls for every field this provider declares so the
-  // server clears them all in one call.
-  const block = document.querySelector(`[data-provider="${providerKey}"]`);
-  if (!block) return;
-  const creds = {};
-  block.querySelectorAll('[data-cred-field]').forEach(inp => {
-    creds[inp.dataset.credField] = null;
-  });
-  const r = await api('POST', '/acme/dns-credentials', {
-    provider:    providerKey,
-    credentials: creds,
-  });
-  if (r?.ok) { toast(`${providerKey} credentials cleared`, 'info'); openAcmeDnsCreds(); }
-  else toast(r?.error || 'Failed', 'error');
-}
 
-async function loadAcme() {
-  const tbody = document.getElementById('acme-tbody');
-  if (!tbody) return;
-  tbody.innerHTML = _skeletonRows(8);
-  const data = await api('GET', '/acme');
-  if (!data) { tbody.innerHTML = '<tr><td colspan="8" class="isl-670">Failed to load.</td></tr>'; return; }
-  _acmeData = data;
-  _acmeRenderTable();
-}
 
-function _acmeRenderTable() {
-  const tbody = document.getElementById('acme-tbody');
-  const empty = document.getElementById('acme-empty');
-  const card  = document.getElementById('acme-table-card');
-  if (!tbody) return;
-  // v3.2.1: wire sort. The thead is static (in index.html), so we
-  // re-wire on every render just in case the table-card was toggled
-  // hidden + back. _wireHeaders is idempotent on a given DOM node.
-  tableCtl.wireSortOnly('acme-thead', 'acme', _acmeRenderTable);
-
-  // Flatten devices → one row per cert. Devices without acme.sh installed
-  // are skipped entirely (v3.0.2) — they were rendered as "acme.sh not
-  // installed" rows but operators with most of their fleet on different
-  // cert managers don't need to see one row per such device. The "no
-  // certs yet" case (acme.sh present but no certs issued) is still shown
-  // because that's actionable — operator can click "+ Issue" right there.
-  const q = (document.getElementById('acme-filter')?.value || '').trim().toLowerCase();
-  const rows = [];
-  let suppressed_unavailable = 0;
-  for (const dev of (_acmeData.devices || [])) {
-    if (!dev.available) {
-      suppressed_unavailable++;
-      continue;
-    }
-    if (!dev.certs || !dev.certs.length) {
-      if (!q || dev.device_name.toLowerCase().includes(q)) {
-        rows.push({ _kind: 'no-certs', device_id: dev.device_id, device_name: dev.device_name, home: dev.home, version: dev.version });
-      }
-      continue;
-    }
-    for (const cert of dev.certs) {
-      if (q) {
-        const hay = `${dev.device_name} ${cert.domain || ''} ${cert.challenge || ''} ${cert.dns_provider_label || cert.dns_provider || ''}`.toLowerCase();
-        if (!hay.includes(q)) continue;
-      }
-      rows.push({ _kind: 'cert', device_id: dev.device_id, device_name: dev.device_name, ...cert });
-    }
-  }
-  // Surface the suppressed count subtly so operators don't think the
-  // table is broken when only N of M devices appear.
-  const hint = document.getElementById('acme-suppressed-hint');
-  if (hint) {
-    if (suppressed_unavailable > 0) {
-      hint.textContent = `${suppressed_unavailable} device${suppressed_unavailable === 1 ? '' : 's'} without acme.sh hidden`;
-      hint.style.display = 'block';
-    } else {
-      hint.style.display = 'none';
-    }
-  }
-
-  if (!rows.length) {
-    if (card)  card.style.display = 'none';
-    if (empty) empty.style.display = 'block';
-    return;
-  }
-  if (card)  card.style.display = 'block';
-  if (empty) empty.style.display = 'none';
-
-  // v3.2.1: apply user's chosen sort order. getColumns maps each row
-  // (cert or no-certs placeholder) into comparable values so device
-  // rows without certs still sort by name alongside real cert rows.
-  const _now = Math.floor(Date.now() / 1000);
-  const sortedRows = tableCtl.sortRows('acme', rows, (r) => ({
-    device_name: r.device_name || '',
-    domain:      r.domain || '',
-    challenge:   r.is_dns_challenge ? 'DNS-01' : (r.challenge || ''),
-    provider:    r.dns_provider_label || r.dns_provider || '',
-    created:     r.created_ts || 0,
-    renew:       r.next_renew_ts || Infinity,
-    // "status" sort key = days until renewal (negative = overdue)
-    status:      r.next_renew_ts ? Math.round((r.next_renew_ts - _now) / 86400) : Infinity,
-  }));
-
-  const now = _now;
-  const html = sortedRows.map(r => {
-    if (r._kind === 'unavailable') {
-      return `<tr class="isl-671">
-        <td>${escHtml(r.device_name)}</td>
-        <td colspan="6" class="isl-672">acme.sh not installed on this device</td>
-        <td></td>
-      </tr>`;
-    }
-    if (r._kind === 'no-certs') {
-      return `<tr class="isl-673">
-        <td>${escHtml(r.device_name)}</td>
-        <td colspan="6" class="hint">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
-        <td class="row-4">
-          <button class="btn-icon badge-sm" title="Issue a new cert" data-action="acmeOpenIssue" data-arg="${escAttr(r.device_id)}" >+ Issue</button>
-          <button class="btn-icon badge-sm" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >Rescan</button>
-        </td>
-      </tr>`;
-    }
-    // Real cert row
-    const days = r.next_renew_ts ? Math.round((r.next_renew_ts - now) / 86400) : null;
-    let pillCls = 'acme-pill-info', pillText = 'unknown';
-    if (days === null) { pillCls = 'acme-pill-info'; pillText = 'no schedule'; }
-    else if (days < 0) { pillCls = 'acme-pill-crit'; pillText = `overdue ${-days}d`; }
-    else if (days <= 3){ pillCls = 'acme-pill-crit'; pillText = `${days}d`; }
-    else if (days <= 14){ pillCls = 'acme-pill-warn'; pillText = `${days}d`; }
-    else { pillCls = 'acme-pill-ok'; pillText = `${days}d`; }
-    const wildcardGlyph = r.is_wildcard ? '<span class="acme-wildcard-glyph" title="Wildcard cert">★</span>' : '';
-    const altCount = (r.alt_names || []).filter(a => a !== r.domain).length;
-    const altLabel = altCount ? `<span class="meta-sm-nm"> +${altCount} SAN</span>` : '';
-    const challengeLabel = r.is_dns_challenge ? 'DNS-01' : escHtml(r.challenge || '—');
-    const providerLabel  = r.dns_provider_label || (r.is_dns_challenge ? r.dns_provider : '—');
-    const createdStr = r.created_ts ? new Date(r.created_ts * 1000).toLocaleDateString() : '—';
-    const renewStr   = r.next_renew_ts ? new Date(r.next_renew_ts * 1000).toLocaleDateString() : '—';
-    return `<tr class="acme-row" data-action="acmeOpenDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >
-      <td>${escHtml(r.device_name)}</td>
-      <td>
-        <code class="isl-674">${escHtml(r.domain)}</code>${wildcardGlyph}${altLabel}
-      </td>
-      <td><span class="acme-pill acme-pill-info">${challengeLabel}</span></td>
-      <td class="hint">${escHtml(providerLabel)}</td>
-      <td class="hint">${createdStr}</td>
-      <td class="fs-12">${renewStr}</td>
-      <td><span class="acme-pill ${pillCls}">${pillText}</span></td>
-      <td data-stop-prop="1" class="nowrap">
-        <button class="btn-icon badge-xs" title="Force renew now"
-                data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >${_icon('refresh',14)}</button>
-        <button class="btn-icon badge-xs c-danger-outline" title="Revoke and remove"
-                data-action="acmeRevoke" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >${_icon('trash',14)}</button>
-      </td>
-    </tr>`;
-  }).join('');
-  tbody.innerHTML = html;
-}
 
 // ── Force renew ──────────────────────────────────────────────────────────
-async function acmeForceRenew(devId, domain) {
-  if (!await uiConfirm(`Force-renew cert for ${domain}?\n\nLet's Encrypt rate-limits to 5 duplicates per week. Use sparingly.`)) return;
-  const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/renew`);
-  if (r?.ok) {
-    toast(`Renew queued — output in detail view (Logs tab)`, 'success');
-    // Re-open detail so the user can follow along
-    acmeOpenDetail(devId, domain);
-  } else {
-    toast(r?.error || 'Failed to queue renewal', 'error');
-  }
-}
 
 // ── Revoke ───────────────────────────────────────────────────────────────
-async function acmeRevoke(devId, domain) {
-  if (!await uiConfirm(`Revoke and remove cert for ${domain}?\n\nThis tells Let's Encrypt the cert is no longer trusted, then deletes the local files. To issue a fresh one afterwards, use the "Issue new cert" wizard.`)) return;
-  const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/revoke`);
-  if (r?.ok) {
-    toast('Revoke + remove queued', 'success');
-    setTimeout(loadAcme, 4000);
-  } else {
-    toast(r?.error || 'Failed to revoke', 'error');
-  }
-}
 
 // ── Detail modal ─────────────────────────────────────────────────────────
 let _acmeDetailContext = null;
 
-async function acmeOpenDetail(devId, domain) {
-  _acmeDetailContext = { devId, domain };
-  document.getElementById('acme-detail-title').textContent = domain;
-  document.getElementById('acme-detail-subtitle').textContent = '';
-  document.getElementById('acme-detail-overview').innerHTML = '<div class="empty-p20">Loading…</div>';
-  document.getElementById('acme-detail-timeline').innerHTML = '';
-  document.getElementById('acme-detail-logs').innerHTML = '';
-  acmeDetailTab('overview');
-  openModal('acme-detail-modal');
-  const r = await api('GET', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}`);
-  if (!r || !r.cert) {
-    document.getElementById('acme-detail-overview').innerHTML =
-      `<div class="isl-676">${escHtml(r?.error || 'Cert not found in last scan')}</div>`;
-    return;
-  }
-  _acmeRenderDetail(r);
-}
 
-function acmeDetailTab(tab) {
-  document.querySelectorAll('#acme-detail-modal .drawer-tab-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.acmeTab === tab));
-  document.querySelectorAll('.acme-detail-pane').forEach(p =>
-    p.style.display = p.id === `acme-detail-${tab}` ? '' : 'none');
-}
 
-function _acmeRenderDetail(r) {
-  const c = r.cert;
-  const dev = (_acmeData.devices || []).find(d => d.device_id === _acmeDetailContext.devId);
-  const devName = dev ? dev.device_name : _acmeDetailContext.devId;
-  document.getElementById('acme-detail-subtitle').textContent =
-    `on ${devName}${c.is_wildcard ? ' · wildcard' : ''} · ${c.is_dns_challenge ? c.dns_provider_label || c.dns_provider : c.challenge}`;
 
-  // ─── Overview ─────────────────────────────────────────────────────────
-  const now = Math.floor(Date.now() / 1000);
-  const daysToRenew = c.next_renew_ts ? Math.round((c.next_renew_ts - now) / 86400) : null;
-  const overview = `
-    <div class="isl-677">
-      ${_acmeStatPill('Primary domain', `<code>${escHtml(c.domain)}</code>`)}
-      ${_acmeStatPill('Wildcard?', c.is_wildcard ? '<span class="isl-678">★ yes</span>' : 'no')}
-      ${_acmeStatPill('Key length', escHtml(c.key_length || '—'))}
-      ${_acmeStatPill('Challenge', c.is_dns_challenge ? `DNS-01 · ${escHtml(c.dns_provider_label || c.dns_provider)}` : escHtml(c.challenge || '—'))}
-      ${_acmeStatPill('Created', c.created_str ? escHtml(c.created_str) : '—')}
-      ${_acmeStatPill('Next renewal', c.next_renew_str ? `${escHtml(c.next_renew_str)}<br><span class="meta-sm-nm">${daysToRenew !== null ? `in ${daysToRenew}d` : ''}</span>` : '—')}
-    </div>
-    ${c.alt_names && c.alt_names.length ? `
-      <div class="mb-14">
-        <div class="isl-679">Subject Alternative Names</div>
-        <div class="isl-680">
-          ${c.alt_names.map(a => `<code class="isl-681">${escHtml(a)}</code>`).join('')}
-        </div>
-      </div>` : ''}
-    ${c.reload_cmd ? `
-      <div class="mb-14">
-        <div class="isl-679">Post-renewal hook (Le_ReloadCmd)</div>
-        <pre class="isl-259">${escHtml(c.reload_cmd)}</pre>
-        <div class="meta-sm">Managed by acme.sh — not modified by RemotePower.</div>
-      </div>` : `
-      <div class="isl-682">No reload hook configured for this cert.</div>`}
-    ${c.cert_path ? `
-      <div class="isl-683">
-        <div>Cert: <code>${escHtml(c.cert_path)}</code></div>
-        ${c.fullchain_path ? `<div>Fullchain: <code>${escHtml(c.fullchain_path)}</code></div>` : ''}
-        ${c.key_path ? `<div>Key: <code>${escHtml(c.key_path)}</code></div>` : ''}
-      </div>` : ''}
-    <div class="isl-265">
-      <button class="btn-icon" data-action="acmeForceRenew" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >Force renew</button>
-      <button class="btn-icon c-red" data-action="acmeRevoke" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >✗ Revoke + remove</button>
-    </div>`;
-  document.getElementById('acme-detail-overview').innerHTML = overview;
 
-  // ─── Timeline ─────────────────────────────────────────────────────────
-  const events = [];
-  if (c.created_ts)    events.push({ ts: c.created_ts,    label: 'Cert issued',     state: 'ok' });
-  if (c.next_renew_ts) events.push({ ts: c.next_renew_ts, label: 'Next renewal',    state: c.next_renew_ts < now ? 'fail' : 'pending' });
-  for (const l of (r.logs || [])) {
-    events.push({
-      ts:    l.ts,
-      label: l.action === 'renew' ? 'Force renewal' :
-             l.action === 'issue' ? 'Issue command' :
-             l.action === 'revoke'? 'Revoke command' : (l.action || 'action'),
-      state: l.rc === 0 ? 'ok' : (l.rc === null || l.rc === undefined ? 'pending' : 'fail'),
-      logId: l.id,
-      rc:    l.rc,
-    });
-  }
-  events.sort((a, b) => b.ts - a.ts);
-  const timeline = events.length ? events.map(e => `
-    <div class="acme-timeline-item">
-      <div class="acme-timeline-dot ${e.state}"></div>
-      <div class="flex-1">
-        <div class="fw-500">${escHtml(e.label)}${e.rc !== undefined && e.rc !== null ? ` <span class="meta-sm-nm">(rc=${e.rc})</span>` : ''}</div>
-        <div class="meta-sm-nm">${new Date(e.ts * 1000).toLocaleString()}</div>
-        ${e.logId ? `<button class="btn-icon isl-684" data-action="acmeLoadLog" data-arg="${escAttr(e.logId)}" >View log</button>` : ''}
-      </div>
-    </div>`).join('') : '<div class="empty-p20">No timeline events yet.</div>';
-  document.getElementById('acme-detail-timeline').innerHTML = timeline;
-
-  // ─── Logs tab ─ list of recent log captures ───────────────────────────
-  const logsHtml = (r.logs && r.logs.length) ? `
-    <div class="isl-563">Captured stdout from acme.sh runs queued by RemotePower. Click any entry to view.</div>
-    <div class="isl-201">
-      ${r.logs.map(l => {
-        const isPending   = l.rc === null || l.rc === undefined;
-        const isCancelled = l.rc === -3 || l.rc === -4;
-        let stateLabel;
-        if (isCancelled) stateLabel = `<span class="c-muted">⊘ cancelled</span>`;
-        else if (isPending) stateLabel = `<span class="c-amber">pending</span>`;
-        else if (l.rc === 0) stateLabel = `<span class="c-green">✓ rc=0</span>`;
-        else stateLabel = `<span class="c-red">✗ rc=${l.rc}</span>`;
-        return `<div class="row-6-center">
-          <button class="btn-secondary isl-685"
-                  data-action="acmeLoadLog" data-arg="${escAttr(l.id)}" >
-            <span>
-              <strong>${escHtml(l.action || 'action')}</strong>
-              <span class="isl-686">${new Date(l.ts * 1000).toLocaleString()}</span>
-            </span>
-            <span class="meta-sm-nm">
-              ${stateLabel} · ${(l.size / 1024).toFixed(1)} KB
-            </span>
-          </button>
-          ${isPending ? `<button class="btn-icon isl-687" title="Cancel — remove from queue if still pending" data-action="acmeCancelAction" data-arg="${escAttr(l.id)}" >⊘ Cancel</button>` : ''}
-          <button class="btn-icon isl-688" title="Ignore — delete this row from the log list (does not affect cert state)" data-action="acmeIgnoreAction" data-arg="${escAttr(l.id)}" >× Ignore</button>
-        </div>`;
-      }).join('')}
-    </div>
-    <div id="acme-log-view" class="isl-70"></div>` : '<div class="empty-p20">No logs yet. Trigger a force renew to capture one.</div>';
-  document.getElementById('acme-detail-logs').innerHTML = logsHtml;
-}
-
-function _acmeStatPill(label, valueHtml) {
-  return `<div class="isl-689">
-    <div class="isl-367">${escHtml(label)}</div>
-    <div class="fs-13">${valueHtml}</div>
-  </div>`;
-}
-
-async function acmeLoadLog(logId) {
-  if (!_acmeDetailContext) return;
-  const view = document.getElementById('acme-log-view');
-  const target = view || document.getElementById('acme-detail-logs');
-  target.innerHTML = '<div class="isl-690">Loading log…</div>';
-  const r = await api('GET', `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/log/${encodeURIComponent(logId)}`);
-  if (!r) { target.innerHTML = '<div class="isl-691">Failed to load log</div>'; return; }
-  target.innerHTML = `
-    <div class="isl-692">Action <code>${escHtml(logId)}</code> · ${(r.size / 1024).toFixed(1)} KB</div>
-    <pre class="isl-693">${escHtml(r.content)}</pre>`;
-}
 
 // ── Issue wizard ─────────────────────────────────────────────────────────
 let _acmeIssueStep = 1;
 
-function acmeOpenIssue(presetDeviceId) {
-  // Populate device dropdown with devices that have acme.sh available
-  const devSel = document.getElementById('acme-issue-device');
-  const eligibleDevs = (_acmeData.devices || []).filter(d => d.available);
-  if (!eligibleDevs.length) {
-    toast('No devices have acme.sh installed. Install it on a device and wait for the next scan (~1 hour).', 'error');
-    return;
-  }
-  devSel.innerHTML = eligibleDevs.map(d =>
-    `<option value="${escAttr(d.device_id)}">${escHtml(d.device_name)}${d.version ? ` (${escHtml(d.version)})` : ''}</option>`).join('');
-  if (presetDeviceId) devSel.value = presetDeviceId;
 
-  // Populate DNS provider dropdown from server's provider map
-  const dnsSel = document.getElementById('acme-issue-dns');
-  const providers = _acmeData.providers || {};
-  dnsSel.innerHTML = Object.entries(providers).map(([key, label]) =>
-    `<option value="${escAttr(key)}">${escHtml(label)} (<code>${escHtml(key)}</code>)</option>`).join('');
-  dnsSel.value = 'dns_cf';   // sensible default
-  _acmeUpdateTokenHint();
 
-  // Reset state
-  document.getElementById('acme-issue-domain').value = '';
-  document.getElementById('acme-issue-alt').value = '';
-  document.getElementById('acme-issue-wildcard').checked = false;
-  document.getElementById('acme-issue-keylen').value = '4096';
-  _acmeIssueStep = 1;
-  _acmeRenderStep();
-  // Live preview of wildcard label as user types
-  const domInput = document.getElementById('acme-issue-domain');
-  domInput.oninput = () => {
-    const d = domInput.value.trim() || 'example.com';
-    document.getElementById('acme-issue-wildcard-preview').textContent = `*.${d}`;
-  };
-  dnsSel.onchange = _acmeUpdateTokenHint;
-  openModal('acme-issue-modal');
-  setTimeout(() => domInput.focus(), 50);
-}
 
-function _acmeUpdateTokenHint() {
-  const dns = document.getElementById('acme-issue-dns').value;
-  const hints = {
-    'dns_cf':       'Cloudflare requires <code>CF_Token</code> + <code>CF_Account_ID</code> + <code>CF_Zone_ID</code> (or legacy <code>CF_Key</code>/<code>CF_Email</code>) exported in the agent\'s environment, or stored in <code>~/.acme.sh/account.conf</code>. acme.sh will fail in step 3 with a clear message if these are missing.',
-    'dns_aws':      'AWS Route 53 requires <code>AWS_ACCESS_KEY_ID</code> + <code>AWS_SECRET_ACCESS_KEY</code>.',
-    'dns_dgon':     'DigitalOcean requires <code>DO_API_KEY</code>.',
-    'dns_he':       'Hurricane Electric requires <code>HE_Username</code> + <code>HE_Password</code>.',
-    'dns_desec':    'deSEC requires <code>DEDYN_TOKEN</code>.',
-    'dns_hetzner':  'Hetzner requires <code>HETZNER_Token</code>.',
-    'dns_porkbun':  'Porkbun requires <code>PORKBUN_API_KEY</code> + <code>PORKBUN_SECRET_API_KEY</code>.',
-  };
-  document.getElementById('acme-issue-token-hint').innerHTML = hints[dns] ||
-    'API credentials must be exported in the agent\'s environment or written to <code>~/.acme.sh/account.conf</code> on the device.';
-}
 
-function acmeIssueStep(delta) {
-  // Validate before advancing
-  if (delta > 0 && _acmeIssueStep === 1) {
-    const d = document.getElementById('acme-issue-domain').value.trim();
-    if (!d) { toast('Primary domain is required', 'error'); return; }
-    // very loose client-side check; server re-validates
-    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) { toast('Domain looks invalid', 'error'); return; }
-  }
-  _acmeIssueStep = Math.max(1, Math.min(3, _acmeIssueStep + delta));
-  _acmeRenderStep();
-}
 
-function _acmeRenderStep() {
-  document.querySelectorAll('.acme-step').forEach(el => {
-    el.style.display = parseInt(el.dataset.step) === _acmeIssueStep ? '' : 'none';
-  });
-  document.querySelectorAll('.acme-step-pill').forEach(el => {
-    const s = parseInt(el.dataset.step);
-    el.classList.toggle('active', s === _acmeIssueStep);
-    el.classList.toggle('done', s < _acmeIssueStep);
-  });
-  document.getElementById('acme-issue-back').style.display = _acmeIssueStep > 1 ? '' : 'none';
-  document.getElementById('acme-issue-next').style.display = _acmeIssueStep < 3 ? '' : 'none';
-  document.getElementById('acme-issue-go').style.display   = _acmeIssueStep === 3 ? '' : 'none';
-  if (_acmeIssueStep === 3) _acmeRenderPreview();
-}
-
-function _acmeRenderPreview() {
-  const domain = document.getElementById('acme-issue-domain').value.trim().toLowerCase();
-  const wildcard = document.getElementById('acme-issue-wildcard').checked;
-  const altRaw = document.getElementById('acme-issue-alt').value;
-  const dns = document.getElementById('acme-issue-dns').value;
-  const keylen = document.getElementById('acme-issue-keylen').value;
-  const alts = altRaw.split('\n').map(s => s.trim()).filter(Boolean);
-  const allDomains = [domain];
-  if (wildcard) allDomains.push(`*.${domain}`);
-  for (const a of alts) if (a !== domain && !allDomains.includes(a)) allDomains.push(a);
-  const dArgs = allDomains.map(d => `-d '${d}'`).join(' ');
-  document.getElementById('acme-issue-preview').textContent =
-    `~/.acme.sh/acme.sh --issue --dns ${dns} ${dArgs} --keylength ${keylen}`;
-}
-
-async function acmeIssueSubmit() {
-  const devId = document.getElementById('acme-issue-device').value;
-  const domain = document.getElementById('acme-issue-domain').value.trim().toLowerCase();
-  const wildcard = document.getElementById('acme-issue-wildcard').checked;
-  const altRaw = document.getElementById('acme-issue-alt').value;
-  const dns = document.getElementById('acme-issue-dns').value;
-  const keylen = document.getElementById('acme-issue-keylen').value;
-  const alts = altRaw.split('\n').map(s => s.trim()).filter(Boolean);
-  if (wildcard) alts.push(`*.${domain}`);
-  const body = {
-    domain, alt_names: alts, dns_provider: dns, key_length: keylen,
-  };
-  const btn = document.getElementById('acme-issue-go');
-  btn.disabled = true; btn.textContent = 'Queuing…';
-  const r = await api('POST', `/acme/${encodeURIComponent(devId)}/issue`, body);
-  btn.disabled = false; btn.textContent = 'Queue issue command';
-  if (r?.ok) {
-    toast(`Issue queued for ${domain} — output appears in the Logs tab once the agent runs it`, 'success');
-    closeModal('acme-issue-modal');
-    acmeOpenDetail(devId, domain);
-    setTimeout(loadAcme, 5000);
-  } else {
-    toast(r?.error || 'Failed to queue', 'error');
-  }
-}
 
 // Auto-load when the TLS page opens. enterTLS() already exists; wrap it so
 // we also kick off the ACME table fetch without modifying its body.
@@ -25072,207 +20299,7 @@ async function _mitigatePollDiag() {
 }
 
 // Step 3: AI analysis
-async function _mitigateRunAi() {
-  if (!_mitigateCtx || !_mitigateCtx.actionId) {
-    try { dbg('runAi: no actionId — aborting (diagnostic not ready?)', 'mitigate'); } catch (_) {}
-    return;
-  }
-  dbg('runAi: start dev=' + _mitigateCtx.devId + ' action=' + _mitigateCtx.actionId, 'mitigate');
-  mitigateTab('ai');
-  const statusEl = document.getElementById('mitigate-ai-status');
-  if (!statusEl) { try { dbg('runAi: #mitigate-ai-status missing!', 'mitigate'); } catch (_) {} return; }
-  document.getElementById('mitigate-ai-summary').textContent = '';
-  document.getElementById('mitigate-ai-fix-box').style.display = 'none';
 
-  // v3.2.1 fix: live elapsed-time counter and abortable fetch. Without
-  // visible movement, an AI provider that takes 30-300s to respond
-  // (Ollama on a cold GPU) makes the modal look frozen. The counter
-  // refreshes every second; after 30s an Abort button appears.
-  const startedAt = Date.now();
-  let aborted = false;
-  const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-  function _renderStatus() {
-    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-    let msg = `Asking the model… ${elapsed}s elapsed`;
-    if (elapsed > 90) {
-      msg += ' — local models on a cold GPU often take 1–2 min. If your provider should be fast, check the AI config.';
-    } else if (elapsed > 45) {
-      msg += ' — still working. Large prompts + slow models take time.';
-    }
-    const abortHtml = (elapsed > 30 && controller && !aborted)
-      ? ' <button class="btn-icon c-danger-outline btn-xs" data-action="abortMitigateAi">Abort</button>'
-      : '';
-    statusEl.innerHTML = msg + abortHtml;
-  }
-  // v3.2.1: wire the Abort button BEFORE the await so the data-action
-  // handler can find the function. (Defining it after the await is
-  // never reached if the AI call hangs.)
-  window.abortMitigateAi = function() {
-    aborted = true;
-    if (controller) { try { controller.abort(); } catch (_) {} }
-  };
-  // Shared terminal-state helper: always leave the operator a clear message AND
-  // a Re-run button, so a stalled / failed AI step is never a dead end.
-  const _fail = (msg) => {
-    clearInterval(_tick);
-    if (_hardTimer) clearTimeout(_hardTimer);
-    window.abortMitigateAi = null;
-    statusEl.innerHTML = escHtml(msg) +
-      ' <button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>';
-  };
-  _renderStatus();
-  const _tick = setInterval(_renderStatus, 1000);
-
-  // v3.4.2: hard client-side timeout. Without it, an AI provider (or nginx)
-  // that never sends a response leaves the await pending forever — the counter
-  // ticks but nothing ever resolves, which is the "it just stalls" report. Abort
-  // after a generous window and surface a Re-run.
-  const _HARD_TIMEOUT_MS = 240000;   // 4 min — longer than any sane model reply
-  let _timedOut = false;
-  const _hardTimer = setTimeout(() => {
-    _timedOut = true;
-    if (controller) { try { controller.abort(); } catch (_) {} }
-  }, _HARD_TIMEOUT_MS);
-
-  let r;
-  try {
-    const opts = controller ? { signal: controller.signal } : {};
-    dbg('runAi: POST /mitigate/ai …', 'mitigate');
-    r = await api('POST',
-      `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
-      {}, opts);
-    dbg('runAi: POST returned (r=' + (r ? 'obj' : String(r)) + ')', 'mitigate');
-  } catch (e) {
-    dbg('runAi: POST threw: ' + (e && e.message), 'mitigate');
-    if (_timedOut) {
-      _fail('AI analysis timed out after 4 min — the provider never responded. '
-          + 'Check Settings → AI Assistant (and nginx fastcgi_read_timeout).');
-    } else if (aborted) {
-      _fail('Aborted. Re-run, or change the AI provider in Settings → AI Assistant.');
-    } else {
-      _fail(`Network error contacting AI: ${e && e.message ? e.message : e}`);
-    }
-    return;
-  }
-  clearInterval(_tick);
-  if (_hardTimer) clearTimeout(_hardTimer);
-  window.abortMitigateAi = null;
-  if (!r) {
-    _fail('AI call failed (no response from server — check Settings → AI Assistant and the nginx error log).');
-    return;
-  }
-  if (r.error) {
-    statusEl.textContent = '';
-    document.getElementById('mitigate-ai-summary').innerHTML =
-      `Error: ${escHtml(r.error)} `
-      + '<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>';
-    return;
-  }
-  const took = Math.floor((Date.now() - startedAt) / 1000);
-  const summary = (r.summary || '').trim();
-  document.getElementById('mitigate-ai-summary').textContent =
-    summary || 'The model returned an empty response.';
-  // Render the fix options DEFENSIVELY: a throw in here must never freeze the
-  // status on "Asking the model…" (the reported "stall"). Run it after the
-  // summary is shown, catch any error, and always fall through to the final
-  // status update below.
-  try {
-    dbg('renderFixOptions: suggested_fix=' + (r.suggested_fix ? 'yes' : 'no'), 'mitigate');
-    _mitigateRenderFixOptions(r);
-  } catch (e) {
-    try { dbg('renderFixOptions threw: ' + (e && e.message), 'mitigate'); } catch (_) {}
-    const fo = document.getElementById('mitigate-fix-options');
-    if (fo) fo.textContent = 'Could not render fix options (' + (e && e.message ? e.message : e) + ').';
-  }
-  // Make the outcome unambiguous in the status line, so a valid "nothing to do"
-  // result never reads as "it stalled / did nothing". Three cases:
-  //   - a fix was proposed  → "Done in Ns — suggested fix below"
-  //   - no fix (model said NONE / read-only) → say so explicitly + Re-run
-  //   - empty response → flag it + Re-run
-  if (r.suggested_fix) {
-    statusEl.textContent = `Done in ${took}s — suggested fix below.`;
-  } else if (summary) {
-    statusEl.innerHTML = `Done in ${took}s — no fix command proposed `
-      + `(the model judged none is needed, or this needs manual judgement). `
-      + `<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>`;
-  } else {
-    statusEl.innerHTML = `Done in ${took}s, but the response was empty. `
-      + `<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>`;
-  }
-}
-
-function mitigateRerunAi() { _mitigateRunAi(); }
-
-function _mitigateRenderFixOptions(aiResult) {
-  // Show the suggested fix in the AI pane.
-  // CSP L1: explicit display values for everything that's hidden by a
-  // CSS class with `display: none` (was inline `style="display:none"`
-  // pre-migration). Empty string would just remove the inline attribute
-  // and leave the class rule in effect.
-  if (aiResult.suggested_fix) {
-    document.getElementById('mitigate-ai-fix-box').style.display = 'block';
-    document.getElementById('mitigate-ai-fix').textContent = aiResult.suggested_fix;
-    const warn = document.getElementById('mitigate-ai-fix-warning');
-    if (aiResult.denylist_match) {
-      warn.style.display = 'block';
-      warn.innerHTML = `<div class="isl-694">
-        <strong>Refused — denylist match.</strong>
-        ${escHtml(aiResult.denylist_reason || '')}
-        <div class="isl-121">
-          This command will not be executed by RemotePower. Copy it manually if you really need to.
-        </div>
-      </div>`;
-      document.getElementById('mitigate-ai-use').style.display = 'none';
-    } else if (aiResult.requires_confirmation) {
-      warn.style.display = 'block';
-      warn.innerHTML = `<div class="isl-695">
-        <strong>Sensitive — requires explicit RUN confirmation</strong>
-        <div class="isl-696">Click "Use this as fix command" to take it to the Apply Fix tab, where you'll need to type RUN.</div>
-      </div>`;
-      document.getElementById('mitigate-ai-use').style.display = 'inline-flex';
-    } else {
-      warn.style.display = 'none';
-      document.getElementById('mitigate-ai-use').style.display = 'inline-flex';
-    }
-  } else {
-    document.getElementById('mitigate-ai-fix-box').style.display = 'none';
-    document.getElementById('mitigate-ai-use').style.display = 'none';
-  }
-  // Populate the Apply Fix tab's options. Two slots:
-  //   1) Pre-approved playbook fix (if any) — green button
-  //   2) AI-suggested fix (if any, not denylisted)
-  const opts = [];
-  if (aiResult.preapproved_fix) {
-    opts.push({
-      kind: 'preapproved',
-      cmd:  aiResult.preapproved_fix,
-      label: aiResult.preapproved_fix_label || 'Pre-approved fix',
-    });
-  }
-  if (aiResult.suggested_fix && !aiResult.denylist_match) {
-    opts.push({
-      kind: 'ai',
-      cmd:  aiResult.suggested_fix,
-      label: 'AI-suggested fix',
-      sensitive: aiResult.requires_confirmation,
-    });
-  }
-  const optsHtml = opts.map((o, i) => `
-    <label class="isl-697">
-      <input type="radio" name="mitigate-fix-pick" value="${i}" data-change="_mitigateSelectFixOption" data-change-arg="${i}" class="isl-698">
-      <div class="isl-445">
-        <div class="isl-699 ${o.kind === 'preapproved' ? 'is-pre' : ''}">
-          ${o.kind === 'preapproved' ? '✓ ' : ''}${escHtml(o.label)}
-          ${o.sensitive ? '<span class="isl-700">(RUN required)</span>' : ''}
-        </div>
-        <code class="isl-701">${escHtml(o.cmd)}</code>
-      </div>
-    </label>`).join('');
-  document.getElementById('mitigate-fix-options').innerHTML = optsHtml ||
-    '<div class="isl-702">No fix options available. Either nothing to do (read-only diagnostic), or the AI returned no actionable suggestion. You can still type a command manually below.</div>';
-  // Stash for selection
-  window._mitigateFixOpts = opts;
-}
 
 function _mitigateSelectFixOption(idx) {
   const o = (window._mitigateFixOpts || [])[idx];
@@ -25281,12 +20308,6 @@ function _mitigateSelectFixOption(idx) {
   _mitigateUpdateSafety();
 }
 
-function mitigateUseAiFix() {
-  const cmd = document.getElementById('mitigate-ai-fix').textContent;
-  document.getElementById('mitigate-fix-cmd').value = cmd;
-  mitigateTab('fix');
-  _mitigateUpdateSafety();
-}
 
 function _mitigateUpdateSafety() {
   // Client-side preview of whether confirmation will be required. Server is
@@ -25525,36 +20546,8 @@ function _storeEvtData(data) {
 const _drawerActMap = new Map();
 
 // ── CSP L1: wrapper functions for this-passing and complex onclick= patterns ─
-function _cveScanBtn(btn) {
-  triggerCVEScan(btn.dataset.devId || undefined, btn);
-}
-async function cveRealert() {
-  if (!await uiConfirm('Re-raise alerts for the current CVE backlog? This fires cve_found '
-    + 'now for every host with critical/high findings (already-known CVEs don\'t '
-    + 're-alert on their own).')) return;
-  const r = await api('POST', '/cve/realert', {});
-  if (r && r.ok) {
-    toast(`Re-alerted ${r.devices} device(s)`, 'success');
-    refreshAlertsBadge();
-  } else toast((r && r.error) || 'Failed', 'error');
-}
 function _forcePackageScanBtn(btn) {
   forcePackageScan(btn.dataset.devId, btn.dataset.devName || '', btn);
-}
-function _aiPrioritiseCvesBtn(btn) {
-  aiPrioritiseCvesForDevice(btn.dataset.devId, btn.dataset.devName || '', btn);
-}
-function _aiPrioritisePatchesBtn(btn) {
-  aiPrioritisePatchesForDevice(btn.dataset.devId, btn.dataset.devName || '', btn);
-}
-function _saveAiPromptBtn(btn) { saveAiPrompt(btn.dataset.key, btn); }
-function _saveAiParamsBtn(btn) { saveAiParams(btn.dataset.key, btn); }
-function _resetAiPromptBtn(btn) { resetAiPrompt(btn.dataset.key, btn); }
-function _resetAiParamsBtn(btn) { resetAiParams(btn.dataset.key, btn); }
-function _aiFindProblemBtn(btn) {
-  const sel = btn.dataset.journalSel;
-  const lines = sel ? (document.querySelector(sel)?.textContent?.split('\n') || []) : [];
-  aiFindProblemInJournal(btn.dataset.devId, lines);
 }
 function _copySecretBtn(btn) {
   navigator.clipboard?.writeText(btn.dataset.secret);
@@ -25586,12 +20579,6 @@ function _aiExplainAlertWh(btn)  { aiExplainAlert(btn.dataset.arg, btn.dataset.a
 function _aiDiagnoseServiceFromStore(btn) {
   const args = _evtData.get(btn.dataset.storeKey);
   if (args) aiDiagnoseService(...args);
-}
-function _driftSetIgnoreTrue(btn)  { driftSetIgnore(btn.dataset.arg, true); }
-function _driftSetIgnoreFalse(btn) { driftSetIgnore(btn.dataset.arg, false); }
-function _showPageBtn(btn) {
-  const page = btn.dataset.page;
-  showPage(page, document.querySelector(`.nav-btn[data-page="${page}"]`));
 }
 function _homeNavAction(btn) {
   const act = btn.dataset.homeAct;
@@ -25837,33 +20824,10 @@ async function _mitigatePollFix() {
 }
 
 // v3.0.1: Cancel a pending ACME action (still in queue or already dispatched)
-async function acmeCancelAction(actionId) {
-  if (!_acmeDetailContext) return;
-  if (!await uiConfirm(`Cancel pending action ${actionId}?\n\nIf the agent hasn't picked it up yet, it'll be removed from the queue. If it's already running, the cancel only stops RemotePower from waiting — the agent may still finish what it started.`)) return;
-  const r = await api('POST',
-    `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/cancel/${encodeURIComponent(actionId)}`);
-  if (!r) { toast('Cancel request failed', 'error'); return; }
-  if (r.error) { toast(r.error, 'error'); return; }
-  toast(r.removed_from_queue
-    ? 'Cancelled — was still in queue, never dispatched'
-    : 'Cancelled — already dispatched, UI will stop polling but agent may finish', 'success');
-  // Re-open detail to refresh log list
-  acmeOpenDetail(_acmeDetailContext.devId, _acmeDetailContext.domain);
-}
 
 // v3.0.1: Ignore (= delete) an ACME action row. Use for stuck-pending entries
 // that won't cancel cleanly. Doesn't touch cert state — only removes the log
 // + meta files from disk so the row disappears.
-async function acmeIgnoreAction(actionId) {
-  if (!_acmeDetailContext) return;
-  if (!await uiConfirm(`Remove this action row from the log list?\n\nThis deletes the captured output (if any) and the meta file. The actual cert state on the device is unaffected — this is purely a UI cleanup. Use Cancel instead if you want to stop a pending action from running.`)) return;
-  const r = await api('POST',
-    `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/ignore/${encodeURIComponent(actionId)}`);
-  if (!r) { toast('Ignore request failed', 'error'); return; }
-  if (r.error) { toast(r.error, 'error'); return; }
-  toast('Action row removed', 'success');
-  acmeOpenDetail(_acmeDetailContext.devId, _acmeDetailContext.domain);
-}
 
 // ─── v3.0.2: Self-monitoring page ──────────────────────────────────────────
 // Renders /api/self/status into expandable info cards.
@@ -26129,56 +21093,11 @@ function downloadDiagnostics() {
     'Diagnostics bundle downloaded');
 }
 
-async function runBackupNow() {
-  const btn = document.getElementById('self-backup-btn');
-  if (!await uiConfirm('Run a backup snapshot of /var/lib/remotepower now? This may take a few seconds depending on data size.')) return;
-  btn.disabled = true;
-  btn.textContent = 'Running…';
-  const r = await api('POST', '/self/backup-now');
-  btn.disabled = false;
-  btn.textContent = '↓ Run backup now';
-  if (!r || r.error) { toast('Backup failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  if (r.skipped) { toast('Skipped: ' + (r.reason || ''), 'warning'); return; }
-  toast(`Backup written: ${_selfFmtBytes(r.bytes)} (${r.pruned || 0} old files pruned)`, 'success');
-  loadSelfStatus();
-}
 
 // v5.0.0: migrate existing plaintext backup archives to encrypted at rest.
-async function encryptExistingBackups() {
-  const pass = await uiPrompt({
-    title: 'Encrypt existing backups',
-    message: 'Encrypts the plaintext archives on disk now. The passphrase is NOT stored — keep it safe, the backups can only be restored with it. For ongoing scheduled backups, also set RP_BACKUP_PASSPHRASE in the server environment.',
-    type: 'password', placeholder: 'passphrase (min 8 characters)', confirmText: 'Encrypt',
-  });
-  if (pass == null) return;
-  if (pass.length < 8) { toast('Passphrase must be at least 8 characters', 'error'); return; }
-  const r = await api('POST', '/self/backup-encrypt', { passphrase: pass });
-  if (!r) return;
-  if (!r.ok) { toast(r.error || 'Encryption failed', 'error'); return; }
-  toast(`Encrypted ${r.encrypted} archive(s)` + (r.failed ? `, ${r.failed} failed` : ''),
-        r.failed ? 'error' : 'success');
-  loadSelfStatus();
-}
 
-async function clearBackupState() {
-  const btn = document.getElementById('self-backup-clear-btn');
-  if (!await uiConfirm('Delete all backup archives (remotepower_data_*.tar.gz) and reset backup state?\n\nThis cannot be undone. The next scheduled or manual backup will create a fresh archive.')) return;
-  if (btn) { btn.disabled = true; btn.textContent = 'Clearing…'; }
-  const r = await api('DELETE', '/self/backup-state');
-  if (btn) { btn.disabled = false; btn.textContent = 'Clear backup archives'; }
-  if (!r || r.error) { toast('Clear failed: ' + (r?.error || 'unknown'), 'error'); return; }
-  toast(`Cleared ${r.deleted ?? 0} archive${r.deleted === 1 ? '' : 's'}`, 'success');
-  loadSelfStatus();
-}
 
 // v3.0.2: Force ACME rescan — bypasses the hourly scan cadence.
-async function acmeForceRescan(devId) {
-  if (!await uiConfirm('Force the agent to rescan ~/.acme.sh on its next heartbeat?\n\nUseful after renewing/issuing via the CLI when you don\'t want to wait an hour for RemotePower to catch up.')) return;
-  const r = await api('POST', `/devices/${encodeURIComponent(devId)}/acme/force-rescan`);
-  if (!r) { toast('Force-rescan request failed', 'error'); return; }
-  if (r.error) { toast(r.error, 'error'); return; }
-  toast(r.message || 'ACME rescan queued', 'success');
-}
 
 // ─── v3.0.2: Global command palette / search ───────────────────────────────
 // Press `/` or `Ctrl+K` to open. Searches devices, pages, audit-log actions,

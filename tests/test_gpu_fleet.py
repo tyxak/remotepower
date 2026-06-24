@@ -161,9 +161,12 @@ class TestFleetGpuEndpoint(unittest.TestCase):
         self.assertEqual(row["trend_util"][-1], 55)
 
 
+from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
+
+
 class TestGpuPageWiring(unittest.TestCase):
     HTML = (_ROOT / "server/html/index.html").read_text()
-    JS = (_ROOT / "server/html/static/js/app.js").read_text()
+    JS = client_js()
     I18N = (_ROOT / "server/html/static/js/i18n.js").read_text()
     CSS = (_ROOT / "server/html/static/css/styles.css").read_text()
 

@@ -125,6 +125,9 @@ class TestHtmlIdReferences(unittest.TestCase):
     (those have ai-modal- and toast- prefixes)."""
 
     KNOWN_DYNAMIC_IDS = {
+        # status.js belongs to the standalone public status.html page (not the
+        # SPA); its IDs live in status.html, so they're never in index.html.
+        'status-title', 'status-body',
         # Created via document.createElement in _ensureAIModal()
         'ai-modal', 'ai-modal-body', 'ai-modal-title', 'ai-modal-meta',
         'ai-modal-copy', 'ai-modal-action', 'ai-modal-elapsed',
@@ -157,9 +160,9 @@ class TestHtmlIdReferences(unittest.TestCase):
     def test_modal_title_body_ids_all_exist_in_html(self):
         import re
         html_path = Path(__file__).parent.parent / 'server' / 'html' / 'index.html'
-        js_path   = Path(__file__).parent.parent / 'server' / 'html' / 'static' / 'js' / 'app.js'
         html = html_path.read_text()
-        js   = js_path.read_text()
+        from clientjs import client_js  # app.js was split; scan all page modules
+        js   = client_js()
 
         ids_used = set()
         for m in re.finditer(r"getElementById\(['\"]([a-z0-9_-]+)['\"]\)", js):

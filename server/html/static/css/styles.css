@@ -6048,3 +6048,5 @@ body.sidebar-collapsed[dir="rtl"] .app-content {
 [dir="rtl"] .ml-8  { margin-left: 0; margin-right: 8px; }
 [dir="rtl"] .ml-12 { margin-left: 0; margin-right: 12px; }
 /* ===== end v5.1.0 RTL overrides =========================================== */
+
+.icon-sprite { display: none; }

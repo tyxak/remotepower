@@ -18,8 +18,10 @@ _spec = importlib.util.spec_from_file_location("ai_provider_v4100", _CGI / "ai_p
 ai = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ai)
 
+from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
+
 _API_SRC = (_CGI / "api.py").read_text()
-_APP_JS = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+_APP_JS = client_js()
 _HTML = (_ROOT / "server" / "html" / "index.html").read_text()
 
 NEW_KEYS = [

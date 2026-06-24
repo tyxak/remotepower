@@ -23,9 +23,10 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 import backup_crypto  # noqa: E402
+from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
 
 API_SRC = (_CGI / "api.py").read_text()
-APP = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
+APP = client_js()
 APP_CMDB = (_ROOT / "server" / "html" / "static" / "js" / "app-cmdb.js").read_text()
 HTML = (_ROOT / "server" / "html" / "index.html").read_text()
 CSS = (_ROOT / "server" / "html" / "static" / "css" / "styles.css").read_text()
