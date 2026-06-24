@@ -226,15 +226,22 @@ if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then
 fi
 # Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
 # cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
-# api.py needs +x for CGI; others are imports so 644 is fine.
+# The CGI entry points (api_cgi.py shim, and api.py for a direct install) need
+# +x; the rest are imports so 644 is fine.
 for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
     name="$(basename "$f")"
-    if [[ "$name" == "api.py" ]]; then
+    if [[ "$name" == "api.py" || "$name" == "api_cgi.py" ]]; then
         install -m 755 "$f" /var/www/remotepower/cgi-bin/"$name"
     else
         install -m 644 "$f" /var/www/remotepower/cgi-bin/"$name"
     fi
 done
+# Precompile the backend so the CGI user loads cached bytecode. The api_cgi.py
+# entry point imports api, and a CGI *main script* never uses the .pyc cache --
+# precompiling here means the ~50k-line module is not recompiled on every
+# request. cgi-bin/ is root-owned, so the running CGI user can't write the
+# .pyc itself; build it now.
+python3 -m compileall -q /var/www/remotepower/cgi-bin/ || true
 # v1.11.0: extension-less helper scripts (cron runners, etc.)
 for helper in remotepower-tls-check; do
     src="$SCRIPT_DIR/server/cgi-bin/$helper"

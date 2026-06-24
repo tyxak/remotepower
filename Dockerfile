@@ -37,12 +37,17 @@ COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
 # (href="docs/<name>.md") resolve. (Also indexed for RAG from the data dir.)
 COPY docs/                          /var/www/remotepower/docs/
 RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
+              /var/www/remotepower/cgi-bin/api_cgi.py \
               /var/www/remotepower/cgi-bin/remotepower-passwd \
               /var/www/remotepower/agent/remotepower-agent && \
     # v1.11.0: helper scripts need +x too
     if [ -f /var/www/remotepower/cgi-bin/remotepower-tls-check ]; then \
         chmod 755 /var/www/remotepower/cgi-bin/remotepower-tls-check; \
-    fi
+    fi && \
+    # Precompile so the CGI user loads cached bytecode: api_cgi.py imports api,
+    # and a CGI main script never uses the .pyc cache, so without this the
+    # ~50k-line module is recompiled on every request.
+    python3 -m compileall -q /var/www/remotepower/cgi-bin/
 
 # Nginx config (Docker variant - listens on 8080, no IPv6 listen). The shared
 # location snippet + the opt-in TLS variant ride along for RP_TLS_SELFSIGNED.
