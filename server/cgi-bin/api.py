@@ -23146,7 +23146,7 @@ def _rag_embed_missing(cfg, idx, cap=_RAG_MAX_EMBED_PER_RUN):
     Best-effort: a provider failure leaves the lexical index fully usable."""
     if not _rag_embeddings_active(cfg):
         return 0, None
-    missing = idx.missing_embeddings()
+    missing = idx.missing_embeddings(ai_provider.embedding_fingerprint(cfg))
     if not missing:
         return 0, None
     missing = missing[:cap]

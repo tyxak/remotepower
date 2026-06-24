@@ -466,6 +466,19 @@ def supports_embeddings(cfg):
     return cfg.get('provider') in EMBEDDING_PROVIDERS
 
 
+def embedding_fingerprint(cfg):
+    """Identity of the embedding space the current config produces vectors in:
+    provider + base URL + model. When any of these changes, cached vectors are
+    from a different (possibly different-dimension) space and must not be
+    reused. Resolution mirrors embed(). Empty when the provider can't embed."""
+    provider = cfg.get('provider')
+    if provider not in EMBEDDING_PROVIDERS:
+        return ''
+    base = (cfg.get('base_url') or DEFAULT_BASE_URLS.get(provider, '')).rstrip('/')
+    mdl = (cfg.get('rag') or {}).get('embedding_model') or DEFAULT_EMBED_MODELS.get(provider, '')
+    return f'{provider}|{base}|{mdl}'
+
+
 def embed(cfg, texts, model=None):
     """Embed a list of strings via the configured provider's OpenAI-compatible
     /embeddings endpoint.
