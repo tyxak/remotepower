@@ -659,6 +659,7 @@ async function showApp() {
   loadDevices();
   _applyInitialViewHash();   // v3.14.0: honor a shared #devices?view=Name link
   _openDeviceFromHash();     // v4.3.0: honor a #device/<id> deep link
+  _routeFromHashOnBoot();    // restore the page named in #hash on refresh (else always home)
   startRefreshCycle();
   checkServerVersion();
   applyTheme();
@@ -684,6 +685,24 @@ async function showApp() {
     }
     banner.style.display = 'block';
   }
+}
+// Restore the page named in the URL hash on load. showPage() writes the hash
+// via replaceState for bookmarking, but showApp otherwise always lands on home,
+// so a refresh on #containers (etc.) dropped back to home. The #device/<id> and
+// #devices?view= deep-links keep their own handlers (skipped here).
+function _routeFromHashOnBoot() {
+  try {
+    const raw = (location.hash || '').replace(/^#/, '');
+    if (!raw || raw === 'home') return;
+    if (raw.startsWith('device/') || raw.startsWith('devices?')) return;  // own handlers
+    const page = raw.split(/[/?]/)[0];
+    if (!page || !document.getElementById('page-' + page)) return;         // unknown -> stay home
+    showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
+    if (page === 'settings') {
+      const tab = raw.split('/')[1];
+      if (tab) { try { switchSettingsTab(tab); } catch (_) {} }
+    }
+  } catch (_) { /* non-fatal */ }
 }
 async function checkServerVersion() {
   try {
