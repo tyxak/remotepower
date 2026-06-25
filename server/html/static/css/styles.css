@@ -1639,6 +1639,11 @@
    * surface base + a translucent-accent highlight that keeps the normal text colour. */
   option { background: var(--surface); color: var(--text); }
   option:checked, option:hover { background: var(--accent-edge); color: var(--text); }
+  /* v5.1.1: explicit, readable text selection. With no rule, "marking" (selecting)
+   * text in a filter box fell back to the browser default and could render the
+   * selection bar AND the text both accent-blue (blue-on-blue = invisible). */
+  ::selection { background: var(--accent); color: #fff; }
+  ::-moz-selection { background: var(--accent); color: #fff; }
   input::placeholder, textarea::placeholder { color: var(--muted); }
   select:where(:not(.form-input)) { cursor: pointer; }
   /* Form fields inside a labelled group fill the row (matches .form-input)
