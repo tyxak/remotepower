@@ -69,6 +69,39 @@ Operate-without-SSH feature batch (WolfStack-inspired; all on the test line):
   ordinary integration instance, so it inherits the SSRF-safe client, poll
   cadence, alerts, secret-scrub and the generic Settings UI.
 
+Correctness, performance and hardening fixes (folded into 5.1.0):
+
+- **Device-write race fixed — data loss on the SQL backend.** ~24 device-write
+  API handlers did an unlocked read-modify-write of the device store; under the
+  SQLite/PostgreSQL backend a slow admin edit could *delete* a device row (and its
+  auth token) for a device that enrolled mid-edit, because the full-set save
+  reconciles against a stale snapshot. Every handler now does its read-modify-write
+  under `_LockedUpdate(DEVICES_FILE)`. Reported by Thomas Bouquet-Gasparoux
+  (@tbouquet, #8).
+- **The ~50k-line backend is no longer recompiled on every request.** The CGI
+  entry point is now a thin `api_cgi.py` shim that runs the backend from cached
+  bytecode instead of letting fcgiwrap recompile the main script each time
+  (~0.9s → ~0.15s per request). Contributed by Thomas Bouquet-Gasparoux
+  (@tbouquet, #7).
+- **`_sanitize_ip` rejects trailing garbage** — the IPv4 branch of the validation
+  regex was unanchored, so a valid-IP prefix matched and the whole string passed
+  through verbatim into device records and the audit log. Contributed by
+  @tbouquet (#3).
+- **RAG embedding cache invalidated on model/provider change** — switching the
+  embedding model/provider left stale vectors in the cache, silently collapsing
+  semantic search to lexical-only on a dimension mismatch. Contributed by
+  @tbouquet (#6).
+- **`disk_watchdog_pct=0` honoured in the self-test** — an explicitly-disabled
+  disk watchdog no longer flags the controller disk red at 85%. Contributed by
+  @tbouquet (#4).
+- **`PUT /api/drift-policies` accepts a bare-list body again** — a `get_json_obj()`
+  coercion had killed the documented bare-array shape, leaving the fleet on its
+  stale drift policy. Contributed by @tbouquet (#5).
+
+With thanks to first-time contributor **Thomas Bouquet-Gasparoux (@tbouquet)** for
+five fixes (#3–#7) and the device-write race report (#8). See
+[CONTRIBUTORS.md](CONTRIBUTORS.md).
+
 ## v5.0.1 — "TemperMatters" — 2026-06-22
 
 A stability + polish release that tempers v5.0.0. No breaking changes.
