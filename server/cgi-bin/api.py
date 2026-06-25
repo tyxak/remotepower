@@ -17220,7 +17220,10 @@ def handle_self_test():
         total = st.f_blocks * st.f_frsize
         free = st.f_bavail * st.f_frsize
         used_pct = round((1 - free / total) * 100, 1) if total else 0
-        thr = int(cfg.get('disk_watchdog_pct', 85))   # 0 = off (mirrors _disk_watchdog)
+        try:                                          # 0 = off (mirrors _disk_watchdog)
+            thr = int(cfg.get('disk_watchdog_pct', 85))
+        except (TypeError, ValueError):               # malformed stored value → default, don't red the check
+            thr = 85
         off = thr <= 0
         _add('Disk space', off or used_pct < thr,
              f'{used_pct}% used ({"watchdog off" if off else f"alert at {thr}%"}), '
