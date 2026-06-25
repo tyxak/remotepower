@@ -2,6 +2,30 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.1.1 — "ClusterMatters" — unreleased (test)
+
+A small follow-up to v5.1.0, centred on the Proxmox integration, plus the test
+and polish gaps from the feature that shipped it. No breaking changes.
+
+- **Proxmox: see the whole cluster, not just one node.** The integration now
+  lists guests cluster-wide via `/cluster/resources`, each tagged with its owning
+  node (shown as a badge), and resolves the owning node per guest so start /
+  shutdown / reboot / snapshot / migrate target the right host even for a guest
+  on a non-configured node. vzdump backups are enumerated on every node a guest
+  lives on (cluster members write to per-node local storage), so cross-node
+  guests are no longer falsely flagged as having no backup. A node-scoped token
+  falls back to the original single-node listing, so existing setups are
+  unchanged; cluster-wide visibility needs cluster-scope read (`Sys.Audit` on
+  `/`). Node names from the cluster response are hostname-validated and
+  URL-quoted before they can reach a `/nodes/<node>/…` request path. Contributed
+  by **Thomas Bouquet-Gasparoux (@tbouquet)** ([#9](https://github.com/tyxak/remotepower/pull/9)).
+- **Hardening the cluster feature.** Added regression tests for the new path
+  (node-name injection is dropped, the listing falls back to single-node on a
+  permission error / empty response, owning-node resolution is correct, the
+  member listing degrades gracefully), gave the Proxmox node badge its own style
+  distinct from the tags badge, and surfaced the cluster node summary in the UI
+  instead of returning it unused.
+
 ## v5.1.0 — "UnityMatters" — 2026-06-25
 
 Security-signal and localisation release on top of v5.0.1. The codename

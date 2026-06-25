@@ -4517,6 +4517,10 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .isl-573 { font-size: 11px; padding: 3px 10px; color: var(--amber); border-color: rgba(245,158,11,0.3) }
 .isl-574 { color: var(--muted); font-family: var(--font-mono); font-size: 12px }
 .isl-575 { font-size: 10px; color: var(--muted); background: var(--surface); padding: 1px 5px; border-radius: 3px; margin-left: 4px }
+/* v5.1.1: Proxmox node badge — distinct from the muted tags badge (.isl-575): accent text + border. */
+.isl-780 { font-size: 10px; color: var(--accent); background: var(--surface); padding: 1px 5px; border-radius: 3px; margin-left: 4px; border: 1px solid var(--border) }
+/* v5.1.1: Proxmox cluster-node summary line (chips use .isl-780). */
+.isl-781 { font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px }
 .isl-576 { font-size: 12px; font-weight: 600 }
 .isl-577 { padding: 20px; color: var(--red) }
 .isl-578 { padding: 20px; color: var(--muted) }

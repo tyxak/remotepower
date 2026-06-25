@@ -12,6 +12,18 @@ async function refreshProxmoxNav() {
   // is kept as a harmless no-op so existing call sites don't break.
 }
 
+// v5.1.1: compact cluster-node summary (#9 returns the member list in `nodes`).
+// Only shown for a real cluster (>1 node); single-node setups render nothing.
+function _renderProxmoxNodes(nodes) {
+  if (!Array.isArray(nodes) || nodes.length < 2) return '';
+  const chips = nodes.slice(0, 64).map(n => {
+    const status = (n.status || 'unknown');
+    const cpu = (n.cpu_percent != null) ? ` · CPU ${n.cpu_percent}%` : '';
+    return `<span class="isl-780" title="${escAttr(status + cpu)}">${escHtml(n.node)}</span>`;
+  }).join('');
+  return `<div class="isl-781">Cluster nodes: ${chips}</div>`;
+}
+
 function _renderProxmoxGuest(g, kind) {
   const running = (g.status || '').toLowerCase() === 'running';
   const statusColor = running ? 'var(--green)'
@@ -44,7 +56,7 @@ function _renderProxmoxGuest(g, kind) {
       <div class="fw-600">
         <span class="isl-574">${g.vmid}</span>
         ${escHtml(g.name)}
-        ${g.node ? `<span class="isl-575" title="Proxmox node">${escHtml(g.node)}</span>` : ''}
+        ${g.node ? `<span class="isl-780" title="Proxmox node">${escHtml(g.node)}</span>` : ''}
         ${g.tags ? `<span class="isl-575">${escHtml(g.tags)}</span>` : ''}
       </div>
       <div class="row-8-center">
@@ -102,12 +114,13 @@ async function loadProxmoxLXC(focused = false) {
     return;
   }
   section.style.display = 'block';
+  const nodesHtml = _renderProxmoxNodes(data.nodes);
   const guests = data.guests || [];
   if (!guests.length) {
-    body.innerHTML = '<div class="table-card isl-580">No LXC containers on the Proxmox node.</div>';
+    body.innerHTML = nodesHtml + '<div class="table-card isl-580">No LXC containers on the Proxmox node.</div>';
     return;
   }
-  body.innerHTML = `<div class="table-card isl-579">
+  body.innerHTML = nodesHtml + `<div class="table-card isl-579">
     ${guests.map(g => _renderProxmoxGuest(g, 'lxc')).join('')}
   </div>`;
 }

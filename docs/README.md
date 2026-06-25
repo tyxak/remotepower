@@ -58,6 +58,11 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.1.1.md](v5.1.1.md)** — "ClusterMatters": the Proxmox integration lists
+ guests across the whole cluster (not just one node), resolving each guest's
+ owning node for actions/snapshots/lifecycle, with hostname-validated node names;
+ plus the test/polish gaps from that feature. Contributed by @tbouquet (#9). No
+ breaking changes.
 - **[v5.1.0.md](v5.1.0.md)** — "UnityMatters": security-signal + localisation —
  fail2ban bans and active malware/rootkit detections are now first-class alert
  events, an admin App Catalog (add your own one-click Docker Compose apps), an
@@ -78,12 +83,6 @@ The five most recent per-release notes are kept here:
  fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails),
  an AI Insights hub (20 one-click AI reports/advisors), and three new
  fleet-knowledge (RAG) sources. No breaking changes.
-- **[v4.9.0.md](v4.9.0.md)** — "ResolutionMatters": an Admin → DNS dashboard that
- views, adds, edits and deletes DNS records directly through your provider's API,
- plus live resolve/dig + propagation checks
- (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun), reusing the scoped API
- tokens already stored for ACME DNS-01. Admin-only, audited, SSRF-guarded. No
- breaking changes.
 
 Older release notes (v4.7.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
