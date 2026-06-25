@@ -1662,6 +1662,21 @@
    * selection bar AND the text both accent-blue (blue-on-blue = invisible). */
   ::selection { background: var(--accent); color: #fff; -webkit-text-fill-color: #fff; }
   ::-moz-selection { background: var(--accent); color: #fff; }
+  /* v5.1.1: kill Chrome's autofill paint. On a dark theme an autofilled field
+   * (e.g. a value Chrome remembers) renders solid blue with clashing text —
+   * "blue-on-blue". Force our surface + text colour for EVERY input, in every
+   * state. The 9999s transition defeats Chrome's autofill background animation. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--well-bg, var(--bg)) inset !important;
+    -webkit-text-fill-color: var(--text) !important;
+    caret-color: var(--accent);
+    transition: background-color 9999s ease-out 0s;
+  }
   input::placeholder, textarea::placeholder { color: var(--muted); }
   select:where(:not(.form-input)) { cursor: pointer; }
   /* Form fields inside a labelled group fill the row (matches .form-input)
