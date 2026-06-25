@@ -81,7 +81,7 @@ location /api/ai/ {
  fastcgi_pass unix:/var/run/fcgiwrap.socket;
  fastcgi_read_timeout 300s;
  fastcgi_send_timeout 300s;
- fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api.py;
+ fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api_cgi.py;
  fastcgi_param PATH_INFO $uri;
 }
 ```

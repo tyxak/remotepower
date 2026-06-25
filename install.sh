@@ -207,9 +207,15 @@ _copy_files() {
   done
   [ -d "$SRC/server/html/static" ] && cp -rp "$SRC/server/html/static/." "$(_p "$WWW")/static/" || true
   for f in "$SRC"/server/cgi-bin/*.py; do
-    if [ "$(basename "$f")" = "api.py" ]; then install -m755 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")"
-    else install -m644 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")"; fi
+    case "$(basename "$f")" in
+      api.py|api_cgi.py) install -m755 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")" ;;
+      *)                 install -m644 "$f" "$(_p "$WWW")/cgi-bin/$(basename "$f")" ;;
+    esac
   done
+  # Precompile so the CGI user loads cached bytecode (api_cgi.py imports api; a
+  # CGI main script never uses the .pyc cache → the ~50k-line module would be
+  # recompiled on every request without this).
+  python3 -m compileall -q "$(_p "$WWW")/cgi-bin/" 2>/dev/null || true
   install -m755 "$SRC/server/remotepower-passwd" "$(_p "$WWW")/cgi-bin/remotepower-passwd" 2>/dev/null || true
   install -m755 "$SRC/client/remotepower-agent"  "$(_p "$WWW")/agent/remotepower-agent" 2>/dev/null || true
   for f in "$SRC"/docs/*.md; do [ -f "$f" ] && install -m644 "$f" "$(_p "$DATA")/docs/$(basename "$f")" || true; done

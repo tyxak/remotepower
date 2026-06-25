@@ -18,7 +18,7 @@ server {
     location /api/ {
         include fastcgi_params;
         fastcgi_pass unix:/run/fcgiwrap.socket;
-        fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api.py;
+        fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api_cgi.py;  # shim → runs api.py from cached bytecode
         fastcgi_param PATH_INFO $uri;
         fastcgi_param REQUEST_METHOD $request_method;
         fastcgi_param CONTENT_TYPE $content_type;

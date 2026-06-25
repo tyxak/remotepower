@@ -262,7 +262,7 @@ server {
     location ~ ^/api/ {
         fastcgi_pass            unix:/var/run/fcgiwrap.socket;
         fastcgi_split_path_info ^(/api)(/.*)\$;
-        fastcgi_param           SCRIPT_FILENAME  $PROD_HTDOCS/cgi-bin/api.py;
+        fastcgi_param           SCRIPT_FILENAME  $PROD_HTDOCS/cgi-bin/api_cgi.py;
         fastcgi_param           PATH_INFO        \$fastcgi_path_info;
         include                 /etc/nginx/fastcgi_params;
 

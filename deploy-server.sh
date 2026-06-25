@@ -48,14 +48,20 @@ info "Deploying all cgi-bin Python modules..."
 # and any future ones) — no need to edit this script when adding a new module.
 for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
     name="$(basename "$f")"
-    # api.py needs +x for CGI; others are pure imports
-    if [[ "$name" == "api.py" ]]; then
+    # CGI entry points (api_cgi.py shim + api.py) need +x; others are pure imports
+    if [[ "$name" == "api.py" || "$name" == "api_cgi.py" ]]; then
         install -m 755 "$f" /var/www/remotepower/cgi-bin/"$name"
     else
         install -m 644 "$f" /var/www/remotepower/cgi-bin/"$name"
     fi
     echo "      → cgi-bin/$name"
 done
+# Precompile so the CGI user loads cached bytecode: api_cgi.py imports api, and a
+# CGI *main script* never uses the .pyc cache, so without this the ~50k-line
+# module is recompiled on every request. cgi-bin/ is root-owned (the http user
+# can't write __pycache__ itself), so build it now. Re-run on every deploy so a
+# replaced api.py is recompiled rather than recompiled-per-request.
+python3 -m compileall -q /var/www/remotepower/cgi-bin/ || true
 
 # v1.11.0: extension-less helper scripts (remotepower-tls-check is the cron
 # runner for the TLS expiry probe). Same directory as api.py because they
