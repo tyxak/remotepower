@@ -1546,7 +1546,9 @@ function _wrapSelects(root) {
       const w = document.createElement('span');
       w.className = 'rp-ddwrap';
       const autoWidth = sel.classList.contains('input-auto') ||
-                        sel.classList.contains('input-narrow') || /\bmw-\d/.test(sel.className);
+                        sel.classList.contains('input-narrow') ||
+                        sel.classList.contains('isl-68') ||   // filter selects: size to content, not a full-width block
+                        /\bmw-\d/.test(sel.className);
       w.style.display = autoWidth ? 'inline-block' : 'block';
       sel.parentNode.insertBefore(w, sel);
       w.appendChild(sel);
