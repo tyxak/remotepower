@@ -1244,7 +1244,7 @@ def _probe_compare(val, op, want):
         except (TypeError, ValueError):
             return False
         return a < b if op == "lt" else a > b
-    return str(val) == str(want)   # default / "eq"
+    return str(val) == str(want)  # default / "eq"
 
 
 @_register(
@@ -1253,16 +1253,34 @@ def _probe_compare(val, op, want):
     "custom",
     [
         _field("probe_path", "Health path (default /)", TEXT, optional=True, placeholder="/health"),
-        _field("probe_expect", "Expected HTTP status (blank = any 2xx)", TEXT, optional=True, placeholder="200"),
-        _field("probe_json_field", "JSON field to check (dotted, optional)", TEXT, optional=True, placeholder="data.status"),
-        _field("probe_json_op", "Compare: eq | ne | lt | gt | contains", TEXT, optional=True, placeholder="eq"),
+        _field(
+            "probe_expect",
+            "Expected HTTP status (blank = any 2xx)",
+            TEXT,
+            optional=True,
+            placeholder="200",
+        ),
+        _field(
+            "probe_json_field",
+            "JSON field to check (dotted, optional)",
+            TEXT,
+            optional=True,
+            placeholder="data.status",
+        ),
+        _field(
+            "probe_json_op",
+            "Compare: eq | ne | lt | gt | contains",
+            TEXT,
+            optional=True,
+            placeholder="eq",
+        ),
         _field("probe_json_value", "Expected value", TEXT, optional=True, placeholder="healthy"),
         _field("secret", "Bearer token (optional)", PASSWORD, optional=True),
     ],
     notes="Declarative HTTP health probe — NO code. Polls <url><path>, checks the "
-          "status code and (optionally) one JSON field. SSRF-guarded like every "
-          "connector; the token is stored as a scrubbed secret. Lets you monitor "
-          "any HTTP service without forking.",
+    "status code and (optionally) one JSON field. SSRF-guarded like every "
+    "connector; the token is stored as a scrubbed secret. Lets you monitor "
+    "any HTTP service without forking.",
 )
 def _custom_probe(inst, c):
     path = (inst.get("probe_path") or "/").strip() or "/"
@@ -1275,7 +1293,11 @@ def _custom_probe(inst, c):
     expect = str(inst.get("probe_expect") or "").strip()
     if expect:
         if not expect.isdigit() or int(expect) != r.status:
-            return {"status": CRIT, "detail": f"HTTP {r.status} (expected {expect})", "metrics": metrics}
+            return {
+                "status": CRIT,
+                "detail": f"HTTP {r.status} (expected {expect})",
+                "metrics": metrics,
+            }
     elif not r.ok:
         return {"status": CRIT, "detail": f"HTTP {r.status}", "metrics": metrics}
     field = (inst.get("probe_json_field") or "").strip()
@@ -1283,19 +1305,31 @@ def _custom_probe(inst, c):
         try:
             data = r.json()
         except Exception:
-            return {"status": WARN, "detail": f"HTTP {r.status} but response is not JSON", "metrics": metrics}
+            return {
+                "status": WARN,
+                "detail": f"HTTP {r.status} but response is not JSON",
+                "metrics": metrics,
+            }
         val = data
         for part in field.split("."):
             if isinstance(val, dict) and part in val:
                 val = val[part]
             else:
-                return {"status": WARN, "detail": f"JSON field '{field}' not found", "metrics": metrics}
+                return {
+                    "status": WARN,
+                    "detail": f"JSON field '{field}' not found",
+                    "metrics": metrics,
+                }
         op = (inst.get("probe_json_op") or "eq").strip().lower()
         want = inst.get("probe_json_value")
         if isinstance(val, (int, float, str, bool)):
             metrics[field] = val
         if not _probe_compare(val, op, want):
-            return {"status": CRIT, "detail": f"{field}={val} fails ({op} {want})", "metrics": metrics}
+            return {
+                "status": CRIT,
+                "detail": f"{field}={val} fails ({op} {want})",
+                "metrics": metrics,
+            }
         return {"status": OK, "detail": f"HTTP {r.status}, {field}={val}", "metrics": metrics}
     return {"status": OK, "detail": f"HTTP {r.status}", "metrics": metrics}
 
