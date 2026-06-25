@@ -884,6 +884,24 @@
     height: 34px; padding: 0 12px; font-size: 13px; width: 100%; max-width: 360px;
     margin: 0 0 4px; box-sizing: border-box;
   }
+  /* v5.1.1: the type-to-filter box must NEVER render accent-on-accent (blue text
+   * on a blue background). Pin a solid, readable surface + text in every state and
+   * skin — !important to beat the industrial `.form-input{background:well-bg!important}`
+   * and any browser focus/autofill default. -webkit-text-fill-color also forces the
+   * typed-text colour through Chrome's autofill overlay. */
+  input.select-filter,
+  input.select-filter:focus,
+  body[data-ui="industrial"] input.select-filter,
+  body[data-ui="industrial"] input.select-filter:focus {
+    background: var(--well-bg, var(--bg)) !important;
+    color: var(--text) !important;
+    -webkit-text-fill-color: var(--text);
+    caret-color: var(--accent);
+  }
+  input.select-filter:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--well-bg, var(--bg)) inset !important;
+    -webkit-text-fill-color: var(--text) !important;
+  }
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
      Recent Activity / Alerts / Webhook stay readable no matter the scroll. */
