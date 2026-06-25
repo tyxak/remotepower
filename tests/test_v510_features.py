@@ -1,4 +1,4 @@
-"""v5.1.0 "FidelityMatters" feature tests — fail2ban_ban first-class event."""
+"""v5.1.0 "UnityMatters" feature tests — fail2ban_ban first-class event."""
 import importlib.util
 import sys
 import unittest

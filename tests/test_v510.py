@@ -1,4 +1,4 @@
-"""Strict version-surface pins for v5.1.0 "FidelityMatters" — loosen to regex on the
+"""Strict version-surface pins for v5.1.0 "UnityMatters" — loosen to regex on the
 next bump (see tests/test_v501.py for the loosened pattern). The v5.1.0 feature
 tests live in tests/test_v510_features.py.
 """
@@ -62,7 +62,7 @@ class TestVersionBumps(unittest.TestCase):
                       (_ROOT / "server/html/index.html").read_text())
 
     def test_codename(self):
-        self.assertIn("FidelityMatters", (_ROOT / "docs" / "v5.1.0.md").read_text())
+        self.assertIn("UnityMatters", (_ROOT / "docs" / "v5.1.0.md").read_text())
 
 
 if __name__ == "__main__":

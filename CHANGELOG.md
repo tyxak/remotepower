@@ -2,9 +2,12 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.1.0 — "FidelityMatters" — unreleased (test)
+## v5.1.0 — "UnityMatters" — 2026-06-25
 
-Security-signal and localisation release on top of v5.0.1.
+Security-signal and localisation release on top of v5.0.1. The codename
+**UnityMatters** marks RemotePower's first external community contributions —
+five fixes from **Thomas Bouquet-Gasparoux (@tbouquet)** (#3–#7) and the
+device-write race report (#8). See [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 - **fail2ban bans are now a first-class event.** A new fail2ban ban on a host
   fires the `fail2ban_ban` webhook/alert event (jail + banned IPs in the payload)
