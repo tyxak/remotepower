@@ -298,25 +298,54 @@ def _norm_guest(raw: dict, guest_type: str) -> dict | None:
         'vmid':        vmid,
         'name':        str(raw.get('name', '') or f'{guest_type}-{vmid}'),
         'type':        guest_type,                    # 'qemu' | 'lxc'
+        # The cluster-resources listing carries the owning node; the
+        # per-node listing does not, so this is '' on the fallback path
+        # and the caller stamps the configured node. Validated through
+        # _safe_node so a hostile cluster/resources node string can never
+        # reach a /nodes/<node>/... request path.
+        'node':        _safe_node(raw.get('node', '')),
         'status':      str(raw.get('status', 'unknown')),
         'cpu_percent': cpu_pct,
         'mem_percent': mem_pct,
-        'mem_bytes':   int(mem) if str(mem).isdigit() else 0,
-        'maxmem_bytes':int(maxmem) if str(maxmem).isdigit() else 0,
-        'uptime':      int(raw.get('uptime', 0) or 0),
+        # _int0 (not int(...)) so a hostile cluster/resources row with a
+        # non-numeric or float uptime/mem cannot raise out of _norm_guest and
+        # 500 the whole guest page.
+        'mem_bytes':   _int0(mem),
+        'maxmem_bytes':_int0(maxmem),
+        'uptime':      _int0(raw.get('uptime')),
         'tags':        str(raw.get('tags', '') or ''),
     }
 
 
-def list_guests(pc: dict, guest_type: str) -> list[dict]:
-    """List QEMU VMs or LXC containers on the configured node.
+# A Proxmox node name is a hostname; any 'node' value from a (possibly hostile)
+# cluster/resources response must never reach a /nodes/<node>/... path, so
+# validate it at every ingestion point. Slashes / path separators fail the
+# match and are dropped to ''.
+def _safe_node(name) -> str:
+    # fullmatch, not match: a `$`-anchored pattern matches before a trailing
+    # newline, so re.match would let 'node\n' through; fullmatch requires the
+    # whole string to be a clean hostname.
+    name = str(name or '')
+    return name if _HOSTNAME_RE.fullmatch(name) else ''
 
-    guest_type must be GUEST_QEMU or GUEST_LXC. Returns a list of
-    normalised guest dicts, sorted by vmid.
-    """
-    if guest_type not in _GUEST_TYPES:
-        raise ProxmoxError(f'Unknown guest type: {guest_type!r}')
-    node = pc['node']
+
+def _int0(x) -> int:
+    """Coerce to int, tolerating floats and float-strings; 0 on anything else."""
+    try:
+        return int(float(x))
+    except (ValueError, TypeError):
+        return 0
+
+
+# Bound the raw cluster/resources scan so a hostile/huge response can't pin CPU,
+# while still allowing _LISTING_CAP guests of the requested type to be found
+# even when the other type is interleaved ahead of them.
+_CLUSTER_SCAN_CAP = _LISTING_CAP * 8
+
+
+def _list_guests_one_node(pc: dict, guest_type: str, node: str) -> list[dict]:
+    """List guests of one type on a single node (the pre-cluster path,
+    kept as the fallback for tokens without cluster-scope read perms)."""
     raw = _request(pc, f'/nodes/{urllib.parse.quote(node)}/{guest_type}')
     if not isinstance(raw, list):
         return []
@@ -324,9 +353,114 @@ def list_guests(pc: dict, guest_type: str) -> list[dict]:
     for item in raw[:_LISTING_CAP]:
         g = _norm_guest(item, guest_type)
         if g:
+            g['node'] = g['node'] or node   # configured node (trusted); per-node listing omits it
             out.append(g)
+    return out
+
+
+def list_guests(pc: dict, guest_type: str) -> list[dict]:
+    """List QEMU VMs or LXC containers across the whole Proxmox cluster.
+
+    Uses the cluster-wide ``/cluster/resources?type=vm`` endpoint so guests
+    on every cluster member are returned, each tagged with its owning
+    ``node``. Falls back to the single configured node if the token lacks
+    cluster-scope read permission, so existing single-node setups keep
+    working unchanged. Returns normalised guest dicts sorted by (node, vmid).
+    """
+    if guest_type not in _GUEST_TYPES:
+        raise ProxmoxError(f'Unknown guest type: {guest_type!r}')
+    try:
+        raw = _request(pc, '/cluster/resources?type=vm')
+    except ProxmoxError:
+        raw = None     # node-scoped token or pre-cluster Proxmox: degrade below
+    if isinstance(raw, list) and raw:
+        # A non-empty cluster response is authoritative. An EMPTY one is
+        # ambiguous (real empty cluster vs a token with cluster-read but no
+        # per-VM visibility), so fall through to the single-node path rather
+        # than asserting zero guests.
+        out = []
+        # Filter by type FIRST, then cap, so the per-type ceiling is not
+        # silently narrowed by the interleaved other type.
+        for item in raw[:_CLUSTER_SCAN_CAP]:
+            if not isinstance(item, dict) or item.get('type') != guest_type:
+                continue
+            g = _norm_guest(item, guest_type)
+            if g:
+                out.append(g)
+            if len(out) >= _LISTING_CAP:
+                break
+        out.sort(key=lambda g: (g['node'], g['vmid']))
+        return out
+    # Fallback: the single configured node.
+    out = _list_guests_one_node(pc, guest_type, pc['node'])
     out.sort(key=lambda g: g['vmid'])
     return out
+
+
+def list_nodes(pc: dict) -> list[dict]:
+    """List the cluster member nodes via ``GET /nodes`` (any member answers
+    cluster-wide). Returns normalised node dicts sorted by name, or an empty
+    list if the token lacks the permission or the response is malformed -- it
+    never raises, so an unguarded caller cannot 500 the guest page."""
+    try:
+        raw = _request(pc, '/nodes')
+    except ProxmoxError:
+        return []
+    out = []
+    for n in raw if isinstance(raw, list) else []:
+        if not isinstance(n, dict) or not _safe_node(n.get('node')):
+            continue
+        try:
+            cpu_pct = round(float(n.get('cpu', 0) or 0) * 100, 1)
+        except (ValueError, TypeError):
+            cpu_pct = None
+        mem, maxmem = _int0(n.get('mem')), _int0(n.get('maxmem'))
+        mem_pct = round(mem / maxmem * 100, 1) if maxmem else None
+        out.append({
+            'node':         _safe_node(n.get('node')),
+            'status':       str(n.get('status', 'unknown')),   # online | offline
+            'cpu_percent':  cpu_pct,
+            'mem_percent':  mem_pct,
+            'mem_bytes':    mem,
+            'maxmem_bytes': maxmem,
+            'uptime':       _int0(n.get('uptime')),
+        })
+    out.sort(key=lambda x: x['node'])
+    return out
+
+
+def find_guest_node(pc: dict, vmid: int, guest_type: str = '') -> str:
+    """Resolve which cluster node currently owns a vmid (so an action on a
+    guest that lives on a non-configured node still targets the right host).
+    Matches on (vmid, guest_type) and validates the node string, so a crafted
+    cluster/resources row with a duplicate vmid of the wrong type, or a node
+    value carrying path separators, cannot steer the resolved node. The vmid
+    is compared as an int on both sides so a string-typed vmid in the response
+    still matches. Falls back to the configured node when the cluster lookup is
+    unavailable or the vmid is absent (cluster vmids are globally unique, so the
+    fallback cannot select a different guest)."""
+    try:
+        vmid = int(vmid)
+    except (ValueError, TypeError):
+        return pc['node']
+    try:
+        raw = _request(pc, '/cluster/resources?type=vm')
+    except ProxmoxError:
+        return pc['node']     # node-scoped token / single node: configured node
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if guest_type and item.get('type') != guest_type:
+            continue
+        try:
+            if int(item.get('vmid')) != vmid:
+                continue
+        except (ValueError, TypeError):
+            continue
+        node = _safe_node(item.get('node'))
+        if node:
+            return node
+    return pc['node']
 
 
 # ── Actions ─────────────────────────────────────────────────────────────
@@ -941,7 +1075,10 @@ def lifecycle(pc: dict, guest_type: str, vmid, action: str,
         vmid = int(vmid)
     except (TypeError, ValueError):
         raise ProxmoxError('Invalid vmid.')
-    base = f"/nodes/{pc['node']}/{guest_type}/{vmid}"
+    # Quote the node at the sink (like every sibling function), so a node
+    # string is never interpolated raw into the path even if a future caller
+    # forgets to validate it through find_guest_node/_safe_node.
+    base = f"/nodes/{urllib.parse.quote(str(pc['node']))}/{guest_type}/{vmid}"
 
     if action in _POWER_ACTIONS:
         return _request(pc, f'{base}/status/{action}', 'POST')
