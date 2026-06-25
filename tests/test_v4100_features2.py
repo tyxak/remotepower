@@ -83,7 +83,7 @@ class TestHealthGatedRollouts(unittest.TestCase):
         self.assertIn("pending.append(('rollout_halted'", block)
         # fire happens AFTER the lock in _rollout_tick (no lock-nesting)
         j = API_SRC.index('def _rollout_tick(')
-        tick = API_SRC[j:j + 1500]
+        tick = API_SRC[j:j + 2200]   # widened: issue #8 added a residual-explainer comment
         self.assertIn('fire_webhook(_ev, _pl)', tick)
 
     def test_ui_inputs(self):

@@ -7923,11 +7923,10 @@ def handle_device_tags(dev_id):
         respond(400, {'error': 'tags must be a list'})
     tags = [re.sub(r'[^a-zA-Z0-9_\-/]', '', str(t))[:MAX_TAG_LEN] for t in tags[:MAX_TAG_COUNT]]
     tags = [t for t in tags if t]  # drop empty after sanitize
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['tags'] = tags
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['tags'] = tags
     respond(200, {'ok': True, 'tags': tags})
 
 
@@ -7976,11 +7975,10 @@ def handle_device_notes(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     notes = _sanitize_str(get_json_obj().get('notes', ''), MAX_NOTES_LEN)
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['notes'] = notes
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['notes'] = notes
     respond(200, {'ok': True, 'notes': notes})
 
 
@@ -8004,172 +8002,171 @@ def handle_device_save_bulk(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    body = get_json_obj()
-    if not isinstance(body, dict):
-        respond(400, {'error': 'body must be a JSON object'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        body = get_json_obj()
+        if not isinstance(body, dict):
+            respond(400, {'error': 'body must be a JSON object'})
 
-    dev = devices[dev_id]
-    updates = {}
+        dev = devices[dev_id]
+        updates = {}
 
-    # group — alphanumeric + - _ /, max MAX_GROUP_LEN
-    if 'group' in body:
-        raw = _sanitize_str(body.get('group') or '', MAX_GROUP_LEN)
-        cleaned = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)
-        updates['group'] = cleaned
+        # group — alphanumeric + - _ /, max MAX_GROUP_LEN
+        if 'group' in body:
+            raw = _sanitize_str(body.get('group') or '', MAX_GROUP_LEN)
+            cleaned = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)
+            updates['group'] = cleaned
 
-    # tags — list, each filtered, capped
-    if 'tags' in body:
-        raw_tags = body.get('tags') or []
-        if not isinstance(raw_tags, list):
-            respond(400, {'error': 'tags must be a list'})
-        tags = [re.sub(r'[^a-zA-Z0-9_\-/]', '', str(t))[:MAX_TAG_LEN]
-                for t in raw_tags[:MAX_TAG_COUNT]]
-        updates['tags'] = [t for t in tags if t]
+        # tags — list, each filtered, capped
+        if 'tags' in body:
+            raw_tags = body.get('tags') or []
+            if not isinstance(raw_tags, list):
+                respond(400, {'error': 'tags must be a list'})
+            tags = [re.sub(r'[^a-zA-Z0-9_\-/]', '', str(t))[:MAX_TAG_LEN]
+                    for t in raw_tags[:MAX_TAG_COUNT]]
+            updates['tags'] = [t for t in tags if t]
 
-    # icon — short ascii label
-    if 'icon' in body:
-        updates['icon'] = _sanitize_str(body.get('icon') or '', MAX_NAME_LEN)
+        # icon — short ascii label
+        if 'icon' in body:
+            updates['icon'] = _sanitize_str(body.get('icon') or '', MAX_NAME_LEN)
 
-    # monitored — bool
-    if 'monitored' in body:
-        updates['monitored'] = bool(body.get('monitored'))
+        # monitored — bool
+        if 'monitored' in body:
+            updates['monitored'] = bool(body.get('monitored'))
 
-    # v5.0.0: decommissioned — a retired asset. Greyed out in the UI and fully
-    # silenced: setting it forces monitored=False so every existing per-device
-    # suppression (alerts, health, SLA, checks) applies with no new call sites;
-    # clearing it restores monitoring. An explicit `monitored` in the same bundle
-    # is overridden when decommissioning (a decommissioned host is never monitored).
-    if 'decommissioned' in body:
-        dc = bool(body.get('decommissioned'))
-        updates['decommissioned'] = dc
-        updates['monitored'] = False if dc else True
+        # v5.0.0: decommissioned — a retired asset. Greyed out in the UI and fully
+        # silenced: setting it forces monitored=False so every existing per-device
+        # suppression (alerts, health, SLA, checks) applies with no new call sites;
+        # clearing it restores monitoring. An explicit `monitored` in the same bundle
+        # is overridden when decommissioning (a decommissioned host is never monitored).
+        if 'decommissioned' in body:
+            dc = bool(body.get('decommissioned'))
+            updates['decommissioned'] = dc
+            updates['monitored'] = False if dc else True
 
-    # v3.14.0 #38: agent release channel (stable|beta). 'beta' devices are
-    # advertised the beta binary by /api/agent/version when one is published;
-    # absent a beta binary, beta resolves to stable (so this is inert until an
-    # operator publishes a beta release). Default stable.
-    if 'update_channel' in body:
-        ch = _sanitize_str(body.get('update_channel') or '', 16).lower()
-        updates['update_channel'] = ch if ch in ('stable', 'beta') else 'stable'
+        # v3.14.0 #38: agent release channel (stable|beta). 'beta' devices are
+        # advertised the beta binary by /api/agent/version when one is published;
+        # absent a beta binary, beta resolves to stable (so this is inert until an
+        # operator publishes a beta release). Default stable.
+        if 'update_channel' in body:
+            ch = _sanitize_str(body.get('update_channel') or '', 16).lower()
+            updates['update_channel'] = ch if ch in ('stable', 'beta') else 'stable'
 
-    # v4.3.0: per-device extra grace before a device_offline alert. 0 = default
-    # behaviour; capped at 24h. Read by _offline_thresholds on the offline sweep.
-    if 'offline_alert_delay_min' in body:
-        try:
-            _ad = int(body.get('offline_alert_delay_min') or 0)
-        except (TypeError, ValueError):
-            _ad = 0
-        updates['offline_alert_delay_min'] = max(0, min(1440, _ad))
+        # v4.3.0: per-device extra grace before a device_offline alert. 0 = default
+        # behaviour; capped at 24h. Read by _offline_thresholds on the offline sweep.
+        if 'offline_alert_delay_min' in body:
+            try:
+                _ad = int(body.get('offline_alert_delay_min') or 0)
+            except (TypeError, ValueError):
+                _ad = 0
+            updates['offline_alert_delay_min'] = max(0, min(1440, _ad))
 
-    # v3.14.0 #31: per-host opt-in for one-click CIS remediation. Default off —
-    # remediation queues mutating commands (reboot, package upgrade), so it only
-    # works on a host the operator has explicitly opted in.
-    if 'remediation_enabled' in body:
-        updates['remediation_enabled'] = bool(body.get('remediation_enabled'))
+        # v3.14.0 #31: per-host opt-in for one-click CIS remediation. Default off —
+        # remediation queues mutating commands (reboot, package upgrade), so it only
+        # works on a host the operator has explicitly opted in.
+        if 'remediation_enabled' in body:
+            updates['remediation_enabled'] = bool(body.get('remediation_enabled'))
 
-    # v3.14.0 (#24 P2): assign a device to a tenant. Moving a device across
-    # tenants is a platform-operator action — only a superadmin may do it, and
-    # only to a tenant that exists.
-    if 'tenant' in body and _caller_is_superadmin():
-        _t = _sanitize_str(str(body.get('tenant') or ''), 64)
-        if _t in _load_tenants():
-            updates['tenant'] = _t
+        # v3.14.0 (#24 P2): assign a device to a tenant. Moving a device across
+        # tenants is a platform-operator action — only a superadmin may do it, and
+        # only to a tenant that exists.
+        if 'tenant' in body and _caller_is_superadmin():
+            _t = _sanitize_str(str(body.get('tenant') or ''), 64)
+            if _t in _load_tenants():
+                updates['tenant'] = _t
 
-    # v3.3.4: agentless reachability mode + manual up/down. 'icmp' pings
-    # the host each sweep; 'manual' uses manual_status (set by the Up/Down
-    # control, for hosts that block ping).
-    if 'reachability' in body:
-        rm = _sanitize_str(body.get('reachability') or '', 16).lower()
-        updates['reachability'] = rm if rm in ('icmp', 'manual', 'ssh') else 'icmp'
-    if 'manual_status' in body:
-        updates['manual_status'] = bool(body.get('manual_status'))
-    # v3.14.0 #48: agentless SSH connection details.
-    if 'ssh_user' in body:
-        updates['ssh_user'] = _sanitize_str(str(body.get('ssh_user') or ''), 64)
-    if 'ssh_host' in body:
-        updates['ssh_host'] = _sanitize_str(str(body.get('ssh_host') or ''), 255)
-    if 'ssh_port' in body:
-        try:
-            updates['ssh_port'] = max(1, min(65535, int(body.get('ssh_port') or 22)))
-        except (TypeError, ValueError):
-            updates['ssh_port'] = 22
+        # v3.3.4: agentless reachability mode + manual up/down. 'icmp' pings
+        # the host each sweep; 'manual' uses manual_status (set by the Up/Down
+        # control, for hosts that block ping).
+        if 'reachability' in body:
+            rm = _sanitize_str(body.get('reachability') or '', 16).lower()
+            updates['reachability'] = rm if rm in ('icmp', 'manual', 'ssh') else 'icmp'
+        if 'manual_status' in body:
+            updates['manual_status'] = bool(body.get('manual_status'))
+        # v3.14.0 #48: agentless SSH connection details.
+        if 'ssh_user' in body:
+            updates['ssh_user'] = _sanitize_str(str(body.get('ssh_user') or ''), 64)
+        if 'ssh_host' in body:
+            updates['ssh_host'] = _sanitize_str(str(body.get('ssh_host') or ''), 255)
+        if 'ssh_port' in body:
+            try:
+                updates['ssh_port'] = max(1, min(65535, int(body.get('ssh_port') or 22)))
+            except (TypeError, ValueError):
+                updates['ssh_port'] = 22
 
-    # poll_interval — int, clamp to a reasonable floor
-    if 'poll_interval' in body:
-        try:
-            pi_val = int(body.get('poll_interval'))
-        except (TypeError, ValueError):
-            respond(400, {'error': 'poll_interval must be an integer'})
-        if pi_val < 30:
-            respond(400, {'error': 'poll_interval must be >= 30 seconds'})
-        if pi_val > 3600:
-            respond(400, {'error': 'poll_interval must be <= 3600 seconds'})
-        updates['poll_interval'] = pi_val
+        # poll_interval — int, clamp to a reasonable floor
+        if 'poll_interval' in body:
+            try:
+                pi_val = int(body.get('poll_interval'))
+            except (TypeError, ValueError):
+                respond(400, {'error': 'poll_interval must be an integer'})
+            if pi_val < 30:
+                respond(400, {'error': 'poll_interval must be >= 30 seconds'})
+            if pi_val > 3600:
+                respond(400, {'error': 'poll_interval must be <= 3600 seconds'})
+            updates['poll_interval'] = pi_val
 
-    # watched_services — list of unit names (server stores them under
-    # the `services_watched` key — historical naming, kept for
-    # back-compat with the heartbeat path that already reads that field).
-    if 'watched_services' in body:
-        raw_svcs = body.get('watched_services') or []
-        if not isinstance(raw_svcs, list):
-            respond(400, {'error': 'watched_services must be a list'})
-        svcs = []
-        for s in raw_svcs[:50]:
-            name = _sanitize_str(str(s), 128)
-            if name:
-                svcs.append(name)
-        updates['services_watched'] = svcs
+        # watched_services — list of unit names (server stores them under
+        # the `services_watched` key — historical naming, kept for
+        # back-compat with the heartbeat path that already reads that field).
+        if 'watched_services' in body:
+            raw_svcs = body.get('watched_services') or []
+            if not isinstance(raw_svcs, list):
+                respond(400, {'error': 'watched_services must be a list'})
+            svcs = []
+            for s in raw_svcs[:50]:
+                name = _sanitize_str(str(s), 128)
+                if name:
+                    svcs.append(name)
+            updates['services_watched'] = svcs
 
-    # log_watch — list of {unit, pattern} dicts
-    if 'log_watch' in body:
-        raw_lw = body.get('log_watch') or []
-        if not isinstance(raw_lw, list):
-            respond(400, {'error': 'log_watch must be a list'})
-        log_rules = []
-        for entry in raw_lw[:50]:
-            if not isinstance(entry, dict):
-                continue
-            unit = _sanitize_str(entry.get('unit') or '', 128)
-            pattern = _sanitize_str(entry.get('pattern') or '', 256)
-            if unit and pattern:
-                log_rules.append({'unit': unit, 'pattern': pattern})
-        updates['log_watch'] = log_rules
+        # log_watch — list of {unit, pattern} dicts
+        if 'log_watch' in body:
+            raw_lw = body.get('log_watch') or []
+            if not isinstance(raw_lw, list):
+                respond(400, {'error': 'log_watch must be a list'})
+            log_rules = []
+            for entry in raw_lw[:50]:
+                if not isinstance(entry, dict):
+                    continue
+                unit = _sanitize_str(entry.get('unit') or '', 128)
+                pattern = _sanitize_str(entry.get('pattern') or '', 256)
+                if unit and pattern:
+                    log_rules.append({'unit': unit, 'pattern': pattern})
+            updates['log_watch'] = log_rules
 
-    # watched_files — list of absolute paths
-    if 'watched_files' in body:
-        raw_wf = body.get('watched_files') or []
-        if not isinstance(raw_wf, list):
-            respond(400, {'error': 'watched_files must be a list'})
-        files = []
-        for p in raw_wf[:50]:
-            s = str(p).strip()
-            if s.startswith('/') and len(s) <= 512:
-                files.append(s)
-        updates['watched_files'] = files
+        # watched_files — list of absolute paths
+        if 'watched_files' in body:
+            raw_wf = body.get('watched_files') or []
+            if not isinstance(raw_wf, list):
+                respond(400, {'error': 'watched_files must be a list'})
+            files = []
+            for p in raw_wf[:50]:
+                s = str(p).strip()
+                if s.startswith('/') and len(s) <= 512:
+                    files.append(s)
+            updates['watched_files'] = files
 
-    # cmd_allowlist — list of command strings.
-    # Storage name is `allowed_commands` because that's what
-    # _check_exec_allowlist() reads at command-execution time. Any
-    # divergent `cmd_allowlist` field on the device record is
-    # historical noise; cleaning it up is a separate task.
-    if 'cmd_allowlist' in body:
-        raw_al = body.get('cmd_allowlist') or []
-        if not isinstance(raw_al, list):
-            respond(400, {'error': 'cmd_allowlist must be a list'})
-        cmds = [str(c)[:512] for c in raw_al[:50] if str(c).strip()]
-        updates['allowed_commands'] = cmds
+        # cmd_allowlist — list of command strings.
+        # Storage name is `allowed_commands` because that's what
+        # _check_exec_allowlist() reads at command-execution time. Any
+        # divergent `cmd_allowlist` field on the device record is
+        # historical noise; cleaning it up is a separate task.
+        if 'cmd_allowlist' in body:
+            raw_al = body.get('cmd_allowlist') or []
+            if not isinstance(raw_al, list):
+                respond(400, {'error': 'cmd_allowlist must be a list'})
+            cmds = [str(c)[:512] for c in raw_al[:50] if str(c).strip()]
+            updates['allowed_commands'] = cmds
 
-    if not updates:
-        respond(400, {'error': 'no recognised settings fields in body'})
+        if not updates:
+            respond(400, {'error': 'no recognised settings fields in body'})
 
-    # Single atomic write. If `monitored` is being turned off, mirror
-    # the per-field handler's side effect and clear any pending
-    # offline notification so we don't ping about an opt-out device.
-    dev.update(updates)
-    save(DEVICES_FILE, devices)
+        # Single atomic write. If `monitored` is being turned off, mirror
+        # the per-field handler's side effect and clear any pending
+        # offline notification so we don't ping about an opt-out device.
+        dev.update(updates)
     if updates.get('monitored') is False:
         cfg = load(CONFIG_FILE)
         changed = False
@@ -8241,9 +8238,9 @@ def handle_device_metric_thresholds(dev_id):
         })
 
     if method() == 'DELETE':
-        if 'metric_thresholds' in dev:
-            del dev['metric_thresholds']
-            save(DEVICES_FILE, devices)
+        with _LockedUpdate(DEVICES_FILE) as devices:
+            if dev_id in devices:
+                devices[dev_id].pop('metric_thresholds', None)
         respond(200, {'ok': True})
 
     if method() != 'PATCH':
@@ -8324,12 +8321,13 @@ def handle_device_metric_thresholds(dev_id):
         if w >= c:
             respond(400, {'error': f'{warn_k} must be < {crit_k}'})
 
-    dev['metric_thresholds'] = overrides
     # Reset metric state so next heartbeat re-fires alerts under new thresholds
     # (otherwise a metric currently in 'warning' state with old threshold 80
     # would silently stay 'warning' even if you raised threshold to 90).
-    dev.pop('metric_state', None)
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id in devices:
+            devices[dev_id]['metric_thresholds'] = overrides
+            devices[dev_id].pop('metric_state', None)
     respond(200, {'ok': True, 'overrides': overrides})
 
 
@@ -8413,14 +8411,12 @@ def handle_site_delete(site_id):
     sites.pop(site_id, None)
     save(SITES_FILE, sites)
     # Unassign any devices that referenced it (soft delete of the link).
-    devices = load(DEVICES_FILE)
-    touched = 0
-    for d in devices.values():
-        if d.get('site') == site_id:
-            d['site'] = ''
-            touched += 1
-    if touched:
-        save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        touched = 0
+        for d in devices.values():
+            if d.get('site') == site_id:
+                d['site'] = ''
+                touched += 1
     audit_log(actor, 'site_delete', detail=f'site={site_id} unassigned={touched}')
     respond(200, {'ok': True, 'unassigned': touched})
 
@@ -8612,15 +8608,14 @@ def handle_device_site(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     site_id = str(get_json_obj().get('site', '') or '').strip()
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    if site_id:
-        sites = load(SITES_FILE)
-        if site_id not in sites:
-            respond(400, {'error': 'unknown site'})
-    devices[dev_id]['site'] = site_id
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        if site_id:
+            sites = load(SITES_FILE)
+            if site_id not in sites:
+                respond(400, {'error': 'unknown site'})
+        devices[dev_id]['site'] = site_id
     respond(200, {'ok': True, 'site': site_id})
 
 
@@ -9832,11 +9827,10 @@ def handle_device_group(dev_id):
     raw = _sanitize_str(get_json_obj().get('group', ''), MAX_GROUP_LEN)
     # Allow alphanumeric, hyphen, underscore, forward-slash for namespaces
     group = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)[:MAX_GROUP_LEN]
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['group'] = group
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['group'] = group
     respond(200, {'ok': True, 'group': group})
 
 
@@ -9851,17 +9845,16 @@ def handle_device_poll_interval(dev_id):
     except (TypeError, ValueError):
         respond(400, {'error': 'poll_interval must be an integer'})
     interval = max(10, min(3600, interval))
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['poll_interval'] = interval
-    cmds = load(CMDS_FILE)
-    if dev_id not in cmds:
-        cmds[dev_id] = []
-    cmds[dev_id] = [c for c in cmds[dev_id] if not c.startswith('poll_interval:')]
-    cmds[dev_id].append(f'poll_interval:{interval}')
-    save(CMDS_FILE, cmds)
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['poll_interval'] = interval
+    # CMDS_FILE is a separate store — its own (sequential, non-nested) lock.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        if dev_id not in cmds:
+            cmds[dev_id] = []
+        cmds[dev_id] = [c for c in cmds[dev_id] if not c.startswith('poll_interval:')]
+        cmds[dev_id].append(f'poll_interval:{interval}')
     respond(200, {'ok': True, 'poll_interval': interval})
 
 
@@ -9898,11 +9891,10 @@ def handle_device_icon(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     icon = _sanitize_str(get_json_obj().get('icon', ''), 32)
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['icon'] = icon
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['icon'] = icon
     respond(200, {'ok': True, 'icon': icon})
 
 
@@ -9914,11 +9906,10 @@ def handle_device_monitored(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
     monitored = bool(body.get('monitored', True))
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['monitored'] = monitored
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['monitored'] = monitored
     # If disabling monitoring, clear any pending offline notification
     if not monitored:
         cfg = load(CONFIG_FILE)
@@ -9948,12 +9939,11 @@ def handle_device_decommission(dev_id):
         respond(404, {'error': 'Device not found'})
     _scope_block_device(dev_id)
     dc = bool(get_json_obj().get('decommissioned', True))
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['decommissioned'] = dc
-    devices[dev_id]['monitored'] = False if dc else True
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['decommissioned'] = dc
+        devices[dev_id]['monitored'] = False if dc else True
     if dc:
         # Clear any pending offline notification, exactly like disabling monitoring.
         cfg = load(CONFIG_FILE)
@@ -9985,11 +9975,10 @@ def handle_device_require_confirmation(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
     require = bool(body.get('require_confirmation', True))
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['require_confirmation'] = require
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['require_confirmation'] = require
     audit_log(requester, 'device_require_confirmation',
               f'dev={dev_id} require_confirmation={require}')
     respond(200, {'ok': True, 'require_confirmation': require})
@@ -10007,11 +9996,10 @@ def handle_device_compose_enabled(dev_id):
         respond(404, {'error': 'Device not found'})
     body = get_json_obj()
     enabled = bool(body.get('compose_enabled', False))
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    devices[dev_id]['compose_enabled'] = enabled
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['compose_enabled'] = enabled
     audit_log(requester, 'device_compose_enabled',
               f'dev={dev_id} compose_enabled={enabled}')
     respond(200, {'ok': True, 'compose_enabled': enabled})
@@ -10418,47 +10406,61 @@ def handle_enroll_register():
     mac      = _sanitize_mac(body.get('mac', ''))
     version  = _sanitize_version(body.get('version', ''))
 
-    # Re-enrollment: existing device_id must be validated and token must match
+    # Re-enrollment: existing device_id must be validated and token must match.
+    # The whole read-modify-write runs under the DEVICES_FILE lock so a
+    # concurrent enrol/heartbeat can't be clobbered by a stale full-store save
+    # (issue #8). audit_log() self-locks, so the audit decision is buffered and
+    # fired AFTER the lock (the recurring lock-nesting class).
     existing_id = str(body.get('device_id', '')).strip()
-    devices = load(DEVICES_FILE)
-    if existing_id and _validate_id(existing_id) and existing_id in devices:
-        dev = devices[existing_id]
-        # Require the existing device token to authorize re-enrollment.
-        # v3.3.0 C5: this gate already prevents takeover (an attacker
-        # who consumes the PIN still can't claim an existing device_id
-        # without that device's current token). Hardened with audit
-        # logging and a fresh token rotation so a one-time PIN/token
-        # leak doesn't yield a permanently usable device credential.
-        provided_token = str(body.get('token', '')).strip()
-        if not provided_token or not hmac.compare_digest(
-                dev.get('token', ''), provided_token):
-            audit_log('enroll', 'reenroll_denied',
-                      f'device={existing_id} ip={_get_client_ip()} reason=token_mismatch')
-            respond(403, {'error': 'Existing device token required for re-enrollment'})
-        # Rotate the device token on re-enrollment so the previous token
-        # cannot continue heartbeating from a stale install.
-        new_token = secrets.token_urlsafe(32)
-        dev.update({
-            'hostname': hostname, 'name': name, 'os': os_str,
-            'ip': ip, 'mac': mac, 'version': version, 'last_seen': now,
-            'token': new_token,
-        })
-        save(DEVICES_FILE, devices)
-        audit_log('enroll', 'reenroll',
-                  f'device={existing_id} hostname={hostname} ip={_get_client_ip()}')
-        respond(200, {'ok': True, 'device_id': existing_id,
-                      'token': new_token, 'reregistered': True})
+    provided_token = str(body.get('token', '')).strip()
+    pending_audit = None         # (event, detail) — fired after the lock
+    outcome = None               # ('denied',) | ('reenroll', id, token) | ('new', id, token)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if existing_id and _validate_id(existing_id) and existing_id in devices:
+            dev = devices[existing_id]
+            # Require the existing device token to authorize re-enrollment.
+            # v3.3.0 C5: this gate already prevents takeover (an attacker
+            # who consumes the PIN still can't claim an existing device_id
+            # without that device's current token). Hardened with audit
+            # logging and a fresh token rotation so a one-time PIN/token
+            # leak doesn't yield a permanently usable device credential.
+            if not provided_token or not hmac.compare_digest(
+                    dev.get('token', ''), provided_token):
+                pending_audit = ('reenroll_denied',
+                                 f'device={existing_id} ip={_get_client_ip()} reason=token_mismatch')
+                outcome = ('denied',)
+            else:
+                # Rotate the device token on re-enrollment so the previous token
+                # cannot continue heartbeating from a stale install.
+                new_token = secrets.token_urlsafe(32)
+                dev.update({
+                    'hostname': hostname, 'name': name, 'os': os_str,
+                    'ip': ip, 'mac': mac, 'version': version, 'last_seen': now,
+                    'token': new_token,
+                })
+                pending_audit = ('reenroll',
+                                 f'device={existing_id} hostname={hostname} ip={_get_client_ip()}')
+                outcome = ('reenroll', existing_id, new_token)
+        else:
+            dev_id = secrets.token_urlsafe(12)
+            new_token = secrets.token_urlsafe(32)
+            devices[dev_id] = {
+                'name': name, 'hostname': hostname, 'os': os_str,
+                'ip': ip, 'mac': mac, 'version': version,
+                'tags': list(default_tags), 'group': default_group, 'notes': '',
+                'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
+                'token': new_token,
+            }
+            outcome = ('new', dev_id, new_token)
 
-    dev_id = secrets.token_urlsafe(12)
-    devices[dev_id] = {
-        'name': name, 'hostname': hostname, 'os': os_str,
-        'ip': ip, 'mac': mac, 'version': version,
-        'tags': list(default_tags), 'group': default_group, 'notes': '',
-        'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
-        'token': secrets.token_urlsafe(32),
-    }
-    save(DEVICES_FILE, devices)
-    respond(201, {'ok': True, 'device_id': dev_id, 'token': devices[dev_id]['token']})
+    if pending_audit:
+        audit_log('enroll', pending_audit[0], pending_audit[1])
+    if outcome[0] == 'denied':
+        respond(403, {'error': 'Existing device token required for re-enrollment'})
+    if outcome[0] == 'reenroll':
+        respond(200, {'ok': True, 'device_id': outcome[1],
+                      'token': outcome[2], 'reregistered': True})
+    respond(201, {'ok': True, 'device_id': outcome[1], 'token': outcome[2]})
 
 
 # ── Heartbeat saved_dev contract (anti-regression) ──────────────────────────
@@ -12810,7 +12812,7 @@ def handle_upgrade_device():
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('patch', ids)   # v3.4.2 RBAC
 
-    devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}
+    devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}; dev_updates = {}
     queued_str = f'exec:{_UPGRADE_CMD}'
     _gate = _needs_approval('upgrade')   # v3.14.0: 4-eyes — park upgrades for a second admin
     for dev_id in ids:
@@ -12832,16 +12834,26 @@ def handle_upgrade_device():
         # v3.4.2: post-deploy verification — snapshot the pending count now and
         # force a package re-scan, so the patch report can confirm the upgrade
         # actually took (pending dropped) vs stalled.
-        dev['upgrade_queued_at'] = int(time.time())
-        dev['upgrade_pending_before'] = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
-        dev['force_package_scan'] = True
+        dev_updates[dev_id] = {
+            'upgrade_queued_at': int(time.time()),
+            'upgrade_pending_before': ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable'),
+            'force_package_scan': True,
+        }
         log_command(actor, dev_id, dev.get('name', dev_id), 'upgrade packages')
         fire_webhook('command_queued', {
             'device_id': dev_id, 'name': dev.get('name', dev_id),
             'command': 'upgrade packages', 'actor': actor,
         })
         results[dev_id] = {'ok': True}
-    save(DEVICES_FILE, devices)
+    # issue #8: the loop read `devices` only for names/queue state; persist the
+    # verification fields via a locked RMW so a concurrent enrol/heartbeat isn't
+    # clobbered by a stale full-store save. log_command/fire_webhook already ran
+    # outside any lock above (unchanged), so there's no lock nesting here.
+    if dev_updates:
+        with _LockedUpdate(DEVICES_FILE) as devices:
+            for _did, _upd in dev_updates.items():
+                if _did in devices:
+                    devices[_did].update(_upd)
     save(CMDS_FILE, cmds)
     if len(ids) == 1:
         r = results[ids[0]]
@@ -21536,32 +21548,31 @@ def handle_agentless_create() -> None:
     tags = [_sanitize_str(t, 32, allow_empty=False) for t in tags[:20]]
     tags = [t for t in tags if t]
 
-    devices = load(DEVICES_FILE)
-    if connected_to and connected_to not in devices:
-        respond(400, {'error': f'connected_to: device {connected_to} not found'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if connected_to and connected_to not in devices:
+            respond(400, {'error': f'connected_to: device {connected_to} not found'})
 
-    new_id = 'al_' + secrets.token_hex(6)
-    devices[new_id] = {
-        'name':          name,
-        'hostname':      hostname,
-        'ip':            ip,
-        'mac':           mac,
-        'os':            os_str,
-        'group':         group,
-        'tags':          tags,
-        'notes':         notes,
-        'device_type':   dtype,
-        'connected_to':  connected_to,
-        'manual_status': bool(body.get('manual_status', True)),
-        'agentless':     True,
-        # No token — agentless devices can't post heartbeats
-        'token':         '',
-        'last_seen':     0,
-        'enrolled':      int(time.time()),
-        'monitored':     True,
-        'sysinfo':       {},
-    }
-    save(DEVICES_FILE, devices)
+        new_id = 'al_' + secrets.token_hex(6)
+        devices[new_id] = {
+            'name':          name,
+            'hostname':      hostname,
+            'ip':            ip,
+            'mac':           mac,
+            'os':            os_str,
+            'group':         group,
+            'tags':          tags,
+            'notes':         notes,
+            'device_type':   dtype,
+            'connected_to':  connected_to,
+            'manual_status': bool(body.get('manual_status', True)),
+            'agentless':     True,
+            # No token — agentless devices can't post heartbeats
+            'token':         '',
+            'last_seen':     0,
+            'enrolled':      int(time.time()),
+            'monitored':     True,
+            'sysinfo':       {},
+        }
     audit_log(actor, 'agentless_create',
               detail=f'id={new_id} name={name} type={dtype}')
     respond(200, {'ok': True, 'id': new_id})
@@ -21581,17 +21592,16 @@ def handle_device_connected_to(dev_id: str) -> None:
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    body = get_json_obj()
-    target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
-    if target == dev_id:
-        respond(400, {'error': 'a device cannot connect to itself'})
-    if target and target not in devices:
-        respond(400, {'error': f'device {target} not found'})
-    devices[dev_id]['connected_to'] = target
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        body = get_json_obj()
+        target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
+        if target == dev_id:
+            respond(400, {'error': 'a device cannot connect to itself'})
+        if target and target not in devices:
+            respond(400, {'error': f'device {target} not found'})
+        devices[dev_id]['connected_to'] = target
     audit_log(actor, 'device_connected_to', detail=f'{dev_id} → {target or "(cleared)"}')
     respond(200, {'ok': True})
 
@@ -21608,22 +21618,21 @@ def handle_device_depends_on(dev_id: str) -> None:
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    body = get_json_obj()
-    raw = body.get('depends_on') or []
-    if not isinstance(raw, list):
-        respond(400, {'error': 'depends_on must be a list of device ids'})
-    ups = []
-    for u in raw[:50]:
-        u = _sanitize_str(u, 64)
-        if u == dev_id:
-            respond(400, {'error': 'a device cannot depend on itself'})
-        if u and u in devices and u not in ups:
-            ups.append(u)
-    devices[dev_id]['depends_on'] = ups
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        body = get_json_obj()
+        raw = body.get('depends_on') or []
+        if not isinstance(raw, list):
+            respond(400, {'error': 'depends_on must be a list of device ids'})
+        ups = []
+        for u in raw[:50]:
+            u = _sanitize_str(u, 64)
+            if u == dev_id:
+                respond(400, {'error': 'a device cannot depend on itself'})
+            if u and u in devices and u not in ups:
+                ups.append(u)
+        devices[dev_id]['depends_on'] = ups
     audit_log(actor, 'device_depends_on', detail=f'{dev_id} → {ups or "(cleared)"}')
     respond(200, {'ok': True, 'depends_on': ups})
 
@@ -21793,32 +21802,31 @@ def handle_network_positions() -> None:
         respond(400, {'error': 'positions must be a list'})
     if len(positions) > 1000:
         respond(400, {'error': 'too many positions in one batch'})
-    devices = load(DEVICES_FILE)
-    changed = 0
-    for p in positions:
-        if not isinstance(p, dict):
-            continue
-        dev_id = p.get('id')
-        if not dev_id or dev_id not in devices:
-            continue
-        x, y = p.get('x'), p.get('y')
-        # Allow null to clear, otherwise must be numeric and in a sane range.
-        # The render-side SVG defaults to a few hundred pixels each side so
-        # millions are wasted; cap defensively.
-        if x is None and y is None:
-            devices[dev_id].pop('pos_x', None)
-            devices[dev_id].pop('pos_y', None)
-        else:
-            try:
-                xi = int(x); yi = int(y)
-            except (TypeError, ValueError):
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        changed = 0
+        for p in positions:
+            if not isinstance(p, dict):
                 continue
-            if not (-10000 <= xi <= 10000 and -10000 <= yi <= 10000):
+            dev_id = p.get('id')
+            if not dev_id or dev_id not in devices:
                 continue
-            devices[dev_id]['pos_x'] = xi
-            devices[dev_id]['pos_y'] = yi
-        changed += 1
-    save(DEVICES_FILE, devices)
+            x, y = p.get('x'), p.get('y')
+            # Allow null to clear, otherwise must be numeric and in a sane range.
+            # The render-side SVG defaults to a few hundred pixels each side so
+            # millions are wasted; cap defensively.
+            if x is None and y is None:
+                devices[dev_id].pop('pos_x', None)
+                devices[dev_id].pop('pos_y', None)
+            else:
+                try:
+                    xi = int(x); yi = int(y)
+                except (TypeError, ValueError):
+                    continue
+                if not (-10000 <= xi <= 10000 and -10000 <= yi <= 10000):
+                    continue
+                devices[dev_id]['pos_x'] = xi
+                devices[dev_id]['pos_y'] = yi
+            changed += 1
     audit_log(actor, 'network_positions_save', detail=f'count={changed}')
     respond(200, {'ok': True, 'updated': changed})
 
@@ -22099,8 +22107,9 @@ def handle_device_allowlist(dev_id):
         body = get_json_body(); cmds_input = body.get('allowed_commands', [])
         if not isinstance(cmds_input, list): respond(400, {'error': 'allowed_commands must be a list'})
         cmds_clean = [str(c)[:512] for c in cmds_input[:50] if str(c).strip()]
-        devices[dev_id]['allowed_commands'] = cmds_clean
-        save(DEVICES_FILE, devices)
+        with _LockedUpdate(DEVICES_FILE) as devices:
+            if dev_id in devices:
+                devices[dev_id]['allowed_commands'] = cmds_clean
         respond(200, {'ok': True, 'allowed_commands': cmds_clean})
     respond(405, {'error': 'Method not allowed'})
 
@@ -32616,6 +32625,11 @@ def _rollout_tick():
                     dirty = True
                 roll.pop('_script_body', None)
             if dirty:
+                # issue #8: this is the ONE permitted bare DEVICES write — it runs
+                # while holding _LockedUpdate(ROLLOUTS_FILE), so it can't take a
+                # second _LockedUpdate(DEVICES_FILE) (nested BEGIN IMMEDIATE would
+                # throw under SQLite). Cross-lock atomicity here is a known residual;
+                # the guardrail test allowlists _rollout_tick.
                 save(DEVICES_FILE, devices)
                 save(CMDS_FILE, cmds)
             store['rollouts'] = rolls
@@ -43081,9 +43095,10 @@ def handle_services_config(dev_id):
                     rule_clean['display_template'] = tmpl
                 log_rules.append(rule_clean)
 
-    devices[dev_id]['services_watched'] = watched
-    devices[dev_id]['log_watch']        = log_rules
-    save(DEVICES_FILE, devices)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id in devices:
+            devices[dev_id]['services_watched'] = watched
+            devices[dev_id]['log_watch']        = log_rules
     audit_log(actor, 'services_config_update',
               detail=f'device={dev_id} watched={len(watched)} log_rules={len(log_rules)}')
     respond(200, {'ok': True, 'services_watched': watched, 'log_watch': log_rules})
