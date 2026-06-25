@@ -44,6 +44,7 @@ function _renderProxmoxGuest(g, kind) {
       <div class="fw-600">
         <span class="isl-574">${g.vmid}</span>
         ${escHtml(g.name)}
+        ${g.node ? `<span class="isl-575" title="Proxmox node">${escHtml(g.node)}</span>` : ''}
         ${g.tags ? `<span class="isl-575">${escHtml(g.tags)}</span>` : ''}
       </div>
       <div class="row-8-center">

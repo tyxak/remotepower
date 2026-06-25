@@ -19072,6 +19072,10 @@ def handle_proxmox_lifecycle() -> None:
     params = body.get('params') if isinstance(body.get('params'), dict) else {}
     if guest_type not in ('qemu', 'lxc') or action not in proxmox_client.LIFECYCLE_ACTIONS:
         respond(400, {'error': 'invalid guest_type or action'})
+    try:
+        int(vmid)   # reject a non-numeric vmid BEFORE parking a 4-eyes confirmation
+    except (TypeError, ValueError):
+        respond(400, {'error': 'numeric vmid required'})
     label = f'{action} {guest_type}/{vmid}'
     if body.get('dry'):
         respond(200, {'ok': True, 'dry': True, 'planned': label})
@@ -19084,7 +19088,8 @@ def handle_proxmox_lifecycle() -> None:
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid})
     pc = proxmox_client.config_from(cfg)
     try:
-        upid = proxmox_client.lifecycle(pc, guest_type, vmid, action, params)
+        _pc = {**pc, 'node': proxmox_client.find_guest_node(pc, vmid, guest_type)}
+        upid = proxmox_client.lifecycle(_pc, guest_type, vmid, action, params)
     except proxmox_client.ProxmoxError as e:
         audit_log(actor, 'proxmox_lifecycle_failed', f'{label}: {e}')
         respond(502, {'error': str(e)})
@@ -19877,7 +19882,8 @@ def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
             continue
         key = f'{guest_type}_{vmid}'
         try:
-            snaps = proxmox_client.list_snapshots(pc, guest_type, int(vmid))
+            _pc = {**pc, 'node': guest.get('node') or pc['node']}
+            snaps = proxmox_client.list_snapshots(_pc, guest_type, int(vmid))
         except Exception:
             snaps = []
 
@@ -19927,17 +19933,32 @@ def _refresh_proxmox_backup_cache(pc: dict) -> None:
     now = int(time.time())
     # Names from both guest types (a backup archive only carries a vmid).
     names = {}
+    nodes = set()
     for gt in ('qemu', 'lxc'):
         try:
             for g in proxmox_client.list_guests(pc, gt):
                 if g.get('vmid'):
                     names[int(g['vmid'])] = g.get('name', str(g['vmid']))
+                    if g.get('node'):
+                        nodes.add(g['node'])
         except Exception:
             pass
-    try:
-        backups = proxmox_client.list_backups(pc)
-    except Exception:
-        return  # leave the previous cache intact on a transient failure
+    # Enumerate vzdump archives on every node a guest lives on (a cluster writes
+    # backups to per-node local storage), not just the configured node, so
+    # cross-node guests are not falsely flagged as having no backup. Node names
+    # are already validated by the client, and the newest-ctime merge below
+    # dedups any shared-storage archive seen from more than one node.
+    # All-or-nothing: if ANY node's backup listing fails (transient API error,
+    # member briefly unreachable), preserve the previous cache rather than
+    # rebuilding it from a partial set -- a partial rebuild would write
+    # age_days=None for guests on the failed node and fire false "no backup"
+    # alerts. Matches the pre-cluster single-node abort-on-error behaviour.
+    backups = []
+    for node in (nodes or {pc['node']}):
+        try:
+            backups.extend(proxmox_client.list_backups({**pc, 'node': node}))
+        except Exception:
+            return  # leave the previous cache intact on any node failure
     newest = {}   # vmid -> newest ctime
     for b in backups:
         vid = b.get('vmid')
@@ -19983,8 +20004,15 @@ def handle_proxmox_list(guest_type: str) -> None:
         except Exception:
             pass
 
+    # list_nodes is best-effort: the guests are already fetched, so a failure
+    # here (e.g. a non-ProxmoxError escaping the client) must not 500 the page.
+    try:
+        _nodes = proxmox_client.list_nodes(pc)
+    except Exception:
+        _nodes = []
     respond(200, {'enabled': True, 'configured': True,
                   'node': pc['node'], 'guests': guests,
+                  'nodes': _nodes,
                   'lifecycle': bool(_config_ro().get('proxmox_lifecycle_enabled'))})
 
 
@@ -20012,7 +20040,8 @@ def handle_proxmox_action(guest_type: str, rest: str) -> None:
         respond(400, {'error': 'Proxmox is not configured.'})
         return
     try:
-        result = proxmox_client.guest_action(pc, guest_type, vmid, action)
+        _pc = {**pc, 'node': proxmox_client.find_guest_node(pc, vmid, guest_type)}
+        result = proxmox_client.guest_action(_pc, guest_type, vmid, action)
     except proxmox_client.ProxmoxError as e:
         # Action-not-allowed and bad input map to 400; the message is
         # safe (never contains the token).
@@ -20189,7 +20218,9 @@ def handle_proxmox_snapshots_list() -> None:
         respond(400, {'error': 'Proxmox is not configured.'})
         return
     try:
-        snaps = proxmox_client.list_snapshots(pc, guest_type, int(vmid_str))
+        _vmid = int(vmid_str)
+        _pc = {**pc, 'node': proxmox_client.find_guest_node(pc, _vmid, guest_type)}
+        snaps = proxmox_client.list_snapshots(_pc, guest_type, _vmid)
     except proxmox_client.ProxmoxError as e:
         respond(502, {'error': str(e)})
         return
@@ -20275,13 +20306,14 @@ def handle_proxmox_snapshot_action() -> None:
         respond(400, {'error': 'Proxmox is not configured.'})
         return
     try:
+        _pc = {**pc, 'node': proxmox_client.find_guest_node(pc, vmid, guest_type)}
         if action == 'create':
             result = proxmox_client.create_snapshot(
-                pc, guest_type, vmid, name, body.get('description', '') or '')
+                _pc, guest_type, vmid, name, body.get('description', '') or '')
         elif action == 'rollback':
-            result = proxmox_client.rollback_snapshot(pc, guest_type, vmid, name)
+            result = proxmox_client.rollback_snapshot(_pc, guest_type, vmid, name)
         else:
-            result = proxmox_client.delete_snapshot(pc, guest_type, vmid, name)
+            result = proxmox_client.delete_snapshot(_pc, guest_type, vmid, name)
     except proxmox_client.ProxmoxError as e:
         code = 400 if 'invalid' in str(e).lower() else 502
         respond(code, {'error': str(e)})
@@ -36629,7 +36661,10 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
         if not cfg2.get('proxmox_lifecycle_enabled'):
             return {'ok': False, 'error': 'Proxmox lifecycle actions are disabled'}
         try:
-            upid = proxmox_client.lifecycle(proxmox_client.config_from(cfg2),
+            _pc2 = proxmox_client.config_from(cfg2)
+            _pc2 = {**_pc2, 'node': proxmox_client.find_guest_node(
+                _pc2, device_id, p.get('guest_type') or '')}
+            upid = proxmox_client.lifecycle(_pc2,
                                             p.get('guest_type'), device_id,
                                             p.get('action'), p.get('params') or {})
         except proxmox_client.ProxmoxError as e:
