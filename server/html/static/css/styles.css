@@ -3907,7 +3907,7 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .isl-65 { max-width:340px }
 .isl-66 { font-family:var(--font-mono); font-size:12px }
 .isl-67 { display:flex; align-items:center; gap:10px; cursor:pointer; margin:10px 0 }
-.isl-68 { max-width:240px }
+.isl-68 { width:auto; max-width:240px }   /* filter selects size to content (override .form-input width:100%), capped */
 .isl-69 { font-size:12px; color:var(--muted); margin-top:4px }
 .isl-70 { margin-top:14px }
 .isl-71 { flex:1; min-width:280px }
