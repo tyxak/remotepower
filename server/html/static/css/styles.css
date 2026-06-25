@@ -1632,6 +1632,13 @@
   }
   input:where(:not([type=checkbox]):not([type=radio])):focus,
   select:focus, textarea:focus { border-color: var(--accent); }
+  /* v5.1.1: keep the native <option> list readable on every theme. Without explicit
+   * colours, some browsers/OS render the highlighted (selected/hovered) option with
+   * the accent colour for BOTH text and background — accent-on-accent (e.g. blue text
+   * on the blue selection bar) — so the open dropdown is unreadable. Force a solid
+   * surface base + a translucent-accent highlight that keeps the normal text colour. */
+  option { background: var(--surface); color: var(--text); }
+  option:checked, option:hover { background: var(--accent-edge); color: var(--text); }
   input::placeholder, textarea::placeholder { color: var(--muted); }
   select:where(:not(.form-input)) { cursor: pointer; }
   /* Form fields inside a labelled group fill the row (matches .form-input)
