@@ -538,6 +538,23 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   card, webhook-replay UI button, opnsense/routeros connect-time IP recheck (LOW, admin-set),
   response byte caps. Commits d97eeb6/8fc97ff/06a9415/dc6416e/d8d30c9. Per-release detail in
   memory [[project_v510_vigilmatters]] + [[project_v510_finalize_sweep]].
+- **v5.1.1 = "ClusterMatters"** (current — ON TEST `origin/main`, unsigned, NOT prod;
+  last prod = v5.1.0 @73adec8) — #9 Proxmox cluster-wide guest listing (@tbouquet);
+  #12 restore page from URL hash on refresh (@tbouquet, merged straight to prod then
+  reconciled to test); #10 LocalAI API keys accepted; #11 separate embedding service
+  (`rag.embedding_{provider,base_url,api_key}` via `ai_provider.embedding_cfg()`)
+  (both @loryanstrant). **Whole-project finalize sweep (2026-06-26, test, no bump):**
+  7 audit agents + live pentest + clean CodeQL(0)/bandit(0)/gitleaks. Fixes: IaC dead
+  on Postgres (`fpath.exists()`→`backend_exists()`); File-Manager sort name mismatch;
+  get_json_obj coercion recurred (`_resolve_targets` + 6 validators + allowlist 500'd on
+  array body); CMDB markdown `esc()` escapes `"`/`'`; patch CSV/XML security-update count;
+  posture break-glass real per-cred count; dead sort cols + Compliance remediation
+  sortable. Perf: container-heartbeat `_config_ro()`; NOC board recursive setTimeout +
+  hidden-gate. UI: CMDB lists capped; storage/thermal/ssh-keys/power → audit-scroll;
+  DMARC/Firewall/Cron pages wrap each function in a dash-card (DNS pattern). Commits
+  c593ff4/c7e9c67. Per-release detail [[project_v511_sweep]]. (NB: this opencode.md
+  "Last production release" section below LAGS — authoritative current state is in
+  CLAUDE.md; actual last prod is **v5.1.0 "UnityMatters" @73adec8, 2026-06-25**.)
 
 ## Last production release: v5.0.1 "TemperMatters" — RELEASED TO PRODUCTION 2026-06-22
 
