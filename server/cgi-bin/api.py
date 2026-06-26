@@ -45969,6 +45969,26 @@ def handle_device_inherited_credentials(dev_id: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 VPN_FILE   = DATA_DIR / 'vpn.json'
 WG_HELPER  = '/usr/local/sbin/remotepower-wg-apply'
+# fcgiwrap hands the CGI a minimal (often empty) PATH, so shutil.which('wg') /
+# 'sudo' can return None even though they're installed — which silently made WG
+# Access read "unavailable" and refused client creation. Resolve binaries against
+# an explicit search path and run the helper with a sane PATH so the CGI behaves
+# like the shell.
+_WG_BIN_DIRS = ('/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/usr/local/sbin')
+_WG_SAFE_PATH = ':'.join(_WG_BIN_DIRS)
+
+
+def _wg_find(name):
+    """Locate a binary by PATH first, then a fixed list of standard dirs (CGI
+    PATH is often stripped). Returns the absolute path or None."""
+    p = shutil.which(name)
+    if p:
+        return p
+    for d in _WG_BIN_DIRS:
+        cand = os.path.join(d, name)
+        if os.path.exists(cand):
+            return cand
+    return None
 
 
 def _vpn_load() -> dict:
@@ -45985,7 +46005,9 @@ def _wg_helper_available() -> bool:
     installed AND the WireGuard CLI (`wg`) is on PATH. Either missing → the
     feature degrades to store-only CRUD (no kernel-side apply), so handlers and
     tests still work and the UI shows a precise reason (_wg_unavailable_reason)."""
-    return os.path.exists(WG_HELPER) and shutil.which('wg') is not None
+    return (os.path.exists(WG_HELPER)
+            and _wg_find('wg') is not None
+            and _wg_find('sudo') is not None)
 
 
 def _wg_unavailable_reason() -> str:
@@ -45995,7 +46017,9 @@ def _wg_unavailable_reason() -> str:
         return ('The privileged helper is not installed. Deploy '
                 'remotepower-wg-apply to ' + WG_HELPER + ' with its scoped '
                 'sudoers rule (the server installer / deploy script does this).')
-    if shutil.which('wg') is None:
+    if _wg_find('sudo') is None:
+        return 'sudo was not found on the server — WG Access needs it to run the helper.'
+    if _wg_find('wg') is None:
         return ('The WireGuard CLI is missing. Install it on the host '
                 '(apt install wireguard wireguard-tools, or '
                 'pacman -S wireguard-tools), then reload.')
@@ -46004,11 +46028,17 @@ def _wg_unavailable_reason() -> str:
 
 def _wg_run(args, stdin=None, timeout=20):
     """Invoke the root helper via scoped sudo. Returns (rc, stdout, stderr).
-    argv-only (no shell). Never raises."""
+    argv-only (no shell). Never raises. Uses an absolute sudo path and a sane
+    PATH env because the CGI's own PATH is often stripped by fcgiwrap (which made
+    a bare 'sudo'/helper invocation fail with FileNotFoundError → empty hub key
+    → 400 on client create)."""
+    sudo = _wg_find('sudo') or 'sudo'
+    env = dict(os.environ)
+    env['PATH'] = (env.get('PATH', '') + ':' + _WG_SAFE_PATH).strip(':')
     try:
-        r = subprocess.run(['sudo', '-n', WG_HELPER] + list(args),
+        r = subprocess.run([sudo, '-n', WG_HELPER] + list(args),
                            input=stdin, capture_output=True, text=True,
-                           timeout=timeout)
+                           timeout=timeout, env=env)
         return r.returncode, r.stdout, r.stderr
     except Exception as e:                       # nosec B603 — argv list, no shell
         return 127, '', str(e)
