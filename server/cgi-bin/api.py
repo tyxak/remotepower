@@ -46033,9 +46033,10 @@ def _vpn_expired(rec, now) -> bool:
     return bool(ex and now >= int(ex))
 
 
-def _vpn_reach_cidrs(tunnel) -> list:
-    """The fleet device /32s a tunnel's clients may reach, from its reach scope.
-    Empty for dashboard-only. 'all' = every device with a known IP."""
+def _vpn_reach_devices(tunnel) -> list:
+    """The in-scope fleet devices a tunnel's clients may reach (those with a
+    usable IP), as [{id, name, ip}]. Reuses the RBAC device-scope matcher. Empty
+    for dashboard-only ('none'). 'all' = every device with a known IP."""
     st = (tunnel.get('reach_scope_type') or 'none').strip().lower()
     if st in ('', 'none'):
         return []
@@ -46048,15 +46049,22 @@ def _vpn_reach_cidrs(tunnel) -> list:
             return []
         scope = {'type': rbac_type, 'values': [tunnel.get('reach_scope_value')]}
     out = []
-    for d in devices.values():
+    for did, d in devices.items():
         if not isinstance(d, dict):
             continue
         if st != 'all' and not _device_in_scope(scope, d):
             continue
         ip = d.get('ip')
         if ip and wg_access.valid_host_ip(ip):
-            out.append(str(ip) + '/32')
-    return sorted(set(out))
+            out.append({'id': did, 'name': d.get('hostname') or d.get('name') or did,
+                        'ip': str(ip)})
+    return out
+
+
+def _vpn_reach_cidrs(tunnel) -> list:
+    """The fleet device /32s a tunnel's clients may reach, from its reach scope.
+    Empty for dashboard-only. 'all' = every device with a known IP."""
+    return sorted({d['ip'] + '/32' for d in _vpn_reach_devices(tunnel)})
 
 
 def _vpn_up_tunnel(tunnel) -> dict:
@@ -46328,10 +46336,18 @@ def handle_vpn_tunnel_stats(tid) -> None:
     except ValueError:
         pass
     pool_size = (net.num_addresses - 2) if net else 0
+    # What this tunnel's clients can actually reach right now (resolved live from
+    # the current fleet, so it reflects devices added/changed since last sync).
+    reach_devices = _vpn_reach_devices(t)
     respond(200, {'ok': True, 'available': _wg_helper_available(),
                   'stats': {
                       'iface': t.get('iface'), 'listen_port': t.get('listen_port'),
                       'enabled': t.get('enabled', True),
+                      'allow_internet': bool(t.get('allow_internet')),
+                      'reach_scope_type': t.get('reach_scope_type', 'none'),
+                      'reach_scope_value': t.get('reach_scope_value', ''),
+                      'reach_count': len(reach_devices),
+                      'reach_devices': reach_devices[:200],
                       'client_count': len(clients),
                       'connected_count': sum(1 for c in clients if wg_access.client_status(c.get('last_handshake', 0), now) == 'connected'),
                       'pool_used': len(clients), 'pool_size': pool_size,
@@ -46496,6 +46512,12 @@ def run_vpn_stats_if_due():
     helper = _wg_helper_available()
     # Read stats per tunnel BEFORE taking the lock (subprocess).
     dumps = {}
+    # Re-resolve each fleet-scoped tunnel's reach from the CURRENT fleet so scope
+    # tracks devices added / re-IP'd / re-tagged since the last sync. Computed
+    # outside the lock (reads DEVICES_FILE); a tunnel whose resolved reach has
+    # drifted from its last-synced set is re-synced after the lock. Full-tunnel
+    # (internet) and dashboard-only tunnels don't depend on reach → skipped.
+    reach_now = {}
     if helper:
         for t in store['tunnels']:
             if not t.get('enabled', True):
@@ -46503,6 +46525,9 @@ def run_vpn_stats_if_due():
             rc, out, _err = _wg_run(['show', t['iface']])
             if rc == 0 and (out or '').strip():
                 dumps[t['iface']] = wg_access.parse_wg_dump(out)
+            if (not t.get('allow_internet')
+                    and (t.get('reach_scope_type') or 'none') not in ('none', '')):
+                reach_now[t['id']] = _vpn_reach_cidrs(t)
     pending_audit = []      # (action, detail)
     pending_events = []     # (event, payload)
     ifaces_down = []        # expired tunnels to tear down
@@ -46550,6 +46575,12 @@ def run_vpn_stats_if_due():
                     elif status == 'offline':
                         pending_events.append(('vpn_client_disconnected', _vpn_evt_payload(t, c)))
                     c['_status'] = status
+            # Reach drift → re-sync so the hub nft rules track the fleet.
+            rid = t.get('id')
+            if rid in reach_now and reach_now[rid] != (t.get('_synced_reach') or []):
+                t['_synced_reach'] = reach_now[rid]
+                if rid not in resync_tids:
+                    resync_tids.append(rid)
             keep.append(t)
         st['tunnels'] = keep
     # AFTER the lock: tear down expired tunnels, re-sync shrunk ones, fire

@@ -6735,6 +6735,38 @@ async function reloadVpnClients() {
   if (!data) return;
   _vpnClientsCache = Array.isArray(data.clients) ? data.clients : [];
   tableCtl.render('vpn_clients', _vpnClientsCache);
+  _vpnRenderReach();
+}
+
+// Show what the selected tunnel's clients can actually reach right now — resolved
+// live on the server from the current fleet (so it reflects scope changes since
+// the last sync). Built with textContent/DOM, no innerHTML (CSP-safe).
+async function _vpnRenderReach() {
+  const el = document.getElementById('vpn-sel-reach');
+  if (!el || !_vpnSelectedTunnel) return;
+  el.textContent = '';
+  const s = await api('GET', '/vpn-tunnels/' + encodeURIComponent(_vpnSelectedTunnel.id) + '/stats');
+  const st = s && s.stats;
+  if (!st) return;
+  if (st.allow_internet) {
+    el.textContent = 'Reaches: the dashboard + the internet (full tunnel).';
+    return;
+  }
+  const type = st.reach_scope_type || 'none';
+  if (type === 'none') {
+    el.textContent = 'Reaches: the dashboard only.';
+    return;
+  }
+  const scope = type === 'all' ? 'all devices' : (type + ' = ' + (st.reach_scope_value || ''));
+  const names = (st.reach_devices || []).map(d => (d.name || d.ip) + ' (' + d.ip + ')');
+  let txt = 'Reaches: the dashboard + ' + (st.reach_count || 0) + ' device'
+          + ((st.reach_count === 1) ? '' : 's') + ' [' + scope + ']';
+  if (names.length) {
+    txt += ' — ' + names.slice(0, 12).join(', ') + (names.length > 12 ? ', …' : '');
+  } else {
+    txt += ' — no devices in scope have a known IP yet';
+  }
+  el.textContent = txt;
 }
 
 function openVpnClientCreate() {

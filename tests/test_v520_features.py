@@ -210,6 +210,27 @@ class TestApiWiring(unittest.TestCase):
             {'id': 'wgt_keyed', 'hub_pubkey': 'K' * 43 + '=', 'clients': []}]})
         self.assertEqual(api._vpn_ensure_hub_key('wgt_keyed'), 'K' * 43 + '=')
 
+    def test_reach_resolution(self):
+        # Reach resolves from the CURRENT fleet via the RBAC device matcher.
+        api.save(api.DEVICES_FILE, {
+            'd1': {'hostname': 'web1', 'site': 'HQ', 'tags': ['prod'], 'ip': '192.168.1.10'},
+            'd2': {'hostname': 'web2', 'site': 'HQ', 'tags': ['dev'],  'ip': '192.168.1.11'},
+            'd3': {'hostname': 'box',  'site': 'DR', 'tags': ['prod'], 'ip': ''},          # no IP → excluded
+        })
+        none_t = {'reach_scope_type': 'none'}
+        self.assertEqual(api._vpn_reach_cidrs(none_t), [])
+        site_t = {'reach_scope_type': 'site', 'reach_scope_value': 'HQ'}
+        self.assertEqual(api._vpn_reach_cidrs(site_t),
+                         ['192.168.1.10/32', '192.168.1.11/32'])
+        tag_t = {'reach_scope_type': 'tag', 'reach_scope_value': 'prod'}
+        # d3 is tag=prod but has no IP → only d1
+        self.assertEqual(api._vpn_reach_cidrs(tag_t), ['192.168.1.10/32'])
+        all_t = {'reach_scope_type': 'all'}
+        self.assertEqual(api._vpn_reach_cidrs(all_t),
+                         ['192.168.1.10/32', '192.168.1.11/32'])
+        devs = api._vpn_reach_devices(site_t)
+        self.assertEqual({d['name'] for d in devs}, {'web1', 'web2'})
+
     def test_helper_absent_is_graceful(self):
         # In CI the helper isn't installed → available False, sync is a no-op.
         self.assertIn(api._wg_helper_available(), (True, False))
