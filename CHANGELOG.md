@@ -2,6 +2,35 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.2.0 — "AccessMatters" — unreleased (test)
+
+A built-in, light WireGuard road-warrior VPN — **WG Access** (Admin -> WG Access).
+Reach the dashboard and the fleet over an encrypted tunnel instead of exposing
+services publicly. No breaking changes.
+
+- **WG Access — tunnels + clients.** The RemotePower host runs `wireguard-go`
+  (userspace, no kernel module) as the hub. Create **tunnels** — each with its own
+  UDP port / address pool / endpoint / DNS and a policy: an **"Allow internet
+  (full tunnel)"** toggle, a **reach scope** (none / all / site / group / tag,
+  reusing RBAC scopes and enforced by per-tunnel hub firewall rules), and an
+  optional **time-to-live** (minutes -> years) after which the tunnel is
+  auto-deleted. Then add **clients**: each gets a **QR code** + downloadable
+  `.conf`, with the private key generated **in the browser** (never sent to the
+  server). Clients inherit the tunnel policy and can carry their own TTL.
+- **Stats + events.** Per-tunnel RP-host rollup (interface status, connected/total
+  clients, pool usage, transfer) and per-client live stats. New events
+  `vpn_client_connected` / `vpn_client_disconnected` / `vpn_handshake_stale` flow
+  through the alert inbox, activity feed and webhooks; tunnel expiry is
+  audit-logged.
+- **Security.** Client keys are browser-generated X25519; the per-tunnel hub key is
+  root-only. Reach is enforced on the hub with nftables from the tunnel scope. All
+  mutations are admin-only and audit-logged. The privileged `remotepower-wg-apply`
+  helper takes only a structured JSON spec (argv-only, no shell) so the CGI stays
+  unprivileged. The feature shows an "unavailable" notice until `wireguard-go` +
+  the helper are installed.
+
+See docs/v5.2.0.md.
+
 ## v5.1.1 — "ClusterMatters" — 2026-06-26
 
 A small follow-up to v5.1.0, centred on the Proxmox integration, plus the test

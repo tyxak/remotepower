@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.1.1">
+<link rel="stylesheet" href="static/css/styles.css?v=5.2.0">
 
 </head>
 <body>
@@ -491,6 +491,10 @@
         <button class="nav-btn" data-page="users" title="Manage who can access the dashboard and what they can do — roles and permissions">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Users</span>
+        </button>
+        <button class="nav-btn" data-page="vpn" title="Road-warrior WireGuard VPN — reach the dashboard and fleet over a tunnel">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L4 5v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V5l-8-3z"/><circle cx="12" cy="12" r="3"/><path d="M12 9v.01"/><path d="M9.5 13.5h5"/></svg>
+          <span>WG Access</span>
         </button>
       </div>
     </div>
@@ -2842,7 +2846,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.1.1 clustermatters proxmox cluster resources node nodes guest vm lxc qemu migrate snapshot lifecycle multi-node fallback ssrf hostname validation contributor tbouquet loryanstrant localai ollama api key embeddings embedding provider semantic search rag url hash refresh deep link community">
+          <details class="doc-card" open data-keywords="release notes changelog v5.2.0 accessmatters wg access wireguard vpn road-warrior road warrior tunnel client peer keypair qr code conf config split tunnel full tunnel reach scope dashboard fleet curve25519 x25519 in-browser browser keygen private key endpoint allowed ips handshake">
+            <summary><strong>What's new — v5.2.0 "AccessMatters"</strong> — WG Access: a built-in WireGuard road-warrior VPN that lets people reach the dashboard and fleet over an encrypted tunnel (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.2.0 adds <strong>WG Access</strong> (Admin → WG Access): a turnkey WireGuard road-warrior VPN. Define a tunnel, scope what it can reach, then issue per-device client configs — keys are generated in your browser, so the private key never touches the server. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.2.0</code>).</p>
+              <ul>
+                <li><strong>Tunnels.</strong> Create a WireGuard hub interface and choose its <em>reach</em> — dashboard-only, the entire fleet, or a single site / group / tag — plus full-tunnel (route all traffic) or split-tunnel, an optional DNS, and an optional expiry. One sortable table shows each tunnel's reach, connected/total clients, listen port and expiry.</li>
+                <li><strong>Clients.</strong> Issue a per-device config under a tunnel. The keypair (Curve25519) is generated <strong>in your browser</strong>; only the public key is sent to the server. You get a ready-to-use <code>.conf</code> and a QR to scan in the WireGuard app — shown once, never stored.</li>
+                <li><strong>Live status.</strong> Per-client connection state (connected / idle / offline), last handshake age and rx/tx transfer, so you can see who's actually on the tunnel.</li>
+                <li><strong>Events.</strong> New fleet activity for <code>vpn_client_connected</code>, <code>vpn_client_disconnected</code> and <code>vpn_handshake_stale</code>, click-through to the WG Access page.</li>
+              </ul>
+              <p class="hint">Open <em>Admin → WG Access</em>. Requires the WireGuard helper on the server. See <code>docs/v5.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.1.1 clustermatters proxmox cluster resources node nodes guest vm lxc qemu migrate snapshot lifecycle multi-node fallback ssrf hostname validation contributor tbouquet loryanstrant localai ollama api key embeddings embedding provider semantic search rag url hash refresh deep link community">
             <summary><strong>What's new — v5.1.1 "ClusterMatters"</strong> — cluster-wide Proxmox, plus community fixes: hash-on-refresh routing, LocalAI API keys, and a separate embedding service (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.1.1 is a small follow-up focused on Proxmox clusters and the first round of community-reported AI/UX fixes. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.1.1</code>).</p>
@@ -2897,21 +2914,7 @@
               <p class="hint">See <code>docs/v5.0.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v4.10.0 perimetermatters firewall fail2ban nftables iptables ufw firewalld rules jails ban unban ai insights hub reports advisors rag corpus sources backups integrations">
-            <summary><strong>What's new — v4.10.0 "PerimeterMatters"</strong> — a fleet-wide Firewall + fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails), an AI Insights hub of 20 one-click AI reports and advisors, and three new AI-knowledge sources (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v4.10.0 adds a <strong>Security → Firewall</strong> page that shows every host's firewall posture and lets you edit rules and fail2ban jails fleet-wide, plus an <strong>AI Insights</strong> hub on the AI Assistant page. Hard-reload once after upgrading (cache <code>remotepower-shell-v4.10.0</code>).</p>
-              <ul>
-                <li><strong>Firewall + fail2ban.</strong> One sortable table of every host's firewall (nftables/iptables/ufw/firewalld — backend, policy, active state, rule count, drift fingerprint). Open a host to view its ruleset grouped by chain and <strong>add/delete rules</strong>; manage fail2ban jails and <strong>ban/unban</strong> IPs. Every edit is permission-gated, audited, server-validated and quarantine-aware.</li>
-                <li><strong>AI Insights — 20 features.</strong> One-click reports and advisors grouped into Proactive, Incident, Planning, Natural-language and Advisors — daily briefing, incident RCA, CVE/compliance plans, capacity forecast, firewall auditor, DNS hygiene, supply-chain Q&amp;A, host one-pager and more. Each is a tunable, rate-limited, redaction-aware prompt.</li>
-                <li><strong>Smarter "Ask my fleet".</strong> The AI knowledge index now also covers firewall/fail2ban posture, homelab integration health, backup freshness and email/DNS posture (DMARC/SPF/DKIM, blocklists, resolver health) — so it can answer "which hosts have no firewall?" or "is our DMARC set up right?" directly.</li>
-                <li><strong>Agent audit (read-only) mode.</strong> Touch <code>/etc/remotepower/audit-mode</code> and the agent observes and reports but refuses every command (exec, reboot, config, self-update) — an operator-owned flag the server can't clear. The host shows an <strong>AUDIT</strong> badge. Linux / Windows / macOS.</li>
-                <li><strong>UI polish.</strong> Grouped/iconed AI cards, firewall detail panels with selected-row highlight + close + queued-edit feedback, a searchable per-device Uptime (SLA) table, more scroll-capped lists, and accessibility/theming fixes.</li>
-              </ul>
-              <p class="hint">Open <em>Security → Firewall</em> and the <em>AI Assistant</em> page. See <code>docs/v4.10.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog older versions history v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -4416,6 +4419,67 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- v1.11.6: filter -->
         <div class="mb-16"><input type="text" id="apikeys-filter" class="form-input input-wide-sm" placeholder="Filter by name, role, or user…" aria-label="Filter by name, role, or user"></div>
         <div class="table-card"><table><thead id="apikeys-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="role">Role</th><th scope="col" data-col="user">User</th><th scope="col" data-col="rate">Rate limit</th><th scope="col" data-col="created">Created</th><th scope="col" data-col="expires">Expires</th><th scope="col"></th></tr></thead><tbody id="apikeys-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
+      </div>
+
+      <!-- ── v5.2.0 AccessMatters: WG Access (WireGuard road-warrior VPN) ──── -->
+      <div id="page-vpn" class="page">
+        <div class="page-title">WG Access</div>
+        <div class="page-subtitle">Road-warrior WireGuard VPN: issue per-device client configs so people can reach the dashboard and fleet over an encrypted tunnel. Keys are generated in your browser — the private key never leaves it.</div>
+
+        <!-- Shown when the server reports the WireGuard helper is not installed -->
+        <div id="vpn-unavailable" class="dash-card d-none">
+          <div class="empty-state">
+            <div class="empty-state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg></div>
+            <div class="empty-title">WireGuard not available on the server</div>
+            <p class="hint">The server-side WireGuard helper (the <code>wg</code> / <code>wg-quick</code> tooling and a configured hub interface) isn't installed or enabled. Install it on the RemotePower host and reload this page to manage road-warrior tunnels and clients.</p>
+          </div>
+        </div>
+
+        <!-- Tunnels -->
+        <div class="dash-card" id="vpn-tunnels-card">
+          <div class="section-title">Tunnels</div>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="openVpnTunnelCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><use href="#ic-8a2aac00"/></svg> Create tunnel</button>
+            <button class="btn-icon" data-action="loadVpn"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <span id="vpn-status" class="hint"></span>
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="vpn-tunnels-thead"><tr>
+                <th scope="col" data-col="name">Name</th>
+                <th scope="col" data-col="reach">Reach</th>
+                <th scope="col" data-col="clients">Clients</th>
+                <th scope="col" data-col="port">Port</th>
+                <th scope="col" data-col="expires">Expires</th>
+                <th scope="col"></th>
+              </tr></thead>
+              <tbody id="vpn-tunnels-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Clients of the selected tunnel -->
+        <div class="dash-card d-none" id="vpn-clients-card">
+          <div class="section-title">Clients <span class="hint" id="vpn-sel-name"></span></div>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="openVpnClientCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><use href="#ic-8a2aac00"/></svg> Create client</button>
+            <button class="btn-icon" data-action="reloadVpnClients"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+            <span id="vpn-clients-status" class="hint"></span>
+          </div>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table>
+              <thead id="vpn-clients-thead"><tr>
+                <th scope="col" data-col="name">Name</th>
+                <th scope="col" data-col="address">Address</th>
+                <th scope="col" data-col="status">Status</th>
+                <th scope="col" data-col="transfer">Transfer</th>
+                <th scope="col" data-col="expires">Expires</th>
+                <th scope="col"></th>
+              </tr></thead>
+              <tbody id="vpn-clients-tbody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- ── v3.5.0: Sites/teams page ─────────────────────────────────────── -->
@@ -5980,6 +6044,40 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="dns-vault-creds-result" class="hint"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="dns-vault-creds-modal">Cancel</button><button class="btn-primary" data-action="dnsVaultStoreSave">Store</button></div>
 </div></div>
+
+<!-- ── v5.2.0 AccessMatters: WG Access modals (body level — CSP) ──────────── -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vpn-tunnel-modal-title" id="vpn-tunnel-modal"><div class="modal">
+  <div class="modal-title" id="vpn-tunnel-modal-title">Create tunnel</div>
+  <div class="modal-subtitle">A tunnel is a WireGuard hub interface. Clients you issue under it dial in and reach whatever you scope it to.</div>
+  <div class="form-group"><label class="form-label" for="vpn-tunnel-name">Name</label><input type="text" id="vpn-tunnel-name" class="form-input" autocomplete="off" maxlength="64" placeholder="road-warriors" data-input="vpnReachPreview"></div>
+  <div class="form-group"><label class="form-label"><input type="checkbox" id="vpn-tunnel-allow-internet" data-change="vpnReachPreview"> Allow internet (full tunnel)</label><span class="hint">On = clients route all traffic (0.0.0.0/0, ::/0) through the hub. Off = split tunnel — only the scoped fleet / dashboard reach.</span></div>
+  <div class="form-group"><label class="form-label" for="vpn-tunnel-reach-type">Reach</label><select id="vpn-tunnel-reach-type" class="form-input" data-change="vpnReachTypeChanged"><option value="none">Dashboard only</option><option value="all">Entire fleet</option><option value="site">A site</option><option value="group">A group</option><option value="tag">A tag</option></select></div>
+  <div class="form-group d-none" id="vpn-tunnel-reach-value-row"><label class="form-label" for="vpn-tunnel-reach-value">Scope value</label><input type="text" id="vpn-tunnel-reach-value" class="form-input" autocomplete="off" placeholder="site id / group / tag" data-input="vpnReachPreview"></div>
+  <div class="form-group"><label class="form-label" for="vpn-tunnel-dns">DNS (optional)</label><input type="text" id="vpn-tunnel-dns" class="form-input" autocomplete="off" placeholder="e.g. 10.0.0.1"></div>
+  <div class="form-group"><label class="form-label">Expires</label><div class="sb-controls"><input type="number" id="vpn-tunnel-ttl-num" class="form-input mw-160" min="1" max="100000" placeholder="30"><select id="vpn-tunnel-ttl-unit" class="form-input input-auto" data-change="vpnTtlUnitChanged"><option value="never" selected>Never</option><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="years">years</option></select></div><span class="hint">When it expires the tunnel stops accepting clients. "Never" = no expiry.</span></div>
+  <div class="hint" id="vpn-tunnel-reach-preview"></div>
+  <div id="vpn-tunnel-result" class="hint"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="vpn-tunnel-modal">Cancel</button><button class="btn-primary" data-action="vpnTunnelSave" id="vpn-tunnel-save-btn">Save</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vpn-client-modal-title" id="vpn-client-modal"><div class="modal">
+  <div class="modal-title" id="vpn-client-modal-title">Create client</div>
+  <div class="modal-subtitle">Generates a WireGuard keypair in your browser. The public key is sent to the server; the private key stays here and goes only into the config you download.</div>
+  <div class="form-group"><label class="form-label" for="vpn-client-name">Name</label><input type="text" id="vpn-client-name" class="form-input" autocomplete="off" maxlength="64" placeholder="alice-laptop"></div>
+  <div class="form-group"><label class="form-label">Expires</label><div class="sb-controls"><input type="number" id="vpn-client-ttl-num" class="form-input mw-160" min="1" max="100000" placeholder="30"><select id="vpn-client-ttl-unit" class="form-input input-auto"><option value="never" selected>Never</option><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="years">years</option></select></div><span class="hint">After this the client config is rejected at the hub. "Never" = no expiry.</span></div>
+  <div id="vpn-client-result" class="hint"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="vpn-client-modal">Cancel</button><button class="btn-primary" data-action="vpnClientCreate" id="vpn-client-create-btn">Create</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="vpn-client-result-modal-title" id="vpn-client-result-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="vpn-client-result-modal-title">Client config ready</div>
+  <div class="modal-subtitle">Scan the QR in the WireGuard app, or download the .conf. Save it now — the private key is shown only this once and is never stored on the server. You will not see it again.</div>
+  <div class="form-group"><canvas id="vpn-qr-canvas" aria-label="WireGuard configuration QR code"></canvas></div>
+  <div class="form-group"><label class="form-label" for="vpn-conf-text">Configuration</label><textarea id="vpn-conf-text" class="form-input ff-mono" rows="12" readonly data-self-select></textarea></div>
+  <div class="toolbar"><button class="btn-primary" data-action="vpnDownloadConf"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-c923885c"/></svg> Download .conf</button><button class="btn-secondary" data-action="vpnCopyConf"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="vpn-client-result-modal">Close</button></div>
+</div></div>
+
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ldap-test-user-modal-title" id="ldap-test-user-modal"><div class="modal">
   <div class="modal-title" id="ldap-test-user-modal-title">Test LDAP user login</div>
   <div class="modal-subtitle">Enter credentials to verify the full authentication path. No session is created — this is purely a test.</div>
@@ -7825,34 +7923,35 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.1.1"></script>
-<script defer src="static/js/app.js?v=5.1.1"></script>
+<script defer src="static/js/i18n.js?v=5.2.0"></script>
+<script defer src="static/js/app.js?v=5.2.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.1.1"></script>
-<script defer src="static/js/app-cmdb.js?v=5.1.1"></script>
-<script defer src="static/js/app-containers.js?v=5.1.1"></script>
-<script defer src="static/js/app-network.js?v=5.1.1"></script>
+<script defer src="static/js/app-calendar.js?v=5.2.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.2.0"></script>
+<script defer src="static/js/app-containers.js?v=5.2.0"></script>
+<script defer src="static/js/app-network.js?v=5.2.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.1.1"></script>
-<script defer src="static/js/app-compliance.js?v=5.1.1"></script>
-<script defer src="static/js/app-integrations.js?v=5.1.1"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.2.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.2.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.2.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.1.1"></script>
-<script defer src="static/js/app-dns.js?v=5.1.1"></script>
-<script defer src="static/js/app-drift.js?v=5.1.1"></script>
-<script defer src="static/js/app-dmarc.js?v=5.1.1"></script>
-<script defer src="static/js/app-cve.js?v=5.1.1"></script>
-<script defer src="static/js/app-firewall.js?v=5.1.1"></script>
-<script defer src="static/js/app-backups.js?v=5.1.1"></script>
-<script defer src="static/js/app-iac.js?v=5.1.1"></script>
-<script defer src="static/js/app-rollouts.js?v=5.1.1"></script>
-<script defer src="static/js/app-power.js?v=5.1.1"></script>
-<script defer src="static/js/app-gpu.js?v=5.1.1"></script>
-<script defer src="static/js/app-proxmox.js?v=5.1.1"></script>
+<script defer src="static/js/app-ai.js?v=5.2.0"></script>
+<script defer src="static/js/app-dns.js?v=5.2.0"></script>
+<script defer src="static/js/app-drift.js?v=5.2.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.2.0"></script>
+<script defer src="static/js/app-cve.js?v=5.2.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.2.0"></script>
+<script defer src="static/js/app-backups.js?v=5.2.0"></script>
+<script defer src="static/js/app-iac.js?v=5.2.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.2.0"></script>
+<script defer src="static/js/app-power.js?v=5.2.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.2.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.2.0"></script>
+<script defer src="static/js/wg-access.js?v=5.2.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.1.1"></script>
+<script defer src="static/js/sw-register.js?v=5.2.0"></script>
 </body>
 </html>

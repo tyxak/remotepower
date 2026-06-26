@@ -1,6 +1,6 @@
-"""Strict version-surface pins for v5.1.1 "ClusterMatters" — loosen to dynamic on
-the next bump (see tests/test_v501.py / test_v510.py for the loosened pattern).
-The v5.1.1 feature/gap tests live in tests/test_v511_features.py.
+"""Strict version-surface pins for v5.2.0 "AccessMatters" — loosen to dynamic on
+the next bump (see tests/test_v510.py / test_v511.py for the loosened pattern).
+The v5.2.0 feature tests live in tests/test_v520_features.py.
 """
 import importlib.util
 import re
@@ -11,13 +11,13 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
-_spec = importlib.util.spec_from_file_location("api_v511_ver", _CGI / "api.py")
+_spec = importlib.util.spec_from_file_location("api_v520_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = api.SERVER_VERSION   # loosened on the v5.2.0 bump — tracks current
+    V = "5.2.0"
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -62,7 +62,7 @@ class TestVersionBumps(unittest.TestCase):
                       (_ROOT / "server/html/index.html").read_text())
 
     def test_codename(self):
-        self.assertIn("ClusterMatters", (_ROOT / "docs" / "v5.1.1.md").read_text())
+        self.assertIn("AccessMatters", (_ROOT / "docs" / "v5.2.0.md").read_text())
 
 
 if __name__ == "__main__":

@@ -74,6 +74,13 @@
     'TLS / DNS':              { zh: 'TLS / DNS', hi: 'TLS / DNS', es: 'TLS / DNS', ar: 'TLS / DNS' },
     'DMARC':                  { zh: 'DMARC', hi: 'DMARC', es: 'DMARC', ar: 'DMARC' },
     'Reputation/DMARC':       { zh: '信誉/DMARC', hi: 'प्रतिष्ठा/DMARC', es: 'Reputación/DMARC', ar: 'السمعة/DMARC' },
+    // ── v5.2.0 AccessMatters: WG Access (WireGuard road-warrior VPN) ──
+    'WG Access':              { zh: 'WG 访问', hi: 'WG एक्सेस', es: 'Acceso WG', ar: 'وصول WG' },
+    'Clients':               { zh: '客户端', hi: 'क्लाइंट', es: 'Clientes', ar: 'العملاء' },
+    'Create tunnel':         { zh: '创建隧道', hi: 'टनल बनाएँ', es: 'Crear túnel', ar: 'إنشاء نفق' },
+    'Create client':         { zh: '创建客户端', hi: 'क्लाइंट बनाएँ', es: 'Crear cliente', ar: 'إنشاء عميل' },
+    'Download .conf':        { zh: '下载 .conf', hi: '.conf डाउनलोड करें', es: 'Descargar .conf', ar: 'تنزيل .conf' },
+    'Road-warrior WireGuard VPN: issue per-device client configs so people can reach the dashboard and fleet over an encrypted tunnel. Keys are generated in your browser — the private key never leaves it.': { zh: '远程办公 WireGuard VPN：为每台设备签发客户端配置，让用户通过加密隧道访问仪表板和设备群。密钥在你的浏览器中生成——私钥永不离开浏览器。', hi: 'रोड-वॉरियर WireGuard VPN: प्रति-डिवाइस क्लाइंट कॉन्फ़िग जारी करें ताकि लोग एक एन्क्रिप्टेड टनल के ज़रिए डैशबोर्ड और फ़्लीट तक पहुँच सकें। कुंजियाँ आपके ब्राउज़र में बनती हैं — निजी कुंजी कभी उसे नहीं छोड़ती।', es: 'VPN WireGuard para itinerantes: emite configuraciones de cliente por dispositivo para que las personas accedan al panel y a la flota a través de un túnel cifrado. Las claves se generan en tu navegador: la clave privada nunca sale de él.', ar: 'شبكة WireGuard الخاصة للمستخدمين المتنقّلين: أصدر إعدادات عميل لكل جهاز ليتمكّن الأشخاص من الوصول إلى لوحة التحكم والأسطول عبر نفق مشفّر. تُولَّد المفاتيح في متصفحك — ولا يغادره المفتاح الخاص أبداً.' },
     'Thermal health':         { zh: '温度健康', hi: 'थर्मल स्वास्थ्य', es: 'Salud térmica', ar: 'الحالة الحرارية' },
     // ── v5.0.0: thermal page columns + section/field labels ──
     'Headroom':               { zh: '余量', hi: 'हेडरूम', es: 'Margen', ar: 'الهامش' },

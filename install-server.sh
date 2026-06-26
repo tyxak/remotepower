@@ -268,6 +268,31 @@ if [[ -f "$SCRIPT_DIR/server/conf/remotepower-api.service" ]]; then
     success "SCGI worker unit installed (not started — enable with: systemctl enable --now remotepower-api)"
 fi
 
+# ── WG Access privileged helper + scoped sudoers (v5.2.0) ───────────────────────
+# The road-warrior WireGuard feature needs a root-owned helper to drive
+# wireguard-go / wg / nft (the CGI runs unprivileged). It is invoked ONLY via a
+# scoped sudoers rule granting NOPASSWD for this one script to the web user —
+# exactly the deploy-remote-site.sh precedent. The feature shows an "unavailable"
+# notice in the UI until wireguard-go is also present (not installed here — it's
+# an optional dependency; `pacman -S wireguard-tools wireguard-go` /
+# `apt install wireguard-tools wireguard-go`).
+if [[ -f "$SCRIPT_DIR/packaging/remotepower-wg-apply" ]]; then
+    install -d -m 755 -o root -g root /usr/local/sbin
+    install -m 755 -o root -g root "$SCRIPT_DIR/packaging/remotepower-wg-apply" \
+        /usr/local/sbin/remotepower-wg-apply
+    # Scoped, single-script NOPASSWD rule for the web user. 0440 root:root, and
+    # validated with visudo -c before install so a bad drop-in can't lock sudo.
+    _wg_sudoers="$(mktemp)"
+    printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/remotepower-wg-apply\n' "$NGINX_USER" > "$_wg_sudoers"
+    if visudo -cf "$_wg_sudoers" >/dev/null 2>&1; then
+        install -m 440 -o root -g root "$_wg_sudoers" /etc/sudoers.d/remotepower-wg
+        success "WG Access helper + scoped sudoers installed (install wireguard-go to enable)"
+    else
+        info "WG Access sudoers validation failed — skipped (helper installed, feature stays unavailable)"
+    fi
+    rm -f "$_wg_sudoers"
+fi
+
 # ── Agent binary for self-update ────────────────────────────────────────────────
 info "Publishing agent binary for self-update..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent

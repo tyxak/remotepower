@@ -304,6 +304,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'resolver_unhealthy', 'resolver_recovered',  # v4.9.0 resolver health
             'fail2ban_ban',                          # v5.1.0 fail2ban bans
             'av_infected',                           # v5.1.0 endpoint AV/malware
+            'vpn_client_connected', 'vpn_client_disconnected',  # v5.2.0 WG Access
+            'vpn_handshake_stale',                   # v5.2.0 WG Access
             'mount_recovered',                       # v3.14.0 fix
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew

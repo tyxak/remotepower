@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.1.1'
+SERVER_VERSION = '5.2.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -580,6 +580,8 @@ import ldap_auth
 # v1.9.0: CMDB vault — symmetric crypto for asset credentials. The cryptography
 # library is imported lazily inside the module so this import always succeeds.
 import cmdb_vault
+# v5.2.0: WG Access (road-warrior WireGuard) pure helpers.
+import wg_access
 # v1.10.0: OpenAPI spec — handwritten dict served at /api/openapi.json,
 # rendered by the Swagger UI page at /swagger.html.
 import openapi_spec
@@ -878,6 +880,12 @@ WEBHOOK_EVENTS = (
     # alerted). No recover event — a malware finding stays actionable until an
     # operator clears it; coalescing keeps repeat reports to one open alert.
     ('av_infected',           'Antivirus / rootkit scan found an active infection',  True),
+    # v5.2.0 (AccessMatters): WG Access road-warrior VPN — a client connected /
+    # disconnected / went handshake-stale. connected is the recover event for the
+    # other two; clients aren't devices (coalesced + auto-resolved by client_id).
+    ('vpn_client_connected',    'A WG Access VPN client connected',                  True),
+    ('vpn_client_disconnected', 'A WG Access VPN client disconnected',               True),
+    ('vpn_handshake_stale',     'A WG Access VPN client handshake went stale',        True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4429,6 +4437,8 @@ _ALERT_RULES = {
     'resolver_unhealthy':         ('high', None),        # v4.9.0
     'fail2ban_ban':               ('medium', None),      # v5.1.0
     'av_infected':                ('high', None),        # v5.1.0: active malware/rootkit
+    'vpn_client_disconnected':    ('medium', None),      # v5.2.0
+    'vpn_handshake_stale':        ('medium', None),      # v5.2.0
 }
 
 # Map recover event → firing event it resolves
@@ -4468,6 +4478,7 @@ _ALERT_RECOVER = {
     'integration_recovered':   'integration_down',        # v4.7.0
     'ip_blacklist_cleared':    'ip_blacklisted',          # v4.8.0
     'resolver_recovered':      'resolver_unhealthy',      # v4.9.0
+    'vpn_client_connected':    'vpn_client_disconnected', # v5.2.0
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -4487,6 +4498,8 @@ _ALERT_RECOVER_EXTRA = {
     'metric_recovered':        ('metric_critical',),
     # v3.11.0: a healthy pool also clears an open scrub_overdue alert.
     'storage_recovered':       ('scrub_overdue',),
+    # v5.2.0: a reconnect also clears an open handshake-stale alert.
+    'vpn_client_connected':    ('vpn_handshake_stale',),
 }
 
 
@@ -4560,6 +4573,7 @@ CHANNEL_KINDS = [
     ('reputation',   'IP reputation (DNSBL)',    'operational',   ['ip_blacklisted', 'ip_blacklist_cleared']),
     ('resolver',     'DNS resolver health',      'operational',   ['resolver_unhealthy', 'resolver_recovered']),
     ('fail2ban',     'fail2ban intrusion bans',  'operational',   ['fail2ban_ban']),  # v5.1.0
+    ('vpn',          'WG Access road-warrior',   'operational',   ['vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale']),  # v5.2.0
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -4808,6 +4822,11 @@ def _alert_title(event, payload):
     name = p.get('device_name') or p.get('name') or p.get('host') or ''
     if event == 'device_offline':
         return f'Device offline: {name}'
+    if event in ('vpn_client_disconnected', 'vpn_handshake_stale'):
+        cn = p.get('client_name') or p.get('client_id') or 'client'
+        tn = p.get('tunnel_name') or ''
+        verb = 'disconnected' if event == 'vpn_client_disconnected' else 'handshake stale'
+        return f'WG Access: {cn} {verb}' + (f' ({tn})' if tn else '')
     if event == 'service_down':
         return f'Service down on {name}: {p.get("unit", "")}'
     if event == 'container_stopped':
@@ -5008,6 +5027,7 @@ def _alert_title(event, payload):
 _ALERT_IDENTITY_FIELDS = (
     'integration_id', 'unit', 'metric', 'target', 'path', 'image', 'tag',
     'ip', 'label', 'port', 'proto', 'script_name', 'cve_id', 'container', 'rtype',
+    'client_id',   # v5.2.0: WG Access clients (no device_id) coalesce by client_id
 )
 
 
@@ -5097,6 +5117,9 @@ def _record_alert(event, payload):
                     # resolver_recovered) need stored on the open alert so
                     # _auto_resolve_alerts can find and close it. Without these
                     # the down/listed/unhealthy alert sat open forever.
+                    # v5.2.0: WG Access client events — client_id is the identity
+                    # for coalescing + auto-resolve (clients aren't devices).
+                    'client_id', 'client_name', 'tunnel_id', 'tunnel_name', 'endpoint',
                     'integration_id', 'ip', 'rtype'):
             if key in p and p[key] is not None:
                 v = p[key]
@@ -5201,6 +5224,10 @@ def _auto_resolve_alerts(event, payload):
         # v5.0.0 (#R1): the server disk watchdog isn't a device — match the open
         # server_disk_low alert by its fixed target ('server').
         sub_match['target'] = p.get('target')
+    elif event == 'vpn_client_connected':
+        # v5.2.0: WG Access clients aren't devices — match the open
+        # vpn_client_disconnected / vpn_handshake_stale alert by client_id.
+        sub_match['client_id'] = p.get('client_id')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -5864,6 +5891,9 @@ def _webhook_title(event):
         'process_alert':             'Watched Process Threshold',
         'process_recovered':         'Watched Process Recovered',
         'secret_exposed':            'Exposed Secret Found',
+        'vpn_client_connected':      'WG Access Client Connected',
+        'vpn_client_disconnected':   'WG Access Client Disconnected',
+        'vpn_handshake_stale':       'WG Access Handshake Stale',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -6518,6 +6548,13 @@ def _webhook_message(event, payload):
         return f'{name} went offline (last seen: {_ts_fmt(payload.get("last_seen", 0))})'
     elif event == 'device_online':
         return f'{name} is back online'
+    elif event in ('vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale'):
+        cn = payload.get('client_name') or payload.get('client_id') or 'client'
+        tn = payload.get('tunnel_name') or '?'
+        verbs = {'vpn_client_connected': 'connected',
+                 'vpn_client_disconnected': 'disconnected',
+                 'vpn_handshake_stale': 'handshake went stale'}
+        return f'WG Access client "{cn}" on tunnel "{tn}" {verbs.get(event, event)}'
     elif event == 'command_queued':
         return f'{payload.get("actor", "system")} queued "{payload.get("command", "?")}" on {name}'
     elif event == 'command_executed':
@@ -45915,6 +45952,571 @@ def handle_device_inherited_credentials(dev_id: str) -> None:
     respond(200, {'ok': True, 'credentials': out})
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WG Access — road-warrior WireGuard VPN (v5.2.0 "AccessMatters")
+#
+# The hub is the RP server HOST itself running wireguard-go (userspace, no kernel
+# module). Because the hub is THIS host (not an enrolled agent device), config
+# apply does NOT ride the agent command channel — it goes through the root-owned
+# `remotepower-wg-apply` helper via scoped sudo (mirroring the marketing-site
+# deploy precedent), and stats are read on the run_vpn_stats_if_due() cadence
+# (modeled on run_integrations_if_due(), NOT _host_checks — clients aren't
+# devices). Pure logic (validation / allocation / spec build / dump parse) lives
+# in the wg_access sibling module. Client private keys are generated in the
+# browser and never reach the server; the per-tunnel hub private key is generated
+# + held root-only by the helper.
+# ═══════════════════════════════════════════════════════════════════════════════
+VPN_FILE   = DATA_DIR / 'vpn.json'
+WG_HELPER  = '/usr/local/sbin/remotepower-wg-apply'
+
+
+def _vpn_load() -> dict:
+    d = load(VPN_FILE) or {}
+    if not isinstance(d, dict):
+        d = {}
+    if not isinstance(d.get('tunnels'), list):
+        d['tunnels'] = []
+    return d
+
+
+def _wg_helper_available() -> bool:
+    """The privileged helper is installed (production). Absent in dev/CI → the
+    feature degrades to store-only CRUD (no kernel-side apply), so handlers and
+    tests still work; the UI surfaces 'WG Access unavailable — install
+    wireguard-go + the helper'."""
+    return os.path.exists(WG_HELPER)
+
+
+def _wg_run(args, stdin=None, timeout=20):
+    """Invoke the root helper via scoped sudo. Returns (rc, stdout, stderr).
+    argv-only (no shell). Never raises."""
+    try:
+        r = subprocess.run(['sudo', '-n', WG_HELPER] + list(args),
+                           input=stdin, capture_output=True, text=True,
+                           timeout=timeout)
+        return r.returncode, r.stdout, r.stderr
+    except Exception as e:                       # nosec B603 — argv list, no shell
+        return 127, '', str(e)
+
+
+def _vpn_parse_expiry(v):
+    """Absolute unix-ts expiry (the browser turns the number+unit UI into a ts)
+    or None. Validates it is in the future. respond()s 400 on a bad value."""
+    if v in (None, '', 0):
+        return None
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        respond(400, {'error': 'invalid expires_at'})
+    if v <= int(time.time()):
+        respond(400, {'error': 'expires_at must be in the future'})
+    return v
+
+
+def _vpn_expired(rec, now) -> bool:
+    ex = rec.get('expires_at')
+    return bool(ex and now >= int(ex))
+
+
+def _vpn_reach_cidrs(tunnel) -> list:
+    """The fleet device /32s a tunnel's clients may reach, from its reach scope.
+    Empty for dashboard-only. 'all' = every device with a known IP."""
+    st = (tunnel.get('reach_scope_type') or 'none').strip().lower()
+    if st in ('', 'none'):
+        return []
+    devices = load(DEVICES_FILE) or {}
+    if st == 'all':
+        scope = {'type': 'all'}
+    else:
+        rbac_type = {'site': 'sites', 'group': 'groups', 'tag': 'tags'}.get(st)
+        if not rbac_type:
+            return []
+        scope = {'type': rbac_type, 'values': [tunnel.get('reach_scope_value')]}
+    out = []
+    for d in devices.values():
+        if not isinstance(d, dict):
+            continue
+        if st != 'all' and not _device_in_scope(scope, d):
+            continue
+        ip = d.get('ip')
+        if ip and wg_access.valid_host_ip(ip):
+            out.append(str(ip) + '/32')
+    return sorted(set(out))
+
+
+def _vpn_up_tunnel(tunnel) -> dict:
+    """Bring the interface up + capture the hub pubkey from the helper. No-op
+    (returns unchanged) when the helper is absent."""
+    if not _wg_helper_available():
+        return tunnel
+    rc, out, _err = _wg_run(['up', tunnel['iface']])
+    if rc == 0:
+        try:
+            d = json.loads(out or '{}')
+            if wg_access.valid_pubkey(d.get('pubkey')):
+                tunnel['hub_pubkey'] = d['pubkey']
+        except Exception:
+            pass
+    return tunnel
+
+
+def _vpn_sync_tunnel(tunnel) -> bool:
+    """Push the tunnel's enabled, non-expired clients + reach policy to the hub.
+    No-op when the helper is absent."""
+    if not _wg_helper_available():
+        return False
+    now = int(time.time())
+    clients = [c for c in tunnel.get('clients', [])
+               if c.get('enabled', True) and not _vpn_expired(c, now)]
+    spec = wg_access.build_sync_spec(tunnel, clients, _vpn_reach_cidrs(tunnel))
+    rc, _out, _err = _wg_run(['sync', tunnel['iface']], stdin=json.dumps(spec))
+    return rc == 0
+
+
+def _vpn_resync(tid) -> None:
+    """Reload + re-sync one tunnel by id (after a store mutation)."""
+    t = next((x for x in _vpn_load()['tunnels'] if x.get('id') == tid), None)
+    if t:
+        _vpn_sync_tunnel(t)
+
+
+def _vpn_evt_payload(t, c) -> dict:
+    return {'client_id': c.get('id'), 'client_name': c.get('name', ''),
+            'tunnel_id': t.get('id'), 'tunnel_name': t.get('name', ''),
+            'endpoint': c.get('endpoint', '')}
+
+
+def _vpn_client_meta(c, now) -> dict:
+    return {
+        'id':             c.get('id'),
+        'name':           c.get('name', ''),
+        'address':        c.get('address', ''),
+        'enabled':        c.get('enabled', True),
+        'expires_at':     c.get('expires_at'),
+        'created_by':     c.get('created_by', ''),
+        'created_at':     c.get('created_at', 0),
+        'last_handshake': c.get('last_handshake', 0),
+        'rx_bytes':       c.get('rx_bytes', 0),
+        'tx_bytes':       c.get('tx_bytes', 0),
+        'endpoint':       c.get('endpoint', ''),
+        'status':         wg_access.client_status(c.get('last_handshake', 0), now),
+    }
+
+
+def _vpn_tunnel_meta(t, now=None, with_clients=False) -> dict:
+    now = now or int(time.time())
+    clients = t.get('clients', [])
+    connected = sum(1 for c in clients
+                    if wg_access.client_status(c.get('last_handshake', 0), now) == 'connected')
+    m = {
+        'id':                t.get('id'),
+        'name':              t.get('name', ''),
+        'iface':             t.get('iface', ''),
+        'listen_port':       t.get('listen_port', 0),
+        'pool':              t.get('pool', ''),
+        'endpoint':          t.get('endpoint', ''),
+        'dns':               t.get('dns', ''),
+        'hub_pubkey':        t.get('hub_pubkey', ''),
+        'allow_internet':    bool(t.get('allow_internet')),
+        'reach_scope_type':  t.get('reach_scope_type', 'none'),
+        'reach_scope_value': t.get('reach_scope_value', ''),
+        'enabled':           t.get('enabled', True),
+        'expires_at':        t.get('expires_at'),
+        'created_by':        t.get('created_by', ''),
+        'created_at':        t.get('created_at', 0),
+        'client_count':      len(clients),
+        'connected_count':   connected,
+    }
+    if with_clients:
+        m['clients'] = [_vpn_client_meta(c, now) for c in clients]
+    return m
+
+
+# ── Tunnel handlers ─────────────────────────────────────────────────────────────
+def handle_vpn_tunnels_list() -> None:
+    """GET /api/vpn-tunnels — all tunnels with a client/connected rollup."""
+    require_admin_or_auditor_auth()
+    now = int(time.time())
+    store = _vpn_load()
+    respond(200, {'ok': True,
+                  'available': _wg_helper_available(),
+                  'tunnels': [_vpn_tunnel_meta(t, now) for t in store['tunnels']]})
+
+
+def handle_vpn_tunnel_create() -> None:
+    """POST /api/vpn-tunnels — create a tunnel (allocate iface/port/pool, bring
+    the interface up, sync). Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(body.get('name', ''), wg_access.MAX_NAME_LEN, allow_empty=False)
+    if not wg_access.valid_name(name):
+        respond(400, {'error': 'invalid tunnel name'})
+    allow_internet = bool(body.get('allow_internet'))
+    rst = str(body.get('reach_scope_type', 'none')).strip().lower() or 'none'
+    if rst not in ('none', 'all', 'site', 'group', 'tag'):
+        respond(400, {'error': 'invalid reach_scope_type'})
+    rsv = _sanitize_str(body.get('reach_scope_value', ''), 128) if rst in ('site', 'group', 'tag') else ''
+    if rst in ('site', 'group', 'tag') and not rsv:
+        respond(400, {'error': 'reach_scope_value required'})
+    dns = _sanitize_str(body.get('dns', ''), 45)
+    if dns and not wg_access.valid_host_ip(dns):
+        respond(400, {'error': 'dns must be an IP address'})
+    expires_at = _vpn_parse_expiry(body.get('expires_at'))
+    cfg = load(CONFIG_FILE) or {}
+    pool_base = cfg.get('vpn_pool_base', wg_access.POOL_BASE)
+    port_base = int(cfg.get('vpn_port_base', wg_access.PORT_BASE) or wg_access.PORT_BASE)
+    endpoint_host = (cfg.get('vpn_endpoint_host', '') or
+                     os.environ.get('HTTP_HOST', '').split(':')[0] or 'CHANGE-ME')
+    tid = 'wgt_' + secrets.token_hex(8)
+    try:
+        with _LockedUpdate(VPN_FILE) as store:
+            tunnels = store.setdefault('tunnels', [])
+            if len(tunnels) >= wg_access.MAX_TUNNELS:
+                respond(400, {'error': f'max {wg_access.MAX_TUNNELS} tunnels'})
+            iface = wg_access.next_iface([t.get('iface') for t in tunnels])
+            port = wg_access.next_port([t.get('listen_port') for t in tunnels], base=port_base)
+            pool = wg_access.next_pool([t.get('pool') for t in tunnels], base=pool_base)
+            tunnel = {
+                'id': tid, 'name': name, 'iface': iface, 'listen_port': port,
+                'pool': pool, 'endpoint': f'{endpoint_host}:{port}', 'dns': dns,
+                'hub_pubkey': '', 'allow_internet': allow_internet,
+                'reach_scope_type': rst, 'reach_scope_value': rsv,
+                'enabled': True, 'expires_at': expires_at,
+                'created_by': actor, 'created_at': int(time.time()), 'clients': [],
+            }
+            tunnels.append(tunnel)
+    except ValueError as e:
+        respond(400, {'error': str(e)})
+    # Kernel-side apply + hub-key capture happen OUTSIDE the lock (subprocess).
+    tunnel = _vpn_up_tunnel(tunnel)
+    _vpn_sync_tunnel(tunnel)
+    if tunnel.get('hub_pubkey'):
+        with _LockedUpdate(VPN_FILE) as store:
+            for t in store.get('tunnels', []):
+                if t.get('id') == tid:
+                    t['hub_pubkey'] = tunnel['hub_pubkey']
+    audit_log(actor, 'vpn_tunnel_create',
+              detail=f'tunnel={tid} name={name[:40]} iface={iface} internet={allow_internet} scope={rst}:{rsv}',
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True, 'id': tid, 'tunnel': _vpn_tunnel_meta(tunnel)})
+
+
+def handle_vpn_tunnel_update(tid) -> None:
+    """PATCH /api/vpn-tunnels/{id} — edit name/internet/scope/dns/expiry/enabled.
+    iface/port/pool/hub_pubkey are immutable. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not tid.startswith('wgt_') or not _validate_id(tid[len('wgt_'):]):
+        respond(404, {'error': 'tunnel not found'})
+    body = get_json_obj()
+    with _LockedUpdate(VPN_FILE) as store:
+        t = next((x for x in store.get('tunnels', []) if x.get('id') == tid), None)
+        if not t:
+            respond(404, {'error': 'tunnel not found'})
+        if 'name' in body:
+            nm = _sanitize_str(body.get('name', ''), wg_access.MAX_NAME_LEN, allow_empty=False)
+            if not wg_access.valid_name(nm):
+                respond(400, {'error': 'invalid tunnel name'})
+            t['name'] = nm
+        if 'allow_internet' in body:
+            t['allow_internet'] = bool(body.get('allow_internet'))
+        if 'reach_scope_type' in body:
+            rst = str(body.get('reach_scope_type', 'none')).strip().lower() or 'none'
+            if rst not in ('none', 'all', 'site', 'group', 'tag'):
+                respond(400, {'error': 'invalid reach_scope_type'})
+            t['reach_scope_type'] = rst
+            if rst in ('none', 'all'):
+                t['reach_scope_value'] = ''
+        if 'reach_scope_value' in body:
+            t['reach_scope_value'] = _sanitize_str(body.get('reach_scope_value', ''), 128)
+        if t.get('reach_scope_type') in ('site', 'group', 'tag') and not t.get('reach_scope_value'):
+            respond(400, {'error': 'reach_scope_value required for this scope'})
+        if 'dns' in body:
+            dns = _sanitize_str(body.get('dns', ''), 45)
+            if dns and not wg_access.valid_host_ip(dns):
+                respond(400, {'error': 'dns must be an IP address'})
+            t['dns'] = dns
+        if 'expires_at' in body:
+            t['expires_at'] = _vpn_parse_expiry(body.get('expires_at'))
+        if 'enabled' in body:
+            t['enabled'] = bool(body.get('enabled'))
+    _vpn_resync(tid)
+    audit_log(actor, 'vpn_tunnel_update', detail=f'tunnel={tid}', source_ip=_get_client_ip())
+    respond(200, {'ok': True})
+
+
+def handle_vpn_tunnel_delete(tid) -> None:
+    """DELETE /api/vpn-tunnels/{id} — tear down the interface + delete the tunnel
+    and ALL its clients (cascade). Admin only."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not tid.startswith('wgt_') or not _validate_id(tid[len('wgt_'):]):
+        respond(404, {'error': 'tunnel not found'})
+    iface = None
+    with _LockedUpdate(VPN_FILE) as store:
+        tunnels = store.get('tunnels', [])
+        t = next((x for x in tunnels if x.get('id') == tid), None)
+        if not t:
+            respond(404, {'error': 'tunnel not found'})
+        iface = t.get('iface')
+        store['tunnels'] = [x for x in tunnels if x.get('id') != tid]
+    if iface and _wg_helper_available():
+        _wg_run(['down', iface])
+    audit_log(actor, 'vpn_tunnel_delete', detail=f'tunnel={tid} iface={iface}',
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True})
+
+
+def handle_vpn_tunnel_stats(tid) -> None:
+    """GET /api/vpn-tunnels/{id}/stats — RP-host rollup for one tunnel."""
+    require_admin_or_auditor_auth()
+    now = int(time.time())
+    t = next((x for x in _vpn_load()['tunnels'] if x.get('id') == tid), None)
+    if not t:
+        respond(404, {'error': 'tunnel not found'})
+    clients = t.get('clients', [])
+    rx = sum(int(c.get('rx_bytes', 0) or 0) for c in clients)
+    tx = sum(int(c.get('tx_bytes', 0) or 0) for c in clients)
+    hs = [int(c.get('last_handshake', 0) or 0) for c in clients if c.get('last_handshake')]
+    net = None
+    try:
+        net = ipaddress.ip_network(t.get('pool', ''), strict=False)
+    except ValueError:
+        pass
+    pool_size = (net.num_addresses - 2) if net else 0
+    respond(200, {'ok': True, 'available': _wg_helper_available(),
+                  'stats': {
+                      'iface': t.get('iface'), 'listen_port': t.get('listen_port'),
+                      'enabled': t.get('enabled', True),
+                      'client_count': len(clients),
+                      'connected_count': sum(1 for c in clients if wg_access.client_status(c.get('last_handshake', 0), now) == 'connected'),
+                      'pool_used': len(clients), 'pool_size': pool_size,
+                      'rx_bytes': rx, 'tx_bytes': tx,
+                      'newest_handshake': max(hs) if hs else 0,
+                      'oldest_handshake': min(hs) if hs else 0,
+                  }})
+
+
+# ── Client handlers ─────────────────────────────────────────────────────────────
+def _vpn_require_tunnel(store, tid):
+    if not tid.startswith('wgt_') or not _validate_id(tid[len('wgt_'):]):
+        respond(404, {'error': 'tunnel not found'})
+    t = next((x for x in store.get('tunnels', []) if x.get('id') == tid), None)
+    if not t:
+        respond(404, {'error': 'tunnel not found'})
+    return t
+
+
+def handle_vpn_clients_list(tid) -> None:
+    """GET /api/vpn-tunnels/{id}/clients — the tunnel's clients (no secrets)."""
+    require_admin_or_auditor_auth()
+    now = int(time.time())
+    t = _vpn_require_tunnel(_vpn_load(), tid)
+    respond(200, {'ok': True, 'clients': [_vpn_client_meta(c, now) for c in t.get('clients', [])]})
+
+
+def handle_vpn_client_create(tid) -> None:
+    """POST /api/vpn-tunnels/{id}/clients — add a client. The browser generated
+    the keypair and sends only the pubkey; we allocate a /32, sync, and return
+    the params the browser needs to assemble the config + QR. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(body.get('name', ''), wg_access.MAX_NAME_LEN, allow_empty=False)
+    if not wg_access.valid_name(name):
+        respond(400, {'error': 'invalid client name'})
+    pubkey = str(body.get('pubkey', '')).strip()
+    if not wg_access.valid_pubkey(pubkey):
+        respond(400, {'error': 'invalid public key'})
+    expires_at = _vpn_parse_expiry(body.get('expires_at'))
+    cid = 'wgc_' + secrets.token_hex(8)
+    with _LockedUpdate(VPN_FILE) as store:
+        t = _vpn_require_tunnel(store, tid)
+        clients = t.setdefault('clients', [])
+        if len(clients) >= wg_access.MAX_CLIENTS_PER_TUNNEL:
+            respond(400, {'error': f'max {wg_access.MAX_CLIENTS_PER_TUNNEL} clients per tunnel'})
+        if any(c.get('pubkey') == pubkey for c in clients):
+            respond(400, {'error': 'a client with that public key already exists'})
+        try:
+            addr = wg_access.alloc_client_ip(t.get('pool', ''), [c.get('address') for c in clients])
+        except ValueError as e:
+            respond(400, {'error': str(e)})
+        client = {'id': cid, 'name': name, 'pubkey': pubkey, 'address': addr,
+                  'enabled': True, 'expires_at': expires_at, 'created_by': actor,
+                  'created_at': int(time.time()), 'last_handshake': 0,
+                  'rx_bytes': 0, 'tx_bytes': 0, 'endpoint': ''}
+        clients.append(client)
+        tunnel_meta = {'hub_pubkey': t.get('hub_pubkey', ''), 'endpoint': t.get('endpoint', ''),
+                       'dns': t.get('dns', ''),
+                       'allowed_ips': wg_access.client_allowed_ips(t, _vpn_reach_cidrs(t))}
+    _vpn_resync(tid)
+    audit_log(actor, 'vpn_client_create', detail=f'client={cid} tunnel={tid} name={name[:40]}',
+              source_ip=_get_client_ip())
+    # Return everything the browser needs to build the .conf + QR (it holds the
+    # private key already; the server never sees it).
+    respond(200, {'ok': True, 'id': cid, 'address': addr + '/32',
+                  'hub_pubkey': tunnel_meta['hub_pubkey'], 'endpoint': tunnel_meta['endpoint'],
+                  'dns': tunnel_meta['dns'], 'allowed_ips': tunnel_meta['allowed_ips']})
+
+
+def handle_vpn_client_update(tid, cid) -> None:
+    """PATCH /api/vpn-tunnels/{id}/clients/{cid} — edit name/expiry/enabled.
+    pubkey + address immutable. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not cid.startswith('wgc_') or not _validate_id(cid[len('wgc_'):]):
+        respond(404, {'error': 'client not found'})
+    body = get_json_obj()
+    with _LockedUpdate(VPN_FILE) as store:
+        t = _vpn_require_tunnel(store, tid)
+        c = next((x for x in t.get('clients', []) if x.get('id') == cid), None)
+        if not c:
+            respond(404, {'error': 'client not found'})
+        if 'name' in body:
+            nm = _sanitize_str(body.get('name', ''), wg_access.MAX_NAME_LEN, allow_empty=False)
+            if not wg_access.valid_name(nm):
+                respond(400, {'error': 'invalid client name'})
+            c['name'] = nm
+        if 'expires_at' in body:
+            c['expires_at'] = _vpn_parse_expiry(body.get('expires_at'))
+        if 'enabled' in body:
+            c['enabled'] = bool(body.get('enabled'))
+    _vpn_resync(tid)
+    audit_log(actor, 'vpn_client_update', detail=f'client={cid} tunnel={tid}',
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True})
+
+
+def handle_vpn_client_delete(tid, cid) -> None:
+    """DELETE /api/vpn-tunnels/{id}/clients/{cid} — remove a client + re-sync
+    (instant peer removal). Admin only."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not cid.startswith('wgc_') or not _validate_id(cid[len('wgc_'):]):
+        respond(404, {'error': 'client not found'})
+    with _LockedUpdate(VPN_FILE) as store:
+        t = _vpn_require_tunnel(store, tid)
+        clients = t.get('clients', [])
+        before = len(clients)
+        t['clients'] = [x for x in clients if x.get('id') != cid]
+        if len(t['clients']) == before:
+            respond(404, {'error': 'client not found'})
+    _vpn_resync(tid)
+    audit_log(actor, 'vpn_client_delete', detail=f'client={cid} tunnel={tid}',
+              source_ip=_get_client_ip())
+    respond(200, {'ok': True})
+
+
+def handle_vpn_client_stats(tid, cid) -> None:
+    """GET /api/vpn-tunnels/{id}/clients/{cid}/stats — one peer's live stats."""
+    require_admin_or_auditor_auth()
+    now = int(time.time())
+    t = _vpn_require_tunnel(_vpn_load(), tid)
+    c = next((x for x in t.get('clients', []) if x.get('id') == cid), None)
+    if not c:
+        respond(404, {'error': 'client not found'})
+    respond(200, {'ok': True, 'stats': _vpn_client_meta(c, now)})
+
+
+# ── Stats cadence + TTL reaper ──────────────────────────────────────────────────
+def run_vpn_stats_if_due():
+    """Refresh per-client WireGuard stats, fire connect/disconnect/stale edge
+    events, and reap expired clients + tunnels. Integrations-style cadence (cheap
+    when not due). Tunnel expiry is audit-log only (no event, per design);
+    client transitions fire the registered events AFTER the lock."""
+    cfg = load(CONFIG_FILE) or {}
+    if not backend_exists(VPN_FILE):
+        return
+    interval = max(60, int(cfg.get('vpn_stats_interval', 120) or 120))
+    last = int(cfg.get('last_vpn_stats_run', 0) or 0)
+    now = int(time.time())
+    if (now - last) < interval:
+        return
+    cfg['last_vpn_stats_run'] = now
+    save(CONFIG_FILE, cfg)
+    store = _vpn_load()
+    if not store['tunnels']:
+        return
+    helper = _wg_helper_available()
+    # Read stats per tunnel BEFORE taking the lock (subprocess).
+    dumps = {}
+    if helper:
+        for t in store['tunnels']:
+            if not t.get('enabled', True):
+                continue
+            rc, out, _err = _wg_run(['show', t['iface']])
+            if rc == 0 and (out or '').strip():
+                dumps[t['iface']] = wg_access.parse_wg_dump(out)
+    pending_audit = []      # (action, detail)
+    pending_events = []     # (event, payload)
+    ifaces_down = []        # expired tunnels to tear down
+    resync_tids = []        # tunnels whose client set shrank
+    with _LockedUpdate(VPN_FILE) as st:
+        keep = []
+        for t in st.get('tunnels', []):
+            # Tunnel TTL → tear down + drop (audit only, no event).
+            if _vpn_expired(t, now):
+                pending_audit.append(('vpn_tunnel_expired',
+                                      f"tunnel={t.get('id')} name={t.get('name','')[:40]} iface={t.get('iface')}"))
+                if t.get('iface'):
+                    ifaces_down.append(t['iface'])
+                continue
+            # Client TTL → drop (re-sync after).
+            orig = t.get('clients', [])
+            survivors = []
+            for c in orig:
+                if _vpn_expired(c, now):
+                    pending_audit.append(('vpn_client_expired',
+                                          f"client={c.get('id')} tunnel={t.get('id')}"))
+                    continue
+                survivors.append(c)
+            if len(survivors) != len(orig):
+                t['clients'] = survivors
+                resync_tids.append(t.get('id'))
+            # Stats + edge events.
+            dump = dumps.get(t.get('iface'), {})
+            for c in t.get('clients', []):
+                d = dump.get(c.get('pubkey'))
+                if d:
+                    c['last_handshake'] = d['last_handshake']
+                    c['rx_bytes'] = d['rx_bytes']
+                    c['tx_bytes'] = d['tx_bytes']
+                    c['endpoint'] = d['endpoint']
+                status = wg_access.client_status(c.get('last_handshake', 0), now)
+                prev = c.get('_status')
+                if prev is None:
+                    c['_status'] = status          # seed silently on first sight
+                elif status != prev:
+                    if status == 'connected':
+                        pending_events.append(('vpn_client_connected', _vpn_evt_payload(t, c)))
+                    elif status == 'idle' and prev == 'connected':
+                        pending_events.append(('vpn_handshake_stale', _vpn_evt_payload(t, c)))
+                    elif status == 'offline':
+                        pending_events.append(('vpn_client_disconnected', _vpn_evt_payload(t, c)))
+                    c['_status'] = status
+            keep.append(t)
+        st['tunnels'] = keep
+    # AFTER the lock: tear down expired tunnels, re-sync shrunk ones, fire
+    # events + audit (all self-locking → must be outside the VPN_FILE lock).
+    if helper:
+        for iface in ifaces_down:
+            _wg_run(['down', iface])
+        for tid in resync_tids:
+            _vpn_resync(tid)
+    for action, detail in pending_audit:
+        audit_log('system', action, detail=detail)
+    for event, payload in pending_events:
+        fire_webhook(event, payload)
+
+
 # ─── Router ────────────────────────────────────────────────────────────────────
 def _is_demo_read_only() -> bool:
     """True if the server is running in demo / read-only mode.
@@ -47092,6 +47694,31 @@ def _dispatch(pi, m):
         handle_scoped_credentials_reveal(pi[len('/api/scoped-credentials/'):-len('/reveal')])
     elif pi.startswith('/api/scoped-credentials/') and m == 'DELETE':
         handle_scoped_credentials_delete(pi[len('/api/scoped-credentials/'):])
+    # v5.2.0: WG Access (road-warrior WireGuard) — tunnels and their clients.
+    elif pi == '/api/vpn-tunnels' and m == 'GET':
+        handle_vpn_tunnels_list()
+    elif pi == '/api/vpn-tunnels' and m == 'POST':
+        handle_vpn_tunnel_create()
+    elif pi.startswith('/api/vpn-tunnels/'):
+        _wg_parts = pi[len('/api/vpn-tunnels/'):].split('/')
+        if len(_wg_parts) == 1 and m == 'PATCH':
+            handle_vpn_tunnel_update(_wg_parts[0])
+        elif len(_wg_parts) == 1 and m == 'DELETE':
+            handle_vpn_tunnel_delete(_wg_parts[0])
+        elif len(_wg_parts) == 2 and _wg_parts[1] == 'stats' and m == 'GET':
+            handle_vpn_tunnel_stats(_wg_parts[0])
+        elif len(_wg_parts) == 2 and _wg_parts[1] == 'clients' and m == 'GET':
+            handle_vpn_clients_list(_wg_parts[0])
+        elif len(_wg_parts) == 2 and _wg_parts[1] == 'clients' and m == 'POST':
+            handle_vpn_client_create(_wg_parts[0])
+        elif len(_wg_parts) == 4 and _wg_parts[1] == 'clients' and _wg_parts[3] == 'stats' and m == 'GET':
+            handle_vpn_client_stats(_wg_parts[0], _wg_parts[2])
+        elif len(_wg_parts) == 3 and _wg_parts[1] == 'clients' and m == 'PATCH':
+            handle_vpn_client_update(_wg_parts[0], _wg_parts[2])
+        elif len(_wg_parts) == 3 and _wg_parts[1] == 'clients' and m == 'DELETE':
+            handle_vpn_client_delete(_wg_parts[0], _wg_parts[2])
+        else:
+            respond(404, {'error': 'not found'})
     elif pi.startswith('/api/cmdb/') and pi.endswith('/inherited-credentials') and m == 'GET':
         handle_device_inherited_credentials(pi[len('/api/cmdb/'):-len('/inherited-credentials')])
     elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'GET':
@@ -47245,6 +47872,7 @@ def main():
     # actual checks happen every interval.
     _safe(run_monitors_if_due, 'run_monitors_if_due')
     _safe(run_integrations_if_due, 'run_integrations_if_due')
+    _safe(run_vpn_stats_if_due, 'run_vpn_stats_if_due')   # v5.2.0 WG Access
     # v4.8.0: poll the DMARC RUA mailbox over IMAP when due (no-op unless enabled).
     _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.

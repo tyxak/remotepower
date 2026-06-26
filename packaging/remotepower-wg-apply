@@ -1,0 +1,643 @@
+#!/usr/bin/env python3
+# remotepower-wg-apply — privileged WireGuard "WG Access" road-warrior helper (v5.2.0)
+#
+# WHY THIS EXISTS / SECURITY MODEL
+# --------------------------------
+# This script runs as ROOT, invoked by the *unprivileged* RemotePower CGI via a
+# scoped sudoers NOPASSWD rule, e.g.:
+#
+#     sudo -n /usr/local/sbin/remotepower-wg-apply <subcommand> [<iface>]
+#
+# It mirrors the established `deploy-remote-site.sh` precedent: the file is
+# root-owned, mode 755, and the sudoers drop-in grants the web user NOPASSWD on
+# *this one script only* (general sudo for that user still needs a password).
+#
+# Because the caller is untrusted, security is paramount:
+#   * We NEVER use a shell. Every external command is run with an argv LIST
+#     (run(...)); `shell=True` is never used anywhere, so there is no string
+#     interpolation into a shell and therefore no command-injection surface.
+#   * The complex, attacker-influenced data (peers, addresses, CIDRs, ports)
+#     arrives as a single structured JSON document on STDIN. We parse it, then
+#     re-validate EVERY field with strict regexes/range checks before it is used.
+#     The server validates too — this is deliberate defense-in-depth. A field
+#     that fails validation aborts the whole operation; nothing partial is
+#     applied from an untrusted value.
+#   * All config files (wg.conf, private keys) are written by THIS script from
+#     validated fields — the caller never hands us a config blob to execute.
+#   * Private keys live under /etc/remotepower/wg/<iface>/ mode 0600, dir 0700.
+#
+# USERSPACE WIREGUARD
+# -------------------
+# We use wireguard-go (the userspace implementation) rather than the kernel
+# module, so this works on hosts without the wg kernel module / without DKMS.
+# `wireguard-go <iface>` creates a tun device that the standard `wg`/`ip` tools
+# then configure exactly as they would a kernel interface.
+#
+# ROBUSTNESS
+# ----------
+# If wireguard-go / wg / nft are missing, we emit a clear JSON error and exit
+# non-zero so the server can surface "WG Access unavailable — install
+# wireguard-go".
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+# --------------------------------------------------------------------------- #
+# Constants
+# --------------------------------------------------------------------------- #
+
+WG_BASE_DIR = "/etc/remotepower/wg"
+NFT_TABLE = "rp_wg"  # nftables table: `inet rp_wg`
+
+IFACE_RE = re.compile(r"^rp-wg\d{1,3}$")
+# WireGuard base64 public/private keys: 43 base64 chars + '='.
+WG_KEY_RE = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+# Network interface name as reported by `ip` (default-route dev), conservative.
+NETIF_RE = re.compile(r"^[A-Za-z0-9._@-]{1,15}$")
+
+
+# --------------------------------------------------------------------------- #
+# Output helpers
+# --------------------------------------------------------------------------- #
+
+def emit(obj):
+    """Print a JSON object to stdout."""
+    sys.stdout.write(json.dumps(obj))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def fail(msg, code=2):
+    """Emit a JSON error and exit non-zero."""
+    emit({"ok": False, "error": str(msg)})
+    sys.exit(code)
+
+
+# --------------------------------------------------------------------------- #
+# Subprocess helper — argv only, NEVER shell=True
+# --------------------------------------------------------------------------- #
+
+def run(argv, input=None):
+    """Run argv (a list). Returns (rc, stdout, stderr). Never uses a shell."""
+    if not isinstance(argv, (list, tuple)):
+        raise TypeError("run() requires an argv list, not a string")
+    try:
+        proc = subprocess.run(
+            list(argv),
+            input=input,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,  # text mode (py3.6 compatible)
+            shell=False,
+        )
+    except FileNotFoundError as exc:
+        return (127, "", "command not found: %s" % exc)
+    except OSError as exc:
+        return (126, "", "failed to exec %r: %s" % (argv[0], exc))
+    return (proc.returncode, proc.stdout or "", proc.stderr or "")
+
+
+def require_tool(name):
+    """Abort with a clear, surfaceable error if a required tool is absent."""
+    if shutil.which(name) is None:
+        fail(
+            "%s not found — WG Access unavailable, install wireguard-go" % name
+            if name == "wireguard-go"
+            else "%s not found — WG Access unavailable" % name,
+            code=3,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Validators — strict, reused everywhere
+# --------------------------------------------------------------------------- #
+
+def v_iface(value):
+    if not isinstance(value, str) or not IFACE_RE.match(value):
+        fail("invalid interface name: %r" % (value,))
+    return value
+
+
+def v_port(value):
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        fail("invalid listen_port: %r" % (value,))
+    if not (1 <= port <= 65535):
+        fail("listen_port out of range: %r" % (value,))
+    return port
+
+
+def v_pubkey(value):
+    if not isinstance(value, str) or not WG_KEY_RE.match(value):
+        fail("invalid WireGuard key: %r" % (value,))
+    return value
+
+
+def _valid_ipv4(addr):
+    parts = addr.split(".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        if not p.isdigit() or (len(p) > 1 and p[0] == "0"):
+            return False
+        if not (0 <= int(p) <= 255):
+            return False
+    return True
+
+
+def _valid_ipv6(addr):
+    # Conservative IPv6: hex groups and at most one '::'. We don't need to be a
+    # full RFC parser — anything that passes goes only into argv for ip/wg/nft,
+    # never a shell, and the kernel/wg will reject a truly malformed address.
+    if addr.count("::") > 1:
+        return False
+    if not re.match(r"^[0-9A-Fa-f:]+$", addr):
+        return False
+    groups = [g for g in addr.split(":") if g != ""]
+    for g in groups:
+        if len(g) > 4:
+            return False
+    return len(groups) > 0
+
+
+def v_cidr(value):
+    """Validate an IPv4 or IPv6 CIDR like 10.97.0.1/24 or fd00::1/64."""
+    if not isinstance(value, str) or "/" not in value:
+        fail("invalid CIDR: %r" % (value,))
+    addr, _, prefix = value.partition("/")
+    if not prefix.isdigit():
+        fail("invalid CIDR prefix: %r" % (value,))
+    plen = int(prefix)
+    if _valid_ipv4(addr):
+        if not (0 <= plen <= 32):
+            fail("invalid IPv4 prefix length: %r" % (value,))
+    elif _valid_ipv6(addr):
+        if not (0 <= plen <= 128):
+            fail("invalid IPv6 prefix length: %r" % (value,))
+    else:
+        fail("invalid CIDR address: %r" % (value,))
+    return value
+
+
+def v_cidr_list(value):
+    if not isinstance(value, list):
+        fail("expected a list of CIDRs, got %r" % (type(value).__name__,))
+    return [v_cidr(item) for item in value]
+
+
+def v_bool(value, name):
+    if not isinstance(value, bool):
+        fail("field %s must be a boolean" % name)
+    return value
+
+
+def _addr_only(cidr):
+    """The address part of a validated CIDR (for nft `ip saddr` matches)."""
+    return cidr.partition("/")[0]
+
+
+def _is_ipv6_cidr(cidr):
+    return ":" in cidr.partition("/")[0]
+
+
+# --------------------------------------------------------------------------- #
+# Key management
+# --------------------------------------------------------------------------- #
+
+def iface_dir(iface):
+    return os.path.join(WG_BASE_DIR, iface)
+
+
+def ensure_key_dir(iface):
+    base = WG_BASE_DIR
+    if not os.path.isdir(base):
+        os.makedirs(base, mode=0o700, exist_ok=True)
+    os.chmod(base, 0o700)
+    d = iface_dir(iface)
+    if not os.path.isdir(d):
+        os.makedirs(d, mode=0o700, exist_ok=True)
+    os.chmod(d, 0o700)
+    return d
+
+
+def privkey_path(iface):
+    return os.path.join(iface_dir(iface), "privkey")
+
+
+def ensure_keys(iface):
+    """Ensure a private key exists; return (privkey, pubkey)."""
+    require_tool("wg")
+    pk_path = privkey_path(iface)
+    if not os.path.exists(pk_path):
+        rc, out, err = run(["wg", "genkey"])
+        if rc != 0:
+            fail("wg genkey failed: %s" % err.strip(), code=4)
+        privkey = out.strip()
+        # Write the key with restrictive perms from creation.
+        fd = os.open(pk_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, (privkey + "\n").encode("ascii"))
+        finally:
+            os.close(fd)
+    else:
+        with open(pk_path, "r") as fh:
+            privkey = fh.read().strip()
+    os.chmod(pk_path, 0o600)
+
+    rc, out, err = run(["wg", "pubkey"], input=privkey + "\n")
+    if rc != 0:
+        fail("wg pubkey failed: %s" % err.strip(), code=4)
+    pubkey = out.strip()
+    return privkey, pubkey
+
+
+# --------------------------------------------------------------------------- #
+# Interface lifecycle
+# --------------------------------------------------------------------------- #
+
+def iface_is_up(iface):
+    rc, _out, _err = run(["ip", "link", "show", iface])
+    return rc == 0
+
+
+def default_route_dev():
+    """Best-effort default-route egress interface, validated before use."""
+    rc, out, _err = run(["ip", "route", "show", "default"])
+    if rc != 0:
+        return None
+    # e.g. "default via 10.0.0.1 dev eth0 proto static metric 100"
+    fields = out.split()
+    if "dev" in fields:
+        dev = fields[fields.index("dev") + 1]
+        if NETIF_RE.match(dev):
+            return dev
+    return None
+
+
+def start_interface(iface):
+    """Create the userspace tun via wireguard-go if not already present."""
+    if iface_is_up(iface):
+        return
+    require_tool("wireguard-go")
+    # wireguard-go daemonizes itself and creates the named tun.
+    rc, _out, err = run(["wireguard-go", iface])
+    if rc != 0:
+        fail("wireguard-go failed for %s: %s" % (iface, err.strip()), code=4)
+    if not iface_is_up(iface):
+        fail("interface %s did not come up after wireguard-go" % iface, code=4)
+
+
+# --------------------------------------------------------------------------- #
+# nftables — table `inet rp_wg`, per-iface chains rebuilt wholesale each sync
+# --------------------------------------------------------------------------- #
+
+def nft(args):
+    rc, out, err = run(["nft"] + list(args))
+    return rc, out, err
+
+
+def fwd_chain(iface):
+    return "fwd_%s" % iface.replace("-", "_")
+
+
+def post_chain(iface):
+    return "post_%s" % iface.replace("-", "_")
+
+
+def nft_ensure_table():
+    require_tool("nft")
+    # `add table` is idempotent in nft (no error if it exists).
+    rc, _out, err = nft(["add", "table", "inet", NFT_TABLE])
+    if rc != 0:
+        fail("nft add table failed: %s" % err.strip(), code=5)
+
+
+def nft_delete_iface_chains(iface):
+    """Remove this iface's chains if present (ignore 'not found')."""
+    for chain in (fwd_chain(iface), post_chain(iface)):
+        # delete chain only succeeds if it exists; ignore failures.
+        nft(["delete", "chain", "inet", NFT_TABLE, chain])
+
+
+def nft_rebuild_iface(iface, spec, egress_dev):
+    """(Re)build this iface's forward + masquerade rules from the spec."""
+    nft_ensure_table()
+    nft_delete_iface_chains(iface)
+
+    forward = spec["forward"]
+    masquerade = spec["masquerade"] or spec["full_tunnel"]
+    address = spec["address"]
+    src_is6 = _is_ipv6_cidr(address)
+    ip_kw = "ip6" if src_is6 else "ip"
+    # Match the tunnel's own subnet as the source of routed traffic.
+    tunnel_net = address  # CIDR; nft accepts `ip saddr <cidr>`
+
+    if forward:
+        # Forward chain, hooked into the forward path for this iface.
+        rc, _out, err = nft([
+            "add", "chain", "inet", NFT_TABLE, fwd_chain(iface),
+            "{", "type", "filter", "hook", "forward",
+            "priority", "0", ";", "policy", "accept", ";", "}",
+        ])
+        if rc != 0:
+            fail("nft add forward chain failed: %s" % err.strip(), code=5)
+
+        reach = spec["reach_cidrs"]
+        if spec["full_tunnel"]:
+            # Full tunnel: allow tunnel traffic out the egress dev to anywhere.
+            rc, _o, err = nft([
+                "add", "rule", "inet", NFT_TABLE, fwd_chain(iface),
+                "iifname", iface, ip_kw, "saddr", tunnel_net,
+                "accept",
+            ])
+            if rc != 0:
+                fail("nft full-tunnel forward rule failed: %s" % err.strip(),
+                     code=5)
+        else:
+            # Split tunnel: allow only to the configured reachable CIDRs.
+            for cidr in reach:
+                dst_kw = "ip6" if _is_ipv6_cidr(cidr) else "ip"
+                rc, _o, err = nft([
+                    "add", "rule", "inet", NFT_TABLE, fwd_chain(iface),
+                    "iifname", iface, ip_kw, "saddr", tunnel_net,
+                    dst_kw, "daddr", cidr, "accept",
+                ])
+                if rc != 0:
+                    fail("nft reach rule failed (%s): %s"
+                         % (cidr, err.strip()), code=5)
+            # Drop any other forwarded traffic originating from the tunnel.
+            rc, _o, err = nft([
+                "add", "rule", "inet", NFT_TABLE, fwd_chain(iface),
+                "iifname", iface, ip_kw, "saddr", tunnel_net, "drop",
+            ])
+            if rc != 0:
+                fail("nft tunnel-drop rule failed: %s" % err.strip(), code=5)
+
+        # Always allow return traffic back into the tunnel.
+        rc, _o, err = nft([
+            "add", "rule", "inet", NFT_TABLE, fwd_chain(iface),
+            "oifname", iface, "ct", "state", "established,related", "accept",
+        ])
+        if rc != 0:
+            fail("nft return-traffic rule failed: %s" % err.strip(), code=5)
+
+    if masquerade:
+        rc, _out, err = nft([
+            "add", "chain", "inet", NFT_TABLE, post_chain(iface),
+            "{", "type", "nat", "hook", "postrouting",
+            "priority", "100", ";", "policy", "accept", ";", "}",
+        ])
+        if rc != 0:
+            fail("nft add postrouting chain failed: %s" % err.strip(), code=5)
+        masq_args = [
+            "add", "rule", "inet", NFT_TABLE, post_chain(iface),
+            ip_kw, "saddr", tunnel_net,
+        ]
+        if egress_dev:
+            masq_args += ["oifname", egress_dev]
+        masq_args += ["masquerade"]
+        rc, _o, err = nft(masq_args)
+        if rc != 0:
+            fail("nft masquerade rule failed: %s" % err.strip(), code=5)
+
+
+# --------------------------------------------------------------------------- #
+# Sub-commands
+# --------------------------------------------------------------------------- #
+
+def cmd_up(iface):
+    iface = v_iface(iface)
+    ensure_key_dir(iface)
+    _privkey, pubkey = ensure_keys(iface)
+    start_interface(iface)
+    emit({"ok": True, "iface": iface, "pubkey": pubkey})
+
+
+def _read_spec_stdin():
+    raw = sys.stdin.read()
+    if not raw.strip():
+        fail("empty stdin: expected a JSON spec")
+    try:
+        spec = json.loads(raw)
+    except ValueError as exc:
+        fail("invalid JSON spec: %s" % exc)
+    if not isinstance(spec, dict):
+        fail("spec must be a JSON object")
+    return spec
+
+
+def _validate_spec(iface, spec):
+    out = {}
+    out["iface"] = v_iface(spec.get("iface"))
+    if out["iface"] != iface:
+        fail("iface argument %r does not match spec iface %r"
+             % (iface, out["iface"]))
+    out["listen_port"] = v_port(spec.get("listen_port"))
+    out["address"] = v_cidr(spec.get("address"))
+    out["forward"] = v_bool(spec.get("forward", False), "forward")
+    out["masquerade"] = v_bool(spec.get("masquerade", False), "masquerade")
+    out["full_tunnel"] = v_bool(spec.get("full_tunnel", False), "full_tunnel")
+    out["reach_cidrs"] = v_cidr_list(spec.get("reach_cidrs", []))
+
+    peers_in = spec.get("peers", [])
+    if not isinstance(peers_in, list):
+        fail("peers must be a list")
+    peers = []
+    for p in peers_in:
+        if not isinstance(p, dict):
+            fail("each peer must be an object")
+        peers.append({
+            "pubkey": v_pubkey(p.get("pubkey")),
+            "allowed_ips": v_cidr(p.get("allowed_ips")),
+        })
+    out["peers"] = peers
+    return out
+
+
+def _write_wg_conf(iface, spec, privkey):
+    """Write the persisted wg.conf (0600) and return its path."""
+    lines = ["[Interface]"]
+    lines.append("PrivateKey = %s" % privkey)
+    lines.append("ListenPort = %d" % spec["listen_port"])
+    lines.append("")
+    for peer in spec["peers"]:
+        lines.append("[Peer]")
+        lines.append("PublicKey = %s" % peer["pubkey"])
+        lines.append("AllowedIPs = %s" % peer["allowed_ips"])
+        lines.append("")
+    conf = "\n".join(lines) + "\n"
+
+    conf_path = os.path.join(iface_dir(iface), "wg.conf")
+    fd = os.open(conf_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, conf.encode("ascii"))
+    finally:
+        os.close(fd)
+    os.chmod(conf_path, 0o600)
+    return conf, conf_path
+
+
+def cmd_sync(iface):
+    iface = v_iface(iface)
+    require_tool("wg")
+    require_tool("ip")
+    raw_spec = _read_spec_stdin()
+    spec = _validate_spec(iface, raw_spec)
+
+    ensure_key_dir(iface)
+    privkey, _pubkey = ensure_keys(iface)
+    start_interface(iface)
+
+    # Persisted conf for the record; a temp conf for syncconf (both 0600).
+    conf_text, _conf_path = _write_wg_conf(iface, spec, privkey)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix="rp-wg-", suffix=".conf")
+    try:
+        os.fchmod(tmp_fd, 0o600)
+        os.write(tmp_fd, conf_text.encode("ascii"))
+        os.close(tmp_fd)
+        tmp_fd = None
+
+        rc, _o, err = run(["wg", "syncconf", iface, tmp_path])
+        if rc != 0:
+            fail("wg syncconf failed: %s" % err.strip(), code=4)
+    finally:
+        if tmp_fd is not None:
+            os.close(tmp_fd)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    # Listen port (syncconf already set it, but enforce explicitly).
+    rc, _o, err = run(["wg", "set", iface, "listen-port",
+                       str(spec["listen_port"])])
+    if rc != 0:
+        fail("wg set listen-port failed: %s" % err.strip(), code=4)
+
+    # Interface address + bring up.
+    rc, _o, err = run(["ip", "address", "replace", spec["address"],
+                       "dev", iface])
+    if rc != 0:
+        fail("ip address replace failed: %s" % err.strip(), code=4)
+    rc, _o, err = run(["ip", "link", "set", iface, "up"])
+    if rc != 0:
+        fail("ip link set up failed: %s" % err.strip(), code=4)
+
+    # Routing / firewall.
+    if spec["forward"]:
+        # Enable IPv4 forwarding only when routing is requested.
+        rc, _o, err = run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+        if rc != 0:
+            fail("sysctl ip_forward failed: %s" % err.strip(), code=5)
+        if _is_ipv6_cidr(spec["address"]):
+            run(["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"])
+
+    egress_dev = default_route_dev()
+    nft_rebuild_iface(iface, spec, egress_dev)
+
+    emit({"ok": True})
+
+
+def cmd_show(iface):
+    iface = v_iface(iface)
+    if shutil.which("wg") is None:
+        # Tool missing — graceful, server treats as unavailable.
+        emit({"ok": False, "error": "wg not found"})
+        sys.exit(0)
+    if not iface_is_up(iface):
+        # Graceful: interface doesn't exist yet.
+        sys.stdout.write("")
+        sys.stdout.flush()
+        sys.exit(0)
+    rc, out, _err = run(["wg", "show", iface, "dump"])
+    if rc != 0:
+        sys.stdout.write("")
+        sys.stdout.flush()
+        sys.exit(0)
+    # Raw dump for the server to parse.
+    sys.stdout.write(out)
+    sys.stdout.flush()
+    sys.exit(0)
+
+
+def _kill_wireguard_go(iface):
+    """Best-effort kill of the wireguard-go process for this iface."""
+    rc, out, _err = run(["pgrep", "-f", "wireguard-go %s" % iface])
+    if rc != 0:
+        return
+    for line in out.split():
+        if line.isdigit():
+            run(["kill", line])
+
+
+def cmd_down(iface):
+    iface = v_iface(iface)
+    # Remove nft rules first (ignore failures — table/chain may not exist).
+    if shutil.which("nft") is not None:
+        nft_delete_iface_chains(iface)
+    # Tear down the interface.
+    if iface_is_up(iface):
+        rc, _o, _err = run(["ip", "link", "delete", iface])
+        if rc != 0:
+            _kill_wireguard_go(iface)
+    else:
+        _kill_wireguard_go(iface)
+    emit({"ok": True})
+
+
+def cmd_list():
+    rc, out, _err = run(["ip", "-o", "link", "show"])
+    ifaces = []
+    if rc == 0:
+        for line in out.splitlines():
+            # "3: rp-wg0: <...> mtu ..." — field after the index is "name:".
+            parts = line.split(":", 2)
+            if len(parts) >= 2:
+                name = parts[1].strip().split("@", 1)[0]
+                if IFACE_RE.match(name):
+                    ifaces.append(name)
+    emit({"ifaces": sorted(set(ifaces))})
+
+
+# --------------------------------------------------------------------------- #
+# Entry point
+# --------------------------------------------------------------------------- #
+
+USAGE = "usage: remotepower-wg-apply {up|sync|show|down|list} [<iface>]"
+
+
+def main(argv):
+    if len(argv) < 2:
+        fail(USAGE)
+    sub = argv[1]
+
+    if sub == "list":
+        cmd_list()
+        return
+
+    # All other sub-commands take an iface.
+    if len(argv) < 3:
+        fail(USAGE)
+    iface = argv[2]
+
+    if sub == "up":
+        cmd_up(iface)
+    elif sub == "sync":
+        cmd_sync(iface)
+    elif sub == "show":
+        cmd_show(iface)
+    elif sub == "down":
+        cmd_down(iface)
+    else:
+        fail("unknown sub-command: %r" % (sub,))
+
+
+if __name__ == "__main__":
+    main(sys.argv)
