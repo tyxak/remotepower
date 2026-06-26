@@ -25,6 +25,26 @@ and polish gaps from the feature that shipped it. No breaking changes.
   member listing degrades gracefully), gave the Proxmox node badge its own style
   distinct from the tags badge, and surfaced the cluster node summary in the UI
   instead of returning it unused.
+- **Restore the page from the URL hash on refresh.** Reloading the app while on
+  a deep page (e.g. `#containers`) used to drop you back to home; the page named
+  in the hash is now restored on boot, leaving the existing `#device/<id>` and
+  `#devices?view=` deep-link handlers untouched. Contributed by **Thomas
+  Bouquet-Gasparoux (@tbouquet)** ([#12](https://github.com/tyxak/remotepower/pull/12)).
+- **LocalAI API keys are now accepted.** The AI-provider API-key field was
+  disabled for LocalAI (and Ollama), but LocalAI added API keys as a way to track
+  per-app usage. The field is now optional-but-editable for local providers and
+  the key is forwarded as a `Bearer` token. Reported by **@loryanstrant**
+  ([#10](https://github.com/tyxak/remotepower/issues/10)).
+- **Run embeddings on a different service than chat.** New optional *Embedding
+  provider / base URL / API key* fields under Knowledge index (RAG) let you point
+  semantic-search embeddings at a separate endpoint — e.g. a dedicated,
+  less-contested GPU box — instead of always reusing the chat provider. The
+  embedding endpoint gets the same SSRF pre-flight and connect-time guard as the
+  chat endpoint, its key is withheld/masked on read like the main key, and
+  changing it correctly invalidates the cached vectors. Semantic search can now
+  also be enabled when the chat provider has no embeddings endpoint (e.g.
+  Anthropic chat + LocalAI embeddings). Requested by **@loryanstrant**
+  ([#11](https://github.com/tyxak/remotepower/issues/11)).
 
 ## v5.1.0 — "UnityMatters" — 2026-06-25
 

@@ -22829,6 +22829,12 @@ _AI_DEFAULTS = {
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
+        # v5.1.1 (issue #11): optionally run embeddings on a *different* service
+        # than chat (e.g. a dedicated, less-contested GPU box). Empty = reuse the
+        # chat provider verbatim (back-compat). Resolved in ai_provider.embedding_cfg().
+        'embedding_provider': '',   # '' | openai | ollama | localai
+        'embedding_base_url': '',
+        'embedding_api_key':  '',   # cleartext-on-disk like the main key; masked on GET
         # v4.1.0: where the retrieval index lives. 'json' = the bundled lexical
         # index file (default, works on every storage backend). 'postgres' =
         # pgvector chunk store (opt-in; only active when the storage backend is
@@ -22881,11 +22887,17 @@ def _ai_cfg():
 
 
 def _ai_cfg_for_display(cfg):
-    """Mask the API key for GET responses. Same Settings UX pattern as the
+    """Mask the API key(s) for GET responses. Same Settings UX pattern as the
     rest of the codebase: dots if present, empty if not."""
     out = dict(cfg)
     if out.get('api_key'):
         out['api_key'] = '••••••••' + cfg['api_key'][-4:]
+    # v5.1.1 (issue #11): mask the optional separate-embedding key too. Copy the
+    # nested rag dict first so we never overwrite the real key in memory.
+    rag = cfg.get('rag')
+    if isinstance(rag, dict) and rag.get('embedding_api_key'):
+        out['rag'] = dict(rag)
+        out['rag']['embedding_api_key'] = '••••••••' + rag['embedding_api_key'][-4:]
     return out
 
 
@@ -22926,6 +22938,23 @@ def handle_ai_config_set():
                               'link-local/metadata address'})
         except ValueError:
             respond(400, {'error': 'invalid base_url'})
+
+    # v5.1.1 (issue #11): same SSRF pre-flight for the optional separate
+    # embedding endpoint. Loopback allowed only when the embedding provider is
+    # local (Ollama/LocalAI) — falls back to the chat provider when unset.
+    _erag = body.get('rag') if isinstance(body.get('rag'), dict) else {}
+    _ebu = (_erag.get('embedding_base_url') or '').strip()
+    if _ebu:
+        _eprov = (_erag.get('embedding_provider') or body.get('provider')
+                  or ((load(CONFIG_FILE) or {}).get('ai') or {}).get('provider') or '')
+        _emb_local = _eprov in ('ollama', 'localai')
+        try:
+            if _url_targets_local_or_meta(urllib.parse.urlparse(_ebu),
+                                          allow_loopback=_emb_local):
+                respond(400, {'error': 'embedding_base_url targets a loopback '
+                              'or link-local/metadata address'})
+        except ValueError:
+            respond(400, {'error': 'invalid embedding_base_url'})
 
     with _locked_update(CONFIG_FILE) as cfg:
         cur = dict(_AI_DEFAULTS)
@@ -22971,6 +23000,19 @@ def handle_ai_config_set():
                     cur['rag'][k] = bool(rb[k])
             if isinstance(rb.get('embedding_model'), str):
                 cur['rag']['embedding_model'] = rb['embedding_model'][:120]
+            # v5.1.1 (issue #11): optional separate embedding service.
+            if isinstance(rb.get('embedding_provider'), str):
+                ep = rb['embedding_provider'].strip()
+                if ep == '' or ep in ai_provider.EMBEDDING_PROVIDERS:
+                    cur['rag']['embedding_provider'] = ep
+            if isinstance(rb.get('embedding_base_url'), str):
+                cur['rag']['embedding_base_url'] = rb['embedding_base_url'].strip()[:300]
+            # Embedding API key — same keep-existing / __clear__ semantics as the
+            # main key (and withheld → masked on GET, like the main key).
+            if rb.get('embedding_api_key') == '__clear__':
+                cur['rag']['embedding_api_key'] = ''
+            elif rb.get('embedding_api_key'):
+                cur['rag']['embedding_api_key'] = str(rb['embedding_api_key'])[:512]
             mc = rb.get('max_chunks')
             if isinstance(mc, int) and 1 <= mc <= 30:
                 cur['rag']['max_chunks'] = mc

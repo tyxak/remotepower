@@ -73,6 +73,13 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-posture',      rs.posture !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
+  // #11: optional separate embedding service. The key follows the same
+  // masked-placeholder / leave-blank-to-keep pattern as the main API key.
+  document.getElementById('ai-rag-embed-provider').value = rag.embedding_provider || '';
+  document.getElementById('ai-rag-embed-base-url').value = rag.embedding_base_url || '';
+  const embKey = document.getElementById('ai-rag-embed-api-key');
+  embKey.value = '';
+  embKey.placeholder = rag.embedding_api_key ? rag.embedding_api_key : '(inherit / none)';
   document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
   document.getElementById('ai-rag-history-days').value  = (rag.history_limits || {}).max_age_days ?? 14;
   onAIProviderChange();   // refresh per-provider hint
@@ -89,26 +96,30 @@ function onAIProviderChange() {
   document.getElementById('ai-model').placeholder = d.model || '';
   document.getElementById('ai-model-hint').textContent =
     d.model ? `default: ${d.model}` : '';
-  // Local providers don't need an API key; dim the field as a UX hint
-  const local = (provider === 'ollama' || provider === 'localai');
-  document.getElementById('ai-api-key').disabled = local;
-  if (local) document.getElementById('ai-api-key').placeholder =
-    '(not required for local providers)';
-  // v3.4.0: embeddings availability + egress guidance per provider.
+  // #10: the API key is OPTIONAL (not blocked) for local providers — LocalAI,
+  // and Ollama behind an auth proxy, can require one. Never disable the field.
+  document.getElementById('ai-api-key').disabled = false;
+  // v3.4.0 / #11: embeddings availability + egress guidance. The embedding
+  // service can differ from chat (the ai-rag-embed-provider override), so gate
+  // on the *effective* embedding provider, not the chat provider.
+  const embProvSel  = document.getElementById('ai-rag-embed-provider');
+  const embProvider = (embProvSel && embProvSel.value) || provider;
+  const embLocal    = (embProvider === 'ollama' || embProvider === 'localai');
   const embChk  = document.getElementById('ai-rag-embeddings');
   const embHint = document.getElementById('ai-rag-embeddings-hint');
   if (embChk && embHint) {
-    const supports = (provider === 'openai' || provider === 'ollama' || provider === 'localai');
+    const supports = (embProvider === 'openai' || embProvider === 'ollama' || embProvider === 'localai');
     embChk.disabled = !supports;
+    const via = (embProvSel && embProvSel.value) ? ` (${embProvider})` : '';
     if (!supports) {
       embChk.checked = false;
-      embHint.textContent = `${provider} has no embeddings endpoint — lexical (keyword) search is used. Run a local Ollama embedding model for semantic search.`;
+      embHint.textContent = `${embProvider} has no embeddings endpoint — lexical (keyword) search is used. Pick OpenAI/Ollama/LocalAI as the embedding provider for semantic search.`;
       embHint.style.color = 'var(--muted)';
-    } else if (local) {
-      embHint.textContent = 'Local provider — embeddings stay on-prem, no data egress. Recommended.';
+    } else if (embLocal) {
+      embHint.textContent = `Local embedding provider${via} — embeddings stay on-prem, no data egress. Recommended.`;
       embHint.style.color = 'var(--green)';
     } else {
-      embHint.textContent = `Embeddings send indexed content to ${provider} (data egress). Leave off if that's a concern.`;
+      embHint.textContent = `Embeddings send indexed content to ${embProvider}${via} (data egress). Leave off if that's a concern.`;
       embHint.style.color = 'var(--amber, var(--muted))';
     }
   }
@@ -305,6 +316,9 @@ async function saveAISettings() {
       enabled:            document.getElementById('ai-rag-enabled').checked,
       embeddings_enabled: document.getElementById('ai-rag-embeddings').checked,
       embedding_model:    document.getElementById('ai-rag-embed-model').value.trim(),
+      // #11: optional separate embedding service (key appended below, only if typed)
+      embedding_provider: document.getElementById('ai-rag-embed-provider').value,
+      embedding_base_url: document.getElementById('ai-rag-embed-base-url').value.trim(),
       max_chunks:         parseInt(document.getElementById('ai-rag-max-chunks').value, 10) || 6,
       sources: {
         docs:       document.getElementById('ai-rag-src-docs').checked,
@@ -329,9 +343,13 @@ async function saveAISettings() {
   // key when the field is left blank. '__clear__' wipes the stored key.
   const k = document.getElementById('ai-api-key').value;
   if (k) payload.api_key = k;
+  // #11: same keep-existing semantics for the separate embedding key.
+  const ek = document.getElementById('ai-rag-embed-api-key').value;
+  if (ek) payload.rag.embedding_api_key = ek;
   const resp = await api('POST', '/ai/config', payload);
   if (resp && !resp.error) {
     document.getElementById('ai-api-key').value = '';
+    document.getElementById('ai-rag-embed-api-key').value = '';
     return true;
   }
   if (resp?.error) toast('AI: ' + resp.error, 'error');

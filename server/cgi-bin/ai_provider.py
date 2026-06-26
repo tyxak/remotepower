@@ -500,21 +500,71 @@ MAX_EMBED_INPUTS = 64
 MAX_EMBED_INPUT_BYTES = 8 * 1024
 
 
+def embedding_cfg(cfg):
+    """Resolve the *effective* provider config used for embeddings.
+
+    By default embeddings reuse the chat provider verbatim, but operators can
+    point them at a different service (issue #11) — e.g. chat on one LocalAI box
+    and embeddings on a separate, less-contested GPU box — via the optional
+    rag.embedding_{provider,base_url,api_key} overrides. Returns a synthetic
+    provider cfg suitable for embed() / embedding_fingerprint() / supports_
+    embeddings().
+
+    Inherit rules (intentionally conservative — never replay the chat key to a
+    different endpoint):
+      * no overrides set            → return `cfg` unchanged (back-compat).
+      * embedding_base_url set       → use it; key only from embedding_api_key.
+      * embedding_provider == chat   → inherit chat base_url + api_key unless a
+        per-embedding value is given.
+      * different embedding_provider → use provider default endpoint; key only
+        from embedding_api_key.
+    """
+    rag = cfg.get('rag') or {}
+    eprov = (rag.get('embedding_provider') or '').strip()
+    ebase = (rag.get('embedding_base_url') or '').strip()
+    ekey  = rag.get('embedding_api_key') or ''
+    if not eprov and not ebase and not ekey:
+        return cfg
+    prov = eprov or cfg.get('provider')
+    out = {
+        'provider':     prov,
+        'privacy':      cfg.get('privacy', {}),
+        'insecure_ssl': cfg.get('insecure_ssl'),
+        'rag':          {'embedding_model': rag.get('embedding_model', '')},
+    }
+    same_provider = (prov == cfg.get('provider'))
+    if ebase:
+        out['base_url'] = ebase
+    elif same_provider:
+        out['base_url'] = cfg.get('base_url') or ''
+    if ekey:
+        out['api_key'] = ekey
+    elif same_provider and not ebase:
+        out['api_key'] = cfg.get('api_key', '')
+    return out
+
+
 def supports_embeddings(cfg):
-    """True if the configured provider can produce embeddings."""
-    return cfg.get('provider') in EMBEDDING_PROVIDERS
+    """True if the effective embedding provider can produce embeddings.
+    Resolves the rag.embedding_provider override (issue #11), so semantic
+    search can be available even when the *chat* provider has no embeddings
+    endpoint (e.g. Anthropic chat + LocalAI embeddings)."""
+    return embedding_cfg(cfg).get('provider') in EMBEDDING_PROVIDERS
 
 
 def embedding_fingerprint(cfg):
     """Identity of the embedding space the current config produces vectors in:
     provider + base URL + model. When any of these changes, cached vectors are
     from a different (possibly different-dimension) space and must not be
-    reused. Resolution mirrors embed(). Empty when the provider can't embed."""
-    provider = cfg.get('provider')
+    reused. Resolves the embedding-service override, so re-pointing embeddings
+    at a different endpoint/model correctly invalidates the cache. Resolution
+    mirrors embed(). Empty when the provider can't embed."""
+    ecfg = embedding_cfg(cfg)
+    provider = ecfg.get('provider')
     if provider not in EMBEDDING_PROVIDERS:
         return ''
-    base = (cfg.get('base_url') or DEFAULT_BASE_URLS.get(provider, '')).rstrip('/')
-    mdl = (cfg.get('rag') or {}).get('embedding_model') or DEFAULT_EMBED_MODELS.get(provider, '')
+    base = (ecfg.get('base_url') or DEFAULT_BASE_URLS.get(provider, '')).rstrip('/')
+    mdl = (ecfg.get('rag') or {}).get('embedding_model') or DEFAULT_EMBED_MODELS.get(provider, '')
     return f'{provider}|{base}|{mdl}'
 
 
@@ -532,7 +582,9 @@ def embed(cfg, texts, model=None):
     Redaction is applied here too, defence-in-depth, so a chunk that slipped
     past index-time redaction still gets scrubbed before egress.
     """
-    provider = cfg.get('provider')
+    # Resolve the embedding service (may differ from the chat provider — #11).
+    ecfg = embedding_cfg(cfg)
+    provider = ecfg.get('provider')
     if provider not in EMBEDDING_PROVIDERS:
         return {'ok': False, 'error': f'{provider} has no embeddings endpoint'}
     if not isinstance(texts, list) or not texts:
@@ -540,18 +592,18 @@ def embed(cfg, texts, model=None):
     if len(texts) > MAX_EMBED_INPUTS:
         return {'ok': False, 'error': f'too many inputs (max {MAX_EMBED_INPUTS})'}
 
-    privacy = cfg.get('privacy', {}) or {}
+    privacy = ecfg.get('privacy', {}) or {}
     safe = [redact(str(t), privacy)[:MAX_EMBED_INPUT_BYTES] for t in texts]
 
-    base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
-    mdl = model or (cfg.get('rag') or {}).get('embedding_model') \
+    base = (ecfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
+    mdl = model or (ecfg.get('rag') or {}).get('embedding_model') \
         or DEFAULT_EMBED_MODELS[provider]
     url = f'{base}/embeddings'
     headers = {}
-    if cfg.get('api_key'):
-        headers['Authorization'] = f"Bearer {cfg['api_key']}"
+    if ecfg.get('api_key'):
+        headers['Authorization'] = f"Bearer {ecfg['api_key']}"
     status, resp = _http_post_json(url, headers, {'model': mdl, 'input': safe},
-                                   insecure_ssl=bool(cfg.get('insecure_ssl')))
+                                   insecure_ssl=bool(ecfg.get('insecure_ssl')))
     if status == 200 and isinstance(resp, dict):
         try:
             # OpenAI returns data out of order in theory; sort by index.

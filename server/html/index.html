@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.1.1-r4">
+<link rel="stylesheet" href="static/css/styles.css?v=5.1.1-r5">
 
 </head>
 <body>
@@ -2350,7 +2350,7 @@
               <div class="form-group isl-73">
                 <label for="ai-api-key" class="form-label">API key</label>
                 <form autocomplete="off" data-csp-pw-form><input type="password" id="ai-api-key" class="form-input" placeholder="(unchanged)" autocomplete="off"></form>
-                <div class="meta-sm">Leave blank to keep the saved key. Type <code>__clear__</code> to remove it. Not used for Ollama or LocalAI.</div>
+                <div class="meta-sm">Leave blank to keep the saved key. Type <code>__clear__</code> to remove it. Optional for Ollama/LocalAI — only if your endpoint requires one.</div>
               </div>
               <div class="form-group isl-73">
                 <label for="ai-base-url" class="form-label">Base URL (optional override)</label>
@@ -2409,6 +2409,29 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-embeddings"> Use embeddings for semantic search</label>
               <div id="ai-rag-embeddings-hint" class="meta-sm"></div>
               <input type="text" id="ai-rag-embed-model" class="form-input isl-774" placeholder="(provider default embedding model)">
+
+              <!-- v5.1.1 (issue #11): optionally run embeddings on a different
+                   service than chat (e.g. a dedicated, less-contested GPU box). -->
+              <div class="settings-row isl-72">
+                <div class="form-group">
+                  <label for="ai-rag-embed-provider" class="form-label">Embedding provider (optional)</label>
+                  <select id="ai-rag-embed-provider" class="form-input" data-change="onAIProviderChange">
+                    <option value="">(same as chat provider)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="ollama">Ollama — local</option>
+                    <option value="localai">LocalAI — local</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ai-rag-embed-base-url" class="form-label">Embedding base URL (optional)</label>
+                  <input type="text" id="ai-rag-embed-base-url" class="form-input" placeholder="(inherit / provider default)">
+                </div>
+                <div class="form-group">
+                  <label for="ai-rag-embed-api-key" class="form-label">Embedding API key (optional)</label>
+                  <form autocomplete="off" data-csp-pw-form><input type="password" id="ai-rag-embed-api-key" class="form-input" placeholder="(inherit / none)" autocomplete="off"></form>
+                </div>
+              </div>
+              <div class="meta-sm">Point embeddings at a different service than chat — leave blank to reuse the chat provider. Type <code>__clear__</code> in the key to remove it.</div>
             </div>
 
             <div class="settings-row isl-72 isl-773">
@@ -2819,15 +2842,18 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.1.1 clustermatters proxmox cluster resources node nodes guest vm lxc qemu migrate snapshot lifecycle multi-node fallback ssrf hostname validation contributor tbouquet">
-            <summary><strong>What's new — v5.1.1 "ClusterMatters"</strong> — the Proxmox integration now lists guests across the whole cluster (not just one node), resolving each guest's owning node for every action (no breaking changes)</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v5.1.1 clustermatters proxmox cluster resources node nodes guest vm lxc qemu migrate snapshot lifecycle multi-node fallback ssrf hostname validation contributor tbouquet loryanstrant localai ollama api key embeddings embedding provider semantic search rag url hash refresh deep link community">
+            <summary><strong>What's new — v5.1.1 "ClusterMatters"</strong> — cluster-wide Proxmox, plus community fixes: hash-on-refresh routing, LocalAI API keys, and a separate embedding service (no breaking changes)</summary>
             <div class="doc-body">
-              <p>v5.1.1 is a small follow-up focused on Proxmox clusters, plus the test and polish gaps from the feature that shipped it. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.1.1</code>).</p>
+              <p>v5.1.1 is a small follow-up focused on Proxmox clusters and the first round of community-reported AI/UX fixes. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.1.1</code>).</p>
               <ul>
                 <li><strong>Cluster-wide Proxmox.</strong> The Proxmox page now lists guests on every cluster member via <code>/cluster/resources</code>, each tagged with its owning <strong>node</strong>. Start / shutdown / reboot / snapshot / migrate resolve the owning node per guest, so an action targets the right host even for a guest on a non-configured node; backups are enumerated on every node a guest lives on. Node names are hostname-validated before they can reach any request path.</li>
                 <li><strong>Backwards compatible.</strong> A token with only node-scoped read falls back to the original single-node listing — existing setups are unchanged. Cluster-wide visibility needs cluster-scope read (<code>Sys.Audit</code> on <code>/</code>).</li>
+                <li><strong>Refresh keeps your page.</strong> Reloading on a deep page (e.g. <code>#containers</code>) now restores that page instead of dropping back to home. Contributed by @tbouquet (#12).</li>
+                <li><strong>LocalAI API keys.</strong> The AI API-key field is no longer blocked for LocalAI / Ollama — enter a key if your local endpoint requires one and it's sent as a Bearer token. Reported by @loryanstrant (#10).</li>
+                <li><strong>Separate embedding service.</strong> Settings → AI assistant → Knowledge index now has optional <em>Embedding provider / base URL / API key</em> fields, so semantic-search embeddings can run on a different box than chat (and can be enabled even when the chat provider can't embed). Requested by @loryanstrant (#11).</li>
               </ul>
-              <p class="hint">Contributed by @tbouquet (#9). See <code>docs/v5.1.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+              <p class="hint">Contributed by @tbouquet (#9, #12) and @loryanstrant (#10, #11). See <code>docs/v5.1.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v5.1.0 unitymatters community contributor tbouquet fail2ban ban banned ip intrusion jail event alert webhook siem arabic rtl right-to-left layout localization i18n translation">
@@ -7781,34 +7807,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app.js?v=5.1.1-r4"></script>
+<script defer src="static/js/i18n.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app.js?v=5.1.1-r5"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-cmdb.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-containers.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-network.js?v=5.1.1-r4"></script>
+<script defer src="static/js/app-calendar.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-cmdb.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-containers.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-network.js?v=5.1.1-r5"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-compliance.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-integrations.js?v=5.1.1-r4"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-compliance.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-integrations.js?v=5.1.1-r5"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-dns.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-drift.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-dmarc.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-cve.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-firewall.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-backups.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-iac.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-rollouts.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-power.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-gpu.js?v=5.1.1-r4"></script>
-<script defer src="static/js/app-proxmox.js?v=5.1.1-r4"></script>
+<script defer src="static/js/app-ai.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-dns.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-drift.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-dmarc.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-cve.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-firewall.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-backups.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-iac.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-rollouts.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-power.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-gpu.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-proxmox.js?v=5.1.1-r5"></script>
 
-<script defer src="static/js/sw-register.js?v=5.1.1-r4"></script>
+<script defer src="static/js/sw-register.js?v=5.1.1-r5"></script>
 </body>
 </html>
