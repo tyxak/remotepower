@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.1.1 — "ClusterMatters" — unreleased (test)
+## v5.1.1 — "ClusterMatters" — 2026-06-26
 
 A small follow-up to v5.1.0, centred on the Proxmox integration, plus the test
 and polish gaps from the feature that shipped it. No breaking changes.
