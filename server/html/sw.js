@@ -49,9 +49,14 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) => {
       // Use individual add() calls so one missing asset doesn't abort the
       // whole pre-cache. Errors are logged but installation proceeds.
+      // cache:'reload' bypasses the HTTP cache when pre-caching. The static
+      // assets are served with Cache-Control: max-age, so the default fetch
+      // mode would re-cache the STALE bundle from the browser HTTP cache on a
+      // CACHE_NAME bump -- the edit then never reaches the user until the HTTP
+      // entry expires. Forcing a network fetch makes the version bump reliable.
       return Promise.allSettled(
         SHELL_ASSETS.map((url) =>
-          cache.add(new Request(url, { credentials: 'same-origin' })).catch((err) => {
+          cache.add(new Request(url, { credentials: 'same-origin', cache: 'reload' })).catch((err) => {
             console.warn('[SW] Pre-cache miss:', url, err.message);
           })
         )
