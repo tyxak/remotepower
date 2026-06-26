@@ -55,7 +55,15 @@ ReadWritePaths=/var/lib/remotepower
 # ambient caps are inherited across exec, so the spawned `ping` gets it without
 # any setuid step. Without this line, ICMP-monitored agentless devices flap
 # offline under the SCGI worker (they work fine under classic fcgiwrap CGI).
-AmbientCapabilities=CAP_NET_RAW
+#
+# CAP_NET_ADMIN: WG Access (v5.2.0) drives wireguard-go/kernel WireGuard + nft +
+# the ip_forward sysctl through the remotepower-wg-apply helper. With this cap
+# ambient, the worker runs the helper DIRECTLY (RP_WG_DIRECT below) — no sudo, so
+# it works under NoNewPrivileges=true. Keys live under RP_WG_DIR (in the
+# already-writable RP_DATA_DIR; /etc is read-only under ProtectSystem=full).
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+Environment=RP_WG_DIRECT=1
+Environment=RP_WG_DIR=/var/lib/remotepower/wg
 
 [Install]
 WantedBy=multi-user.target

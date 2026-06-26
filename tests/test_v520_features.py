@@ -275,6 +275,23 @@ class TestApiWiring(unittest.TestCase):
         devs = api._vpn_reach_devices(site_t)
         self.assertEqual({d['name'] for d in devs}, {'web1', 'web2'})
 
+    def test_direct_mode_toggle(self):
+        # Direct mode (CAP_NET_ADMIN worker) runs the helper without sudo so it
+        # works under NoNewPrivileges; default (fcgiwrap) uses sudo.
+        old = os.environ.get('RP_WG_DIRECT')
+        try:
+            os.environ['RP_WG_DIRECT'] = '1'
+            self.assertTrue(api._wg_direct())
+            os.environ['RP_WG_DIRECT'] = '0'
+            self.assertFalse(api._wg_direct())
+            os.environ.pop('RP_WG_DIRECT', None)
+            self.assertFalse(api._wg_direct())
+        finally:
+            if old is None:
+                os.environ.pop('RP_WG_DIRECT', None)
+            else:
+                os.environ['RP_WG_DIRECT'] = old
+
     def test_helper_absent_is_graceful(self):
         # In CI the helper isn't installed → available False, sync is a no-op.
         self.assertIn(api._wg_helper_available(), (True, False))

@@ -45991,6 +45991,15 @@ def _wg_find(name):
     return None
 
 
+def _wg_direct() -> bool:
+    """Direct mode: invoke the helper WITHOUT sudo because this process already
+    holds the needed privilege (CAP_NET_ADMIN granted ambiently in the SCGI
+    worker unit). This is the hardening-preserving path — it works under
+    NoNewPrivileges=true, where sudo's setuid escalation is blocked. The classic
+    fcgiwrap CGI (no caps, no sandbox) leaves this unset and uses sudo."""
+    return str(os.environ.get('RP_WG_DIRECT', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def _vpn_load() -> dict:
     d = load(VPN_FILE) or {}
     if not isinstance(d, dict):
@@ -46005,9 +46014,9 @@ def _wg_helper_available() -> bool:
     installed AND the WireGuard CLI (`wg`) is on PATH. Either missing → the
     feature degrades to store-only CRUD (no kernel-side apply), so handlers and
     tests still work and the UI shows a precise reason (_wg_unavailable_reason)."""
-    return (os.path.exists(WG_HELPER)
-            and _wg_find('wg') is not None
-            and _wg_find('sudo') is not None)
+    if not (os.path.exists(WG_HELPER) and _wg_find('wg') is not None):
+        return False
+    return _wg_direct() or _wg_find('sudo') is not None
 
 
 def _wg_unavailable_reason() -> str:
@@ -46017,7 +46026,7 @@ def _wg_unavailable_reason() -> str:
         return ('The privileged helper is not installed. Deploy '
                 'remotepower-wg-apply to ' + WG_HELPER + ' with its scoped '
                 'sudoers rule (the server installer / deploy script does this).')
-    if _wg_find('sudo') is None:
+    if not _wg_direct() and _wg_find('sudo') is None:
         return 'sudo was not found on the server — WG Access needs it to run the helper.'
     if _wg_find('wg') is None:
         return ('The WireGuard CLI is missing. Install it on the host '
@@ -46040,11 +46049,17 @@ def _wg_run(args, stdin=None, timeout=20):
     a bare 'sudo'/helper invocation fail with FileNotFoundError → empty hub key
     → 400 on client create)."""
     global _wg_last_err
-    sudo = _wg_find('sudo') or 'sudo'
     env = dict(os.environ)
     env['PATH'] = (env.get('PATH', '') + ':' + _WG_SAFE_PATH).strip(':')
+    if _wg_direct():
+        # We already hold CAP_NET_ADMIN (worker unit) — run the helper directly,
+        # no sudo (works under NoNewPrivileges). Keys go to RP_WG_DIR (writable).
+        env.setdefault('RP_WG_DIR', str(DATA_DIR / 'wg'))
+        cmd = [WG_HELPER] + list(args)
+    else:
+        cmd = [_wg_find('sudo') or 'sudo', '-n', WG_HELPER] + list(args)
     try:
-        r = subprocess.run([sudo, '-n', WG_HELPER] + list(args),
+        r = subprocess.run(cmd,
                            input=stdin, capture_output=True, text=True,
                            timeout=timeout, env=env)
         if r.returncode != 0:

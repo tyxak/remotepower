@@ -51,7 +51,12 @@ import tempfile
 # Constants
 # --------------------------------------------------------------------------- #
 
-WG_BASE_DIR = "/etc/remotepower/wg"
+# Where per-interface keys live. Default /etc/remotepower/wg (root, via sudo).
+# Overridable via RP_WG_DIR so the capability-based "direct" mode (the sandboxed
+# SCGI worker running this helper itself with CAP_NET_ADMIN, no sudo) can keep
+# keys under a writable path like /var/lib/remotepower/wg — /etc is read-only
+# there under ProtectSystem=full.
+WG_BASE_DIR = os.environ.get("RP_WG_DIR") or "/etc/remotepower/wg"
 NFT_TABLE = "rp_wg"  # nftables table: `inet rp_wg`
 
 IFACE_RE = re.compile(r"^rp-wg\d{1,3}$")
