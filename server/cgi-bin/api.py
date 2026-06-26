@@ -46330,6 +46330,7 @@ def handle_vpn_tunnel_stats(tid) -> None:
     rx = sum(int(c.get('rx_bytes', 0) or 0) for c in clients)
     tx = sum(int(c.get('tx_bytes', 0) or 0) for c in clients)
     hs = [int(c.get('last_handshake', 0) or 0) for c in clients if c.get('last_handshake')]
+    import ipaddress
     net = None
     try:
         net = ipaddress.ip_network(t.get('pool', ''), strict=False)

@@ -167,6 +167,50 @@ class TestAutoResolveRealPath(unittest.TestCase):
         self.assertEqual(int(opened[0].get('count') or 1), 2)
 
 
+class _Responded(Exception):
+    def __init__(self, status, data):
+        self.status, self.data = status, data
+
+
+class TestHandlers(unittest.TestCase):
+    """Exercise the actual request handlers (catches runtime errors the pure-unit
+    tests miss — e.g. the missing local `import ipaddress` in tunnel stats)."""
+
+    def setUp(self):
+        self._orig = {k: getattr(api, k) for k in
+                      ('respond', 'require_admin_or_auditor_auth', 'require_admin_auth',
+                       '_get_client_ip')}
+        api.respond = lambda s, d: (_ for _ in ()).throw(_Responded(s, d))
+        api.require_admin_or_auditor_auth = lambda: 'admin'
+        api.require_admin_auth = lambda: 'admin'
+        api._get_client_ip = lambda: '127.0.0.1'
+        api.save(api.DEVICES_FILE, {
+            'd1': {'hostname': 'web1', 'site': 'HQ', 'ip': '192.168.1.10'}})
+        api.save(api.VPN_FILE, {'tunnels': [{
+            'id': 'wgt_test', 'name': 't', 'iface': 'rp-wg0', 'listen_port': 51820,
+            'pool': '10.97.0.0/24', 'endpoint': 'vpn.example.com:51820', 'dns': '',
+            'hub_pubkey': '', 'allow_internet': False, 'reach_scope_type': 'site',
+            'reach_scope_value': 'HQ', 'enabled': True, 'expires_at': None,
+            'clients': []}]})
+
+    def tearDown(self):
+        for k, v in self._orig.items():
+            setattr(api, k, v)
+
+    def test_tunnel_stats_ok(self):
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_tunnel_stats('wgt_test')
+        self.assertEqual(cm.exception.status, 200)
+        st = cm.exception.data['stats']
+        self.assertEqual(st['reach_count'], 1)
+        self.assertEqual(st['reach_devices'][0]['ip'], '192.168.1.10')
+
+    def test_clients_list_ok(self):
+        with self.assertRaises(_Responded) as cm:
+            api.handle_vpn_clients_list('wgt_test')
+        self.assertEqual(cm.exception.status, 200)
+
+
 class TestApiWiring(unittest.TestCase):
     def test_handlers_exist(self):
         for h in ('handle_vpn_tunnels_list', 'handle_vpn_tunnel_create',
