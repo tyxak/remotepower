@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.2.0 — "AccessMatters" — unreleased (test)
+## v5.2.0 — "AccessMatters" — 2026-06-26
 
 A built-in, light WireGuard road-warrior VPN — **WG Access** (Admin -> WG Access).
 Reach the dashboard and the fleet over an encrypted tunnel instead of exposing

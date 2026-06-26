@@ -1,7 +1,6 @@
 # Security review — v5.2.0 "AccessMatters"
 
-Status: on the test line (not yet a signed production release). No breaking
-changes.
+Status: released with v5.2.0 (2026-06-26). No breaking changes.
 
 ## Scope
 
