@@ -132,6 +132,8 @@ Older release notes (v4.10.0 and earlier) live in
  verification, scheduling, the scanner satellite.
 - **[webhooks.md](webhooks.md)** — Outbound webhook destinations, the
  event catalog, channel routing, inbound webhooks.
+- **[wg-access.md](wg-access.md)** — WG Access: a built-in WireGuard
+ road-warrior VPN (tunnels → clients, reach scopes, browser keygen + QR).
 - **[acme.md](acme.md)** — ACME / Let's Encrypt certificate tracking
  across the fleet.
 - **[attention.md](attention.md)** — The "Needs attention" roll-up: what

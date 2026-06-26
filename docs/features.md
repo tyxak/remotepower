@@ -1576,7 +1576,8 @@ WG Access posture feeds both the RAG index ("who has VPN access?", "is anyone
 connected?") and a new **Remote-access review** AI advisor (over-broad reach
 scopes, full-tunnel where split would do, stale clients to revoke, expiring
 access). Until the privileged helper is installed the page shows a clear
-"unavailable" notice rather than failing silently.
+"unavailable" notice rather than failing silently. Full guide:
+[wg-access.md](wg-access.md).
 
 ---
 
