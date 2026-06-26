@@ -272,10 +272,11 @@ fi
 # The road-warrior WireGuard feature needs a root-owned helper to drive
 # wireguard-go / wg / nft (the CGI runs unprivileged). It is invoked ONLY via a
 # scoped sudoers rule granting NOPASSWD for this one script to the web user —
-# exactly the deploy-remote-site.sh precedent. The feature shows an "unavailable"
-# notice in the UI until wireguard-go is also present (not installed here — it's
-# an optional dependency; `pacman -S wireguard-tools wireguard-go` /
-# `apt install wireguard-tools wireguard-go`).
+# exactly the deploy-remote-site.sh precedent. The helper uses in-kernel
+# WireGuard when present and falls back to wireguard-go. The feature shows an
+# "unavailable" notice in the UI until the WireGuard CLI is also present (not
+# installed here — optional dependency; `pacman -S wireguard-tools` /
+# `apt install wireguard wireguard-tools`).
 if [[ -f "$SCRIPT_DIR/packaging/remotepower-wg-apply" ]]; then
     install -d -m 755 -o root -g root /usr/local/sbin
     install -m 755 -o root -g root "$SCRIPT_DIR/packaging/remotepower-wg-apply" \

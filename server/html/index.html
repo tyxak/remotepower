@@ -4430,8 +4430,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="vpn-unavailable" class="dash-card d-none">
           <div class="empty-state">
             <div class="empty-state-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-ea455fa1"/></svg></div>
-            <div class="empty-title">WireGuard not available on the server</div>
-            <p class="hint">The server-side WireGuard helper (the <code>wg</code> / <code>wg-quick</code> tooling and a configured hub interface) isn't installed or enabled. Install it on the RemotePower host and reload this page to manage road-warrior tunnels and clients.</p>
+            <div class="empty-title">WG Access not available on the server</div>
+            <p class="hint">WG Access needs the privileged <code>remotepower-wg-apply</code> helper (installed by the server installer / deploy script) plus the WireGuard CLI (<code>wg</code>) on the RemotePower host. It uses the in-kernel WireGuard when present and falls back to <code>wireguard-go</code>. Install what's missing below, then reload.</p>
+            <p class="hint" id="vpn-unavail-reason"></p>
           </div>
         </div>
 

@@ -6594,6 +6594,8 @@ async function loadVpn() {
   const tcard = document.getElementById('vpn-tunnels-card');
   if (data.available === false) {
     if (unavail) unavail.classList.remove('d-none');
+    const rsn = document.getElementById('vpn-unavail-reason');
+    if (rsn) rsn.textContent = data.reason || '';
     if (tcard) tcard.classList.add('d-none');
     document.getElementById('vpn-clients-card')?.classList.add('d-none');
     return;

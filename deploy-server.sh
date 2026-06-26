@@ -75,6 +75,30 @@ for helper in remotepower-tls-check; do
     fi
 done
 
+# v5.2.0: WG Access privileged helper + scoped sudoers. The road-warrior
+# WireGuard feature drives kernel WireGuard (or wireguard-go) + nft via this
+# root-owned helper, invoked ONLY through a single-script NOPASSWD sudoers rule
+# (the CGI stays unprivileged) — the deploy-remote-site.sh precedent. Detect the
+# web user (http on Arch, www-data on Debian). The feature stays "unavailable"
+# in the UI until the WireGuard CLI is also installed (apt install wireguard
+# wireguard-tools / pacman -S wireguard-tools).
+if [[ -f "$SCRIPT_DIR/packaging/remotepower-wg-apply" ]]; then
+    info "Deploying WG Access helper + scoped sudoers..."
+    if getent passwd http >/dev/null 2>&1; then WEB_USER=http; else WEB_USER=www-data; fi
+    install -d -m 755 -o root -g root /usr/local/sbin
+    install -m 755 -o root -g root "$SCRIPT_DIR/packaging/remotepower-wg-apply" \
+        /usr/local/sbin/remotepower-wg-apply
+    _wg_sudoers="$(mktemp)"
+    printf '%s ALL=(root) NOPASSWD: /usr/local/sbin/remotepower-wg-apply\n' "$WEB_USER" > "$_wg_sudoers"
+    if visudo -cf "$_wg_sudoers" >/dev/null 2>&1; then
+        install -m 440 -o root -g root "$_wg_sudoers" /etc/sudoers.d/remotepower-wg
+        echo "      → /usr/local/sbin/remotepower-wg-apply (+ sudoers for $WEB_USER)"
+    else
+        echo "      ! WG Access sudoers validation failed — skipped"
+    fi
+    rm -f "$_wg_sudoers"
+fi
+
 info "Deploying static HTML files..."
 # Auto-discovers index.html plus any sibling pages (swagger.html in v1.10.0,
 # whatever future pages get added) — no need to edit this script when adding

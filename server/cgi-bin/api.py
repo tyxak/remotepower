@@ -45981,11 +45981,25 @@ def _vpn_load() -> dict:
 
 
 def _wg_helper_available() -> bool:
-    """The privileged helper is installed (production). Absent in dev/CI → the
+    """True only when WG Access is actually usable: the privileged helper is
+    installed AND the WireGuard CLI (`wg`) is on PATH. Either missing → the
     feature degrades to store-only CRUD (no kernel-side apply), so handlers and
-    tests still work; the UI surfaces 'WG Access unavailable — install
-    wireguard-go + the helper'."""
-    return os.path.exists(WG_HELPER)
+    tests still work and the UI shows a precise reason (_wg_unavailable_reason)."""
+    return os.path.exists(WG_HELPER) and shutil.which('wg') is not None
+
+
+def _wg_unavailable_reason() -> str:
+    """Precise, actionable reason WG Access can't apply config — surfaced in the
+    UI notice. Empty string when everything is present."""
+    if not os.path.exists(WG_HELPER):
+        return ('The privileged helper is not installed. Deploy '
+                'remotepower-wg-apply to ' + WG_HELPER + ' with its scoped '
+                'sudoers rule (the server installer / deploy script does this).')
+    if shutil.which('wg') is None:
+        return ('The WireGuard CLI is missing. Install it on the host '
+                '(apt install wireguard wireguard-tools, or '
+                'pacman -S wireguard-tools), then reload.')
+    return ''
 
 
 def _wg_run(args, stdin=None, timeout=20):
@@ -46141,6 +46155,7 @@ def handle_vpn_tunnels_list() -> None:
     store = _vpn_load()
     respond(200, {'ok': True,
                   'available': _wg_helper_available(),
+                  'reason': _wg_unavailable_reason(),
                   'tunnels': [_vpn_tunnel_meta(t, now) for t in store['tunnels']]})
 
 

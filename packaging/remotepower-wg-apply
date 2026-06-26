@@ -281,16 +281,31 @@ def default_route_dev():
 
 
 def start_interface(iface):
-    """Create the userspace tun via wireguard-go if not already present."""
+    """Create the WireGuard interface if not already present.
+
+    Prefer the IN-KERNEL implementation (`ip link add … type wireguard`) — it's
+    what `wireguard` / `wireguard-tools` provides on a normal host and is faster.
+    Fall back to userspace `wireguard-go` only when the kernel module is absent
+    (e.g. inside a slim container), so the feature still works either way."""
     if iface_is_up(iface):
         return
-    require_tool("wireguard-go")
-    # wireguard-go daemonizes itself and creates the named tun.
-    rc, _out, err = run(["wireguard-go", iface])
-    if rc != 0:
-        fail("wireguard-go failed for %s: %s" % (iface, err.strip()), code=4)
-    if not iface_is_up(iface):
-        fail("interface %s did not come up after wireguard-go" % iface, code=4)
+    require_tool("ip")
+    # 1) Kernel WireGuard.
+    rc, _out, err = run(["ip", "link", "add", "dev", iface, "type", "wireguard"])
+    if rc == 0 and iface_is_up(iface):
+        return
+    # 2) Userspace fallback (wireguard-go daemonizes + creates the named tun).
+    if shutil.which("wireguard-go") is not None:
+        rc2, _o2, err2 = run(["wireguard-go", iface])
+        if rc2 == 0 and iface_is_up(iface):
+            return
+        fail("wireguard-go failed for %s: %s" % (iface, err2.strip()), code=4)
+    fail(
+        "could not create %s: kernel WireGuard unavailable (%s) and wireguard-go "
+        "is not installed — install 'wireguard'/'wireguard-tools' (kernel) or "
+        "'wireguard-go' (userspace)" % (iface, err.strip()),
+        code=4,
+    )
 
 
 # --------------------------------------------------------------------------- #
