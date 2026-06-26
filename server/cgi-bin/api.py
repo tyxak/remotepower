@@ -46026,12 +46026,20 @@ def _wg_unavailable_reason() -> str:
     return ''
 
 
+# Last helper failure (rc/stderr), surfaced in the client-create 400 so an
+# operator can see WHY `up` failed (stripped PATH, sudo blocked by a sandboxed
+# service's NoNewPrivileges, missing wg, kernel perms) instead of a generic
+# "unavailable". Per-request CGI process, so a module global is fine.
+_wg_last_err = ''
+
+
 def _wg_run(args, stdin=None, timeout=20):
     """Invoke the root helper via scoped sudo. Returns (rc, stdout, stderr).
     argv-only (no shell). Never raises. Uses an absolute sudo path and a sane
     PATH env because the CGI's own PATH is often stripped by fcgiwrap (which made
     a bare 'sudo'/helper invocation fail with FileNotFoundError → empty hub key
     → 400 on client create)."""
+    global _wg_last_err
     sudo = _wg_find('sudo') or 'sudo'
     env = dict(os.environ)
     env['PATH'] = (env.get('PATH', '') + ':' + _WG_SAFE_PATH).strip(':')
@@ -46039,8 +46047,12 @@ def _wg_run(args, stdin=None, timeout=20):
         r = subprocess.run([sudo, '-n', WG_HELPER] + list(args),
                            input=stdin, capture_output=True, text=True,
                            timeout=timeout, env=env)
+        if r.returncode != 0:
+            _wg_last_err = (f'{" ".join(str(a) for a in args)}: rc={r.returncode} '
+                            f'{(r.stderr or r.stdout or "").strip()}')[:300]
         return r.returncode, r.stdout, r.stderr
     except Exception as e:                       # nosec B603 — argv list, no shell
+        _wg_last_err = (f'{" ".join(str(a) for a in args)}: {e}')[:300]
         return 127, '', str(e)
 
 
@@ -46429,10 +46441,11 @@ def handle_vpn_client_create(tid) -> None:
     with _LockedUpdate(VPN_FILE) as store:
         t = _vpn_require_tunnel(store, tid)
         if not t.get('hub_pubkey'):
+            detail = (' Helper error: ' + _wg_last_err) if _wg_last_err else (
+                ' ' + _wg_unavailable_reason())
             respond(400, {'error': 'This tunnel has no hub key yet — the WireGuard '
-                          'helper is not available on the server (install '
-                          'remotepower-wg-apply + the wg CLI on the RemotePower host), '
-                          'then create the client again.'})
+                          'helper could not initialize the interface on the server.'
+                          + detail})
         clients = t.setdefault('clients', [])
         if len(clients) >= wg_access.MAX_CLIENTS_PER_TUNNEL:
             respond(400, {'error': f'max {wg_access.MAX_CLIENTS_PER_TUNNEL} clients per tunnel'})
