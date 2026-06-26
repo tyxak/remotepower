@@ -195,6 +195,21 @@ class TestApiWiring(unittest.TestCase):
         # no private material in meta
         self.assertNotIn('privkey', m)
 
+    def test_ensure_hub_key_no_helper(self):
+        # A tunnel created before the helper exists has hub_pubkey='' and stays
+        # that way when the helper is absent (so client-create refuses rather than
+        # emitting a config with an empty PublicKey).
+        api.save(api.VPN_FILE, {'tunnels': [
+            {'id': 'wgt_nokey', 'name': 'T', 'iface': 'rp-wg0',
+             'listen_port': 51820, 'pool': '10.97.0.0/24', 'hub_pubkey': '',
+             'clients': []}]})
+        if not api._wg_helper_available():
+            self.assertEqual(api._vpn_ensure_hub_key('wgt_nokey'), '')
+        # An already-keyed tunnel returns its key unchanged.
+        api.save(api.VPN_FILE, {'tunnels': [
+            {'id': 'wgt_keyed', 'hub_pubkey': 'K' * 43 + '=', 'clients': []}]})
+        self.assertEqual(api._vpn_ensure_hub_key('wgt_keyed'), 'K' * 43 + '=')
+
     def test_helper_absent_is_graceful(self):
         # In CI the helper isn't installed → available False, sync is a no-op.
         self.assertIn(api._wg_helper_available(), (True, False))

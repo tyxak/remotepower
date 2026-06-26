@@ -46095,6 +46095,30 @@ def _vpn_resync(tid) -> None:
         _vpn_sync_tunnel(t)
 
 
+def _vpn_ensure_hub_key(tid) -> str:
+    """Backfill a tunnel's hub public key when missing. A tunnel created BEFORE
+    the helper was installed has hub_pubkey='' (up was a no-op), which would emit
+    a client config with an empty PublicKey (WireGuard rejects it). Once the
+    helper is available, bring the interface up to generate/capture the key and
+    persist it. Returns the hub pubkey ('' if still unavailable). Runs subprocess
+    OUTSIDE any VPN_FILE lock."""
+    t = next((x for x in _vpn_load()['tunnels'] if x.get('id') == tid), None)
+    if not t:
+        return ''
+    if t.get('hub_pubkey'):
+        return t['hub_pubkey']
+    if not _wg_helper_available():
+        return ''
+    t = _vpn_up_tunnel(t)               # runs `up`, may set hub_pubkey
+    pub = t.get('hub_pubkey', '')
+    if pub:
+        with _LockedUpdate(VPN_FILE) as store:
+            for x in store.get('tunnels', []):
+                if x.get('id') == tid:
+                    x['hub_pubkey'] = pub
+    return pub
+
+
 def _vpn_evt_payload(t, c) -> dict:
     return {'client_id': c.get('id'), 'client_name': c.get('name', ''),
             'tunnel_id': t.get('id'), 'tunnel_name': t.get('name', ''),
@@ -46351,8 +46375,17 @@ def handle_vpn_client_create(tid) -> None:
         respond(400, {'error': 'invalid public key'})
     expires_at = _vpn_parse_expiry(body.get('expires_at'))
     cid = 'wgc_' + secrets.token_hex(8)
+    # Backfill the hub key for tunnels created before the helper was installed
+    # (runs `up` outside the lock). Without it the client config would carry an
+    # empty PublicKey and WireGuard would reject it with a syntax error.
+    _vpn_ensure_hub_key(tid)
     with _LockedUpdate(VPN_FILE) as store:
         t = _vpn_require_tunnel(store, tid)
+        if not t.get('hub_pubkey'):
+            respond(400, {'error': 'This tunnel has no hub key yet — the WireGuard '
+                          'helper is not available on the server (install '
+                          'remotepower-wg-apply + the wg CLI on the RemotePower host), '
+                          'then create the client again.'})
         clients = t.setdefault('clients', [])
         if len(clients) >= wg_access.MAX_CLIENTS_PER_TUNNEL:
             respond(400, {'error': f'max {wg_access.MAX_CLIENTS_PER_TUNNEL} clients per tunnel'})
