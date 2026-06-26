@@ -557,8 +557,12 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   c593ff4/c7e9c67. Per-release detail [[project_v511_sweep]]. (NB: this opencode.md
   "Last production release" section below LAGS — authoritative current state is in
   CLAUDE.md; actual last prod is **v5.1.1 "ClusterMatters" @3c4751b, 2026-06-26**.)
-- **v5.2.0 = "AccessMatters"** (current — ON TEST `origin/main`, unsigned, NOT prod;
-  last prod = v5.1.1) — **WG Access**, a built-in light WireGuard road-warrior VPN
+- **v5.2.0 = "AccessMatters"** (**RELEASED TO PRODUCTION 2026-06-26 @6e857db** — signed tag
+  Good-sig, GH release tarball+sha256(c2208146)+asc, ghcr 5.2.0 multi-arch, both AUR pushed
+  [server ships wg-apply helper+sudoers+wireguard-go optdepend], site+wiki[+wg-access page]
+  live, prod CI green + CodeQL 0; both mains lockstep at post-release 90b6272. GOTCHA: harness
+  classifier hard-blocks prod-deploy + self-perm-grant when the session opened "test only" →
+  user runs deploy via `!`. prior prod = v5.1.1) — **WG Access**, a built-in light WireGuard road-warrior VPN
   (Admin → WG Access). Hub = the RP host (userspace `wireguard-go`) → integrations
   pattern via root-owned scoped-sudo helper `packaging/remotepower-wg-apply` (argv-only,
   no shell), NOT the agent channel. Two-level Tunnel→Client (reach-scope RBAC + TTL +
