@@ -60,10 +60,12 @@ async function loadComplianceBaseline() {
   }
   let remHtml = '';
   if (remRows.length) {
+    const remSorted = tableCtl.sortRows('cis_remediation', remRows,
+      x => ({ device: x.device, check: x.title }));
     remHtml = `<div class="section-title mt-24">Remediation</div>
       <div class="page-subtitle">One-click fixes for failing checks. Each is queued through your existing approval + audit pipeline (a reboot still needs 4-eyes when that's on), and only on hosts where you've turned on <em>Automatic remediation</em> in device settings.</div>
-      <div class="table-card"><table><thead><tr><th>Device</th><th>Failing check</th><th>Action</th></tr></thead><tbody>` +
-      remRows.map(x => `<tr>
+      <div class="table-card"><table><thead id="cis-rem-thead"><tr><th data-col="device">Device</th><th data-col="check">Failing check</th><th>Action</th></tr></thead><tbody>` +
+      remSorted.map(x => `<tr>
         <td>${escHtml(x.device)}</td>
         <td>${escHtml(x.title)}</td>
         <td>${x.enabled
@@ -74,6 +76,7 @@ async function loadComplianceBaseline() {
   body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} device(s) evaluated.</div>
     <div class="table-card"><table><thead id="cis-baseline-thead"><tr><th data-col="check">Check</th><th data-col="severity">Severity</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th data-col="na">N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>${remHtml}`;
   tableCtl.wireSortOnly('cis-baseline-thead', 'cis_baseline', loadComplianceBaseline);
+  if (remRows.length) tableCtl.wireSortOnly('cis-rem-thead', 'cis_remediation', loadComplianceBaseline);
 }
 
 // v3.14.0 #31: queue a remediation. arg is "<device_id>|<check_id>".

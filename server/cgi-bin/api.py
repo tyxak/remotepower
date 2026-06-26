@@ -5408,6 +5408,7 @@ def _run_automation_rules(event, payload, cfg):
 
 def _validate_rule(body):
     """Sanitise + validate a rule dict from a request. Returns (rule, error)."""
+    if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
     name = _sanitize_str(body.get('name', ''), 80) or 'Rule'
     match = body.get('match') if isinstance(body.get('match'), dict) else {}
     events = [e for e in (match.get('events') or [])
@@ -11656,12 +11657,17 @@ def handle_heartbeat():
         # v1.11.4: this device just gave us fresh container data, so clear
         # any "containers_stale" notified flag — the next time it goes stale
         # we want a new webhook to fire (matches device_offline pattern).
-        cfg_now = load(CONFIG_FILE)
-        stale_notified = cfg_now.get('containers_stale_notified') or {}
-        if isinstance(stale_notified, dict) and stale_notified.get(dev_id):
-            stale_notified[dev_id] = False
-            cfg_now['containers_stale_notified'] = stale_notified
-            _save_nb(CONFIG_FILE, cfg_now)
+        # Perf: check the flag via the no-deepcopy read-only view first; only
+        # pay the full load()+save when the rare clear-the-flag case applies
+        # (otherwise every Docker-host heartbeat deepcopied the whole config).
+        _sn_ro = (_config_ro().get('containers_stale_notified') or {})
+        if isinstance(_sn_ro, dict) and _sn_ro.get(dev_id):
+            cfg_now = load(CONFIG_FILE)
+            stale_notified = cfg_now.get('containers_stale_notified') or {}
+            if isinstance(stale_notified, dict) and stale_notified.get(dev_id):
+                stale_notified[dev_id] = False
+                cfg_now['containers_stale_notified'] = stale_notified
+                _save_nb(CONFIG_FILE, cfg_now)
 
     # v2.1.0 compose_projects update was previously here as a separate
     # save. v2.1.2 moved it inside the _locked_update block above so it
@@ -12252,6 +12258,11 @@ def handle_drift_policies_set():
 
 def _resolve_targets(body):
     """Resolve device_ids, tag, group, or single device_id — with length limits."""
+    # A top-level JSON array body is truthy and slips past `get_json_body() or {}`;
+    # without this guard `body.get(...)` below AttributeErrors → 500 before auth
+    # (shutdown/reboot/update/upgrade callers). Coerce non-dict → no targets.
+    if not isinstance(body, dict):
+        return []
     if 'device_ids' in body and isinstance(body['device_ids'], list):
         raw = body['device_ids'][:100]  # cap at 100 targets
         return [str(d).strip() for d in raw if _validate_id(str(d).strip())]
@@ -15759,6 +15770,7 @@ def _assignable_role(role):
 
 def _clean_role_body(body):
     """Validate a custom-role payload → clean dict, or (None, error)."""
+    if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
     name = _sanitize_str((body.get('name') or '').strip(), 32)
     if not name or not re.match(r'^[a-z0-9_\-]{2,32}$', name):
         return None, 'name must be 2-32 chars (lowercase letters, digits, _ or -)'
@@ -22136,7 +22148,7 @@ def handle_device_allowlist(dev_id):
     if method() == 'GET':
         respond(200, {'allowed_commands': devices[dev_id].get('allowed_commands', [])})
     if method() == 'POST':
-        body = get_json_body(); cmds_input = body.get('allowed_commands', [])
+        body = get_json_obj(); cmds_input = body.get('allowed_commands', [])
         if not isinstance(cmds_input, list): respond(400, {'error': 'allowed_commands must be a list'})
         cmds_clean = [str(c)[:512] for c in cmds_input[:50] if str(c).strip()]
         with _LockedUpdate(DEVICES_FILE) as devices:
@@ -23433,8 +23445,20 @@ def _rag_build_corpus(cfg):
                              'encryption_available': backup_crypto.available()}
             except Exception:
                 bk_status = {}
+            # Break-glass is a per-credential flag in the CMDB vault, not a
+            # global toggle — count the marked credentials so the posture text
+            # is accurate (no secrets read; metadata only).
+            _bg_n = 0
+            try:
+                for _rec in (load(CMDB_VAULT_FILE) or {}).values():
+                    if isinstance(_rec, dict):
+                        _bg_n += sum(1 for _c in (_rec.get('credentials') or [])
+                                     if isinstance(_c, dict) and _c.get('break_glass'))
+            except Exception:
+                _bg_n = 0
             docs += rag_index.build_posture_corpus(
-                config=cfg_now, devices=raw, backup=bk_status, now=now)
+                config=cfg_now, devices=raw, backup=bk_status, now=now,
+                breakglass_creds=_bg_n)
         except Exception as e:
             sys.stderr.write(f'rag: posture source failed: {e}\n')
 
@@ -33702,7 +33726,7 @@ def handle_patch_report_csv():
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(['Device', 'Hostname', 'Group', 'OS', 'Online', 'Pkg Manager',
-                     'Pending Updates', 'Patch Status', 'Last Seen'])
+                     'Pending Updates', 'Security Updates', 'Patch Status', 'Last Seen'])
     for dev_id, dev in sorted(devices.items(), key=lambda x: x[1].get('name', '').lower()):
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
@@ -33716,6 +33740,7 @@ def handle_patch_report_csv():
             _csv_safe(dev.get('group', '')), _csv_safe(dev.get('os', '')),
             'yes' if is_online else 'no',
             _csv_safe(pkg.get('manager', 'unknown')), upgradable if upgradable is not None else 'N/A',
+            security_updates if security_updates is not None else 'N/A',
             status, last_seen_str
         ])
     data = buf.getvalue().encode()
@@ -33761,6 +33786,7 @@ def handle_patch_report_xml():
         SubElement(d_el, 'Online').text = str(is_online).lower()
         SubElement(d_el, 'PkgManager').text = pkg.get('manager', 'unknown')
         SubElement(d_el, 'PendingUpdates').text = str(upgradable) if upgradable is not None else 'N/A'
+        SubElement(d_el, 'SecurityUpdates').text = str(security_updates) if security_updates is not None else 'N/A'
         if upgradable is None or not is_online: status = 'no_data'; no_data += 1
         elif upgradable == 0: status = 'fully_patched'; patched += 1
         else: status = 'patches_available'; with_patches += 1; pending += upgradable
@@ -42001,6 +42027,7 @@ def handle_maintenance_add():
 def _validate_maintenance_body(body):
     """Shared validation for maintenance add + update. Returns the
     clean fields dict or calls respond() with an error."""
+    if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
     reason = _sanitize_str(body.get('reason', ''), 128)
     scope  = _sanitize_str(body.get('scope', 'device'), 16).lower()
     target = _sanitize_str(body.get('target', ''), 128)
@@ -43476,6 +43503,7 @@ def handle_log_rules():
 
 def _validate_global_rule(body):
     """Return (clean_rule, error) — same shape whether valid or not."""
+    if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
     # v3.0.1: rule may specify either a systemd unit OR a file path. Path
     # form tells the agent to tail the file; the synthetic unit name
     # becomes 'file:<path>'. Mutually exclusive with `unit`.
@@ -43716,6 +43744,7 @@ ALLOWED_RECUR = ('none', 'daily', 'weekly', 'monthly', 'yearly')
 
 def _sanitize_event(body):
     """Sanitize a calendar event submission. Returns (clean, error)."""
+    if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
     title = _sanitize_str(body.get('title', ''), 120, allow_empty=False)
     if not title:
         return None, 'title is required'
@@ -44043,6 +44072,7 @@ def handle_calendar_delete(event_id):
 def _sanitize_task(body, require_all=True):
     """Sanitize a task submission. Returns (clean, error).
     If require_all=False, allows partial updates (used by /state endpoint)."""
+    if not isinstance(body, dict): body = {}  # non-dict (e.g. JSON array) → empty, not a 500
     title = _sanitize_str(body.get('title', ''), 200, allow_empty=not require_all)
     if require_all and not title:
         return None, 'title is required'
@@ -47797,7 +47827,7 @@ def handle_iac_status(request_id):
     if not rid:
         respond(400, {'error': 'invalid request_id'}); return
     fpath = IAC_COLLECTION_DIR / f'{rid}.json'
-    if not fpath.exists():
+    if not backend_exists(fpath):   # storage-key aware (SQLite/PG have no file on disk)
         respond(200, {'status': 'pending', 'request_id': rid})
         return
     data = load(fpath) or {}
@@ -47942,7 +47972,7 @@ def handle_iac_generate():
         respond(400, {'error': 'request_id and valid output_format required'}); return
 
     fpath = IAC_COLLECTION_DIR / f'{rid}.json'
-    if not fpath.exists():
+    if not backend_exists(fpath):   # storage-key aware (SQLite/PG have no file on disk)
         respond(404, {'error': 'request not found or still pending'}); return
     coll = load(fpath) or {}
     if coll.get('error'):
@@ -48078,7 +48108,7 @@ def handle_iac_payload(request_id):
     if not rid:
         respond(400, {'error': 'invalid request_id'}); return
     fpath = IAC_COLLECTION_DIR / f'{rid}.json'
-    if not fpath.exists():
+    if not backend_exists(fpath):   # storage-key aware (SQLite/PG have no file on disk)
         respond(404, {'error': 'request not found'}); return
     coll = load(fpath) or {}
     if coll.get('error'):

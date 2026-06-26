@@ -45,6 +45,24 @@ and polish gaps from the feature that shipped it. No breaking changes.
   also be enabled when the chat provider has no embeddings endpoint (e.g.
   Anthropic chat + LocalAI embeddings). Requested by **@loryanstrant**
   ([#11](https://github.com/tyxak/remotepower/issues/11)).
+- **Whole-project finalize sweep.** A full audit (data-binding, bug hunt, security,
+  performance, box-overflow, typography, layout, docs) plus a live authenticated
+  pentest of the production site and a clean local CodeQL / bandit / gitleaks run.
+  Fixes: the **Infrastructure-as-Code** status/generate/payload endpoints were dead
+  on the SQLite / PostgreSQL backend (a storage key was probed with `.exists()`
+  instead of the backend-aware check — the whole IaC feature returned "pending"
+  forever on Postgres); the **File Manager** column sort moved the arrow but never
+  reordered the rows (mismatched sort key); the power/update target resolver and
+  six admin validators no longer 500 on a malformed (non-object) request body; a
+  CMDB markdown link could break out of its `href` attribute (now escaped — was
+  already neutralised by the CSP); the **patch-report CSV and XML** exports now
+  include the security-update count (parity with JSON); the AI **security-posture**
+  knowledge now reports break-glass from the real per-credential count; several
+  dead table-sort columns were corrected and the Compliance remediation table is
+  now sortable. Polish: more drawer lists and fleet tables cap at ~15 rows and
+  scroll; the Reputation/DMARC, Firewall and Cron pages group each function in its
+  own card (matching the DNS page); and the public NOC Status Board and a
+  container-heartbeat path got small performance fixes. No breaking changes.
 
 ## v5.1.0 — "UnityMatters" — 2026-06-25
 

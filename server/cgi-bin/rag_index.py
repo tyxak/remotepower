@@ -987,7 +987,8 @@ def build_dns_email_corpus(dmarc=None, reputation=None, resolver=None, now=0):
     return docs
 
 
-def build_posture_corpus(config=None, devices=None, backup=None, now=0):
+def build_posture_corpus(config=None, devices=None, backup=None, now=0,
+                         breakglass_creds=0):
     """v5.0.0: fleet SECURITY-CONTROL posture for the AI advisors — grounds
     answers to "is backup encryption on?", "what's our mutual-TLS coverage?",
     "how many agents are in read-only audit mode?", "is maintenance mode on?".
@@ -1040,14 +1041,16 @@ def build_posture_corpus(config=None, devices=None, backup=None, now=0):
             title='Security posture — agents in audit mode', ts=now))
 
     # ── Control-plane state (break-glass + maintenance) ──
-    bg_on = bool(cfg.get('breakglass_required') or cfg.get('break_glass_required'))
+    # Break-glass is a per-credential flag (CMDB vault), not a global toggle —
+    # the caller counts the credentials marked break-glass and passes it here.
+    bg_n = int(breakglass_creds or 0)
     mm = cfg.get('maintenance_mode') or {}
     mm_on = bool(mm.get('enabled')) if isinstance(mm, dict) else bool(mm)
     docs.append(make_doc(
         'posture/control_plane', 'posture', 'posture_control_plane',
         ("Control-plane safeguards:\n"
          f"- Two-person break-glass approval for credential reveals: "
-         f"{'required' if bg_on else 'not required'}.\n"
+         f"{f'enabled on {bg_n} credential(s)' if bg_n else 'not enabled on any credential'}.\n"
          f"- Maintenance mode (pauses command dispatch): "
          f"{'ON' if mm_on else 'off'}."),
         title='Security posture — control plane', ts=now))

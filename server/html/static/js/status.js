@@ -305,9 +305,9 @@
     var token = getToken();
     if (!token) {
       showMessage('This status page link is missing its token.');
-      return;
+      return Promise.resolve();
     }
-    fetch(ENDPOINT + '?token=' + encodeURIComponent(token), {
+    return fetch(ENDPOINT + '?token=' + encodeURIComponent(token), {
       method: 'GET',
       credentials: 'omit',
       headers: { 'Accept': 'application/json' }
@@ -328,12 +328,21 @@
     });
   }
 
-  // ---- boot + single non-stacking 60s refresh -----------------------------
+  // ---- boot + non-stacking, visibility-aware 60s refresh ------------------
+  // Recursive setTimeout (schedule the next poll only AFTER the current one
+  // settles) so a slow board fetch can't stack overlapping requests, and skip
+  // polling entirely while the tab is backgrounded (a public NOC board left
+  // open all day shouldn't keep hammering the heaviest aggregate endpoint).
   function start() {
-    load();
-    if (refreshTimer === null) {
-      refreshTimer = setInterval(load, REFRESH_MS);
+    function schedule() {
+      if (refreshTimer !== null) { return; }
+      refreshTimer = setTimeout(function () {
+        refreshTimer = null;
+        if (document.hidden) { schedule(); return; }   // defer; recheck next cycle
+        load().then(schedule, schedule);
+      }, REFRESH_MS);
     }
+    load().then(schedule, schedule);
   }
 
   if (document.readyState === 'loading') {

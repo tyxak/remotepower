@@ -5364,7 +5364,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   color: var(--border); padding: 2px 4px;
 }
 .iface-star.on { color: #f5b301; }   /* gold = primary */
-.cmdb-iface-tree { }
+.cmdb-iface-tree { max-height: 360px; overflow-y: auto; }
 .cmdb-iface-tree-title { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 .iface-node { padding: 3px 0; font-size: 13px; }
 .iface-node.primary { font-weight: 600; }

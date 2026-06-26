@@ -1359,7 +1359,8 @@ and the CMDB asset modal shows real free-memory / free-disk figures.
 ### Homelab software integrations
 A read-only, server-side **integration subsystem** polls popular self-hosted
 software for health on a cadence and folds the result into the **Alerts** inbox
-and the dashboard — nothing is installed on the target. **26 connectors** across
+and the dashboard — nothing is installed on the target. **26 software connectors**
+(plus a generic Custom HTTP probe — 27 in total) across
 DNS (Pi-hole v6, AdGuard Home), storage/NAS (TrueNAS, Unraid),
 virtualization/orchestration (Kubernetes / k3s, VMware vCenter/ESXi, Proxmox
 Backup Server), network (UniFi), reverse-proxy/cert (Traefik, Nginx Proxy
@@ -1523,8 +1524,8 @@ strictly validated server-side (no shell metacharacters). Read-only visibility
 needs no special permission. The agent reports capped per-backend rule lists and
 fail2ban status; the containerized agent reports fail2ban as not-available.
 
-### AI Insights hub (20 features)
-The AI Assistant page gains a grid of 20 one-click AI reports and advisors —
+### AI Insights hub (23 features)
+The AI Assistant page gains a grid of 23 one-click AI reports and advisors —
 **Proactive** (daily briefing, log-anomaly digest, alert-noise tuning,
 predictive-maintenance), **Incident** (RCA, group-related-alerts, change-risk
 review), **Natural-language → config** (fleet query → filter, monitor/check from

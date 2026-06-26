@@ -7410,7 +7410,7 @@ async function fmListPath(p) {
 function _renderFm() {
   const tbody = document.getElementById('fm-tbody');
   if (!tbody) return;
-  tableCtl.wireSortOnly('fm-thead', 'files', () => _renderFm());
+  tableCtl.wireSortOnly('fm-thead', 'filemgr', () => _renderFm());
   const rows = tableCtl.sortRows('filemgr', _fmRows || [], r => ({
     name: r.name, type: r.type, size: r.size, mtime: r.mtime, mode: r.mode }));
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Empty directory.</td></tr>'; return; }
@@ -17722,6 +17722,7 @@ async function _loadAuditSection(key) {
         const sorted = tableCtl.sortRows('device_backups', baks, b => ({
           label: b.label, age: (b.age_h == null ? Infinity : b.age_h),
           threshold: b.max_age_hours || 0, status: b.ok ? 1 : 0,
+          verify: b.verify_status || '',
         }));
         const _fmtAge = h => h == null ? 'missing' : (h >= 48 ? `${(h/24).toFixed(1)}d` : `${h}h`);
         body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">

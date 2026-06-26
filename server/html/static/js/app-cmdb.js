@@ -843,7 +843,11 @@ async function cmdbDocDelete(docId) {
 // Deliberately conservative: anything not matched stays as escaped text.
 function cmdbRenderMarkdown(src) {
   if (!src) return '<div class="c-muted">No content.</div>';
-  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Escape quotes too: cmdbInlineMd splices a captured link URL into href="$2",
+  // and a URL containing a double-quote would otherwise break out of the
+  // attribute (attribute-injection). https?:// is enforced in cmdbInlineMd.
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   const lines = src.split('\n');
   const out = [];
   let inCode = false, inList = false;

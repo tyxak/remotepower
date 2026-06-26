@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.1.1-r5">
+<link rel="stylesheet" href="static/css/styles.css?v=5.1.1-r6">
 
 </head>
 <body>
@@ -3147,7 +3147,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Homelab software integrations</strong> — monitor the self-hosted apps you already run</summary>
             <div class="doc-body">
               <p>A read-only, server-side subsystem polls popular self-hosted software for health on a cadence and folds the result into the <strong>Alerts</strong> inbox and the dashboard. Nothing is installed on the target — each connector only reads a service's own health/status API. Set one up under <strong>Settings → Integrations</strong>: pick a type, point it at the service on your LAN, add an API token, and <strong>Test</strong>.</p>
-              <p><strong>26 connectors:</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, vCenter/ESXi, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, and Overseerr/Jellyseerr.</p>
+              <p><strong>27 connectors:</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, vCenter/ESXi, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
               <p><strong>Alerts &amp; widget:</strong> an unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</p>
               <p><strong>Read-only &amp; SSRF-guarded:</strong> every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, with no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only. A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling and hides the section + widget.</p>
             </div>
@@ -5172,6 +5172,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="cron-device-current" class="hint mt-8"></div>
         </div>
         <div id="cron-body" class="hidden">
+          <div class="dash-card">
           <div class="section-title">systemd timers</div>
           <div class="table-card">
             <div class="scrollable-table-wrap audit-scroll">
@@ -5184,7 +5185,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </table>
             </div>
           </div>
-          <div class="section-title mt-16">Crontab</div>
+          </div>
+          <div class="dash-card">
+          <div class="section-title">Crontab</div>
           <div class="toolbar">
             <input type="text" id="cron-user" class="form-input input-auto" value="root" placeholder="user" aria-label="Crontab user">
             <button class="btn-icon" data-action="cronLoadUser">Load</button>
@@ -5192,8 +5195,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-shutdown" data-action="cronDelUser">Remove crontab</button>
           </div>
           <textarea id="cron-content" class="form-input w-full" rows="12" spellcheck="false" placeholder="# m h dom mon dow   command" aria-label="Crontab content"></textarea>
-          <div class="section-title mt-16">/etc/crontab &amp; /etc/cron.d <span class="hint">(read-only)</span></div>
+          </div>
+          <div class="dash-card">
+          <div class="section-title">/etc/crontab &amp; /etc/cron.d <span class="hint">(read-only)</span></div>
           <div id="cron-systemwide" class="scroll-cap"></div>
+          </div>
         </div>
       </div>
       <!-- ── v4.10.0: Firewall + fail2ban (visibility + edit) ───────────── -->
@@ -5201,6 +5207,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Firewall</div>
         <div class="page-subtitle">Host firewall rulesets (nftables / iptables / ufw / firewalld) and <span class="fw-600">fail2ban</span> jails across the fleet — view posture and drift, and edit rules, bans and jails. Every change runs through the audited, permission-gated command queue (quarantined hosts are skipped). <a href="https://github.com/tyxak/remotepower/wiki" class="c-accent">Documentation</a>.</div>
 
+        <div class="dash-card">
         <div class="section-title">Host firewalls</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadFirewall"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -5220,8 +5227,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
         <div id="firewall-detail" class="mt-16"></div>
+        </div>
 
-        <div class="section-title mt-16">fail2ban</div>
+        <div class="dash-card">
+        <div class="section-title">fail2ban</div>
         <div class="page-subtitle">Intrusion-prevention jails and the IPs they have banned. Ban or unban an address, or start/stop a jail. Hosts without fail2ban report it as not available.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadFail2ban"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -5240,6 +5249,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
         <div id="fail2ban-detail" class="mt-16"></div>
+        </div>
       </div>
 
       <!-- ── v3.12.0: per-asset risk score ──────────────────────────────── -->
@@ -5294,7 +5304,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="storage-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
-          <div class="scrollable-table-wrap">
+          <div class="scrollable-table-wrap audit-scroll">
           <table class="data-table w-full">
             <thead id="storage-thead"><tr>
               <th scope="col" data-col="device">Device</th><th scope="col" data-col="pool">Pool</th><th scope="col" data-col="kind">Type</th>
@@ -5318,13 +5328,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="thermal-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
-          <div class="scrollable-table-wrap">
+          <div class="scrollable-table-wrap audit-scroll">
           <table class="data-table w-full">
             <thead id="thermal-thead"><tr>
               <th scope="col" data-col="device">Device</th><th scope="col" data-col="max_temp">Max temp</th>
               <th scope="col" data-col="sensor_label">Hottest sensor</th><th scope="col" data-col="sensor_type">Type</th>
               <th scope="col" data-col="crit_c">Threshold</th><th scope="col" data-col="headroom">Headroom</th>
-              <th scope="col" data-col="trend">Trend (~24h)</th>
+              <th scope="col">Trend (~24h)</th>
               <th scope="col" data-col="sensors">Sensors</th>
               <th scope="col" class="th-actions"></th>
             </tr></thead>
@@ -5344,7 +5354,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="ssh-keys-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
-          <div class="scrollable-table-wrap">
+          <div class="scrollable-table-wrap audit-scroll">
           <table class="data-table w-full">
             <thead id="ssh-keys-thead"><tr>
               <th scope="col" data-col="device">Device</th><th scope="col" data-col="user">User</th>
@@ -5367,7 +5377,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="power-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
-          <div class="scrollable-table-wrap">
+          <div class="scrollable-table-wrap audit-scroll">
           <table class="data-table w-full">
             <thead id="power-thead"><tr>
               <th scope="col" data-col="device">Device</th><th scope="col" data-col="status">UPS status</th>
@@ -5543,6 +5553,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Reputation/DMARC</div>
         <div class="page-subtitle">Mail-deliverability posture: IP reputation against DNS blocklists (DNSBLs), plus your domains' SPF / DKIM / DMARC records over DNS and aggregate (RUA) reports fetched from your DMARC mailbox over IMAP.</div>
 
+        <div class="dash-card">
         <div class="section-title">IP reputation (DNS blocklists)</div>
         <div class="page-subtitle">Watch whether your mail-sending IPs are listed on DNS blocklists (DNSBLs). Auto-rescans periodically; raises an alert when a monitored IP gets listed.</div>
         <div class="toolbar">
@@ -5566,8 +5577,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </table>
           </div>
         </div>
+        </div>
 
-        <div class="section-title mt-16">DMARC / SPF / DKIM posture</div>
+        <div class="dash-card">
+        <div class="section-title">DMARC / SPF / DKIM posture</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="dmarcAdd">+ Add domain</button>
           <button class="btn-icon" data-action="dmarcScan">Scan now</button>
@@ -5591,8 +5604,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </table>
           </div>
         </div>
+        </div>
 
-        <div class="section-title mt-16">Aggregate reports (RUA)</div>
+        <div class="dash-card">
+        <div class="section-title">Aggregate reports (RUA)</div>
         <div class="page-subtitle">Who is sending mail as your domains, and whether it passes DMARC — parsed from reports in your DMARC mailbox.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="dmarcFetch">Fetch reports now</button>
@@ -5616,8 +5631,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </table>
           </div>
         </div>
+        </div>
 
-        <div class="section-title mt-16">Sending sources</div>
+        <div class="dash-card">
+        <div class="section-title">Sending sources</div>
         <div class="page-subtitle">IP addresses seen sending as your domains across all ingested reports.</div>
         <div class="table-card">
           <div class="scrollable-table-wrap audit-scroll">
@@ -5632,6 +5649,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <tbody id="dmarc-sources-tbody"></tbody>
             </table>
           </div>
+        </div>
         </div>
       </div>
       <div id="page-tls" class="page">
@@ -6731,7 +6749,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="form-group cmdb-fullspan">
       <label class="form-label">Network interfaces &amp; NAT</label>
       <div class="meta-sm mb-8">One row per NIC. Attach a NAT&nbsp;/&nbsp;public IP to any interface that's reachable from outside via 1:1 NAT — a host can have several NICs and several NATs. Star the primary interface.</div>
-      <div id="cmdb-interfaces"></div>
+      <div id="cmdb-interfaces" class="scroll-cap"></div>
       <button type="button" class="btn-icon mt-8" data-action="cmdbAddInterface" aria-label="Add interface">+ Add interface</button>
       <div id="cmdb-interfaces-tree" class="cmdb-iface-tree mt-8"></div>
     </div>
@@ -6781,7 +6799,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="isl-229">Documents</div>
       <button class="btn-icon" id="cmdb-doc-add-btn" data-action="cmdbDocAddOpen" >+ Add document</button>
     </div>
-    <div id="cmdb-docs-list" class="isl-25">
+    <div id="cmdb-docs-list" class="isl-25 scroll-cap">
       <!-- Filled by cmdbRenderDocs() — one .cmdb-doc-card per entry. -->
     </div>
     <div id="cmdb-docs-empty" class="isl-230">
@@ -6797,7 +6815,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="isl-229">Credentials</div>
       <button class="btn-icon" id="cmdb-creds-add-btn" data-action="cmdbCredAddOpen" >+ Add credential</button>
     </div>
-    <div id="cmdb-creds-list">
+    <div id="cmdb-creds-list" class="scroll-cap">
       <div class="isl-232">No credentials yet.</div>
     </div>
   </div>
@@ -6839,15 +6857,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="cmdb-tab-biz" class="d-none">
     <div class="form-group">
       <div class="form-row-wrap"><label class="form-label fw-600">Support contracts</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="contracts">+ Add contract</button></div>
-      <div id="cmdb-list-contracts"></div>
+      <div id="cmdb-list-contracts" class="scroll-cap"></div>
     </div>
     <div class="form-group">
       <div class="form-row-wrap"><label class="form-label fw-600">Customer contacts (escalation)</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="contacts">+ Add contact</button></div>
-      <div id="cmdb-list-contacts"></div>
+      <div id="cmdb-list-contacts" class="scroll-cap"></div>
     </div>
     <div class="form-group">
       <div class="form-row-wrap"><label class="form-label fw-600">Licenses</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="licenses">+ Add license</button></div>
-      <div id="cmdb-list-licenses"></div>
+      <div id="cmdb-list-licenses" class="scroll-cap"></div>
     </div>
   </div>
 
@@ -7807,34 +7825,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app.js?v=5.1.1-r5"></script>
+<script defer src="static/js/i18n.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app.js?v=5.1.1-r6"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-cmdb.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-containers.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-network.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-calendar.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-cmdb.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-containers.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-network.js?v=5.1.1-r6"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-compliance.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-integrations.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-compliance.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-integrations.js?v=5.1.1-r6"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-dns.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-drift.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-dmarc.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-cve.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-firewall.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-backups.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-iac.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-rollouts.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-power.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-gpu.js?v=5.1.1-r5"></script>
-<script defer src="static/js/app-proxmox.js?v=5.1.1-r5"></script>
+<script defer src="static/js/app-ai.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-dns.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-drift.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-dmarc.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-cve.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-firewall.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-backups.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-iac.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-rollouts.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-power.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-gpu.js?v=5.1.1-r6"></script>
+<script defer src="static/js/app-proxmox.js?v=5.1.1-r6"></script>
 
-<script defer src="static/js/sw-register.js?v=5.1.1-r5"></script>
+<script defer src="static/js/sw-register.js?v=5.1.1-r6"></script>
 </body>
 </html>
