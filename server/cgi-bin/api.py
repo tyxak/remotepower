@@ -22875,6 +22875,11 @@ _AI_DEFAULTS = {
             # state) — cheap, no-secrets, lets the model answer "is backup
             # encryption on?" / "what's our mTLS coverage?".
             'posture':      True,
+            # v5.2.0: WG Access (WireGuard road-warrior VPN) posture — tunnels,
+            # reach scopes, who's connected, expiring access. No secrets (public
+            # addresses + state only), so the "remote_access" advisor + Q&A like
+            # "who has VPN access?" / "is anyone connected?" have grounding.
+            'vpn':          True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -23077,11 +23082,11 @@ def handle_ai_config_set():
                 # _AI_DEFAULTS['rag']['sources'] or its UI toggle silently won't
                 # persist (the v4.10.0 firewall/integrations/backups toggles hit
                 # exactly that bug). dns_email added in the v4.10.0 finalize;
-                # posture added in v5.0.0.
+                # posture added in v5.0.0; vpn (WG Access) added in v5.2.0.
                 for k in ('docs', 'live_state', 'cmdb', 'history',
                           'drift', 'compliance', 'metrics',
                           'firewall', 'integrations', 'backups', 'dns_email',
-                          'posture'):
+                          'posture', 'vpn'):
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -23210,6 +23215,9 @@ def _rag_source_files(sources):
     # maintenance flags) + the device records (pins, audit-mode) + backup state.
     if sources.get('posture'):
         files += [CONFIG_FILE, DEVICES_FILE, DATA_DIR / 'backup_state.json']
+    # v5.2.0: WG Access posture is derived from the VPN store.
+    if sources.get('vpn'):
+        files.append(VPN_FILE)
     return files
 
 
@@ -23498,6 +23506,12 @@ def _rag_build_corpus(cfg):
                 breakglass_creds=_bg_n)
         except Exception as e:
             sys.stderr.write(f'rag: posture source failed: {e}\n')
+
+    if sources.get('vpn'):
+        try:
+            docs += rag_index.build_vpn_corpus(load(VPN_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: vpn source failed: {e}\n')
 
     return docs
 
@@ -46142,9 +46156,15 @@ def _vpn_up_tunnel(tunnel) -> dict:
 
 def _vpn_sync_tunnel(tunnel) -> bool:
     """Push the tunnel's enabled, non-expired clients + reach policy to the hub.
-    No-op when the helper is absent."""
+    No-op when the helper is absent. A DISABLED tunnel is torn down (iface down)
+    rather than synced — otherwise an admin who disables a tunnel to cut off
+    road-warrior access would have the interface silently brought back up and
+    every client re-installed."""
     if not _wg_helper_available():
         return False
+    if not tunnel.get('enabled', True):
+        _wg_run(['down', tunnel['iface']])
+        return True
     now = int(time.time())
     clients = [c for c in tunnel.get('clients', [])
                if c.get('enabled', True) and not _vpn_expired(c, now)]
@@ -48951,6 +48971,7 @@ _AI_PROMPT_LABELS = {
     'integration_assist':     'Homelab integration assistant',
     'supply_chain':           'Supply-chain / SBOM Q&A',
     'host_profile':           'Host one-pager',
+    'remote_access':          'Remote-access (VPN) review',
     # v3.0.1: Mitigation playbook prompts. One per alert category so a user
     # can tune the AI's tone independently — e.g. terse for service alerts,
     # more cautious for disk cleanup proposals.

@@ -556,7 +556,20 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   DMARC/Firewall/Cron pages wrap each function in a dash-card (DNS pattern). Commits
   c593ff4/c7e9c67. Per-release detail [[project_v511_sweep]]. (NB: this opencode.md
   "Last production release" section below LAGS — authoritative current state is in
-  CLAUDE.md; actual last prod is **v5.1.0 "UnityMatters" @73adec8, 2026-06-25**.)
+  CLAUDE.md; actual last prod is **v5.1.1 "ClusterMatters" @3c4751b, 2026-06-26**.)
+- **v5.2.0 = "AccessMatters"** (current — ON TEST `origin/main`, unsigned, NOT prod;
+  last prod = v5.1.1) — **WG Access**, a built-in light WireGuard road-warrior VPN
+  (Admin → WG Access). Hub = the RP host (userspace `wireguard-go`) → integrations
+  pattern via root-owned scoped-sudo helper `packaging/remotepower-wg-apply` (argv-only,
+  no shell), NOT the agent channel. Two-level Tunnel→Client (reach-scope RBAC + TTL +
+  full/split tunnel; browser X25519 keygen → QR/.conf, privkey never sent). 3 events
+  `vpn_client_*` (WEBHOOK_EVENTS now **85**). New `wg_access.py` + `static/js/wg-access.js`.
+  **FINALIZE SWEEP folded in (2026-06-27, test, no bump):** 6 audits + live pentest + SAST
+  0. 2 Low fixes: disabling a tunnel now tears it DOWN (was re-syncing up); dashboard-only
+  tunnels get an explicit nft DROP forward chain. Binding: NEW `vpn` RAG source (5 spots) +
+  `remote_access` AI advisor (24th card) + tunnel-stats/endpoint render. i18n +4 DICT/3
+  Hindi; dedup `_fmtBytes`; docs + `security-review-5.2.0.md` (keep-3, pruned 5.0.1).
+  Per-release detail [[project_v520_accessmatters]].
 
 ## Last production release: v5.0.1 "TemperMatters" — RELEASED TO PRODUCTION 2026-06-22
 

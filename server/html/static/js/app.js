@@ -5505,7 +5505,6 @@ async function _sftpList(path) {
   } catch (e) { toast('List failed: ' + e.message, 'error'); }
 }
 function _sftpJoin(base, name) { return (base.endsWith('/') ? base : base + '/') + name; }
-function _fmtBytes(n) { if (n < 1024) return n + ' B'; if (n < 1048576) return (n/1024).toFixed(1) + ' KB'; if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB'; return (n/1073741824).toFixed(1) + ' GB'; }
 // v3.14.0 #37: bytes/sec → human-readable rate for the bandwidth table.
 function _fmtBps(n) { if (n == null) return '—'; if (n < 1024) return Math.round(n) + ' B/s'; if (n < 1048576) return (n/1024).toFixed(1) + ' KB/s'; if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB/s'; return (n/1073741824).toFixed(2) + ' GB/s'; }
 function _sftpCdBtn(btn) { _sftpList(btn.dataset.path); }
@@ -6119,7 +6118,8 @@ function _fmtBytes(n) {
   if (!n && n !== 0) return '?';
   if (n < 1024) return n + ' B';
   if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
-  return (n / 1048576).toFixed(1) + ' MB';
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+  return (n / 1073741824).toFixed(1) + ' GB';
 }
 
 async function loadStorageBackendStatus() {
@@ -6558,12 +6558,13 @@ function _registerVpnClientsTable() {
     name: 'vpn_clients',
     tbody: 'vpn-clients-tbody',
     sortHeaders: 'vpn-clients-thead',
-    colspan: 6,
-    columns: ['name', 'address', 'status', 'transfer', 'expires'],
+    colspan: 7,
+    columns: ['name', 'address', 'status', 'endpoint', 'transfer', 'expires'],
     getColumns: (c) => ({
       name:     c.name || '',
       address:  c.address || '',
       status:   c.status || '',
+      endpoint: c.endpoint || '',
       transfer: (c.rx_bytes || 0) + (c.tx_bytes || 0),
       expires:  c.expires_at || 0,
     }),
@@ -6573,11 +6574,14 @@ function _registerVpnClientsTable() {
       const st = c.status || 'offline';
       const stCls = st === 'connected' ? 'c-green' : (st === 'idle' ? 'c-amber' : 'hint');
       const stCell = `<span class="${stCls}" title="Last handshake ${escAttr(_vpnAge(c.last_handshake))} ago">${escHtml(st)}</span>`;
+      const epCell = c.endpoint
+        ? `<span class="ff-mono hint" title="Source the client last connected from">${escHtml(c.endpoint)}</span>`
+        : '<span class="hint">—</span>';
       const xfer = `<span class="hint" title="received / sent">${_fmtBytes(c.rx_bytes || 0)} ↓ / ${_fmtBytes(c.tx_bytes || 0)} ↑</span>`;
       const acts =
         `<button class="btn-icon" data-action="editVpnClient" data-arg="${id}" title="Edit client">${_icon('edit', 12)} Edit</button> ` +
         `<button class="btn-icon isl-45" data-action="deleteVpnClient" data-arg="${id}" data-arg2="${escAttr(c.name || '')}">Delete</button>`;
-      return `<tr><td class="fw-600">${escHtml(c.name || c.id)}${dis}</td><td class="ff-mono">${escHtml(c.address || '—')}</td><td>${stCell}</td><td>${xfer}</td><td>${_vpnExpiryCell(c.expires_at)}</td><td>${acts}</td></tr>`;
+      return `<tr><td class="fw-600">${escHtml(c.name || c.id)}${dis}</td><td class="ff-mono">${escHtml(c.address || '—')}</td><td>${stCell}</td><td>${epCell}</td><td>${xfer}</td><td>${_vpnExpiryCell(c.expires_at)}</td><td>${acts}</td></tr>`;
     },
     emptyMsg: 'No clients on this tunnel yet. Create one to get a config + QR.',
   });
@@ -6743,11 +6747,24 @@ async function reloadVpnClients() {
 // the last sync). Built with textContent/DOM, no innerHTML (CSP-safe).
 async function _vpnRenderReach() {
   const el = document.getElementById('vpn-sel-reach');
+  const stEl = document.getElementById('vpn-sel-stats');
   if (!el || !_vpnSelectedTunnel) return;
   el.textContent = '';
+  if (stEl) stEl.textContent = '';
   const s = await api('GET', '/vpn-tunnels/' + encodeURIComponent(_vpnSelectedTunnel.id) + '/stats');
   const st = s && s.stats;
   if (!st) return;
+  // Tunnel rollup: address-pool utilisation + aggregate throughput (collected
+  // from wg but otherwise unsurfaced).
+  if (stEl) {
+    const used = st.pool_used || 0, size = st.pool_size || 0;
+    const bits = [used + '/' + size + ' addresses used'];
+    if ((st.rx_bytes || 0) || (st.tx_bytes || 0)) {
+      bits.push('↓ ' + _fmtBytes(st.rx_bytes || 0) + '  ↑ ' + _fmtBytes(st.tx_bytes || 0));
+    }
+    bits.push((st.connected_count || 0) + ' connected now');
+    stEl.textContent = bits.join('  ·  ');
+  }
   if (st.allow_internet) {
     el.textContent = 'Reaches: the dashboard + the internet (full tunnel).';
     return;

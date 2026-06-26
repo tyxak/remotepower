@@ -71,6 +71,7 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-backups',      rs.backups !== false);
   _setSrc('ai-rag-src-dnsemail',     rs.dns_email !== false);
   _setSrc('ai-rag-src-posture',      rs.posture !== false);
+  _setSrc('ai-rag-src-vpn',          rs.vpn !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -333,6 +334,7 @@ async function saveAISettings() {
         backups:      !!document.getElementById('ai-rag-src-backups')?.checked,
         dns_email:    !!document.getElementById('ai-rag-src-dnsemail')?.checked,
         posture:      !!document.getElementById('ai-rag-src-posture')?.checked,
+        vpn:          !!document.getElementById('ai-rag-src-vpn')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
@@ -899,6 +901,7 @@ const AI_INSIGHTS = [
   { key: 'integration_assist',  cat: 'advisors',  label: 'Homelab assistant',           desc: 'Ask about your self-hosted services.', input: 'Your question about your homelab services:', msg: "%s" },
   { key: 'supply_chain',        cat: 'advisors',  label: 'Supply-chain / SBOM Q&A',     desc: 'Are we exposed to a given CVE or package?', input: 'Which CVE or package are you asking about?', msg: "Supply-chain question — are we exposed to: %s" },
   { key: 'host_profile',        cat: 'advisors',  label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
+  { key: 'remote_access',       cat: 'advisors',  label: 'Remote-access review',         desc: 'WG Access VPN reach scopes, stale clients, expiring access.', msg: "Review our WG Access (WireGuard) remote-access posture — over-broad reach scopes, full-tunnel where split would do, stale or never-connected clients to revoke, and access expiring soon." },
 ];
 
 const _AI_CATS = [

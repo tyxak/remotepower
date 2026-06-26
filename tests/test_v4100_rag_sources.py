@@ -157,17 +157,52 @@ class TestPostureCorpus(unittest.TestCase):
         self.assertTrue(ri.build_posture_corpus())
 
 
+class TestVpnCorpus(unittest.TestCase):
+    # v5.2.0: WG Access posture corpus.
+    STORE = {'tunnels': [
+        {'id': 'wgt_a', 'name': 'HQ', 'listen_port': 51820, 'enabled': True,
+         'allow_internet': False, 'reach_scope_type': 'site',
+         'reach_scope_value': 'oslo', 'dns': '10.0.0.1', 'expires_at': None,
+         'clients': [{'name': 'laptop', 'address': '10.97.0.2/32',
+                      'last_handshake': 10 ** 12, 'endpoint': '1.2.3.4:5',
+                      'enabled': True, 'expires_at': None}]},
+        {'id': 'wgt_b', 'name': 'OldNet', 'enabled': False,
+         'allow_internet': True, 'clients': []},
+    ]}
+
+    def test_tunnels_fleet_and_state(self):
+        docs = ri.build_vpn_corpus(self.STORE, now=10 ** 12 + 5)
+        by = {d["id"]: d for d in docs}
+        self.assertIn("vpn/wgt_a", by)
+        self.assertIn("vpn/_fleet", by)
+        self.assertIn("connected", by["vpn/wgt_a"]["text"])
+        self.assertIn("site oslo", by["vpn/wgt_a"]["text"])
+        self.assertIn("DISABLED", by["vpn/_fleet"]["text"])
+        self.assertIn("full tunnel", by["vpn/_fleet"]["text"])
+
+    def test_no_secrets_leak(self):
+        # public addresses/state only — never a private key
+        blob = str(ri.build_vpn_corpus(self.STORE, now=1)).lower()
+        self.assertNotIn("privkey", blob)
+        self.assertNotIn("private", blob)
+
+    def test_empty_and_malformed_safe(self):
+        self.assertEqual(ri.build_vpn_corpus({}, now=1), [])
+        self.assertEqual(ri.build_vpn_corpus(None, now=1), [])
+        self.assertEqual(ri.build_vpn_corpus({"tunnels": "x"}, now=1), [])
+
+
 class TestApiWiring(unittest.TestCase):
     def test_sources_wired_in_orchestrator(self):
         for fn in ("build_firewall_corpus", "build_integrations_corpus",
                    "build_backups_corpus", "build_dns_email_corpus",
-                   "build_posture_corpus"):
+                   "build_posture_corpus", "build_vpn_corpus"):
             self.assertIn(f"rag_index.{fn}", _API_SRC, fn)
 
     def test_sources_default_on(self):
         # the new sources are enabled by default
         for key in ("'firewall':", "'integrations':", "'backups':", "'dns_email':",
-                    "'posture':"):
+                    "'posture':", "'vpn':"):
             self.assertIn(key, _API_SRC, key)
 
     def test_staleness_files_registered(self):
@@ -175,13 +210,15 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn("files.append(INTEG_STATE_FILE)", _API_SRC)
         self.assertIn("if sources.get('dns_email'):", _API_SRC)
         self.assertIn("if sources.get('posture'):", _API_SRC)
+        self.assertIn("if sources.get('vpn'):", _API_SRC)
+        self.assertIn("files.append(VPN_FILE)", _API_SRC)
 
     def test_dns_email_save_whitelisted(self):
         # the save-handler whitelist must include every default source, or its
         # UI toggle silently won't persist (the v4.10.0 firewall/integrations/
-        # backups toggle-persistence bug). posture added in v5.0.0.
+        # backups toggle-persistence bug). posture added in v5.0.0; vpn in v5.2.0.
         for key in ("'firewall'", "'integrations'", "'backups'", "'dns_email'",
-                    "'posture'"):
+                    "'posture'", "'vpn'"):
             self.assertIn(key, _API_SRC, key)
 
 

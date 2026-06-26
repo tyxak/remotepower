@@ -28,6 +28,15 @@ services publicly. No breaking changes.
   helper takes only a structured JSON spec (argv-only, no shell) so the CGI stays
   unprivileged. The feature shows an "unavailable" notice until `wireguard-go` +
   the helper are installed.
+- **AI + finalize sweep.** WG Access posture is now a fleet-knowledge (RAG)
+  source — "who has VPN access?" / "is anyone connected?" — feeding a new
+  **Remote-access review** AI advisor (over-broad reach scopes, full-tunnel where
+  split would do, stale clients to revoke, expiring access). Tunnel pool
+  utilisation + aggregate throughput and each client's source endpoint are now
+  shown in the WG Access UI. Disabling a tunnel now tears the interface **down**
+  (previously the re-sync silently brought it back up). Dashboard-only tunnels
+  install an explicit nftables confinement chain so isolation never depends on the
+  host's global forwarding state. Plus localisation fixes for the WG Access tables.
 
 See docs/v5.2.0.md.
 

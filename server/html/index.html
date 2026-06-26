@@ -2406,7 +2406,8 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-integrations" checked> Homelab integration health (Pi-hole, TrueNAS, *arr, …)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-backups" checked> Backup freshness (which paths/hosts are stale)</label>
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-dnsemail" checked> Email &amp; DNS posture (DMARC/SPF/DKIM, blocklists, resolver health)</label>
-              <label class="click-row"><input type="checkbox" id="ai-rag-src-posture" checked> Security-control posture (mutual-TLS coverage, backup encryption, audit-mode, break-glass)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-posture" checked> Security-control posture (mutual-TLS coverage, backup encryption, audit-mode, break-glass)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-vpn" checked> WG Access VPN posture (tunnels, reach scopes, who's connected, expiring access)</label>
             </div>
 
             <div class="form-group isl-773">
@@ -4465,6 +4466,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <!-- Live reach summary: what this tunnel's clients can currently reach,
                resolved from the present fleet (tracks devices added/changed). -->
           <div id="vpn-sel-reach" class="hint mb-8"></div>
+          <!-- Tunnel rollup: pool utilisation + aggregate throughput. -->
+          <div id="vpn-sel-stats" class="hint mb-8"></div>
           <div class="toolbar">
             <button class="btn-icon" data-action="openVpnClientCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><use href="#ic-8a2aac00"/></svg> Create client</button>
             <button class="btn-icon" data-action="reloadVpnClients"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -4476,6 +4479,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <th scope="col" data-col="name">Name</th>
                 <th scope="col" data-col="address">Address</th>
                 <th scope="col" data-col="status">Status</th>
+                <th scope="col" data-col="endpoint">Endpoint</th>
                 <th scope="col" data-col="transfer">Transfer</th>
                 <th scope="col" data-col="expires">Expires</th>
                 <th scope="col"></th>

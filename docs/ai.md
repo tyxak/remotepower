@@ -146,7 +146,7 @@ per-button value is a *floor*, not a *raise*.
 
 ## AI Insights hub
 
-The **AI Assistant** page hosts an **AI Insights** grid — 20 one-click reports
+The **AI Assistant** page hosts an **AI Insights** grid — one-click reports
 and advisors that run a focused system prompt against your fleet with RAG +
 fleet context attached automatically. They fall into five groups:
 
@@ -160,7 +160,8 @@ fleet context attached automatically. They fall into five groups:
 - **Planning** — CVE remediation plan, compliance remediation plan, capacity &
   cost forecast, backup/DR-readiness.
 - **Advisors** — firewall auditor, DNS hygiene, email deliverability, homelab
-  integration assistant, supply-chain/SBOM Q&A, host one-pager.
+  integration assistant, supply-chain/SBOM Q&A, host one-pager, remote-access
+  (WG Access VPN) review.
 
 Cards marked with an input prompt you for a target (a host, zone, CVE, or a
 command to review) first. Every Insight is a tunable prompt

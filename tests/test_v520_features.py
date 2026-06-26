@@ -299,6 +299,29 @@ class TestApiWiring(unittest.TestCase):
             {'iface': 'rp-wg0', 'pool': '10.97.0.0/24', 'clients': []})
             if not api._wg_helper_available() else False)
 
+    def test_disabled_tunnel_is_torn_down_not_synced(self):
+        # A disabled tunnel must be brought DOWN, not synced up — otherwise
+        # disabling a tunnel to cut off access silently re-installs every peer.
+        calls = []
+        orig_run = api._wg_run
+        orig_avail = api._wg_helper_available
+        try:
+            api._wg_helper_available = lambda: True
+            api._wg_run = lambda argv, **kw: (calls.append(argv[0]), (0, '{}', ''))[1]
+            self.assertTrue(api._vpn_sync_tunnel(
+                {'iface': 'rp-wg0', 'pool': '10.97.0.0/24',
+                 'enabled': False, 'clients': []}))
+            self.assertEqual(calls, ['down'])
+            calls.clear()
+            api._vpn_sync_tunnel(
+                {'iface': 'rp-wg0', 'pool': '10.97.0.0/24',
+                 'enabled': True, 'reach_scope_type': 'none',
+                 'allow_internet': False, 'clients': []})
+            self.assertEqual(calls, ['sync'])
+        finally:
+            api._wg_run = orig_run
+            api._wg_helper_available = orig_avail
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1150,6 +1150,83 @@ def build_metrics_corpus(summaries, now=0):
     return docs
 
 
+def build_vpn_corpus(store, now=0):
+    """v5.2.0: WG Access (WireGuard road-warrior VPN) posture for the RAG.
+
+    `store` is the VPN_FILE dict {'tunnels': [...]}. Fleet-scoped (the hub IS the
+    RP host, like integrations — not a device). Answers "who has road-warrior VPN
+    access?", "is anyone connected right now?", "what can VPN clients reach?",
+    "which tunnels/clients expire soon?". NO secrets — public addresses, reach
+    scope and connection state only (private keys never reach the server, and the
+    hub/peer public keys are deliberately omitted as noise).
+    """
+    docs = []
+    tunnels = (store or {}).get('tunnels', []) if isinstance(store, dict) else []
+    if not isinstance(tunnels, list) or not tunnels:
+        return docs
+    rollup, expiring = [], []
+    total_clients = total_connected = 0
+    for t in tunnels:
+        if not isinstance(t, dict):
+            continue
+        name = t.get('name') or t.get('id') or '?'
+        clients = [c for c in (t.get('clients') or []) if isinstance(c, dict)]
+        connected = sum(1 for c in clients
+                        if c.get('last_handshake')
+                        and (now - int(c.get('last_handshake') or 0)) <= 180)
+        total_clients += len(clients)
+        total_connected += connected
+        if t.get('allow_internet'):
+            reach = 'full tunnel (internet egress)'
+        else:
+            rst = t.get('reach_scope_type') or 'none'
+            reach = ('dashboard only' if rst in ('none', '')
+                     else (f"entire fleet" if rst == 'all'
+                           else f"{rst} {t.get('reach_scope_value', '')}".strip()))
+        state = 'enabled' if t.get('enabled', True) else 'DISABLED'
+        rollup.append(
+            f"- {name}: {state}, reach = {reach}; "
+            f"{len(clients)} client(s), {connected} connected now")
+        lines = []
+        for c in sorted(clients, key=lambda x: x.get('name', '')):
+            age = (now - int(c.get('last_handshake') or 0)) if c.get('last_handshake') else None
+            st = ('connected' if age is not None and age <= 180
+                  else ('idle' if age is not None and age <= 3600 else 'offline'))
+            ep = c.get('endpoint') or ''
+            lines.append(
+                f"  - {c.get('name', '?')} ({c.get('address', '?')}): {st}"
+                + (f", from {ep}" if ep else '')
+                + ('' if c.get('enabled', True) else ', disabled'))
+            if c.get('expires_at'):
+                left = int(c['expires_at']) - now
+                if 0 < left <= 7 * 86400:
+                    expiring.append(f"client {c.get('name', '?')} on {name}")
+        if t.get('expires_at'):
+            left = int(t['expires_at']) - now
+            if 0 < left <= 7 * 86400:
+                expiring.append(f"tunnel {name}")
+        body = (f"VPN tunnel '{name}' — {state}, reach: {reach}, "
+                f"DNS: {t.get('dns') or 'default'}, port {t.get('listen_port', 0)}.\n"
+                + (("Clients:\n" + '\n'.join(lines[:120])) if lines
+                   else "No clients."))
+        docs.append(make_doc(
+            f"vpn/{t.get('id') or name}", 'vpn', 'vpn_tunnel', body,
+            title=f"WG Access tunnel: {name}", ts=now))
+    docs.append(make_doc(
+        'vpn/_fleet', 'vpn', 'vpn_rollup',
+        f"WG Access (WireGuard road-warrior VPN) — {len(rollup)} tunnel(s), "
+        f"{total_clients} client(s), {total_connected} connected now:\n"
+        + '\n'.join(rollup[:120]),
+        title='WG Access overview', ts=now))
+    if expiring:
+        docs.append(make_doc(
+            'vpn/_expiring', 'vpn', 'vpn_expiring',
+            f"WG Access access expiring within 7 days ({len(expiring)}): "
+            + ', '.join(sorted(set(expiring))[:120]),
+            title='WG Access expiring soon', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

@@ -406,6 +406,35 @@ def nft_rebuild_iface(iface, spec, egress_dev):
         ])
         if rc != 0:
             fail("nft return-traffic rule failed: %s" % err.strip(), code=5)
+    else:
+        # Non-forwarding tunnel (dashboard-only: reach_scope=none, no internet).
+        # The peer should be able to reach ONLY the hub itself, never route
+        # through it. Confinement must NOT rely on the global ip_forward sysctl
+        # or the host's baseline FORWARD policy — another tunnel may have turned
+        # forwarding on globally, and the host's default forward policy may be
+        # permissive. So install an explicit drop chain for this iface's traffic.
+        rc, _out, err = nft([
+            "add", "chain", "inet", NFT_TABLE, fwd_chain(iface),
+            "{", "type", "filter", "hook", "forward",
+            "priority", "0", ";", "policy", "accept", ";", "}",
+        ])
+        if rc != 0:
+            fail("nft add confine chain failed: %s" % err.strip(), code=5)
+        # Let established return traffic back in, then drop everything else this
+        # iface tries to forward (defence in depth — return-path masquerade is
+        # also absent, so sessions can't complete anyway).
+        rc, _o, err = nft([
+            "add", "rule", "inet", NFT_TABLE, fwd_chain(iface),
+            "oifname", iface, "ct", "state", "established,related", "accept",
+        ])
+        if rc != 0:
+            fail("nft confine return rule failed: %s" % err.strip(), code=5)
+        rc, _o, err = nft([
+            "add", "rule", "inet", NFT_TABLE, fwd_chain(iface),
+            "iifname", iface, "drop",
+        ])
+        if rc != 0:
+            fail("nft confine drop rule failed: %s" % err.strip(), code=5)
 
     if masquerade:
         rc, _out, err = nft([

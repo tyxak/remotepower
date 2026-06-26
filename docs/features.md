@@ -154,7 +154,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
 | **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
-| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 82 event types, per-event toggles, test-event button |
+| **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 85 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
 | **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
 | **Patch alerts** | Webhook when pending updates exceed configurable threshold |
@@ -1524,8 +1524,8 @@ strictly validated server-side (no shell metacharacters). Read-only visibility
 needs no special permission. The agent reports capped per-backend rule lists and
 fail2ban status; the containerized agent reports fail2ban as not-available.
 
-### AI Insights hub (23 features)
-The AI Assistant page gains a grid of 23 one-click AI reports and advisors —
+### AI Insights hub
+The AI Assistant page gains a grid of one-click AI reports and advisors —
 **Proactive** (daily briefing, log-anomaly digest, alert-noise tuning,
 predictive-maintenance), **Incident** (RCA, group-related-alerts, change-risk
 review), **Natural-language → config** (fleet query → filter, monitor/check from
@@ -1545,6 +1545,40 @@ under Settings → AI → RAG.
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
+
+## What's new in v5.2.0 — "AccessMatters"
+
+A reach-inward release: get to the dashboard and the fleet over an encrypted
+tunnel instead of exposing services. No breaking changes.
+
+### WG Access (Admin → WG Access)
+A built-in, light WireGuard road-warrior VPN whose hub is the RemotePower server
+host itself (userspace **wireguard-go** — no kernel module, container-friendly).
+A two-level model:
+
+- **Tunnel** — one WireGuard interface on the server carrying the policy: a
+  **reach scope** (dashboard-only, the entire fleet, or a site / group / tag —
+  reusing the same RBAC scopes as the rest of the app, enforced on the host with
+  nftables), an **Allow-internet** toggle (full- vs split-tunnel egress), an
+  optional **DNS** to push, and an optional **expiry** (auto-delete after
+  minutes / hours / days / weeks). The dashboard is always reachable (it's the
+  hub). A disabled tunnel is torn down, not just hidden.
+- **Client** — a peer on a tunnel, inheriting the tunnel's policy, with its own
+  optional expiry. The client keypair is **generated in your browser** — the
+  private key never reaches the server — and you get the `.conf` plus a scannable
+  **QR code** once. Per-client status, source endpoint, last-handshake age and
+  transfer are shown live; tunnel rollups show pool utilisation and aggregate
+  throughput.
+
+Connect / disconnect / stale-handshake fire as first-class events
+(`vpn_client_connected` / `vpn_client_disconnected` / `vpn_handshake_stale`), and
+WG Access posture feeds both the RAG index ("who has VPN access?", "is anyone
+connected?") and a new **Remote-access review** AI advisor (over-broad reach
+scopes, full-tunnel where split would do, stale clients to revoke, expiring
+access). Until the privileged helper is installed the page shows a clear
+"unavailable" notice rather than failing silently.
+
+---
 
 ## What's new in v5.1.0 — "UnityMatters"
 
@@ -1589,8 +1623,8 @@ A stability + polish release that tempers v5.0.0. No breaking changes.
   prioritisation, and "investigate the top alert."
 - **Signature button + polish.** A distinctive chamfer button treatment, EPSS
   exploit-probability scores fixed (the feed had moved hosts), and a
-  whole-project security + SAST/CodeQL review (see
-  [security-review-5.0.1.md](security-review-5.0.1.md)).
+  whole-project security + SAST/CodeQL review (see the latest
+  [security-review](security-review-5.2.0.md)).
 
 ## What's new in v5.0.0 — "CTRLMatters"
 

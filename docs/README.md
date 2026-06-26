@@ -38,7 +38,12 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.1.1.md](security-review-5.1.1.md)** — Latest review:
+- **[security-review-5.2.0.md](security-review-5.2.0.md)** — Latest review:
+ the new WG Access (WireGuard VPN) feature plus a whole-project server + agent
+ audit and a live authenticated penetration test, with CodeQL + Bandit + gitleaks
+ all clean (no Critical/High/Medium ships) — the privileged-helper boundary,
+ browser keygen, and two Low-severity tunnel-confinement/teardown fixes.
+- **[security-review-5.1.1.md](security-review-5.1.1.md)** — A prior review:
  a whole-project server + agent audit and a live authenticated penetration test,
  with CodeQL + Bandit + gitleaks all clean (no Critical/High/Medium ships) — the
  community-contribution surface (Proxmox cluster, hash routing, LocalAI keys, the
@@ -47,10 +52,6 @@ holds long-form docs that don't fit there.
  the first-class `fail2ban_ban` event (no new sink, post-lock fire, per-host
  coalescing), Arabic RTL CSS and the i18n batch, with SAST (Bandit/gitleaks)
  held to the bar (no Critical/High/Medium ships).
-- **[security-review-5.0.1.md](security-review-5.0.1.md)** — A prior review:
- whole-project audit + SAST (Bandit/gitleaks) + a CodeQL pass (no Critical/High/
- Medium ships) — escalation DLQ reliability, diagnostics-bundle secret hygiene,
- two cross-scope (IDOR) fixes, and the documented static-analysis FP triage.
 
 ## Release notes
 
@@ -59,6 +60,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.2.0.md](v5.2.0.md)** — "AccessMatters": **WG Access**, a built-in light
+ WireGuard road-warrior VPN (Admin → WG Access). Reach the dashboard and fleet
+ over an encrypted tunnel: tunnels carry a reach scope (dashboard-only / fleet /
+ site / group / tag), full- or split-tunnel egress and optional auto-expiry;
+ per-client `.conf` + QR configs are issued with keys generated in your browser.
+ No breaking changes.
 - **[v5.1.1.md](v5.1.1.md)** — "ClusterMatters": the Proxmox integration lists
  guests across the whole cluster (not just one node), resolving each guest's
  owning node for actions/snapshots/lifecycle, with hostname-validated node names;
@@ -80,12 +87,8 @@ The five most recent per-release notes are kept here:
  reveals and per-API-key rate limits, a webhook dead-letter queue, runtime
  maintenance mode, bulk fleet ops, one-click rollout rollback, and cross-device
  OSV batching. Every new control is opt-in; no breaking changes.
-- **[v4.10.0.md](v4.10.0.md)** — "PerimeterMatters": a fleet-wide Firewall +
- fail2ban page (view and edit nftables/iptables/ufw/firewalld rules and jails),
- an AI Insights hub (20 one-click AI reports/advisors), and three new
- fleet-knowledge (RAG) sources. No breaking changes.
 
-Older release notes (v4.7.0 and earlier) live in
+Older release notes (v4.10.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
