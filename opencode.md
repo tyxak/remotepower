@@ -538,8 +538,10 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   card, webhook-replay UI button, opnsense/routeros connect-time IP recheck (LOW, admin-set),
   response byte caps. Commits d97eeb6/8fc97ff/06a9415/dc6416e/d8d30c9. Per-release detail in
   memory [[project_v510_vigilmatters]] + [[project_v510_finalize_sweep]].
-- **v5.1.1 = "ClusterMatters"** (current — ON TEST `origin/main`, unsigned, NOT prod;
-  last prod = v5.1.0 @73adec8) — #9 Proxmox cluster-wide guest listing (@tbouquet);
+- **v5.1.1 = "ClusterMatters"** (**RELEASED TO PRODUCTION 2026-06-26 @3c4751b** — signed
+  tag, GH release+sha256(`4f6f6dd1…`)+asc, ghcr 5.1.1/5.1/latest multi-arch, both AUR pushed,
+  site+wiki live, prod CI+CodeQL green/0 alerts; prior prod = v5.1.0 @73adec8) —
+  #9 Proxmox cluster-wide guest listing (@tbouquet);
   #12 restore page from URL hash on refresh (@tbouquet, merged straight to prod then
   reconciled to test); #10 LocalAI API keys accepted; #11 separate embedding service
   (`rag.embedding_{provider,base_url,api_key}` via `ai_provider.embedding_cfg()`)
