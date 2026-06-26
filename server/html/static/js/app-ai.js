@@ -73,6 +73,13 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-posture',      rs.posture !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
+  document.getElementById('ai-rag-embed-provider').value = rag.embedding_provider || '';
+  document.getElementById('ai-rag-embed-base').value     = rag.embedding_base_url || '';
+  // Mask the embedding key as placeholder; never put it in the value or it
+  // gets re-submitted on every save (same pattern as ai-api-key).
+  const _ek = document.getElementById('ai-rag-embed-key');
+  _ek.value = '';
+  _ek.placeholder = rag.embedding_api_key ? rag.embedding_api_key : '(none)';
   document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
   document.getElementById('ai-rag-history-days').value  = (rag.history_limits || {}).max_age_days ?? 14;
   onAIProviderChange();   // refresh per-provider hint
@@ -305,6 +312,8 @@ async function saveAISettings() {
       enabled:            document.getElementById('ai-rag-enabled').checked,
       embeddings_enabled: document.getElementById('ai-rag-embeddings').checked,
       embedding_model:    document.getElementById('ai-rag-embed-model').value.trim(),
+      embedding_provider: document.getElementById('ai-rag-embed-provider').value,
+      embedding_base_url: document.getElementById('ai-rag-embed-base').value.trim(),
       max_chunks:         parseInt(document.getElementById('ai-rag-max-chunks').value, 10) || 6,
       sources: {
         docs:       document.getElementById('ai-rag-src-docs').checked,
@@ -329,9 +338,13 @@ async function saveAISettings() {
   // key when the field is left blank. '__clear__' wipes the stored key.
   const k = document.getElementById('ai-api-key').value;
   if (k) payload.api_key = k;
+  // Same for the optional embedding key: only submit if the user typed one.
+  const ek = document.getElementById('ai-rag-embed-key').value;
+  if (ek) payload.rag.embedding_api_key = ek;
   const resp = await api('POST', '/ai/config', payload);
   if (resp && !resp.error) {
     document.getElementById('ai-api-key').value = '';
+    document.getElementById('ai-rag-embed-key').value = '';
     return true;
   }
   if (resp?.error) toast('AI: ' + resp.error, 'error');

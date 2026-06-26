@@ -22829,6 +22829,14 @@ _AI_DEFAULTS = {
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
+        # Optional: run embeddings on a DIFFERENT provider/service than chat
+        # (e.g. a dedicated LocalAI box, or to add semantic search to an
+        # Anthropic deployment that has no embeddings endpoint of its own).
+        # Empty embedding_provider inherits the main chat provider. Resolved
+        # in ai_provider._embedding_cfg.
+        'embedding_provider': '',
+        'embedding_base_url': '',
+        'embedding_api_key':  '',
         # v4.1.0: where the retrieval index lives. 'json' = the bundled lexical
         # index file (default, works on every storage backend). 'postgres' =
         # pgvector chunk store (opt-in; only active when the storage backend is
@@ -22886,6 +22894,12 @@ def _ai_cfg_for_display(cfg):
     out = dict(cfg)
     if out.get('api_key'):
         out['api_key'] = '••••••••' + cfg['api_key'][-4:]
+    # The embedding-override key is a secret too -- mask it the same way
+    # (copy rag first so the cached config isn't mutated).
+    rag = out.get('rag')
+    if isinstance(rag, dict) and rag.get('embedding_api_key'):
+        out['rag'] = dict(rag)
+        out['rag']['embedding_api_key'] = '••••••••' + rag['embedding_api_key'][-4:]
     return out
 
 
@@ -22926,6 +22940,21 @@ def handle_ai_config_set():
                               'link-local/metadata address'})
         except ValueError:
             respond(400, {'error': 'invalid base_url'})
+
+    # Same SSRF guard for the optional separate embedding base URL.
+    _ebu = ((body.get('rag') or {}).get('embedding_base_url') or '').strip()
+    if _ebu:
+        _eprov = ((body.get('rag') or {}).get('embedding_provider')
+                  or ((((load(CONFIG_FILE) or {}).get('ai') or {}).get('rag') or {})
+                      .get('embedding_provider')) or '')
+        _elocal = _eprov in ('ollama', 'localai')
+        try:
+            if _url_targets_local_or_meta(urllib.parse.urlparse(_ebu),
+                                          allow_loopback=_elocal):
+                respond(400, {'error': 'embedding_base_url targets a loopback '
+                              'or link-local/metadata address'})
+        except ValueError:
+            respond(400, {'error': 'invalid embedding_base_url'})
 
     with _locked_update(CONFIG_FILE) as cfg:
         cur = dict(_AI_DEFAULTS)
@@ -22971,6 +23000,21 @@ def handle_ai_config_set():
                     cur['rag'][k] = bool(rb[k])
             if isinstance(rb.get('embedding_model'), str):
                 cur['rag']['embedding_model'] = rb['embedding_model'][:120]
+            # Optional separate embedding provider/base/key (run embeddings on a
+            # different service than chat). Provider is allow-listed to the
+            # embedding-capable set; anything else clears the override.
+            if isinstance(rb.get('embedding_provider'), str):
+                _ep = rb['embedding_provider'].strip().lower()
+                cur['rag']['embedding_provider'] = (
+                    _ep if _ep in ai_provider.EMBEDDING_PROVIDERS else '')
+            if isinstance(rb.get('embedding_base_url'), str):
+                cur['rag']['embedding_base_url'] = rb['embedding_base_url'].strip()[:200]
+            # Embedding key: only update if non-empty; '__clear__' wipes it
+            # (same UX as the main api_key).
+            if rb.get('embedding_api_key') == '__clear__':
+                cur['rag']['embedding_api_key'] = ''
+            elif rb.get('embedding_api_key'):
+                cur['rag']['embedding_api_key'] = str(rb['embedding_api_key'])[:512]
             mc = rb.get('max_chunks')
             if isinstance(mc, int) and 1 <= mc <= 30:
                 cur['rag']['max_chunks'] = mc

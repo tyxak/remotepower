@@ -2409,6 +2409,16 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-embeddings"> Use embeddings for semantic search</label>
               <div id="ai-rag-embeddings-hint" class="meta-sm"></div>
               <input type="text" id="ai-rag-embed-model" class="form-input isl-774" placeholder="(provider default embedding model)">
+              <label class="form-label mt-8">Embedding provider</label>
+              <div class="meta-sm mb-6">Optional: run embeddings on a different service than chat (e.g. a dedicated LocalAI box), or add semantic search to an Anthropic deployment that has no embeddings endpoint.</div>
+              <select id="ai-rag-embed-provider" class="form-input">
+                <option value="">Same as chat provider</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama</option>
+                <option value="localai">LocalAI</option>
+              </select>
+              <input type="text" id="ai-rag-embed-base" class="form-input mt-8" placeholder="(embedding provider default base URL)">
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="ai-rag-embed-key" class="form-input mt-8" placeholder="(unchanged)" autocomplete="off"></form>
             </div>
 
             <div class="settings-row isl-72 isl-773">
