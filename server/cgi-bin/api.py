@@ -5110,10 +5110,37 @@ def _coerce_priority(v, default=4):
     return n if n in TICKET_PRIORITIES else default
 
 
+TICKET_SLA_DEFAULT_HOURS = {1: 1, 2: 4, 3: 24, 4: 72}   # P1..P4 response targets
+
+
+def _ticket_sla_policy():
+    """Per-priority SLA response targets in hours (config override merged on defaults)."""
+    raw = (load(CONFIG_FILE) or {}).get('ticket_sla') or {}
+    out = dict(TICKET_SLA_DEFAULT_HOURS)
+    for k in (1, 2, 3, 4):
+        try:
+            v = float(raw.get(str(k), raw.get(k)))
+            if v > 0:
+                out[k] = v
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def _ticket_sla(t, policy=None):
+    """Return (due_ts, breached) for a ticket from its priority + created_at."""
+    policy = policy or _ticket_sla_policy()
+    hours = policy.get(_coerce_priority(t.get('priority', 4)), 72)
+    due = int(t.get('created_at') or 0) + int(hours * 3600)
+    open_st = ('ongoing', 'pending_customer', 'pending_internal')
+    breached = bool(t.get('status') in open_st and int(time.time()) > due)
+    return due, breached
+
+
 def _ticket_public(t):
     return {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
             'device_id', 'device_name', 'alertid', 'to_email', 'parent', 'priority',
-            'assignee', 'affected_devices', 'new_reply', 'created_by', 'created_at', 'updated_at')}
+            'assignee', 'group', 'affected_devices', 'new_reply', 'created_by', 'created_at', 'updated_at')}
 
 
 def handle_tickets():
@@ -5217,6 +5244,7 @@ def handle_tickets():
             'to_email': _sanitize_str(str(body.get('to_email', '')), 200),
             'affected_devices': affected, 'parent': parent_id, 'priority': priority,
             'assignee': _sanitize_str(str(body.get('assignee') or actor), 64),
+            'group': _sanitize_str(str(body.get('group', '')), 64),
             'created_by': actor, 'created_at': now, 'updated_at': now,
             'messages': [],
         })
@@ -5269,7 +5297,35 @@ def handle_ticket_get(tid):
     resp['children'] = [
         {'id': c['id'], 'number': c['number'], 'subject': c.get('subject', ''), 'status': c.get('status', '')}
         for c in all_t if c.get('parent') == t['id']]
+    _due, _breached = _ticket_sla(t)
+    resp['sla_due'] = _due
+    resp['sla_breached'] = _breached
     respond(200, {'ok': True, 'ticket': resp})
+
+
+def handle_ticket_sla():
+    """GET/POST /api/tickets/sla — per-priority SLA response targets (hours)."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    if method() == 'GET':
+        require_auth()
+        pol = _ticket_sla_policy()
+        respond(200, {'ok': True, 'sla': {str(k): pol[k] for k in (1, 2, 3, 4)}})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    out = {}
+    for k in (1, 2, 3, 4):
+        try:
+            v = float(body.get(str(k), body.get(k)))
+        except (TypeError, ValueError):
+            v = TICKET_SLA_DEFAULT_HOURS[k]
+        out[str(k)] = max(0.1, min(8760.0, v))   # 6 min .. 1 year
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['ticket_sla'] = out
+    audit_log(actor, 'ticket_sla_save', detail=str(out))
+    respond(200, {'ok': True, 'sla': out})
 
 
 def handle_ticket_update(tid):
@@ -5301,6 +5357,8 @@ def handle_ticket_update(tid):
                 _asg = _sanitize_str(str(body['assignee']), 64).strip()
                 if _asg == '' or _asg in (load(USERS_FILE) or {}):
                     t['assignee'] = _asg
+            if 'group' in body:
+                t['group'] = _sanitize_str(str(body['group']), 64)
             if 'affected_devices' in body and isinstance(body['affected_devices'], list):
                 _devs = load(DEVICES_FILE)
                 _aff = [str(x).strip() for x in body['affected_devices'][:50]
@@ -5656,7 +5714,7 @@ def _fetch_ticket_replies():
                             'device_id': '', 'device_name': '',
                             'alert_id': '', 'alertid': '',
                             'to_email': frm_email, 'affected_devices': [], 'parent': '',
-                            'priority': 4, 'assignee': '', 'new_reply': True,
+                            'priority': 4, 'assignee': '', 'group': '', 'new_reply': True,
                             'created_by': 'email', 'created_at': now, 'updated_at': now,
                             'messages': [{'ts': now, 'author': frm, 'body': text,
                                           'channel': 'email', 'direction': 'in'}],
@@ -30454,6 +30512,8 @@ def handle_home():
         'tickets_open': (sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
                              if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal'))
                          if cfg.get('tickets_enabled') else 0),
+        'ticket_sla': ({str(k): _ticket_sla_policy()[k] for k in (1, 2, 3, 4)}
+                       if cfg.get('tickets_enabled') else {}),
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
         # integration widget in the dashboard.
         'show_homelab': cfg.get('show_homelab', True) is not False,
@@ -48374,6 +48434,8 @@ def _build_exact_routes():
         ('GET', '/api/tickets/imap'): handle_ticket_imap_get,
         ('POST', '/api/tickets/imap'): handle_ticket_imap_save,
         ('POST', '/api/tickets/imap/test'): handle_ticket_imap_test,
+        ('GET', '/api/tickets/sla'): handle_ticket_sla,
+        ('POST', '/api/tickets/sla'): handle_ticket_sla,
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,

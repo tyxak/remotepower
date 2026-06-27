@@ -2174,6 +2174,16 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-verify-tls" checked> Verify TLS certificate (uncheck to ignore — self-signed / internal IMAP)</label></div>
             <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
             <div id="tkimap-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
+
+            <h3 class="mt-16">Ticket SLA targets</h3>
+            <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
+            <div class="form-row mt-8">
+              <div class="form-group"><label class="form-label" for="tksla-1">P1 Major (hours)</label><input type="number" id="tksla-1" class="form-input" min="0.1" step="0.5" value="1"></div>
+              <div class="form-group"><label class="form-label" for="tksla-2">P2 Critical (hours)</label><input type="number" id="tksla-2" class="form-input" min="0.1" step="0.5" value="4"></div>
+              <div class="form-group"><label class="form-label" for="tksla-3">P3 Warning (hours)</label><input type="number" id="tksla-3" class="form-input" min="0.1" step="0.5" value="24"></div>
+              <div class="form-group"><label class="form-label" for="tksla-4">P4 Low (hours)</label><input type="number" id="tksla-4" class="form-input" min="0.1" step="0.5" value="72"></div>
+            </div>
+            <div class="row-6 mt-8"><button class="btn-primary" data-action="saveTicketSla">Save SLA targets</button></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">

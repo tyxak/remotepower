@@ -2032,7 +2032,7 @@ function _registerDevicesMinimalTable() {
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
         <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
-        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
+        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${(window._ticketDevices && window._ticketDevices.has(d.id)) ? ` <span class="hw-pill hw-warn pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default>${_icon('list', 12)} ticket</span>` : ''}${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
@@ -2912,7 +2912,7 @@ async function loadSettings() {
   const _tke = document.getElementById('cfg-tickets-enabled');
   if (_tke) _tke.checked = !!data.tickets_enabled;
   document.getElementById('nav-tickets')?.classList.toggle('d-none', !data.tickets_enabled);
-  if (data.tickets_enabled) loadTicketImap();
+  if (data.tickets_enabled) { loadTicketImap(); loadTicketSla(); }
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3853,7 +3853,9 @@ function _tkRowHtml(t, byId, childrenOf) {
     + (isMaster ? ' <span class="patch-badge warn fs-11" title="Master ticket with sub-tickets">master</span>' : '');
   const subjCell = `${isChild ? '<span class="c-muted" title="Sub-ticket">↳ </span>' : ''}${escHtml(t.subject || '')}`
     + (isChild && parentNo ? ` <span class="patch-badge fs-11" title="Sub-ticket of ${escAttr(parentNo)}">child of ${escHtml(parentNo)}</span>` : '')
-    + (t.new_reply ? ' <span class="patch-badge warn fs-11" title="New reply from customer">● new reply</span>' : '');
+    + (t.new_reply ? ' <span class="patch-badge warn fs-11" title="New reply from customer">● new reply</span>' : '')
+    + (t._slaBreached ? ' <span class="sev-pill sev-critical fs-11" title="SLA breached">SLA</span>' : '')
+    + (t.group ? ` <span class="meta-sm-nm" title="Group">${escHtml(t.group)}</span>` : '');
   return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}">
     <td class="mono-12">${numCell}</td>
     <td>${subjCell}</td>
@@ -3885,19 +3887,29 @@ async function loadTickets() {
     if (Array.isArray(ur)) ur.forEach(u => { teamOf[u.username] = (u.team || '').trim(); });
     myTeam = (teamOf[me] || '').trim();
   } catch (e) { teamOf = {}; }
+  // SLA policy (hours per priority) → flag breached open tickets in the list.
+  let slaPol = {};
+  try { const sr = await api('GET', '/tickets/sla'); if (sr && sr.sla) slaPol = sr.sla; } catch (e) { slaPol = {}; }
   const data = await api('GET', '/tickets' + (qs.toString() ? '?' + qs.toString() : ''));
   const fail = '<tr><td colspan="8" class="empty-state-sm">Failed to load.</td></tr>';
   if (!data) { ['new', 'mine', 'team', 'other'].forEach(k => { const e = document.getElementById('tk-tbody-' + k); if (e) e.innerHTML = fail; }); return; }
   const tks = data.tickets || [];
+  const nowS = Math.floor(Date.now() / 1000);
+  tks.forEach(t => {
+    const hrs = parseFloat(slaPol[String(_coercePrio(t.priority))] || 0);
+    t._slaBreached = _tkIsOpen(t) && hrs > 0 && (t.created_at || 0) + hrs * 3600 < nowS;
+  });
   const byId = {}; tks.forEach(t => { byId[t.id] = t; });
   const childrenOf = {}; tks.forEach(t => { if (t.parent) (childrenOf[t.parent] = childrenOf[t.parent] || []).push(t); });
   const bNew = [], bMine = [], bTeam = [], bOther = [];
   tks.forEach(t => {
     const open = _tkIsOpen(t);
-    if (open && !t.assignee) bNew.push(t);
-    else if (open && t.assignee === me) bMine.push(t);
-    else if (open && myTeam && (teamOf[t.assignee] || '') === myTeam) bTeam.push(t);
-    else bOther.push(t);   // other people's open (no shared team) + all closed
+    const grp = t.group || '';
+    if (!open) { bOther.push(t); return; }                               // all closed
+    if (t.assignee === me) { bMine.push(t); return; }                    // mine
+    if (myTeam && (grp === myTeam || (teamOf[t.assignee] || '') === myTeam)) { bTeam.push(t); return; }  // my team
+    if (!t.assignee && !grp) { bNew.push(t); return; }                   // untriaged
+    bOther.push(t);                                                      // others' open
   });
   const getCols = t => ({
     number: t.number || 0, subject: (t.subject || '').toLowerCase(), type: t.type || '',
@@ -4006,6 +4018,10 @@ async function openTicket(tid) {
   window._tkDetailDevs = (t.affected_devices_resolved && t.affected_devices_resolved.length)
     ? t.affected_devices_resolved.map(d => ({ id: String(d.id), name: d.name || String(d.id) }))
     : (t.device_id ? [{ id: String(t.device_id), name: t.device_name || String(t.device_id) }] : []);
+  const slaStr = !t.sla_due ? '—'
+    : (t.sla_breached
+        ? `<span class="patch-badge warn fs-11" title="SLA breached">⚠ breached — was due ${escHtml(new Date(t.sla_due * 1000).toLocaleString())}</span>`
+        : `<span class="fs-12">due ${escHtml(new Date(t.sla_due * 1000).toLocaleString())}</span>`);
   document.getElementById('tk-detail-body').innerHTML = `
     <div class="form-row">
       <div class="form-group"><label class="form-label">Status</label><select id="tk-d-status" class="form-input">${statusOpts}</select></div>
@@ -4014,10 +4030,17 @@ async function openTicket(tid) {
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Assignee</label><select id="tk-d-assignee" class="form-input">${assigneeOpts}</select></div>
+      <div class="form-group"><label class="form-label">Group / team</label><input type="text" id="tk-d-group" class="form-input" value="${escAttr(t.group || '')}" placeholder="e.g. NOC"></div>
+      <div class="form-group"><label class="form-label">SLA</label><div class="mt-6">${slaStr}</div></div>
+    </div>
+    <div class="form-row">
       <div class="form-group"><label class="form-label">Contact email</label><input type="text" id="tk-d-email" class="form-input" value="${escAttr(t.to_email || '')}" placeholder="contact@customer"></div>
       <div class="form-group"><label class="form-label">Parent ticket #</label><input type="text" id="tk-d-parent" class="form-input" value="${escAttr(t.parent_ticket ? String(t.parent_ticket.number) : '')}" placeholder="e.g. 182"></div>
     </div>
-    <div class="row-6 mb-12"><button class="btn-secondary" data-action="takeTicket" data-arg="${escAttr(tid)}" title="Assign this ticket to yourself">Take ownership</button></div>
+    <div class="row-6 mb-12">
+      <button class="btn-secondary" data-action="takeTicket" data-arg="${escAttr(tid)}" title="Assign this ticket to you and your team">Take ownership</button>
+      <button class="btn-secondary" data-action="assignTicketGroup" data-arg="${escAttr(tid)}" title="Hand off to a group — clears the assignee and sets the ticket to Pending Internal">Assign to group…</button>
+    </div>
     <div class="form-group">
       <label class="form-label">Affected devices</label>
       <div id="tk-d-dev-chips" class="mb-6"></div>
@@ -4084,6 +4107,7 @@ async function saveTicketField(tid) {
     to_email: document.getElementById('tk-d-email')?.value || '',
     parent_number: document.getElementById('tk-d-parent')?.value || '',
     assignee: document.getElementById('tk-d-assignee')?.value || '',
+    group: document.getElementById('tk-d-group')?.value || '',
     affected_devices: (window._tkDetailDevs || []).map(d => d.id),
   });
   if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
@@ -4101,8 +4125,17 @@ async function saveTicketField(tid) {
   openTicket(tid); loadTickets();
 }
 async function takeTicket(tid) {
-  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { assignee: getMe() });
+  // Taking ownership assigns you AND stamps your team as the ticket's group.
+  const myTeam = (typeof _uiPrefs !== 'undefined' && _uiPrefs && _uiPrefs.team) || '';
+  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { assignee: getMe(), group: myTeam });
   if (r?.ok) { toast('Ticket assigned to you', 'success'); openTicket(tid); loadTickets(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function assignTicketGroup(tid) {
+  const grp = await uiPrompt({ title: 'Assign to group', message: 'Hand this ticket to a group. This clears the current assignee and sets the ticket to Pending Internal.', placeholder: 'e.g. NOC', confirmText: 'Assign' });
+  if (grp === null) return;
+  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { group: (grp || '').trim(), assignee: '', status: 'pending_internal' });
+  if (r?.ok) { toast('Ticket assigned to group', 'success'); openTicket(tid); loadTickets(); }
   else toast(r?.error || 'Failed', 'error');
 }
 
@@ -4209,6 +4242,18 @@ async function saveTicketImap() {
   const pw = v('tkimap-pass'); if (pw) body.password = pw;
   const r = await api('POST', '/tickets/imap', body);
   if (r?.ok) { toast('Ticket mailbox saved', 'success'); loadTicketImap(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function loadTicketSla() {
+  const r = await api('GET', '/tickets/sla');
+  if (!r || !r.sla) return;
+  [1, 2, 3, 4].forEach(p => { const e = document.getElementById('tksla-' + p); if (e && r.sla[String(p)] != null) e.value = r.sla[String(p)]; });
+}
+async function saveTicketSla() {
+  const body = {};
+  [1, 2, 3, 4].forEach(p => { body[String(p)] = parseFloat(document.getElementById('tksla-' + p)?.value) || 0; });
+  const r = await api('POST', '/tickets/sla', body);
+  if (r?.ok) { toast('SLA targets saved', 'success'); loadTicketSla(); }
   else toast(r?.error || 'Failed', 'error');
 }
 function _tkTestResult(msg, ok) {

@@ -1424,6 +1424,7 @@
     "Test IMAP": { "zh": "测试 IMAP", "hi": "IMAP जाँचें", "es": "Probar IMAP", "ar": "اختبار IMAP" },
     "Save signature": { "zh": "保存签名", "hi": "हस्ताक्षर सहेजें", "es": "Guardar firma", "ar": "حفظ التوقيع" },
     "Save team": { "zh": "保存团队", "hi": "टीम सहेजें", "es": "Guardar equipo", "ar": "حفظ الفريق" },
+    "Save SLA targets": { "zh": "保存 SLA 目标", "hi": "SLA लक्ष्य सहेजें", "es": "Guardar objetivos de SLA", "ar": "حفظ أهداف اتفاقية مستوى الخدمة" },
     "Saved filter views": { "zh": "已保存的筛选视图", "hi": "सहेजे filter views", "es": "Vistas de filtro guardadas", "ar": "عروض التصفية المحفوظة" },
     "Saved script": { "zh": "已保存的脚本", "hi": "सहेजी script", "es": "Script guardado", "ar": "سكربت محفوظ" },
     "Scan all devices": { "zh": "扫描所有设备", "hi": "सभी devices scan करें", "es": "Escanear todos los dispositivos", "ar": "مسح كل الأجهزة" },
