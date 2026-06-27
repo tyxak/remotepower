@@ -610,8 +610,19 @@ def cmd_show(iface):
         sys.stdout.write("")
         sys.stdout.flush()
         sys.exit(0)
-    # Raw dump for the server to parse.
-    sys.stdout.write(out)
+    # The first dump line is the INTERFACE line, whose first tab-separated field
+    # is this hub's PRIVATE key (`wg show <iface> dump` format:
+    # private-key  public-key  listen-port  fwmark). The caller is the
+    # unprivileged CGI and only needs the per-peer lines; per this helper's
+    # security model the hub private key is root-only. Redact field 0 of line 0
+    # so the private key never crosses the privilege boundary (the server already
+    # skips line 0, so this changes nothing it consumes).
+    lines = out.split("\n")
+    if lines and "\t" in lines[0]:
+        head = lines[0].split("\t")
+        head[0] = "(hidden)"
+        lines[0] = "\t".join(head)
+    sys.stdout.write("\n".join(lines))
     sys.stdout.flush()
     sys.exit(0)
 
