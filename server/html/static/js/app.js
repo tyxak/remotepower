@@ -2992,6 +2992,7 @@ async function loadSettings() {
   document.getElementById('cfg-smtp-host').value      = data.smtp_host || '';
   document.getElementById('cfg-smtp-port').value      = data.smtp_port || 587;
   document.getElementById('cfg-smtp-tls').value       = data.smtp_tls || 'starttls';
+  document.getElementById('cfg-smtp-verify-tls').checked = data.smtp_verify_tls !== false;
   document.getElementById('cfg-smtp-from').value      = data.smtp_from || '';
   document.getElementById('cfg-smtp-username').value  = data.smtp_username || '';
   document.getElementById('cfg-smtp-password').value  = '';  // never echo back
@@ -3190,6 +3191,7 @@ async function saveSettings(btn) {
     smtp_host:       document.getElementById('cfg-smtp-host').value.trim(),
     smtp_port:       parseInt(document.getElementById('cfg-smtp-port').value) || 587,
     smtp_tls:        document.getElementById('cfg-smtp-tls').value,
+    smtp_verify_tls: document.getElementById('cfg-smtp-verify-tls').checked,
     smtp_from:       document.getElementById('cfg-smtp-from').value.trim(),
     smtp_username:   document.getElementById('cfg-smtp-username').value.trim(),
     smtp_helo_name:  document.getElementById('cfg-smtp-helo').value.trim(),

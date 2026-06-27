@@ -15109,6 +15109,7 @@ def handle_config_get():
     safe.setdefault('smtp_host', '')
     safe.setdefault('smtp_port', 587)
     safe.setdefault('smtp_tls',  'starttls')
+    safe.setdefault('smtp_verify_tls', cfg.get('smtp_verify_tls', True) is not False)
     safe.setdefault('smtp_from', '')
     safe.setdefault('smtp_username', '')
     safe.setdefault('smtp_helo_name', '')
@@ -15475,6 +15476,8 @@ def handle_config_save():
         if v not in ('starttls', 'tls', 'plain'):
             respond(400, {'error': 'smtp_tls must be starttls, tls, or plain'})
         cfg['smtp_tls'] = v
+    if 'smtp_verify_tls' in body:
+        cfg['smtp_verify_tls'] = bool(body['smtp_verify_tls'])
     if 'smtp_from' in body:
         v = _sanitize_str(body['smtp_from'], 255)
         if v and '@' not in v:

@@ -97,6 +97,17 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     # accept the connection anonymously (helpful for localhost relays).
     password, _from_env = resolve_smtp_password(cfg)
     helo     = (cfg.get('smtp_helo_name') or '').strip() or socket.gethostname()
+    # Opt-out of TLS certificate verification — for a localhost / internal relay
+    # whose cert isn't valid for the connect hostname (mirrors the ticket IMAP
+    # verify_tls toggle). Default ON; only disable for trusted internal relays.
+    verify_tls = cfg.get('smtp_verify_tls', True) is not False
+
+    def _tls_ctx():
+        c = ssl.create_default_context()
+        if not verify_tls:
+            c.check_hostname = False
+            c.verify_mode = ssl.CERT_NONE
+        return c
 
     msg = MIMEText(body, _charset='utf-8')
     msg['Subject'] = subject
@@ -112,9 +123,8 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
 
     try:
         if tls_mode == 'tls':
-            ctx = ssl.create_default_context()
             client = smtplib.SMTP_SSL(host, port, timeout=SMTP_CONNECT_TIMEOUT,
-                                        context=ctx, local_hostname=helo)
+                                        context=_tls_ctx(), local_hostname=helo)
         else:
             client = smtplib.SMTP(host, port, timeout=SMTP_CONNECT_TIMEOUT,
                                     local_hostname=helo)
@@ -123,8 +133,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
                 if not client.has_extn('starttls'):
                     client.quit()
                     raise SmtpError('server does not advertise STARTTLS')
-                ctx = ssl.create_default_context()
-                client.starttls(context=ctx)
+                client.starttls(context=_tls_ctx())
                 client.ehlo()  # re-EHLO required after STARTTLS
 
         if username:
