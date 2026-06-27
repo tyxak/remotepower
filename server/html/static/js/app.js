@@ -3944,13 +3944,14 @@ async function loadTicketImap() {
   set('tkimap-enabled', c.enabled); set('tkimap-host', c.host || ''); set('tkimap-port', c.port || 993);
   set('tkimap-user', c.username || ''); set('tkimap-folder', c.folder || 'INBOX'); set('tkimap-interval', c.interval || 300);
   set('tkimap-ssl', c.use_ssl);
+  set('tkimap-verify-tls', c.verify_tls);
   const pw = document.getElementById('tkimap-pass'); if (pw) pw.placeholder = c.password_set ? '•••••• (set — leave blank to keep)' : 'password';
 }
 async function saveTicketImap() {
   const v = id => document.getElementById(id)?.value;
   const ck = id => document.getElementById(id)?.checked;
   const body = { enabled: ck('tkimap-enabled'), host: (v('tkimap-host') || '').trim(), port: parseInt(v('tkimap-port')) || 993,
-    username: v('tkimap-user') || '', folder: v('tkimap-folder') || 'INBOX', interval: parseInt(v('tkimap-interval')) || 300, use_ssl: ck('tkimap-ssl') };
+    username: v('tkimap-user') || '', folder: v('tkimap-folder') || 'INBOX', interval: parseInt(v('tkimap-interval')) || 300, use_ssl: ck('tkimap-ssl'), verify_tls: ck('tkimap-verify-tls') };
   const pw = v('tkimap-pass'); if (pw) body.password = pw;
   const r = await api('POST', '/tickets/imap', body);
   if (r?.ok) { toast('Ticket mailbox saved', 'success'); loadTicketImap(); }
