@@ -15343,6 +15343,8 @@ function _renderHomeActivity(fleetEvents) {
     'av_infected',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
+    // v5.3.0: helpdesk ticket SLA breach
+    'ticket_sla_breached',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -15544,6 +15546,9 @@ function _homeActivityAttrs(event, p) {
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
       return `${base} data-home-act="${devId ? 'detail' : 'vpn'}"`;
+    // v5.3.0: ticket SLA breach → the Tickets page
+    case 'ticket_sla_breached':
+      return `${base} data-home-act="tickets"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -21991,6 +21996,9 @@ function _homeNavAction(btn) {
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn':
       showPage('vpn', document.querySelector('.nav-btn[data-page="vpn"]'));
+      break;
+    case 'tickets':
+      showPage('tickets', document.querySelector('.nav-btn[data-page="tickets"]'));
       break;
     default:
       if (devId) openDetail(devId, devName);

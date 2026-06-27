@@ -307,6 +307,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'av_infected',                           # v5.1.0 endpoint AV/malware
             'vpn_client_connected', 'vpn_client_disconnected',  # v5.2.0 WG Access
             'vpn_handshake_stale',                   # v5.2.0 WG Access
+            'ticket_sla_breached',                   # v5.3.0 helpdesk SLA breach
             'mount_recovered',                       # v3.14.0 fix
             'temp_high', 'temp_normal',              # v4.1.0 temperature
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew

@@ -897,6 +897,7 @@ WEBHOOK_EVENTS = (
     ('vpn_client_connected',    'A WG Access VPN client connected',                  True),
     ('vpn_client_disconnected', 'A WG Access VPN client disconnected',               True),
     ('vpn_handshake_stale',     'A WG Access VPN client handshake went stale',        True),
+    ('ticket_sla_breached',     'A helpdesk ticket passed its SLA response target',   True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -4451,6 +4452,7 @@ _ALERT_RULES = {
     'av_infected':                ('high', None),        # v5.1.0: active malware/rootkit
     'vpn_client_disconnected':    ('medium', None),      # v5.2.0
     'vpn_handshake_stale':        ('medium', None),      # v5.2.0
+    'ticket_sla_breached':        (None, None),          # v5.3.0: severity from ticket priority
 }
 
 # Map recover event → firing event it resolves
@@ -4604,6 +4606,7 @@ CHANNEL_KINDS = [
     # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA).
     # v5.1.0: av_posture now also carries the av_infected alert event.
     ('av_posture',      'Malware / AV posture',        'operational', ['av_infected']),
+    ('tickets',         'Helpdesk tickets',            'operational', ['ticket_sla_breached']),  # v5.3.0
     ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
     # v3.7.0: CMDB credential rotation due (NA)
     ('cred_rotation',   'Credential rotation due (NA)', 'operational', []),
@@ -4825,6 +4828,8 @@ def _alert_severity(event, payload):
     if event == 'integration_down':
         s = str(p.get('severity', '')).lower()
         return s if s in ('low', 'medium', 'high', 'critical') else 'medium'
+    if event == 'ticket_sla_breached':
+        return 'high' if int(p.get('priority') or 4) <= 2 else 'medium'
     return None
 
 
@@ -4882,6 +4887,9 @@ def _alert_title(event, payload):
         _n = p.get('infected') or 0
         return (f'Malware detected on {name}: {_tool}'
                 + (f' — {_n} infected item(s)' if _n else ' reported an infection'))[:200]
+    if event == 'ticket_sla_breached':
+        return (f'Ticket #RP{int(p.get("number") or 0):06d} SLA breached: '
+                f'{(p.get("subject") or "")[:80]}')[:200]
     if event == 'ip_blacklist_cleared':
         return f'IP reputation cleared: {p.get("ip", "?")}'
     if event == 'drift_detected':
@@ -5781,6 +5789,45 @@ def run_ticket_imap_if_due():
     _fetch_ticket_replies()
 
 
+TICKET_SLA_CHECK_INTERVAL = 300   # how often the SLA-breach sweep runs (s)
+
+
+def run_ticket_sla_if_due():
+    """v5.3.0: edge-fire `ticket_sla_breached` once when an OPEN ticket passes its
+    SLA target (priority-derived hours from creation). Cadence-gated; the
+    `sla_breach_fired` flag de-dups so a breach pages once, and is cleared when the
+    ticket closes. Collect-then-fire: webhooks go out AFTER the TICKETS_FILE lock."""
+    if not _tickets_enabled():
+        return
+    now = int(time.time())
+    st0 = load(TICKETS_FILE) or {}
+    try:
+        if now - int(st0.get('sla_last_check', 0) or 0) < TICKET_SLA_CHECK_INTERVAL:
+            return
+    except (TypeError, ValueError):
+        pass
+    policy = _ticket_sla_policy()
+    pending = []
+    with _LockedUpdate(TICKETS_FILE) as store:
+        store['sla_last_check'] = now
+        for t in (store.get('tickets') or []):
+            _due, breached = _ticket_sla(t, policy)
+            if breached and not t.get('sla_breach_fired'):
+                t['sla_breach_fired'] = True
+                pending.append({
+                    'number': t.get('number'), 'ticket_id': t.get('id'),
+                    'subject': t.get('subject', ''),
+                    'priority': _coerce_priority(t.get('priority', 4)),
+                    'assignee': t.get('assignee', ''), 'group': t.get('group', ''),
+                    'device_id': t.get('device_id', ''),
+                    'device_name': t.get('device_name', ''), 'due': _due,
+                })
+            elif t.get('sla_breach_fired') and t.get('status') in ('resolved', 'closed'):
+                t.pop('sla_breach_fired', None)   # allow a future re-open to re-page
+    for pay in pending:
+        fire_webhook('ticket_sla_breached', pay)
+
+
 def handle_ticket_imap_get():
     require_admin_auth()
     c = _ticket_imap_cfg()
@@ -6639,6 +6686,7 @@ def _webhook_title(event):
         'resolver_recovered':    'DNS Resolution Recovered',
         'fail2ban_ban':          'fail2ban Ban',
         'av_infected':           'Malware Detected',
+        'ticket_sla_breached':   'Ticket SLA Breached',
         'snmp_trap_received':    'SNMP Trap',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
@@ -7421,6 +7469,12 @@ def _webhook_message(event, payload):
                  'vpn_client_disconnected': 'disconnected',
                  'vpn_handshake_stale': 'handshake went stale'}
         return f'WG Access client "{cn}" on tunnel "{tn}" {verbs.get(event, event)}'
+    elif event == 'ticket_sla_breached':
+        return (f'Ticket #RP{int(payload.get("number") or 0):06d} '
+                f'"{(payload.get("subject") or "")[:80]}" (P{payload.get("priority", 4)}) '
+                f'breached its SLA target'
+                + (f' — assigned to {payload.get("assignee")}'
+                   if payload.get('assignee') else ' — unassigned'))
     elif event == 'command_queued':
         return f'{payload.get("actor", "system")} queued "{payload.get("command", "?")}" on {name}'
     elif event == 'command_executed':
@@ -24007,6 +24061,11 @@ _AI_DEFAULTS = {
             # addresses + state only), so the "remote_access" advisor + Q&A like
             # "who has VPN access?" / "is anyone connected?" have grounding.
             'vpn':          True,
+            # v5.3.0: built-in helpdesk tickets — open tickets, SLA, assignees,
+            # affected hosts. Gated on the ticket system being enabled. Grounds
+            # the "helpdesk_triage" advisor + Q&A like "what tickets are open for
+            # host X?" / "what's breaching SLA?".
+            'tickets':      True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -24213,7 +24272,7 @@ def handle_ai_config_set():
                 for k in ('docs', 'live_state', 'cmdb', 'history',
                           'drift', 'compliance', 'metrics',
                           'firewall', 'integrations', 'backups', 'dns_email',
-                          'posture', 'vpn'):
+                          'posture', 'vpn', 'tickets'):
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -24345,6 +24404,8 @@ def _rag_source_files(sources):
     # v5.2.0: WG Access posture is derived from the VPN store.
     if sources.get('vpn'):
         files.append(VPN_FILE)
+    if sources.get('tickets'):
+        files.append(TICKETS_FILE)
     return files
 
 
@@ -24639,6 +24700,12 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_vpn_corpus(load(VPN_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: vpn source failed: {e}\n')
+
+    if sources.get('tickets') and _tickets_enabled():
+        try:
+            docs += rag_index.build_tickets_corpus(load(TICKETS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: tickets source failed: {e}\n')
 
     return docs
 
@@ -49482,6 +49549,7 @@ def main():
     # v4.8.0: poll the DMARC RUA mailbox over IMAP when due (no-op unless enabled).
     _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
     _safe(run_ticket_imap_if_due, 'run_ticket_imap_if_due')
+    _safe(run_ticket_sla_if_due, 'run_ticket_sla_if_due')   # v5.3.0 SLA breach sweep
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
@@ -50421,6 +50489,7 @@ _AI_PROMPT_LABELS = {
     'supply_chain':           'Supply-chain / SBOM Q&A',
     'host_profile':           'Host one-pager',
     'remote_access':          'Remote-access (VPN) review',
+    'helpdesk_triage':        'Helpdesk triage',
     # v3.0.1: Mitigation playbook prompts. One per alert category so a user
     # can tune the AI's tone independently — e.g. terse for service alerts,
     # more cautious for disk cleanup proposals.

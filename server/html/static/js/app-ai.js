@@ -72,6 +72,7 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-dnsemail',     rs.dns_email !== false);
   _setSrc('ai-rag-src-posture',      rs.posture !== false);
   _setSrc('ai-rag-src-vpn',          rs.vpn !== false);
+  _setSrc('ai-rag-src-tickets',      rs.tickets !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -335,6 +336,7 @@ async function saveAISettings() {
         dns_email:    !!document.getElementById('ai-rag-src-dnsemail')?.checked,
         posture:      !!document.getElementById('ai-rag-src-posture')?.checked,
         vpn:          !!document.getElementById('ai-rag-src-vpn')?.checked,
+        tickets:      !!document.getElementById('ai-rag-src-tickets')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
@@ -902,6 +904,7 @@ const AI_INSIGHTS = [
   { key: 'supply_chain',        cat: 'advisors',  label: 'Supply-chain / SBOM Q&A',     desc: 'Are we exposed to a given CVE or package?', input: 'Which CVE or package are you asking about?', msg: "Supply-chain question — are we exposed to: %s" },
   { key: 'host_profile',        cat: 'advisors',  label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
   { key: 'remote_access',       cat: 'advisors',  label: 'Remote-access review',         desc: 'WG Access VPN reach scopes, stale clients, expiring access.', msg: "Review our WG Access (WireGuard) remote-access posture — over-broad reach scopes, full-tunnel where split would do, stale or never-connected clients to revoke, and access expiring soon." },
+  { key: 'helpdesk_triage',     cat: 'advisors',  label: 'Helpdesk triage',              desc: 'Open tickets: SLA breaches, unassigned high-priority, what to work next.', msg: "Triage our open helpdesk tickets — flag SLA breaches and at-risk tickets, unassigned high-priority work, tickets stuck too long, likely duplicates to link, and the order to tackle them in." },
 ];
 
 const _AI_CATS = [

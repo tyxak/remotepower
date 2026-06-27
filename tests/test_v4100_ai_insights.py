@@ -34,6 +34,8 @@ NEW_KEYS = [
     "explain_tls", "prioritise_cves", "investigate_alert",
     # v5.2.0: WG Access remote-access advisor
     "remote_access",
+    # v5.3.0: helpdesk ticket triage advisor
+    "helpdesk_triage",
 ]
 
 
@@ -73,7 +75,7 @@ class TestHub(unittest.TestCase):
     def test_every_card_categorised(self):
         block = _APP_JS[_APP_JS.index("const AI_INSIGHTS ="):_APP_JS.index("const _AI_CATS")]
         cats = re.findall(r"cat:\s*'([a-z]+)'", block)
-        self.assertEqual(len(cats), 24, "every card must carry a category")
+        self.assertEqual(len(cats), 25, "every card must carry a category")
         self.assertLessEqual(set(cats),
                              {"proactive", "incident", "planning", "nlconfig", "advisors"})
 

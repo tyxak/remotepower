@@ -1227,6 +1227,57 @@ def build_vpn_corpus(store, now=0):
     return docs
 
 
+def build_tickets_corpus(store, resolve_device=None, now=0):
+    """v5.3.0: built-in helpdesk tickets for the RAG. `store` is the TICKETS_FILE
+    dict {'tickets': [...]}. Grounds answers like "what tickets are open for host
+    X?", "what's breaching SLA?", "who is working what?". OPEN tickets get a doc
+    each plus a fleet rollup; closed tickets are summarized only (count), not
+    individually indexed. Caller should only invoke this when the ticket system is
+    enabled."""
+    docs = []
+    tickets = (store or {}).get('tickets', []) if isinstance(store, dict) else []
+    if not isinstance(tickets, list) or not tickets:
+        return docs
+    OPEN = ('ongoing', 'pending_customer', 'pending_internal')
+    PRIO = {1: 'P1 Major', 2: 'P2 Critical', 3: 'P3 Warning', 4: 'P4 Low'}
+    open_t = [t for t in tickets if isinstance(t, dict) and t.get('status') in OPEN]
+    rollup, by_prio = [], {}
+    for t in sorted(open_t, key=lambda x: int(x.get('priority') or 4)):
+        num = t.get('number')
+        rp = f"#RP{int(num or 0):06d}"
+        pr = int(t.get('priority') or 4)
+        by_prio[pr] = by_prio.get(pr, 0) + 1
+        dev = t.get('device_name') or ''
+        who = t.get('assignee') or 'unassigned'
+        grp = t.get('group') or ''
+        age_h = int((now - int(t.get('created_at') or now)) / 3600)
+        msgs = [m for m in (t.get('messages') or []) if isinstance(m, dict)]
+        snippet = (str(msgs[-1].get('body') or '')[:200]).replace('\n', ' ') if msgs else ''
+        body = (f"Ticket {rp}: {t.get('subject', '')}\n"
+                f"Type {t.get('type', 'incident')}, {PRIO.get(pr, 'P4')}, "
+                f"status {t.get('status', '')}.\n"
+                f"Assignee: {who}" + (f", group {grp}" if grp else '') + ".\n"
+                + (f"Affected host: {dev}.\n" if dev else '')
+                + f"Open for ~{age_h}h."
+                + (f"\nLast message: {snippet}" if snippet else ''))
+        rollup.append(f"- {rp} [{PRIO.get(pr, 'P4')}] {t.get('subject', '')[:80]} "
+                      f"— {t.get('status', '')}, {who}" + (f", {dev}" if dev else ''))
+        docs.append(make_doc(
+            f"ticket/{t.get('id') or num}", 'tickets', 'ticket', body,
+            title=f"Ticket {rp}: {t.get('subject', '')[:80]}",
+            ts=int(t.get('updated_at') or now)))
+    closed = sum(1 for t in tickets
+                 if isinstance(t, dict) and t.get('status') in ('resolved', 'closed'))
+    prio_summary = ', '.join(f"{by_prio[p]}×{PRIO.get(p, 'P4')}"
+                             for p in sorted(by_prio)) or 'none'
+    docs.append(make_doc(
+        'tickets/_fleet', 'tickets', 'ticket_rollup',
+        f"Helpdesk: {len(open_t)} open ticket(s) ({prio_summary}), {closed} closed.\n"
+        + '\n'.join(rollup[:200]),
+        title='Helpdesk overview', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):
