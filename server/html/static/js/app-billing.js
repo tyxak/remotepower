@@ -18,9 +18,14 @@
  */
 
 /* ── small helpers ─────────────────────────────────────────────────────── */
-function _bRole() { return (window._meCache && window._meCache.role) || ''; }
-function _bCanBilling() { const r = _bRole(); return r === 'admin' || r === 'finance'; }
-function _bIsAdmin() { return _bRole() === 'admin'; }
+// NB: `_meCache` is a `let` script-global in app.js — shared across these
+// classic scripts as a BAREWORD, but NOT a property of window (let/const don't
+// attach to window). Reading `window._meCache` returns undefined → every role
+// check fails → the admin controls render disabled. Use the bareword.
+function _bMe() { try { return _meCache || {}; } catch (_) { return {}; } }
+function _bRole() { return _bMe().role || ''; }
+function _bIsAdmin() { return !!_bMe().admin; }                 // canonical (matches app.js)
+function _bCanBilling() { return _bIsAdmin() || _bRole() === 'finance'; }
 function _bMoney(n, cur) {
   return (cur ? cur + ' ' : '') + Number(n || 0).toLocaleString(undefined,
     { minimumFractionDigits: 2, maximumFractionDigits: 2 });
