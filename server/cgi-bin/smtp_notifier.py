@@ -25,6 +25,7 @@ import smtplib
 import ssl
 import socket
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.utils import formatdate, make_msgid
 
 
@@ -54,7 +55,7 @@ class SmtpError(Exception):
     """Wraps any SMTP failure with a human-readable message."""
 
 
-def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None) -> dict:
+def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None, html_body: str = None) -> dict:
     """
     Send a plain-text email. cfg is the SMTP config dict from /api/config.
     Returns {'ok': True} on success, raises SmtpError otherwise.
@@ -109,7 +110,15 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
             c.verify_mode = ssl.CERT_NONE
         return c
 
-    msg = MIMEText(body, _charset='utf-8')
+    # When an HTML body is supplied, send multipart/alternative (plain + HTML)
+    # so clients that can render HTML show the rich version (e.g. an HTML
+    # signature) and the rest still get readable plain text.
+    if html_body:
+        msg = MIMEMultipart('alternative')
+        msg.attach(MIMEText(body, 'plain', _charset='utf-8'))
+        msg.attach(MIMEText(html_body, 'html', _charset='utf-8'))
+    else:
+        msg = MIMEText(body, _charset='utf-8')
     msg['Subject'] = subject
     msg['From']    = sender
     msg['To']      = ', '.join(recipients)
@@ -175,7 +184,7 @@ def render_event_email(server_name: str, event: str, payload: dict, message: str
         f'Event:   {event}',
     ]
     if 'device_id' in payload:
-        body_lines.append(f'Device:  {payload.get("name", payload["device_id"])}')
+        body_lines.append(f'Device:  {payload.get("name") or payload.get("device_name") or payload["device_id"]}')
     if 'unit' in payload:
         body_lines.append(f'Unit:    {payload["unit"]}')
     if 'pattern' in payload:

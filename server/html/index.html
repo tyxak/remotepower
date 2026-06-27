@@ -171,6 +171,7 @@
     <button class="nav-btn d-none" id="nav-tickets" data-page="tickets" title="Built-in ticket system (helpdesk)">
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z"/><path d="M9 5v14"/></svg>
       <span>Tickets</span>
+      <span id="tickets-badge" class="nav-badge nav-badge-info d-none" title="Open tickets">0</span>
     </button>
 
     <!-- Fleet group: all device / inventory views -->
@@ -1063,9 +1064,16 @@
         <div class="page-subtitle">Your personal settings — these apply to <strong id="acct-username">you</strong> only, not the whole server.</div>
 
         <div class="settings-section">
+          <h3>Team</h3>
+          <p class="hint">Your team name — used by the Tickets <strong>"My team's open tickets"</strong> view to group tickets assigned to your teammates. Everyone who types the same team name is on that team.</p>
+          <input type="text" id="acct-team" class="form-input" maxlength="64" placeholder="e.g. NOC, Support, Platform">
+          <button class="btn-primary mt-8" data-action="saveTeam">Save team</button>
+        </div>
+
+        <div class="settings-section">
           <h3>Email signature</h3>
-          <p class="hint">Appended to ticket emails you send (after a "-- " separator).</p>
-          <textarea id="acct-signature" class="form-input" rows="3" maxlength="1000" placeholder="Jane Doe&#10;Acme Support · support@acme.com"></textarea>
+          <p class="hint">HTML signature appended to ticket emails you send (sent as a rich HTML part, with a plain-text fallback). Paste HTML — e.g. your full contact block with links.</p>
+          <textarea id="acct-signature" class="form-input ff-mono" rows="8" maxlength="8000" placeholder="&lt;strong&gt;Jane Doe&lt;/strong&gt;&lt;br&gt;Acme Support&lt;br&gt;&lt;a href=&quot;mailto:support@acme.com&quot;&gt;support@acme.com&lt;/a&gt;"></textarea>
           <button class="btn-primary mt-8" data-action="saveSignature">Save signature</button>
         </div>
 
@@ -2165,6 +2173,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-ssl" checked> Use SSL/TLS</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-verify-tls" checked> Verify TLS certificate (uncheck to ignore — self-signed / internal IMAP)</label></div>
             <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
+            <div id="tkimap-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">
@@ -5884,14 +5893,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Helpdesk — incidents, requests and changes, linked to alerts and devices.</div>
         <div class="row-8-center mb-12">
           <input type="text" id="tk-search" class="form-input input-search" placeholder="Search by #number, subject, device…" data-input="loadTickets" data-input-debounce="220" aria-label="Search tickets">
-          <select id="tk-status-filter" class="form-input input-auto" data-change="loadTickets" aria-label="Filter by status">
-            <option value="">All statuses</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="pending_customer">Pending customer</option>
-            <option value="pending_internal">Pending internal</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
-          </select>
           <select id="tk-type-filter" class="form-input input-auto" data-change="loadTickets" aria-label="Filter by type">
             <option value="">All types</option>
             <option value="incident">Incident</option>
@@ -5900,10 +5901,34 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </select>
           <button class="enroll-btn" data-action="openTicketCreate">New ticket</button>
         </div>
-        <div class="table-card"><table>
-          <thead id="tk-thead"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
-          <tbody id="tk-tbody"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
-        </table></div>
+        <div class="dash-card mb-16">
+          <h3 class="m-0 mb-8">New tickets <span class="fs-12 c-muted" id="tk-count-new"></span></h3>
+          <div class="table-card"><table>
+            <thead id="tk-thead-new"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
+            <tbody id="tk-tbody-new"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="dash-card mb-16">
+          <h3 class="m-0 mb-8">My open tickets <span class="fs-12 c-muted" id="tk-count-mine"></span></h3>
+          <div class="table-card"><table>
+            <thead id="tk-thead-mine"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
+            <tbody id="tk-tbody-mine"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="dash-card mb-16">
+          <h3 class="m-0 mb-8">My team's open tickets <span class="fs-12 c-muted" id="tk-count-team"></span></h3>
+          <div class="table-card"><table>
+            <thead id="tk-thead-team"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
+            <tbody id="tk-tbody-team"><tr><td colspan="8" class="empty-state-sm">Set your team under Profile to use this view.</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="dash-card mb-16">
+          <h3 class="m-0 mb-8">Other tickets (open &amp; closed) <span class="fs-12 c-muted" id="tk-count-other"></span></h3>
+          <div class="table-card"><table>
+            <thead id="tk-thead-other"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
+            <tbody id="tk-tbody-other"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
+          </table></div>
+        </div>
       </div>
 
       <div id="page-contacts" class="page">

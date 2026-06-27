@@ -3828,43 +3828,98 @@ const _TK_PRIO_CLS = { 1: 'sev-critical', 2: 'sev-critical', 3: 'sev-medium', 4:
 function _coercePrio(p) { const n = parseInt(p); return (n >= 1 && n <= 4) ? n : 4; }
 
 const _TK_OPEN_ST = { ongoing: 1, pending_customer: 1, pending_internal: 1 };
-async function loadTickets() {
-  const tb = document.getElementById('tk-tbody');
-  if (!tb) return;
-  tableCtl.wireSortOnly('tk-thead', 'tickets', loadTickets);   // eager — indicators before data
-  const q = document.getElementById('tk-search')?.value.trim() || '';
-  const st = document.getElementById('tk-status-filter')?.value || '';
-  const ty = document.getElementById('tk-type-filter')?.value || '';
-  const qs = new URLSearchParams(); if (q) qs.set('q', q); if (st) qs.set('status', st); if (ty) qs.set('type', ty);
-  const data = await api('GET', '/tickets' + (qs.toString() ? '?' + qs.toString() : ''));
-  if (!data) { tb.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Failed to load.</td></tr>'; return; }
-  const tks = data.tickets || [];
-  if (!tks.length) { tb.innerHTML = '<tr><td colspan="8" class="empty-state-sm">No tickets.</td></tr>'; return; }
-  // Default order: unhandled (open + unassigned) first, then your own open tickets,
-  // then other ongoing, then resolved/closed. Within a bucket: priority then newest.
-  const me = getMe();
-  const _bucket = t => {
-    if (!_TK_OPEN_ST[t.status]) return 3;
-    if (!t.assignee) return 0;
-    if (t.assignee === me) return 1;
-    return 2;
-  };
-  tks.sort((a, b) => _bucket(a) - _bucket(b) || _coercePrio(a.priority) - _coercePrio(b.priority) || (b.updated_at || 0) - (a.updated_at || 0));
-  const sorted = tableCtl.sortRows('tickets', tks, t => ({
-    number: t.number || 0, subject: (t.subject || '').toLowerCase(), type: t.type || '',
-    priority: _coercePrio(t.priority), status: t.status || '', assignee: (t.assignee || '').toLowerCase(),
-    device: (t.device_name || '').toLowerCase(), updated: t.updated_at || 0,
-  }));
-  tb.innerHTML = sorted.map(t => { const pr = _coercePrio(t.priority); return `<tr class="pointer" data-action="openTicket" data-arg="${escAttr(t.id)}">
-    <td class="mono-12">${escHtml(_tkNo(t.number))}${t.parent ? ' <span class="meta-sm-nm" title="Sub-ticket">↳</span>' : ''}</td>
-    <td>${escHtml(t.subject || '')}</td>
+function _tkIsOpen(t) { return !!_TK_OPEN_ST[t.status]; }
+// Order children directly under their parent (CMDB-style nesting), preserving
+// the incoming (sorted) order for top-level rows.
+function _tkArrange(rows) {
+  const byId = {}; rows.forEach(r => { byId[r.id] = r; });
+  const out = [], placed = new Set();
+  rows.forEach(r => {
+    if (placed.has(r.id)) return;
+    if (r.parent && byId[r.parent]) return;          // placed under its parent below
+    out.push(r); placed.add(r.id);
+    rows.filter(c => c.parent === r.id && !placed.has(c.id))
+        .forEach(c => { out.push(c); placed.add(c.id); });
+  });
+  rows.forEach(r => { if (!placed.has(r.id)) { out.push(r); placed.add(r.id); } });
+  return out;
+}
+function _tkRowHtml(t, byId, childrenOf) {
+  const pr = _coercePrio(t.priority);
+  const isMaster = (childrenOf[t.id] || []).length > 0;
+  const isChild = !!t.parent;
+  const parentNo = isChild && byId[t.parent] ? _tkNo(byId[t.parent].number) : '';
+  const numCell = `${escHtml(_tkNo(t.number))}`
+    + (isMaster ? ' <span class="patch-badge warn fs-11" title="Master ticket with sub-tickets">master</span>' : '');
+  const subjCell = `${isChild ? '<span class="c-muted" title="Sub-ticket">↳ </span>' : ''}${escHtml(t.subject || '')}`
+    + (isChild && parentNo ? ` <span class="patch-badge fs-11" title="Sub-ticket of ${escAttr(parentNo)}">child of ${escHtml(parentNo)}</span>` : '')
+    + (t.new_reply ? ' <span class="patch-badge warn fs-11" title="New reply from customer">● new reply</span>' : '');
+  return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}">
+    <td class="mono-12">${numCell}</td>
+    <td>${subjCell}</td>
     <td class="fs-12">${escHtml(t.type || '')}</td>
     <td><span class="sev-pill ${_TK_PRIO_CLS[pr]}" title="${escAttr(_TK_PRIO[pr])}">P${pr}</span></td>
     <td><span class="sev-pill ${_TK_STATUS_CLS[t.status] || 'sev-low'}">${escHtml(_TK_STATUS[t.status] || t.status || '')}</span></td>
     <td class="fs-12">${t.assignee ? escHtml(t.assignee) : '<span class="meta-sm-nm">Unassigned</span>'}</td>
     <td class="fs-12">${escHtml(t.device_name || '—')}</td>
     <td class="fs-11 c-muted">${t.updated_at ? timeAgo(t.updated_at) : '—'}</td>
-  </tr>`; }).join('');
+  </tr>`;
+}
+async function loadTickets() {
+  const tbNew = document.getElementById('tk-tbody-new');
+  if (!tbNew) return;
+  // Eager sort wiring for all four tables.
+  tableCtl.wireSortOnly('tk-thead-new', 'tickets_new', loadTickets);
+  tableCtl.wireSortOnly('tk-thead-mine', 'tickets_mine', loadTickets);
+  tableCtl.wireSortOnly('tk-thead-team', 'tickets_team', loadTickets);
+  tableCtl.wireSortOnly('tk-thead-other', 'tickets_other', loadTickets);
+  const q = document.getElementById('tk-search')?.value.trim() || '';
+  const ty = document.getElementById('tk-type-filter')?.value || '';
+  const qs = new URLSearchParams(); if (q) qs.set('q', q); if (ty) qs.set('type', ty);
+  // Team map: who is on which team (from each user's profile team). My team =
+  // the team on my own user record.
+  const me = getMe();
+  let teamOf = {}, myTeam = '';
+  try {
+    const ur = await api('GET', '/users');
+    if (Array.isArray(ur)) ur.forEach(u => { teamOf[u.username] = (u.team || '').trim(); });
+    myTeam = (teamOf[me] || '').trim();
+  } catch (e) { teamOf = {}; }
+  const data = await api('GET', '/tickets' + (qs.toString() ? '?' + qs.toString() : ''));
+  const fail = '<tr><td colspan="8" class="empty-state-sm">Failed to load.</td></tr>';
+  if (!data) { ['new', 'mine', 'team', 'other'].forEach(k => { const e = document.getElementById('tk-tbody-' + k); if (e) e.innerHTML = fail; }); return; }
+  const tks = data.tickets || [];
+  const byId = {}; tks.forEach(t => { byId[t.id] = t; });
+  const childrenOf = {}; tks.forEach(t => { if (t.parent) (childrenOf[t.parent] = childrenOf[t.parent] || []).push(t); });
+  const bNew = [], bMine = [], bTeam = [], bOther = [];
+  tks.forEach(t => {
+    const open = _tkIsOpen(t);
+    if (open && !t.assignee) bNew.push(t);
+    else if (open && t.assignee === me) bMine.push(t);
+    else if (open && myTeam && (teamOf[t.assignee] || '') === myTeam) bTeam.push(t);
+    else bOther.push(t);   // other people's open (no shared team) + all closed
+  });
+  const getCols = t => ({
+    number: t.number || 0, subject: (t.subject || '').toLowerCase(), type: t.type || '',
+    priority: _coercePrio(t.priority), status: t.status || '', assignee: (t.assignee || '').toLowerCase(),
+    device: (t.device_name || '').toLowerCase(), updated: t.updated_at || 0,
+  });
+  const render = (rows, prefs, tbodyId, countId, emptyMsg) => {
+    const tb = document.getElementById(tbodyId);
+    const cnt = document.getElementById(countId);
+    if (cnt) cnt.textContent = rows.length ? `(${rows.length})` : '';
+    if (!tb) return;
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="8" class="empty-state-sm">${emptyMsg || 'None.'}</td></tr>`; return; }
+    // sort by column (default: priority then newest), then nest children under parents
+    rows.sort((a, b) => _coercePrio(a.priority) - _coercePrio(b.priority) || (b.updated_at || 0) - (a.updated_at || 0));
+    const sorted = _tkArrange(tableCtl.sortRows(prefs, rows, getCols));
+    tb.innerHTML = sorted.map(t => _tkRowHtml(t, byId, childrenOf)).join('');
+  };
+  render(bNew, 'tickets_new', 'tk-tbody-new', 'tk-count-new', 'No new (unassigned) tickets.');
+  render(bMine, 'tickets_mine', 'tk-tbody-mine', 'tk-count-mine', 'None assigned to you.');
+  render(bTeam, 'tickets_team', 'tk-tbody-team', 'tk-count-team',
+    myTeam ? `No open tickets for team "${escHtml(myTeam)}".` : 'Set your team under Profile to use this view.');
+  render(bOther, 'tickets_other', 'tk-tbody-other', 'tk-count-other');
 }
 
 let _tkNewDevs = [];
@@ -3930,7 +3985,15 @@ async function openTicket(tid) {
   if (curAsg && !_users.includes(curAsg)) _users.unshift(curAsg);
   const assigneeOpts = ['<option value="">(unassigned)</option>'].concat(
     _users.map(u => `<option value="${escAttr(u)}" ${u === curAsg ? 'selected' : ''}>${escHtml(u)}</option>`)).join('');
-  const msgs = (t.messages || []).map(m => `<div class="mb-6"><div class="fs-11 c-muted">${escHtml(m.author || '')} · ${m.ts ? new Date(m.ts * 1000).toLocaleString() : ''} · ${escHtml(m.direction || '')}</div><div class="fs-13">${escHtml(m.body || '').replace(/\n/g, '<br>')}</div></div>`).join('') || '<div class="meta-sm-nm">No messages yet.</div>';
+  const msgs = (t.messages || []).map(m => {
+    const dir = m.direction || 'note';
+    const isIn = dir === 'in';
+    const cls = isIn ? 'tk-msg tk-msg-in' : (dir === 'note' ? 'tk-msg tk-msg-note' : 'tk-msg tk-msg-out');
+    const who = isIn ? `${escHtml(m.author || 'Customer')} · received`
+      : (dir === 'note' ? `${escHtml(m.author || '')} · internal note` : `${escHtml(m.author || '')} · sent`);
+    const when = m.ts ? new Date(m.ts * 1000).toLocaleString() : '';
+    return `<div class="${cls}"><div class="tk-msg-meta">${who} · ${when}</div><div class="tk-msg-body">${escHtml(m.body || '').replace(/\n/g, '<br>')}</div></div>`;
+  }).join('') || '<div class="meta-sm-nm">No messages yet.</div>';
   const alertLink = t.alertid ? `<div class="fs-12 mb-8">Linked alert: <code>${escHtml(_rpNo(t.alertid))}</code></div>` : '';
   const parentBlock = t.parent_ticket
     ? `<div class="fs-12 mb-4">Parent: <a href="#" data-action="openTicket" data-arg="${escAttr(t.parent_ticket.id)}" data-prevent-default class="c-accent">${escHtml(_tkNo(t.parent_ticket.number))} — ${escHtml(t.parent_ticket.subject || '')}</a></div>`
@@ -3978,6 +4041,7 @@ async function openTicket(tid) {
   if (_ds) _ds.oninput = () => _tkDetailDevResults(_ds.value);
   const _save = document.getElementById('tk-detail-save');
   if (_save) _save.dataset.arg = tid;   // footer Save targets this ticket
+  window._tkCurrentChildren = t.children || [];   // for cascade-close prompt
   openModal('ticket-detail-modal');
   // auto-scroll the conversation to the newest message at the bottom
   const _conv = document.getElementById('tk-conversation');
@@ -4012,8 +4076,9 @@ function removeTicketDetailDev(id) {
   _tkRenderDetailChips();
 }
 async function saveTicketField(tid) {
+  const newStatus = document.getElementById('tk-d-status')?.value;
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), {
-    status: document.getElementById('tk-d-status')?.value,
+    status: newStatus,
     type: document.getElementById('tk-d-type')?.value,
     priority: parseInt(document.getElementById('tk-d-priority')?.value) || 4,
     to_email: document.getElementById('tk-d-email')?.value || '',
@@ -4021,8 +4086,19 @@ async function saveTicketField(tid) {
     assignee: document.getElementById('tk-d-assignee')?.value || '',
     affected_devices: (window._tkDetailDevs || []).map(d => d.id),
   });
-  if (r?.ok) { toast('Ticket updated', 'success'); openTicket(tid); loadTickets(); }
-  else toast(r?.error || 'Failed', 'error');
+  if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
+  toast('Ticket updated', 'success');
+  // If this master ticket was just closed, offer to close its open sub-tickets too.
+  const openChildren = (window._tkCurrentChildren || []).filter(c => c.status !== 'resolved' && c.status !== 'closed');
+  if ((newStatus === 'resolved' || newStatus === 'closed') && openChildren.length) {
+    if (await uiConfirm(`Also set ${openChildren.length} open sub-ticket${openChildren.length === 1 ? '' : 's'} to "${_TK_STATUS[newStatus]}"?`)) {
+      for (const c of openChildren) {
+        await api('PATCH', '/tickets/' + encodeURIComponent(c.id), { status: newStatus });
+      }
+      toast(`${openChildren.length} sub-ticket${openChildren.length === 1 ? '' : 's'} ${newStatus}`, 'success');
+    }
+  }
+  openTicket(tid); loadTickets();
 }
 async function takeTicket(tid) {
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { assignee: getMe() });
@@ -4135,24 +4211,28 @@ async function saveTicketImap() {
   if (r?.ok) { toast('Ticket mailbox saved', 'success'); loadTicketImap(); }
   else toast(r?.error || 'Failed', 'error');
 }
+function _tkTestResult(msg, ok) {
+  const el = document.getElementById('tkimap-test-result');
+  if (el) { el.textContent = msg; el.classList.toggle('c-danger', !ok); el.classList.toggle('c-accent', !!ok); }
+}
 async function testTicketImap() {
   const v = id => document.getElementById(id)?.value;
   const ck = id => document.getElementById(id)?.checked;
   const body = { host: (v('tkimap-host') || '').trim(), port: parseInt(v('tkimap-port')) || 993,
     username: v('tkimap-user') || '', folder: v('tkimap-folder') || 'INBOX', use_ssl: ck('tkimap-ssl'), verify_tls: ck('tkimap-verify-tls') };
   const pw = v('tkimap-pass'); if (pw) body.password = pw;
-  toast('Testing IMAP…', 'info');
+  _tkTestResult('Testing IMAP…', true); toast('Testing IMAP…', 'info');
   const r = await api('POST', '/tickets/imap/test', body);
-  if (r?.ok) toast('IMAP OK — ' + (r.detail || 'connected'), 'success');
-  else toast('IMAP test failed: ' + (r?.error || 'unknown'), 'error');
+  if (r?.ok) { _tkTestResult('✓ IMAP OK — ' + (r.detail || 'connected'), true); toast('IMAP OK', 'success'); }
+  else { _tkTestResult('✕ IMAP test failed: ' + (r?.error || 'no response from server'), false); toast('IMAP test failed', 'error'); }
 }
 async function sendTestTicketEmail() {
   const to = await uiPrompt({ title: 'Send test email', message: 'Send a test email via your SMTP to confirm outbound delivery works:', placeholder: 'you@example.com', confirmText: 'Send' });
   if (!to) return;
-  toast('Sending…', 'info');
+  _tkTestResult('Sending test email…', true); toast('Sending…', 'info');
   const r = await api('POST', '/smtp/test', { recipient: to });
-  if (r?.ok) toast('Test email sent to ' + to, 'success');
-  else toast('Send failed: ' + (r?.error || 'unknown'), 'error');
+  if (r?.ok) { _tkTestResult('✓ Test email sent to ' + to, true); toast('Test email sent', 'success'); }
+  else { _tkTestResult('✕ Send failed: ' + (r?.error || 'no response from server'), false); toast('Send failed', 'error'); }
 }
 function openDeviceTickets(id, name) {
   showPage('tickets');
@@ -6163,10 +6243,18 @@ async function saveSignature() {
   _scheduleFlushUiPrefs();
   toast('Signature saved', 'success');
 }
+async function saveTeam() {
+  const inp = document.getElementById('acct-team');
+  if (!inp) return;
+  _uiPrefs.team = inp.value.trim();
+  _scheduleFlushUiPrefs();
+  toast('Team saved', 'success');
+}
 async function loadAccount() {
   const me = await loadMe();
   if (!me) return;
   { const ta = document.getElementById('acct-signature'); if (ta) ta.value = (_uiPrefs && _uiPrefs.signature) || ''; }
+  { const tm = document.getElementById('acct-team'); if (tm) tm.value = (_uiPrefs && _uiPrefs.team) || ''; }
   _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
   _initPushUI();              // v3.14.0 (#42): browser push notifications
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
@@ -13985,6 +14073,15 @@ async function loadHome() {
   document.getElementById('nav-tickets')?.classList.toggle('d-none', !home.tickets_enabled);
   window._ticketsOn = !!home.tickets_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);
+  { // sidebar open-tickets counter (blue), mirrors the alerts/confirmations badges
+    const tb = document.getElementById('tickets-badge');
+    if (tb) {
+      const n = home.tickets_open || 0;
+      tb.classList.toggle('d-none', !home.tickets_enabled || n === 0);
+      tb.textContent = n > 99 ? '99+' : String(n);
+      tb.title = n === 1 ? '1 open ticket' : `${n} open tickets`;
+    }
+  }
   { const _fn = document.getElementById('home-fleet-note');
     if (_fn) { const t = (home.fleet_note || '').trim();
       if (t) { _fn.innerHTML = `<div class="fw-500 mb-4">${_icon('edit',14)} Fleet note</div><div class="fs-13">${escHtml(t).replace(/\n/g,'<br>')}</div>`; _fn.classList.remove('d-none'); }

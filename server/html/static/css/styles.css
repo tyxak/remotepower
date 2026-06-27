@@ -923,6 +923,16 @@
      window, header + footer pinned, the body scrolls inside. */
   #ticket-detail-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
   #ticket-detail-modal #tk-detail-body { flex: 1; overflow-y: auto; min-height: 0; }
+  /* Sub-ticket rows are indented under their master in the ticket tables. */
+  .tk-child-row > td:first-child { padding-left: 22px; }
+  /* Conversation: chat-style bubbles — outbound (us) right, inbound (customer)
+     left, internal notes a dashed amber aside. */
+  #tk-conversation .tk-msg { max-width: 82%; padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; }
+  #tk-conversation .tk-msg-meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  #tk-conversation .tk-msg-body { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  #tk-conversation .tk-msg-in  { background: rgba(127,127,127,0.10); border: 1px solid var(--border); margin-right: auto; }
+  #tk-conversation .tk-msg-out { background: rgba(59,130,246,0.12); border: 1px solid var(--accent); margin-left: auto; }
+  #tk-conversation .tk-msg-note { background: rgba(255,193,7,0.10); border: 1px dashed #d4a017; margin-right: auto; }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4859,6 +4869,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 }
 .nav-badge.nav-badge-ok    { background: #28a745; }
 .nav-badge.nav-badge-alert { background: var(--red); }
+.nav-badge.nav-badge-info  { background: var(--accent); }
 /* v5.0.0 fix: `.nav-badge` sets display:inline-block and is defined AFTER the
    global `.d-none` (equal specificity → later rule wins), so a hidden zero-count
    badge still painted as an empty red pill (a stray "red dash" next to e.g.

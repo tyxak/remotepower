@@ -5113,7 +5113,7 @@ def _coerce_priority(v, default=4):
 def _ticket_public(t):
     return {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
             'device_id', 'device_name', 'alertid', 'to_email', 'parent', 'priority',
-            'assignee', 'affected_devices', 'created_by', 'created_at', 'updated_at')}
+            'assignee', 'affected_devices', 'new_reply', 'created_by', 'created_at', 'updated_at')}
 
 
 def handle_tickets():
@@ -5247,6 +5247,16 @@ def handle_ticket_get(tid):
     t = next((x for x in all_t if x.get('id') == tid), None)
     if not t:
         respond(404, {'error': 'ticket not found'})
+    # Opening the ticket clears the "new customer reply" badge (read receipt).
+    if t.get('new_reply'):
+        try:
+            with _LockedUpdate(TICKETS_FILE) as _st:
+                _tk = next((x for x in (_st.get('tickets') or []) if x.get('id') == tid), None)
+                if _tk:
+                    _tk['new_reply'] = False
+            t['new_reply'] = False
+        except Exception:
+            pass
     devs = load(DEVICES_FILE)
     resp = dict(t)
     resp['affected_devices_resolved'] = [
@@ -5514,11 +5524,20 @@ def handle_ticket_send_email(tid):
           or t.get('to_email') or _ticket_contact_email(t.get('device_id')))
     if '@' not in to:
         respond(400, {'error': 'no recipient — set a To: or add a contact email to the CMDB record'})
+    # Per-user signature is stored as HTML (rich vCard-style block). The plain
+    # part strips tags; an HTML alternative carries the rich signature.
     sig = (((load(USERS_FILE) or {}).get(actor) or {}).get('ui_prefs') or {}).get('signature', '')
-    out_body = text + (f"\n\n-- \n{sig}" if sig else '')
+    sig_text = re.sub(r'<[^>]+>', '', re.sub(r'<br\s*/?>', '\n', sig)).strip() if sig else ''
+    out_body = text + (f"\n\n-- \n{sig_text}" if sig_text else '')
+    html_body = None
+    if sig:
+        import html as _html_mod
+        _esc_text = _html_mod.escape(text).replace('\n', '<br>')
+        html_body = (f'<div style="font-family:sans-serif;font-size:14px">{_esc_text}</div>'
+                     f'<br><div style="border-top:1px solid #ccc;margin-top:12px;padding-top:8px">{sig}</div>')
     subject = f"#RP{int(t.get('number') or 0):06d} {t.get('subject', '')}"[:200]
     try:
-        smtp_notifier.send_email(cfg, [to], subject, out_body, extra_headers={
+        smtp_notifier.send_email(cfg, [to], subject, out_body, html_body=html_body, extra_headers={
             'Auto-Submitted': 'auto-generated', 'X-RP-Ticket': str(t.get('number'))})
     except Exception as e:
         respond(200, {'ok': False, 'error': f'send failed: {str(e)[:200]}'})
@@ -5600,22 +5619,48 @@ def _fetch_ticket_replies():
             if (msg.get('Precedence') or '').lower() in ('bulk', 'auto_reply', 'list', 'junk'):
                 continue
             mt = re.search(r'#RP0*(\d+)', str(msg.get('Subject') or ''))
-            if not mt:
-                continue
-            number = int(mt.group(1))
+            number = int(mt.group(1)) if mt else None
             frm = str(msg.get('From') or '')[:200]
+            subj = (str(msg.get('Subject') or '').strip()[:200]) or '(no subject)'
             text = _ticket_email_text(msg)[:8000]
             if not text:
                 continue
+            _fm = _TICKET_EMAIL_RE.search(frm)
+            frm_email = _fm.group(0) if _fm else ''
             now = int(time.time())
             with _LockedUpdate(TICKETS_FILE) as st:
-                tk = next((x for x in (st.get('tickets') or []) if x.get('number') == number), None)
+                tk = (next((x for x in (st.get('tickets') or []) if x.get('number') == number), None)
+                      if number is not None else None)
                 if tk:
                     tk.setdefault('messages', []).append({'ts': now, 'author': frm,
                         'body': text, 'channel': 'email', 'direction': 'in'})
                     if tk.get('status') == 'pending_customer':
                         tk['status'] = 'pending_internal'
+                    tk['new_reply'] = True   # unread customer reply -> list badge
                     tk['updated_at'] = now
+                else:
+                    # No matching #RP ticket -> AUTO-CREATE a new ticket. Uses the
+                    # standalone number band (TICKET_STANDALONE_BASE+seq) so it can
+                    # never collide with an alert-derived ticket number. Loop-guard
+                    # above already skipped auto-submitted/bulk/our own (X-RP-Ticket)
+                    # mail, so we never create a ticket from our own outbound.
+                    tickets = st.setdefault('tickets', [])
+                    if len(tickets) < MAX_TICKETS:
+                        seq = int(st.get('ticket_seq') or 0) + 1
+                        st['ticket_seq'] = seq
+                        tickets.append({
+                            'id': 'tk_' + secrets.token_hex(5),
+                            'number': TICKET_STANDALONE_BASE + seq,
+                            'subject': re.sub(r'\s*#RP0*\d+\s*', ' ', subj).strip() or subj,
+                            'type': 'request', 'status': 'ongoing',
+                            'device_id': '', 'device_name': '',
+                            'alert_id': '', 'alertid': '',
+                            'to_email': frm_email, 'affected_devices': [], 'parent': '',
+                            'priority': 4, 'assignee': '', 'new_reply': True,
+                            'created_by': 'email', 'created_at': now, 'updated_at': now,
+                            'messages': [{'ts': now, 'author': frm, 'body': text,
+                                          'channel': 'email', 'direction': 'in'}],
+                        })
         try:
             M.logout()
         except Exception:
@@ -7271,7 +7316,10 @@ def _build_matrix_body(event, title, message, dest):
 
 def _webhook_message(event, payload):
     """Build a human-readable message string for push notifications."""
-    name = payload.get('name', payload.get('device_id', 'unknown'))
+    # Prefer the friendly hostname; only fall back to the internal device_id
+    # when neither name nor device_name is present (some events — e.g.
+    # drift_detected — carry device_name, not name).
+    name = payload.get('name') or payload.get('device_name') or payload.get('device_id', 'unknown')
     if event == 'device_offline':
         return f'{name} went offline (last seen: {_ts_fmt(payload.get("last_seen", 0))})'
     elif event == 'device_online':
@@ -7369,6 +7417,9 @@ def _webhook_message(event, payload):
         sections = payload.get('sections', [])
         sec_str = ', '.join(sections[:5]) if sections else 'unknown'
         return f'{name}: host config drift in {sec_str}'
+    elif event == 'drift_detected':
+        verb = 'removed' if not payload.get('exists', True) else 'changed'
+        return f'{name}: watched file {payload.get("path", "?")} {verb}'
     elif event == 'tls_expiry':
         host  = payload.get('host', '?')
         days  = payload.get('days_left', '?')
@@ -16523,6 +16574,7 @@ def handle_users_list():
                   'scim' if d.get('scim_managed') else 'local')
         return {'username': u, 'created': d.get('created', 0),
                 'role': d.get('role', 'admin'), 'mfa': mfa,
+                'team': (d.get('ui_prefs') or {}).get('team', ''),
                 'disabled': bool(d.get('disabled')), 'source': source}
     respond(200, [_row(u, d) for u, d in users.items() if isinstance(d, dict)])
 
@@ -16952,10 +17004,15 @@ def _sanitise_ui_prefs(raw):
     if isinstance(postit, str):
         out['postit'] = _sanitize_str(postit, 2000)
 
-    # Per-user email signature appended to outbound ticket emails.
+    # Per-user email signature (HTML) appended to outbound ticket emails.
     signature = raw.get('signature')
     if isinstance(signature, str):
-        out['signature'] = _sanitize_str(signature, 1000)
+        out['signature'] = _sanitize_str(signature, 8000)
+
+    # Team membership — used by the Tickets "My team's open tickets" view.
+    team = raw.get('team')
+    if isinstance(team, str):
+        out['team'] = _sanitize_str(team, 64)
 
     # v3.14.0: saved & shareable views — named snapshots of a page's filter
     # controls. A top-level list, not a per-table pref. Each entry is
@@ -30394,6 +30451,9 @@ def handle_home():
         'fleet_note':   cfg.get('fleet_note', ''),
         'tickets_enabled': bool(cfg.get('tickets_enabled')),
         'ticket_devices': _open_ticket_device_ids() if cfg.get('tickets_enabled') else [],
+        'tickets_open': (sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                             if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal'))
+                         if cfg.get('tickets_enabled') else 0),
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
         # integration widget in the dashboard.
         'show_homelab': cfg.get('show_homelab', True) is not False,
