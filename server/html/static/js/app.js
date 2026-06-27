@@ -16547,6 +16547,17 @@ async function runCloudImport() {
     loadDevices();
   } else { if (st) st.textContent = ''; toast(r?.error || 'Import failed', 'error'); }
 }
+// Import the Proxmox cluster nodes onto the Devices page as agentless records
+// (mirrors runCloudImport). Admin-only server-side; idempotent.
+async function runProxmoxImportNodes() {
+  const r = await api('POST', '/proxmox/import-nodes', {}).catch(() => null);
+  if (r?.ok) {
+    toast(`Imported ${r.imported}, updated ${r.updated}, skipped ${r.skipped} (already agents)`, 'success');
+    loadDevices();
+  } else {
+    toast(r?.error || 'Node import failed', 'error');
+  }
+}
 
 
 // ─── v3.14.0 #36: watched-process CPU/memory thresholds ────────────────────

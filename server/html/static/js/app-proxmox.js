@@ -24,6 +24,16 @@ function _renderProxmoxNodes(nodes) {
   return `<div class="isl-781">Cluster nodes: ${chips}</div>`;
 }
 
+// Heuristic "looks like a Docker host" for the LXC badge: an exact `docker`/
+// `docker-host` Proxmox tag (so `no-docker` doesn't match) or a name that
+// starts with `docker-`/`docker_` (e.g. docker-atuin). It's only a hint -- the
+// definitive answer comes once an agent is installed and reports Docker.
+function _looksLikeDocker(g) {
+  const tags = String(g.tags || '').toLowerCase().split(/[;,\s]+/).filter(Boolean);
+  return tags.includes('docker') || tags.includes('docker-host')
+      || /^docker[-_]/i.test(String(g.name || ''));
+}
+
 function _renderProxmoxGuest(g, kind) {
   const running = (g.status || '').toLowerCase() === 'running';
   const statusColor = running ? 'var(--green)'
@@ -49,6 +59,7 @@ function _renderProxmoxGuest(g, kind) {
       ${window._proxmoxLifecycle && running ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="reboot" data-arg4="${escAttr(g.name)}">Reboot</button>` : ''}
       ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="migrate" data-arg4="${escAttr(g.name)}">Migrate</button>` : ''}
       ${window._proxmoxLifecycle ? `<button class="btn-icon badge-sm" data-action="proxmoxLifecycle" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="clone" data-arg4="${escAttr(g.name)}">Clone</button>` : ''}
+      ${ep === 'lxc' ? `<button class="btn-icon badge-sm" data-action="installLxcAgent" data-arg="${escAttr(g.node)}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}" title="Install the RemotePower agent inside this LXC (run from the cluster's agent)">Install agent</button>` : ''}
       ${ep === 'lxc' ? `<button class="btn-icon badge-sm btn-danger-soft" data-action="lxcDeleteOpen" data-arg="${g.vmid}" data-arg2="${escAttr(g.name)}" title="Delete this container">Delete</button>` : ''}
     </div>`;
   return `<div class="isl-460">
@@ -58,6 +69,7 @@ function _renderProxmoxGuest(g, kind) {
         ${escHtml(g.name)}
         ${g.node ? `<span class="isl-780" title="Proxmox node">${escHtml(g.node)}</span>` : ''}
         ${g.tags ? `<span class="isl-575">${escHtml(g.tags)}</span>` : ''}
+        ${ep === 'lxc' && _looksLikeDocker(g) ? `<span class="isl-575" title="Looks like a Docker host (name/tag heuristic) -- confirmed once an agent is installed">docker?</span>` : ''}
       </div>
       <div class="row-8-center">
         ${upLine}
@@ -140,6 +152,20 @@ async function proxmoxAction(kind, vmid, action, name) {
   } catch (e) {
     toast(`Action failed: ${e.message || String(e)}`, 'error');
   }
+}
+
+// Install the RemotePower agent INSIDE an LXC, via an agent already enrolled on
+// the cluster (pct exec on its own node, or ssh to a peer node). The LXC enrols
+// itself and shows up as its own device. Admin-only + audited server-side.
+async function installLxcAgent(node, vmid, name) {
+  if (!await uiConfirm(
+    `Install the RemotePower agent inside LXC ${vmid} (${name}) on ${node}?\n\n` +
+    `An agent already on the cluster runs the install (pct exec, or ssh to ${node}). ` +
+    `The LXC enrols itself and appears as its own device within ~60s.`)) return;
+  const r = await api('POST', '/proxmox/lxc/install-agent', { node, vmid }).catch(() => null);
+  if (r && r.ok) toast(r.message || `Install queued via ${r.via}`, 'success');
+  else if (r && r.approval_required) toast('Install queued for approval by another admin', 'info');
+  else toast((r && r.error) || 'Install failed', 'error');
 }
 
 function _collectProxmoxForm() {

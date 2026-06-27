@@ -406,6 +406,17 @@ def list_nodes(pc: dict) -> list[dict]:
         raw = _request(pc, '/nodes')
     except ProxmoxError:
         return []
+    # Per-node IPs from /cluster/status (one cluster-wide call); best-effort so a
+    # permission gap doesn't drop the node list. Per-node version is NOT taken
+    # here (a single /version is the API node's only) -- node_detail reads each
+    # node's own pveversion.
+    ips = {}
+    try:
+        for e in (_request(pc, '/cluster/status') or []):
+            if isinstance(e, dict) and e.get('type') == 'node' and e.get('ip'):
+                ips[str(e.get('name', ''))] = str(e['ip'])
+    except ProxmoxError:
+        pass
     out = []
     for n in raw if isinstance(raw, list) else []:
         if not isinstance(n, dict) or not _safe_node(n.get('node')):
@@ -416,17 +427,104 @@ def list_nodes(pc: dict) -> list[dict]:
             cpu_pct = None
         mem, maxmem = _int0(n.get('mem')), _int0(n.get('maxmem'))
         mem_pct = round(mem / maxmem * 100, 1) if maxmem else None
+        disk, maxdisk = _int0(n.get('disk')), _int0(n.get('maxdisk'))
+        disk_pct = round(disk / maxdisk * 100, 1) if maxdisk else None
+        name = _safe_node(n.get('node'))
         out.append({
-            'node':         _safe_node(n.get('node')),
-            'status':       str(n.get('status', 'unknown')),   # online | offline
-            'cpu_percent':  cpu_pct,
-            'mem_percent':  mem_pct,
-            'mem_bytes':    mem,
-            'maxmem_bytes': maxmem,
-            'uptime':       _int0(n.get('uptime')),
+            'node':          name,
+            'status':        str(n.get('status', 'unknown')),   # online | offline
+            'ip':            ips.get(name, ''),
+            'cpu_percent':   cpu_pct,
+            'mem_percent':   mem_pct,
+            'mem_bytes':     mem,
+            'maxmem_bytes':  maxmem,
+            'disk_percent':  disk_pct,
+            'disk_bytes':    disk,
+            'maxdisk_bytes': maxdisk,
+            'uptime':        _int0(n.get('uptime')),
         })
     out.sort(key=lambda x: x['node'])
     return out
+
+
+def node_detail(pc: dict, node: str) -> dict:
+    """Best-effort rich per-node detail from /nodes/<node>/status: kernel, CPU
+    model + count, load average, and precise root-fs usage. Returns {} on any
+    error (permission gap, offline node) so the caller degrades gracefully.
+    One API call per node, so pull it on the device-sync path, not the hot
+    guest-listing path."""
+    safe = _safe_node(node)
+    if not safe:
+        return {}
+    try:
+        s = _request(pc, f'/nodes/{urllib.parse.quote(safe)}/status')
+    except ProxmoxError:
+        return {}
+    if not isinstance(s, dict):
+        return {}
+    ci = s.get('cpuinfo') or {}
+    rootfs = s.get('rootfs') or {}
+    used, total = _int0(rootfs.get('used')), _int0(rootfs.get('total'))
+    la = s.get('loadavg') if isinstance(s.get('loadavg'), list) else []
+    pve = str(s.get('pveversion', ''))   # this node's own 'pve-manager/9.1.9/<hash>'
+    return {
+        'kernel':         str(s.get('kversion', ''))[:200],
+        'cpu_model':      str(ci.get('model', ''))[:120],
+        'cpu_count':      _int0(ci.get('cpus')),
+        'loadavg':        [str(x) for x in la[:3]],
+        'version':        (pve.split('/')[1] if pve.count('/') >= 1 else pve)[:40],
+        'rootfs_percent': round(used / total * 100, 1) if total else None,
+    }
+
+
+def node_to_device(node: dict, detail: dict | None = None):
+    """Map one cluster node (a list_nodes entry, optionally enriched with a
+    node_detail() dict) to an agentless device record fragment -- the same
+    shape cloud_import.instance_to_device produces, plus the agent-equivalent
+    fields the Proxmox API can supply (IP, version, disk, kernel, CPU model,
+    load average) so the node card reads like a real device. The server merges
+    this into DEVICES_FILE under a stable id. Returns (None, None) if the node
+    name fails hostname validation, so a hostile name can never become a
+    device-file key."""
+    name = _safe_node(node.get('node'))
+    if not name:
+        return None, None
+    detail = detail or {}
+    online = str(node.get('status', '')) == 'online'
+    # Per-node version from node_detail (each node's own pveversion); the
+    # list_nodes value, if any, is only a fallback.
+    version = str(detail.get('version') or node.get('version') or '')
+    # Root-fs %: prefer node_detail's precise rootfs, else the /nodes disk.
+    disk_pct = detail.get('rootfs_percent')
+    if disk_pct is None:
+        disk_pct = node.get('disk_percent')
+    # sysinfo mirrors what an agent reports, so the card + drawer render it.
+    sysinfo = {
+        'cpu_percent': node.get('cpu_percent'),
+        'mem_percent': node.get('mem_percent'),
+        'mounts': ([{'path': '/', 'percent': disk_pct}] if disk_pct is not None else []),
+    }
+    if detail.get('kernel'):    sysinfo['kernel'] = detail['kernel']
+    if detail.get('cpu_model'): sysinfo['cpu_model'] = detail['cpu_model']
+    if detail.get('cpu_count'): sysinfo['cpu_count'] = detail['cpu_count']
+    if detail.get('loadavg'):   sysinfo['loadavg'] = detail['loadavg']
+    return f'proxmox-node-{name}', {
+        'name': name,
+        'hostname': name,
+        'os': 'Proxmox VE',
+        'ip': str(node.get('ip', '') or ''),
+        'version': version,
+        'agentless': True,
+        'source': 'proxmox:node',
+        # Status comes from the Proxmox API, not ICMP, so use 'manual'
+        # reachability (the node has no agent here): _agentless_online then
+        # reads manual_status. last_seen reflects this sync while online.
+        'reachability': 'manual',
+        'manual_status': online,
+        'last_seen': int(time.time()) if online else 0,
+        'sysinfo': sysinfo,
+        'tags': ['proxmox', 'node'],
+    }
 
 
 def find_guest_node(pc: dict, vmid: int, guest_type: str = '') -> str:

@@ -19198,6 +19198,193 @@ def handle_cloud_import():
     respond(200, {'ok': True, 'imported': imported, 'updated': updated, 'errors': errors})
 
 
+# proxmox-node device fields that are Proxmox-sourced and safe to refresh on an
+# existing record; everything else (name, tags, reachability, group, site,
+# notes) is operator-editable and must survive a re-sync.
+_NODE_SYNC_REFRESH_FIELDS = ('os', 'ip', 'version', 'last_seen', 'manual_status', 'sysinfo')
+
+
+def _refresh_proxmox_node_devices(pc):
+    """Sync the Proxmox cluster nodes into DEVICES_FILE as agentless device
+    records, deduped against any host already enrolled as an agent. ALL Proxmox
+    HTTP calls (list_nodes + per-node detail) run BEFORE the DEVICES_FILE lock,
+    so a slow/offline node can never stall the lock (and with it every agent
+    heartbeat). On an existing record only live/Proxmox-sourced fields are
+    refreshed -- operator edits (name/tags/reachability) are preserved. Records
+    for nodes that left the cluster are pruned. Idempotent; swallows a Proxmox
+    error so an opportunistic caller degrades. Returns (imported, updated,
+    skipped, removed)."""
+    try:
+        nodes = proxmox_client.list_nodes(pc)
+    except proxmox_client.ProxmoxError:
+        return 0, 0, 0, 0
+    if not nodes:
+        return 0, 0, 0, 0
+    # Build every fragment (incl. the per-node detail HTTP call) OUTSIDE the lock.
+    built = []   # (did, frag)
+    for n in nodes:
+        detail = proxmox_client.node_detail(pc, n.get('node'))
+        did, frag = proxmox_client.node_to_device(n, detail)
+        if did:
+            built.append((did, frag))
+    live_ids = {did for did, _ in built}
+    imported = updated = skipped = removed = 0
+    with _LockedUpdate(DEVICES_FILE) as devs:
+        # Hosts already represented by a real (non-node-import) device, so the
+        # node import never duplicates a machine that runs the agent.
+        agent_hosts = set()
+        for v in devs.values():
+            if not isinstance(v, dict) or v.get('source') == 'proxmox:node':
+                continue
+            for f in (v.get('hostname'), v.get('name')):
+                if f:
+                    agent_hosts.add(str(f).lower())
+        for did, frag in built:
+            if frag['name'].lower() in agent_hosts:
+                if did in devs:        # drop a stale duplicate of an agent host
+                    del devs[did]
+                skipped += 1
+                continue
+            cur = devs.get(did)
+            if isinstance(cur, dict):
+                for k in _NODE_SYNC_REFRESH_FIELDS:   # don't clobber operator edits
+                    if k in frag:
+                        cur[k] = frag[k]
+                updated += 1
+            else:
+                frag['enrolled'] = int(time.time())
+                devs[did] = frag
+                imported += 1
+        # Prune our node-import records for nodes that left the cluster.
+        for did in [k for k, v in devs.items()
+                    if isinstance(v, dict) and v.get('source') == 'proxmox:node'
+                    and k.startswith('proxmox-node-') and k not in live_ids]:
+            del devs[did]
+            removed += 1
+    return imported, updated, skipped, removed
+
+
+def handle_proxmox_import_nodes():
+    """POST /api/proxmox/import-nodes -- manual trigger of the cluster-node sync
+    that also runs automatically on the Virtualization page. Admin-only;
+    read-only against Proxmox; idempotent; deduped against agent hosts."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    pc = proxmox_client.config_from(cfg)
+    if not proxmox_client.is_configured(pc):
+        respond(400, {'error': 'Proxmox is not configured.'})
+    # Surface a connectivity/permission failure instead of a bland "imported 0"
+    # success -- list_nodes swallows ProxmoxError, so probe the raw endpoint
+    # (which raises) before the sync.
+    try:
+        proxmox_client._request(pc, '/nodes')
+    except proxmox_client.ProxmoxError as e:
+        respond(502, {'error': f'Proxmox API error: {str(e)[:200]}'})
+    imported, updated, skipped, removed = _refresh_proxmox_node_devices(pc)
+    audit_log(actor, 'proxmox_import_nodes',
+              f'imported={imported} updated={updated} skipped={skipped} removed={removed}')
+    respond(200, {'ok': True, 'imported': imported, 'updated': updated,
+                  'skipped': skipped, 'removed': removed, 'errors': []})
+
+
+def handle_proxmox_install_agent():
+    """POST /api/proxmox/lxc/install-agent {node, vmid} -- install the RemotePower
+    agent INSIDE a Proxmox LXC, by having an already-enrolled cluster-member agent
+    run the install. Same node as the agent -> `pct exec <vmid> -- ...`; a different
+    cluster node -> `ssh <node> pct exec <vmid> -- ...` (Proxmox sets up passwordless
+    inter-node root SSH, so one agent reaches the whole cluster). The command is
+    built server-side with a validated numeric vmid + a _safe_node node (no shell
+    injection) and a fresh one-time enrollment token, then queued through the same
+    exec path as handle_custom_cmd (admin RBAC + per-device allowlist + maker-checker
+    + audit). The new agent downloads the signed installer, verifies it, enrols, and
+    the LXC appears as its own device."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    require_admin_auth()   # auth-first: reject before touching any input
+    body = get_json_obj()
+    node = proxmox_client._safe_node(body.get('node'))
+    if not node:
+        respond(400, {'error': 'valid node required'})
+    # Strict positive-integer vmid: reject bool/float/garbage (int(True)==1 and
+    # int(107.9)==107 would target the wrong LXC).
+    raw_vmid = body.get('vmid')
+    if isinstance(raw_vmid, bool) or not isinstance(raw_vmid, (int, str)):
+        respond(400, {'error': 'numeric vmid required'})
+    try:
+        vmid = int(str(raw_vmid).strip())
+    except (TypeError, ValueError):
+        respond(400, {'error': 'numeric vmid required'})
+    if vmid <= 0:
+        respond(400, {'error': 'vmid must be a positive integer'})
+    pc = proxmox_client.config_from(load(CONFIG_FILE) or {})
+    if not proxmox_client.is_configured(pc):
+        respond(400, {'error': 'Proxmox is not configured.'})
+    node_names_lc = {str(n.get('node')).lower() for n in proxmox_client.list_nodes(pc)}
+    if node.lower() not in node_names_lc:
+        respond(400, {'error': f'{node} is not a known cluster node'})
+    # An ONLINE enrolled agent on a cluster node can pct-exec locally or ssh to a
+    # peer (Proxmox inter-node root SSH). Prefer an agent on the target node;
+    # else any online cluster member. Case-insensitive host match (mirrors the
+    # node-import dedup) so 'PVE01' vs 'pve01' doesn't break the button.
+    devices = load(DEVICES_FILE)
+    now = int(time.time())
+    ttl = get_online_ttl()
+    member_agents = {}   # lower(node) -> agent device id (online only)
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('source') == 'proxmox:node':
+            continue
+        ls = d.get('last_seen') or 0
+        if not (ls and (now - ls) < ttl):     # must be currently online to run it
+            continue
+        for h in (d.get('hostname'), d.get('name')):
+            if h and str(h).lower() in node_names_lc:
+                member_agents.setdefault(str(h).lower(), did)
+    if not member_agents:
+        respond(400, {'error': 'No ONLINE agent on any cluster node. Install the '
+                      'agent on a node first (Add device -> quick install); once it '
+                      'is online it can push the agent into LXCs cluster-wide.'})
+    target = node.lower()
+    if target in member_agents:
+        agent_id, pct = member_agents[target], f'pct exec {vmid}'
+    else:
+        _runner, agent_id = next(iter(member_agents.items()))
+        pct = f'ssh {node} pct exec {vmid}'
+    via = devices[agent_id].get('name', agent_id)
+    actor = require_perm('command', [agent_id])   # device-scoped admin RBAC
+    # An agent with a command allowlist can NEVER run this (the command carries a
+    # fresh random token, so it can't be pre-allowlisted) -- reject BEFORE minting
+    # a token, so a rejected install never leaves an orphan enrolment credential.
+    if devices[agent_id].get('allowed_commands'):
+        respond(400, {'error': f'{via} has a command allowlist; this install command '
+                      'cannot be pre-approved. Remove the allowlist or install manually.'})
+    # Agent-facing server URL (mirror _render_agent_install's proto resolution:
+    # X-Forwarded-Proto -> REQUEST_SCHEME -> https).
+    host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '',
+                  os.environ.get('HTTP_HOST') or os.environ.get('SERVER_NAME') or 'localhost')[:255]
+    proto = (os.environ.get('HTTP_X_FORWARDED_PROTO')
+             or os.environ.get('REQUEST_SCHEME')
+             or ('https' if os.environ.get('HTTPS') in ('on', '1') else 'https'))
+    if proto not in ('http', 'https'):
+        proto = 'https'
+    token = secrets.token_urlsafe(32)
+    toks = load(ENROLL_TOKENS_FILE)
+    _purge_expired_enroll_tokens(toks, now)
+    toks[token] = {'created': now, 'expires': now + 86400, 'actor': actor,
+                   'default_group': '', 'default_tags': ['proxmox-lxc', node],
+                   'label': f'lxc-install {node}/{vmid}'}
+    save(ENROLL_TOKENS_FILE, toks)
+    audit_log(actor, 'proxmox_lxc_install_agent', f'node={node} vmid={vmid} via={via}')
+    cmd_str = f"{pct} -- sh -c 'wget -qO- \"{proto}://{host}/install?t={token}\" | sh'"
+    if len(cmd_str) > 512:
+        respond(400, {'error': 'install command too long'})
+    # Canonical queue path: locked CMDS_FILE write (no lost-update race) +
+    # maintenance/quarantine/audit-mode guards + maker-checker + command_queued
+    # webhook + audit. It responds and exits.
+    _queue_command(agent_id, f'exec:{cmd_str}', actor)
+
+
 def _ssh_preflight(dev_id):
     """Shared gate for the agentless-SSH endpoints: admin + global opt-in + a
     configured key + RBAC/tenant scope + the device's connection details.
@@ -20050,6 +20237,20 @@ def handle_proxmox_list(guest_type: str) -> None:
     if guest_type == 'lxc':
         try:
             _refresh_proxmox_backup_cache(pc)
+        except Exception:
+            pass
+        # Auto-sync the cluster nodes onto the Devices page (deduped against
+        # agent hosts), so deploying on a cluster surfaces every node with no
+        # manual step. ADMIN-only -- it mutates DEVICES_FILE, so a read-only
+        # viewer must not trigger registry changes as a side effect of a view;
+        # audited when it actually imports/prunes. Opportunistic, best-effort.
+        try:
+            _vt = verify_token(get_token_from_request())
+            if _resolve_role(_vt[1] or 'viewer').get('admin'):
+                _imp, _upd, _skp, _rmv = _refresh_proxmox_node_devices(pc)
+                if _imp or _rmv:
+                    audit_log(_vt[0], 'proxmox_nodes_autosync',
+                              f'imported={_imp} removed={_rmv}')
         except Exception:
             pass
 
@@ -47173,6 +47374,8 @@ def _build_exact_routes():
         ('GET', '/api/proxmox/status'): handle_proxmox_status,
         ('POST', '/api/proxmox/test'): handle_proxmox_test,
         ('POST', '/api/proxmox/lifecycle'): handle_proxmox_lifecycle,   # v3.14.0 #33
+        ('POST', '/api/proxmox/import-nodes'): handle_proxmox_import_nodes,  # cluster nodes -> agentless devices
+        ('POST', '/api/proxmox/lxc/install-agent'): handle_proxmox_install_agent,  # push agent into an LXC via host agent
         # v4.7.0: homelab software integrations
         ('GET',  '/api/integrations'): handle_integrations_list,
         ('POST', '/api/integrations'): handle_integrations_save,
