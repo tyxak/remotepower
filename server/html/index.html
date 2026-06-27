@@ -178,6 +178,11 @@
       <span>Tickets</span>
     </button>
 
+    <button class="nav-btn" id="nav-contacts" data-page="contacts" title="Internal contact directory (team phonebook)">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Contacts</span>
+    </button>
+
     <!-- Fleet group: all device / inventory views -->
     <div class="sidebar-group" data-group="fleet">
       <button class="sidebar-group-toggle" title="Device and inventory views — every enrolled host, containers, network and VMs">
@@ -1057,6 +1062,13 @@
       <div id="page-account" class="page">
         <div class="page-title">My Account</div>
         <div class="page-subtitle">Your personal settings — these apply to <strong id="acct-username">you</strong> only, not the whole server.</div>
+
+        <div class="settings-section">
+          <h3>Email signature</h3>
+          <p class="hint">Appended to ticket emails you send (after a "-- " separator).</p>
+          <textarea id="acct-signature" class="form-input" rows="3" maxlength="1000" placeholder="Jane Doe&#10;Acme Support · support@acme.com"></textarea>
+          <button class="btn-primary mt-8" data-action="saveSignature">Save signature</button>
+        </div>
 
         <div class="settings-section">
           <h3>Profile</h3>
@@ -2151,7 +2163,7 @@
             <div class="settings-row"><label class="form-label" for="tkimap-interval">Poll interval (seconds)</label><input type="number" id="tkimap-interval" class="form-input" min="120" max="3600" value="300"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-ssl" checked> Use SSL/TLS</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-verify-tls" checked> Verify TLS certificate (uncheck to ignore — self-signed / internal IMAP)</label></div>
-            <button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button>
+            <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">
@@ -5888,8 +5900,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="enroll-btn" data-action="openTicketCreate">New ticket</button>
         </div>
         <div class="table-card"><table>
-          <thead><tr><th>#</th><th>Subject</th><th>Type</th><th>Status</th><th>Device</th><th>Updated</th></tr></thead>
-          <tbody id="tk-tbody"><tr><td colspan="6" class="empty-state-sm">Loading…</td></tr></tbody>
+          <thead id="tk-thead"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
+          <tbody id="tk-tbody"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+
+      <div id="page-contacts" class="page">
+        <div class="page-title-row"><div class="page-title">Contacts</div></div>
+        <div class="page-subtitle">Internal contact directory — your team's shared phonebook of people, roles and companies.</div>
+        <div class="row-8-center mb-12">
+          <input type="text" id="ct-search" class="form-input input-search" placeholder="Search by name, role, company, email…" data-input="loadContacts" data-input-debounce="220" aria-label="Search contacts">
+          <button class="enroll-btn" data-action="openContactCreate">Add contact</button>
+        </div>
+        <div class="table-card"><table>
+          <thead id="ct-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="company">Company</th><th data-col="email">Email</th><th data-col="phone">Phone</th><th>Actions</th></tr></thead>
+          <tbody id="ct-tbody"><tr><td colspan="6" class="empty-state-sm">Loading…</td></tr></tbody>
         </table></div>
       </div>
 
@@ -6624,7 +6649,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cs-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyProfile">Apply to selected</button></div>
 </div></div>
 
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tk-detail-title" id="ticket-detail-modal"><div class="modal modal-lg">
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tk-detail-title" id="ticket-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="tk-detail-title">Ticket</div>
   <div id="tk-detail-body"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-detail-modal">Close</button></div>
@@ -6634,12 +6659,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="tk-create-title">New ticket</div>
   <div class="form-group"><label class="form-label">Subject</label><input type="text" id="tk-create-subject" class="form-input" maxlength="200" placeholder="Short summary"></div>
   <div class="form-group"><label class="form-label">Type</label><select id="tk-create-type" class="form-input"><option value="incident">Incident</option><option value="request">Request</option><option value="change">Change</option></select></div>
-  <div class="form-group"><label class="form-label">Device (optional)</label>
+  <div class="form-group"><label class="form-label">Priority</label><select id="tk-create-priority" class="form-input"><option value="1">P1 Major</option><option value="2">P2 Critical</option><option value="3">P3 Warning</option><option value="4" selected>P4 Low</option></select></div>
+  <div class="form-group"><label class="form-label">Affected devices (optional)</label>
     <input type="text" id="tk-create-dev-search" class="form-input mb-6" placeholder="Search a device…" autocomplete="off" aria-label="Search a device to attach to the ticket">
     <div id="tk-create-dev-results" class="scroll-cap-sm"></div>
     <div id="tk-create-dev-chip" class="mt-6 meta-sm-nm"></div>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-create-modal">Cancel</button><button class="btn-primary" data-action="saveNewTicket">Create</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ct-modal-title" id="contact-modal"><div class="modal">
+  <div class="modal-title" id="ct-modal-title">Add contact</div>
+  <div class="form-group"><label class="form-label" for="ct-name">Name</label><input type="text" id="ct-name" class="form-input" maxlength="120" placeholder="Full name"></div>
+  <div class="form-group"><label class="form-label" for="ct-role">Role</label><input type="text" id="ct-role" class="form-input" maxlength="120" placeholder="e.g. Network admin, On-call"></div>
+  <div class="form-group"><label class="form-label" for="ct-company">Company / team</label><input type="text" id="ct-company" class="form-input" maxlength="120" placeholder="Company or internal team"></div>
+  <div class="form-group"><label class="form-label" for="ct-email">Email</label><input type="text" id="ct-email" class="form-input" maxlength="200" placeholder="name@example.com"></div>
+  <div class="form-group"><label class="form-label" for="ct-phone">Phone</label><input type="text" id="ct-phone" class="form-input" maxlength="60" placeholder="+45 …"></div>
+  <div class="form-group"><label class="form-label" for="ct-notes">Notes</label><textarea id="ct-notes" class="form-input" rows="3" maxlength="2000" placeholder="Optional notes"></textarea></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="contact-modal">Cancel</button><button class="btn-primary" data-action="saveContact">Save contact</button></div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pdu-modal-title" id="pdu-modal"><div class="modal">

@@ -128,6 +128,8 @@ TICKET_STATUSES = ('ongoing', 'pending_customer', 'pending_internal', 'resolved'
 TICKET_STANDALONE_BASE = 900000   # standalone ticket numbers live in a reserved band so
                                   # they never collide with alert-derived numbers (the alert seq)
 MAX_TICKETS = 5000
+CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
+MAX_CONTACTS = 2000
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -5087,10 +5089,31 @@ def _alert_seq_num(alertid):
     return int(m.group(1)) if m else None
 
 
+TICKET_PRIORITIES = (1, 2, 3, 4)   # 1 Major, 2 Critical, 3 Warning, 4 Low/Info
+
+
+def _severity_to_priority(sev):
+    """Map an alert severity to a ticket priority (Major=1 is manual-only)."""
+    sev = (sev or '').lower()
+    if sev in ('critical', 'high'):
+        return 2
+    if sev in ('medium', 'warning', 'warn'):
+        return 3
+    return 4
+
+
+def _coerce_priority(v, default=4):
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return default
+    return n if n in TICKET_PRIORITIES else default
+
+
 def _ticket_public(t):
     return {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
-            'device_id', 'device_name', 'alertid', 'to_email',
-            'created_by', 'created_at', 'updated_at')}
+            'device_id', 'device_name', 'alertid', 'to_email', 'parent', 'priority',
+            'assignee', 'affected_devices', 'created_by', 'created_at', 'updated_at')}
 
 
 def handle_tickets():
@@ -5147,8 +5170,32 @@ def handle_tickets():
             if not device_id:
                 device_id = al.get('device_id', '')
                 dev_name = al.get('device_name', '')
+    # priority: alert-derived tickets inherit the alert severity (Major=1 is manual-only);
+    # standalone tickets default to Low(4) unless the operator picks one.
+    if alert_internal and 'priority' not in body:
+        priority = _severity_to_priority(
+            (next((a for a in ((load(ALERTS_FILE) or {}).get('alerts') or [])
+                   if a.get('id') == alert_internal), {}) or {}).get('severity'))
+    else:
+        priority = _coerce_priority(body.get('priority', 4))
     if not subject:
         respond(400, {'error': 'subject required'})
+    # multiple affected devices (validated); primary device_id is included first
+    affected = []
+    for _d in (body.get('affected_devices') or [])[:50]:
+        _d = str(_d).strip()
+        if _validate_id(_d) and _d in devices and _d not in affected:
+            affected.append(_d)
+    if device_id and device_id not in affected:
+        affected.insert(0, device_id)
+    # parent (master) ticket by #RP number
+    parent_id = ''
+    _pn = re.sub(r'\\D', '', str(body.get('parent_number', '')))
+    if _pn:
+        _pt = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                    if str(x.get('number')) == _pn), None)
+        if _pt:
+            parent_id = _pt['id']
     tid = 'tk_' + secrets.token_hex(5)
     with _LockedUpdate(TICKETS_FILE) as store:
         tickets = store.setdefault('tickets', [])
@@ -5163,6 +5210,8 @@ def handle_tickets():
             'status': 'ongoing', 'device_id': device_id, 'device_name': dev_name,
             'alert_id': alert_internal, 'alertid': alertid,
             'to_email': _sanitize_str(str(body.get('to_email', '')), 200),
+            'affected_devices': affected, 'parent': parent_id, 'priority': priority,
+            'assignee': _sanitize_str(str(body.get('assignee', '')), 64),
             'created_by': actor, 'created_at': now, 'updated_at': now,
             'messages': [],
         })
@@ -5174,6 +5223,10 @@ def handle_tickets():
                     if a.get('id') == alert_internal:
                         a['rp_ticket'] = number
                         a['rp_ticket_id'] = tid
+                        # Opening a ticket = taking ownership -> auto-ack the alert.
+                        if not a.get('resolved_at') and not a.get('acknowledged_at'):
+                            a['acknowledged_by'] = actor
+                            a['acknowledged_at'] = int(time.time())
                         break
         except Exception:
             pass
@@ -5185,11 +5238,23 @@ def handle_ticket_get(tid):
     if not _tickets_enabled():
         respond(404, {'error': 'ticket system is disabled'})
     require_auth()
-    t = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
-              if x.get('id') == tid), None)
+    all_t = (load(TICKETS_FILE) or {}).get('tickets') or []
+    t = next((x for x in all_t if x.get('id') == tid), None)
     if not t:
         respond(404, {'error': 'ticket not found'})
-    respond(200, {'ok': True, 'ticket': t})
+    devs = load(DEVICES_FILE)
+    resp = dict(t)
+    resp['affected_devices_resolved'] = [
+        {'id': d, 'name': (devs.get(d) or {}).get('name', d)} for d in (t.get('affected_devices') or [])]
+    resp['parent_ticket'] = None
+    if t.get('parent'):
+        _p = next((x for x in all_t if x.get('id') == t['parent']), None)
+        if _p:
+            resp['parent_ticket'] = {'id': _p['id'], 'number': _p['number'], 'subject': _p.get('subject', '')}
+    resp['children'] = [
+        {'id': c['id'], 'number': c['number'], 'subject': c.get('subject', ''), 'status': c.get('status', '')}
+        for c in all_t if c.get('parent') == t['id']]
+    respond(200, {'ok': True, 'ticket': resp})
 
 
 def handle_ticket_update(tid):
@@ -5215,6 +5280,24 @@ def handle_ticket_update(tid):
                 t['device_name'] = (load(DEVICES_FILE).get(did) or {}).get('name', '') if did else ''
             if 'to_email' in body:
                 t['to_email'] = _sanitize_str(str(body['to_email']), 200)
+            if 'priority' in body:
+                t['priority'] = _coerce_priority(body['priority'], t.get('priority', 4))
+            if 'assignee' in body:
+                _asg = _sanitize_str(str(body['assignee']), 64).strip()
+                if _asg == '' or _asg in (load(USERS_FILE) or {}):
+                    t['assignee'] = _asg
+            if 'affected_devices' in body and isinstance(body['affected_devices'], list):
+                _devs = load(DEVICES_FILE)
+                t['affected_devices'] = [str(x).strip() for x in body['affected_devices'][:50]
+                                         if _validate_id(str(x).strip()) and str(x).strip() in _devs]
+            if 'parent_number' in body:
+                _pn = re.sub(r'\\D', '', str(body.get('parent_number', '')))
+                if not _pn:
+                    t['parent'] = ''
+                else:
+                    _pt = next((x for x in (store.get('tickets') or []) if str(x.get('number')) == _pn), None)
+                    if _pt and _pt.get('id') != tid:
+                        t['parent'] = _pt['id']
             msg = _sanitize_str(str(body.get('message', '')), 8000).strip()
             if msg:
                 direction = str(body.get('direction', 'note'))
@@ -5251,8 +5334,14 @@ def handle_ticket_delete(tid):
 def _open_ticket_device_ids():
     """device ids that currently have an OPEN (non-resolved/closed) ticket."""
     open_st = ('ongoing', 'pending_customer', 'pending_internal')
-    return sorted({t.get('device_id') for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
-                   if t.get('device_id') and t.get('status') in open_st})
+    ids = set()
+    for t in ((load(TICKETS_FILE) or {}).get('tickets') or []):
+        if t.get('status') in open_st:
+            if t.get('device_id'):
+                ids.add(t['device_id'])
+            for d in (t.get('affected_devices') or []):
+                ids.add(d)
+    return sorted(ids)
 
 
 def handle_device_tickets(dev_id):
@@ -5261,9 +5350,98 @@ def handle_device_tickets(dev_id):
         respond(404, {'error': 'ticket system is disabled'})
     require_auth()
     out = [_ticket_public(t) for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
-           if t.get('device_id') == dev_id]
+           if t.get('device_id') == dev_id or dev_id in (t.get('affected_devices') or [])]
     out.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
     respond(200, {'ok': True, 'tickets': out})
+
+
+# ── Internal contact directory (team phonebook; unrelated to the ticket system) ──
+def _contact_public(c):
+    return {k: c.get(k) for k in ('id', 'name', 'role', 'company', 'email', 'phone',
+            'notes', 'created_at', 'updated_at')}
+
+
+def handle_contacts():
+    """GET /api/contacts[?q=] list/search (any auth), or POST create (admin)."""
+    if method() == 'GET':
+        require_auth()
+        contacts = (load(CONTACTS_FILE) or {}).get('contacts') or []
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        q = (qs.get('q') or [''])[0].lower().strip()
+        out = []
+        for c in contacts:
+            if q:
+                hay = ' '.join(str(c.get(k, '')) for k in
+                               ('name', 'role', 'company', 'email', 'phone', 'notes')).lower()
+                if q not in hay:
+                    continue
+            out.append(_contact_public(c))
+        out.sort(key=lambda x: (x.get('name') or '').lower())
+        respond(200, {'ok': True, 'contacts': out})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    name = _sanitize_str(str(body.get('name', '')), 120).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    now = int(time.time())
+    cid = 'ct_' + secrets.token_hex(5)
+    rec = {
+        'id': cid, 'name': name,
+        'role': _sanitize_str(str(body.get('role', '')), 120),
+        'company': _sanitize_str(str(body.get('company', '')), 120),
+        'email': _sanitize_str(str(body.get('email', '')), 200),
+        'phone': _sanitize_str(str(body.get('phone', '')), 60),
+        'notes': _sanitize_str(str(body.get('notes', '')), 2000),
+        'created_at': now, 'updated_at': now,
+    }
+    with _LockedUpdate(CONTACTS_FILE) as store:
+        contacts = store.setdefault('contacts', [])
+        if len(contacts) >= MAX_CONTACTS:
+            respond(400, {'error': f'contact limit reached (max {MAX_CONTACTS})'})
+        contacts.append(rec)
+    audit_log(actor, 'contact_create', f'id={cid} {name}')
+    respond(200, {'ok': True, 'id': cid})
+
+
+def handle_contact_update(cid):
+    """PATCH/POST/DELETE /api/contacts/{id} (admin)."""
+    if method() == 'DELETE':
+        actor = require_admin_auth()
+        found = False
+        with _LockedUpdate(CONTACTS_FILE) as store:
+            cs = store.get('contacts') or []
+            kept = [c for c in cs if c.get('id') != cid]
+            found = len(kept) != len(cs)
+            store['contacts'] = kept
+        if not found:
+            respond(404, {'error': 'contact not found'})
+        audit_log(actor, 'contact_delete', f'id={cid}')
+        respond(200, {'ok': True})
+    if method() not in ('PATCH', 'POST'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    now = int(time.time())
+    ok = False
+    with _LockedUpdate(CONTACTS_FILE) as store:
+        c = next((x for x in (store.get('contacts') or []) if x.get('id') == cid), None)
+        if c:
+            ok = True
+            if 'name' in body:
+                nm = _sanitize_str(str(body['name']), 120).strip()
+                if nm:
+                    c['name'] = nm
+            for fld, mx in (('role', 120), ('company', 120), ('email', 200),
+                            ('phone', 60), ('notes', 2000)):
+                if fld in body:
+                    c[fld] = _sanitize_str(str(body[fld]), mx)
+            c['updated_at'] = now
+    if not ok:
+        respond(404, {'error': 'contact not found'})
+    audit_log(actor, 'contact_update', f'id={cid}')
+    respond(200, {'ok': True})
 
 
 _TICKET_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
@@ -5317,9 +5495,11 @@ def handle_ticket_send_email(tid):
           or t.get('to_email') or _ticket_contact_email(t.get('device_id')))
     if '@' not in to:
         respond(400, {'error': 'no recipient — set a To: or add a contact email to the CMDB record'})
+    sig = (((load(USERS_FILE) or {}).get(actor) or {}).get('ui_prefs') or {}).get('signature', '')
+    out_body = text + (f"\n\n-- \n{sig}" if sig else '')
     subject = f"#RP{int(t.get('number') or 0):06d} {t.get('subject', '')}"[:200]
     try:
-        smtp_notifier.send_email(cfg, [to], subject, text, extra_headers={
+        smtp_notifier.send_email(cfg, [to], subject, out_body, extra_headers={
             'Auto-Submitted': 'auto-generated', 'X-RP-Ticket': str(t.get('number'))})
     except Exception as e:
         respond(502, {'error': f'send failed: {str(e)[:200]}'})
@@ -5490,6 +5670,49 @@ def handle_ticket_imap_save():
         }
     audit_log(actor, 'ticket_imap_save', detail=f'host={host} enabled={bool(body.get("enabled"))}')
     respond(200, {'ok': True})
+
+
+def handle_ticket_imap_test():
+    """POST /api/tickets/imap/test — connect + login + select the folder using the
+    posted form values (blank password falls back to the saved one). Read-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    saved = _ticket_imap_cfg()
+    host = (_sanitize_str(str(body.get('host', saved.get('host', ''))), 255) or '').strip()
+    if not host:
+        respond(400, {'error': 'set the IMAP host first'})
+    use_ssl = body.get('use_ssl', saved.get('use_ssl', True)) is not False
+    verify_tls = body.get('verify_tls', saved.get('verify_tls', True)) is not False
+    try:
+        port = int(body.get('port') or saved.get('port') or (993 if use_ssl else 143))
+    except (TypeError, ValueError):
+        port = 993 if use_ssl else 143
+    username = _sanitize_str(str(body.get('username', saved.get('username', ''))), 255)
+    password = body.get('password') or saved.get('password', '')
+    folder = _sanitize_str(str(body.get('folder', saved.get('folder', 'INBOX')) or 'INBOX'), 128)
+    import imaplib
+    import ssl as _ssl
+    try:
+        _ctx = _ssl.create_default_context()
+        if not verify_tls:
+            _ctx.check_hostname = False
+            _ctx.verify_mode = _ssl.CERT_NONE
+        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ctx, timeout=15)
+             if use_ssl else imaplib.IMAP4(host, port, timeout=15))
+        M.login(username, password)
+        typ, _d = M.select(folder, readonly=True)
+        try:
+            M.logout()
+        except Exception:
+            pass
+        if typ != 'OK':
+            respond(502, {'error': f'login ok but folder "{folder}" select failed'})
+    except Exception as e:
+        respond(502, {'error': f'IMAP test failed: {str(e)[:200]}'})
+    audit_log(actor, 'ticket_imap_test', f'host={host}')
+    respond(200, {'ok': True, 'detail': f'login + select "{folder}" succeeded'})
 
 
 def _record_alert(event, payload):
@@ -16706,6 +16929,11 @@ def _sanitise_ui_prefs(raw):
     postit = raw.get('postit')
     if isinstance(postit, str):
         out['postit'] = _sanitize_str(postit, 2000)
+
+    # Per-user email signature appended to outbound ticket emails.
+    signature = raw.get('signature')
+    if isinstance(signature, str):
+        out['signature'] = _sanitize_str(signature, 1000)
 
     # v3.14.0: saved & shareable views — named snapshots of a page's filter
     # controls. A top-level list, not a per-table pref. Each entry is
@@ -48059,8 +48287,11 @@ def _build_exact_routes():
         ('POST', '/api/monitoring-profiles/apply'): handle_monitoring_profile_apply,
         ('GET', '/api/tickets'): handle_tickets,
         ('POST', '/api/tickets'): handle_tickets,
+        ('GET', '/api/contacts'): handle_contacts,
+        ('POST', '/api/contacts'): handle_contacts,
         ('GET', '/api/tickets/imap'): handle_ticket_imap_get,
         ('POST', '/api/tickets/imap'): handle_ticket_imap_save,
+        ('POST', '/api/tickets/imap/test'): handle_ticket_imap_test,
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
@@ -49010,6 +49241,8 @@ def _dispatch(pi, m):
         handle_ticket_update(pi[len('/api/tickets/'):])
     elif pi.startswith('/api/tickets/') and m == 'DELETE':
         handle_ticket_delete(pi[len('/api/tickets/'):])
+    elif pi.startswith('/api/contacts/') and m in ('PATCH', 'POST', 'DELETE'):
+        handle_contact_update(pi[len('/api/contacts/'):])
 
     # ── v2.6.0: host configuration management ──────────────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'GET':

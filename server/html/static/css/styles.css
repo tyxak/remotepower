@@ -2923,6 +2923,9 @@ input.form-input[type="text"][data-token],
 
 /* Modal overlays — base tier. */
 .modal-overlay { z-index: 1000; }
+/* The confirm/prompt dialog must sit ABOVE any modal it's launched from
+   (delete-ticket, drift-accept, etc.) regardless of DOM order. */
+#ui-prompt-modal { z-index: 1100; }
 
 /* Mobile nav drawer + its dim overlay — above header, below modals. */
 @media (max-width: 720px) {

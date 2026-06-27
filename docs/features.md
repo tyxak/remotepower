@@ -106,7 +106,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Device dependency map | Declare device→upstream deps; downstream alerts held while upstream offline *(v3.4.2)* |
 | Patch alerts | Webhook when pending updates exceed a threshold |
 | Admin-only alert mutation | Optionally require admin role to ack / unack / resolve (`viewers_can_ack_alerts`) *(v3.3.0)* |
-| Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
+| Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
 | Posture digest | Opt-in daily/weekly email summary over SMTP *(v3.11.0)* |
 | Digest endpoint | `/api/digest` for cron-driven email summaries |
 | Flap cap | Server-wide cap stops a flapping monitor flooding channels |
@@ -414,6 +414,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Multi-select | Batch actions on cards or minimal table; selection survives density switch *(v1.12.1)* |
 | Post-it widget | A per-account freeform sticky note on the dashboard (composable widget, persists in `ui_prefs`) |
 | Scoped notes | Free-text notes at device (tooltip), **site** (on the site record) and **fleet-wide** (shown as a dashboard card) scope |
+| Contacts directory | Internal team phonebook (name/role/company/email/phone/notes) — searchable, sortable, admin-maintained; separate from the ticket system |
 | Saved Devices views | Save + share named fleet filter views via URL *(v4.0.0)* |
 | Edit everywhere | Edit on every operator-managed list — alert rules, monitors, TLS/backup targets, snippets, scheduled jobs, inbound tokens, users, ignore patterns *(v3.3.0)* |
 | Did-you-know tips | About page surfaces lesser-known features |
