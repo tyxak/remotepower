@@ -574,8 +574,12 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   `remote_access` AI advisor (24th card) + tunnel-stats/endpoint render. i18n +4 DICT/3
   Hindi; dedup `_fmtBytes`; docs + `security-review-5.2.0.md` (keep-3, pruned 5.0.1).
   Per-release detail [[project_v520_accessmatters]].
-- **v5.3.0 = "ResolveMatters"** (**ON TEST `origin/main`, unsigned, NOT prod**; last prod =
-  v5.2.0) — built-in opt-in **ticket system** (helpdesk) + **Contacts** directory + finalize
+- **v5.3.0 = "ResolveMatters"** (**RELEASED TO PRODUCTION 2026-06-27 @91dd6f8**; prior prod =
+  v5.2.0) — signed tag (USER ran `git tag -s`, rest headless in warm window), both remotes FF'd +
+  staging `6b6c5a4` lockstep, GH release tarball(175dcddd)+sha256+asc, ghcr 5.3.0 multi-arch, both
+  AUR pushed (agent c0f77b5/server 1497ab4), site+wiki(ticket-system/contacts pages) live, prod CI
+  green + CodeQL 0 (FP #53 HMAC dismissed). — built-in opt-in **ticket system** (helpdesk) +
+  **Contacts** directory + finalize
   sweep. Tickets: types Incident/Request/Change, P1–P4 priorities, per-priority **SLA**, groups
   + per-user **team**, assignee/ownership, parent-child sub-tickets, 4-table page, inbound-mail
   auto-create + IMAP reply threading, SMTP + HTML signature, **alert→ticket→auto-resolve**. NEW
