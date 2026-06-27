@@ -2944,8 +2944,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.4.0 racksmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
-            <summary><strong>What's new — v5.4.0 "RacksMatters"</strong> — time-tracking and billing: log billable / internal hours on tickets and a weekly timesheet, then turn them (plus recurring fees) into per-customer invoices (no breaking changes)</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v5.4.0 rackmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
+            <summary><strong>What's new — v5.4.0 "RackMatters"</strong> — time-tracking and billing: log billable / internal hours on tickets and a weekly timesheet, then turn them (plus recurring fees) into per-customer invoices (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.4.0 adds a lightweight <strong>time-tracking + billing</strong> layer on one shared ledger. Log hours where the work happens; bill them where the money is. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.4.0</code>).</p>
               <ul>
@@ -4596,7 +4596,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card"><table><thead id="sites-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="slug">Slug</th><th scope="col" data-col="device_count">Devices</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
-      <!-- ── v5.4.0 RacksMatters: Timesheet (personal weekly time log) ─────── -->
+      <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->
       <div id="page-timesheet" class="page">
         <div class="page-title">Timesheet</div>
         <div class="page-subtitle">Your week — log billable (debtable) and internal hours by day. Hours you log on a ticket appear here too.</div>
@@ -4611,7 +4611,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="ts-week-wrap" class="ts-grid"><div class="empty-state">Loading…</div></div>
       </div>
 
-      <!-- ── v5.4.0 RacksMatters: Billing (worksheet, invoices, rates) ─────── -->
+      <!-- ── v5.4.0 RackMatters: Billing (worksheet, invoices, rates) ─────── -->
       <div id="page-billing" class="page">
         <div class="page-title">Billing</div>
         <div class="page-subtitle">Turn logged hours and recurring fees into invoices, per customer (site). Admins manage rates and issue invoices; the finance role can view and export.</div>
@@ -6746,14 +6746,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-create-modal">Cancel</button><button class="btn-primary" data-action="saveNewTicket">Create</button></div>
 </div></div>
 
-<!-- v5.4.0 RacksMatters: shared time-entry modal (ticket hours + timesheet) -->
+<!-- v5.4.0 RackMatters: shared time-entry modal (ticket hours + timesheet) -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="time-entry-title" id="time-entry-modal"><div class="modal">
   <div class="modal-title" id="time-entry-title">Log time</div>
   <div id="time-entry-body"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="time-entry-modal">Cancel</button><button class="btn-primary" data-action="saveTimeEntry">Save</button></div>
 </div></div>
 
-<!-- v5.4.0 RacksMatters: invoice view / print -->
+<!-- v5.4.0 RackMatters: invoice view / print -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="invoice-view-title" id="invoice-view-modal"><div class="modal modal-wide">
   <div class="modal-title" id="invoice-view-title">Invoice</div>
   <div id="invoice-view-body"></div>

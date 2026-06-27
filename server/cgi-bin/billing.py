@@ -1,4 +1,4 @@
-"""Pure billing / time-tracking helpers for RemotePower (v5.4.0 "RacksMatters").
+"""Pure billing / time-tracking helpers for RemotePower (v5.4.0 "RackMatters").
 
 No I/O, no api imports, no global state — every function operates on plain
 dicts/lists passed in, so the whole module is unit-testable with fixtures

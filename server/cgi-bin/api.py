@@ -131,7 +131,7 @@ MAX_TICKETS = 5000
 CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
 MAX_CONTACTS = 2000
 
-# ── v5.4.0 "RacksMatters": time-tracking + billing ───────────────────────────
+# ── v5.4.0 "RackMatters": time-tracking + billing ───────────────────────────
 # A unified time-entry ledger (ticket "add hours" and the weekly timesheet are
 # two views of the same records), per-site rate/fee config, and stored invoices.
 # Pure math lives in the sibling billing.py module; this file owns storage/auth.
@@ -648,7 +648,7 @@ import ai_provider
 import ai_context
 # v3.4.0: Level-2/3 RAG — retrieval over the operator's own infrastructure.
 import rag_index
-# v5.4.0 "RacksMatters": pure time-tracking / billing math (hours, rates, totals).
+# v5.4.0 "RackMatters": pure time-tracking / billing math (hours, rates, totals).
 import billing as billing_mod
 # v3.4.0: resource forecasting / "what changed", control-mapped compliance,
 # and on-demand AI insight prompt builders (anomaly, cron, runbook, doc draft).
@@ -9336,7 +9336,7 @@ def _site_slugify(name):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# v5.4.0 "RacksMatters": time-tracking + billing
+# v5.4.0 "RackMatters": time-tracking + billing
 # ─────────────────────────────────────────────────────────────────────────────
 # A unified time-entry ledger feeds three surfaces: ticket "add hours", the
 # weekly timesheet, and the billing worksheet/invoices. Pure math is in the
@@ -49203,7 +49203,7 @@ def _build_exact_routes():
         ('POST', '/api/tickets/imap/test'): handle_ticket_imap_test,
         ('GET', '/api/tickets/sla'): handle_ticket_sla,
         ('POST', '/api/tickets/sla'): handle_ticket_sla,
-        # v5.4.0 RacksMatters: time-tracking + billing
+        # v5.4.0 RackMatters: time-tracking + billing
         ('GET', '/api/time-entries'): handle_time_entries,
         ('POST', '/api/time-entries'): handle_time_entries,
         ('GET', '/api/timesheet'): handle_timesheet,

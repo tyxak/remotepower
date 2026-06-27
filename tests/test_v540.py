@@ -1,4 +1,4 @@
-"""Strict version-surface pins for v5.4.0 "RacksMatters" — loosen to dynamic on
+"""Strict version-surface pins for v5.4.0 "RackMatters" — loosen to dynamic on
 the next bump (see tests/test_v520.py / test_v530.py for the loosened pattern).
 The v5.4.0 feature tests live in tests/test_v540_features.py.
 """
@@ -62,7 +62,7 @@ class TestVersionBumps(unittest.TestCase):
                       (_ROOT / "server/html/index.html").read_text())
 
     def test_codename(self):
-        self.assertIn("RacksMatters", (_ROOT / "docs" / "v5.4.0.md").read_text())
+        self.assertIn("RackMatters", (_ROOT / "docs" / "v5.4.0.md").read_text())
 
     def test_feature_guide_exists(self):
         self.assertTrue((_ROOT / "docs/time-billing.md").exists())

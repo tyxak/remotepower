@@ -6455,7 +6455,7 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::before{ background:va
 body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rotate(45deg) scale(1); }
 
 /* ════════════════════════════════════════════════════════════════════════
-   v5.4.0 "RacksMatters": time-tracking + billing (Timesheet + Billing pages,
+   v5.4.0 "RackMatters": time-tracking + billing (Timesheet + Billing pages,
    ticket "Log hours", invoice print). CSP-safe (no inline styles); sizes fold
    onto the canonical scale {28,16,14,13,12,11}.
    ════════════════════════════════════════════════════════════════════════ */

@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.4.0 — "RacksMatters" — unreleased (test)
+## v5.4.0 — "RackMatters" — unreleased (test)
 
 A lightweight **time-tracking + billing** layer on one shared time-entry ledger:
 log billable (debtable) or internal hours on tickets and a weekly timesheet, then

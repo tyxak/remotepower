@@ -26,7 +26,7 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
-    // ── v5.4.0 "RacksMatters": time-tracking + billing chrome ──
+    // ── v5.4.0 "RackMatters": time-tracking + billing chrome ──
     'Timesheet':              { zh: '工时表', hi: 'टाइमशीट', es: 'Hoja de horas', ar: 'سجل الساعات' },
     'Billing':                { zh: '账单', hi: 'बिलिंग', es: 'Facturación', ar: 'الفوترة' },
     'Worksheet':              { zh: '工作表', hi: 'वर्कशीट', es: 'Hoja de cálculo', ar: 'ورقة العمل' },
@@ -1693,7 +1693,7 @@
   // v4.2: page-subtitle translations keyed by normalized English innerHTML
   // (markup-preserving — values keep the same <span>/<a> tags).
   var HTMLDICT = {
-    // ── v5.4.0 "RacksMatters": Timesheet + Billing page subtitles ──
+    // ── v5.4.0 "RackMatters": Timesheet + Billing page subtitles ──
     "Your week — log billable (debtable) and internal hours by day. Hours you log on a ticket appear here too.": { "zh": "你的一周——按天记录可计费（应收）和内部工时。你在工单上记录的工时也会出现在这里。", "hi": "आपका सप्ताह — दिन के अनुसार billable (debtable) और आंतरिक घंटे दर्ज करें। किसी ticket पर दर्ज किए गए घंटे यहाँ भी दिखते हैं।", "es": "Tu semana: registra horas facturables (cobrables) e internas por día. Las horas que registras en un ticket también aparecen aquí.", "ar": "أسبوعك — سجّل الساعات القابلة للفوترة (المستحقة) والداخلية حسب اليوم. تظهر هنا أيضاً الساعات التي تسجّلها على تذكرة." },
     "Turn logged hours and recurring fees into invoices, per customer (site). Admins manage rates and issue invoices; the finance role can view and export.": { "zh": "将记录的工时和经常性费用按客户（站点）生成发票。管理员管理费率并开具发票；财务角色可查看和导出。", "hi": "दर्ज किए गए घंटों और आवर्ती शुल्कों को प्रति ग्राहक (site) चालान में बदलें। Admins दरें प्रबंधित करते हैं और चालान जारी करते हैं; finance भूमिका देख और निर्यात कर सकती है।", "es": "Convierte las horas registradas y las cuotas recurrentes en facturas, por cliente (sitio). Los administradores gestionan tarifas y emiten facturas; el rol de finanzas puede ver y exportar.", "ar": "حوّل الساعات المسجّلة والرسوم المتكرّرة إلى فواتير لكل عميل (موقع). يدير المسؤولون الأسعار ويُصدرون الفواتير؛ ويمكن لدور المالية العرض والتصدير." },
     // ── v5.1.0: cron / app-catalog / file-manager page subtitles ──

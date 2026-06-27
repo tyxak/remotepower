@@ -1,5 +1,5 @@
 /*
- * app-billing.js — RemotePower "RacksMatters" time-tracking + billing UI (v5.4.0)
+ * app-billing.js — RemotePower "RackMatters" time-tracking + billing UI (v5.4.0)
  * ---------------------------------------------------------------------------
  * Three surfaces over ONE time-entry ledger:
  *   - ticket "Log hours" (injected into the ticket detail by app.js),

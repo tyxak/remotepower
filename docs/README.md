@@ -62,7 +62,7 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v5.4.0.md](v5.4.0.md)** — "RacksMatters": a lightweight **time-tracking +
+- **[v5.4.0.md](v5.4.0.md)** — "RackMatters": a lightweight **time-tracking +
  billing** layer on one shared time-entry ledger — log billable (debtable) or
  internal hours on tickets and a weekly **timesheet**, then turn them plus
  recurring fees into per-customer **invoices** (worksheet → draft/sent/paid, with

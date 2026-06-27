@@ -1,4 +1,4 @@
-"""v5.4.0 "RacksMatters" — time-tracking + billing feature tests.
+"""v5.4.0 "RackMatters" — time-tracking + billing feature tests.
 
 Drives the real api.py handlers (respond/auth/body stubbed, temp RP_DATA_DIR)
 plus the pure billing.py math. Covers: 0.25-hour quantize, ticket→site

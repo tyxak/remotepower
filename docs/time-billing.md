@@ -1,4 +1,4 @@
-# Time-tracking & billing (RacksMatters)
+# Time-tracking & billing (RackMatters)
 
 *(v5.4.0)* A lightweight PSA layer on top of the helpdesk: log hours, keep a
 weekly timesheet, and invoice customers for the time you spent plus recurring
