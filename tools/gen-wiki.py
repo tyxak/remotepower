@@ -129,15 +129,32 @@ def main():
             p.unlink()
 
     n = 0
+    pages = []
     for src in sorted(DOCS.glob("*.md")):
         if _excluded(src.name):
             continue
         dst = wiki / src.name
         dst.write_text(_rewrite_links(src.read_text()))
+        pages.append(src.stem)
         n += 1
 
     _bump_nav(wiki, version)
     print(f"wiki: wrote {n} doc pages + bumped nav to v{version} in {wiki}")
+
+    # _Sidebar.md is CURATED — this script only version-bumps its release list, it
+    # does NOT auto-add new feature pages to the topical nav. So every NEW doc gets a
+    # wiki page but is invisible in the sidebar until someone hand-links it. Warn
+    # loudly here so a new feature page (wg-access, ticket-system, …) is never left
+    # orphaned in the nav again. Version notes (vX.Y.Z) live in the release list, skip.
+    sidebar = (wiki / "_Sidebar.md").read_text() if (wiki / "_Sidebar.md").exists() else ""
+    missing = [p for p in pages
+               if not re.fullmatch(r"v\d+\.\d+\.\d+", p)
+               and f"]({p})" not in sidebar]
+    if missing:
+        print("\n  ⚠ WARNING: these wiki pages are NOT linked in the curated _Sidebar.md")
+        print("    (hand-add them to a section in _Sidebar.md, then re-push the wiki):")
+        for p in sorted(missing):
+            print(f"      - {p}")
 
 
 if __name__ == "__main__":
