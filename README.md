@@ -60,6 +60,14 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 <td align="center"><b>AI assistant</b><br><a href="docs/screenshots/AI.png"><img src="docs/screenshots/AI.png" width="400"></a></td>
 <td align="center"><b>Claude (AI host integration)</b><br><a href="docs/screenshots/Claude.png"><img src="docs/screenshots/Claude.png" width="400"></a></td>
 </tr>
+<tr>
+<td align="center"><b>Tickets (helpdesk)</b><br><a href="docs/screenshots/Tickets.png"><img src="docs/screenshots/Tickets.png" width="400"></a></td>
+<td align="center"><b>WG Access — tunnels</b><br><a href="docs/screenshots/WG1.png"><img src="docs/screenshots/WG1.png" width="400"></a></td>
+</tr>
+<tr>
+<td align="center"><b>WG Access — client config &amp; QR</b><br><a href="docs/screenshots/WG2.png"><img src="docs/screenshots/WG2.png" width="400"></a></td>
+<td></td>
+</tr>
 </table>
 
 </details>
