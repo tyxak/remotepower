@@ -2,6 +2,38 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.4.0 — "RacksMatters" — unreleased (test)
+
+A lightweight **time-tracking + billing** layer on one shared time-entry ledger:
+log billable (debtable) or internal hours on tickets and a weekly timesheet, then
+turn them — plus recurring fees — into per-customer invoices. No breaking changes.
+
+- **Unified time ledger.** Every logged hour is one entry (hours in 0.25 steps,
+  date, billable flag, customer/device/ticket link, note or internal category).
+  Store `time_entries.json`; pure math in the new `server/cgi-bin/billing.py`.
+- **Hours on tickets.** A **Log hours** button on every ticket — type hours in
+  0.25-hour steps, mark billable/internal; billable hours attach to the ticket's
+  customer (site, derived from the device). A running total shows on the ticket.
+- **Weekly timesheet.** A personal **Timesheet** page (Planning → Timesheet, and
+  linked from My Account) with a week navigator, per-day/weekly totals, and ad-hoc
+  internal time (meetings, education, admin, travel, projects). Ticket hours roll
+  in automatically.
+- **Billing (Admin → Billing).** **Worksheet** (billable hours × rate + recurring
+  fees → subtotal/VAT/total per customer per month), **Invoices** (draft → sent →
+  paid, with void), **Rates & Fees** (named rate card, global currency / default
+  rate / VAT / invoice prefix, and per-customer default rate / VAT / billing
+  address / recurring license-operation-service fees).
+- **Locking.** Issuing an invoice snapshots + **locks** the hours it bills so
+  totals can't drift; voiding frees them to re-bill. Amounts are frozen on issue.
+- **Finance role.** A new read-only **finance** role views/exports billing without
+  admin rights; issuing/voiding invoices + editing rates stay admin-only.
+- **Export.** CSV (`?format=csv`) on the ledger, worksheet and invoices; JSON API
+  on every list; browser-print PDF for invoices. No new server dependencies.
+- New endpoints: `/api/time-entries[/{id}]`, `/api/tickets/{id}/hours`,
+  `/api/timesheet`, `/api/billing/config`, `/api/billing/worksheet`,
+  `/api/invoices[/{id}]`. WEBHOOK_EVENTS unchanged (billing is not an alerting
+  surface). i18n coverage for the new pages (en/zh/hi/es/ar).
+
 ## v5.3.0 — "ResolveMatters" — 2026-06-27
 
 A built-in, opt-in **ticket system** (helpdesk) that turns alerts into owned,

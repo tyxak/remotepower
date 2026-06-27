@@ -22,6 +22,7 @@ LINT_SRC := server/cgi-bin/cmdb_vault.py \
             server/cgi-bin/resolver_health.py \
             server/cgi-bin/backup_crypto.py \
             server/cgi-bin/wg_access.py \
+            server/cgi-bin/billing.py \
             tests/test_v190.py \
             tests/test_v1100.py \
             tests/test_v430_worker.py
@@ -33,7 +34,8 @@ TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/dns_resolve.py \
                  server/cgi-bin/resolver_health.py \
                  server/cgi-bin/backup_crypto.py \
-                 server/cgi-bin/wg_access.py
+                 server/cgi-bin/wg_access.py \
+                 server/cgi-bin/billing.py
 PIP_FLAGS ?= --break-system-packages
 
 # v2.1.0: extract the canonical version from api.py so `make dist` and the

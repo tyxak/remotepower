@@ -17,7 +17,7 @@ _spec.loader.exec_module(api)
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "5.3.0"
+    V = api.SERVER_VERSION   # loosened on the v5.4.0 bump — tracks current
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)

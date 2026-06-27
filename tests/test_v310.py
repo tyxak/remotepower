@@ -78,11 +78,11 @@ class TestRoleConstants(_ApiTestBase):
     def test_user_roles_excludes_mcp(self):
         """Human accounts may not hold the MCP role — only API keys can."""
         self.assertNotIn('mcp', self.api.USER_ROLES)
-        self.assertEqual(self.api.USER_ROLES, frozenset({'admin', 'viewer', 'auditor'}))
+        self.assertEqual(self.api.USER_ROLES, frozenset({'admin', 'viewer', 'auditor', 'finance'}))
 
     def test_apikey_roles_includes_mcp(self):
         self.assertEqual(self.api.APIKEY_ROLES,
-                          frozenset({'admin', 'viewer', 'mcp', 'auditor'}))
+                          frozenset({'admin', 'viewer', 'mcp', 'auditor', 'finance'}))
 
     def test_mcp_action_allowlist_populated_in_stage_4(self):
         """v3.2.0 Stage 4 landed the initial set of write tools. The

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.3.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.4.0">
 
 </head>
 <body>
@@ -420,6 +420,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-896fd277"/></svg>
           <span>Tasks</span>
         </button>
+        <button class="nav-btn" data-page="timesheet" title="Your weekly timesheet — log billable and internal hours by day">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Timesheet</span>
+        </button>
         <button class="nav-btn" data-page="trends" title="Time-series charts: health, compliance, resources">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>
           <span>Trends</span>
@@ -446,6 +450,10 @@
         <button class="nav-btn" data-page="automation" title="When an event fires → run a script or notify">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span>Automation</span>
+        </button>
+        <button class="nav-btn" data-page="billing" title="Billing — worksheet, invoices and per-customer rates &amp; fees (admin / finance)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2V2l-3 2-3-2-3 2-3-2-3 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="14" y2="13"/></svg>
+          <span>Billing</span>
         </button>
         <button class="nav-btn" data-page="cmdqueue" title="Commands waiting for each agent's next heartbeat — view or cancel pending work">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
@@ -1062,6 +1070,12 @@
       <div id="page-account" class="page">
         <div class="page-title">My Account</div>
         <div class="page-subtitle">Your personal settings — these apply to <strong id="acct-username">you</strong> only, not the whole server.</div>
+
+        <div class="settings-section">
+          <h3>My timesheet</h3>
+          <p class="hint">Your weekly time log — record billable (debtable) and internal hours by day. Hours you log on a ticket land here too.</p>
+          <button class="btn-primary mt-8" data-action="showPage" data-arg="timesheet">Open my timesheet</button>
+        </div>
 
         <div class="settings-section">
           <h3>Team</h3>
@@ -2930,7 +2944,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.3.0 resolvematters ticket tickets helpdesk incident request change priority sla assignee ownership team group sub-ticket parent child master imap inbound mail signature conversation reply resolve close alert contacts directory phonebook">
+          <details class="doc-card" open data-keywords="release notes changelog v5.4.0 racksmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
+            <summary><strong>What's new — v5.4.0 "RacksMatters"</strong> — time-tracking and billing: log billable / internal hours on tickets and a weekly timesheet, then turn them (plus recurring fees) into per-customer invoices (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.4.0 adds a lightweight <strong>time-tracking + billing</strong> layer on one shared ledger. Log hours where the work happens; bill them where the money is. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.4.0</code>).</p>
+              <ul>
+                <li><strong>Hours on tickets.</strong> A <em>Log hours</em> button on every ticket — type the hours in 0.25-hour steps (0.25 = 15 min), mark them billable (debtable) or internal. Billable hours attach to the ticket's customer (site).</li>
+                <li><strong>Weekly timesheet.</strong> A personal <em>Timesheet</em> page (also linked from your profile) — a week view you can page back and forth through. Stamp in ad-hoc time too: meetings, education, internal projects. Hours you logged on tickets show up here automatically.</li>
+                <li><strong>Billing.</strong> Under <em>Admin → Billing</em>: a <strong>Worksheet</strong> (hours × rate + recurring fees → subtotal / VAT / total per customer per month), <strong>Invoices</strong> (draft → sent → paid, with void), and <strong>Rates &amp; Fees</strong> (a named rate card, per-customer default rate / VAT / billing address, and recurring license / operation / service fees).</li>
+                <li><strong>Locking &amp; roles.</strong> Issuing an invoice locks the hours it bills so totals can't drift (void to re-bill). A new read-only <strong>finance</strong> role can view and export billing without admin rights; everyone logs their own hours.</li>
+                <li><strong>Export.</strong> CSV and JSON API on the ledger, worksheet and invoices; print an invoice to PDF from the browser.</li>
+              </ul>
+              <p class="hint">See <code>docs/time-billing.md</code> and <code>docs/v5.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.3.0 resolvematters ticket tickets helpdesk incident request change priority sla assignee ownership team group sub-ticket parent child master imap inbound mail signature conversation reply resolve close alert contacts directory phonebook">
             <summary><strong>What's new — v5.3.0 "ResolveMatters"</strong> — a built-in opt-in ticket system (helpdesk) that turns alerts into owned, tracked, resolvable work, plus an internal Contacts directory (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.3.0 adds a built-in <strong>ticket system</strong>, off by default — enable it under <em>Settings → Advanced → Tickets</em>. It lives next to your fleet, so the alert you just saw and the work you do about it stay in one place. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.3.0</code>).</p>
@@ -2983,21 +3011,8 @@
               <p class="hint">See <code>docs/v5.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.0.1 tempermatters stability polish bugfix sqlite postgres backend exists ssh key drift proxmox snapshot host config current duplicate alert coalesce agent stopped started notification noise api key edit custom check edit backup passphrase environmentfile self-update script">
-            <summary><strong>What's new — v5.0.1 "TemperMatters"</strong> — a stability + polish release that tempers v5.0.0: fixes a class of bugs that silently broke features on the SQLite/PostgreSQL backend, makes upgrades much quieter, and adds Edit buttons for API keys and custom checks (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.0.1 is all hardening and polish — no breaking changes. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.0.1</code>).</p>
-              <ul>
-                <li><strong>Backend-correctness sweep.</strong> Fixed a class of presence-checks on database-backed storage that silently read empty under the SQLite/PostgreSQL backend — the <strong>SSH-key drift audit</strong>, <strong>Proxmox stale-snapshot</strong> alerts, and the device drawer's <strong>host-config "current state"</strong> view + export now work on every backend.</li>
-                <li><strong>Quieter upgrades.</strong> Duplicate open alerts for the same condition now <strong>coalesce</strong> into one row instead of stacking after a restart, and <strong>agent stop/start</strong> events no longer alert or webhook by default (they're expected upgrade churn — still in Recent Activity, re-enableable in Settings → Notifications).</li>
-                <li><strong>Edit in place.</strong> <strong>API keys</strong> can be edited (name, role, expiry, rate limit) without deleting + regenerating the secret and breaking your scripts; <strong>custom checks</strong> gained an Edit button too.</li>
-                <li><strong>Backups survive redeploys.</strong> <code>RP_BACKUP_PASSPHRASE</code> now loads from <code>/etc/remotepower/api.env</code> via the unit's <code>EnvironmentFile=</code>, so an upgrade can't wipe it and silently drop backup encryption. A turnkey <code>packaging/remotepower-server-update.sh</code> ships for the "Run update now" button.</li>
-              </ul>
-              <p class="hint">See <code>docs/v5.0.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
 
-          <details class="doc-card" data-keywords="release notes changelog older versions history v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -4579,6 +4594,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-header"><div class="section-title">Sites</div><button class="enroll-btn" data-action="openSiteCreate" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New site</button></div>
         <div class="mb-16"><input type="text" id="sites-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
         <div class="table-card"><table><thead id="sites-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="slug">Slug</th><th scope="col" data-col="device_count">Devices</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
+      </div>
+
+      <!-- ── v5.4.0 RacksMatters: Timesheet (personal weekly time log) ─────── -->
+      <div id="page-timesheet" class="page">
+        <div class="page-title">Timesheet</div>
+        <div class="page-subtitle">Your week — log billable (debtable) and internal hours by day. Hours you log on a ticket appear here too.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="tsPrevWeek" title="Previous week">‹ Prev</button>
+          <button class="btn-icon" data-action="tsThisWeek" title="Jump to this week">This week</button>
+          <button class="btn-icon" data-action="tsNextWeek" title="Next week">Next ›</button>
+          <span id="ts-week-label" class="hint ml-8"></span>
+          <button class="enroll-btn ml-auto" data-action="openTimesheetEntry"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Log time</button>
+          <button class="btn-icon" data-action="tsExportCsv" title="Export this week to CSV">CSV</button>
+        </div>
+        <div id="ts-week-wrap" class="ts-grid"><div class="empty-state">Loading…</div></div>
+      </div>
+
+      <!-- ── v5.4.0 RacksMatters: Billing (worksheet, invoices, rates) ─────── -->
+      <div id="page-billing" class="page">
+        <div class="page-title">Billing</div>
+        <div class="page-subtitle">Turn logged hours and recurring fees into invoices, per customer (site). Admins manage rates and issue invoices; the finance role can view and export.</div>
+        <div class="settings-tabs" id="billing-tabs">
+          <button class="settings-tab active" data-action="billingTab" data-arg="worksheet">Worksheet</button>
+          <button class="settings-tab" data-action="billingTab" data-arg="invoices">Invoices</button>
+          <button class="settings-tab" data-action="billingTab" data-arg="rates">Rates &amp; Fees</button>
+        </div>
+        <div id="billing-host"><div class="empty-state">Loading…</div></div>
       </div>
 
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
@@ -6704,6 +6746,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-create-modal">Cancel</button><button class="btn-primary" data-action="saveNewTicket">Create</button></div>
 </div></div>
 
+<!-- v5.4.0 RacksMatters: shared time-entry modal (ticket hours + timesheet) -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="time-entry-title" id="time-entry-modal"><div class="modal">
+  <div class="modal-title" id="time-entry-title">Log time</div>
+  <div id="time-entry-body"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="time-entry-modal">Cancel</button><button class="btn-primary" data-action="saveTimeEntry">Save</button></div>
+</div></div>
+
+<!-- v5.4.0 RacksMatters: invoice view / print -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="invoice-view-title" id="invoice-view-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="invoice-view-title">Invoice</div>
+  <div id="invoice-view-body"></div>
+  <div class="modal-actions"><button class="btn-primary" data-action="invoicePrint">Print / Save as PDF</button><button class="btn-secondary" data-action="closeModal" data-arg="invoice-view-modal">Close</button></div>
+</div></div>
+
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ct-modal-title" id="contact-modal"><div class="modal">
   <div class="modal-title" id="ct-modal-title">Add contact</div>
   <div class="form-group"><label class="form-label" for="ct-name">Name</label><input type="text" id="ct-name" class="form-input" maxlength="120" placeholder="Full name"></div>
@@ -8161,35 +8217,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.3.0"></script>
-<script defer src="static/js/app.js?v=5.3.0"></script>
+<script defer src="static/js/i18n.js?v=5.4.0"></script>
+<script defer src="static/js/app.js?v=5.4.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.3.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.3.0"></script>
-<script defer src="static/js/app-containers.js?v=5.3.0"></script>
-<script defer src="static/js/app-network.js?v=5.3.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.4.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.4.0"></script>
+<script defer src="static/js/app-containers.js?v=5.4.0"></script>
+<script defer src="static/js/app-network.js?v=5.4.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.3.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.3.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.3.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.4.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.4.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.4.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.3.0"></script>
-<script defer src="static/js/app-dns.js?v=5.3.0"></script>
-<script defer src="static/js/app-drift.js?v=5.3.0"></script>
-<script defer src="static/js/app-dmarc.js?v=5.3.0"></script>
-<script defer src="static/js/app-cve.js?v=5.3.0"></script>
-<script defer src="static/js/app-firewall.js?v=5.3.0"></script>
-<script defer src="static/js/app-backups.js?v=5.3.0"></script>
-<script defer src="static/js/app-iac.js?v=5.3.0"></script>
-<script defer src="static/js/app-rollouts.js?v=5.3.0"></script>
-<script defer src="static/js/app-power.js?v=5.3.0"></script>
-<script defer src="static/js/app-gpu.js?v=5.3.0"></script>
-<script defer src="static/js/app-proxmox.js?v=5.3.0"></script>
-<script defer src="static/js/wg-access.js?v=5.3.0"></script>
+<script defer src="static/js/app-ai.js?v=5.4.0"></script>
+<script defer src="static/js/app-dns.js?v=5.4.0"></script>
+<script defer src="static/js/app-drift.js?v=5.4.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.4.0"></script>
+<script defer src="static/js/app-cve.js?v=5.4.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.4.0"></script>
+<script defer src="static/js/app-backups.js?v=5.4.0"></script>
+<script defer src="static/js/app-iac.js?v=5.4.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.4.0"></script>
+<script defer src="static/js/app-power.js?v=5.4.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.4.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.4.0"></script>
+<script defer src="static/js/wg-access.js?v=5.4.0"></script>
+<script defer src="static/js/app-billing.js?v=5.4.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.3.0"></script>
+<script defer src="static/js/sw-register.js?v=5.4.0"></script>
 </body>
 </html>

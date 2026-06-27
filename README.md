@@ -14,7 +14,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/ghcr.io-remotepower-blue.svg)](docs/install.md#docker-one-liner-alternative)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-5.3.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-5.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 [![Wiki](https://img.shields.io/badge/docs-wiki-blue.svg)](https://github.com/tyxak/remotepower/wiki)
 [![Discussions](https://img.shields.io/badge/community-discussions-blueviolet.svg)](https://github.com/tyxak/remotepower/discussions)
 
@@ -170,11 +170,11 @@ One tool instead of six — the ten things it does best:
 
 ### Recent releases
 
+- **v5.4.0 — RacksMatters** — a lightweight **time-tracking + billing** layer on one shared time-entry ledger: log billable (debtable) or internal hours in 0.25-hour steps on tickets and a weekly **Timesheet**, then turn those hours plus per-customer **recurring fees** into invoices. **Billing** (Admin) gives a worksheet (hours × rate + fees → subtotal / VAT / total per customer per month), an invoice lifecycle (draft → sent → paid, with void) that **locks** the hours it bills so totals can't drift, and a named **rate card** with per-customer rate / VAT / billing details. A new read-only **finance** role views and exports billing without admin rights; export via CSV, JSON API and browser-PDF. No breaking changes.
 - **v5.3.0 — ResolveMatters** — a built-in, opt-in **ticket system** (helpdesk) that turns alerts into owned, tracked, resolvable work: tickets typed Incident / Request / Change with P1–P4 priorities and per-priority **SLA targets**, ownership / teams / groups, master & sub-tickets, **alert → ticket → auto-resolve**, inbound-mail auto-create + reply threading (dedicated IMAP) and outbound via your SMTP with an HTML signature. Plus an internal **Contacts** directory, a `tickets` AI/RAG source + Helpdesk-triage advisor, and a whole-project security / performance / consistency sweep. No breaking changes.
 - **v5.2.0 — AccessMatters** — **WG Access**, a built-in light WireGuard road-warrior VPN (Admin → WG Access): reach the dashboard and fleet over an encrypted tunnel instead of exposing services. Create tunnels with a reach scope (dashboard-only / entire fleet / site / group / tag), full- or split-tunnel egress and optional auto-expiry, then issue per-client `.conf` + QR configs whose keys are generated in your browser (the private key never leaves it). Connect/disconnect/stale-handshake are first-class events, and WG Access posture feeds the AI (a new Remote-access review advisor). No breaking changes.
 - **v5.1.1 — ClusterMatters** — the Proxmox integration now lists guests across the **whole cluster** (resolving each guest's owning node so every lifecycle action targets the right host), the page you're on is restored from the URL hash on refresh, **LocalAI API keys** are accepted, and embeddings can run on a **different service than chat** (a separate provider / base URL / API key). Folds in community contributions from @tbouquet and @loryanstrant. No breaking changes.
 - **v5.1.0 — UnityMatters** — fail2ban bans become a first-class alert/webhook event (the jail and banned IPs ride the payload, and repeat bans on a host coalesce into one live alert), Arabic gains a full right-to-left layout, and another batch of UI strings are localized — on top of the usual security and correctness finalize sweep. No breaking changes.
-- **v5.0.1 — TemperMatters** — a stability and polish release that tempers v5.0: it fixes a class of bugs that silently broke features on the SQLite / PostgreSQL backend (SSH-key drift audit, Proxmox snapshot alerts, host-config view), coalesces duplicate alerts into a single entry, makes agent stop / start quiet by default, and adds Edit buttons for API keys and custom checks — on top of a whole-project security and correctness finalize sweep. No breaking changes.
 
 Full release history, newest first → **[CHANGELOG.md](CHANGELOG.md)**.
 

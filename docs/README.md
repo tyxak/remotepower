@@ -62,6 +62,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.4.0.md](v5.4.0.md)** — "RacksMatters": a lightweight **time-tracking +
+ billing** layer on one shared time-entry ledger — log billable (debtable) or
+ internal hours on tickets and a weekly **timesheet**, then turn them plus
+ recurring fees into per-customer **invoices** (worksheet → draft/sent/paid, with
+ issue-time hour locking). New read-only **finance** role; CSV / JSON-API /
+ browser-PDF export. No breaking changes.
 - **[v5.3.0.md](v5.3.0.md)** — "ResolveMatters": a built-in, opt-in **ticket
  system** (helpdesk) — tickets typed Incident/Request/Change with P1–P4 priorities
  and SLA targets, ownership/teams/groups, master & sub-tickets, alert→ticket→
@@ -86,13 +92,8 @@ The five most recent per-release notes are kept here:
  opt-in host file manager, host cron/timer management, a code-free custom HTTP
  probe plugin, full Arabic right-to-left layout, and a whole-project finalize
  sweep. No breaking changes.
-- **[v5.0.1.md](v5.0.1.md)** — "TemperMatters": a stability + polish release —
- fixes a class of bugs that silently broke features on the SQLite/PostgreSQL
- backend (SSH-key drift audit, Proxmox snapshot alerts, host-config view),
- coalesces duplicate alerts, makes agent stop/start quiet by default, and adds
- Edit buttons for API keys and custom checks. No breaking changes.
 
-Older release notes (v5.0.0 and earlier) live in
+Older release notes (v5.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides

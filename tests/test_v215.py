@@ -155,6 +155,9 @@ class TestHtmlIdReferences(unittest.TestCase):
         # _ensureDriftProfileModal() / _ensureDriftAssignModal().
         'drift-profile-modal', 'drift-profile-title',
         'drift-assign-modal', 'drift-assign-title',
+        # v5.4.0 RacksMatters: rate-card + recurring-fee table bodies are built
+        # into the Billing "Rates & Fees" tab via innerHTML (app-billing.js).
+        'rate-card-body', 'fee-body',
     }
 
     def test_modal_title_body_ids_all_exist_in_html(self):

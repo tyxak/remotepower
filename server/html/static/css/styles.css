@@ -6453,3 +6453,51 @@ body[data-ui="industrial"] input[type="checkbox"]::after{
 }
 body[data-ui="industrial"] input[type="checkbox"]:checked::before{ background:var(--warm); }
 body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rotate(45deg) scale(1); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   v5.4.0 "RacksMatters": time-tracking + billing (Timesheet + Billing pages,
+   ticket "Log hours", invoice print). CSP-safe (no inline styles); sizes fold
+   onto the canonical scale {28,16,14,13,12,11}.
+   ════════════════════════════════════════════════════════════════════════ */
+.ml-auto { margin-left: auto; }
+.btn-chip {
+  font-size: 12px; padding: 2px 9px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); border-radius: 4px; cursor: pointer;
+}
+.btn-chip:hover { border-color: var(--accent); }
+.form-group-btn { display: flex; align-items: flex-end; }
+.ts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.ts-day { padding: 10px 12px; }
+.ts-day-head { align-items: center; margin-bottom: 6px; }
+.ts-entry, .tk-hours-row {
+  align-items: center; gap: 6px; padding: 3px 0;
+  border-top: 1px solid var(--border); font-size: 13px;
+}
+.ts-entry:first-child, .tk-hours-row:first-child { border-top: none; }
+.ws-totals { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 14px; }
+.ws-grand { font-size: 16px; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px; }
+#billing-host .num, #invoice-view-body .num, #ws-result .num { text-align: right; }
+.inv-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.inv-no { font-size: 16px; font-weight: 600; }
+.inv-party { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; }
+
+/* Invoice print: when invoicePrint() adds .printing-invoice to <body>, show only
+   the invoice on a forced-light page (mirrors the #print-report approach above). */
+@media print {
+  body.printing-invoice #app,
+  body.printing-invoice .modal-overlay:not(#invoice-view-modal),
+  body.printing-invoice #invoice-view-modal .modal-title,
+  body.printing-invoice #invoice-view-modal .modal-actions,
+  body.printing-invoice #toast-container { display: none !important; }
+  body.printing-invoice, body.printing-invoice #invoice-view-modal,
+  body.printing-invoice #invoice-view-modal > .modal {
+    position: static !important; inset: auto !important; transform: none !important;
+    background: #fff !important; color: #111 !important; box-shadow: none !important;
+    max-width: none !important; width: auto !important; max-height: none !important;
+    overflow: visible !important; display: block !important;
+  }
+  body.printing-invoice #invoice-print-area,
+  body.printing-invoice #invoice-print-area * {
+    color: #111 !important; color-scheme: light !important; background: transparent !important;
+  }
+}

@@ -338,6 +338,19 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Client | Browser-generated keypair (private key never sent), `.conf` + QR once; live endpoint / last-handshake / transfer; tunnel pool + throughput rollups |
 | Events + AI | `vpn_client_connected` / `vpn_client_disconnected` / `vpn_handshake_stale`; feeds RAG + a Remote-access-review AI advisor |
 
+## Time-tracking & billing *(v5.4.0)*
+
+| Feature | Notes |
+|---|---|
+| Unified time ledger | One entry per logged block: hours (0.25 steps), date, billable flag, customer (site) / device / ticket link, note or internal category. `GET/POST /api/time-entries` |
+| Hours on tickets | **Log hours** on any ticket; billable hours attach to the ticket's customer (site, derived from device); running total on the ticket. `…/tickets/{id}/hours` |
+| Weekly timesheet | Personal **Timesheet** page (Planning, + linked from My Account) — week navigator, per-day/weekly totals, ad-hoc internal time; ticket hours roll in. `GET /api/timesheet?week=` |
+| Billing worksheet | Per-customer per-month: billable hours × rate + recurring fees → subtotal / VAT / total. `GET /api/billing/worksheet` |
+| Invoices | draft → sent → paid (+ void); issuing **locks** the billed hours (frozen amounts), voiding frees them to re-bill. `GET/POST /api/invoices`, `PATCH /api/invoices/{id}` |
+| Rates & fees | Named rate card + global default rate / currency / VAT / invoice prefix; per-customer rate / VAT / billing address / recurring license-operation-service fees. `GET/POST /api/billing/config` |
+| Finance role | Read-only role that views/exports billing without admin; issuing/voiding + rate edits stay admin-only; everyone logs their own hours |
+| Export | CSV (`?format=csv`) on ledger / worksheet / invoice, JSON API on every list, browser-print PDF for invoices |
+
 ## AI assistant & RAG *(v2.1.3)*
 
 | Feature | Notes |

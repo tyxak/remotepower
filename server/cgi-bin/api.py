@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.3.0'
+SERVER_VERSION = '5.4.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -130,6 +130,17 @@ TICKET_STANDALONE_BASE = 900000   # standalone ticket numbers live in a reserved
 MAX_TICKETS = 5000
 CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
 MAX_CONTACTS = 2000
+
+# ── v5.4.0 "RacksMatters": time-tracking + billing ───────────────────────────
+# A unified time-entry ledger (ticket "add hours" and the weekly timesheet are
+# two views of the same records), per-site rate/fee config, and stored invoices.
+# Pure math lives in the sibling billing.py module; this file owns storage/auth.
+TIME_ENTRIES_FILE = DATA_DIR / 'time_entries.json'   # {entries:[...], seq:int}
+MAX_TIME_ENTRIES = 200000
+BILLING_FILE = DATA_DIR / 'billing.json'   # rate card, currency, per-site rates/VAT/recurring fees
+INVOICES_FILE = DATA_DIR / 'invoices.json'   # {invoices:[...], invoice_seq:int}
+MAX_INVOICES = 100000
+INVOICE_STATUSES = ('draft', 'sent', 'paid', 'void')
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -637,6 +648,8 @@ import ai_provider
 import ai_context
 # v3.4.0: Level-2/3 RAG — retrieval over the operator's own infrastructure.
 import rag_index
+# v5.4.0 "RacksMatters": pure time-tracking / billing math (hours, rates, totals).
+import billing as billing_mod
 # v3.4.0: resource forecasting / "what changed", control-mapped compliance,
 # and on-demand AI insight prompt builders (anomaly, cron, runbook, doc draft).
 import forecast
@@ -720,9 +733,9 @@ MAX_FLEET_EVENTS = 1000
 # write tools yet. Stage 4 fills the allowlist with the initial set of
 # write tools (run_saved_script, reboot_device, force_package_scan,
 # force_acme_rescan).
-VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp', 'auditor'})
-USER_ROLES         = frozenset({'admin', 'viewer', 'auditor'})  # roles a user account may hold
-APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp', 'auditor'})  # roles an API key may hold
+VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp', 'auditor', 'finance'})
+USER_ROLES         = frozenset({'admin', 'viewer', 'auditor', 'finance'})  # roles a user account may hold
+APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp', 'auditor', 'finance'})  # roles an API key may hold
 MCP_ACTION_ALLOWLIST = frozenset({
     # v3.2.0 Stage 4: initial write tools. Each is intentionally narrow:
     #   - reboot_device: a `reboot` command queued for the agent.
@@ -3130,6 +3143,21 @@ def require_admin_or_auditor_auth():
     return username
 
 
+def require_admin_or_finance_auth():
+    """v5.4.0: gate for READ/EXPORT of the billing surfaces (rate config,
+    worksheet, invoices) — admins plus the read-only 'finance' role, nobody
+    else. Finance can VIEW and EXPORT but never mutate: editing rates/fees and
+    issuing/voiding invoices stay behind require_admin_auth."""
+    username = require_auth()
+    try:
+        role = verify_token(get_token_from_request())[1] or 'viewer'
+    except Exception:
+        role = 'viewer'
+    if not (_resolve_role(role).get('admin') or role == 'finance'):
+        respond(403, {'error': 'Admins and finance only'})
+    return username
+
+
 def require_mcp_action(action_name):
     """Gate for MCP write tools (Stage 4).
 
@@ -3218,7 +3246,11 @@ def _resolve_role(role_name):
     # 'auditor' (v4.10.0) is read-only like viewer (no action permissions, not
     # admin); it differs only in being allowed to READ the oversight surfaces
     # (audit log, evidence pack, security posture) via require_admin_or_auditor_auth.
-    if role_name in ('viewer', 'mcp', 'auditor'):
+    # 'finance' (v5.4.0) is read-only like viewer/auditor (no action perms, not
+    # admin); it differs only in being allowed to READ/EXPORT the billing
+    # surfaces (rates, worksheet, invoices) via require_admin_or_finance_auth.
+    # Issuing/voiding invoices and editing rate config stay admin-only.
+    if role_name in ('viewer', 'mcp', 'auditor', 'finance'):
         return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
     for r in (load(ROLES_FILE) or {}).get('roles', []):
         if r.get('name') == role_name:
@@ -9301,6 +9333,627 @@ def handle_device_metric_thresholds(dev_id):
 def _site_slugify(name):
     s = re.sub(r'[^a-z0-9]+', '-', (name or '').lower()).strip('-')
     return s[:48] or 'site'
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# v5.4.0 "RacksMatters": time-tracking + billing
+# ─────────────────────────────────────────────────────────────────────────────
+# A unified time-entry ledger feeds three surfaces: ticket "add hours", the
+# weekly timesheet, and the billing worksheet/invoices. Pure math is in the
+# sibling billing.py (billing_mod); these handlers own storage + auth + routing.
+#
+# RBAC: anyone logs their OWN hours (require_auth). admin/finance can list across
+# users + see/export money (require_admin_or_finance_auth for reads). Editing
+# rate/fee config and issuing/voiding invoices stay admin-only. A billable entry
+# always resolves to ONE site (the payer); device_id/tag are attribution labels.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _billing_defaults():
+    return {
+        'currency': 'USD', 'default_rate': 0.0, 'default_vat': 0.0,
+        'invoice_prefix': '',
+        'rate_card': [dict(r) for r in billing_mod.DEFAULT_RATE_CARD],
+        'sites': {},
+    }
+
+
+def _billing_cfg():
+    """Billing config merged onto defaults (read view). Mutate the copy + save()."""
+    cfg = _billing_defaults()
+    raw = load(BILLING_FILE) or {}
+    if isinstance(raw, dict):
+        cfg.update(raw)
+    if not isinstance(cfg.get('rate_card'), list):
+        cfg['rate_card'] = [dict(r) for r in billing_mod.DEFAULT_RATE_CARD]
+    if not isinstance(cfg.get('sites'), dict):
+        cfg['sites'] = {}
+    return cfg
+
+
+def _caller_role():
+    try:
+        return verify_token(get_token_from_request())[1] or 'viewer'
+    except Exception:
+        return 'viewer'
+
+
+def _caller_billing_view():
+    """True if the caller may see OTHER users' entries + money (admin or finance)."""
+    role = _caller_role()
+    return bool(_resolve_role(role).get('admin') or role == 'finance')
+
+
+def _te_public(e):
+    """The safe, money-free projection of a time entry (rates never leak here)."""
+    return {k: e.get(k) for k in (
+        'id', 'number', 'date', 'user', 'hours', 'billable', 'site_id',
+        'device_id', 'device_name', 'tag', 'ticket_id', 'ticket_number',
+        'category', 'rate_name', 'note', 'invoice_id', 'locked',
+        'created_at', 'updated_at')}
+
+
+def _valid_date(s):
+    import datetime as _dt
+    try:
+        _dt.date.fromisoformat(str(s))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _te_validate_and_build(actor, body, ticket=None):
+    """Build (but don't store) a new time-entry from a request body. Responds 400
+    on bad input. `ticket` (optional) prefills device/site/ticket linkage."""
+    now = int(time.time())
+    date = str(body.get('date') or '').strip() or time.strftime('%Y-%m-%d', time.localtime(now))
+    if not _valid_date(date):
+        respond(400, {'error': 'date must be YYYY-MM-DD'})
+    hours = billing_mod.quantize_hours(body.get('hours'))
+    if hours <= 0:
+        respond(400, {'error': 'hours must be a positive multiple of 0.25'})
+    billable = bool(body.get('billable'))
+    device_id = str(body.get('device_id') or (ticket or {}).get('device_id') or '').strip()
+    device_name = ''
+    site_id = str(body.get('site_id') or '').strip()
+    if device_id:
+        if not _validate_id(device_id):
+            respond(400, {'error': 'bad device_id'})
+        dev = device_get(device_id) or {}
+        if not dev:
+            respond(400, {'error': 'device not found'})
+        device_name = dev.get('name', '')
+        if not site_id:
+            site_id = dev.get('site') or ''
+    if site_id and site_id not in (load(SITES_FILE) or {}):
+        respond(400, {'error': 'site not found'})
+    if billable and not site_id:
+        respond(400, {'error': 'billable hours need a customer — pick a site, '
+                               'or a device that belongs to one'})
+    tag = _sanitize_str(str(body.get('tag') or ''), 32).strip()
+    category = ''
+    if not billable:
+        category = str(body.get('category') or 'other').strip().lower()
+        if category not in billing_mod.TIME_CATEGORIES:
+            category = 'other'
+    rate_name = str(body.get('rate_name') or '').strip()
+    if rate_name and rate_name not in billing_mod.rate_card_map(_billing_cfg()):
+        rate_name = ''   # unknown name resolves to the site/global default rate
+    return {
+        'date': date, 'user': actor, 'hours': hours, 'billable': billable,
+        'site_id': site_id, 'device_id': device_id, 'device_name': device_name,
+        'tag': tag, 'ticket_id': (ticket or {}).get('id') or '',
+        'ticket_number': (ticket or {}).get('number') or '',
+        'category': category, 'rate_name': rate_name,
+        'note': _sanitize_str(str(body.get('note') or ''), 2000),
+        'invoice_id': '', 'locked': False, 'created_at': now, 'updated_at': now,
+    }
+
+
+def _te_store(entry):
+    """Append a built entry to the ledger; assign id + number. Returns the stored row."""
+    eid = 'te_' + secrets.token_hex(6)
+    out = None
+    with _LockedUpdate(TIME_ENTRIES_FILE) as store:
+        entries = store.setdefault('entries', [])
+        if len(entries) >= MAX_TIME_ENTRIES:
+            respond(400, {'error': f'time-entry limit reached (max {MAX_TIME_ENTRIES})'})
+        seq = int(store.get('seq') or 0) + 1
+        store['seq'] = seq
+        out = dict(entry, id=eid, number=seq)
+        entries.append(out)
+    return out
+
+
+def handle_time_entries():
+    """GET /api/time-entries[?user=&site=&from=&to=&ticket=&billable=&format=csv]
+    — list (own entries; admin/finance see all). POST — create one for yourself."""
+    if method() == 'GET':
+        actor = require_auth()
+        see_all = _caller_billing_view()
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        f_user = (qs.get('user') or [''])[0].strip()
+        f_site = (qs.get('site') or [''])[0].strip()
+        f_from = (qs.get('from') or [''])[0].strip()
+        f_to = (qs.get('to') or [''])[0].strip()
+        f_tk = (qs.get('ticket') or [''])[0].strip()
+        f_bill = (qs.get('billable') or [''])[0].strip().lower()
+        fmt = (qs.get('format') or [''])[0].strip().lower()
+        entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
+        out = []
+        for e in entries:
+            if not see_all and e.get('user') != actor:
+                continue
+            if see_all and f_user and e.get('user') != f_user:
+                continue
+            if f_site and (e.get('site_id') or '') != f_site:
+                continue
+            if f_tk and (e.get('ticket_id') or '') != f_tk:
+                continue
+            if f_from and str(e.get('date') or '') < f_from:
+                continue
+            if f_to and str(e.get('date') or '') > f_to:
+                continue
+            if f_bill in ('1', 'true', 'yes') and not e.get('billable'):
+                continue
+            if f_bill in ('0', 'false', 'no') and e.get('billable'):
+                continue
+            out.append(_te_public(e))
+        out.sort(key=lambda x: (x.get('date', ''), x.get('created_at', 0)), reverse=True)
+        if fmt == 'csv':
+            _csv_time_entries(out)   # exits
+        respond(200, {'ok': True, 'entries': out[:5000], 'can_view_all': see_all})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_auth()
+    stored = _te_store(_te_validate_and_build(actor, get_json_obj()))
+    audit_log(actor, 'time_entry_add',
+              f"{stored['hours']}h {'billable' if stored['billable'] else 'internal'} "
+              f"site={stored['site_id']} tk={stored['ticket_id']}")
+    respond(200, {'ok': True, 'entry': _te_public(stored)})
+
+
+def handle_time_entry_update(eid):
+    """PATCH/POST/DELETE /api/time-entries/{id}. Owner or admin; refused if locked."""
+    if method() not in ('PATCH', 'POST', 'DELETE'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_auth()
+    is_admin = bool(_resolve_role(_caller_role()).get('admin'))
+    deleted = False
+    updated = None
+    with _LockedUpdate(TIME_ENTRIES_FILE) as store:
+        entries = store.get('entries') or []
+        e = next((x for x in entries if x.get('id') == eid), None)
+        if not e:
+            respond(404, {'error': 'time entry not found'})
+        if e.get('user') != actor and not is_admin:
+            respond(403, {'error': 'not your time entry'})
+        if e.get('locked') or e.get('invoice_id'):
+            respond(409, {'error': 'entry is locked — it is already on an invoice'})
+        if method() == 'DELETE':
+            entries.remove(e)
+            deleted = True
+        else:
+            body = get_json_obj()
+            if 'hours' in body:
+                h = billing_mod.quantize_hours(body.get('hours'))
+                if h <= 0:
+                    respond(400, {'error': 'hours must be a positive multiple of 0.25'})
+                e['hours'] = h
+            if 'note' in body:
+                e['note'] = _sanitize_str(str(body.get('note') or ''), 2000)
+            if 'billable' in body:
+                e['billable'] = bool(body.get('billable'))
+            if 'date' in body:
+                d = str(body.get('date') or '').strip()
+                if not _valid_date(d):
+                    respond(400, {'error': 'date must be YYYY-MM-DD'})
+                e['date'] = d
+            if 'tag' in body:
+                e['tag'] = _sanitize_str(str(body.get('tag') or ''), 32).strip()
+            if 'category' in body and not e.get('billable'):
+                c = str(body.get('category') or 'other').strip().lower()
+                e['category'] = c if c in billing_mod.TIME_CATEGORIES else 'other'
+            if 'rate_name' in body:
+                rn = str(body.get('rate_name') or '').strip()
+                e['rate_name'] = rn if rn in billing_mod.rate_card_map(_billing_cfg()) else ''
+            if 'site_id' in body:
+                sid = str(body.get('site_id') or '').strip()
+                if sid and sid not in (load(SITES_FILE) or {}):
+                    respond(400, {'error': 'site not found'})
+                e['site_id'] = sid
+            if e.get('billable') and not e.get('site_id'):
+                respond(400, {'error': 'billable hours need a site'})
+            e['updated_at'] = int(time.time())
+            updated = dict(e)
+    audit_log(actor, 'time_entry_delete' if deleted else 'time_entry_update', f'id={eid}')
+    respond(200, {'ok': True, 'deleted': deleted,
+                  'entry': _te_public(updated) if updated else None})
+
+
+def handle_ticket_hours(tid):
+    """GET /api/tickets/{id}/hours — hours logged to a ticket; POST — add hours."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    t = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+              if x.get('id') == tid), None)
+    if not t:
+        respond(404, {'error': 'ticket not found'})
+    if method() == 'GET':
+        actor = require_auth()
+        see_all = _caller_billing_view()
+        entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
+        rows = [_te_public(e) for e in entries
+                if e.get('ticket_id') == tid and (see_all or e.get('user') == actor)]
+        rows.sort(key=lambda x: x.get('created_at', 0), reverse=True)
+        respond(200, {'ok': True, 'entries': rows,
+                      'total_hours': round(sum(r['hours'] for r in rows), 2),
+                      'billable_hours': round(sum(r['hours'] for r in rows if r['billable']), 2)})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_auth()
+    body = get_json_obj()
+    if 'billable' not in body:
+        body['billable'] = True   # ticket work bills by default
+    stored = _te_store(_te_validate_and_build(actor, body, ticket=t))
+    audit_log(actor, 'time_entry_add', f"ticket #{t.get('number')} {stored['hours']}h")
+    respond(200, {'ok': True, 'entry': _te_public(stored)})
+
+
+def handle_timesheet():
+    """GET /api/timesheet?week=YYYY-Www[&user=] — a week grouped by day (the
+    caller's own, or another user's for admin/finance)."""
+    actor = require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    week = (qs.get('week') or [''])[0].strip()
+    want_user = (qs.get('user') or [''])[0].strip()
+    target = actor
+    if want_user and want_user != actor:
+        if not _caller_billing_view():
+            respond(403, {'error': 'cannot view another user\'s timesheet'})
+        target = want_user
+    days = billing_mod.week_dates(week)
+    if not days:
+        today = time.strftime('%Y-%m-%d', time.localtime())
+        week = billing_mod.iso_week_of(today)
+        days = billing_mod.week_dates(week)
+    dayset = set(days)
+    entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
+    by_day = {d: [] for d in days}
+    wk_total = 0.0
+    wk_billable = 0.0
+    for e in entries:
+        if e.get('user') != target:
+            continue
+        d = str(e.get('date') or '')
+        if d not in dayset:
+            continue
+        by_day[d].append(_te_public(e))
+        h = billing_mod.quantize_hours(e.get('hours'))
+        wk_total += h
+        if e.get('billable'):
+            wk_billable += h
+    out_days = [{'date': d,
+                 'entries': sorted(by_day[d], key=lambda x: x.get('created_at', 0)),
+                 'total': round(sum(x['hours'] for x in by_day[d]), 2)} for d in days]
+    respond(200, {'ok': True, 'week': week, 'user': target, 'days': out_days,
+                  'total_hours': round(wk_total, 2), 'billable_hours': round(wk_billable, 2),
+                  'can_view_all': _caller_billing_view()})
+
+
+def handle_billing_config():
+    """GET /api/billing/config — rate card / currency / per-site rates+fees
+    (admin or finance). POST — save (admin only). Per-site config is saved one
+    site at a time via {site:{site_id, ...}} so payloads never clobber siblings."""
+    if method() == 'GET':
+        require_admin_or_finance_auth()
+        cfg = _billing_cfg()
+        sites = load(SITES_FILE) or {}
+        rows = []
+        for sid, s in sites.items():
+            sb = (cfg.get('sites') or {}).get(sid) or {}
+            rows.append({'site_id': sid, 'name': s.get('name', sid),
+                         'default_rate': sb.get('default_rate'), 'vat': sb.get('vat'),
+                         'billing_contact': sb.get('billing_contact', ''),
+                         'billing_address': sb.get('billing_address', ''),
+                         'recurring': sb.get('recurring') or []})
+        rows.sort(key=lambda x: x['name'].lower())
+        respond(200, {'ok': True, 'currency': cfg.get('currency'),
+                      'default_rate': cfg.get('default_rate'),
+                      'default_vat': cfg.get('default_vat'),
+                      'invoice_prefix': cfg.get('invoice_prefix', ''),
+                      'rate_card': cfg.get('rate_card') or [], 'sites': rows,
+                      'fee_kinds': list(billing_mod.FEE_KINDS)})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    cfg = _billing_cfg()
+    if 'currency' in body:
+        cfg['currency'] = billing_mod.currency({'currency': body.get('currency')})
+    if 'default_rate' in body:
+        cfg['default_rate'] = max(0.0, billing_mod._num(body.get('default_rate')))
+    if 'default_vat' in body:
+        cfg['default_vat'] = max(0.0, min(100.0, billing_mod._num(body.get('default_vat'))))
+    if 'invoice_prefix' in body:
+        cfg['invoice_prefix'] = _sanitize_str(str(body.get('invoice_prefix') or ''), 16)
+    if 'rate_card' in body and isinstance(body['rate_card'], list):
+        card = []
+        for r in body['rate_card'][:50]:
+            if not isinstance(r, dict):
+                continue
+            nm = _sanitize_str(str(r.get('name') or ''), 40).strip()
+            if nm:
+                card.append({'name': nm, 'rate': max(0.0, billing_mod._num(r.get('rate')))})
+        cfg['rate_card'] = card
+    if 'site' in body and isinstance(body['site'], dict):
+        sid = str(body['site'].get('site_id') or '').strip()
+        if sid and sid in (load(SITES_FILE) or {}):
+            sb = cfg.setdefault('sites', {}).setdefault(sid, {})
+            sp = body['site']
+            if 'default_rate' in sp:
+                sb['default_rate'] = (None if sp.get('default_rate') in (None, '')
+                                      else max(0.0, billing_mod._num(sp.get('default_rate'))))
+            if 'vat' in sp:
+                sb['vat'] = (None if sp.get('vat') in (None, '')
+                             else max(0.0, min(100.0, billing_mod._num(sp.get('vat')))))
+            if 'billing_contact' in sp:
+                sb['billing_contact'] = _sanitize_str(str(sp.get('billing_contact') or ''), 200)
+            if 'billing_address' in sp:
+                sb['billing_address'] = _sanitize_str(str(sp.get('billing_address') or ''), 1000)
+            if 'recurring' in sp and isinstance(sp['recurring'], list):
+                fees = []
+                for f in sp['recurring'][:100]:
+                    if not isinstance(f, dict):
+                        continue
+                    lbl = _sanitize_str(str(f.get('label') or ''), 120).strip()
+                    if not lbl:
+                        continue
+                    kind = str(f.get('kind') or 'other').strip().lower()
+                    if kind not in billing_mod.FEE_KINDS:
+                        kind = 'other'
+                    fees.append({'id': f.get('id') or ('fee_' + secrets.token_hex(4)),
+                                 'label': lbl, 'kind': kind,
+                                 'amount': max(0.0, billing_mod._num(f.get('amount'))),
+                                 'qty': max(0.0, billing_mod._num(f.get('qty'), 1.0)) or 1.0,
+                                 'cadence': 'monthly', 'active': bool(f.get('active', True))})
+                sb['recurring'] = fees
+    save(BILLING_FILE, cfg)
+    audit_log(actor, 'billing_config_save', detail='billing config updated')
+    respond(200, {'ok': True})
+
+
+def handle_billing_worksheet():
+    """GET /api/billing/worksheet?site=&month=YYYY-MM | &from=&to= [&format=csv]
+    — the pre-invoice billing worksheet for one site (admin/finance)."""
+    require_admin_or_finance_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    site = (qs.get('site') or [''])[0].strip()
+    sites = load(SITES_FILE) or {}
+    if not site or site not in sites:
+        respond(400, {'error': 'valid site required'})
+    month = (qs.get('month') or [''])[0].strip()
+    if month:
+        pf, pt = billing_mod.month_bounds(month)
+        if not pf:
+            respond(400, {'error': 'month must be YYYY-MM'})
+    else:
+        pf = (qs.get('from') or [''])[0].strip()
+        pt = (qs.get('to') or [''])[0].strip()
+        if (pf and not _valid_date(pf)) or (pt and not _valid_date(pt)):
+            respond(400, {'error': 'from/to must be YYYY-MM-DD'})
+    entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
+    ws = billing_mod.compute_worksheet(_billing_cfg(), site, entries, pf or '', pt or '')
+    ws['site_name'] = sites.get(site, {}).get('name', site)
+    ws['month'] = month
+    if (qs.get('format') or [''])[0].strip().lower() == 'csv':
+        _csv_worksheet(ws)   # exits
+    respond(200, {'ok': True, 'worksheet': ws})
+
+
+def handle_invoices():
+    """GET /api/invoices[?site=&status=] — list (admin/finance). POST — issue an
+    invoice from a worksheet, snapshotting + LOCKING the contributing entries
+    (admin only)."""
+    if method() == 'GET':
+        require_admin_or_finance_auth()
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        f_site = (qs.get('site') or [''])[0].strip()
+        f_status = (qs.get('status') or [''])[0].strip()
+        invs = (load(INVOICES_FILE) or {}).get('invoices') or []
+        sites = load(SITES_FILE) or {}
+        out = []
+        for inv in invs:
+            if f_site and inv.get('site_id') != f_site:
+                continue
+            if f_status and inv.get('status') != f_status:
+                continue
+            row = {k: inv.get(k) for k in ('id', 'number', 'site_id', 'status',
+                   'currency', 'vat_rate', 'subtotal', 'vat_amount', 'total',
+                   'issued_at', 'created_by', 'period', 'notes')}
+            row['site_name'] = sites.get(inv.get('site_id'), {}).get('name', inv.get('site_id'))
+            out.append(row)
+        out.sort(key=lambda x: x.get('issued_at', 0), reverse=True)
+        respond(200, {'ok': True, 'invoices': out[:2000]})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    site = str(body.get('site_id') or '').strip()
+    sites = load(SITES_FILE) or {}
+    if not site or site not in sites:
+        respond(400, {'error': 'valid site_id required'})
+    month = str(body.get('month') or '').strip()
+    if month:
+        pf, pt = billing_mod.month_bounds(month)
+        if not pf:
+            respond(400, {'error': 'month must be YYYY-MM'})
+    else:
+        pf = str(body.get('from') or '').strip()
+        pt = str(body.get('to') or '').strip()
+    cfg = _billing_cfg()
+    entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
+    ws = billing_mod.compute_worksheet(cfg, site, entries, pf or '', pt or '')
+    extra = []
+    for li in (body.get('extra_lines') or [])[:50]:
+        if not isinstance(li, dict):
+            continue
+        lbl = _sanitize_str(str(li.get('label') or ''), 120).strip()
+        if not lbl:
+            continue
+        qty = billing_mod._num(li.get('qty'), 1.0) or 1.0
+        unit = billing_mod._num(li.get('unit'))
+        extra.append({'kind': 'other', 'label': lbl, 'qty': qty, 'unit': unit,
+                      'amount': round(qty * unit, 2)})
+    line_items = ws['line_items'] + extra
+    if not line_items:
+        respond(400, {'error': 'nothing to invoice for this site/period'})
+    subtotal, vat_amount, total = billing_mod.invoice_totals(line_items, ws['vat_rate'])
+    iid = 'inv_' + secrets.token_hex(6)
+    now = int(time.time())
+    prefix = str(cfg.get('invoice_prefix') or '')
+    number = None
+    with _LockedUpdate(INVOICES_FILE) as store:
+        invs = store.setdefault('invoices', [])
+        if len(invs) >= MAX_INVOICES:
+            respond(400, {'error': 'invoice limit reached'})
+        seq = int(store.get('invoice_seq') or 0) + 1
+        store['invoice_seq'] = seq
+        number = f'{prefix}{seq:05d}'
+        invs.append({'id': iid, 'number': number, 'site_id': site,
+                     'period': {'from': pf or '', 'to': pt or ''}, 'status': 'draft',
+                     'currency': ws['currency'], 'vat_rate': ws['vat_rate'],
+                     'line_items': line_items, 'snapshot_entry_ids': ws['entry_ids'],
+                     'subtotal': subtotal, 'vat_amount': vat_amount, 'total': total,
+                     'issued_at': now, 'created_by': actor,
+                     'notes': _sanitize_str(str(body.get('notes') or ''), 2000)})
+    # Lock the contributing entries AFTER the invoices lock (separate file lock —
+    # never nest two _LockedUpdate blocks under SQLite).
+    locked = 0
+    if ws['entry_ids']:
+        idset = set(ws['entry_ids'])
+        with _LockedUpdate(TIME_ENTRIES_FILE) as tstore:
+            for e in (tstore.get('entries') or []):
+                if e.get('id') in idset and not e.get('locked'):
+                    e['locked'] = True
+                    e['invoice_id'] = iid
+                    locked += 1
+    audit_log(actor, 'invoice_create', f'#{number} site={site} total={total} locked={locked}')
+    respond(200, {'ok': True, 'id': iid, 'number': number, 'total': total,
+                  'locked_entries': locked})
+
+
+def handle_invoice_get(iid):
+    """GET /api/invoices/{id}[?format=csv] — one invoice (admin/finance)."""
+    require_admin_or_finance_auth()
+    inv = next((x for x in ((load(INVOICES_FILE) or {}).get('invoices') or [])
+                if x.get('id') == iid), None)
+    if not inv:
+        respond(404, {'error': 'invoice not found'})
+    sites = load(SITES_FILE) or {}
+    sb = (_billing_cfg().get('sites') or {}).get(inv.get('site_id')) or {}
+    resp = dict(inv)
+    resp['site_name'] = sites.get(inv.get('site_id'), {}).get('name', inv.get('site_id'))
+    resp['billing_contact'] = sb.get('billing_contact', '')
+    resp['billing_address'] = sb.get('billing_address', '')
+    if (urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+            .get('format') or [''])[0].strip().lower() == 'csv':
+        _csv_invoice(resp)   # exits
+    respond(200, {'ok': True, 'invoice': resp})
+
+
+def handle_invoice_update(iid):
+    """PATCH/POST /api/invoices/{id} — change status (draft/sent/paid/void) or
+    notes (admin only). Voiding frees its entries so they can be re-billed."""
+    if method() not in ('PATCH', 'POST'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    new_status = str(body.get('status') or '').strip().lower()
+    if new_status not in INVOICE_STATUSES:
+        respond(400, {'error': f'status must be one of {", ".join(INVOICE_STATUSES)}'})
+    found = False
+    voided = False
+    ids = []
+    with _LockedUpdate(INVOICES_FILE) as store:
+        inv = next((x for x in (store.get('invoices') or []) if x.get('id') == iid), None)
+        if inv:
+            found = True
+            if 'notes' in body:
+                inv['notes'] = _sanitize_str(str(body.get('notes') or ''), 2000)
+            inv['status'] = new_status
+            if new_status == 'void':
+                voided = True
+                ids = list(inv.get('snapshot_entry_ids') or [])
+    if not found:
+        respond(404, {'error': 'invoice not found'})
+    unlocked = 0
+    if voided and ids:
+        with _LockedUpdate(TIME_ENTRIES_FILE) as tstore:
+            for e in (tstore.get('entries') or []):
+                if e.get('invoice_id') == iid:
+                    e['locked'] = False
+                    e['invoice_id'] = ''
+                    unlocked += 1
+    audit_log(actor, 'invoice_update', f'id={iid} status={new_status} unlocked={unlocked}')
+    respond(200, {'ok': True, 'status': new_status, 'unlocked_entries': unlocked})
+
+
+def _csv_emit(filename, header, rows):
+    """Stream a CSV download with formula-injection-safe cells + a safe filename."""
+    import csv, io, re as _re
+    filename = _re.sub(r'[^A-Za-z0-9._-]', '-', str(filename))[:120] or 'export.csv'
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(header)
+    for r in rows:
+        w.writerow([_csv_safe(c) for c in r])
+    data = buf.getvalue().encode()
+    print("Status: 200 OK")
+    print("Content-Type: text/csv")
+    print(f"Content-Disposition: attachment; filename={filename}")
+    print(f"Content-Length: {len(data)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def _csv_time_entries(rows):
+    ts = time.strftime('%Y%m%d-%H%M%S')
+    _csv_emit(f'time-entries-{ts}.csv',
+              ['Date', 'User', 'Hours', 'Billable', 'Site', 'Device', 'Tag',
+               'Ticket', 'Category', 'Rate', 'Note', 'Invoiced'],
+              [[r.get('date'), r.get('user'), r.get('hours'),
+                'yes' if r.get('billable') else 'no', r.get('site_id'),
+                r.get('device_name') or r.get('device_id'), r.get('tag'),
+                r.get('ticket_number') or '', r.get('category'), r.get('rate_name'),
+                r.get('note'), 'yes' if r.get('invoice_id') else 'no'] for r in rows])
+
+
+def _csv_money_lines(prefix_name, currency_code, line_items, subtotal, vat_rate, vat_amount, total):
+    ts = time.strftime('%Y%m%d-%H%M%S')
+    rows = [[li.get('kind'), li.get('label'), li.get('qty'), li.get('unit'), li.get('amount')]
+            for li in (line_items or [])]
+    rows.append(['', '', '', 'Subtotal', subtotal])
+    rows.append(['', '', '', f'VAT {vat_rate}%', vat_amount])
+    rows.append(['', '', '', 'Total', total])
+    _csv_emit(f'{prefix_name}-{ts}.csv',
+              ['Kind', 'Description', 'Qty/Hours', 'Unit', f'Amount ({currency_code})'], rows)
+
+
+def _csv_worksheet(ws):
+    _csv_money_lines('worksheet-' + str(ws.get('site_name', 'site')), ws.get('currency'),
+                     ws.get('line_items'), ws.get('subtotal'), ws.get('vat_rate'),
+                     ws.get('vat_amount'), ws.get('total'))
+
+
+def _csv_invoice(inv):
+    _csv_money_lines('invoice-' + str(inv.get('number', '')), inv.get('currency'),
+                     inv.get('line_items'), inv.get('subtotal'), inv.get('vat_rate'),
+                     inv.get('vat_amount'), inv.get('total'))
 
 
 def handle_sites_list():
@@ -16999,6 +17652,7 @@ def handle_roles_list():
     builtin = [
         {'name': 'admin', 'builtin': True, 'permissions': list(_RBAC_PERMS), 'scope': {'type': 'all'}},
         {'name': 'auditor', 'builtin': True, 'permissions': [], 'scope': {'type': 'all'}},
+        {'name': 'finance', 'builtin': True, 'permissions': [], 'scope': {'type': 'all'}},
         {'name': 'viewer', 'builtin': True, 'permissions': [], 'scope': {'type': 'all'}},
     ]
     custom = (load(ROLES_FILE) or {}).get('roles', [])
@@ -48549,6 +49203,15 @@ def _build_exact_routes():
         ('POST', '/api/tickets/imap/test'): handle_ticket_imap_test,
         ('GET', '/api/tickets/sla'): handle_ticket_sla,
         ('POST', '/api/tickets/sla'): handle_ticket_sla,
+        # v5.4.0 RacksMatters: time-tracking + billing
+        ('GET', '/api/time-entries'): handle_time_entries,
+        ('POST', '/api/time-entries'): handle_time_entries,
+        ('GET', '/api/timesheet'): handle_timesheet,
+        ('GET', '/api/billing/config'): handle_billing_config,
+        ('POST', '/api/billing/config'): handle_billing_config,
+        ('GET', '/api/billing/worksheet'): handle_billing_worksheet,
+        ('GET', '/api/invoices'): handle_invoices,
+        ('POST', '/api/invoices'): handle_invoices,
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
@@ -49490,10 +50153,19 @@ def _dispatch(pi, m):
         handle_custom_script_delete(pi[len('/api/custom-scripts/'):])
     elif pi.startswith('/api/monitoring-profiles/') and m == 'DELETE':
         handle_monitoring_profile_delete(pi[len('/api/monitoring-profiles/'):])
-    elif pi.startswith('/api/tickets/') and m == 'GET':
-        handle_ticket_get(pi[len('/api/tickets/'):])
+    # v5.4.0: ticket hours must precede the generic /api/tickets/{id} matchers
+    elif pi.startswith('/api/tickets/') and pi.endswith('/hours') and m in ('GET', 'POST'):
+        handle_ticket_hours(pi[len('/api/tickets/'):-len('/hours')])
+    elif pi.startswith('/api/time-entries/') and m in ('PATCH', 'POST', 'DELETE'):
+        handle_time_entry_update(pi[len('/api/time-entries/'):])
+    elif pi.startswith('/api/invoices/') and m == 'GET':
+        handle_invoice_get(pi[len('/api/invoices/'):])
+    elif pi.startswith('/api/invoices/') and m in ('PATCH', 'POST'):
+        handle_invoice_update(pi[len('/api/invoices/'):])
     elif pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST':
         handle_ticket_send_email(pi[len('/api/tickets/'):-len('/email')])
+    elif pi.startswith('/api/tickets/') and m == 'GET':
+        handle_ticket_get(pi[len('/api/tickets/'):])
     elif pi.startswith('/api/tickets/') and m in ('PATCH', 'POST'):
         handle_ticket_update(pi[len('/api/tickets/'):])
     elif pi.startswith('/api/tickets/') and m == 'DELETE':

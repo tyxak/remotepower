@@ -1536,6 +1536,8 @@ function showPage(name, btn) {
   if (name === 'dmarc')      loadDmarc();
   if (name === 'dns')        loadDns();
   if (name === 'vpn')        loadVpn();
+  if (name === 'timesheet')  loadTimesheet();
+  if (name === 'billing')    loadBilling();
   if (name === 'ssh-keys')   loadSshKeys();
   if (name === 'power')      loadPower();
   if (name === 'disk-health') loadDiskHealth();
@@ -2579,7 +2581,7 @@ async function openUserAdd() {
   if (sel) {
     if (!_rolesCache.length) { const r = await api('GET', '/roles').catch(() => null); _rolesCache = (r && r.roles) || []; }
     const custom = _rolesCache.filter(x => !x.builtin);
-    sel.innerHTML = '<option value="admin">Admin (full access)</option><option value="auditor">Auditor (read-only + audit log / evidence / posture, runs nothing)</option><option value="viewer">Viewer (read-only dashboard)</option>'
+    sel.innerHTML = '<option value="admin">Admin (full access)</option><option value="auditor">Auditor (read-only + audit log / evidence / posture, runs nothing)</option><option value="finance">Finance (read-only + billing: worksheet, invoices, rates — runs nothing)</option><option value="viewer">Viewer (read-only dashboard)</option>'
       + custom.map(r => `<option value="${escAttr(r.name)}">${escHtml(r.name)} (custom)</option>`).join('');
   }
   openModal('user-add-modal');
@@ -4075,6 +4077,11 @@ async function openTicket(tid) {
       <div id="tk-d-dev-results" class="scroll-cap-sm"></div>
     </div>
     ${parentBlock}${childrenBlock}${alertLink}
+    <div class="row-6 mt-12 mb-4">
+      <span class="fw-500">Time logged</span>
+      <button class="btn-icon cell-sm ml-8" data-action="openTicketHours" data-arg="${escAttr(tid)}" data-arg2="${escAttr(t.device_id || '')}" data-arg3="${escAttr(t.device_name || '')}" title="Log billable or internal hours against this ticket">+ Log hours</button>
+    </div>
+    <div id="tk-hours-box"><div class="meta-sm-nm">Loading…</div></div>
     <div class="fw-500 mt-12 mb-4">Conversation <span class="meta-sm-nm">(oldest first, newest at bottom)</span></div>
     <div class="scroll-cap" id="tk-conversation">${msgs}</div>
     <div class="mt-12">
@@ -4095,6 +4102,7 @@ async function openTicket(tid) {
   if (_save) _save.dataset.arg = tid;   // footer Save targets this ticket
   window._tkCurrentChildren = t.children || [];   // for cascade-close prompt
   openModal('ticket-detail-modal');
+  try { if (typeof renderTicketHours === 'function') renderTicketHours(tid); } catch (_) {}   // v5.4.0: time logged
   // auto-scroll the conversation to the newest message at the bottom
   const _conv = document.getElementById('tk-conversation');
   if (_conv) _conv.scrollTop = _conv.scrollHeight;
