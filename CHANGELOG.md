@@ -7031,7 +7031,7 @@ CGI audit endpoint (6 tests): correct daemon secret accepted, wrong secret rejec
 
 Helpers (5 tests): purge function drops expired and used tickets, daemon constants in sane ranges.
 
-The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against the user's `tviweb01.tvipper.com`.
+The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against a real SSH host.
 
 ### Compatibility
 
@@ -11367,7 +11367,7 @@ CGI audit endpoint (6 tests): correct daemon secret accepted, wrong secret rejec
 
 Helpers (5 tests): purge function drops expired and used tickets, daemon constants in sane ranges.
 
-The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against the user's `tviweb01.tvipper.com`.
+The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against a real SSH host.
 
 ### Compatibility
 

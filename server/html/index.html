@@ -1679,7 +1679,7 @@
             </div>
             <div class="section-title">Components</div>
             <p class="hint">Each component groups one or more devices/monitors under a public name. A component's status is the worst state among its members.</p>
-            <div id="sp-components"></div>
+            <div id="sp-components" class="scroll-cap"></div>
             <div class="row-8-center">
               <button class="btn-secondary" data-action="spAddComponent">+ Add component</button>
               <button class="btn-primary" data-action="saveStatusPage">Save status page</button>
@@ -6680,7 +6680,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label" for="cs-profile-dev-search">Assets (search to add)</label>
     <input type="text" id="cs-profile-dev-search" class="form-input mb-6" placeholder="Search devices by name / IP / group…" autocomplete="off" aria-label="Search devices to apply the profile to">
     <div id="cs-profile-dev-results" class="scroll-cap-sm"></div>
-    <div id="cs-profile-dev-chips" class="row-6 mt-6"></div>
+    <div id="cs-profile-dev-chips" class="row-6 mt-6 scroll-cap-sm"></div>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cs-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyProfile">Apply to selected</button></div>
 </div></div>
@@ -7021,7 +7021,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-asset-title" id="cmdb-asset-modal"><div class="modal modal-wide">
   <div class="modal-title" id="cmdb-asset-title">Asset</div>
-  <div id="cmdb-asset-tickets" class="mb-8"></div>
+  <div id="cmdb-asset-tickets" class="mb-8 scroll-cap-sm"></div>
   <div class="isl-227">
     <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>

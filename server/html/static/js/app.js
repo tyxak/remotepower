@@ -3856,9 +3856,12 @@ function _tkRowHtml(t, byId, childrenOf) {
     + (t.new_reply ? ' <span class="patch-badge warn fs-11" title="New reply from customer">● new reply</span>' : '')
     + (t.group ? ` <span class="meta-sm-nm" title="Group">${escHtml(t.group)}</span>` : '');
   const open = _tkIsOpen(t);
+  const slaLeft = (open && t._slaDue) ? (t._slaDue - Math.floor(Date.now() / 1000)) : null;
   const slaCell = !open ? '—'
-    : (t._slaBreached ? '<span class="sev-pill sev-critical fs-11" title="SLA target exceeded">Breached</span>'
-      : `<span class="meta-sm-nm" title="${t._slaDue ? 'Due ' + escAttr(new Date(t._slaDue * 1000).toLocaleString()) : 'within target'}">OK</span>`);
+    : (slaLeft == null ? '<span class="meta-sm-nm">—</span>'
+      : (slaLeft < 0
+        ? `<span class="sev-pill sev-critical fs-11" title="Was due ${escAttr(new Date(t._slaDue * 1000).toLocaleString())}">overdue ${escHtml(_fmtDuration(-slaLeft))}</span>`
+        : `<span class="meta-sm-nm" title="Due ${escAttr(new Date(t._slaDue * 1000).toLocaleString())}">${escHtml(_fmtDuration(slaLeft))} left</span>`));
   return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}">
     <td class="mono-12">${numCell}</td>
     <td>${subjCell}</td>
@@ -4010,8 +4013,7 @@ async function openTicket(tid) {
   } catch (e) { _users = []; }
   const curAsg = t.assignee || '';
   if (curAsg && !_users.includes(curAsg)) _users.unshift(curAsg);
-  const assigneeOpts = ['<option value="">(unassigned)</option>'].concat(
-    _users.map(u => `<option value="${escAttr(u)}" ${u === curAsg ? 'selected' : ''}>${escHtml(u)}</option>`)).join('');
+  window._tkUsers = _users;   // for the assignee omnisearch typeahead
   const curGrp = t.group || '';
   if (curGrp) _groupSet.add(curGrp);
   const groupOpts = ['<option value="">(none)</option>'].concat(
@@ -4037,10 +4039,13 @@ async function openTicket(tid) {
   window._tkDetailDevs = (t.affected_devices_resolved && t.affected_devices_resolved.length)
     ? t.affected_devices_resolved.map(d => ({ id: String(d.id), name: d.name || String(d.id) }))
     : (t.device_id ? [{ id: String(t.device_id), name: t.device_name || String(t.device_id) }] : []);
-  const slaStr = !t.sla_due ? '—'
-    : (t.sla_breached
-        ? `<span class="patch-badge warn fs-11" title="SLA breached">⚠ breached — was due ${escHtml(new Date(t.sla_due * 1000).toLocaleString())}</span>`
-        : `<span class="fs-12">due ${escHtml(new Date(t.sla_due * 1000).toLocaleString())}</span>`);
+  const slaStr = !t.sla_due ? '—' : (() => {
+    const left = t.sla_due - Math.floor(Date.now() / 1000);
+    const due = new Date(t.sla_due * 1000).toLocaleString();
+    return (t.sla_breached || left < 0)
+      ? `<span class="patch-badge warn fs-11" title="Was due ${escAttr(due)}">⚠ breached — overdue ${escHtml(_fmtDuration(-left))}</span>`
+      : `<span class="fs-12">${escHtml(_fmtDuration(left))} left <span class="meta-sm-nm">(due ${escHtml(due)})</span></span>`;
+  })();
   document.getElementById('tk-detail-body').innerHTML = `
     <div class="form-row">
       <div class="form-group"><label class="form-label">Status</label><select id="tk-d-status" class="form-input">${statusOpts}</select></div>
@@ -4048,7 +4053,10 @@ async function openTicket(tid) {
       <div class="form-group"><label class="form-label">Priority</label><select id="tk-d-priority" class="form-input">${prioOpts}</select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Assignee</label><select id="tk-d-assignee" class="form-input">${assigneeOpts}</select></div>
+      <div class="form-group"><label class="form-label">Assignee</label>
+        <input type="text" id="tk-d-assignee" class="form-input" value="${escAttr(curAsg)}" placeholder="Search a user… (blank = unassigned)" autocomplete="off" aria-label="Search a user to assign">
+        <div id="tk-d-assignee-results" class="scroll-cap-sm"></div>
+      </div>
       <div class="form-group"><label class="form-label">Group / team</label><select id="tk-d-group" class="form-input">${groupOpts}</select></div>
       <div class="form-group"><label class="form-label">SLA</label><div class="mt-6">${slaStr}</div></div>
     </div>
@@ -4062,7 +4070,7 @@ async function openTicket(tid) {
     </div>
     <div class="form-group">
       <label class="form-label">Affected devices</label>
-      <div id="tk-d-dev-chips" class="mb-6"></div>
+      <div id="tk-d-dev-chips" class="mb-6 scroll-cap-sm"></div>
       <input type="text" id="tk-d-dev-search" class="form-input mb-6" placeholder="Search a device to add…" autocomplete="off" aria-label="Search a device to add to the ticket">
       <div id="tk-d-dev-results" class="scroll-cap-sm"></div>
     </div>
@@ -4081,6 +4089,8 @@ async function openTicket(tid) {
   _tkRenderDetailChips();
   const _ds = document.getElementById('tk-d-dev-search');
   if (_ds) _ds.oninput = () => _tkDetailDevResults(_ds.value);
+  const _as = document.getElementById('tk-d-assignee');
+  if (_as) { _as.oninput = () => _tkAssigneeResults(_as.value); _as.onfocus = () => _tkAssigneeResults(_as.value); }
   const _save = document.getElementById('tk-detail-save');
   if (_save) _save.dataset.arg = tid;   // footer Save targets this ticket
   window._tkCurrentChildren = t.children || [];   // for cascade-close prompt
@@ -4116,6 +4126,19 @@ function pickTicketDetailDev(id, name) {
 function removeTicketDetailDev(id) {
   window._tkDetailDevs = (window._tkDetailDevs || []).filter(d => d.id !== String(id));
   _tkRenderDetailChips();
+}
+function _tkAssigneeResults(term) {
+  const box = document.getElementById('tk-d-assignee-results');
+  if (!box) return;
+  const q = (term || '').toLowerCase().trim();
+  const users = window._tkUsers || [];
+  const m = (q ? users.filter(u => u.toLowerCase().includes(q)) : users).slice(0, 20);
+  box.innerHTML = m.map(u => `<div class="pointer p-6" data-action="pickTicketAssignee" data-arg="${escAttr(u)}">${escHtml(u)}</div>`).join('')
+    || '<div class="meta-sm-nm">No matching user — leave blank to unassign.</div>';
+}
+function pickTicketAssignee(u) {
+  const i = document.getElementById('tk-d-assignee'); if (i) i.value = String(u);
+  const r = document.getElementById('tk-d-assignee-results'); if (r) r.innerHTML = '';
 }
 async function saveTicketField(tid) {
   const newStatus = document.getElementById('tk-d-status')?.value;

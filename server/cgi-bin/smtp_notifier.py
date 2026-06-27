@@ -74,6 +74,16 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     if not recipients:
         raise SmtpError('no recipients')
 
+    # Header-injection defense-in-depth: strip CR/LF from any value that lands in
+    # an email header. _sanitize_str only .strip()s, and Python's email/smtplib
+    # does not sanitize header values, so a newline in an operator-supplied
+    # recipient or ticket subject could smuggle extra headers/body lines.
+    recipients = [str(r).replace('\r', '').replace('\n', '').strip() for r in recipients]
+    recipients = [r for r in recipients if r]
+    if not recipients:
+        raise SmtpError('no recipients')
+    subject = str(subject).replace('\r', ' ').replace('\n', ' ')
+
     host  = (cfg.get('smtp_host') or '').strip()
     if not host:
         raise SmtpError('smtp_host is empty')

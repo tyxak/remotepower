@@ -5251,14 +5251,16 @@ def handle_tickets():
         })
     # Link the ticket number back onto the source alert (collect-then-write, no nesting)
     if alert_internal:
+        may_ack = _may_touch_alert_state()   # strict-mode guard (no-op ack for viewers)
         try:
             with _LockedUpdate(ALERTS_FILE) as astore:
                 for a in (astore.get('alerts') or []):
                     if a.get('id') == alert_internal:
                         a['rp_ticket'] = number
                         a['rp_ticket_id'] = tid
-                        # Opening a ticket = taking ownership -> auto-ack the alert.
-                        if not a.get('resolved_at') and not a.get('acknowledged_at'):
+                        # Opening a ticket = taking ownership -> auto-ack the alert
+                        # (only if the caller is allowed to mutate alert state).
+                        if may_ack and not a.get('resolved_at') and not a.get('acknowledged_at'):
                             a['acknowledged_by'] = actor
                             a['acknowledged_at'] = int(time.time())
                         break
@@ -5348,7 +5350,9 @@ def handle_ticket_update(tid):
                 t['status'] = str(body['status']).strip().lower()
                 # Resolving/closing a ticket resolves its linked alert (captured
                 # here, applied after this lock — ALERTS_FILE lock must not nest).
-                if t['status'] in ('resolved', 'closed') and t.get('alert_id'):
+                # Suppressed for callers who may not mutate alert state (strict mode).
+                if (t['status'] in ('resolved', 'closed') and t.get('alert_id')
+                        and _may_touch_alert_state()):
                     resolve_alert_id = t.get('alert_id')
                     resolve_ticket_no = t.get('number')
             if 'type' in body and str(body['type']).strip().lower() in TICKET_TYPES:
@@ -11431,13 +11435,13 @@ def _agent_mtls_ok(dev_id):
     `mtls_fingerprint` the presented cert must match it (binds the cert to the
     one device, so a valid-but-wrong cert can't impersonate another host).
     Returns (ok: bool, reason: str)."""
-    cfg = load(CONFIG_FILE) or {}
+    cfg = _config_ro()
     if not cfg.get('require_agent_mtls'):
         return (True, '')
     verified, fp, _dn = _client_cert_identity()
     if not verified:
         return (False, 'mutual TLS required: no verified client certificate presented')
-    dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+    dev = device_get(dev_id) or {}
     pin = (dev.get('mtls_fingerprint') or '').strip().lower().replace('sha1:', '').replace(':', '')
     if pin:
         if not fp:
@@ -11479,7 +11483,7 @@ def handle_heartbeat():
 
     # v2.9.1: debug log (only when enabled — reads config without lock)
     try:
-        _dcfg = load(CONFIG_FILE) or {}
+        _dcfg = _config_ro()
         if _dcfg.get('debug_logging') or os.environ.get('RP_LOG_HEARTBEATS') == '1':
             import datetime as _dt
             _dbg = (f"[{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}] "
@@ -11508,7 +11512,7 @@ def handle_heartbeat():
     # the normal offline timer still runs if the agent never comes back.
     if body.get('agent_stopping'):
         _now = int(time.time())
-        _d = (load(DEVICES_FILE) or {}).get(dev_id)
+        _d = device_get(dev_id)
         if not _d or not hmac.compare_digest(_d.get('token', ''), dev_token):
             respond(403, {'error': 'Unauthorized device'})
         if not _d.get('agent_stopping_at'):       # edge-trigger; ignore repeats
@@ -36328,6 +36332,20 @@ def _check_alert_mutation_perm():
     if cfg.get('viewers_can_ack_alerts', True):
         return require_auth()
     return require_admin_auth()
+
+
+def _may_touch_alert_state():
+    """True if the current caller may ack/resolve an alert as a SIDE EFFECT of a
+    ticket action. Mirrors _check_alert_mutation_perm's policy but does NOT raise:
+    when a deployment sets viewers_can_ack_alerts=false (strict least-privilege),
+    the ticket op itself stays allowed but its alert side-effect is suppressed
+    unless the caller is admin. (Default viewers_can_ack_alerts=true → always True.)
+    """
+    cfg = load(CONFIG_FILE) or {}
+    if cfg.get('viewers_can_ack_alerts', True):
+        return True
+    _u, role = verify_token(get_token_from_request())
+    return bool(_resolve_role(role).get('admin'))
 
 
 def _fire_ack_webhooks(alert, user):
