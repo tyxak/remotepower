@@ -4130,7 +4130,7 @@ async function saveTicketField(tid) {
     affected_devices: (window._tkDetailDevs || []).map(d => d.id),
   });
   if (!r?.ok) { toast(r?.error || 'Failed', 'error'); return; }
-  toast('Ticket updated', 'success');
+  toast(r.alert_resolved ? 'Ticket updated — linked alert resolved' : 'Ticket updated', 'success');
   // If this master ticket was just closed, offer to close its open sub-tickets too.
   const openChildren = (window._tkCurrentChildren || []).filter(c => c.status !== 'resolved' && c.status !== 'closed');
   if ((newStatus === 'resolved' || newStatus === 'closed') && openChildren.length) {

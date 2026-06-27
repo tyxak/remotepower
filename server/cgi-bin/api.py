@@ -5338,12 +5338,19 @@ def handle_ticket_update(tid):
     body = get_json_obj()
     now = int(time.time())
     ok = False
+    resolve_alert_id = None     # set inside the lock; resolved AFTER it (no nested locks)
+    resolve_ticket_no = None
     with _LockedUpdate(TICKETS_FILE) as store:
         t = next((x for x in (store.get('tickets') or []) if x.get('id') == tid), None)
         if t:
             ok = True
             if 'status' in body and str(body['status']).strip().lower() in TICKET_STATUSES:
                 t['status'] = str(body['status']).strip().lower()
+                # Resolving/closing a ticket resolves its linked alert (captured
+                # here, applied after this lock — ALERTS_FILE lock must not nest).
+                if t['status'] in ('resolved', 'closed') and t.get('alert_id'):
+                    resolve_alert_id = t.get('alert_id')
+                    resolve_ticket_no = t.get('number')
             if 'type' in body and str(body['type']).strip().lower() in TICKET_TYPES:
                 t['type'] = str(body['type']).strip().lower()
             if 'device_id' in body:
@@ -5397,8 +5404,28 @@ def handle_ticket_update(tid):
             t['updated_at'] = now
     if not ok:
         respond(404, {'error': 'ticket not found'})
+    # Resolve the linked alert AFTER the tickets lock (collect-then-fire: a nested
+    # ALERTS_FILE lock inside TICKETS_FILE would OperationalError under SQLite).
+    alert_resolved = False
+    if resolve_alert_id:
+        try:
+            with _LockedUpdate(ALERTS_FILE) as astore:
+                for a in (astore.get('alerts') or []):
+                    if a.get('id') == resolve_alert_id and not a.get('resolved_at'):
+                        a['resolved_by'] = actor
+                        a['resolved_at'] = now
+                        if not a.get('acknowledged_at'):
+                            a['acknowledged_by'] = actor
+                            a['acknowledged_at'] = now
+                        a['resolve_note'] = f'Resolved via ticket #RP{int(resolve_ticket_no or 0):06d}'
+                        alert_resolved = True
+                        break
+        except Exception:
+            pass
     audit_log(actor, 'ticket_update', f'id={tid}')
-    respond(200, {'ok': True})
+    if alert_resolved:
+        audit_log(actor, 'alert_resolve', f'id={resolve_alert_id} via ticket {tid}')
+    respond(200, {'ok': True, 'alert_resolved': alert_resolved})
 
 
 def handle_ticket_delete(tid):
