@@ -606,7 +606,9 @@ def collect_net_io():
         rx = max(0, c.bytes_recv - prev[1]) / dt
         tx = max(0, c.bytes_sent - prev[0]) / dt
         out.append({'iface': iface, 'rx_bps': round(rx), 'tx_bps': round(tx),
-                    'rx_total': c.bytes_recv, 'tx_total': c.bytes_sent})
+                    'rx_total': c.bytes_recv, 'tx_total': c.bytes_sent,
+                    'rx_err': getattr(c, 'errin', 0), 'tx_err': getattr(c, 'errout', 0),
+                    'rx_drop': getattr(c, 'dropin', 0), 'tx_drop': getattr(c, 'dropout', 0)})
     out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
     return out[:20]
 
@@ -3194,6 +3196,27 @@ def collect_backup_verify(backup_monitors):
                         'verify_output': f'{cmd[0]} not installed', 'verify_at': now})
             state[p] = now
             continue
+        # Destination-reachability precheck for repo tools — cheap `cat config` /
+        # `info` distinguishes "repo unreachable" from "integrity failed", and
+        # skips the expensive full check when the repo can't be opened at all.
+        if tool in ('restic', 'borg'):
+            probe = (['restic', '-r', hp, 'cat', 'config'] if tool == 'restic'
+                     else ['borg', 'info', hp])
+            try:
+                pr = subprocess.run(probe, capture_output=True, text=True, timeout=min(15, budget))
+                if pr.returncode != 0:
+                    out.append({'path': p, 'tool': tool, 'verify_status': 'unreachable',
+                                'verify_output': ((pr.stdout or '') + (pr.stderr or '')).strip()[-200:],
+                                'verify_at': now})
+                    state[p] = now
+                    continue
+            except subprocess.TimeoutExpired:
+                out.append({'path': p, 'tool': tool, 'verify_status': 'unreachable',
+                            'verify_output': 'destination probe timed out', 'verify_at': now})
+                state[p] = now
+                continue
+            except Exception:
+                pass
         t0 = time.time()
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=min(30, budget))
@@ -4433,6 +4456,31 @@ def get_clock_status():
                     if m:
                         out['offset_ms'] = round(float(m.group(1)) * 1000, 3)
                     break
+        except Exception:
+            pass
+        # Per-source (peer) detail — name, sync state, stratum, reachability.
+        try:
+            r = subprocess.run(['chronyc', '-n', 'sources'],
+                               capture_output=True, text=True, timeout=5)
+            peers = []
+            started = False
+            statemap = {'*': 'synced', '+': 'combined', '-': 'standby',
+                        '?': 'unreachable', 'x': 'falseticker', '~': 'unstable'}
+            for line in (r.stdout or '').splitlines():
+                if line.startswith('==='):
+                    started = True
+                    continue
+                if not started:
+                    continue
+                parts = line.split()
+                if len(parts) >= 5 and 1 <= len(parts[0]) <= 2:
+                    peers.append({'name': parts[1][:64],
+                                  'state': statemap.get(parts[0][-1], parts[0]),
+                                  'stratum': parts[2], 'reach': parts[4]})
+                if len(peers) >= 12:
+                    break
+            if peers:
+                out['peers'] = peers
         except Exception:
             pass
     return out
@@ -5904,6 +5952,49 @@ def _handle_file_op(cmd):
     return {'cmd': cmd, 'rc': rc, 'output': _json.dumps(res)}
 
 
+def _run_service_action(cmd):
+    """svc:<action>:<unit> — restart/start/stop a systemd unit via fixed argv (no
+    shell). The unit was strictly validated server-side; double-check action here."""
+    try:
+        _, action, unit = cmd.split(':', 2)
+    except ValueError:
+        return {'cmd': cmd, 'output': 'malformed service action', 'rc': 2}
+    if action not in ('restart', 'start', 'stop') or not unit:
+        return {'cmd': cmd, 'output': f'refused: bad action/unit', 'rc': 2}
+    log.info(f"Service action: systemctl {action} {unit}")
+    try:
+        r = subprocess.run(['systemctl', action, unit],
+                           capture_output=True, text=True, timeout=60)
+        out = (r.stdout + r.stderr).strip() or f'systemctl {action} {unit} -> rc {r.returncode}'
+        return {'cmd': cmd, 'output': out[:4000], 'rc': r.returncode}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'{type(e).__name__}: {e}', 'rc': 1}
+
+
+def _run_process_kill(cmd):
+    """kill:<SIG>:<pid> — send a signal to a PID via os.kill (no shell). PID 0/1
+    are refused; SIG is from a fixed allowlist."""
+    import signal as _signal
+    try:
+        _, sig, pid_s = cmd.split(':', 2)
+        pid = int(pid_s)
+    except ValueError:
+        return {'cmd': cmd, 'output': 'malformed kill command', 'rc': 2}
+    sigmap = {'TERM': _signal.SIGTERM, 'KILL': _signal.SIGKILL,
+              'HUP': _signal.SIGHUP, 'INT': _signal.SIGINT}
+    s = sigmap.get(sig.upper())
+    if s is None or pid <= 1:
+        return {'cmd': cmd, 'output': 'refused: bad signal or pid', 'rc': 2}
+    log.info(f"Process kill: SIG{sig.upper()} -> pid {pid}")
+    try:
+        os.kill(pid, s)
+        return {'cmd': cmd, 'output': f'sent SIG{sig.upper()} to pid {pid}', 'rc': 0}
+    except ProcessLookupError:
+        return {'cmd': cmd, 'output': f'pid {pid} not found (already gone)', 'rc': 0}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'{type(e).__name__}: {e}', 'rc': 1}
+
+
 def execute_command(cmd):
     # v5.1.0: file-manager ops carry their own audit-mode policy (reads allowed,
     # mutations refused) so dispatch them BEFORE the blanket audit-mode guard.
@@ -5958,6 +6049,12 @@ def execute_command(cmd):
     elif cmd.startswith('cron:'):
         # v5.1.0: cron / timer mutation (audit mode already refused above).
         return _handle_cron_op(cmd)
+    elif cmd.startswith('svc:'):
+        # Service restart/start/stop (audit mode already refused above).
+        return _run_service_action(cmd)
+    elif cmd.startswith('kill:'):
+        # Send a signal to a PID (audit mode already refused above).
+        return _run_process_kill(cmd)
     elif cmd.startswith('exec:'):
         shell_cmd = cmd[5:]
         import re as _tag_re

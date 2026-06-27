@@ -54,7 +54,7 @@ class SmtpError(Exception):
     """Wraps any SMTP failure with a human-readable message."""
 
 
-def send_email(cfg: dict, recipients: list, subject: str, body: str) -> dict:
+def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None) -> dict:
     """
     Send a plain-text email. cfg is the SMTP config dict from /api/config.
     Returns {'ok': True} on success, raises SmtpError otherwise.
@@ -104,6 +104,11 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str) -> dict:
     msg['To']      = ', '.join(recipients)
     msg['Date']    = formatdate(localtime=True)
     msg['Message-ID'] = make_msgid()
+    # Optional extra headers (e.g. Auto-Submitted loop-guard, In-Reply-To/References
+    # threading for the ticket system). Skip any that overwrite the core set.
+    for _hk, _hv in (extra_headers or {}).items():
+        if _hk and _hk not in msg and _hv is not None:
+            msg[_hk] = str(_hv)
 
     try:
         if tls_mode == 'tls':

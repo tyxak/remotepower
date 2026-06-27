@@ -21,10 +21,100 @@ function loadCustomScripts() {
     _csData = resultsData;
     _csDevices = devicesData ? (devicesData.devices || devicesData) : [];
     renderCustomScriptsPage();
+    loadMonitoringProfiles();
   }).catch(() => {
     const tbody = document.getElementById('cs-results-tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="isl-597">Failed to load. Refresh to retry.</td></tr>';
   });
+}
+
+// ── #1: monitoring profiles — named bundles of scripts applied to assets ──────
+async function loadMonitoringProfiles() {
+  const el = document.getElementById('cs-profiles-list');
+  if (!el) return;
+  const data = await api('GET', '/monitoring-profiles');
+  const profiles = (data && data.profiles) || [];
+  const nameById = {}; (_csData?.scripts || []).forEach(s => { nameById[s.id] = s.name; });
+  if (!profiles.length) { el.innerHTML = '<div class="empty-state-sm">No profiles yet. Click "New profile" to bundle scripts.</div>'; return; }
+  el.innerHTML = profiles.map(p => {
+    const names = (p.script_ids || []).map(id => nameById[id] || id).join(', ');
+    return `<div class="row-8-center mb-6 flex-between">
+      <div><strong>${escHtml(p.name)}</strong> <span class="meta-sm-nm">${(p.script_ids||[]).length} script(s): ${escHtml(names)}</span></div>
+      <div class="row-6">
+        <button class="btn-icon cell-sm" data-action="openProfileApply" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}">Apply</button>
+        <button class="btn-icon cell-sm c-danger-outline" data-action="deleteProfile" data-arg="${escAttr(p.id)}" data-arg2="${escAttr(p.name)}">Delete</button>
+      </div></div>`;
+  }).join('');
+}
+function openProfileCreate() {
+  document.getElementById('cs-profile-name').value = '';
+  const box = document.getElementById('cs-profile-scripts');
+  const scripts = _csData?.scripts || [];
+  box.innerHTML = scripts.length
+    ? scripts.map(s => `<label class="row-6-center"><input type="checkbox" class="cs-prof-script" value="${escAttr(s.id)}"> ${escHtml(s.name)}</label>`).join('')
+    : '<div class="meta-sm-nm">No scripts yet — create scripts first.</div>';
+  openModal('cs-profile-create-modal');
+}
+async function saveProfile() {
+  const name = document.getElementById('cs-profile-name').value.trim();
+  if (!name) { toast('Name required', 'error'); return; }
+  const ids = Array.from(document.querySelectorAll('.cs-prof-script:checked')).map(c => c.value);
+  if (!ids.length) { toast('Select at least one script', 'error'); return; }
+  const r = await api('POST', '/monitoring-profiles', { name, script_ids: ids });
+  if (r?.ok) { toast('Profile created', 'success'); closeModal('cs-profile-create-modal'); loadMonitoringProfiles(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+let _csProfileSelDevs = new Set();   // selected device ids for apply
+function openProfileApply(pid, name) {
+  document.getElementById('cs-profile-apply-id').value = pid;
+  document.getElementById('cs-profile-apply-sub').textContent = `Assign every script in "${name}" to the selected assets.`;
+  document.getElementById('cs-profile-dev-search').value = '';
+  document.getElementById('cs-profile-dev-results').innerHTML = '';
+  _csProfileSelDevs = new Set();
+  _renderProfileChips();
+  openModal('cs-profile-apply-modal');
+  const inp = document.getElementById('cs-profile-dev-search');
+  inp.oninput = () => _renderProfileDevResults(inp.value);
+}
+function _renderProfileDevResults(term) {
+  const q = (term || '').toLowerCase().trim();
+  const box = document.getElementById('cs-profile-dev-results');
+  if (!q) { box.innerHTML = ''; return; }
+  const matches = (_csDevices || []).filter(d =>
+    (d.name||'').toLowerCase().includes(q) || (d.ip||'').toLowerCase().includes(q) ||
+    (d.group||'').toLowerCase().includes(q) || (d.hostname||'').toLowerCase().includes(q)
+  ).slice(0, 25);
+  box.innerHTML = matches.map(d =>
+    `<div class="pointer p-6" data-action="pickProfileDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip||'')} ${escHtml(d.group||'')}</span></div>`
+  ).join('') || '<div class="meta-sm-nm">No matches.</div>';
+}
+function pickProfileDev(id) {
+  _csProfileSelDevs.add(String(id));
+  document.getElementById('cs-profile-dev-search').value = '';
+  document.getElementById('cs-profile-dev-results').innerHTML = '';
+  _renderProfileChips();
+}
+function _renderProfileChips() {
+  const box = document.getElementById('cs-profile-dev-chips');
+  const byId = {}; (_csDevices || []).forEach(d => { byId[String(d.id)] = d.name; });
+  if (!_csProfileSelDevs.size) { box.innerHTML = '<span class="meta-sm-nm">No assets selected yet.</span>'; return; }
+  box.innerHTML = Array.from(_csProfileSelDevs).map(id =>
+    `<span class="group-badge">${escHtml(byId[id] || id)} <button class="btn-icon cell-sm" data-action="unpickProfileDev" data-arg="${escAttr(id)}">×</button></span>`).join('');
+}
+function unpickProfileDev(id) { _csProfileSelDevs.delete(String(id)); _renderProfileChips(); }
+async function applyProfile() {
+  const pid = document.getElementById('cs-profile-apply-id').value;
+  const ids = Array.from(_csProfileSelDevs);
+  if (!ids.length) { toast('Select at least one asset', 'error'); return; }
+  const r = await api('POST', '/monitoring-profiles/apply', { profile_id: pid, device_ids: ids });
+  if (r?.ok) { toast(`Applied ${r.scripts_applied} script(s) to ${r.devices} device(s)`, 'success'); closeModal('cs-profile-apply-modal'); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function deleteProfile(id, name) {
+  if (!await uiConfirm(`Delete profile "${name}"? (Already-assigned scripts stay assigned.)`)) return;
+  const r = await api('DELETE', '/monitoring-profiles/' + encodeURIComponent(id));
+  if (r?.ok) { toast('Profile deleted', 'success'); loadMonitoringProfiles(); }
+  else toast(r?.error || 'Failed', 'error');
 }
 
 function renderCustomScriptsLoading() {

@@ -8,7 +8,7 @@ badge, docs/v4.1.0.md, "What's new" card) are added when the release is
 actually cut; until then this file only covers behaviour.
 
 Coverage so far:
-  #54 — stable, monotonic, operator-facing alert id ('alertid_00001'),
+  #54 — stable, monotonic, operator-facing alert id ('alertid_000001'),
         forwarded in the on_ack webhook payload.
 """
 import os
@@ -88,8 +88,8 @@ class TestStableAlertId(_HandlerBase):
         a2 = api._record_alert('device_offline', {})
         self.assertIsNotNone(a1, "device_offline should produce an alert")
         self.assertIsNotNone(a2)
-        self.assertEqual(a1['alertid'], 'alertid_00001')
-        self.assertEqual(a2['alertid'], 'alertid_00002')
+        self.assertEqual(a1['alertid'], 'alertid_000001')
+        self.assertEqual(a2['alertid'], 'alertid_000002')
         # The random internal id stays the lookup key and is distinct.
         self.assertTrue(a1['id'].startswith('a-'))
         self.assertNotEqual(a1['id'], a1['alertid'])
@@ -109,7 +109,7 @@ class TestStableAlertId(_HandlerBase):
         store['alerts'] = []
         api.save(api.ALERTS_FILE, store)
         a3 = api._record_alert('device_offline', {})
-        self.assertEqual(a3['alertid'], 'alertid_00003')
+        self.assertEqual(a3['alertid'], 'alertid_000003')
 
     def test_ack_webhook_forwards_alertid(self):
         api.save(api.CONFIG_FILE, {'webhook_urls': [

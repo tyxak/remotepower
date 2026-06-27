@@ -410,6 +410,27 @@ async function cmdbOpenAsset(deviceId) {
   _cmdbRenderHardware(res.data.sysinfo || {});
   cmdbSwitchTab('props');
   openModal('cmdb-asset-modal');
+  _cmdbRenderTickets(deviceId);
+}
+
+// #6: show this asset's tickets (open + closed) on the CMDB record.
+async function _cmdbRenderTickets(deviceId) {
+  const el = document.getElementById('cmdb-asset-tickets');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!window._ticketsOn) return;   // ticket system off
+  const data = await api('GET', '/devices/' + encodeURIComponent(deviceId) + '/tickets').catch(() => null);
+  const tks = (data && data.tickets) || [];
+  if (!tks.length) return;
+  const open = tks.filter(t => ['ongoing', 'pending_customer', 'pending_internal'].includes(t.status));
+  const closed = tks.filter(t => !open.includes(t));
+  const no = (n) => '#RP' + String(n == null ? '' : n).padStart(6, '0');
+  const row = (t) => `<div class="fs-12">${escHtml(no(t.number))} · ${escHtml(t.subject || '')} <span class="meta-sm-nm">(${escHtml(t.type || '')}, ${escHtml(t.status || '')})</span></div>`;
+  el.innerHTML = `<div class="dash-card">
+    <div class="fw-500 mb-4">${escHtml('Tickets')} <span class="meta-sm-nm">${open.length} open · ${closed.length} closed</span></div>
+    ${open.map(row).join('')}
+    ${closed.length ? `<details class="mt-4"><summary class="fs-12 c-muted">Closed (${closed.length})</summary>${closed.map(row).join('')}</details>` : ''}
+  </div>`;
 }
 
 // ── v3.12.0: CMDB business lists (contracts/contacts/licenses) + hardware ─────

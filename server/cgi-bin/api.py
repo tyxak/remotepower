@@ -120,6 +120,14 @@ OIDC_STATES_FILE = DATA_DIR / 'oidc_states.json'
 # last_error if the most recent poll failed. The actual SNMP work lives
 # in snmp.py (pure-stdlib SNMPv2c).
 SNMP_DATA_FILE = DATA_DIR / 'snmp_data.json'
+SNMP_TRAPS_FILE = DATA_DIR / 'snmp_traps.json'   # inbound SNMP traps, per device
+SBOM_BASELINE_FILE = DATA_DIR / 'sbom_baselines.json'   # per-device package baseline for SBOM diffs
+TICKETS_FILE = DATA_DIR / 'tickets.json'   # built-in ticket system (opt-in)
+TICKET_TYPES = ('incident', 'request', 'change')
+TICKET_STATUSES = ('ongoing', 'pending_customer', 'pending_internal', 'resolved', 'closed')
+TICKET_STANDALONE_BASE = 900000   # standalone ticket numbers live in a reserved band so
+                                  # they never collide with alert-derived numbers (the alert seq)
+MAX_TICKETS = 5000
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -496,7 +504,7 @@ DASHBOARD_WIDGETS          = ('upcoming', 'tickets', 'offline', 'updates', 'cves
                               'integrations',
                               # v4.1.0: actionable alerts feed (ack/resolve inline)
                               'alertsfeed',
-                              'health', 'heatmap', 'overview', 'roster', 'links',
+                              'health', 'heatmap', 'overview', 'roster', 'links', 'postit',
                               # v4.1.0: Ask-AI box — toggleable, but pinned in the footer
                               'askai')
 DASHBOARD_WIDGET_SIZES     = ('sm', 'md', 'lg')
@@ -801,6 +809,7 @@ WEBHOOK_EVENTS = (
     # v3.2.0 follow-up: severity escalation after sustained failure
     ('snmp_dead',             'SNMP poll failing for 6+ hours (genuinely dead)', True),
     ('snmp_recover',          'SNMP polling recovered',                      True),
+    ('snmp_trap_received',    'Inbound SNMP trap received from a host',      True),
     # v3.2.0 (A1 follow-up): MCP confirmation aged out without an admin
     # decision. Surfaces the silent-timeout case to the operator.
     ('mcp_confirmation_expired', 'MCP confirmation expired without operator decision', True),
@@ -4383,6 +4392,7 @@ _ALERT_RULES = {
     # v3.2.0 (B5): SNMP polling for agentless devices
     'snmp_unreachable':       ('high',     None),
     'snmp_dead':              ('critical', None),
+    'snmp_trap_received':     ('medium',   None),
     # v3.2.0 (A1 follow-up): silent confirmation timeout
     'mcp_confirmation_expired': ('medium', None),
     # v3.2.3: these events fire webhooks + land in fleet_events.json
@@ -4543,7 +4553,7 @@ CHANNEL_KINDS = [
     ('reboot',      'Pending reboot',           'operational',   ['reboot_required']),
     ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
     ('ssh_key',     'SSH key changes',          'operational',   ['ssh_key_added']),
-    ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover']),
+    ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received']),
     ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
     ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'kernel_outdated']),
     ('health',      'Device health score',      'operational',   ['health_degraded', 'health_recovered']),
@@ -5047,7 +5057,7 @@ def _alert_identity(event, summary, dev_id):
 
 
 def _assign_alertid(store, alert):
-    """v4.1.0 (#54): stamp a stable, monotonic, zero-padded id ('alertid_00001')
+    """v4.1.0 (#54): stamp a stable, monotonic, zero-padded id ('alertid_000001')
     on `alert` from a persisted counter in the open ALERTS_FILE `store`. The
     caller MUST already hold the ALERTS_FILE lock (both creation sites do), so
     the read-increment-write is atomic. The counter only ever grows — ids are
@@ -5056,8 +5066,430 @@ def _assign_alertid(store, alert):
     is distinct from the random internal `id`, which stays the lookup key."""
     seq = int(store.get('alert_seq') or 0) + 1
     store['alert_seq'] = seq
-    alert['alertid'] = f'alertid_{seq:05d}'
+    alert['alertid'] = f'alertid_{seq:06d}'
     return alert['alertid']
+
+
+def _rp_ticket_no(alertid):
+    """Operator-facing 6-digit ticket/alert number, e.g.
+    'alertid_00042' -> '#RP000042'. Used in ticket subjects + the alerts inbox."""
+    m = re.search(r'(\d+)', str(alertid or ''))
+    return f'#RP{int(m.group(1)):06d}' if m else str(alertid or '')
+
+
+def _tickets_enabled():
+    return bool((load(CONFIG_FILE) or {}).get('tickets_enabled'))
+
+
+def _alert_seq_num(alertid):
+    """Numeric sequence from a stable alertid ('alertid_000042' -> 42)."""
+    m = re.search(r'(\d+)', str(alertid or ''))
+    return int(m.group(1)) if m else None
+
+
+def _ticket_public(t):
+    return {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
+            'device_id', 'device_name', 'alertid', 'to_email',
+            'created_by', 'created_at', 'updated_at')}
+
+
+def handle_tickets():
+    """GET /api/tickets[?q=&status=&type=] list/search, or POST create."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    if method() == 'GET':
+        require_auth()
+        tickets = (load(TICKETS_FILE) or {}).get('tickets') or []
+        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        q = (qs.get('q') or [''])[0].lower().strip()
+        st = (qs.get('status') or [''])[0]
+        ty = (qs.get('type') or [''])[0]
+        out = []
+        for t in tickets:
+            if st and t.get('status') != st:
+                continue
+            if ty and t.get('type') != ty:
+                continue
+            hay = f"{t.get('number','')} {t.get('subject','')} {t.get('device_name','')}".lower()
+            if q and q not in hay:
+                continue
+            out.append(_ticket_public(t))
+        out.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
+        respond(200, {'ok': True, 'tickets': out[:1000]})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_auth()
+    body = get_json_obj()
+    subject = _sanitize_str(str(body.get('subject', '')), 200).strip()
+    ttype = str(body.get('type', 'incident')).strip().lower()
+    if ttype not in TICKET_TYPES:
+        ttype = 'incident'
+    device_id = str(body.get('device_id', '')).strip()
+    alert_internal = str(body.get('alert_id', '')).strip()
+    now = int(time.time())
+    devices = load(DEVICES_FILE)
+    dev_name = (devices.get(device_id) or {}).get('name', '') if device_id else ''
+    alertid = ''
+    number = None
+    if alert_internal:
+        # one ticket per alert — return the existing one if present
+        for t in ((load(TICKETS_FILE) or {}).get('tickets') or []):
+            if t.get('alert_id') == alert_internal:
+                respond(200, {'ok': True, 'id': t['id'], 'number': t['number'], 'existing': True})
+        al = next((a for a in ((load(ALERTS_FILE) or {}).get('alerts') or [])
+                   if a.get('id') == alert_internal), None)
+        if al:
+            alertid = al.get('alertid', '')
+            number = _alert_seq_num(alertid)   # alert-derived number = alert seq
+            ttype = 'incident'                 # alerts are always incidents
+            if not subject:
+                subject = al.get('title') or al.get('event') or 'Alert'
+            if not device_id:
+                device_id = al.get('device_id', '')
+                dev_name = al.get('device_name', '')
+    if not subject:
+        respond(400, {'error': 'subject required'})
+    tid = 'tk_' + secrets.token_hex(5)
+    with _LockedUpdate(TICKETS_FILE) as store:
+        tickets = store.setdefault('tickets', [])
+        if len(tickets) >= MAX_TICKETS:
+            respond(400, {'error': f'ticket limit reached (max {MAX_TICKETS})'})
+        if number is None:
+            seq = int(store.get('ticket_seq') or 0) + 1
+            store['ticket_seq'] = seq
+            number = TICKET_STANDALONE_BASE + seq
+        tickets.append({
+            'id': tid, 'number': number, 'subject': subject, 'type': ttype,
+            'status': 'ongoing', 'device_id': device_id, 'device_name': dev_name,
+            'alert_id': alert_internal, 'alertid': alertid,
+            'to_email': _sanitize_str(str(body.get('to_email', '')), 200),
+            'created_by': actor, 'created_at': now, 'updated_at': now,
+            'messages': [],
+        })
+    # Link the ticket number back onto the source alert (collect-then-write, no nesting)
+    if alert_internal:
+        try:
+            with _LockedUpdate(ALERTS_FILE) as astore:
+                for a in (astore.get('alerts') or []):
+                    if a.get('id') == alert_internal:
+                        a['rp_ticket'] = number
+                        a['rp_ticket_id'] = tid
+                        break
+        except Exception:
+            pass
+    audit_log(actor, 'ticket_create', f'#{number} type={ttype} dev={device_id}')
+    respond(200, {'ok': True, 'id': tid, 'number': number})
+
+
+def handle_ticket_get(tid):
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    require_auth()
+    t = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+              if x.get('id') == tid), None)
+    if not t:
+        respond(404, {'error': 'ticket not found'})
+    respond(200, {'ok': True, 'ticket': t})
+
+
+def handle_ticket_update(tid):
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    if method() not in ('PATCH', 'POST'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_auth()
+    body = get_json_obj()
+    now = int(time.time())
+    ok = False
+    with _LockedUpdate(TICKETS_FILE) as store:
+        t = next((x for x in (store.get('tickets') or []) if x.get('id') == tid), None)
+        if t:
+            ok = True
+            if 'status' in body and str(body['status']).strip().lower() in TICKET_STATUSES:
+                t['status'] = str(body['status']).strip().lower()
+            if 'type' in body and str(body['type']).strip().lower() in TICKET_TYPES:
+                t['type'] = str(body['type']).strip().lower()
+            if 'device_id' in body:
+                did = str(body['device_id']).strip()
+                t['device_id'] = did
+                t['device_name'] = (load(DEVICES_FILE).get(did) or {}).get('name', '') if did else ''
+            if 'to_email' in body:
+                t['to_email'] = _sanitize_str(str(body['to_email']), 200)
+            msg = _sanitize_str(str(body.get('message', '')), 8000).strip()
+            if msg:
+                direction = str(body.get('direction', 'note'))
+                if direction not in ('note', 'out', 'in'):
+                    direction = 'note'
+                t.setdefault('messages', []).append({
+                    'ts': now, 'author': actor, 'body': msg,
+                    'channel': 'web', 'direction': direction})
+            t['updated_at'] = now
+    if not ok:
+        respond(404, {'error': 'ticket not found'})
+    audit_log(actor, 'ticket_update', f'id={tid}')
+    respond(200, {'ok': True})
+
+
+def handle_ticket_delete(tid):
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    found = False
+    with _LockedUpdate(TICKETS_FILE) as store:
+        ts = store.get('tickets') or []
+        kept = [x for x in ts if x.get('id') != tid]
+        found = len(kept) != len(ts)
+        store['tickets'] = kept
+    if not found:
+        respond(404, {'error': 'ticket not found'})
+    audit_log(actor, 'ticket_delete', f'id={tid}')
+    respond(200, {'ok': True})
+
+
+def _open_ticket_device_ids():
+    """device ids that currently have an OPEN (non-resolved/closed) ticket."""
+    open_st = ('ongoing', 'pending_customer', 'pending_internal')
+    return sorted({t.get('device_id') for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                   if t.get('device_id') and t.get('status') in open_st})
+
+
+def handle_device_tickets(dev_id):
+    """GET /api/devices/{id}/tickets — tickets attached to a device (open+closed)."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    require_auth()
+    out = [_ticket_public(t) for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+           if t.get('device_id') == dev_id]
+    out.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
+    respond(200, {'ok': True, 'tickets': out})
+
+
+_TICKET_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
+
+
+def _ticket_contact_email(device_id):
+    """Best-effort recipient for a ticket: first email in the device's CMDB
+    contacts, then its docs/documentation, then the device notes."""
+    if not device_id:
+        return ''
+    rec = (load(CMDB_FILE) or {}).get(device_id) or {}
+    for c in (rec.get('contacts') or []):
+        vals = c.values() if isinstance(c, dict) else [c]
+        for v in vals:
+            m = _TICKET_EMAIL_RE.search(str(v))
+            if m:
+                return m.group(0)
+    blobs = [str(rec.get('documentation') or '')]
+    for d in (rec.get('docs') or []):
+        if isinstance(d, dict):
+            blobs.append(str(d.get('body') or ''))
+    dev = (load(DEVICES_FILE) or {}).get(device_id) or {}
+    blobs.append(str(dev.get('notes') or ''))
+    for b in blobs:
+        m = _TICKET_EMAIL_RE.search(b)
+        if m:
+            return m.group(0)
+    return ''
+
+
+def handle_ticket_send_email(tid):
+    """POST /api/tickets/{id}/email {body, to?} — email the contact + log it.
+    Loop-safe: stamps Auto-Submitted so the inbound poller skips our own mail."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_auth()
+    body = get_json_obj()
+    text = _sanitize_str(str(body.get('body', '')), 8000).strip()
+    if not text:
+        respond(400, {'error': 'message body required'})
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('smtp_host'):
+        respond(400, {'error': 'SMTP is not configured (Settings -> Notifications)'})
+    t = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+              if x.get('id') == tid), None)
+    if not t:
+        respond(404, {'error': 'ticket not found'})
+    to = (_sanitize_str(str(body.get('to', '')), 200).strip()
+          or t.get('to_email') or _ticket_contact_email(t.get('device_id')))
+    if '@' not in to:
+        respond(400, {'error': 'no recipient — set a To: or add a contact email to the CMDB record'})
+    subject = f"#RP{int(t.get('number') or 0):06d} {t.get('subject', '')}"[:200]
+    try:
+        smtp_notifier.send_email(cfg, [to], subject, text, extra_headers={
+            'Auto-Submitted': 'auto-generated', 'X-RP-Ticket': str(t.get('number'))})
+    except Exception as e:
+        respond(502, {'error': f'send failed: {str(e)[:200]}'})
+    now = int(time.time())
+    with _LockedUpdate(TICKETS_FILE) as st:
+        tk = next((x for x in (st.get('tickets') or []) if x.get('id') == tid), None)
+        if tk:
+            tk.setdefault('messages', []).append({'ts': now, 'author': actor, 'body': text,
+                'channel': 'email', 'direction': 'out', 'to': to})
+            if not tk.get('to_email'):
+                tk['to_email'] = to
+            tk['updated_at'] = now
+    audit_log(actor, 'ticket_email', f'id={tid} to={to}')
+    respond(200, {'ok': True, 'to': to})
+
+
+def _ticket_imap_cfg():
+    c = (load(CONFIG_FILE) or {}).get('ticket_imap')
+    return c if isinstance(c, dict) else {}
+
+
+def _ticket_email_text(msg):
+    """Plain-text body from an email.message.Message (first text/plain part)."""
+    try:
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == 'text/plain' and 'attachment' not in str(part.get('Content-Disposition') or ''):
+                    return (part.get_payload(decode=True) or b'').decode('utf-8', 'replace').strip()
+            return ''
+        return (msg.get_payload(decode=True) or b'').decode('utf-8', 'replace').strip()
+    except Exception:
+        return ''
+
+
+def _fetch_ticket_replies():
+    """Poll the dedicated ticket mailbox and append replies to their ticket by the
+    #RP<number> subject token. LOOP-SAFE: skips auto-submitted / bulk / our own
+    outbound (X-RP-Ticket) so nothing bounces back and forth."""
+    import imaplib
+    import email as _email
+    import ssl as _ssl
+    c = _ticket_imap_cfg()
+    host = (c.get('host') or '').strip()
+    if not host:
+        return
+    try:
+        port = int(c.get('port') or (993 if c.get('use_ssl', True) else 143))
+    except (TypeError, ValueError):
+        port = 993
+    use_ssl = c.get('use_ssl', True) is not False
+    verify_tls = c.get('verify_tls', True) is not False
+    folder = (c.get('folder') or 'INBOX').strip() or 'INBOX'
+    username = (c.get('username') or '').strip()
+    password = c.get('password') or ''
+    last_uid = int((load(TICKETS_FILE) or {}).get('imap_last_uid', 0) or 0)
+    try:
+        _ctx = _ssl.create_default_context()
+        if not verify_tls:
+            _ctx.check_hostname = False
+            _ctx.verify_mode = _ssl.CERT_NONE
+        M = (imaplib.IMAP4_SSL(host, port, ssl_context=_ctx, timeout=20)
+             if use_ssl else imaplib.IMAP4(host, port, timeout=20))
+        M.login(username, password)
+        M.select(folder, readonly=False)
+        typ, data = M.uid('search', None, 'ALL')
+        uids = [int(x) for x in ((data[0].split() if data and data[0] else [])) if x.isdigit()]
+        for uid in [u for u in sorted(uids) if u > last_uid][:200]:
+            last_uid = max(last_uid, uid)
+            typ, md = M.uid('fetch', str(uid), '(RFC822)')
+            raw = next((it[1] for it in (md or []) if isinstance(it, tuple) and len(it) == 2), None)
+            if not raw:
+                continue
+            msg = _email.message_from_bytes(raw)
+            auto = (msg.get('Auto-Submitted') or '').lower()
+            if auto and 'no' not in auto:
+                continue
+            if msg.get('X-RP-Ticket'):
+                continue
+            if (msg.get('Precedence') or '').lower() in ('bulk', 'auto_reply', 'list', 'junk'):
+                continue
+            mt = re.search(r'#RP0*(\d+)', str(msg.get('Subject') or ''))
+            if not mt:
+                continue
+            number = int(mt.group(1))
+            frm = str(msg.get('From') or '')[:200]
+            text = _ticket_email_text(msg)[:8000]
+            if not text:
+                continue
+            now = int(time.time())
+            with _LockedUpdate(TICKETS_FILE) as st:
+                tk = next((x for x in (st.get('tickets') or []) if x.get('number') == number), None)
+                if tk:
+                    tk.setdefault('messages', []).append({'ts': now, 'author': frm,
+                        'body': text, 'channel': 'email', 'direction': 'in'})
+                    if tk.get('status') == 'pending_customer':
+                        tk['status'] = 'pending_internal'
+                    tk['updated_at'] = now
+        try:
+            M.logout()
+        except Exception:
+            pass
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] ticket imap fetch failed: {e}\n')
+    try:
+        with _LockedUpdate(TICKETS_FILE) as st:
+            st['imap_last_uid'] = last_uid
+            st['imap_last_fetch'] = int(time.time())
+    except Exception:
+        pass
+
+
+def run_ticket_imap_if_due():
+    if not _tickets_enabled():
+        return
+    c = _ticket_imap_cfg()
+    if not c.get('enabled') or not c.get('host'):
+        return
+    st = load(TICKETS_FILE) or {}
+    try:
+        interval = max(120, int(c.get('interval', 300) or 300))
+    except (TypeError, ValueError):
+        interval = 300
+    if int(time.time()) - int(st.get('imap_last_fetch', 0) or 0) < interval:
+        return
+    _fetch_ticket_replies()
+
+
+def handle_ticket_imap_get():
+    require_admin_auth()
+    c = _ticket_imap_cfg()
+    respond(200, {'ok': True, 'imap': {
+        'enabled': bool(c.get('enabled')), 'host': c.get('host', ''), 'port': c.get('port', 993),
+        'username': c.get('username', ''), 'folder': c.get('folder', 'INBOX'),
+        'use_ssl': c.get('use_ssl', True) is not False,
+        'verify_tls': c.get('verify_tls', True) is not False,
+        'interval': c.get('interval', 300), 'password_set': bool(c.get('password')),
+    }})
+
+
+def handle_ticket_imap_save():
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    host = _no_ctrl(_sanitize_str(body.get('host', ''), 255)).strip()
+    try:
+        port = int(body.get('port') or 993)
+    except (TypeError, ValueError):
+        port = 993
+    if not (1 <= port <= 65535):
+        respond(400, {'error': 'port must be 1-65535'})
+    try:
+        interval = max(120, int(body.get('interval', 300) or 300))
+    except (TypeError, ValueError):
+        interval = 300
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cur = cfg.get('ticket_imap') if isinstance(cfg.get('ticket_imap'), dict) else {}
+        new_pw = body.get('password')
+        cfg['ticket_imap'] = {
+            'enabled':  bool(body.get('enabled')),
+            'host':     host, 'port': port,
+            'username': _no_ctrl(_sanitize_str(body.get('username', ''), 255)),
+            'folder':   _no_ctrl(_sanitize_str(body.get('folder', 'INBOX') or 'INBOX', 128)),
+            'use_ssl':  body.get('use_ssl', True) is not False,
+            'verify_tls': body.get('verify_tls', True) is not False,
+            'interval': interval,
+            'password': (str(new_pw)[:512] if new_pw else cur.get('password', '')),
+        }
+    audit_log(actor, 'ticket_imap_save', detail=f'host={host} enabled={bool(body.get("enabled"))}')
+    respond(200, {'ok': True})
 
 
 def _record_alert(event, payload):
@@ -5830,6 +6262,7 @@ def _webhook_title(event):
         'resolver_recovered':    'DNS Resolution Recovered',
         'fail2ban_ban':          'fail2ban Ban',
         'av_infected':           'Malware Detected',
+        'snmp_trap_received':    'SNMP Trap',
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
@@ -6057,13 +6490,15 @@ def _auto_detect_format(url):
     if _host_in('ntfy.sh'):                              return 'ntfy'
     if _host_in('events.pagerduty.com', 'pagerduty.com'): return 'pagerduty'
     if _host_in('opsgenie.com'):                         return 'opsgenie'
+    if _host_in('api.telegram.org', 'telegram.org'):     return 'telegram'
     return 'generic'
 
 
 # Allowed format adapters — anything else falls back to generic.
 _WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams',
                     'github', 'pagerduty', 'opsgenie',
-                    'jira', 'servicenow', 'zendesk')   # v5.0.0 ITSM
+                    'jira', 'servicenow', 'zendesk',   # v5.0.0 ITSM
+                    'telegram', 'matrix')              # Telegram / Matrix
 
 
 def _webhook_rate_limit_ok():
@@ -6170,11 +6605,34 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
                          f'{fmt} destination missing credentials (and project for Jira) '
                          '— set them in Settings → Notifications')
             return
+    elif fmt == 'telegram':
+        body, headers, content_type = _build_telegram_body(event, title, message, dest)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         'Telegram destination missing chat_id — set it in Settings → Notifications')
+            return
+    elif fmt == 'matrix':
+        body, headers, content_type = _build_matrix_body(event, title, message, dest)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         'Matrix destination missing access token — set it in Settings → Notifications')
+            return
     else:
         body, headers, content_type = _build_generic_body(
             event, title, message, priority, safe_payload)
     headers.setdefault('Content-Type', content_type)
     headers.setdefault('User-Agent', f'RemotePower/{SERVER_VERSION}')
+    # Optional HMAC-SHA256 signature so a generic receiver can verify payload
+    # authenticity. Signs the exact bytes sent. Generic format only — signing a
+    # hosted-service body (Discord/Slack/Telegram/Matrix) is meaningless.
+    _hmac_secret = dest.get('hmac_secret')
+    if fmt == 'generic' and _hmac_secret:
+        try:
+            _sig = hmac.new(str(_hmac_secret).encode(), body, hashlib.sha256).hexdigest()
+            headers['X-RemotePower-Signature'] = 'sha256=' + _sig
+            headers['X-RemotePower-Timestamp'] = str(int(time.time()))
+        except Exception:
+            pass
     # v3.4.0: global send-rate cap. Checked here — after every filter passes and
     # we're committed to sending — so a webhook storm (e.g. a flapping monitor or
     # a fleet-wide event) can't fire more than WEBHOOK_RATE_MAX requests per
@@ -6539,6 +6997,34 @@ def _build_generic_body(event, title, message, priority, safe_payload):
         'X-Tags':     _webhook_tags(event),
     }
     return body, headers, 'application/json'
+
+
+def _build_telegram_body(event, title, message, dest):
+    """Telegram Bot API: POST https://api.telegram.org/bot<TOKEN>/sendMessage —
+    the bot token lives in the destination URL (like a Slack/Discord webhook
+    URL); chat_id is a non-secret destination field."""
+    chat_id = (dest.get('telegram_chat_id') or '').strip()
+    if not chat_id:
+        return None, None, None
+    text = (f'{title}\n\n{message}' if title else (message or str(event)))[:4000]
+    body = json.dumps({
+        'chat_id': chat_id,
+        'text': text,
+        'disable_web_page_preview': True,
+    }).encode()
+    return body, {}, 'application/json'
+
+
+def _build_matrix_body(event, title, message, dest):
+    """Matrix Client-Server API: POST <homeserver>/_matrix/client/v3/rooms/
+    <room>/send/m.room.message — the room is in the destination URL; the access
+    token is a masked destination field sent as a bearer header."""
+    token = (dest.get('matrix_token') or '').strip()
+    if not token:
+        return None, None, None
+    text = (f'{title}\n\n{message}' if title else (message or str(event)))[:8000]
+    body = json.dumps({'msgtype': 'm.text', 'body': text}).encode()
+    return body, {'Authorization': f'Bearer {token}'}, 'application/json'
 
 
 def _webhook_message(event, payload):
@@ -8393,6 +8879,7 @@ def handle_sites_list():
     for sid, s in sites.items():
         out.append({'id': sid, 'name': s.get('name', sid), 'slug': s.get('slug', ''),
                     'created': s.get('created', 0), 'created_by': s.get('created_by', ''),
+                    'note': s.get('note', ''),
                     'device_count': counts.get(sid, 0)})
     out.sort(key=lambda x: x['name'].lower())
     respond(200, {'ok': True, 'sites': out, 'unassigned': counts.get('', 0)})
@@ -8428,11 +8915,14 @@ def handle_site_update(site_id):
     sites = load(SITES_FILE)
     if site_id not in sites:
         respond(404, {'error': 'site not found'})
-    name = _sanitize_str(get_json_obj().get('name', ''), MAX_SITE_NAME_LEN).strip()
+    _body = get_json_obj()
+    name = _sanitize_str(_body.get('name', ''), MAX_SITE_NAME_LEN).strip()
     if not name:
         respond(400, {'error': 'name required'})
     sites[site_id]['name'] = name
     sites[site_id]['slug'] = _site_slugify(name)
+    if 'note' in _body:
+        sites[site_id]['note'] = _sanitize_str(str(_body.get('note') or ''), 1024)
     save(SITES_FILE, sites)
     audit_log(actor, 'site_update', detail=f'site={site_id} name={name}')
     respond(200, {'ok': True, 'id': site_id, 'name': name})
@@ -8930,6 +9420,10 @@ def handle_device_firewall_rule(dev_id):
             else:
                 respond(400, {'error': 'invalid firewalld rule ref'})
 
+    # Dry-run: validate + build the exact command but don't queue it, so the
+    # operator can review what will run on the host before committing.
+    if body.get('preview'):
+        respond(200, {'ok': True, 'preview': True, 'command': cmd})
     audit_log(actor, 'host_firewall_rule',
               detail=(f'device={dev_id} backend={backend} {op} '
                       f'{body.get("spec") or body.get("ref")}')[:200])
@@ -10834,7 +11328,8 @@ def handle_heartbeat():
                     ent = {'iface': _sanitize_str(nio.get('iface', ''), 32)}
                     if not ent['iface']:
                         continue
-                    for k in ('rx_bps', 'tx_bps', 'rx_total', 'tx_total'):
+                    for k in ('rx_bps', 'tx_bps', 'rx_total', 'tx_total',
+                              'rx_err', 'tx_err', 'rx_drop', 'tx_drop'):
                         v = nio.get(k)
                         if isinstance(v, (int, float)) and 0 <= v < 1e15:
                             ent[k] = int(v)
@@ -10973,6 +11468,20 @@ def handle_heartbeat():
                     _ct = 1000.0
                 skewed = (not synced) or (isinstance(off, (int, float)) and abs(off) > _ct)
                 safe_clk['skewed'] = skewed
+                # Per-source (peer) detail — name/state/stratum/reach, capped.
+                if isinstance(c.get('peers'), list):
+                    safe_peers = []
+                    for pr in c['peers'][:12]:
+                        if not isinstance(pr, dict):
+                            continue
+                        safe_peers.append({
+                            'name':    _sanitize_str(str(pr.get('name', '')), 64),
+                            'state':   _sanitize_str(str(pr.get('state', '')), 16),
+                            'stratum': _sanitize_str(str(pr.get('stratum', '')), 4),
+                            'reach':   _sanitize_str(str(pr.get('reach', '')), 4),
+                        })
+                    if safe_peers:
+                        safe_clk['peers'] = safe_peers
                 safe_si['clock'] = safe_clk
                 was_skewed = bool((dev.get('sysinfo') or {}).get('clock', {}).get('skewed'))
                 if skewed and not was_skewed:
@@ -11874,8 +12383,8 @@ def handle_heartbeat():
                 _voutput = str(entry.get('verify_output', ''))[:200]
                 _state_key = f'{dev_id}:{_path}'
                 _prev = _bv_state.get(_state_key) or {}
-                _was_bad = _prev.get('verify_status') in ('failed', 'timeout', 'error')
-                _is_bad  = _vstatus in ('failed', 'timeout', 'error')
+                _was_bad = _prev.get('verify_status') in ('failed', 'timeout', 'error', 'unreachable')
+                _is_bad  = _vstatus in ('failed', 'timeout', 'error', 'unreachable')
                 _label = _bv_label_by_path.get(_path) or _path
                 if _is_bad and not _was_bad:
                     try:
@@ -12349,6 +12858,10 @@ def _command_kind(command):
         return 'compose'
     if s.startswith('poll_interval:'):
         return 'poll'
+    if s.startswith('svc:'):
+        return 'service'
+    if s.startswith('kill:'):
+        return 'process'
     if s in ('reboot', 'shutdown', 'update', 'uninstall', 'scan'):
         return s
     return 'other'
@@ -12386,6 +12899,149 @@ def _block_if_maintenance(command):
         respond(503, {'error': f'Server is in maintenance mode ({reason}) — new commands '
                                f'are paused. They will resume once maintenance ends.',
                       'maintenance': True})
+
+
+_SVC_UNIT_RE = re.compile(r'^[A-Za-z0-9@:._\\-]+$')   # systemd unit / instance name
+
+
+def _pdu_action_urls(pdu, action):
+    """HTTP GET URL(s) to perform `action` (on|off) on the mapped smart PDU/plug.
+    'cycle' is handled by the caller (off, wait, on)."""
+    kind = (pdu.get('kind') or '').lower()
+    host = (pdu.get('host') or '').strip()
+    outlet = str(pdu.get('outlet') or '').strip()
+    if not host:
+        return []
+    base = host if host.startswith(('http://', 'https://')) else f'http://{host}'
+    on = (action == 'on')
+    if kind == 'tasmota':
+        idx = outlet if outlet and outlet != '0' else ''
+        return [f'{base}/cm?cmnd=Power{idx}%20{"On" if on else "Off"}']
+    if kind == 'shelly1':
+        return [f'{base}/relay/{outlet or 0}?turn={"on" if on else "off"}']
+    if kind == 'shelly2':
+        return [f'{base}/rpc/Switch.Set?id={outlet or 0}&on={"true" if on else "false"}']
+    return []
+
+
+def handle_device_pdu(dev_id):
+    """GET/PATCH /api/devices/{id}/pdu — smart-PDU/plug outlet mapping used to
+    power-cycle a (possibly hung) host. PATCH is admin-only + audited."""
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    m = method()
+    if m == 'GET':
+        require_auth()
+        devs = load(DEVICES_FILE)
+        if dev_id not in devs:
+            respond(404, {'error': 'Device not found'})
+        respond(200, {'pdu': devs[dev_id].get('pdu') or {}})
+    if m != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    kind = str(body.get('kind', '')).strip().lower()
+    host = str(body.get('host', '')).strip()
+    outlet = str(body.get('outlet', '')).strip()
+    if kind and kind not in ('tasmota', 'shelly1', 'shelly2'):
+        respond(400, {'error': 'kind must be tasmota, shelly1 or shelly2'})
+    if len(host) > 128 or not re.match(r'^[A-Za-z0-9_.:/-]*$', host):
+        respond(400, {'error': 'invalid host'})
+    if outlet and not re.match(r'^[A-Za-z0-9]{1,8}$', outlet):
+        respond(400, {'error': 'invalid outlet'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        if kind and host:
+            devices[dev_id]['pdu'] = {'kind': kind, 'host': host, 'outlet': outlet}
+        else:
+            devices[dev_id].pop('pdu', None)
+    audit_log(actor, 'device_pdu_config', f'device={dev_id} kind={kind} host={host}')
+    respond(200, {'ok': True})
+
+
+def handle_device_power_control(dev_id):
+    """POST /api/devices/{id}/power-control {action: on|off|cycle} — drive the
+    mapped smart PDU/plug over HTTP (SSRF-guarded; LAN allowed, metadata/loopback
+    refused). Hard-cycles a hung host. Requires `command`, audited."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_obj()
+    action = str(body.get('action', '')).strip().lower()
+    if action not in ('on', 'off', 'cycle'):
+        respond(400, {'error': 'action must be on, off or cycle'})
+    dev = load(DEVICES_FILE).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    pdu = dev.get('pdu') or {}
+    if not (pdu.get('kind') and pdu.get('host')):
+        respond(400, {'error': 'No PDU configured for this device — set one first'})
+    steps = ['off', 'on'] if action == 'cycle' else [action]
+    results = []
+    for i, step in enumerate(steps):
+        if i > 0:
+            time.sleep(5)   # brief off-time so a cycle is a real power cycle
+        for url in _pdu_action_urls(pdu, step):
+            try:
+                parsed = urllib.parse.urlparse(url)
+                if _url_targets_local_or_meta(parsed, allow_loopback=False):
+                    respond(400, {'error': 'PDU host resolves to a blocked (loopback/metadata) address'})
+                ctx = _get_ssl_context() if parsed.scheme == 'https' else None
+                opener = _ssrf_safe_opener(allow_loopback=False, ssl_ctx=ctx, no_redirect=True)
+                r = opener.open(url, timeout=8)
+                results.append({'step': step, 'status': getattr(r, 'status', 200)})
+            except Exception as e:
+                results.append({'step': step, 'error': str(e)[:120]})
+    audit_log(actor, 'device_power_control', f'device={dev_id} action={action} pdu={pdu.get("kind")}')
+    respond(200, {'ok': True, 'action': action, 'results': results})
+
+
+def _valid_service_unit(u):
+    u = (u or '').strip()
+    return bool(u) and len(u) <= 128 and bool(_SVC_UNIT_RE.match(u))
+
+
+def handle_service_action(dev_id):
+    """POST /api/devices/{id}/service-action {unit, action: restart|start|stop}.
+    Runs a fixed `systemctl <action> <unit>` argv on the agent (no shell). Unit is
+    strictly validated. Gated on `command`, audited, quarantine/audit-mode-aware
+    via _queue_command (which responds)."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_obj()
+    unit = str(body.get('unit', '')).strip()
+    action = str(body.get('action', '')).strip().lower()
+    if action not in ('restart', 'start', 'stop'):
+        respond(400, {'error': "action must be 'restart', 'start' or 'stop'"})
+    if not _valid_service_unit(unit):
+        respond(400, {'error': 'invalid unit name'})
+    audit_log(actor, 'service_action', detail=f'device={dev_id} {action} {unit}'[:200])
+    _queue_command(dev_id, f'svc:{action}:{unit}', actor)   # responds 200 + exits
+
+
+def handle_process_kill(dev_id):
+    """POST /api/devices/{id}/kill {pid, signal?}. Runs a fixed `os.kill(pid, SIG)`
+    on the agent (no shell). PID 0/1 refused; signal from a fixed allowlist."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('command', [dev_id])
+    body = get_json_obj()
+    pid = str(body.get('pid', '')).strip()
+    sig = str(body.get('signal', 'TERM')).strip().upper()
+    if not re.fullmatch(r'\\d{1,7}', pid) or int(pid) <= 1:
+        respond(400, {'error': 'invalid pid'})
+    if sig not in ('TERM', 'KILL', 'HUP', 'INT'):
+        respond(400, {'error': 'signal must be TERM, KILL, HUP or INT'})
+    audit_log(actor, 'process_kill', detail=f'device={dev_id} kill -{sig} {pid}'[:200])
+    _queue_command(dev_id, f'kill:{sig}:{pid}', actor)   # responds 200 + exits
 
 
 def _queue_command(dev_id, command, actor):
@@ -12432,6 +13088,33 @@ def _queue_command(dev_id, command, actor):
         'command': command, 'actor': actor,
     })
     respond(200, {'ok': True})
+
+
+def _blast_radius_guard(ids, body, action):
+    """Refuse a reboot/shutdown batch that hits too many hosts at once unless the
+    request explicitly confirms it (body.confirm_blast). Caps: batch_max_devices
+    (absolute) and batch_max_fleet_percent (% of fleet); both 0 = disabled.
+    respond(403) on block — the operator re-runs with confirmation to override."""
+    if len(ids) <= 1:
+        return
+    if isinstance(body, dict) and body.get('confirm_blast'):
+        return
+    cfg = load(CONFIG_FILE) or {}
+    cap_n = int(cfg.get('batch_max_devices', 0) or 0)
+    cap_pct = int(cfg.get('batch_max_fleet_percent', 0) or 0)
+    if not (cap_n or cap_pct):
+        return
+    fleet = len(load(DEVICES_FILE)) or 1
+    n = len(ids)
+    over = []
+    if cap_n and n > cap_n:
+        over.append(f'{n} hosts exceeds the limit of {cap_n}')
+    if cap_pct and (n * 100 / fleet) > cap_pct:
+        over.append(f'{n}/{fleet} hosts ({n * 100 // fleet}%) exceeds the {cap_pct}% fleet limit')
+    if over:
+        respond(403, {'error': f'Blast-radius guardrail: this {action} would hit '
+                               + '; '.join(over) + '. Re-run with confirmation to override.',
+                      'blast_blocked': True, 'count': n, 'fleet': fleet, 'action': action})
 
 
 def _queue_command_batch(dev_ids, command, actor):
@@ -12633,7 +13316,9 @@ def handle_shutdown():
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('shutdown', ids)   # v3.4.2 RBAC: power action
     if len(ids) == 1: _queue_command(ids[0], 'shutdown', actor)
-    else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'shutdown', actor)})
+    else:
+        _blast_radius_guard(ids, body, 'shutdown')
+        respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'shutdown', actor)})
 
 
 def handle_reboot():
@@ -12642,7 +13327,9 @@ def handle_reboot():
     if not ids: respond(400, {'error': 'No valid device targets'})
     actor = require_perm('reboot', ids)
     if len(ids) == 1: _queue_command(ids[0], 'reboot', actor)
-    else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'reboot', actor)})
+    else:
+        _blast_radius_guard(ids, body, 'reboot')
+        respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'reboot', actor)})
 
 
 def _ver_tuple(s):
@@ -14132,11 +14819,15 @@ def handle_config_get():
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
+    safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
+    safe.setdefault('fleet_note',             '')     # fleet-wide operator note (dashboard)
     safe.setdefault('cert_expiry_alerts_enabled', False)  # v3.14.0: cert-expiry alerts, opt-in (noisy)
     safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
     safe.setdefault('healthchecks_interval_seconds', 60)
+    safe.setdefault('batch_max_devices', 0)          # blast-radius cap (0=off)
+    safe.setdefault('batch_max_fleet_percent', 0)    # blast-radius cap (0=off)
 
     # v3.0.2: redact secrets in webhook_urls before sending to the UI.
     # The UI can tell whether a secret is set (so it can mask the input
@@ -14150,11 +14841,14 @@ def handle_config_get():
             # v5.0.0: + the ITSM secret (itsm_secret auto-redacts via the secret
             # regex, but echo a *_set flag + keep the non-secret itsm fields).
             r = {k: v for k, v in e.items()
-                 if k not in ('pushover_token', 'pushover_user', 'token', 'itsm_secret')}
+                 if k not in ('pushover_token', 'pushover_user', 'token', 'itsm_secret',
+                              'matrix_token', 'hmac_secret')}
             r['pushover_token_set'] = bool(e.get('pushover_token'))
             r['pushover_user_set']  = bool(e.get('pushover_user'))
             r['token_set']          = bool(e.get('token'))
             r['itsm_secret_set']    = bool(e.get('itsm_secret'))
+            r['matrix_token_set']   = bool(e.get('matrix_token'))
+            r['hmac_secret_set']    = bool(e.get('hmac_secret'))
             redacted.append(r)
         safe['webhook_urls'] = redacted
 
@@ -14399,6 +15093,27 @@ def handle_config_save():
                 if fmt == 'jira':
                     clean_entry['jira_project'] = _sanitize_str(entry.get('jira_project') or '', 32)
                     clean_entry['jira_issuetype'] = _sanitize_str(entry.get('jira_issuetype') or 'Task', 40)
+            # Telegram chat_id (non-secret), Matrix access token (masked) +
+            # optional generic HMAC signing secret. Leave-blank-keeps semantics.
+            if fmt == 'telegram':
+                clean_entry['telegram_chat_id'] = _sanitize_str(entry.get('telegram_chat_id') or '', 64)
+            if fmt in ('matrix', 'generic'):
+                existing = next(
+                    (e for e in (cfg.get('webhook_urls') or [])
+                     if isinstance(e, dict) and e.get('id') == clean_entry['id']),
+                    None)
+                if fmt == 'matrix':
+                    _mtok = (entry.get('matrix_token') or '').strip()
+                    if _mtok:
+                        clean_entry['matrix_token'] = _sanitize_str(_mtok, 512)
+                    elif existing and existing.get('matrix_token'):
+                        clean_entry['matrix_token'] = existing['matrix_token']
+                else:  # generic
+                    _hsec = (entry.get('hmac_secret') or '').strip()
+                    if _hsec:
+                        clean_entry['hmac_secret'] = _sanitize_str(_hsec, 256)
+                    elif existing and existing.get('hmac_secret'):
+                        clean_entry['hmac_secret'] = existing['hmac_secret']
             clean.append(clean_entry)
         cfg['webhook_urls'] = clean
 
@@ -15308,6 +16023,8 @@ def handle_config_save():
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
     # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
     # OFF resolves the open backlog for those events in one action.
+    if 'tickets_enabled' in body:
+        cfg['tickets_enabled'] = bool(body['tickets_enabled'])
     if 'port_audit_enabled' in body:
         _was_on = bool(cfg.get('port_audit_enabled', False))
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
@@ -15336,6 +16053,8 @@ def handle_config_save():
     # "Authorized use only"). Plain text, surfaced pre-auth via /api/public-info.
     if 'login_banner' in body:
         cfg['login_banner'] = _sanitize_str(str(body.get('login_banner') or ''), 2000)
+    if 'fleet_note' in body:
+        cfg['fleet_note'] = _sanitize_str(str(body.get('fleet_note') or ''), 2000)
 
     # v3.3.0: Healthchecks.io / generic watchdog ping
     if 'healthchecks_url' in body:
@@ -15349,6 +16068,12 @@ def handle_config_save():
         except (TypeError, ValueError):
             respond(400, {'error': 'healthchecks_interval_seconds must be an integer'})
         cfg['healthchecks_interval_seconds'] = max(30, min(3600, v))
+    for _bk, _cap in (('batch_max_devices', 100000), ('batch_max_fleet_percent', 100)):
+        if _bk in body:
+            try:
+                cfg[_bk] = max(0, min(int(body[_bk]), _cap))
+            except (TypeError, ValueError):
+                pass
 
     # v3.3.0: IP allowlist (off by default). When enabled, only requests
     # from listed IPs/CIDRs (plus loopback + agent paths) reach the UI/API.
@@ -15976,6 +16701,11 @@ def _sanitise_ui_prefs(raw):
     if isinstance(ssh_user, str) and ssh_user:
         if re.fullmatch(r'[A-Za-z0-9._-]{1,32}', ssh_user):
             out['default_ssh_username'] = ssh_user
+
+    # Post-it: a per-account freeform dashboard sticky note (the 'postit' widget).
+    postit = raw.get('postit')
+    if isinstance(postit, str):
+        out['postit'] = _sanitize_str(postit, 2000)
 
     # v3.14.0: saved & shareable views — named snapshots of a page's filter
     # controls. A top-level list, not a per-table pref. Each entry is
@@ -26439,6 +27169,87 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
         fire_webhook(event, payload)
 
 
+MAX_MONITORING_PROFILES = 50
+
+
+def handle_monitoring_profiles():
+    """GET /api/monitoring-profiles (list) or POST (create a named bundle of
+    custom-script ids). Bundles live in CONFIG_FILE['monitoring_profiles']."""
+    if method() == 'GET':
+        require_auth()
+        cfg = load(CONFIG_FILE) or {}
+        respond(200, {'ok': True, 'profiles': cfg.get('monitoring_profiles') or []})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    name = _sanitize_str(str(body.get('name', '')), 64).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    raw_ids = body.get('script_ids') if isinstance(body.get('script_ids'), list) else []
+    scripts = _load_custom_scripts()
+    script_ids = [str(x) for x in raw_ids if str(x) in scripts][:50]
+    if not script_ids:
+        respond(400, {'error': 'select at least one valid script'})
+    pid = 'mp_' + secrets.token_hex(4)
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        profs = cfg.setdefault('monitoring_profiles', [])
+        if len(profs) >= MAX_MONITORING_PROFILES:
+            respond(400, {'error': f'profile limit reached (max {MAX_MONITORING_PROFILES})'})
+        profs.append({'id': pid, 'name': name, 'script_ids': script_ids,
+                      'created': int(time.time()), 'created_by': actor})
+    audit_log(actor, 'monitoring_profile_create', f'id={pid} name={name} scripts={len(script_ids)}')
+    respond(200, {'ok': True, 'id': pid})
+
+
+def handle_monitoring_profile_delete(pid):
+    """DELETE /api/monitoring-profiles/{id}."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    found = False
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        profs = cfg.get('monitoring_profiles') or []
+        kept = [p for p in profs if p.get('id') != pid]
+        found = len(kept) != len(profs)
+        cfg['monitoring_profiles'] = kept
+    if not found:
+        respond(404, {'error': 'profile not found'})
+    audit_log(actor, 'monitoring_profile_delete', f'id={pid}')
+    respond(200, {'ok': True})
+
+
+def handle_monitoring_profile_apply():
+    """POST /api/monitoring-profiles/apply {profile_id, device_ids} — assign every
+    script in the profile to the selected devices (append to assigned_devices)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    pid = str(body.get('profile_id', ''))
+    device_ids = [str(x) for x in (body.get('device_ids') or []) if _validate_id(str(x))][:500]
+    if not device_ids:
+        respond(400, {'error': 'select at least one device'})
+    cfg = load(CONFIG_FILE) or {}
+    prof = next((p for p in (cfg.get('monitoring_profiles') or []) if p.get('id') == pid), None)
+    if not prof:
+        respond(404, {'error': 'profile not found'})
+    devices = load(DEVICES_FILE)
+    valid = [d for d in device_ids if d in devices]
+    applied = 0
+    with _LockedUpdate(CUSTOM_SCRIPTS_FILE) as scripts:
+        for sid in (prof.get('script_ids') or []):
+            sc = scripts.get(sid)
+            if not isinstance(sc, dict):
+                continue
+            assigned = set(sc.get('assigned_devices') or [])
+            assigned.update(valid)
+            sc['assigned_devices'] = sorted(assigned)
+            applied += 1
+    audit_log(actor, 'monitoring_profile_apply', f'id={pid} scripts={applied} devices={len(valid)}')
+    respond(200, {'ok': True, 'scripts_applied': applied, 'devices': len(valid)})
+
+
 def handle_custom_scripts_list():
     """GET /api/custom-scripts — list all script definitions (admin + viewer)."""
     require_auth()
@@ -29152,6 +29963,21 @@ def _dashboard_extra_widgets(devices_raw, cfg, now, want=None):
     return out
 
 
+def _server_tz_label():
+    """Human label for the server's local timezone, e.g. 'CEST (UTC+02:00)'. Cron
+    expressions are matched in server-local time (_cron_match -> localtime), so the
+    UI shows this next to cron inputs to avoid TZ confusion."""
+    try:
+        now = time.localtime()
+        tzname = time.strftime('%Z', now) or 'local'
+        offs = -(time.altzone if (now.tm_isdst and time.daylight) else time.timezone)
+        sign = '+' if offs >= 0 else '-'
+        hh, mm = divmod(abs(offs) // 60, 60)
+        return f'{tzname} (UTC{sign}{hh:02d}:{mm:02d})'
+    except Exception:
+        return 'server local time'
+
+
 def handle_home():
     """GET /api/home — single round-trip for the Home dashboard.
 
@@ -29314,6 +30140,10 @@ def handle_home():
         'fleet_events': fleet_events,
         'mailwatch':    mailwatch,
         'links':        links,
+        'server_tz':    _server_tz_label(),
+        'fleet_note':   cfg.get('fleet_note', ''),
+        'tickets_enabled': bool(cfg.get('tickets_enabled')),
+        'ticket_devices': _open_ticket_device_ids() if cfg.get('tickets_enabled') else [],
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
         # integration widget in the dashboard.
         'show_homelab': cfg.get('show_homelab', True) is not False,
@@ -32614,6 +33444,8 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
     now = int(time.time())
     if roll.get('action') == 'upgrade':
         queued = f'exec:{_UPGRADE_CMD}'
+    elif roll.get('action') == 'self-update':
+        queued = 'update'   # the agent's own hash-verified self-update command
     else:
         queued = f'exec:{roll.get("_script_body", "")}'
     dispatched = []
@@ -32823,8 +33655,8 @@ def handle_rollouts_create():
     if not name:
         respond(400, {'error': 'name required'})
     action = body.get('action') or 'upgrade'
-    if action not in ('upgrade', 'script'):
-        respond(400, {'error': 'action must be upgrade or script'})
+    if action not in ('upgrade', 'script', 'self-update'):
+        respond(400, {'error': 'action must be upgrade, script or self-update'})
     script_id = ''
     rollback_script_id = ''
     if action == 'script':
@@ -35117,7 +35949,7 @@ def _fire_ack_webhooks(alert, user):
     p = alert.get('payload') or {}
     payload = {
         'alert_id':        alert.get('id'),
-        # v4.1.0 (#54): stable, human-readable id ('alertid_00001') so ITSM /
+        # v4.1.0 (#54): stable, human-readable id ('alertid_000001') so ITSM /
         # ticket systems can correlate the ack back to a durable reference.
         # `alert_id` (random internal key) is kept for backward compatibility.
         'alertid':         alert.get('alertid'),
@@ -36297,8 +37129,8 @@ def handle_inbound_webhooks_create():
     scope_dev = _sanitize_str(body.get('scope_device_id', ''), 64) or None
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
     kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
-    if kind not in ('alert', 'syslog'):
-        respond(400, {'error': 'kind must be "alert" or "syslog"'})
+    if kind not in ('alert', 'syslog', 'snmp_trap'):
+        respond(400, {'error': 'kind must be "alert", "syslog" or "snmp_trap"'})
     token = _generate_inbound_token()
     entry = {
         'id':                'iwh_' + os.urandom(4).hex(),
@@ -36609,6 +37441,106 @@ def handle_syslog_in(token_str):
     _log_inbound('syslog', match.get('id'), match.get('label'), '200',
                  f'lines={len(new_entries)} dev={dev.get("name", dev_id)}')
     respond(200, {'ok': True, 'lines_received': len(new_entries)})
+
+
+def handle_snmp_trap_in(token_str):
+    """POST /api/snmp/trap/<token>
+
+    Accepts JSON traps forwarded by an snmptrapd handler script:
+      {"traps": [{"oid": "...", "value": "...", "agent": "...", "type": "..."}]}
+    or a single {"oid": ..., "value": ...}. Stdlib has no SNMP/ASN.1 decoder and
+    pysnmp is not a dependency, so the decode happens in the trapd handler which
+    POSTs JSON here. Stored per-device in snmp_traps.json and raised as a
+    coalesced snmp_trap_received alert (no identity field -> one open alert/host).
+    """
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(INBOUND_WEBHOOKS_FILE)
+    tokens = cfg.get('tokens', [])
+    token_str = (token_str or '').strip()
+    if not token_str or not token_str.startswith('rpwi_'):
+        _log_inbound('snmp_trap', '', '', '401', 'invalid token format')
+        respond(401, {'error': 'invalid token'})
+    match = None
+    for t in tokens:
+        if hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
+            match = t
+            break
+    if not match:
+        _log_inbound('snmp_trap', '', '', '401', 'invalid or disabled token')
+        respond(401, {'error': 'invalid or disabled token'})
+    if (match.get('kind') or 'alert') != 'snmp_trap':
+        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400',
+                     f'wrong url for {match.get("kind", "alert")} token')
+        respond(400, {'error': f'this token is a {match.get("kind", "alert")} token — use the corresponding URL'})
+    dev_id = match.get('scope_device_id')
+    if not dev_id:
+        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400', 'token not pinned to device')
+        respond(400, {'error': 'snmp_trap tokens must be pinned to a device'})
+    devs = load(DEVICES_FILE)
+    dev = devs.get(dev_id)
+    if not dev:
+        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '404', 'target device deleted')
+        respond(404, {'error': 'token target device no longer exists'})
+
+    body = get_json_body() or {}
+    raw = []
+    if isinstance(body, dict) and isinstance(body.get('traps'), list):
+        raw = body['traps'][:50]
+    elif isinstance(body, dict) and (body.get('oid') or body.get('value')):
+        raw = [body]
+    elif isinstance(body, list):
+        raw = body[:50]
+    now = int(time.time())
+    new_traps = []
+    for tr in raw:
+        if not isinstance(tr, dict):
+            continue
+        new_traps.append({
+            'ts':    now,
+            'oid':   _sanitize_str(str(tr.get('oid', '')), 256),
+            'value': _sanitize_str(str(tr.get('value', '')), 512),
+            'type':  _sanitize_str(str(tr.get('type', '')), 64),
+            'agent': _sanitize_str(str(tr.get('agent', '')), 128),
+        })
+    if not new_traps:
+        _log_inbound('snmp_trap', match.get('id'), match.get('label'), '400', 'no traps in body')
+        respond(400, {'error': 'no traps provided (expect {"traps":[{oid,value}]})'})
+
+    try:
+        with _LockedUpdate(SNMP_TRAPS_FILE) as store:
+            buf = store.setdefault(dev_id, [])
+            buf.extend(new_traps)
+            cutoff = now - LOG_BUFFER_TTL
+            buf[:] = [e for e in buf if e.get('ts', 0) >= cutoff][-200:]
+    except Exception as e:
+        respond(500, {'error': f'trap store write failed: {e}'})
+
+    # Coalesced per-host alert (fired AFTER the trap-store lock; fire_webhook
+    # takes its own locks — never nest).
+    try:
+        first = new_traps[0]
+        fire_webhook('snmp_trap_received', {
+            'device_id': dev_id, 'name': dev.get('name', dev_id),
+            'count': len(new_traps), 'oid': first.get('oid', ''),
+            'value': first.get('value', ''),
+        })
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] snmp_trap_received fire failed dev={dev_id}: {e}\n')
+
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
+            for t in store.get('tokens', []):
+                if t.get('token') == token_str:
+                    t['last_seen'] = now
+                    t['hit_count'] = int(t.get('hit_count', 0)) + 1
+                    break
+    except Exception:
+        pass
+
+    _log_inbound('snmp_trap', match.get('id'), match.get('label'), '200',
+                 f'traps={len(new_traps)} dev={dev.get("name", dev_id)}')
+    respond(200, {'ok': True, 'traps_received': len(new_traps)})
 
 
 # ── v3.2.0 (A1): MCP Stage 4 — write tools + confirmation flow ──────────────
@@ -38880,7 +39812,8 @@ def handle_device_snmp(dev_id):
             'has_community':      bool(community),
         }
         data = load(SNMP_DATA_FILE).get(dev_id) or {}
-        respond(200, {'config': redacted_cfg, 'data': data})
+        traps = load(SNMP_TRAPS_FILE).get(dev_id) or []
+        respond(200, {'config': redacted_cfg, 'data': data, 'traps': traps[-50:][::-1]})
     elif m == 'PATCH':
         actor = require_admin_auth()
         body = get_json_body() or {}
@@ -41096,6 +42029,59 @@ def _stream_json_download(obj, filename):
     sys.exit(0)
 
 
+def _sbom_pkg_index(dev_id):
+    """name -> version map of a device's installed packages (for SBOM diffs)."""
+    entry = (load(PACKAGES_FILE).get(dev_id) or {})
+    idx = {}
+    for pk in (entry.get('packages') or []):
+        n = pk.get('name'); v = pk.get('version')
+        if n and v:
+            idx[str(n)] = str(v)
+    return idx, int(entry.get('collected_at', 0) or 0)
+
+
+def handle_sbom_baseline(dev_id):
+    """POST /api/devices/{id}/sbom/baseline — snapshot the current package set as
+    the comparison baseline for future SBOM diffs. Admin-only, audited."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_admin_auth()
+    idx, collected = _sbom_pkg_index(dev_id)
+    if not idx:
+        respond(400, {'error': 'no package inventory yet — send the package list first'})
+    now = int(time.time())
+    with _LockedUpdate(SBOM_BASELINE_FILE) as store:
+        store[dev_id] = {'captured_at': now, 'collected_at': collected, 'packages': idx}
+    audit_log(actor, 'sbom_baseline', f'device={dev_id} packages={len(idx)}')
+    respond(200, {'ok': True, 'captured_at': now, 'count': len(idx)})
+
+
+def handle_sbom_diff(dev_id):
+    """GET /api/devices/{id}/sbom/diff — diff the current package set against the
+    stored baseline: added / removed / version-changed components."""
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    require_auth()
+    base = (load(SBOM_BASELINE_FILE).get(dev_id) or {})
+    if not base.get('packages'):
+        respond(404, {'error': 'no baseline captured for this host — capture one first'})
+    old = base['packages']
+    new, _collected = _sbom_pkg_index(dev_id)
+    added = sorted(({'name': n, 'version': new[n]} for n in new if n not in old),
+                   key=lambda x: x['name'])
+    removed = sorted(({'name': n, 'version': old[n]} for n in old if n not in new),
+                     key=lambda x: x['name'])
+    changed = sorted(({'name': n, 'from': old[n], 'to': new[n]} for n in new
+                      if n in old and old[n] != new[n]), key=lambda x: x['name'])
+    respond(200, {'baseline_at': base.get('captured_at', 0),
+                  'added': added[:1000], 'removed': removed[:1000], 'changed': changed[:1000],
+                  'counts': {'added': len(added), 'removed': len(removed), 'changed': len(changed)}})
+
+
 def handle_sbom_device(dev_id):
     """GET /api/devices/{id}/sbom?format=cyclonedx|spdx — SBOM for one host."""
     require_auth()
@@ -41255,7 +42241,7 @@ def _cron_to_ics(cron, now):
     return None
 
 
-def handle_schedule_ics():
+def handle_schedule_ics(device_id=None):
     """GET /api/schedule.ics?token=<status_token> — calendar feed of scheduled
     jobs + maintenance windows as VEVENTs. Auth via the status token (so a
     calendar app that can't send headers can subscribe) or a normal session.
@@ -41303,6 +42289,8 @@ def handle_schedule_ics():
         return ev
 
     for job in (load(SCHEDULE_FILE) or {}).get('jobs') or []:
+        if device_id and job.get('device_id') != device_id:
+            continue
         dn = job.get('device_name') or job.get('device_id', '')
         summ = f"{job.get('command', '')} — {dn}"
         if job.get('recurring') and job.get('cron'):
@@ -41317,6 +42305,8 @@ def handle_schedule_ics():
                              dtend=_ics_dt(int(job['run_at']) + 900))
 
     for w in (load(MAINT_FILE) or {}).get('windows') or []:
+        if device_id and not (w.get('scope') == 'device' and str(w.get('target')) == str(device_id)):
+            continue
         if w.get('start') and w.get('end'):
             try:
                 s = int(_parse_iso(w['start'])); e = int(_parse_iso(w['end']))
@@ -46835,7 +47825,7 @@ _PWCHG_ALLOWED_PATHS = frozenset({
 # v3.2.0 (B2): inbound webhook URLs use a prefix /api/webhook/in/<token>;
 # they don't carry a session, so the password-change gate must pass them
 # through (each request has its own per-token auth). Same for syslog (B6).
-_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/', '/api/syslog/in/')
+_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/', '/api/syslog/in/', '/api/snmp/trap/')
 
 
 def _enforce_password_change():
@@ -47064,6 +48054,13 @@ def _build_exact_routes():
         ('GET', '/api/containers'): handle_containers_overview,
         ('POST', '/api/csp-report'): handle_csp_report,
         ('GET', '/api/custom-scripts'): handle_custom_scripts_list,
+        ('GET', '/api/monitoring-profiles'): handle_monitoring_profiles,
+        ('POST', '/api/monitoring-profiles'): handle_monitoring_profiles,
+        ('POST', '/api/monitoring-profiles/apply'): handle_monitoring_profile_apply,
+        ('GET', '/api/tickets'): handle_tickets,
+        ('POST', '/api/tickets'): handle_tickets,
+        ('GET', '/api/tickets/imap'): handle_ticket_imap_get,
+        ('POST', '/api/tickets/imap'): handle_ticket_imap_save,
         ('POST', '/api/custom-scripts'): handle_custom_script_create,
         ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
         ('GET', '/api/cve/findings'): handle_cve_findings,
@@ -47371,8 +48368,18 @@ def _dispatch(pi, m):
         handle_device_user_action(pi[len('/api/devices/'):-len('/user-action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/firewall-action') and m == 'POST':
         handle_device_firewall_action(pi[len('/api/devices/'):-len('/firewall-action')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/tickets') and m == 'GET':
+        handle_device_tickets(pi[len('/api/devices/'):-len('/tickets')])
     elif pi.startswith('/api/devices/') and pi.endswith('/firewall-rule') and m == 'POST':
         handle_device_firewall_rule(pi[len('/api/devices/'):-len('/firewall-rule')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/service-action') and m == 'POST':
+        handle_service_action(pi[len('/api/devices/'):-len('/service-action')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/power-control') and m == 'POST':
+        handle_device_power_control(pi[len('/api/devices/'):-len('/power-control')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/pdu') and m in ('GET', 'PATCH'):
+        handle_device_pdu(pi[len('/api/devices/'):-len('/pdu')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/kill') and m == 'POST':
+        handle_process_kill(pi[len('/api/devices/'):-len('/kill')])
     elif pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST'):
         handle_device_files(pi[len('/api/devices/'):-len('/files')])
     elif pi.startswith('/api/devices/') and pi.endswith('/cron-action') and m == 'POST':
@@ -47543,6 +48550,8 @@ def _dispatch(pi, m):
         handle_force_agent_upgrade(pi[len('/api/devices/'):-len('/agent/force-upgrade')])
     elif pi.startswith('/api/devices/') and pi.endswith('/acme/force-rescan') and m == 'POST':
         handle_force_acme_rescan(pi[len('/api/devices/'):-len('/acme/force-rescan')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/schedule.ics') and m == 'GET':
+        handle_schedule_ics(pi[len('/api/devices/'):-len('/schedule.ics')])
     elif pi.startswith('/api/schedule/') and m == 'PUT':
         handle_schedule_update(pi[len('/api/schedule/'):])
     elif pi.startswith('/api/schedule/') and m == 'DELETE':
@@ -47675,6 +48684,8 @@ def _dispatch(pi, m):
     # v3.2.0 (B6): syslog HTTP ingestion
     elif pi.startswith('/api/syslog/in/'):
         handle_syslog_in(pi[len('/api/syslog/in/'):])
+    elif pi.startswith('/api/snmp/trap/'):
+        handle_snmp_trap_in(pi[len('/api/snmp/trap/'):])
     elif pi.startswith('/api/inbound-webhooks/') and m == 'DELETE':
         handle_inbound_webhook_revoke(pi[len('/api/inbound-webhooks/'):])
     elif pi.startswith('/api/inbound-webhooks/') and m == 'PATCH':
@@ -47758,6 +48769,10 @@ def _dispatch(pi, m):
     elif pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET':
         handle_cve_device(pi[len('/api/devices/'):-len('/cve')])
     # v3.5.0: per-host SBOM (CycloneDX / SPDX) download
+    elif pi.startswith('/api/devices/') and pi.endswith('/sbom/baseline') and m == 'POST':
+        handle_sbom_baseline(pi[len('/api/devices/'):-len('/sbom/baseline')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/sbom/diff') and m == 'GET':
+        handle_sbom_diff(pi[len('/api/devices/'):-len('/sbom/diff')])
     elif pi.startswith('/api/devices/') and pi.endswith('/sbom') and m == 'GET':
         handle_sbom_device(pi[len('/api/devices/'):-len('/sbom')])
 
@@ -47985,6 +49000,16 @@ def _dispatch(pi, m):
         handle_custom_script_update(pi[len('/api/custom-scripts/'):])
     elif pi.startswith('/api/custom-scripts/') and m == 'DELETE':
         handle_custom_script_delete(pi[len('/api/custom-scripts/'):])
+    elif pi.startswith('/api/monitoring-profiles/') and m == 'DELETE':
+        handle_monitoring_profile_delete(pi[len('/api/monitoring-profiles/'):])
+    elif pi.startswith('/api/tickets/') and m == 'GET':
+        handle_ticket_get(pi[len('/api/tickets/'):])
+    elif pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST':
+        handle_ticket_send_email(pi[len('/api/tickets/'):-len('/email')])
+    elif pi.startswith('/api/tickets/') and m in ('PATCH', 'POST'):
+        handle_ticket_update(pi[len('/api/tickets/'):])
+    elif pi.startswith('/api/tickets/') and m == 'DELETE':
+        handle_ticket_delete(pi[len('/api/tickets/'):])
 
     # ── v2.6.0: host configuration management ──────────────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'GET':
@@ -48033,6 +49058,7 @@ def main():
     _safe(run_vpn_stats_if_due, 'run_vpn_stats_if_due')   # v5.2.0 WG Access
     # v4.8.0: poll the DMARC RUA mailbox over IMAP when due (no-op unless enabled).
     _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
+    _safe(run_ticket_imap_if_due, 'run_ticket_imap_if_due')
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).

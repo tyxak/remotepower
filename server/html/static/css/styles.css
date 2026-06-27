@@ -3830,6 +3830,7 @@ body.no-anim * { transition: none !important; }
 .row-8 { display: flex; gap: 8px; }
 .row-8-mb8 { display: flex; gap: 8px; margin-bottom: 8px; }
 .row-8-center { display: flex; gap: 8px; align-items: center; }
+.flex-between { justify-content: space-between; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
 .toolbar-mb24 { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
 .click-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -5210,6 +5211,17 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-dev-name { color: var(--text); font-size: 13px; font-weight: 500; }
 .hh-dev-meta { display: flex; gap: 4px; }
 .hh-dev-score { font-weight: 700; font-size: 14px; min-width: 28px; text-align: right; }
+/* "Why is this host unhealthy?" expander — the worst-device row is now a
+   <details>; its <summary> reuses .hh-dev, the body lists the NA reasons. */
+.hh-why { width: 100%; }
+.hh-why > summary { list-style: none; }
+.hh-why > summary::-webkit-details-marker { display: none; }
+.hh-why[open] > summary { border-color: var(--accent); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.hh-why-body {
+  border: 1px solid var(--accent); border-top: none;
+  border-radius: 0 0 6px 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px;
+}
+.hh-why-item { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--text); }
 .hh-trend { margin-top: 12px; }
 /* v3.4.2: fleet heat map */
 .heatmap-grid { display: flex; flex-wrap: wrap; gap: 4px; }

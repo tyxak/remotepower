@@ -1531,6 +1531,7 @@ function showPage(name, btn) {
   if (name === 'integrations') loadIntegrationsPage();
   if (name === 'gpus')       loadGpus();
   if (name === 'thermal')    loadThermal();
+  if (name === 'tickets')    loadTickets();
   if (name === 'dmarc')      loadDmarc();
   if (name === 'dns')        loadDns();
   if (name === 'vpn')        loadVpn();
@@ -1886,11 +1887,14 @@ function renderDevices() {
     const decommPill = d.decommissioned
       ? ` <span class="hw-pill decomm-pill" title="Decommissioned — a retired asset. Monitoring, alerts, health and SLA are suppressed.">${_icon('power',12)} DECOMMED</span>`
       : '';
+    const ticketPill = (window._ticketDevices && window._ticketDevices.has(d.id))
+      ? ` <span class="hw-pill hw-warn pointer" title="Has an open ticket" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1">${_icon('list',12)} ticket</span>`
+      : '';
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}${d.decommissioned ? ' decommissioned' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}${ticketPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -2760,6 +2764,7 @@ async function loadSettings() {
   { const e = document.getElementById('cfg-file-manager'); if (e) e.checked = !!(data.file_manager && data.file_manager.enabled); }
   document.getElementById('cfg-server-name').value = data.server_name || '';
   { const _lb = document.getElementById('cfg-login-banner'); if (_lb) _lb.value = data.login_banner || ''; }
+  { const _fn = document.getElementById('cfg-fleet-note'); if (_fn) _fn.value = data.fleet_note || ''; }
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
   document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
   document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
@@ -2775,6 +2780,10 @@ async function loadSettings() {
   if (hcUrl) hcUrl.value = data.healthchecks_url || '';
   const hcInt = document.getElementById('cfg-healthchecks-interval');
   if (hcInt) hcInt.value = data.healthchecks_interval_seconds || 60;
+  const bMaxN = document.getElementById('cfg-batch-max-devices');
+  if (bMaxN) bMaxN.value = data.batch_max_devices || 0;
+  const bMaxP = document.getElementById('cfg-batch-max-percent');
+  if (bMaxP) bMaxP.value = data.batch_max_fleet_percent || 0;
 
   loadMetricsPush();   // v3.14.0: metrics-push config (separate endpoint)
   loadGitops();        // v3.14.0 (#27): GitOps sync config (separate endpoint)
@@ -2899,6 +2908,10 @@ async function loadSettings() {
   if (_pae) _pae.checked = !!data.port_audit_enabled;
   const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
+  const _tke = document.getElementById('cfg-tickets-enabled');
+  if (_tke) _tke.checked = !!data.tickets_enabled;
+  document.getElementById('nav-tickets')?.classList.toggle('d-none', !data.tickets_enabled);
+  if (data.tickets_enabled) loadTicketImap();
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3151,6 +3164,7 @@ async function saveSettings(btn) {
   const payload = {
     server_name:           document.getElementById('cfg-server-name').value.trim(),
     login_banner:          document.getElementById('cfg-login-banner')?.value.trim() || '',
+    fleet_note:            document.getElementById('cfg-fleet-note')?.value.trim() || '',
     default_poll_interval: parseInt(document.getElementById('cfg-default-poll').value) || 60,
     online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
     monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
@@ -3221,6 +3235,8 @@ async function saveSettings(btn) {
       delete c.pushover_user_set;
       delete c.token_set;
       delete c.itsm_secret_set;
+      delete c.matrix_token_set;
+      delete c.hmac_secret_set;
       return c;
     });
   }
@@ -3314,6 +3330,8 @@ async function saveSettings(btn) {
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');
   if (_paEn) payload.port_audit_enabled = _paEn.checked;
+  const _tkEn = document.getElementById('cfg-tickets-enabled');
+  if (_tkEn) payload.tickets_enabled = _tkEn.checked;
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
@@ -3794,6 +3812,160 @@ document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener(
 // `onclick="foo('${escAttr(x)}')"` site. Use escAttr() for values that are
 // interpolated into JS string literals inside an HTML attribute.
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Operator-facing 6-digit ticket/alert number: 'alertid_00042' -> '#RP000042'.
+function _rpNo(alertid) { const m = /(\d+)/.exec(String(alertid || '')); return m ? '#RP' + m[1].padStart(6, '0') : (alertid || ''); }
+
+// ── Tickets (built-in helpdesk; gated by tickets_enabled) ─────────────────────
+function _tkNo(n) { return '#RP' + String(n == null ? '' : n).padStart(6, '0'); }
+const _TK_STATUS = { ongoing: 'Ongoing', pending_customer: 'Pending customer', pending_internal: 'Pending internal', resolved: 'Resolved', closed: 'Closed' };
+const _TK_STATUS_CLS = { ongoing: 'sev-medium', pending_customer: 'sev-low', pending_internal: 'sev-low', resolved: 'sev-low', closed: 'sev-low' };
+
+async function loadTickets() {
+  const tb = document.getElementById('tk-tbody');
+  if (!tb) return;
+  const q = document.getElementById('tk-search')?.value.trim() || '';
+  const st = document.getElementById('tk-status-filter')?.value || '';
+  const ty = document.getElementById('tk-type-filter')?.value || '';
+  const qs = new URLSearchParams(); if (q) qs.set('q', q); if (st) qs.set('status', st); if (ty) qs.set('type', ty);
+  const data = await api('GET', '/tickets' + (qs.toString() ? '?' + qs.toString() : ''));
+  if (!data) { tb.innerHTML = '<tr><td colspan="6" class="empty-state-sm">Failed to load.</td></tr>'; return; }
+  const tks = data.tickets || [];
+  if (!tks.length) { tb.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No tickets.</td></tr>'; return; }
+  tb.innerHTML = tks.map(t => `<tr class="pointer" data-action="openTicket" data-arg="${escAttr(t.id)}">
+    <td class="mono-12">${escHtml(_tkNo(t.number))}</td>
+    <td>${escHtml(t.subject || '')}</td>
+    <td class="fs-12">${escHtml(t.type || '')}</td>
+    <td><span class="sev-pill ${_TK_STATUS_CLS[t.status] || 'sev-low'}">${escHtml(_TK_STATUS[t.status] || t.status || '')}</span></td>
+    <td class="fs-12">${escHtml(t.device_name || '—')}</td>
+    <td class="fs-11 c-muted">${t.updated_at ? timeAgo(t.updated_at) : '—'}</td>
+  </tr>`).join('');
+}
+
+let _tkNewDev = null;
+function openTicketCreate() {
+  document.getElementById('tk-create-subject').value = '';
+  document.getElementById('tk-create-type').value = 'incident';
+  document.getElementById('tk-create-dev-search').value = '';
+  document.getElementById('tk-create-dev-results').innerHTML = '';
+  _tkNewDev = null;
+  document.getElementById('tk-create-dev-chip').textContent = '';
+  openModal('ticket-create-modal');
+  const inp = document.getElementById('tk-create-dev-search');
+  inp.oninput = () => _tkCreateDevResults(inp.value);
+}
+async function _tkCreateDevResults(term) {
+  const box = document.getElementById('tk-create-dev-results');
+  const q = (term || '').toLowerCase().trim();
+  if (!q) { box.innerHTML = ''; return; }
+  const devs = (await api('GET', '/devices'))?.devices || [];
+  const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q)).slice(0, 20);
+  box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
+}
+function pickTicketDev(id, name) {
+  _tkNewDev = { id: String(id), name: name || String(id) };
+  document.getElementById('tk-create-dev-search').value = '';
+  document.getElementById('tk-create-dev-results').innerHTML = '';
+  document.getElementById('tk-create-dev-chip').textContent = 'Device: ' + _tkNewDev.name;
+}
+async function saveNewTicket() {
+  const subject = document.getElementById('tk-create-subject').value.trim();
+  if (!subject) { toast('Subject required', 'error'); return; }
+  const body = { subject, type: document.getElementById('tk-create-type').value };
+  if (_tkNewDev) body.device_id = _tkNewDev.id;
+  const r = await api('POST', '/tickets', body);
+  if (r?.ok) { toast(`Ticket ${_tkNo(r.number)} created`, 'success'); closeModal('ticket-create-modal'); loadTickets(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function openTicket(tid) {
+  const data = await api('GET', '/tickets/' + encodeURIComponent(tid));
+  if (!data || !data.ticket) { toast('Failed to load ticket', 'error'); return; }
+  const t = data.ticket;
+  document.getElementById('tk-detail-title').textContent = `${_tkNo(t.number)} — ${t.subject || ''}`;
+  const statusOpts = Object.keys(_TK_STATUS).map(s => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${_TK_STATUS[s]}</option>`).join('');
+  const typeOpts = ['incident', 'request', 'change'].map(s => `<option value="${s}" ${t.type === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('');
+  const msgs = (t.messages || []).map(m => `<div class="mb-6"><div class="fs-11 c-muted">${escHtml(m.author || '')} · ${m.ts ? new Date(m.ts * 1000).toLocaleString() : ''} · ${escHtml(m.direction || '')}</div><div class="fs-13">${escHtml(m.body || '').replace(/\n/g, '<br>')}</div></div>`).join('') || '<div class="meta-sm-nm">No messages yet.</div>';
+  const alertLink = t.alertid ? `<div class="fs-12 mb-8">Linked alert: <code>${escHtml(_rpNo(t.alertid))}</code></div>` : '';
+  document.getElementById('tk-detail-body').innerHTML = `
+    <div class="row-8-center mb-12 fl-wrap">
+      <label class="fs-12">Status <select id="tk-d-status" class="form-input input-auto">${statusOpts}</select></label>
+      <label class="fs-12">Type <select id="tk-d-type" class="form-input input-auto">${typeOpts}</select></label>
+      <button class="btn-secondary" data-action="saveTicketField" data-arg="${escAttr(tid)}">Save</button>
+      ${t.device_name ? `<span class="fs-12">Device: ${escHtml(t.device_name)}</span>` : ''}
+    </div>
+    ${alertLink}
+    <div class="fw-500 mt-12 mb-4">Conversation</div>
+    <div class="scroll-cap">${msgs}</div>
+    <div class="mt-12">
+      <textarea id="tk-d-msg" class="form-input" rows="3" maxlength="8000" placeholder="Add a note or reply…"></textarea>
+      <div class="row-6 mt-6">
+        <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="note">Add note</button>
+        <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="out">Log reply</button>
+        <button class="btn-secondary" data-action="sendTicketEmail" data-arg="${escAttr(tid)}" title="Email this text to the ticket's contact (parsed from CMDB if not set)">Email contact</button>
+        <button class="btn-icon c-danger-outline" data-action="deleteTicket" data-arg="${escAttr(tid)}">Delete ticket</button>
+      </div>
+    </div>`;
+  openModal('ticket-detail-modal');
+}
+async function saveTicketField(tid) {
+  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), {
+    status: document.getElementById('tk-d-status')?.value,
+    type: document.getElementById('tk-d-type')?.value,
+  });
+  if (r?.ok) { toast('Ticket updated', 'success'); loadTickets(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function addTicketMessage(tid, direction) {
+  const ta = document.getElementById('tk-d-msg');
+  const msg = ta?.value.trim();
+  if (!msg) { toast('Write something first', 'warning'); return; }
+  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { message: msg, direction });
+  if (r?.ok) { toast('Added', 'success'); openTicket(tid); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function sendTicketEmail(tid) {
+  const ta = document.getElementById('tk-d-msg');
+  const body = ta?.value.trim();
+  if (!body) { toast('Write the email body first', 'warning'); return; }
+  const r = await api('POST', '/tickets/' + encodeURIComponent(tid) + '/email', { body });
+  if (r?.ok) { toast('Email sent to ' + r.to, 'success'); openTicket(tid); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function deleteTicket(tid) {
+  if (!await uiConfirm('Delete this ticket permanently?')) return;
+  const r = await api('DELETE', '/tickets/' + encodeURIComponent(tid));
+  if (r?.ok) { toast('Ticket deleted', 'success'); closeModal('ticket-detail-modal'); loadTickets(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function loadTicketImap() {
+  const r = await api('GET', '/tickets/imap');
+  if (!r || !r.imap) return;
+  const c = r.imap;
+  const set = (id, v) => { const e = document.getElementById(id); if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v; } };
+  set('tkimap-enabled', c.enabled); set('tkimap-host', c.host || ''); set('tkimap-port', c.port || 993);
+  set('tkimap-user', c.username || ''); set('tkimap-folder', c.folder || 'INBOX'); set('tkimap-interval', c.interval || 300);
+  set('tkimap-ssl', c.use_ssl);
+  const pw = document.getElementById('tkimap-pass'); if (pw) pw.placeholder = c.password_set ? '•••••• (set — leave blank to keep)' : 'password';
+}
+async function saveTicketImap() {
+  const v = id => document.getElementById(id)?.value;
+  const ck = id => document.getElementById(id)?.checked;
+  const body = { enabled: ck('tkimap-enabled'), host: (v('tkimap-host') || '').trim(), port: parseInt(v('tkimap-port')) || 993,
+    username: v('tkimap-user') || '', folder: v('tkimap-folder') || 'INBOX', interval: parseInt(v('tkimap-interval')) || 300, use_ssl: ck('tkimap-ssl') };
+  const pw = v('tkimap-pass'); if (pw) body.password = pw;
+  const r = await api('POST', '/tickets/imap', body);
+  if (r?.ok) { toast('Ticket mailbox saved', 'success'); loadTicketImap(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+function openDeviceTickets(id, name) {
+  showPage('tickets');
+  const s = document.getElementById('tk-search'); if (s) s.value = name || '';
+  loadTickets();
+}
+async function createTicketFromAlert(alertInternalId) {
+  const r = await api('POST', '/tickets', { alert_id: alertInternalId });
+  if (r?.ok) { toast(`Ticket ${_tkNo(r.number)}${r.existing ? ' (already existed)' : ' created'}`, 'success'); window.loadAlerts?.(); }
+  else toast(r?.error || 'Failed', 'error');
+}
 
 // v3.13.0: inject a visually-hidden username field into each service-secret
 // password wrapper that lacks one, silencing Chrome's password-form a11y
@@ -4014,8 +4186,19 @@ function _registerScheduleTable() {
     emptyMsgFiltered: 'No jobs match the filter.',
   });
 }
+// Fill every [data-server-tz-note] with the server's timezone so operators know
+// cron expressions are matched in server-local time (not their browser's).
+function _applyServerTzNotes() {
+  const tz = window._serverTz;
+  if (!tz) return;
+  document.querySelectorAll('[data-server-tz-note]').forEach(el => {
+    el.textContent = `Cron runs in server time: ${tz}. Listed run times show in your browser's local time.`;
+  });
+}
+
 async function loadSchedule() {
   _registerScheduleTable();
+  _applyServerTzNotes();
   const data = await api('GET', '/schedule');
   tableCtl.render('schedule', data || []);
 }
@@ -5941,6 +6124,12 @@ async function batchTags() {
   else toast(data?.error || 'Failed', 'error');
 }
 async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!await uiConfirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; let data = await api('POST', ep, {device_ids: [...selectedDevices]});
+  // Blast-radius guardrail (reboot/shutdown): the server refuses an over-cap
+  // batch; re-confirm to override.
+  if (data?.blast_blocked) {
+    if (await uiConfirm(`${data.error}\n\nProceed anyway?`)) data = await api('POST', ep, {device_ids: [...selectedDevices], confirm_blast: true});
+    else return;
+  }
   // v5.0.0 (#F4): agent-update compat — offer to force a flagged mismatch.
   if (data?.incompatible) {
     if (await uiConfirm(`${data.error}\n\nForce the update anyway?`)) data = await api('POST', ep, {device_ids: [...selectedDevices], force: true});
@@ -6935,6 +7124,7 @@ async function loadSites() {
 function openSiteCreate() {
   document.getElementById('site-edit-id').value = '';
   document.getElementById('site-name-input').value = '';
+  document.getElementById('site-note-input').value = '';
   document.getElementById('site-create-title').textContent = 'New site';
   document.getElementById('site-save-btn').textContent = 'Create';
   openModal('site-create-modal');
@@ -6942,7 +7132,9 @@ function openSiteCreate() {
 function _editSiteBtn(btn) {
   document.getElementById('site-edit-id').value = btn.dataset.siteId;
   document.getElementById('site-name-input').value = btn.dataset.siteName || '';
-  document.getElementById('site-create-title').textContent = 'Rename site';
+  document.getElementById('site-note-input').value =
+    (_sitesCache.find(s => String(s.id) === String(btn.dataset.siteId))?.note) || '';
+  document.getElementById('site-create-title').textContent = 'Edit site';
   document.getElementById('site-save-btn').textContent = 'Save';
   openModal('site-create-modal');
 }
@@ -6950,8 +7142,9 @@ async function saveSite() {
   const id = document.getElementById('site-edit-id').value;
   const name = document.getElementById('site-name-input').value.trim();
   if (!name) { toast('Name required', 'error'); return; }
+  const note = document.getElementById('site-note-input').value;
   const data = id
-    ? await api('PUT', '/sites/' + encodeURIComponent(id), {name})
+    ? await api('PUT', '/sites/' + encodeURIComponent(id), {name, note})
     : await api('POST', '/sites', {name});
   if (data?.ok) { toast(id ? 'Site renamed' : 'Site created', 'success'); closeModal('site-create-modal'); loadSites(); }
   else toast(data?.error || 'Failed', 'error');
@@ -8374,9 +8567,16 @@ async function openServiceDetail(devId, devName) {
         ? `<button class="btn-icon isl-406" data-action-btn="_aiDiagnoseServiceFromStore" data-store-key="${_storeEvtData([s.unit, devName, s.active||'', s.sub||'', (s.log_tail || []).slice(-30).map(l => l.line || '')])}" title="AI: diagnose this service">${_icon('sparkles',14)} Diagnose</button>`
         : '';
 
+      // Restart/stop/start a unit — rides the audited svc: command queue.
+      const svcBtns =
+        `<button class="btn-icon isl-406" data-action="svcAction" data-arg="${escAttr(devId)}" data-arg2="${escAttr(s.unit)}" data-arg3="restart" title="Restart ${escAttr(s.unit)}">${_icon('refresh',14)} Restart</button>` +
+        (s.active === 'active'
+          ? `<button class="btn-icon isl-406" data-action="svcAction" data-arg="${escAttr(devId)}" data-arg2="${escAttr(s.unit)}" data-arg3="stop" title="Stop ${escAttr(s.unit)}">Stop</button>`
+          : `<button class="btn-icon isl-406" data-action="svcAction" data-arg="${escAttr(devId)}" data-arg2="${escAttr(s.unit)}" data-arg3="start" title="Start ${escAttr(s.unit)}">Start</button>`);
+
       return `<div class="isl-379">
         <div class="isl-407">
-          <div class="isl-408"><span class="isl-409" data-color="${color}">●</span> <code class="isl-410">${escHtml(s.unit)}</code> <span class="isl-411">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}</div>
+          <div class="isl-408"><span class="isl-409" data-color="${color}">●</span> <code class="isl-410">${escHtml(s.unit)}</code> <span class="isl-411">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}${svcBtns}</div>
           <div class="meta-sm-nm">since: ${sinceText}</div>
         </div>
         <details${histItems.length ? ' open' : ''} class="mb-6"><summary class="isl-412">${histLabel}</summary><div class="isl-413">${histBody}</div></details>
@@ -8404,6 +8604,26 @@ async function editServicesConfig(devId, devName) {
 }
 
 // ─── v1.8.0: Maintenance ──────────────────────────────────────────────────────
+
+// Restart/start/stop a systemd unit via the audited svc: command queue.
+async function svcAction(devId, unit, action) {
+  const verb = {restart: 'Restart', start: 'Start', stop: 'Stop'}[action] || action;
+  if (!await uiConfirm(`${verb} ${unit} on this host?`)) return;
+  const r = await api('POST', `/devices/${devId}/service-action`, {unit, action});
+  if (!r) { toast('Action failed (no response)', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(`${verb} queued for ${unit} — result appears in the host's command output.`, 'success');
+}
+
+// Send a signal to a PID via the audited kill: command queue.
+async function killProcess(devId, pid, name) {
+  const label = name ? `${pid} (${name})` : `${pid}`;
+  if (!await uiConfirm(`Send SIGTERM to process ${label} on this host?`)) return;
+  const r = await api('POST', `/devices/${devId}/kill`, {pid: String(pid), signal: 'TERM'});
+  if (!r) { toast('Kill failed (no response)', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(`SIGTERM queued for pid ${pid} — result appears in the host's command output.`, 'success');
+}
 
 // v1.11.6: maintenance windows get filter+sort via tableCtl.
 let _maintRegistered = false;
@@ -8531,7 +8751,7 @@ async function openNewMaintModal() {
   document.getElementById('maint-start').value = toLocal(start);
   document.getElementById('maint-end').value = toLocal(end);
   onMaintScopeChange(); onMaintTypeChange();
-  openModal('new-maint-modal');
+  openModal('new-maint-modal'); _applyServerTzNotes();
 }
 
 async function _editMaintenanceBtn(btn) {
@@ -8578,7 +8798,7 @@ async function _editMaintenanceBtn(btn) {
     cb.checked = wantedEvents.has(cb.value);
   });
   onMaintScopeChange(); onMaintTypeChange();
-  openModal('new-maint-modal');
+  openModal('new-maint-modal'); _applyServerTzNotes();
 }
 
 function onMaintScopeChange() {
@@ -8596,6 +8816,17 @@ function onMaintTypeChange() {
   const t = document.getElementById('maint-type').value;
   document.getElementById('maint-oneshot-row').style.display = (t === 'oneshot') ? '' : 'none';
   document.getElementById('maint-cron-row').style.display    = (t === 'cron')    ? '' : 'none';
+}
+
+// Weekly day-picker → cron string in #maint-cron (server cron is day-of-week 0-6).
+function buildMaintWeeklyCron() {
+  const days = Array.from(document.querySelectorAll('.maint-dow-cb:checked')).map(c => c.value);
+  if (!days.length) { toast('Pick at least one day', 'warning'); return; }
+  const t = (document.getElementById('maint-dow-time').value || '03:00').split(':');
+  const hh = parseInt(t[0], 10) || 0;
+  const mm = parseInt(t[1], 10) || 0;
+  document.getElementById('maint-cron').value = `${mm} ${hh} * * ${days.join(',')}`;
+  toast('Cron filled — adjust if needed, then save.', 'success');
 }
 
 async function saveMaintenance() {
@@ -9931,6 +10162,9 @@ function _alertRowHtml(a, role) {
       actions += `<button class="btn-icon btn-xs" data-action="unackAlert" data-arg="${a.id}">Un-ack</button> `;
     }
     actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
+    if (window._ticketsOn && !a.rp_ticket) {
+      actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;
+    }
   } else {
     const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
     actions = `<span class="c-muted">resolved by ${byWho}</span>`;
@@ -9951,7 +10185,7 @@ function _alertRowHtml(a, role) {
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${a.alertid ? `<div class="hint">${_escapeHtml(a.alertid)}</div>` : ''}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
     <td>${_escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>
@@ -10617,6 +10851,8 @@ function _renderInboundWebhooks(tokens) {
     const kind = t.kind || 'alert';
     const kindPill = kind === 'syslog'
       ? '<span class="sev-pill sev-medium">syslog</span>'
+      : kind === 'snmp_trap'
+      ? '<span class="sev-pill sev-medium">snmp trap</span>'
       : '<span class="sev-pill sev-low">alert</span>';
     const scope = t.scope_device_id ? `device ${_escapeHtml(t.scope_device_id)}` :
                   t.scope_tag ? `tag ${_escapeHtml(t.scope_tag)}` : 'any';
@@ -10692,15 +10928,16 @@ function updateInboundWebhookKindHint() {
   const hint = document.getElementById('inbound-wh-kind-hint');
   const req = document.getElementById('inbound-wh-device-required');
   const devOpt = document.querySelector('#inbound-wh-device option[value=""]');
-  if (kind === 'syslog') {
+  const pinned = (kind === 'syslog' || kind === 'snmp_trap');
+  if (kind === 'snmp_trap') {
+    if (hint) hint.textContent = 'SNMP trap tokens receive JSON {traps:[{oid,value,agent}]} forwarded by an snmptrapd handler; traps attach to the pinned device and raise snmp_trap_received.';
+  } else if (kind === 'syslog') {
     if (hint) hint.textContent = 'Syslog tokens receive RFC 3164/5424 lines (JSON {lines:[...]} or plain text) and append to the device\'s log_watch under unit="syslog".';
-    if (req) req.classList.remove('d-none');
-    if (devOpt) devOpt.textContent = '— select device —';
   } else {
     if (hint) hint.textContent = 'Alert tokens receive JSON {severity,title,...} and land in the Alerts inbox.';
-    if (req) req.classList.add('d-none');
-    if (devOpt) devOpt.textContent = '(any — match by body.device)';
   }
+  if (req) req.classList.toggle('d-none', !pinned);
+  if (devOpt) devOpt.textContent = pinned ? '— select device —' : '(any — match by body.device)';
 }
 
 async function createInboundWebhook() {
@@ -10708,20 +10945,27 @@ async function createInboundWebhook() {
   if (!label) { toast('Label required', 'error'); return; }
   const kind = document.getElementById('inbound-wh-kind').value;
   const scope_device_id = document.getElementById('inbound-wh-device').value || null;
-  if (kind === 'syslog' && !scope_device_id) {
-    toast('Syslog tokens must be pinned to a device', 'error');
+  if ((kind === 'syslog' || kind === 'snmp_trap') && !scope_device_id) {
+    toast(`${kind === 'snmp_trap' ? 'SNMP trap' : 'Syslog'} tokens must be pinned to a device`, 'error');
     return;
   }
   const r = await api('POST', '/inbound-webhooks', { label, scope_device_id, kind });
   if (r && r.ok && r.token) {
     closeModal('inbound-webhook-create-modal');
-    const path = kind === 'syslog' ? '/api/syslog/in/' : '/api/webhook/in/';
+    const path = kind === 'syslog' ? '/api/syslog/in/' : kind === 'snmp_trap' ? '/api/snmp/trap/' : '/api/webhook/in/';
     _lastCreatedInboundWebhookUrl = `${location.origin}${path}${r.token}`;
     document.getElementById('inbound-wh-url').textContent = _lastCreatedInboundWebhookUrl;
     document.getElementById('inbound-wh-show-title').textContent =
-      kind === 'syslog' ? 'Syslog ingestion token created' : 'Alert webhook token created';
+      kind === 'syslog' ? 'Syslog ingestion token created'
+      : kind === 'snmp_trap' ? 'SNMP trap token created' : 'Alert webhook token created';
     const ex = document.getElementById('inbound-wh-example');
-    if (kind === 'syslog') {
+    if (kind === 'snmp_trap') {
+      ex.textContent =
+        '# Forward decoded traps as JSON (e.g. from an snmptrapd handler script)\n' +
+        `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
+        '  -H \'Content-Type: application/json\' \\\n' +
+        '  -d \'{"traps":[{"oid":"1.3.6.1.6.3.1.1.5.3","value":"linkDown","agent":"192.0.2.10"}]}\'';
+    } else if (kind === 'syslog') {
       ex.textContent =
         '# JSON form\n' +
         `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
@@ -13313,16 +13557,31 @@ function _renderHomeHealth(health, history) {
   const c = health.counts || {};
   const spark = _healthSparkline(history);
   const worst = (health.devices || []).filter(d => d.score < 100).slice(0, 6);
+  // "Why is this host unhealthy?" — expand a worst-device row to see the actual
+  // Needs-Attention items driving its score (already in the bundled payload).
+  const _sevPill = {critical: 'sev-critical', warning: 'sev-medium', info: 'sev-low'};
+  const _attnItems = (window._lastAttention && window._lastAttention.items) || [];
   const worstHtml = worst.length
-    ? worst.map(d =>
-        `<button class="hh-dev" data-action="openDeviceTimeline" data-arg="${_escapeHtml(d.device_id)}">`
-        + `<span class="hh-dev-name">${_escapeHtml(d.device_name)}</span>`
-        + `<span class="hh-dev-meta">`
-        +   (d.critical ? `<span class="sev-pill sev-critical">${d.critical}</span>` : '')
-        +   (d.warning ? `<span class="sev-pill sev-medium">${d.warning}</span>` : '')
-        + `</span>`
-        + `<span class="hh-dev-score" data-color="${_HEALTH_COLOR[_gradeFor(d.score)]}">${d.score}</span>`
-        + `</button>`).join('')
+    ? worst.map(d => {
+        const items = _attnItems.filter(it => it.device_id === d.device_id);
+        const reasons = items.length
+          ? items.map(it =>
+              `<div class="hh-why-item"><span class="sev-pill ${_sevPill[it.severity] || 'sev-low'}">${_escapeHtml(it.kind || it.severity || '')}</span> <span>${_escapeHtml(it.summary || '')}</span></div>`).join('')
+          : '<div class="c-muted fs-12">Score reduced, but no itemised reasons in the current digest.</div>';
+        return `<details class="hh-why">`
+          + `<summary class="hh-dev">`
+          +   `<span class="hh-dev-name">${_escapeHtml(d.device_name)}</span>`
+          +   `<span class="hh-dev-meta">`
+          +     (d.critical ? `<span class="sev-pill sev-critical">${d.critical}</span>` : '')
+          +     (d.warning ? `<span class="sev-pill sev-medium">${d.warning}</span>` : '')
+          +   `</span>`
+          +   `<span class="hh-dev-score" data-color="${_HEALTH_COLOR[_gradeFor(d.score)]}">${d.score}</span>`
+          + `</summary>`
+          + `<div class="hh-why-body">${reasons}`
+          +   `<button class="btn-icon cell-sm mt-6" data-action="openDeviceTimeline" data-arg="${_escapeHtml(d.device_id)}">View timeline →</button>`
+          + `</div>`
+          + `</details>`;
+      }).join('')
     : '<div class="c-muted fs-13">All devices healthy — nothing needs attention.</div>';
   body.innerHTML =
     `<div class="hh-wrap">`
@@ -13515,6 +13774,15 @@ async function loadHome() {
   const fleetEvents = home.fleet_events || [];
   const mailwatch   = home.mailwatch    || {};
   const linksResp   = {links: home.links || []};
+  if (home.server_tz) { window._serverTz = home.server_tz; _applyServerTzNotes(); }
+  window._lastAttention = home.attention || null;   // for the health "why?" expander
+  document.getElementById('nav-tickets')?.classList.toggle('d-none', !home.tickets_enabled);
+  window._ticketsOn = !!home.tickets_enabled;
+  window._ticketDevices = new Set(home.ticket_devices || []);
+  { const _fn = document.getElementById('home-fleet-note');
+    if (_fn) { const t = (home.fleet_note || '').trim();
+      if (t) { _fn.innerHTML = `<div class="fw-500 mb-4">${_icon('edit',14)} Fleet note</div><div class="fs-13">${escHtml(t).replace(/\n/g,'<br>')}</div>`; _fn.classList.remove('d-none'); }
+      else { _fn.classList.add('d-none'); _fn.innerHTML = ''; } } }
   // The attention payload is embedded so _renderHomeAttention can use
   // it directly without re-fetching /api/attention.
   _renderHomeTiles(devs, drift, cves, mailwatch);
@@ -13613,6 +13881,16 @@ function _msWorst(d) {
 }
 function _renderHomeWidgets(home) {
   _showHomelab = home.show_homelab !== false;   // v4.7.0: gate the homelab widget
+  // Post-it: wire the textarea once (a 60s refresh must not clobber what's being
+  // typed). Value seeds from the account's ui_prefs; edits persist there.
+  if (!window._postitWired) {
+    const _pt = document.getElementById('home-postit-text');
+    if (_pt) {
+      _pt.value = (_uiPrefs && _uiPrefs.postit) || '';
+      _pt.addEventListener('input', () => { _uiPrefs.postit = _pt.value; _scheduleFlushUiPrefs(); });
+      window._postitWired = true;
+    }
+  }
   const devs = home.devices || [];
   const counted = devs.filter(d => d.monitored !== false);
   // Offline hosts
@@ -14064,6 +14342,7 @@ const DASH_WIDGETS = [
   { key: 'overview', label: 'Needs attention + Recent activity', size: 'lg' },
   { key: 'roster',   label: 'Fleet roster',                     size: 'lg' },
   { key: 'links',    label: 'Quick links',                      size: 'lg' },
+  { key: 'postit',   label: 'Post-it note',                     opt: true, size: 'sm' },
   // Ask-AI omnibox — toggleable like any widget, but stays pinned in the footer
   // (not moved into the grid). size is irrelevant; default on.
   { key: 'askai',    label: 'Ask AI box',                       size: 'lg' },
@@ -14638,7 +14917,7 @@ function _renderHomeActivity(fleetEvents) {
     // v5.0.0 (#R1): server self disk-space watchdog
     'server_disk_low', 'server_disk_ok',
     // v3.2.0 (B5): SNMP polling state transitions
-    'snmp_unreachable', 'snmp_dead', 'snmp_recover',
+    'snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
     'mcp_confirmation_expired',
     // v3.4.0: hardware health
@@ -14811,7 +15090,7 @@ function _homeActivityAttrs(event, p) {
     case 'config_drift':   return `${base} data-home-act="devices"`;
     case 'tls_expiry':     return `${base} data-home-act="tls"`;
     case 'snapshot_old':   return `${base} data-home-act="virtualization"`;
-    case 'snmp_unreachable': case 'snmp_dead': case 'snmp_recover':
+    case 'snmp_unreachable': case 'snmp_dead': case 'snmp_recover': case 'snmp_trap_received':
       // SNMP events surface on agentless device cards; clicking opens the
       // device drawer if we have an id, else routes to Devices.
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
@@ -15685,6 +15964,14 @@ async function syncGitops(dry) {
     if (!dry) loadGitops();
     else if (st) st.textContent = `Dry run — would: +${r.added} / ~${r.updated} / -${r.removed} profiles`;
   } else toast((r && r.error) || 'Sync failed', 'error');
+}
+
+async function saveBlastRadius() {
+  const n = parseInt(document.getElementById('cfg-batch-max-devices').value, 10) || 0;
+  const p = parseInt(document.getElementById('cfg-batch-max-percent').value, 10) || 0;
+  const r = await api('POST', '/config', {batch_max_devices: n, batch_max_fleet_percent: p});
+  if (r?.ok) toast((n || p) ? `Guardrail saved (max ${n || '∞'} hosts / ${p || '∞'}% of fleet)` : 'Guardrail disabled', 'success');
+  else toast(r?.error || 'Failed', 'error');
 }
 
 async function saveHealthchecks() {
@@ -16775,6 +17062,28 @@ async function snoozeDeviceAlerts(devId, name) {
   else toast(data?.error || 'Failed to snooze', 'error');
 }
 
+// D34: copy a one-paste device summary (name/IP/OS/version/group/tags) for tickets.
+function _copyDeviceSummary(d) {
+  d = d || _drawerDeviceData || {};
+  const lines = [
+    `Device: ${d.name || d.id || ''}`,
+    (d.hostname && d.hostname !== d.name) ? `Hostname: ${d.hostname}` : '',
+    d.ip ? `IP: ${d.ip}` : '',
+    d.os ? `OS: ${d.os}` : '',
+    d.version ? `Agent: ${d.version}` : '',
+    d.group ? `Group: ${d.group}` : '',
+    (d.tags && d.tags.length) ? `Tags: ${d.tags.join(', ')}` : '',
+  ].filter(Boolean);
+  const text = lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast('Device summary copied', 'success'),
+      () => toast('Copy failed', 'error'));
+  } else {
+    toast('Clipboard unavailable in this browser', 'error');
+  }
+}
+
 function _renderDrawerActions() {
   const id   = _drawerDeviceId;
   const name = _drawerDeviceName;
@@ -16787,6 +17096,8 @@ function _renderDrawerActions() {
     ['refresh',   'Reboot',          () => { rebootTarget = id; closeDeviceDrawer(); openModal('reboot-modal'); document.getElementById('reboot-name').textContent = name; },    false, agentless],
     ['power',     'Shut down',       () => { shutdownTarget = id; closeDeviceDrawer(); openModal('shutdown-modal'); document.getElementById('shutdown-name').textContent = name; }, false, agentless],
     ['radio',     'Wake on LAN',     () => _wolWithMacCheck(id, name),                                                                                                            false, false],
+    ['power',     'Power (PDU)',     () => { closeDeviceDrawer(); openPduModal(id, name); },                                                                                      false, false],
+    ['copy',      'Copy summary',    () => _copyDeviceSummary(d),                                                                                                                  false, false],
     ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
     ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
@@ -17337,12 +17648,13 @@ async function _loadAuditSection(key) {
         if (Array.isArray(si.top_processes) && si.top_processes.length) {
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Top processes</div>
             <table class="isl-627">
-            <thead><tr class="c-muted"><th class="isl-628">PID</th><th>Name</th><th class="ta-center">CPU%</th><th class="ta-center">Mem%</th></tr></thead>
+            <thead><tr class="c-muted"><th class="isl-628">PID</th><th>Name</th><th class="ta-center">CPU%</th><th class="ta-center">Mem%</th><th></th></tr></thead>
             <tbody>` + si.top_processes.slice(0, 8).map(p=>
               `<tr><td class="isl-629"><code>${escHtml(String(p.pid != null ? p.pid : '—'))}</code></td>
                    <td>${escHtml(p.name || '—')}</td>
                    <td class="ta-center">${p.cpu != null ? escHtml(String(p.cpu)) : '—'}</td>
-                   <td class="ta-center">${p.mem != null ? escHtml(String(p.mem)) : '—'}</td></tr>`
+                   <td class="ta-center">${p.mem != null ? escHtml(String(p.mem)) : '—'}</td>
+                   <td class="ta-center">${(p.pid != null && p.pid > 1) ? `<button class="btn-icon cell-sm" data-action="killProcess" data-arg="${escAttr(id)}" data-arg2="${escAttr(String(p.pid))}" data-arg3="${escAttr(p.name||'')}" title="Send SIGTERM to pid ${escAttr(String(p.pid))}">Kill</button>` : ''}</td></tr>`
             ).join('') + `</tbody></table>`;
         }
         // v3.14.0 #37: per-interface bandwidth (bytes/sec, busiest first). The
@@ -17354,14 +17666,29 @@ async function _loadAuditSection(key) {
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Network bandwidth</div>
             <div class="scrollable-table-wrap audit-scroll">
             <table class="isl-627">
-            <thead><tr class="c-muted"><th class="isl-628">Interface</th><th class="ta-center">↓ In</th><th class="ta-center">↑ Out</th><th class="ta-center">Total recv</th><th class="ta-center">Total sent</th></tr></thead>
-            <tbody>` + ifs.map(n=>
-              `<tr><td class="isl-629"><code>${escHtml(n.iface||'—')}</code></td>
+            <thead><tr class="c-muted"><th class="isl-628">Interface</th><th class="ta-center">↓ In</th><th class="ta-center">↑ Out</th><th class="ta-center">Total recv</th><th class="ta-center">Total sent</th><th class="ta-center" title="Receive / transmit errors">Err</th><th class="ta-center" title="Receive / transmit drops">Drop</th></tr></thead>
+            <tbody>` + ifs.map(n=>{
+              const errs = (n.rx_err||0)+(n.tx_err||0);
+              const drops = (n.rx_drop||0)+(n.tx_drop||0);
+              return `<tr><td class="isl-629"><code>${escHtml(n.iface||'—')}</code></td>
                    <td class="ta-center">${_fmtBps(n.rx_bps)}</td>
                    <td class="ta-center">${_fmtBps(n.tx_bps)}</td>
                    <td class="ta-center fs-11 c-muted">${n.rx_total!=null?_fmtBytes(n.rx_total):'—'}</td>
-                   <td class="ta-center fs-11 c-muted">${n.tx_total!=null?_fmtBytes(n.tx_total):'—'}</td></tr>`
-            ).join('') + `</tbody></table></div>`;
+                   <td class="ta-center fs-11 c-muted">${n.tx_total!=null?_fmtBytes(n.tx_total):'—'}</td>
+                   <td class="ta-center fs-11 ${errs?'c-red':'c-muted'}">${errs||'0'}</td>
+                   <td class="ta-center fs-11 ${drops?'c-amber':'c-muted'}">${drops||'0'}</td></tr>`;
+            }).join('') + `</tbody></table></div>`;
+        }
+        // NTP / chrony sources (peer detail) — name / sync state / stratum / reach.
+        if (si.clock && Array.isArray(si.clock.peers) && si.clock.peers.length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">NTP sources</div>
+            <div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Source</th><th>State</th><th class="ta-center">Stratum</th><th class="ta-center">Reach</th></tr></thead>
+            <tbody>` + si.clock.peers.map(pr=>{
+              const st = pr.state||'';
+              const col = st==='synced'?'c-green':(st==='unreachable'||st==='falseticker')?'c-red':'c-muted';
+              return `<tr><td class="isl-629"><code>${escHtml(pr.name||'—')}</code></td><td class="${col}">${escHtml(st||'—')}</td><td class="ta-center">${escHtml(String(pr.stratum||'—'))}</td><td class="ta-center fs-11 c-muted">${escHtml(String(pr.reach||'—'))}</td></tr>`;
+            }).join('') + `</tbody></table></div>`;
         }
         // v3.13.0: systemd timers (scheduled jobs) — failed-first. Data already
         // in sysinfo; the timer_failed event fires off it but the full inventory
@@ -17835,6 +18162,20 @@ async function _loadAuditSection(key) {
       }
 
       case 'snmp': {
+        // Inbound traps (independent of polling) — fetch first so they show even
+        // when the on-demand deep poll below fails / SNMP polling isn't configured.
+        let trapsHtml = '';
+        try {
+          const _sd = await api('GET', `/devices/${id}/snmp`);
+          const _traps = (_sd && _sd.traps) || [];
+          if (_traps.length) {
+            trapsHtml = `<h4 class="mt-0">Recent inbound traps (${_traps.length})</h4>`
+              + `<div class="scrollable-table-wrap audit-scroll"><table class="fs-13">`
+              + `<thead><tr class="c-muted"><th>Time</th><th>OID</th><th>Value</th><th>Agent</th></tr></thead><tbody>`
+              + _traps.map(t => `<tr><td class="fs-11 c-muted">${new Date((t.ts||0)*1000).toLocaleString()}</td><td><code>${escHtml(t.oid||'—')}</code></td><td>${escHtml(t.value||'—')}</td><td class="fs-11">${escHtml(t.agent||'—')}</td></tr>`).join('')
+              + `</tbody></table></div>`;
+          }
+        } catch (_e) { /* traps best-effort */ }
         // v3.2.0: deep SNMP read — sys-group, ifTable, Host Resources MIB,
         // vendor-specific (Mikrotik). Slower than the standard 5-min poll
         // (multiple round trips), so it's on-demand only.
@@ -17842,18 +18183,18 @@ async function _loadAuditSection(key) {
         try {
           data = await api('GET', `/devices/${id}/snmp/deep`);
         } catch (e) {
-          body.innerHTML = `<div class="c-muted">SNMP not configured or unreachable.</div>`;
-          badge.textContent = 'n/a';
+          body.innerHTML = trapsHtml + `<div class="c-muted ${trapsHtml ? 'mt-12' : ''}">SNMP polling not configured or unreachable.</div>`;
+          badge.textContent = trapsHtml ? 'traps' : 'n/a';
           return;
         }
         if (!data || data.error) {
-          body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'request failed')}</div>`;
+          body.innerHTML = trapsHtml + `<div class="c-red ${trapsHtml ? 'mt-12' : ''}">${escHtml((data && data.error) || 'request failed')}</div>`;
           badge.textContent = 'error';
           return;
         }
         const sysObj = (data.system || {}).sysObjectID || '';
         const isMikrotik = sysObj.startsWith('1.3.6.1.4.1.14988');
-        let h = '';
+        let h = trapsHtml;
         // Sys-group
         if (data.system) {
           h += '<h4 class="mt-0">System</h4><table class="fs-13">';
@@ -18161,7 +18502,7 @@ async function _loadAuditSection(key) {
             let vcell = '<td class="fs-11 c-muted">—</td>';
             if (b.verify_enabled) {
               const vs = b.verify_status || 'unknown';
-              const vcls = vs === 'ok' ? 'c-green' : (vs === 'failed' || vs === 'timeout' || vs === 'error') ? 'c-red' : (vs === 'tool_missing' ? 'c-amber' : 'c-muted');
+              const vcls = vs === 'ok' ? 'c-green' : (vs === 'failed' || vs === 'timeout' || vs === 'error' || vs === 'unreachable') ? 'c-red' : (vs === 'tool_missing' ? 'c-amber' : 'c-muted');
               const vlbl = vs === 'ok' ? 'verified' : vs;
               vcell = `<td class="${vcls}" title="${escAttr(((b.verify_tool || '') + ' ' + (b.verify_output || '')).trim())}">${escHtml(vlbl)}</td>`;
             }
@@ -19602,6 +19943,70 @@ function _sbomFleetBtn(btn) {
   const fmt = btn.dataset.fmt === 'spdx' ? 'spdx' : 'cyclonedx';
   _downloadAuthed(`/api/sbom?format=${fmt}`, `fleet-sbom-${fmt}.zip`,
     `Fleet SBOM (${fmt === 'spdx' ? 'SPDX' : 'CycloneDX'}) downloaded`);
+}
+
+// Smart-PDU power control — map an outlet, then On/Off/Cycle to hard-recover a host.
+async function openPduModal(devId, devName) {
+  document.getElementById('pdu-dev-id').value = devId;
+  document.getElementById('pdu-modal-title').textContent = `Power control — ${devName || devId}`;
+  document.getElementById('pdu-kind').value = '';
+  document.getElementById('pdu-host').value = '';
+  document.getElementById('pdu-outlet').value = '';
+  openModal('pdu-modal');
+  const r = await api('GET', `/devices/${devId}/pdu`);
+  const pdu = (r && r.pdu) || {};
+  if (pdu.kind) document.getElementById('pdu-kind').value = pdu.kind;
+  if (pdu.host) document.getElementById('pdu-host').value = pdu.host;
+  if (pdu.outlet) document.getElementById('pdu-outlet').value = pdu.outlet;
+}
+async function savePduConfig() {
+  const devId = document.getElementById('pdu-dev-id').value;
+  const body = {
+    kind: document.getElementById('pdu-kind').value,
+    host: document.getElementById('pdu-host').value.trim(),
+    outlet: document.getElementById('pdu-outlet').value.trim(),
+  };
+  const r = await api('PATCH', `/devices/${devId}/pdu`, body);
+  if (r?.ok) toast(body.kind ? 'PDU mapping saved' : 'PDU mapping cleared', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+async function pduControl(action) {
+  const devId = document.getElementById('pdu-dev-id').value;
+  const verb = { on: 'Power on', off: 'Power off', cycle: 'Power-cycle' }[action] || action;
+  if (!await uiConfirm(`${verb} this host via its PDU?${action !== 'on' ? ' This cuts power immediately.' : ''}`)) return;
+  const r = await api('POST', `/devices/${devId}/power-control`, { action });
+  if (!r) { toast('Failed (no response)', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  const errs = (r.results || []).filter(x => x.error);
+  if (errs.length) toast(`PDU ${action}: ${errs.map(e => e.error).join('; ')}`, 'error');
+  else toast(`PDU ${action} sent`, 'success');
+}
+
+// SBOM diff — snapshot the current package set, then compare a later state to it.
+async function sbomCaptureBaseline(devId) {
+  if (!await uiConfirm("Snapshot this host's current package set as the SBOM diff baseline?")) return;
+  const r = await api('POST', `/devices/${devId}/sbom/baseline`, {});
+  if (r?.ok) toast(`Baseline captured (${r.count} packages)`, 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function sbomShowDiff(devId, devName) {
+  const r = await api('GET', `/devices/${devId}/sbom/diff`);
+  if (!r) { toast('Failed to load diff', 'error'); return; }
+  if (r.error) { toast(r.error, 'warning'); return; }
+  const c = r.counts || {};
+  const when = r.baseline_at ? new Date(r.baseline_at * 1000).toLocaleString() : '—';
+  const section = (title, rows, fmt) => rows.length
+    ? `<div class="fw-500 mt-12 mb-4">${title} (${rows.length})</div><div class="scrollable-table-wrap audit-scroll"><table class="fs-12"><tbody>${rows.map(fmt).join('')}</tbody></table></div>`
+    : '';
+  let html = `<div class="fs-12 c-muted mb-8">Baseline: ${escHtml(when)} — <span class="c-green">+${c.added || 0} added</span> · <span class="c-red">−${c.removed || 0} removed</span> · <span class="c-amber">${c.changed || 0} changed</span></div>`;
+  html += section('Added', r.added || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-green">${escHtml(x.version)}</td></tr>`);
+  html += section('Removed', r.removed || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-red">${escHtml(x.version)}</td></tr>`);
+  html += section('Version changed', r.changed || [], x => `<tr><td><code>${escHtml(x.name)}</code></td><td class="c-muted">${escHtml(x.from)} → <span class="c-amber">${escHtml(x.to)}</span></td></tr>`);
+  if (!(c.added || c.removed || c.changed)) html += '<div class="c-muted">No package changes since the baseline.</div>';
+  document.getElementById('sbom-diff-title').textContent = `SBOM changes — ${devName || devId}`;
+  document.getElementById('sbom-diff-body').innerHTML = html;
+  openModal('sbom-diff-modal');
 }
 
 function downloadEvidencePack() {
@@ -22207,6 +22612,8 @@ const _WEBHOOK_FORMATS = [
   ['jira',      'Jira (ticket)',       'https://your.atlassian.net/rest/api/2/issue'],
   ['servicenow','ServiceNow (incident)','https://your.service-now.com/api/now/table/incident'],
   ['zendesk',   'Zendesk (ticket)',    'https://your.zendesk.com/api/v2/tickets.json'],
+  ['telegram',  'Telegram',       'https://api.telegram.org/bot<TOKEN>/sendMessage'],
+  ['matrix',    'Matrix',         'https://your-homeserver/_matrix/client/v3/rooms/<roomId>/send/m.room.message'],
   ['generic',   'Generic JSON',   'https://your-receiver.example.com/webhook'],
 ];
 function renderWebhookDests() {
@@ -22229,6 +22636,11 @@ function renderWebhookDests() {
     const tokenSet = d.pushover_token_set;
     const userSet  = d.pushover_user_set;
     const githubTokenSet = d.token_set;
+    const isTelegram = d.format === 'telegram';
+    const isMatrix   = d.format === 'matrix';
+    const isGeneric  = d.format === 'generic';
+    const matrixTokenSet = d.matrix_token_set;
+    const hmacSecretSet  = d.hmac_secret_set;
     return `
       <div class="webhook-dest-card isl-736" data-idx="${idx}">
         <div class="isl-737">
@@ -22270,6 +22682,21 @@ function renderWebhookDests() {
             <input type="text" data-field="jira_issuetype" class="form-input isl-743" placeholder="Issue type (default Task)" value="${escAttr(d.jira_issuetype || '')}">
           </div>` : ''}
           <div class="meta-sm-nm">Opens a ticket when an alert is acknowledged (enable "Also fire on alert ACK" below). The new ticket's link is shown on the alert. Basic auth over HTTPS.</div>` : ''}
+        ${isTelegram ? `
+          <div class="isl-741">
+            <input type="text" data-field="telegram_chat_id" class="form-input isl-743" placeholder="Chat ID (e.g. -1001234567890)" value="${escAttr(d.telegram_chat_id || '')}">
+          </div>
+          <div class="meta-sm-nm">URL is <code>https://api.telegram.org/bot&lt;TOKEN&gt;/sendMessage</code> (the bot token lives in the URL). Get the chat ID from <code>@userinfobot</code> or the <code>getUpdates</code> API.</div>` : ''}
+        ${isMatrix ? `
+          <div class="isl-741">
+            <input type="password" data-field="matrix_token" class="form-input isl-743" placeholder="${matrixTokenSet ? '••••••••••• (token set — leave blank to keep)' : 'Access token (syt_...)'}">
+          </div>
+          <div class="meta-sm-nm">URL is <code>https://&lt;homeserver&gt;/_matrix/client/v3/rooms/&lt;roomId&gt;/send/m.room.message</code>. The access token is sent as a bearer header.</div>` : ''}
+        ${isGeneric ? `
+          <div class="isl-741">
+            <input type="password" data-field="hmac_secret" class="form-input isl-743" placeholder="${hmacSecretSet ? '••••••••••• (signing secret set — leave blank to keep)' : 'Optional HMAC signing secret'}">
+          </div>
+          <div class="meta-sm-nm">Optional. If set, each payload is signed — header <code>X-RemotePower-Signature: sha256=&lt;hmac&gt;</code> over the raw body, plus <code>X-RemotePower-Timestamp</code>.</div>` : ''}
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">
@@ -22308,7 +22735,7 @@ function _readWebhookDestCard(idx, card) {
     if (el.type === 'checkbox') d[f] = el.checked;
     else if (f === 'min_priority') d[f] = el.value === '' ? null : parseInt(el.value, 10);
     else if (f === 'events') d[f] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
-    else if (f === 'pushover_token' || f === 'pushover_user' || f === 'itsm_secret') {
+    else if (f === 'pushover_token' || f === 'pushover_user' || f === 'itsm_secret' || f === 'matrix_token' || f === 'hmac_secret') {
       // Don't overwrite the placeholder unless the user typed something
       if (el.value) d[f] = el.value;
     }
@@ -22355,6 +22782,8 @@ async function saveWebhookDests() {
     const c = {...d};
     delete c.pushover_token_set;
     delete c.pushover_user_set;
+    delete c.matrix_token_set;
+    delete c.hmac_secret_set;
     return c;
   });
   const r = await api('POST', '/config', {webhook_urls: cleaned});

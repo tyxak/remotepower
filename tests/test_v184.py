@@ -282,6 +282,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'server_disk_low', 'server_disk_ok',  # v5.0.0 #R1
             # v3.2.0 (B5): SNMP polling state transitions
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
+            'snmp_trap_received',                    # inbound SNMP trap receiver
             # v3.2.0 (A1 follow-up): MCP confirmation TTL expiry
             'mcp_confirmation_expired',
             # v3.4.0: hardware health

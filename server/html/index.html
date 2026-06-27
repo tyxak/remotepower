@@ -173,6 +173,10 @@
       <span>Alerts</span>
       <span id="alerts-badge" class="nav-badge nav-badge-ok" title="No open alerts">0</span>
     </button>
+    <button class="nav-btn d-none" id="nav-tickets" data-page="tickets" title="Built-in ticket system (helpdesk)">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z"/><path d="M9 5v14"/></svg>
+      <span>Tickets</span>
+    </button>
 
     <!-- Fleet group: all device / inventory views -->
     <div class="sidebar-group" data-group="fleet">
@@ -562,6 +566,7 @@
         </div>
         <div class="page-subtitle">Everything that needs your attention, in one screen.</div>
         <div id="dash-edit-panel" class="dash-edit-panel hidden"></div>
+        <div id="home-fleet-note" class="dash-card d-none"></div>
 
         <!-- Big number summary tiles -->
         <div id="home-tiles" class="tile-grid">
@@ -649,6 +654,7 @@
         </div>
 
         <!-- v4.1.0: add-on widgets (off by default; added from Customize → Add). -->
+        <div class="dash-card dash-off" id="home-w-postit" data-widget="postit"><h3>Post-it</h3><textarea id="home-postit-text" class="form-input" rows="4" maxlength="2000" placeholder="Your dashboard sticky note — saved to your account."></textarea></div>
         <div class="dash-card dash-off" id="home-w-offline" data-widget="offline"><h3>Offline hosts</h3><div id="home-w-offline-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-updates" data-widget="updates"><h3>Pending updates</h3><div id="home-w-updates-body" class="dash-mini"></div></div>
         <div class="dash-card dash-off" id="home-w-cves" data-widget="cves"><h3>CVE exposure</h3><div id="home-w-cves-body" class="dash-mini"></div></div>
@@ -968,6 +974,15 @@
           <div class="sysinfo-pill"><div class="label">All OK</div><div class="value c-green" id="cs-stat-ok">—</div></div>
         </div>
 
+        <div class="dash-card mb-16">
+          <div class="row-8-center flex-between">
+            <h3 class="mt-0 mb-0">Monitoring profiles</h3>
+            <button class="btn-icon" data-action="openProfileCreate">New profile</button>
+          </div>
+          <div class="meta-sm-nm mb-8">A named bundle of scripts you can apply to many assets at once.</div>
+          <div id="cs-profiles-list" class="scroll-cap"></div>
+        </div>
+
         <div class="table-card">
           <table>
             <thead id="cs-results-thead">
@@ -1249,6 +1264,11 @@
               <textarea id="cfg-login-banner" class="form-input" rows="2" maxlength="2000" placeholder="e.g. Authorized use only. Activity is monitored and logged."></textarea>
               <div class="meta-sm">Shown above the sign-in form to everyone before they log in.</div>
             </div>
+            <div class="form-group">
+              <label class="form-label" for="cfg-fleet-note">Fleet-wide note <span class="meta-sm">(optional)</span></label>
+              <textarea id="cfg-fleet-note" class="form-input" rows="2" maxlength="2000" placeholder="e.g. Maintenance window Saturday 02:00 UTC. New on-call: Jane."></textarea>
+              <div class="meta-sm">Shown as a note card at the top of the dashboard for all logged-in operators.</div>
+            </div>
           </div>
 
           <div class="settings-section">
@@ -1342,6 +1362,20 @@
             </div>
             <button class="btn-primary" data-action="saveHealthchecks">Save watchdog settings</button>
             <button class="btn-secondary" data-action="testHealthchecks">Send test ping</button>
+          </div>
+
+          <div class="settings-section">
+            <h3>Reboot / shutdown blast-radius guardrail</h3>
+            <p class="hint">Refuse a batch reboot or shutdown that would hit too many hosts at once unless it's explicitly confirmed. Either cap can be set independently; 0 disables it. Single-device actions are never affected.</p>
+            <div class="settings-row">
+              <label for="cfg-batch-max-devices" class="form-label">Max devices per batch (0 = no limit)</label>
+              <input type="number" id="cfg-batch-max-devices" class="form-input" min="0" max="100000" value="0">
+            </div>
+            <div class="settings-row">
+              <label for="cfg-batch-max-percent" class="form-label">Max % of fleet per batch (0 = no limit)</label>
+              <input type="number" id="cfg-batch-max-percent" class="form-input" min="0" max="100" value="0">
+            </div>
+            <button class="btn-primary" data-action="saveBlastRadius">Save guardrail</button>
           </div>
 
           <!-- v4.1.0 (#56): alerts inbox behaviour -->
@@ -1637,6 +1671,7 @@
             <ul class="hint">
               <li><strong>Alert webhook</strong> — POST JSON <code>{severity, title, …}</code> to <code>/api/webhook/in/&lt;token&gt;</code>. Lands in the Alerts inbox. For Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
               <li><strong>Syslog ingestion</strong> — POST RFC 3164/5424 lines (JSON <code>{lines:[…]}</code> or plain text) to <code>/api/syslog/in/&lt;token&gt;</code>. Lines append to the device's log_watch under unit <code>syslog</code>; existing log_alert rules fire as normal. For rsyslog (<code>omhttp</code>), fluent-bit (HTTP output), or any tool that can POST. Must be pinned to a device.</li>
+              <li><strong>SNMP trap receiver</strong> — POST decoded traps as JSON (<code>{traps:[{oid,value,agent}]}</code>) to <code>/api/snmp/trap/&lt;token&gt;</code> from an <code>snmptrapd</code> handler script. Traps attach to the pinned device, show on its SNMP view, and raise a coalesced <code>snmp_trap_received</code> alert. Must be pinned to a device.</li>
             </ul>
             <div class="section-header">
               <div class="section-title">Tokens</div>
@@ -1794,6 +1829,17 @@
             <h3>Listening-port &amp; firewall audit</h3>
             <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices) — off by default</label></div>
+            <div class="meta-sm-nm mt-4">Ticket mailbox (IMAP) — dedicated inbox for customer replies. Replies are matched to a ticket by the #RP number in the subject; auto-replies and our own mail are ignored (loop-safe). Outbound uses your existing SMTP.</div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-enabled"> Poll a mailbox for ticket replies</label></div>
+            <div class="settings-row"><label class="form-label" for="tkimap-host">IMAP host</label><input type="text" id="tkimap-host" class="form-input ff-mono" placeholder="imap.example.com"></div>
+            <div class="settings-row"><label class="form-label" for="tkimap-port">Port</label><input type="number" id="tkimap-port" class="form-input" min="1" max="65535" value="993"></div>
+            <div class="settings-row"><label class="form-label" for="tkimap-user">Username</label><input type="text" id="tkimap-user" class="form-input" autocomplete="off"></div>
+            <div class="settings-row"><label class="form-label" for="tkimap-pass">Password</label><input type="password" id="tkimap-pass" class="form-input" autocomplete="off" placeholder="leave blank to keep"></div>
+            <div class="settings-row"><label class="form-label" for="tkimap-folder">Folder</label><input type="text" id="tkimap-folder" class="form-input" value="INBOX"></div>
+            <div class="settings-row"><label class="form-label" for="tkimap-interval">Poll interval (seconds)</label><input type="number" id="tkimap-interval" class="form-input" min="120" max="3600" value="300"></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-ssl" checked> Use SSL/TLS</label></div>
+            <button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cert-expiry-alerts-enabled"> Alert on expiring local certificate files (off by default — only your own service certs, not the CA trust store)</label></div>
             <p class="hint">Muted services — silence new-port / world-exposed alerts for a specific process and/or proto/port (e.g. <code>docker-proxy</code>) without turning the whole audit off. You can also mute straight from the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> table.</p>
             <div id="exposure-mute-list" class="sb-result"></div>
@@ -5816,6 +5862,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- v3.2.0 (B1): Alerts inbox -->
+      <div id="page-tickets" class="page">
+        <div class="page-title-row"><div class="page-title">Tickets</div></div>
+        <div class="page-subtitle">Helpdesk — incidents, requests and changes, linked to alerts and devices.</div>
+        <div class="row-8-center mb-12">
+          <input type="text" id="tk-search" class="form-input input-search" placeholder="Search by #number, subject, device…" data-input="loadTickets" data-input-debounce="220" aria-label="Search tickets">
+          <select id="tk-status-filter" class="form-input input-auto" data-change="loadTickets" aria-label="Filter by status">
+            <option value="">All statuses</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="pending_customer">Pending customer</option>
+            <option value="pending_internal">Pending internal</option>
+            <option value="resolved">Resolved</option>
+            <option value="closed">Closed</option>
+          </select>
+          <select id="tk-type-filter" class="form-input input-auto" data-change="loadTickets" aria-label="Filter by type">
+            <option value="">All types</option>
+            <option value="incident">Incident</option>
+            <option value="request">Request</option>
+            <option value="change">Change</option>
+          </select>
+          <button class="enroll-btn" data-action="openTicketCreate">New ticket</button>
+        </div>
+        <div class="table-card"><table>
+          <thead><tr><th>#</th><th>Subject</th><th>Type</th><th>Status</th><th>Device</th><th>Updated</th></tr></thead>
+          <tbody id="tk-tbody"><tr><td colspan="6" class="empty-state-sm">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+
       <div id="page-alerts" class="page">
         <div class="page-title">Alerts</div>
         <div class="page-subtitle">Operational alert inbox — acknowledge, resolve, and track every fired event. Recover events (device_online, service_recover, custom_script_recover) auto-resolve their matching open alert.</div>
@@ -6186,6 +6259,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="form-group d-none" id="sched-custom-row">
       <label for="sched-cron" class="form-label">Cron expression</label>
       <input type="text" id="sched-cron" class="form-input ff-mono" placeholder="0 3 * * 0  (every Sunday 03:00)">
+      <div class="hint" data-server-tz-note></div>
       <div class="meta-sm">5 fields: min hour dom mon dow</div>
     </div>
     <label class="isl-759"><input type="checkbox" id="sched-maint-cb"> Suppress alerts for 1h (maintenance window)</label>
@@ -6490,7 +6564,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="mon-history-title" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="notes-modal-title" id="notes-modal"><div class="modal"><div class="modal-title" id="notes-modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
 <!-- v3.5.0: create-site + assign-device-to-site modals -->
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="site-create-title" id="site-create-modal"><div class="modal"><div class="modal-title" id="site-create-title">New site</div><div class="modal-subtitle">A site groups devices by location, team, or customer.</div><input type="hidden" id="site-edit-id"><div class="form-group"><label class="form-label">Site name</label><input type="text" id="site-name-input" class="form-input" placeholder="London DC, Team Platform, Acme Corp…" maxlength="64"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="site-create-modal" >Cancel</button><button class="btn-primary" id="site-save-btn" data-action="saveSite" >Create</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="site-create-title" id="site-create-modal"><div class="modal"><div class="modal-title" id="site-create-title">New site</div><div class="modal-subtitle">A site groups devices by location, team, or customer.</div><input type="hidden" id="site-edit-id"><div class="form-group"><label class="form-label">Site name</label><input type="text" id="site-name-input" class="form-input" placeholder="London DC, Team Platform, Acme Corp…" maxlength="64"></div><div class="form-group"><label class="form-label">Site note <span class="meta-sm">(optional)</span></label><textarea id="site-note-input" class="form-input" rows="2" maxlength="1024" placeholder="e.g. Customer contact: ops@acme.com. Change freeze until Q3."></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="site-create-modal" >Cancel</button><button class="btn-primary" id="site-save-btn" data-action="saveSite" >Create</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-site-modal-title" id="device-site-modal"><div class="modal"><div class="modal-title" id="device-site-modal-title">Assign site</div><div class="modal-subtitle">Move this device into a site, or unassign it.</div><input type="hidden" id="device-site-devid"><div class="form-group"><label class="form-label">Site</label><select id="device-site-select" class="form-input"><option value="">— Unassigned —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-site-modal" >Cancel</button><button class="btn-primary" data-action="saveDeviceSite" >Save</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="group-modal-title" id="group-modal"><div class="modal"><div class="modal-title" id="group-modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="group-modal" >Cancel</button><button class="btn-primary" data-action="saveGroup" >Save</button></div></div></div>
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="poll-modal-title" id="poll-modal"><div class="modal"><div class="modal-title" id="poll-modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
@@ -6501,6 +6575,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Type</label><select id="inbound-wh-kind" class="form-input" data-change="updateInboundWebhookKindHint">
     <option value="alert">Alert webhook (Grafana, Alertmanager, n8n, …)</option>
     <option value="syslog">Syslog ingestion (rsyslog omhttp, fluent-bit, curl)</option>
+    <option value="snmp_trap">SNMP trap receiver (snmptrapd → JSON)</option>
   </select><span class="hint" id="inbound-wh-kind-hint">Alert tokens receive JSON {severity,title,...} and land in the Alerts inbox.</span></div>
   <div class="form-group"><label class="form-label">Label</label><input type="text" id="inbound-wh-label" class="form-input" placeholder="grafana-prod, alertmanager, switch01-syslog, …"></div>
   <div class="form-group"><label class="form-label">Pin to device <span id="inbound-wh-device-required" class="d-none">(required for syslog)</span></label><select id="inbound-wh-device" class="form-input device-combo"><option value="">(any — match by body.device)</option></select><span class="hint">If set, every message on this token attaches to that device. <strong>Syslog tokens must be pinned</strong> — the receiver has no way to disambiguate otherwise.</span></div>
@@ -6518,6 +6593,70 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-secondary" data-action="copyInboundWebhookUrl">Copy URL</button>
     <button class="btn-primary" data-action="closeModal" data-arg="inbound-webhook-show-modal">Close</button>
   </div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sbom-diff-title" id="sbom-diff-modal"><div class="modal">
+  <div class="modal-title" id="sbom-diff-title">SBOM changes</div>
+  <div id="sbom-diff-body"></div>
+  <div class="modal-actions"><button class="btn-primary" data-action="closeModal" data-arg="sbom-diff-modal">Close</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cs-profile-create-title" id="cs-profile-create-modal"><div class="modal">
+  <div class="modal-title" id="cs-profile-create-title">New monitoring profile</div>
+  <div class="form-group"><label class="form-label">Profile name</label><input type="text" id="cs-profile-name" class="form-input" placeholder="Linux baseline, Web server pack…" maxlength="64"></div>
+  <div class="form-group"><label class="form-label">Scripts in this bundle</label><div id="cs-profile-scripts" class="scroll-cap"></div></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cs-profile-create-modal">Cancel</button><button class="btn-primary" data-action="saveProfile">Create profile</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cs-profile-apply-title" id="cs-profile-apply-modal"><div class="modal">
+  <div class="modal-title" id="cs-profile-apply-title">Apply profile</div>
+  <div class="modal-subtitle" id="cs-profile-apply-sub"></div>
+  <input type="hidden" id="cs-profile-apply-id">
+  <div class="form-group"><label class="form-label" for="cs-profile-dev-search">Assets (search to add)</label>
+    <input type="text" id="cs-profile-dev-search" class="form-input mb-6" placeholder="Search devices by name / IP / group…" autocomplete="off" aria-label="Search devices to apply the profile to">
+    <div id="cs-profile-dev-results" class="scroll-cap-sm"></div>
+    <div id="cs-profile-dev-chips" class="row-6 mt-6"></div>
+  </div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cs-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyProfile">Apply to selected</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tk-detail-title" id="ticket-detail-modal"><div class="modal modal-lg">
+  <div class="modal-title" id="tk-detail-title">Ticket</div>
+  <div id="tk-detail-body"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-detail-modal">Close</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tk-create-title" id="ticket-create-modal"><div class="modal">
+  <div class="modal-title" id="tk-create-title">New ticket</div>
+  <div class="form-group"><label class="form-label">Subject</label><input type="text" id="tk-create-subject" class="form-input" maxlength="200" placeholder="Short summary"></div>
+  <div class="form-group"><label class="form-label">Type</label><select id="tk-create-type" class="form-input"><option value="incident">Incident</option><option value="request">Request</option><option value="change">Change</option></select></div>
+  <div class="form-group"><label class="form-label">Device (optional)</label>
+    <input type="text" id="tk-create-dev-search" class="form-input mb-6" placeholder="Search a device…" autocomplete="off" aria-label="Search a device to attach to the ticket">
+    <div id="tk-create-dev-results" class="scroll-cap-sm"></div>
+    <div id="tk-create-dev-chip" class="mt-6 meta-sm-nm"></div>
+  </div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-create-modal">Cancel</button><button class="btn-primary" data-action="saveNewTicket">Create</button></div>
+</div></div>
+
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pdu-modal-title" id="pdu-modal"><div class="modal">
+  <div class="modal-title" id="pdu-modal-title">Power control</div>
+  <p class="hint">Map a smart PDU / plug outlet to this host so you can hard-cycle it when it's hung. Control runs server→PDU over HTTP (LAN allowed; loopback / cloud-metadata refused). Audited.</p>
+  <input type="hidden" id="pdu-dev-id">
+  <div class="form-group"><label class="form-label" for="pdu-kind">Type</label>
+    <select id="pdu-kind" class="form-input">
+      <option value="">(none — disable)</option>
+      <option value="tasmota">Tasmota</option>
+      <option value="shelly1">Shelly (gen 1)</option>
+      <option value="shelly2">Shelly (gen 2+)</option>
+    </select></div>
+  <div class="form-group"><label class="form-label" for="pdu-host">Host / IP</label><input type="text" id="pdu-host" class="form-input ff-mono" placeholder="192.168.1.50"></div>
+  <div class="form-group"><label class="form-label" for="pdu-outlet">Outlet (optional)</label><input type="text" id="pdu-outlet" class="form-input" placeholder="0 or 1" maxlength="8"></div>
+  <div class="row-6 mb-8">
+    <button class="btn-secondary" data-action="pduControl" data-arg="on">Power On</button>
+    <button class="btn-secondary" data-action="pduControl" data-arg="off">Power Off</button>
+    <button class="btn-secondary" data-action="pduControl" data-arg="cycle">Power Cycle</button>
+  </div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="pdu-modal">Close</button><button class="btn-primary" data-action="savePduConfig">Save mapping</button></div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdlib-add-modal-title" id="cmdlib-add-modal"><div class="modal"><div class="modal-title" id="cmdlib-add-modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input ff-mono" placeholder="apt-get clean"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>
@@ -6805,6 +6944,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cmdb-asset-title" id="cmdb-asset-modal"><div class="modal modal-wide">
   <div class="modal-title" id="cmdb-asset-title">Asset</div>
+  <div id="cmdb-asset-tickets" class="mb-8"></div>
   <div class="isl-227">
     <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
@@ -7637,7 +7777,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="form-group"><label>End (local time)</label><input type="datetime-local" id="maint-end"></div>
   </div>
   <div id="maint-cron-row" class="d-none">
-    <div class="form-group"><label>Cron expression</label><input type="text" id="maint-cron" placeholder="0 3 * * SUN (Sundays at 03:00)" maxlength="64"></div>
+    <div class="form-group"><label>Weekly schedule builder (optional)</label>
+      <div id="maint-dow-box" class="isl-284">
+        <label><input type="checkbox" class="maint-dow-cb" value="0"> Sun</label>
+        <label><input type="checkbox" class="maint-dow-cb" value="1"> Mon</label>
+        <label><input type="checkbox" class="maint-dow-cb" value="2"> Tue</label>
+        <label><input type="checkbox" class="maint-dow-cb" value="3"> Wed</label>
+        <label><input type="checkbox" class="maint-dow-cb" value="4"> Thu</label>
+        <label><input type="checkbox" class="maint-dow-cb" value="5"> Fri</label>
+        <label><input type="checkbox" class="maint-dow-cb" value="6"> Sat</label>
+      </div>
+      <div class="settings-row"><label class="form-label" for="maint-dow-time">at</label><input type="time" id="maint-dow-time" value="03:00"><button type="button" class="btn-secondary fs-12" data-action="buildMaintWeeklyCron">Fill cron from selection</button></div>
+    </div>
+    <div class="form-group"><label>Cron expression</label><input type="text" id="maint-cron" placeholder="0 3 * * SUN (Sundays at 03:00)" maxlength="64"><div class="hint" data-server-tz-note></div></div>
     <div class="form-group"><label>Duration (minutes)</label><input type="number" id="maint-duration" min="1" max="10080" value="60"></div>
   </div>
   <div class="form-group"><label>Events to suppress (leave empty for all)</label>
@@ -7665,6 +7817,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <select id="ro-action" data-change="onRolloutActionChange">
       <option value="upgrade">OS package upgrade (verified)</option>
       <option value="script">Run a saved script</option>
+      <option value="self-update">Agent self-update (hash-verified)</option>
     </select>
   </div>
   <div class="form-group d-none" id="ro-script-row"><label>Saved script</label><select id="ro-script"></select>
