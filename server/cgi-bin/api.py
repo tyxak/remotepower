@@ -5192,10 +5192,15 @@ def handle_tickets():
     parent_id = ''
     _pn = re.sub(r'\\D', '', str(body.get('parent_number', '')))
     if _pn:
-        _pt = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
-                    if str(x.get('number')) == _pn), None)
-        if _pt:
-            parent_id = _pt['id']
+        try:
+            _pnum = int(_pn)
+        except ValueError:
+            _pnum = None
+        if _pnum is not None:
+            _pt = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                        if int(x.get('number') or 0) == _pnum), None)
+            if _pt:
+                parent_id = _pt['id']
     tid = 'tk_' + secrets.token_hex(5)
     with _LockedUpdate(TICKETS_FILE) as store:
         tickets = store.setdefault('tickets', [])
@@ -5211,7 +5216,7 @@ def handle_tickets():
             'alert_id': alert_internal, 'alertid': alertid,
             'to_email': _sanitize_str(str(body.get('to_email', '')), 200),
             'affected_devices': affected, 'parent': parent_id, 'priority': priority,
-            'assignee': _sanitize_str(str(body.get('assignee', '')), 64),
+            'assignee': _sanitize_str(str(body.get('assignee') or actor), 64),
             'created_by': actor, 'created_at': now, 'updated_at': now,
             'messages': [],
         })
@@ -5295,9 +5300,15 @@ def handle_ticket_update(tid):
                 if not _pn:
                     t['parent'] = ''
                 else:
-                    _pt = next((x for x in (store.get('tickets') or []) if str(x.get('number')) == _pn), None)
-                    if _pt and _pt.get('id') != tid:
-                        t['parent'] = _pt['id']
+                    try:
+                        _pnum = int(_pn)
+                    except ValueError:
+                        _pnum = None
+                    if _pnum is not None:
+                        _pt = next((x for x in (store.get('tickets') or [])
+                                    if int(x.get('number') or 0) == _pnum), None)
+                        if _pt and _pt.get('id') != tid:
+                            t['parent'] = _pt['id']
             msg = _sanitize_str(str(body.get('message', '')), 8000).strip()
             if msg:
                 direction = str(body.get('direction', 'note'))
@@ -5502,7 +5513,7 @@ def handle_ticket_send_email(tid):
         smtp_notifier.send_email(cfg, [to], subject, out_body, extra_headers={
             'Auto-Submitted': 'auto-generated', 'X-RP-Ticket': str(t.get('number'))})
     except Exception as e:
-        respond(502, {'error': f'send failed: {str(e)[:200]}'})
+        respond(200, {'ok': False, 'error': f'send failed: {str(e)[:200]}'})
     now = int(time.time())
     with _LockedUpdate(TICKETS_FILE) as st:
         tk = next((x for x in (st.get('tickets') or []) if x.get('id') == tid), None)
@@ -5708,9 +5719,9 @@ def handle_ticket_imap_test():
         except Exception:
             pass
         if typ != 'OK':
-            respond(502, {'error': f'login ok but folder "{folder}" select failed'})
+            respond(200, {'ok': False, 'error': f'login ok but folder "{folder}" select failed'})
     except Exception as e:
-        respond(502, {'error': f'IMAP test failed: {str(e)[:200]}'})
+        respond(200, {'ok': False, 'error': f'IMAP test failed: {str(e)[:200]}'})
     audit_log(actor, 'ticket_imap_test', f'host={host}')
     respond(200, {'ok': True, 'detail': f'login + select "{folder}" succeeded'})
 

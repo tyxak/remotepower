@@ -3958,9 +3958,9 @@ async function openTicket(tid) {
     <div class="mt-12">
       <textarea id="tk-d-msg" class="form-input" rows="3" maxlength="8000" placeholder="Add a note or reply…"></textarea>
       <div class="row-6 mt-6">
-        <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="note">Add note</button>
-        <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="out">Log reply</button>
-        <button class="btn-secondary" data-action="sendTicketEmail" data-arg="${escAttr(tid)}" title="Email this text to the ticket's contact (parsed from CMDB if not set)">Email contact</button>
+        <button class="btn-primary" data-action="sendTicketEmail" data-arg="${escAttr(tid)}" title="Actually send this text as an email to the contact (and log it on the ticket)">Send email</button>
+        <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="note" title="Save an internal note — NOT emailed to anyone">Add internal note</button>
+        <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="out" title="Record a reply you sent by another channel (phone, in person…) — does NOT send an email">Log reply (not sent)</button>
         <button class="btn-icon c-danger-outline" data-action="deleteTicket" data-arg="${escAttr(tid)}">Delete ticket</button>
       </div>
     </div>`;
