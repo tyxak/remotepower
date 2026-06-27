@@ -1,6 +1,6 @@
 # Security review — v5.3.0 "ResolveMatters"
 
-Status: prepared with v5.3.0. No breaking changes.
+Status: released with v5.3.0 (2026-06-27). No breaking changes.
 
 ## Scope
 

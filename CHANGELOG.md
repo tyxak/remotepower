@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.3.0 — "ResolveMatters" — unreleased (test)
+## v5.3.0 — "ResolveMatters" — 2026-06-27
 
 A built-in, opt-in **ticket system** (helpdesk) that turns alerts into owned,
 tracked, resolvable work, plus an internal **Contacts** directory and a
