@@ -574,6 +574,18 @@ NEVER mount docker.sock by default — even `:ro` it's effective host root.
   `remote_access` AI advisor (24th card) + tunnel-stats/endpoint render. i18n +4 DICT/3
   Hindi; dedup `_fmtBytes`; docs + `security-review-5.2.0.md` (keep-3, pruned 5.0.1).
   Per-release detail [[project_v520_accessmatters]].
+- **v5.3.0 = "ResolveMatters"** (**ON TEST `origin/main`, unsigned, NOT prod**; last prod =
+  v5.2.0) — built-in opt-in **ticket system** (helpdesk) + **Contacts** directory + finalize
+  sweep. Tickets: types Incident/Request/Change, P1–P4 priorities, per-priority **SLA**, groups
+  + per-user **team**, assignee/ownership, parent-child sub-tickets, 4-table page, inbound-mail
+  auto-create + IMAP reply threading, SMTP + HTML signature, **alert→ticket→auto-resolve**. NEW
+  `ticket_sla_breached` event (sweep, full registry → **WEBHOOK_EVENTS 87**), `tickets` RAG
+  source, `helpdesk_triage` AI advisor (25th card). Security sweep (6 agents + pentest, SAST 0):
+  MEDIUM strict-mode alert-bypass via tickets (`_may_touch_alert_state`) + LOW email CRLF fixed.
+  Perf (heartbeat `_config_ro`/`device_get`), 4 box caps, 11 Hindi i18n. Docs: ticket-system.md,
+  contacts.md, security-review-5.3.0.md; pruned v5.0.0.md + review-5.1.0. `make test` 4513 OK.
+  Deferred: ticket_opened/resolved events, palette ticket index, MCP list_tickets, layout-card
+  idiom unification. Per-release detail [[project_v530_resolvematters]].
 
 ## Last production release: v5.0.1 "TemperMatters" — RELEASED TO PRODUCTION 2026-06-22
 
