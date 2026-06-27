@@ -3854,14 +3854,18 @@ function _tkRowHtml(t, byId, childrenOf) {
   const subjCell = `${isChild ? '<span class="c-muted" title="Sub-ticket">↳ </span>' : ''}${escHtml(t.subject || '')}`
     + (isChild && parentNo ? ` <span class="patch-badge fs-11" title="Sub-ticket of ${escAttr(parentNo)}">child of ${escHtml(parentNo)}</span>` : '')
     + (t.new_reply ? ' <span class="patch-badge warn fs-11" title="New reply from customer">● new reply</span>' : '')
-    + (t._slaBreached ? ' <span class="sev-pill sev-critical fs-11" title="SLA breached">SLA</span>' : '')
     + (t.group ? ` <span class="meta-sm-nm" title="Group">${escHtml(t.group)}</span>` : '');
+  const open = _tkIsOpen(t);
+  const slaCell = !open ? '—'
+    : (t._slaBreached ? '<span class="sev-pill sev-critical fs-11" title="SLA target exceeded">Breached</span>'
+      : `<span class="meta-sm-nm" title="${t._slaDue ? 'Due ' + escAttr(new Date(t._slaDue * 1000).toLocaleString()) : 'within target'}">OK</span>`);
   return `<tr class="pointer${isChild ? ' tk-child-row' : ''}" data-action="openTicket" data-arg="${escAttr(t.id)}">
     <td class="mono-12">${numCell}</td>
     <td>${subjCell}</td>
     <td class="fs-12">${escHtml(t.type || '')}</td>
     <td><span class="sev-pill ${_TK_PRIO_CLS[pr]}" title="${escAttr(_TK_PRIO[pr])}">P${pr}</span></td>
     <td><span class="sev-pill ${_TK_STATUS_CLS[t.status] || 'sev-low'}">${escHtml(_TK_STATUS[t.status] || t.status || '')}</span></td>
+    <td class="fs-12">${slaCell}</td>
     <td class="fs-12">${t.assignee ? escHtml(t.assignee) : '<span class="meta-sm-nm">Unassigned</span>'}</td>
     <td class="fs-12">${escHtml(t.device_name || '—')}</td>
     <td class="fs-11 c-muted">${t.updated_at ? timeAgo(t.updated_at) : '—'}</td>
@@ -3891,14 +3895,17 @@ async function loadTickets() {
   let slaPol = {};
   try { const sr = await api('GET', '/tickets/sla'); if (sr && sr.sla) slaPol = sr.sla; } catch (e) { slaPol = {}; }
   const data = await api('GET', '/tickets' + (qs.toString() ? '?' + qs.toString() : ''));
-  const fail = '<tr><td colspan="8" class="empty-state-sm">Failed to load.</td></tr>';
+  const fail = '<tr><td colspan="9" class="empty-state-sm">Failed to load.</td></tr>';
   if (!data) { ['new', 'mine', 'team', 'other'].forEach(k => { const e = document.getElementById('tk-tbody-' + k); if (e) e.innerHTML = fail; }); return; }
   const tks = data.tickets || [];
   const nowS = Math.floor(Date.now() / 1000);
   tks.forEach(t => {
     const hrs = parseFloat(slaPol[String(_coercePrio(t.priority))] || 0);
-    t._slaBreached = _tkIsOpen(t) && hrs > 0 && (t.created_at || 0) + hrs * 3600 < nowS;
+    t._slaDue = hrs > 0 ? (t.created_at || 0) + hrs * 3600 : 0;
+    t._slaBreached = _tkIsOpen(t) && !!t._slaDue && t._slaDue < nowS;
   });
+  // Known groups (for the detail "Assign to group" dropdown) = existing ticket groups.
+  window._ticketGroups = [...new Set(tks.map(t => (t.group || '').trim()).filter(Boolean))].sort();
   const byId = {}; tks.forEach(t => { byId[t.id] = t; });
   const childrenOf = {}; tks.forEach(t => { if (t.parent) (childrenOf[t.parent] = childrenOf[t.parent] || []).push(t); });
   const bNew = [], bMine = [], bTeam = [], bOther = [];
@@ -3913,7 +3920,8 @@ async function loadTickets() {
   });
   const getCols = t => ({
     number: t.number || 0, subject: (t.subject || '').toLowerCase(), type: t.type || '',
-    priority: _coercePrio(t.priority), status: t.status || '', assignee: (t.assignee || '').toLowerCase(),
+    priority: _coercePrio(t.priority), status: t.status || '',
+    sla: t._slaBreached ? 0 : (t._slaDue || 9e15), assignee: (t.assignee || '').toLowerCase(),
     device: (t.device_name || '').toLowerCase(), updated: t.updated_at || 0,
   });
   const render = (rows, prefs, tbodyId, countId, emptyMsg) => {
@@ -3921,7 +3929,7 @@ async function loadTickets() {
     const cnt = document.getElementById(countId);
     if (cnt) cnt.textContent = rows.length ? `(${rows.length})` : '';
     if (!tb) return;
-    if (!rows.length) { tb.innerHTML = `<tr><td colspan="8" class="empty-state-sm">${emptyMsg || 'None.'}</td></tr>`; return; }
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="9" class="empty-state-sm">${emptyMsg || 'None.'}</td></tr>`; return; }
     // sort by column (default: priority then newest), then nest children under parents
     rows.sort((a, b) => _coercePrio(a.priority) - _coercePrio(b.priority) || (b.updated_at || 0) - (a.updated_at || 0));
     const sorted = _tkArrange(tableCtl.sortRows(prefs, rows, getCols));
@@ -3992,11 +4000,22 @@ async function openTicket(tid) {
   const curPrio = _coercePrio(t.priority);
   const prioOpts = [1, 2, 3, 4].map(p => `<option value="${p}" ${curPrio === p ? 'selected' : ''}>P${p} ${_TK_PRIO[p]}</option>`).join('');
   let _users = [];
-  try { const ur = await api('GET', '/users'); if (Array.isArray(ur)) _users = ur.map(u => u.username).filter(Boolean); } catch (e) { _users = []; }
+  const _groupSet = new Set(window._ticketGroups || []);
+  try {
+    const ur = await api('GET', '/users');
+    if (Array.isArray(ur)) {
+      _users = ur.map(u => u.username).filter(Boolean);
+      ur.forEach(u => { if (u.team) _groupSet.add(String(u.team).trim()); });
+    }
+  } catch (e) { _users = []; }
   const curAsg = t.assignee || '';
   if (curAsg && !_users.includes(curAsg)) _users.unshift(curAsg);
   const assigneeOpts = ['<option value="">(unassigned)</option>'].concat(
     _users.map(u => `<option value="${escAttr(u)}" ${u === curAsg ? 'selected' : ''}>${escHtml(u)}</option>`)).join('');
+  const curGrp = t.group || '';
+  if (curGrp) _groupSet.add(curGrp);
+  const groupOpts = ['<option value="">(none)</option>'].concat(
+    [..._groupSet].filter(Boolean).sort().map(g => `<option value="${escAttr(g)}" ${g === curGrp ? 'selected' : ''}>${escHtml(g)}</option>`)).join('');
   const msgs = (t.messages || []).map(m => {
     const dir = m.direction || 'note';
     const isIn = dir === 'in';
@@ -4030,7 +4049,7 @@ async function openTicket(tid) {
     </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Assignee</label><select id="tk-d-assignee" class="form-input">${assigneeOpts}</select></div>
-      <div class="form-group"><label class="form-label">Group / team</label><input type="text" id="tk-d-group" class="form-input" value="${escAttr(t.group || '')}" placeholder="e.g. NOC"></div>
+      <div class="form-group"><label class="form-label">Group / team</label><select id="tk-d-group" class="form-input">${groupOpts}</select></div>
       <div class="form-group"><label class="form-label">SLA</label><div class="mt-6">${slaStr}</div></div>
     </div>
     <div class="form-row">
@@ -4132,9 +4151,11 @@ async function takeTicket(tid) {
   else toast(r?.error || 'Failed', 'error');
 }
 async function assignTicketGroup(tid) {
-  const grp = await uiPrompt({ title: 'Assign to group', message: 'Hand this ticket to a group. This clears the current assignee and sets the ticket to Pending Internal.', placeholder: 'e.g. NOC', confirmText: 'Assign' });
-  if (grp === null) return;
-  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { group: (grp || '').trim(), assignee: '', status: 'pending_internal' });
+  // Hand off to the group currently picked in the Group dropdown.
+  const grp = (document.getElementById('tk-d-group')?.value || '').trim();
+  if (!grp) { toast('Pick a group from the dropdown first', 'warning'); return; }
+  if (!await uiConfirm(`Assign this ticket to "${grp}"? This clears the assignee and sets it to Pending Internal.`)) return;
+  const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), { group: grp, assignee: '', status: 'pending_internal' });
   if (r?.ok) { toast('Ticket assigned to group', 'success'); openTicket(tid); loadTickets(); }
   else toast(r?.error || 'Failed', 'error');
 }

@@ -5160,7 +5160,8 @@ def handle_tickets():
                 continue
             if ty and t.get('type') != ty:
                 continue
-            hay = f"{t.get('number','')} {t.get('subject','')} {t.get('device_name','')}".lower()
+            hay = (f"{t.get('number','')} {t.get('subject','')} {t.get('device_name','')} "
+                   f"{t.get('group','')} {t.get('assignee','')}").lower()
             if q and q not in hay:
                 continue
             out.append(_ticket_public(t))
