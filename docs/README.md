@@ -38,7 +38,13 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.2.0.md](security-review-5.2.0.md)** — Latest review:
+- **[security-review-5.3.0.md](security-review-5.3.0.md)** — Latest review:
+ the new built-in ticket system + Contacts directory (inbound mail parsing,
+ IMAP/SMTP, ticket↔alert linkage, HTML signatures) plus a whole-project server +
+ agent audit and a live authenticated penetration test, with CodeQL + Bandit +
+ semgrep + gitleaks all clean (no Critical/High/Medium ships) — a Medium
+ strict-mode alert-permission fix and a Low email-header-injection hardening.
+- **[security-review-5.2.0.md](security-review-5.2.0.md)** — A prior review:
  the new WG Access (WireGuard VPN) feature plus a whole-project server + agent
  audit and a live authenticated penetration test, with CodeQL + Bandit + gitleaks
  all clean (no Critical/High/Medium ships) — the privileged-helper boundary,
@@ -48,10 +54,6 @@ holds long-form docs that don't fit there.
  with CodeQL + Bandit + gitleaks all clean (no Critical/High/Medium ships) — the
  community-contribution surface (Proxmox cluster, hash routing, LocalAI keys, the
  separate embedding service) plus Low-severity escaping and request-body hardening.
-- **[security-review-5.1.0.md](security-review-5.1.0.md)** — A prior review:
- the first-class `fail2ban_ban` event (no new sink, post-lock fire, per-host
- coalescing), Arabic RTL CSS and the i18n batch, with SAST (Bandit/gitleaks)
- held to the bar (no Critical/High/Medium ships).
 
 ## Release notes
 
@@ -60,6 +62,13 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.3.0.md](v5.3.0.md)** — "ResolveMatters": a built-in, opt-in **ticket
+ system** (helpdesk) — tickets typed Incident/Request/Change with P1–P4 priorities
+ and SLA targets, ownership/teams/groups, master & sub-tickets, alert→ticket→
+ auto-resolve, inbound-mail auto-create + reply threading and outbound email with
+ an HTML signature — plus an internal **Contacts** directory, a tickets AI/RAG
+ source + Helpdesk-triage advisor, and a whole-project hardening/perf/consistency
+ sweep. No breaking changes.
 - **[v5.2.0.md](v5.2.0.md)** — "AccessMatters": **WG Access**, a built-in light
  WireGuard road-warrior VPN (Admin → WG Access). Reach the dashboard and fleet
  over an encrypted tunnel: tunnels carry a reach scope (dashboard-only / fleet /
@@ -82,13 +91,8 @@ The five most recent per-release notes are kept here:
  backend (SSH-key drift audit, Proxmox snapshot alerts, host-config view),
  coalesces duplicate alerts, makes agent stop/start quiet by default, and adds
  Edit buttons for API keys and custom checks. No breaking changes.
-- **[v5.0.0.md](v5.0.0.md)** — "CTRLMatters": control-plane hardening — opt-in
- mutual TLS for agents, AES-256-GCM encrypted DR backups, break-glass vault
- reveals and per-API-key rate limits, a webhook dead-letter queue, runtime
- maintenance mode, bulk fleet ops, one-click rollout rollback, and cross-device
- OSV batching. Every new control is opt-in; no breaking changes.
 
-Older release notes (v4.10.0 and earlier) live in
+Older release notes (v5.0.0 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).
 
 ## Feature guides
@@ -127,6 +131,10 @@ Older release notes (v4.10.0 and earlier) live in
  rate limiting, nginx config for slow local models.
 - **[rag.md](rag.md)** — How the AI assistant retrieves your runbooks,
  CMDB docs and live state to ground its answers.
+- **[ticket-system.md](ticket-system.md)** — The built-in opt-in helpdesk:
+ ticket types/priorities/SLA, ownership/teams/groups, master & sub-tickets,
+ alert↔ticket linkage, and email in/out.
+- **[contacts.md](contacts.md)** — The internal team contact directory.
 - **[security-scans.md](security-scans.md)** — Authorized vulnerability
  scanning (the Pentest page): tools, profiles, target ownership
  verification, scheduling, the scanner satellite.

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.2.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.3.0">
 
 </head>
 <body>
@@ -2930,7 +2930,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.2.0 accessmatters wg access wireguard vpn road-warrior road warrior tunnel client peer keypair qr code conf config split tunnel full tunnel reach scope dashboard fleet curve25519 x25519 in-browser browser keygen private key endpoint allowed ips handshake">
+          <details class="doc-card" open data-keywords="release notes changelog v5.3.0 resolvematters ticket tickets helpdesk incident request change priority sla assignee ownership team group sub-ticket parent child master imap inbound mail signature conversation reply resolve close alert contacts directory phonebook">
+            <summary><strong>What's new — v5.3.0 "ResolveMatters"</strong> — a built-in opt-in ticket system (helpdesk) that turns alerts into owned, tracked, resolvable work, plus an internal Contacts directory (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.3.0 adds a built-in <strong>ticket system</strong>, off by default — enable it under <em>Settings → Advanced → Tickets</em>. It lives next to your fleet, so the alert you just saw and the work you do about it stay in one place. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.3.0</code>).</p>
+              <ul>
+                <li><strong>Tickets.</strong> Stable <code>#RP</code> numbers; types Incident / Request / Change; priorities P1 Major – P4 Low; open one from an alert (it inherits the severity, device and title) or stand-alone.</li>
+                <li><strong>Ownership &amp; teams.</strong> Take ownership (assigns you + your team) or hand a ticket to a group's queue; set your team under <em>Profile → Team</em>. The page splits into New / My open / My team's open / Other — searchable and sortable.</li>
+                <li><strong>SLA.</strong> Per-priority response targets; tickets show the time left and breaches raise a <code>ticket_sla_breached</code> event that routes through your normal alerts/webhooks.</li>
+                <li><strong>Closing the loop.</strong> Master / sub-tickets, and resolving a ticket opened from an alert <strong>resolves that alert</strong>. Email in/out through your SMTP + a dedicated IMAP mailbox, with a per-user HTML signature and a mail-loop guard.</li>
+                <li><strong>Contacts.</strong> A shared internal phonebook under <em>Admin → Contacts</em>.</li>
+              </ul>
+              <p class="hint">See <code>docs/ticket-system.md</code> and <code>docs/v5.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.2.0 accessmatters wg access wireguard vpn road-warrior road warrior tunnel client peer keypair qr code conf config split tunnel full tunnel reach scope dashboard fleet curve25519 x25519 in-browser browser keygen private key endpoint allowed ips handshake">
             <summary><strong>What's new — v5.2.0 "AccessMatters"</strong> — WG Access: a built-in WireGuard road-warrior VPN that lets people reach the dashboard and fleet over an encrypted tunnel (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.2.0 adds <strong>WG Access</strong> (Admin → WG Access): a turnkey WireGuard road-warrior VPN. Define a tunnel, scope what it can reach, then issue per-device client configs — keys are generated in your browser, so the private key never touches the server. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.2.0</code>).</p>
@@ -2982,22 +2996,7 @@
               <p class="hint">See <code>docs/v5.0.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.0.0 ctrlmatters mutual tls mtls client certificate encrypted backup passphrase break-glass two-person vault reveal api key rate limit disk watchdog webhook dead-letter queue dlq retry replay maintenance mode rollback bulk delete tag per-command timeout version compatibility osv batching snooze run diagnostics clipboard">
-            <summary><strong>What's new — v5.0.0 "CTRLMatters"</strong> — control-plane hardening: opt-in mutual TLS for agents, encrypted DR backups, break-glass vault reveals and per-API-key rate limits, plus a webhook dead-letter queue, runtime maintenance mode, bulk fleet ops, one-click rollout rollback and cross-device CVE batching (every new control is opt-in; no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.0.0 hardens the path between operators, the server and agents — every new control is <strong>opt-in and off by default</strong>, so existing installs keep working unchanged. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.0.0</code>).</p>
-              <ul>
-                <li><strong>Mutual TLS for agents (opt-in).</strong> Require a CA-verified client certificate (optionally pinned per device) on top of the per-device token — a stolen token alone can't impersonate a host. Settings → Security → "Require agent mTLS" + the nginx block in <code>deploy/nginx/remotepower.conf</code>.</li>
-                <li><strong>Encrypted backups + break-glass + per-key limits.</strong> Set <code>RP_BACKUP_PASSPHRASE</code> for AES-256-GCM DR backups; flag a credential <strong>break-glass</strong> to require a second admin's approval to reveal (immutably audited); cap any API key's requests/minute.</li>
-                <li><strong>Reliability.</strong> Server disk-space watchdog, a webhook <strong>dead-letter queue</strong> with retry + event replay, a runtime <strong>maintenance mode</strong> that drains command dispatch during upgrades, graceful long-poll shutdown, and an OSV circuit breaker.</li>
-                <li><strong>Fleet power-ops.</strong> Bulk device delete + bulk tagging from multi-select, per-command timeout override, agent/server version-compat check, and one-click <strong>rollout rollback</strong> for script rollouts.</li>
-                <li><strong>Scale + polish.</strong> Cross-device OSV batching (one query per ecosystem for the whole fleet), copy-to-clipboard everywhere, per-device alert snooze, a pending-command nav badge, rename/duplicate saved queries, command-history in the palette, and one-click Run-diagnostics.</li>
-                <li><strong>Thermal &amp; CMDB.</strong> On the Thermal page, expand any host for every sensor, a ~24h temperature <strong>trend</strong>, and a per-host <strong>Thresholds</strong> button. CMDB assets gain a <strong>Business function</strong> field (Application Operation / OS Operation / Server Camp) and a wider two-column editor.</li>
-                <li><strong>Smarter AI grounding.</strong> The knowledge index now also covers mount problems, failing custom checks, running process names and FD / conntrack saturation, plus your security-control posture — so the assistant answers reliability questions from real fleet data.</li>
-              </ul>
-              <p class="hint">See <code>docs/v5.0.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
+
           <details class="doc-card" data-keywords="release notes changelog older versions history v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
@@ -8162,35 +8161,35 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.2.0"></script>
-<script defer src="static/js/app.js?v=5.2.0"></script>
+<script defer src="static/js/i18n.js?v=5.3.0"></script>
+<script defer src="static/js/app.js?v=5.3.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.2.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.2.0"></script>
-<script defer src="static/js/app-containers.js?v=5.2.0"></script>
-<script defer src="static/js/app-network.js?v=5.2.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.3.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.3.0"></script>
+<script defer src="static/js/app-containers.js?v=5.3.0"></script>
+<script defer src="static/js/app-network.js?v=5.3.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.2.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.2.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.2.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.3.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.3.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.3.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.2.0"></script>
-<script defer src="static/js/app-dns.js?v=5.2.0"></script>
-<script defer src="static/js/app-drift.js?v=5.2.0"></script>
-<script defer src="static/js/app-dmarc.js?v=5.2.0"></script>
-<script defer src="static/js/app-cve.js?v=5.2.0"></script>
-<script defer src="static/js/app-firewall.js?v=5.2.0"></script>
-<script defer src="static/js/app-backups.js?v=5.2.0"></script>
-<script defer src="static/js/app-iac.js?v=5.2.0"></script>
-<script defer src="static/js/app-rollouts.js?v=5.2.0"></script>
-<script defer src="static/js/app-power.js?v=5.2.0"></script>
-<script defer src="static/js/app-gpu.js?v=5.2.0"></script>
-<script defer src="static/js/app-proxmox.js?v=5.2.0"></script>
-<script defer src="static/js/wg-access.js?v=5.2.0"></script>
+<script defer src="static/js/app-ai.js?v=5.3.0"></script>
+<script defer src="static/js/app-dns.js?v=5.3.0"></script>
+<script defer src="static/js/app-drift.js?v=5.3.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.3.0"></script>
+<script defer src="static/js/app-cve.js?v=5.3.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.3.0"></script>
+<script defer src="static/js/app-backups.js?v=5.3.0"></script>
+<script defer src="static/js/app-iac.js?v=5.3.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.3.0"></script>
+<script defer src="static/js/app-power.js?v=5.3.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.3.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.3.0"></script>
+<script defer src="static/js/wg-access.js?v=5.3.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.2.0"></script>
+<script defer src="static/js/sw-register.js?v=5.3.0"></script>
 </body>
 </html>

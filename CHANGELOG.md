@@ -2,6 +2,35 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.3.0 — "ResolveMatters" — unreleased (test)
+
+A built-in, opt-in **ticket system** (helpdesk) that turns alerts into owned,
+tracked, resolvable work, plus an internal **Contacts** directory and a
+whole-project hardening / performance / consistency sweep. No breaking changes.
+
+- **Ticket system (Settings → Advanced → Tickets, off by default).** Tickets with
+  stable `#RP` numbers; types Incident / Request / Change; priorities P1–P4;
+  statuses ongoing / pending-customer / pending-internal / resolved / closed.
+  Open from an alert (inherits severity/device/title) or stand-alone.
+- **Ownership, teams & groups.** Take ownership (assigns you + your team), assign to
+  a group's queue, per-user team (Profile → Team). The Tickets page is four tables —
+  New / My open / My team's open / Other — searchable + sortable.
+- **SLA.** Per-priority response targets (Settings → Advanced); tickets show time
+  left; a background sweep edge-fires a new `ticket_sla_breached` event so breaches
+  route through alerts/webhooks. **WEBHOOK_EVENTS now 87.**
+- **Master / sub-tickets**, **alert→ticket→auto-resolve** (resolving a ticket
+  resolves its linked alert), **inbound-mail auto-create + reply threading**
+  (dedicated IMAP, loop-guarded), outbound via existing SMTP with a per-user
+  **HTML signature**.
+- **AI:** new **Helpdesk triage** advisor + a `tickets` RAG source.
+- **Contacts directory** (Admin → Contacts) — a shared team phonebook.
+- **Security.** Whole-project review + live pentest; bandit/gitleaks/semgrep/CodeQL
+  clean. Fixed a strict-mode (`viewers_can_ack_alerts=false`) alert-permission edge
+  via the ticket path; added email-header CRLF hardening. See `docs/security-review-5.3.0.md`.
+- **Performance.** Dropped redundant per-heartbeat config/device deepcopies on the
+  hot path. **UX/i18n:** SLA time-left + assignee omnisearch, box-overflow caps,
+  11 Hindi localisation fixes.
+
 ## v5.2.0 — "AccessMatters" — 2026-06-26
 
 A built-in, light WireGuard road-warrior VPN — **WG Access** (Admin -> WG Access).
