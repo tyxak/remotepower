@@ -5293,8 +5293,16 @@ def handle_ticket_update(tid):
                     t['assignee'] = _asg
             if 'affected_devices' in body and isinstance(body['affected_devices'], list):
                 _devs = load(DEVICES_FILE)
-                t['affected_devices'] = [str(x).strip() for x in body['affected_devices'][:50]
-                                         if _validate_id(str(x).strip()) and str(x).strip() in _devs]
+                _aff = [str(x).strip() for x in body['affected_devices'][:50]
+                        if _validate_id(str(x).strip()) and str(x).strip() in _devs]
+                t['affected_devices'] = _aff
+                # keep the primary device_id/name in sync with the first affected device
+                if _aff:
+                    t['device_id'] = _aff[0]
+                    t['device_name'] = (_devs.get(_aff[0]) or {}).get('name', '')
+                else:
+                    t['device_id'] = ''
+                    t['device_name'] = ''
             if 'parent_number' in body:
                 _pn = re.sub(r'\\D', '', str(body.get('parent_number', '')))
                 if not _pn:

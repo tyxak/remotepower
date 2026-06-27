@@ -163,11 +163,6 @@
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
       <span>Dashboard</span>
     </button>
-    <button class="nav-btn" data-page="board" title="NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets">
-      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      <span>Status Board</span>
-      <span class="nav-badge d-none" id="board-badge"></span>
-    </button>
     <button class="nav-btn" data-page="alerts" title="Operational alert inbox — acknowledge, resolve and track every fired event">
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-d5d1e09c"/></svg>
       <span>Alerts</span>
@@ -176,11 +171,6 @@
     <button class="nav-btn d-none" id="nav-tickets" data-page="tickets" title="Built-in ticket system (helpdesk)">
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z"/><path d="M9 5v14"/></svg>
       <span>Tickets</span>
-    </button>
-
-    <button class="nav-btn" id="nav-contacts" data-page="contacts" title="Internal contact directory (team phonebook)">
-      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Contacts</span>
     </button>
 
     <!-- Fleet group: all device / inventory views -->
@@ -273,6 +263,11 @@
         <button class="nav-btn" data-page="services" title="systemd units watched per device — history, logs and configuration">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Services</span>
+        </button>
+        <button class="nav-btn" data-page="board" title="NOC status board — a glanceable wall view of fleet health, grouped and rolled up for large fleets">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Status Board</span>
+          <span class="nav-badge d-none" id="board-badge"></span>
         </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-targets" data-pass-btn="1" data-section-page="monitor" title="Synthetic monitoring probes — HTTP, TCP and ping endpoints">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12h3m14 0h3M12 2v3m0 14v3"/></svg>
@@ -461,6 +456,10 @@
           <span>Confirmations</span>
           <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending confirmations">0</span>
         </button>
+        <button class="nav-btn" id="nav-contacts" data-page="contacts" title="Internal contact directory (team phonebook)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Contacts</span>
+        </button>
         <button class="nav-btn" data-page="dns" title="Manage DNS zones and records through your provider's API (Cloudflare, DigitalOcean, Hetzner, deSEC, Porkbun)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-9e897a47"/></svg>
           <span>DNS</span>
@@ -596,7 +595,7 @@
         <div class="dash-card mb-16" id="home-tickets" data-widget="tickets">
           <div class="dash-cols">
             <div>
-              <div class="row-8-center mb-6"><h3 class="m-0">Open tickets</h3><span class="fs-12 c-muted" id="home-tickets-open-count"></span></div>
+              <div class="row-8-center mb-6"><h3 class="m-0">Open alerts</h3><span class="fs-12 c-muted" id="home-tickets-open-count"></span></div>
               <div id="home-tickets-open" class="scroll-cap"><div class="skeleton skeleton-line long mb-6"></div><div class="skeleton skeleton-line med"></div></div>
             </div>
             <div>
@@ -6652,7 +6651,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tk-detail-title" id="ticket-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="tk-detail-title">Ticket</div>
   <div id="tk-detail-body"></div>
-  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ticket-detail-modal">Close</button></div>
+  <div class="modal-actions"><button class="btn-primary" id="tk-detail-save" data-action="saveTicketField">Save</button><button class="btn-secondary" data-action="closeModal" data-arg="ticket-detail-modal">Close</button></div>
 </div></div>
 
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tk-create-title" id="ticket-create-modal"><div class="modal">

@@ -919,6 +919,10 @@
   #cmdb-asset-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
   /* v5.0.0: the storage maintenance modal matches the CMDB asset modal width. */
   #storage-maint-modal > .modal { max-width: min(940px, 94vw); }
+  /* Ticket detail modal — same proportions as the CMDB asset modal: fixed
+     window, header + footer pinned, the body scrolls inside. */
+  #ticket-detail-modal > .modal { height: min(88vh, 760px); max-width: min(940px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
+  #ticket-detail-modal #tk-detail-body { flex: 1; overflow-y: auto; min-height: 0; }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

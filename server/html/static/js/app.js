@@ -3857,7 +3857,7 @@ async function loadTickets() {
     <td class="mono-12">${escHtml(_tkNo(t.number))}${t.parent ? ' <span class="meta-sm-nm" title="Sub-ticket">↳</span>' : ''}</td>
     <td>${escHtml(t.subject || '')}</td>
     <td class="fs-12">${escHtml(t.type || '')}</td>
-    <td><span class="sev-pill ${_TK_PRIO_CLS[pr]}">P${pr} ${escHtml(_TK_PRIO[pr])}</span></td>
+    <td><span class="sev-pill ${_TK_PRIO_CLS[pr]}" title="${escAttr(_TK_PRIO[pr])}">P${pr}</span></td>
     <td><span class="sev-pill ${_TK_STATUS_CLS[t.status] || 'sev-low'}">${escHtml(_TK_STATUS[t.status] || t.status || '')}</span></td>
     <td class="fs-12">${t.assignee ? escHtml(t.assignee) : '<span class="meta-sm-nm">Unassigned</span>'}</td>
     <td class="fs-12">${escHtml(t.device_name || '—')}</td>
@@ -3936,23 +3936,30 @@ async function openTicket(tid) {
   const childrenBlock = (t.children && t.children.length)
     ? `<div class="fs-12 mb-4">Sub-tickets: ${t.children.map(c => `<a href="#" data-action="openTicket" data-arg="${escAttr(c.id)}" data-prevent-default class="c-accent">${escHtml(_tkNo(c.number))}</a>`).join(', ')}</div>`
     : '';
-  const affList = (t.affected_devices_resolved && t.affected_devices_resolved.length)
-    ? t.affected_devices_resolved.map(d => escHtml(d.name)).join(', ')
-    : (t.device_name ? escHtml(t.device_name) : '—');
+  // Editable affected devices — seed from the resolved list (backend puts the
+  // primary device first) or fall back to a legacy single device_id.
+  window._tkDetailDevs = (t.affected_devices_resolved && t.affected_devices_resolved.length)
+    ? t.affected_devices_resolved.map(d => ({ id: String(d.id), name: d.name || String(d.id) }))
+    : (t.device_id ? [{ id: String(t.device_id), name: t.device_name || String(t.device_id) }] : []);
   document.getElementById('tk-detail-body').innerHTML = `
-    <div class="row-8-center mb-12 fl-wrap">
-      <label class="fs-12">Status <select id="tk-d-status" class="form-input input-auto">${statusOpts}</select></label>
-      <label class="fs-12">Type <select id="tk-d-type" class="form-input input-auto">${typeOpts}</select></label>
-      <label class="fs-12">Priority <select id="tk-d-priority" class="form-input input-auto">${prioOpts}</select></label>
-      <label class="fs-12">Contact <input type="text" id="tk-d-email" class="form-input input-auto" value="${escAttr(t.to_email || '')}" placeholder="contact@customer"></label>
-      <label class="fs-12">Parent # <input type="text" id="tk-d-parent" class="form-input input-auto" value="${escAttr(t.parent_ticket ? String(t.parent_ticket.number) : '')}" placeholder="RP number"></label>
-      <label class="fs-12">Assignee <select id="tk-d-assignee" class="form-input input-auto">${assigneeOpts}</select></label>
-      <button class="btn-secondary" data-action="saveTicketField" data-arg="${escAttr(tid)}">Save</button>
-      <button class="btn-secondary" data-action="takeTicket" data-arg="${escAttr(tid)}" title="Assign this ticket to yourself">Take ownership</button>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Status</label><select id="tk-d-status" class="form-input">${statusOpts}</select></div>
+      <div class="form-group"><label class="form-label">Type</label><select id="tk-d-type" class="form-input">${typeOpts}</select></div>
+      <div class="form-group"><label class="form-label">Priority</label><select id="tk-d-priority" class="form-input">${prioOpts}</select></div>
     </div>
-    <div class="fs-12 mb-4">Affected devices: ${affList}</div>
-    ${parentBlock}${childrenBlock}
-    ${alertLink}
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Assignee</label><select id="tk-d-assignee" class="form-input">${assigneeOpts}</select></div>
+      <div class="form-group"><label class="form-label">Contact email</label><input type="text" id="tk-d-email" class="form-input" value="${escAttr(t.to_email || '')}" placeholder="contact@customer"></div>
+      <div class="form-group"><label class="form-label">Parent ticket #</label><input type="text" id="tk-d-parent" class="form-input" value="${escAttr(t.parent_ticket ? String(t.parent_ticket.number) : '')}" placeholder="e.g. 182"></div>
+    </div>
+    <div class="row-6 mb-12"><button class="btn-secondary" data-action="takeTicket" data-arg="${escAttr(tid)}" title="Assign this ticket to yourself">Take ownership</button></div>
+    <div class="form-group">
+      <label class="form-label">Affected devices</label>
+      <div id="tk-d-dev-chips" class="mb-6"></div>
+      <input type="text" id="tk-d-dev-search" class="form-input mb-6" placeholder="Search a device to add…" autocomplete="off" aria-label="Search a device to add to the ticket">
+      <div id="tk-d-dev-results" class="scroll-cap-sm"></div>
+    </div>
+    ${parentBlock}${childrenBlock}${alertLink}
     <div class="fw-500 mt-12 mb-4">Conversation <span class="meta-sm-nm">(oldest first, newest at bottom)</span></div>
     <div class="scroll-cap" id="tk-conversation">${msgs}</div>
     <div class="mt-12">
@@ -3964,10 +3971,43 @@ async function openTicket(tid) {
         <button class="btn-icon c-danger-outline" data-action="deleteTicket" data-arg="${escAttr(tid)}">Delete ticket</button>
       </div>
     </div>`;
+  _tkRenderDetailChips();
+  const _ds = document.getElementById('tk-d-dev-search');
+  if (_ds) _ds.oninput = () => _tkDetailDevResults(_ds.value);
+  const _save = document.getElementById('tk-detail-save');
+  if (_save) _save.dataset.arg = tid;   // footer Save targets this ticket
   openModal('ticket-detail-modal');
   // auto-scroll the conversation to the newest message at the bottom
   const _conv = document.getElementById('tk-conversation');
   if (_conv) _conv.scrollTop = _conv.scrollHeight;
+}
+function _tkRenderDetailChips() {
+  const box = document.getElementById('tk-d-dev-chips');
+  if (!box) return;
+  box.innerHTML = (window._tkDetailDevs || []).length
+    ? window._tkDetailDevs.map(d => `<span class="group-badge">${escHtml(d.name)} <button class="btn-icon cell-sm" data-action="removeTicketDetailDev" data-arg="${escAttr(d.id)}" title="Remove">×</button></span>`).join(' ')
+    : '<span class="meta-sm-nm">No devices attached.</span>';
+}
+async function _tkDetailDevResults(term) {
+  const box = document.getElementById('tk-d-dev-results');
+  if (!box) return;
+  const q = (term || '').toLowerCase().trim();
+  if (!q) { box.innerHTML = ''; return; }
+  const _dr = await api('GET', '/devices');
+  const devs = (_dr && (_dr.devices || (Array.isArray(_dr) ? _dr : []))) || [];
+  const m = devs.filter(d => (d.name || '').toLowerCase().includes(q) || (d.ip || '').toLowerCase().includes(q) || (d.group || '').toLowerCase().includes(q)).slice(0, 20);
+  box.innerHTML = m.map(d => `<div class="pointer p-6" data-action="pickTicketDetailDev" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}">${escHtml(d.name)} <span class="meta-sm-nm">${escHtml(d.ip || '')}</span></div>`).join('') || '<div class="meta-sm-nm">No matches.</div>';
+}
+function pickTicketDetailDev(id, name) {
+  window._tkDetailDevs = window._tkDetailDevs || [];
+  if (!window._tkDetailDevs.some(d => d.id === String(id))) window._tkDetailDevs.push({ id: String(id), name: name || String(id) });
+  const s = document.getElementById('tk-d-dev-search'); if (s) s.value = '';
+  const r = document.getElementById('tk-d-dev-results'); if (r) r.innerHTML = '';
+  _tkRenderDetailChips();
+}
+function removeTicketDetailDev(id) {
+  window._tkDetailDevs = (window._tkDetailDevs || []).filter(d => d.id !== String(id));
+  _tkRenderDetailChips();
 }
 async function saveTicketField(tid) {
   const r = await api('PATCH', '/tickets/' + encodeURIComponent(tid), {
@@ -3977,6 +4017,7 @@ async function saveTicketField(tid) {
     to_email: document.getElementById('tk-d-email')?.value || '',
     parent_number: document.getElementById('tk-d-parent')?.value || '',
     assignee: document.getElementById('tk-d-assignee')?.value || '',
+    affected_devices: (window._tkDetailDevs || []).map(d => d.id),
   });
   if (r?.ok) { toast('Ticket updated', 'success'); openTicket(tid); loadTickets(); }
   else toast(r?.error || 'Failed', 'error');
@@ -13996,7 +14037,7 @@ function _renderHomeTickets(t) {
       return `<div class="tk-row"><span class="sev-pill sev-${sev}">${sev}</span>`
         + `<span class="tk-title">${escHtml(a.title)}${dev}</span>`
         + `<button class="btn-icon btn-xs" data-action="quickAckAlert" data-arg="${escAttr(a.id)}" title="Acknowledge now (no comment)">Ack</button></div>`;
-    }).join('') : '<div class="hint">No open tickets — all clear.</div>';
+    }).join('') : '<div class="hint">No open alerts — all clear.</div>';
   }
   const ackedEl = document.getElementById('home-tickets-acked');
   if (ackedEl) {
@@ -14434,7 +14475,7 @@ async function quickResolveAlert(id) {
 // key, label, opt (add-on → off by default), size (default column span sm|md|lg).
 const DASH_WIDGETS = [
   { key: 'upcoming', label: 'Upcoming events',                  size: 'lg' },
-  { key: 'tickets',  label: 'Tickets (open + acknowledged)',    size: 'lg' },
+  { key: 'tickets',  label: 'Alerts (open + acknowledged)',     size: 'lg' },
   { key: 'offline',  label: 'Offline hosts',          opt: true, size: 'sm' },
   { key: 'updates',  label: 'Pending updates',         opt: true, size: 'sm' },
   { key: 'cves',     label: 'CVE exposure',            opt: true, size: 'sm' },
