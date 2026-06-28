@@ -119,6 +119,11 @@ Batch 2 (credential-at-rest + API contract + observability):
   cross-request cadence timers. A **no-op under the current CGI model**, but it's the
   foundation that makes the codebase safe for a future persistent app server (so request
   B can never see request A's state). Guardrail-tested for cross-request-leak.
+- **Enrollment tokens hashed at rest**: one-time enrollment tokens are now stored keyed
+  by their SHA-256 hash (with a short `prefix` kept for the list / revoke-by-prefix UX),
+  not the plaintext token. A legacy plaintext-keyed token still consumes/lists/revokes
+  until it expires. This **completes credential-at-rest** — every bearer secret (API
+  keys, device tokens, enrollment tokens, config secrets) is now hashed/encrypted on disk.
 - **Device tokens hashed at rest**: a device's auth token is now stored as a SHA-256
   hash (`token_hash`), not plaintext — so a datastore read no longer yields a usable
   agent credential. Fully transparent: the **agent keeps sending its plaintext token**;

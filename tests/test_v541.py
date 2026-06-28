@@ -766,5 +766,38 @@ class TestDeviceTokenHashing(unittest.TestCase):
         self.assertIn("dev.pop('token', None)", src)
 
 
+class TestEnrollmentTokenHashing(unittest.TestCase):
+    """v5.4.1: enrollment tokens keyed by hash at rest, with a `prefix` for the
+    list/revoke UX and a legacy plaintext-key fallback. Completes credential-at-rest."""
+
+    def test_create_keys_by_hash_with_prefix(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("tokens[_hash_device_token(token)] = {", src)
+        self.assertIn("'prefix':        token[:8],", src)
+
+    def test_consume_and_revoke_resolve_both_forms(self):
+        import secrets
+        tok = secrets.token_urlsafe(32)
+        h = api._hash_device_token(tok)
+        # new (hashed) form: presented plaintext resolves to the hash key
+        store = {h: {'expires': 9 ** 18, 'prefix': tok[:8]}}
+        key = h if api._hash_device_token(tok) in store else tok
+        self.assertEqual(key, h)
+        self.assertEqual([k for k, m in store.items()
+                          if (m.get('prefix') or k).startswith(tok[:6])], [h])
+        # legacy (plaintext-keyed) form still resolves
+        leg = secrets.token_urlsafe(32)
+        store2 = {leg: {'expires': 9 ** 18}}
+        key2 = api._hash_device_token(leg) if api._hash_device_token(leg) in store2 else leg
+        self.assertEqual(key2, leg)
+        self.assertEqual((store2[leg].get('prefix') or leg[:8]), leg[:8])
+
+    def test_source_wiring(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("_ekey = _eh if _eh in tokens else enroll_token", src)   # consume
+        self.assertIn("(m.get('prefix') or k).startswith(prefix)", src)        # revoke
+        self.assertIn("(meta.get('prefix') or token[:8])", src)                # list
+
+
 if __name__ == "__main__":
     unittest.main()

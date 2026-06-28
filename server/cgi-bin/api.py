@@ -12371,13 +12371,18 @@ def handle_enroll_token_create():
 
     tokens = load(ENROLL_TOKENS_FILE)
     _purge_expired_enroll_tokens(tokens, now)
-    tokens[token] = {
+    # v5.4.1: key by the SHA-256 HASH (not the plaintext token) so a datastore read
+    # yields no usable enrollment token. A short `prefix` is kept for the list /
+    # revoke-by-prefix UX (the key is no longer the token). (_hash_device_token is a
+    # generic sha256 of a urlsafe bearer token — reused here.)
+    tokens[_hash_device_token(token)] = {
         'created':       now,
         'expires':       now + ttl,
         'actor':         actor,
         'default_group': default_group,
         'default_tags':  clean_tags,
         'label':         label,
+        'prefix':        token[:8],
     }
     save(ENROLL_TOKENS_FILE, tokens)
     audit_log(actor, 'enrollment_token_created',
@@ -12406,7 +12411,9 @@ def handle_enroll_token_list():
     out = []
     for token, meta in tokens.items():
         out.append({
-            'prefix':        token[:8] + '…',  # first 8 chars for ID purposes only
+            # v5.4.1: the key is now a hash; show the stored `prefix` (legacy
+            # plaintext-keyed tokens fall back to the key's first 8 chars).
+            'prefix':        (meta.get('prefix') or token[:8]) + '…',
             'created':       meta.get('created', 0),
             'expires':       meta.get('expires', 0),
             'actor':         meta.get('actor', ''),
@@ -12438,7 +12445,10 @@ def handle_enroll_token_revoke(token_prefix: str):
     if len(prefix) < 4:
         respond(400, {'error': 'Token prefix must be at least 4 characters'})
     tokens = load(ENROLL_TOKENS_FILE)
-    matches = [t for t in tokens if t.startswith(prefix)]
+    # v5.4.1: match against the stored display `prefix` (the key is a hash now);
+    # legacy plaintext-keyed tokens fall back to matching the key itself.
+    matches = [k for k, m in tokens.items()
+               if (m.get('prefix') or k).startswith(prefix)]
     if len(matches) == 0:
         respond(404, {'error': 'No matching enrollment token'})
     if len(matches) > 1:
@@ -12641,14 +12651,17 @@ def handle_enroll_register():
         tokens = load(ENROLL_TOKENS_FILE)
         now = int(time.time())
         _purge_expired_enroll_tokens(tokens, now)
-        meta = tokens.get(enroll_token)
+        # v5.4.1: look up by HASH (new) or the plaintext key (legacy, pre-hashing).
+        _eh = _hash_device_token(enroll_token)
+        _ekey = _eh if _eh in tokens else enroll_token
+        meta = tokens.get(_ekey)
         if not meta:
             respond(403, {'error': 'Invalid or expired enrollment token'})
         # Consume the token *before* creating the device. If save fails
         # for some reason the device creation below still happens (we
         # accept that edge case rather than building two-phase commit
         # over a JSON file). In practice save() is atomic.
-        del tokens[enroll_token]
+        del tokens[_ekey]
         save(ENROLL_TOKENS_FILE, tokens)
         default_group = meta.get('default_group', '') or ''
         default_tags = meta.get('default_tags', []) or []
