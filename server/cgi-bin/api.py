@@ -2049,6 +2049,22 @@ def _config_ro():
     return load(CONFIG_FILE) or {}
 
 
+def _external_scheduler_active():
+    """v6.0.0 (keystone Stage D): True when an out-of-band scheduler process owns
+    the maintenance cadence, so the request path stops piggy-backing the
+    run_*_if_due sweeps (decouples maintenance from traffic; avoids N nodes each
+    double-running). Opt-in: env RP_EXTERNAL_SCHEDULER (1/true/yes/on) OR config
+    ``external_scheduler``. Default OFF — the request path runs the cadence exactly
+    as before, so existing CGI installs are unaffected. Never raises."""
+    v = (os.environ.get('RP_EXTERNAL_SCHEDULER', '') or '').strip().lower()
+    if v in ('1', 'true', 'yes', 'on'):
+        return True
+    try:
+        return bool(_config_ro().get('external_scheduler'))
+    except Exception:
+        return False
+
+
 def _invalidate_load_cache(path):
     """Mark a cached file as stale. Called by save()/_save_nb() so the next
     load() in the same handler re-reads from disk."""
@@ -51462,7 +51478,16 @@ def main():
     # it lands in nginx's error log, but still doesn't propagate (the
     # CGI response itself must complete regardless of a maintenance
     # task failing).
+    # v6.0.0 (keystone Stage D): when an out-of-band scheduler process owns the
+    # maintenance cadence, the request path stops piggy-backing it. _safe wraps
+    # EXCLUSIVELY the run_*_if_due sweeps below (request-critical calls like
+    # _record_satellite/_enforce_* are invoked directly), so one early-return here
+    # cleanly disables the whole request-piggyback cadence. Default OFF.
+    _ext_sched = _external_scheduler_active()
+
     def _safe(fn, label, *args):
+        if _ext_sched:
+            return
         try:
             fn(*args)
         except Exception as exc:

@@ -67,8 +67,45 @@ So:
   (`RP_STORAGE_BACKEND`). Sessions, rate-limit and long-poll state already live in the
   shared store, so the app tier is stateless and horizontally scalable on Postgres.
 
+## Out-of-band maintenance scheduler (optional)
+
+By default RemotePower runs its ~33 background maintenance sweeps (monitors, IMAP
+ingest, KEV/EPSS refresh, scheduled reports, backups, escalation, …) **piggy-backed
+on request traffic** — whenever a request arrives, `main()` runs whatever is due.
+That's simple and fine for most installs, but it has two limits at scale: with **no**
+traffic nothing runs, and **N app nodes each** run the sweeps (duplicate work).
+
+`server/cgi-bin/scheduler.py` is an opt-in standalone scheduler that runs the same
+sweeps from a dedicated process, with a leader lock so only one runs them:
+
+```bash
+# 1) tell the request path to STOP running the cadence (so it isn't double-run)
+export RP_EXTERNAL_SCHEDULER=1            # or config: external_scheduler: true
+# 2) run the scheduler as a service / sidecar (one per deployment; or one per node for HA)
+RP_DATA_DIR=/var/lib/remotepower python3 server/cgi-bin/scheduler.py
+```
+
+- **Leave it off and nothing changes** — without `RP_EXTERNAL_SCHEDULER` the request
+  path runs the cadence exactly as it always has (the default).
+- **Leader election:** a host file-lock (single node) plus, on the Postgres backend, a
+  `pg_advisory_lock` (cross-node) — so you can run one scheduler per node and only the
+  elected leader executes the sweeps.
+- **Interval:** `RP_SCHEDULER_INTERVAL` seconds (default 60). The sweeps are each
+  `_if_due`-gated, so the interval just controls how often "what's due" is checked.
+
+A systemd unit is the natural way to run it:
+
+```ini
+[Service]
+Environment=RP_EXTERNAL_SCHEDULER=1
+Environment=RP_DATA_DIR=/var/lib/remotepower
+ExecStart=/usr/bin/python3 /var/www/remotepower/server/cgi-bin/scheduler.py
+Restart=always
+```
+
 ## Falling back
 
-The WSGI path is opt-in and reversible: stop gunicorn, repoint nginx at fcgiwrap /
-`api_cgi.py`, and you're back on the CGI path with zero data changes. Keep CGI as your
-fallback until you've validated WSGI under your own load.
+Both the WSGI path and the external scheduler are opt-in and reversible: stop gunicorn
+and repoint nginx at fcgiwrap / `api_cgi.py`, and unset `RP_EXTERNAL_SCHEDULER` (+ stop
+the scheduler service), and you're back on the pure CGI path with zero data changes.
+Keep CGI as your fallback until you've validated the persistent tier under your load.
