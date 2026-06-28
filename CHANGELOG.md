@@ -108,6 +108,11 @@ Batch 2 (credential-at-rest + API contract + observability):
   destination** (by webhook-destination name or id) instead of always re-notifying every
   channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
   (Settings → Notifications → On-call & escalation).
+- **Supply-chain: app-self SBOM + SLSA provenance**: `make sbom-self` emits a CycloneDX
+  SBOM of the **control plane's own** Python dependencies (`packaging/requirements-server.txt`
+  + `tools/gen-self-sbom.py`) — distinct from the fleet SBOM at `/api/sbom`. The release
+  workflow now attaches **SLSA build provenance** to the published images
+  (`provenance: true`, `id-token: write`).
 - **Request-lifecycle isolation (keystone Stage A)**: `_begin_request()` / `_end_request()`
   now bracket every request, resetting the per-request process-local state (the `load()`
   cache + correlation id) at request boundaries while preserving the legitimately

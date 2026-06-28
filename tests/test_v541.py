@@ -675,6 +675,39 @@ class TestWormAuditSink(unittest.TestCase):
         self.assertIn('id="cfg-audit-worm-path"', _html())
 
 
+class TestC7SupplyChain(unittest.TestCase):
+    """v5.4.1 (C7): app-self SBOM + SLSA provenance."""
+
+    def test_self_sbom_generator(self):
+        import importlib.util as _u
+        path = _ROOT / "tools" / "gen-self-sbom.py"
+        self.assertTrue(path.exists())
+        spec = _u.spec_from_file_location("gen_self_sbom", path)
+        mod = _u.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sbom = mod.build("5.4.1")
+        self.assertEqual(sbom["bomFormat"], "CycloneDX")
+        self.assertEqual(sbom["specVersion"], "1.5")
+        self.assertEqual(sbom["metadata"]["component"]["name"], "remotepower-server")
+        names = {c["name"] for c in sbom["components"]}
+        self.assertTrue({"cryptography", "bcrypt", "dnspython"} <= names)
+        for c in sbom["components"]:
+            self.assertTrue(c["purl"].startswith("pkg:pypi/"))
+
+    def test_manifest_and_make_target(self):
+        self.assertTrue((_ROOT / "packaging" / "requirements-server.txt").exists())
+        self.assertIn("sbom-self:", (_ROOT / "Makefile").read_text())
+
+    def test_release_provenance_enabled(self):
+        wf = _ROOT / ".github" / "workflows" / "release.yml"
+        if not wf.exists():
+            self.skipTest("release.yml not present (excluded from the make dist staged tree)")
+        s = wf.read_text()
+        self.assertNotIn("provenance: false", s)
+        self.assertEqual(s.count("provenance: true"), 2)   # server + agent images
+        self.assertIn("id-token: write", s)
+
+
 class TestKeystoneStageA(unittest.TestCase):
     """v5.4.1 (keystone Stage A): the request-context reset that makes the codebase
     safe for a future persistent app server — per-request globals reset at request

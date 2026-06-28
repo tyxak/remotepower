@@ -1,0 +1,21 @@
+# RemotePower server — its OWN Python supply chain (for the app-self SBOM, v5.4.1 C7).
+#
+# RemotePower is deliberately near-stdlib: the CORE runs on the Python standard
+# library alone. The packages below are the only third-party runtime dependencies,
+# and all but the password/crypto pair are OPTIONAL (the feature degrades or is
+# hidden when the package is absent). PyPI names; the canonical install list is the
+# AUR PKGBUILD (packaging/aur/remotepower-server/PKGBUILD). Keep the two in sync.
+#
+# `make sbom-self` turns this into a CycloneDX SBOM of the control plane itself
+# (distinct from the FLEET SBOM at /api/sbom, which inventories monitored hosts).
+
+# ── required ────────────────────────────────────────────────────────────────
+bcrypt          # password hashing (PBKDF2-SHA256 fallback if absent)
+cryptography    # AES-GCM: encrypted backups, CMDB vault, config-secret encryption (C2)
+dnspython       # DNS resolve/propagation, DMARC/SPF/DKIM, resolver health
+
+# ── optional (feature-gated; absence hides or degrades the feature) ───────────
+reportlab       # PDF report export
+webauthn        # passkey / WebAuthn MFA
+pysaml2         # SAML 2.0 SSO (with the system xmlsec1 binary)
+psycopg         # Postgres storage backend (JSON/SQLite need nothing extra)

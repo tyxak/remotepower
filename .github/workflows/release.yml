@@ -24,6 +24,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write   # v5.4.1 (C7): SLSA build-provenance attestation
 
 jobs:
   docker:
@@ -81,7 +82,7 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
+          provenance: true   # v5.4.1 (C7): attach SLSA build provenance to the image
 
   # The containerized AGENT image (a separate package: ghcr.io/tyxak/remotepower-agent).
   # Same trigger/guard/multi-arch as the server image, built from Dockerfile.agent.
@@ -132,4 +133,4 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
+          provenance: true   # v5.4.1 (C7): attach SLSA build provenance to the image

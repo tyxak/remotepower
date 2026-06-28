@@ -141,6 +141,14 @@ lint:
 typecheck:
 	$(PY) -m mypy $(TYPECHECK_SRC)
 
+# v5.4.1 (C7): CycloneDX SBOM of the SERVER's OWN Python supply chain (distinct
+# from the FLEET SBOM at /api/sbom). Documents the control plane for supply-chain
+# transparency / SLSA. Stdlib-only generator, runs anywhere.
+sbom-self:
+	@mkdir -p $(DIST_DIR)
+	$(PY) tools/gen-self-sbom.py $(VERSION) > $(DIST_DIR)/remotepower-server-$(VERSION).sbom.json
+	@echo "wrote $(DIST_DIR)/remotepower-server-$(VERSION).sbom.json"
+
 # Fast SAST proxy for GitHub Code Scanning: bandit at medium+ severity AND
 # confidence over the shipped server + agent Python. The codebase has a large
 # INTENTIONAL sink surface (a fleet manager runs subprocesses / opens URLs), so
