@@ -61,6 +61,23 @@ each is configured, so existing installs behave exactly as before):
   the active nav carries `aria-current="page"`; the device drawer has a focus trap +
   focus restore + `aria-labelledby`; a skip-to-content link was added.
 
+Batch 2 (credential-at-rest + API contract + observability):
+
+- **API keys are hashed at rest** (SHA-256): a datastore read no longer yields a
+  reusable bearer secret (the clearest SOC2 finding). The raw key is shown once at
+  creation; a pre-existing plaintext key is accepted and transparently migrated to a
+  hash on first use. (Device tokens + enrollment tokens are a deliberate later step.)
+- **API versioning**: every route is now also reachable under **`/api/v1/...`** (a
+  permanent alias of the unversioned path), so integrators can pin a versioned base
+  URL; future breaking changes can land under `/api/v2`.
+- **Correlation IDs**: every JSON response carries an **`X-Request-Id`** header
+  (honouring an inbound one from a proxy, else minted); a `log_json()` structured-log
+  helper (gated by `RP_LOG_LEVEL`) and the slow-handler ring carry the same id.
+- **Frontend error reporting**: uncaught client errors (`window.onerror` /
+  `unhandledrejection`) are beaconed to **`/api/client-error`** (throttled, scrubbed,
+  capped ring) so browser-side failures are visible to operators instead of dying in
+  a console.
+
 ## v5.4.0 — "RackMatters" — unreleased (test)
 
 A lightweight **time-tracking + billing** layer on one shared time-entry ledger:

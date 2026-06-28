@@ -82,7 +82,9 @@ class TestApiKeyRateLimit(unittest.TestCase):
 
     def test_verify_token_enforces(self):
         i = API_SRC.index("# API keys — full constant-time scan")
-        self.assertIn("_enforce_apikey_ratelimit(matched_kid", API_SRC[i:i + 1400])
+        # v5.4.1: widened 1400→1800 — C1 key-hashing added hash-compare logic +
+        # comments to the scan block, pushing the enforce call further down.
+        self.assertIn("_enforce_apikey_ratelimit(matched_kid", API_SRC[i:i + 1800])
 
     def test_frontend_wires_rate(self):
         self.assertIn('id="apikey-rate"', HTML)

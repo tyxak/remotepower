@@ -134,6 +134,9 @@ MAX_TICKETS = 5000
 # down/up via config `max_devices`. Enforced at enroll only (existing devices and
 # re-enrollment are never blocked).
 MAX_DEVICES = 50000
+# v5.4.1 (F4): frontend error beacon ring (window.onerror / unhandledrejection).
+CLIENT_ERRORS_FILE = DATA_DIR / 'client_errors.json'
+MAX_CLIENT_ERRORS = 200
 # v5.4.1: ticket attachments. Binary blobs live on the filesystem (a real dir,
 # NOT a logical storage key) keyed by an opaque random id; only the metadata
 # (id/filename/content_type/size) is recorded on the ticket message. Download
@@ -2645,11 +2648,21 @@ def _mint_session(username, extra=None, remember_me=False):
         tokens[_token_hash(token)] = rec
     return token
 
+def _apikey_hash(raw):
+    """v5.4.1 (C1): hash an API key for storage-at-rest. API keys are 40-byte
+    urlsafe-random (≈240 bits), so a single SHA-256 is sufficient — they aren't
+    brute-forceable and need no salt/KDF. Hashing means a datastore read no longer
+    yields a reusable bearer secret (the clearest SOC2 finding)."""
+    return hashlib.sha256(str(raw).encode()).hexdigest()
+
+
 def verify_token(token):
     """Returns (username, role) or (None, None).
     Session tokens: O(1) dict lookup.
     API keys: constant-time scan but with early-exit only after full scan
     to avoid timing oracle revealing which key prefix is valid.
+    v5.4.1 (C1): keys are stored as `key_hash` (sha256). A legacy plaintext `key`
+    is still accepted and transparently migrated to `key_hash` on first use.
     """
     if not token:
         return None, None
@@ -2729,27 +2742,46 @@ def verify_token(token):
 
     # API keys — full constant-time scan (no early exit)
     apikeys = load(APIKEYS_FILE)
+    token_hash = _apikey_hash(token)   # v5.4.1 (C1): compare hashes, not plaintext
     matched_user = None
     matched_role = None
     matched_kid  = None
     matched_kdata = None
+    _legacy_migrate = None   # (kid) of a plaintext key matched this request → rehash
     for kid, kdata in apikeys.items():
-        stored_key = kdata.get('key', '')
-        # Pad both to same length for compare_digest (keys are fixed-length urlsafe)
-        if len(stored_key) == len(token):
-            if hmac.compare_digest(stored_key, token):
-                if kdata.get('active', True):
-                    exp = kdata.get('expires_at')
-                    if exp is not None and int(time.time()) > exp:
-                        continue  # expired key
-                    matched_user = kdata.get('user', 'api')
-                    matched_role = kdata.get('role', 'admin')
-                    matched_kid  = kid
-                    matched_kdata = kdata
+        stored_hash = kdata.get('key_hash')
+        legacy_key  = kdata.get('key', '')   # pre-v5.4.1 plaintext (migrated on match)
+        hit = False
+        if stored_hash:
+            hit = hmac.compare_digest(str(stored_hash), token_hash)
+        elif legacy_key and len(legacy_key) == len(token):
+            hit = hmac.compare_digest(legacy_key, token)
+        if hit:
+            if kdata.get('active', True):
+                exp = kdata.get('expires_at')
+                if exp is not None and int(time.time()) > exp:
+                    continue  # expired key
+                matched_user = kdata.get('user', 'api')
+                matched_role = kdata.get('role', 'admin')
+                matched_kid  = kid
+                matched_kdata = kdata
+                if not stored_hash:
+                    _legacy_migrate = kid
     if matched_user:
         # v5.0.0 (#C4): enforce the key's per-minute budget before it counts as
         # authenticated (429s a runaway/leaked key; no-op when rate_limit is 0).
         _enforce_apikey_ratelimit(matched_kid, matched_kdata)
+        if _legacy_migrate:
+            # v5.4.1 (C1): upgrade a legacy plaintext key to key_hash on first
+            # (non-throttled) use so the plaintext copy stops living at rest.
+            # Best-effort — never blocks auth.
+            try:
+                with _LockedUpdate(APIKEYS_FILE) as _ak:
+                    _e = _ak.get(_legacy_migrate)
+                    if isinstance(_e, dict) and _e.get('key') and not _e.get('key_hash'):
+                        _e['key_hash'] = _apikey_hash(_e.pop('key'))
+            except Exception:
+                pass
         return matched_user, matched_role
 
     return None, None
@@ -3103,7 +3135,14 @@ def get_token_from_request():
     return ''
 
 def path_info():
-    return os.environ.get('PATH_INFO', '').rstrip('/')
+    p = os.environ.get('PATH_INFO', '').rstrip('/')
+    # v5.4.1 (E2): /api/v1/* is a permanent alias of the unversioned /api/* — strip
+    # the version segment so every route (exact table + parametrized chains)
+    # resolves identically. Lets integrators pin a versioned base URL today; future
+    # breaking changes can land under /api/v2 without disturbing /api/v1 consumers.
+    if p == '/api/v1' or p.startswith('/api/v1/'):
+        p = '/api' + p[len('/api/v1'):]
+    return p
 
 def method():
     return os.environ.get('REQUEST_METHOD', 'GET').upper()
@@ -3179,6 +3218,39 @@ def _gzip_response_wanted(body_len: int) -> bool:
         return False
 
 
+_REQUEST_ID = None
+
+
+def _request_id():
+    """v5.4.1 (F1): one correlation id per request — honour an inbound
+    X-Request-Id from a trusted proxy (validated charset) or mint one. Echoed on
+    JSON responses and available to log_json() so a log line, the slow-handler
+    record and an audit lookup can be joined for the same request."""
+    global _REQUEST_ID
+    if _REQUEST_ID is None:
+        inbound = (os.environ.get('HTTP_X_REQUEST_ID', '') or '').strip()
+        _REQUEST_ID = inbound if re.fullmatch(r'[A-Za-z0-9._-]{1,64}', inbound) else secrets.token_hex(8)
+    return _REQUEST_ID
+
+
+_LOG_LEVELS = {'debug': 10, 'info': 20, 'warning': 30, 'error': 40}
+
+
+def log_json(level, msg, **fields):
+    """v5.4.1 (F1): structured JSON log line to stderr, gated by RP_LOG_LEVEL
+    (debug<info<warning<error; default 'warning'). Carries the request id so logs
+    join the rest of the per-request trail. Never raises into the caller."""
+    want = _LOG_LEVELS.get((os.environ.get('RP_LOG_LEVEL', 'warning') or 'warning').lower(), 30)
+    if _LOG_LEVELS.get(level, 20) < want:
+        return
+    try:
+        rec = {'ts': int(time.time()), 'level': level, 'rid': _request_id(), 'msg': str(msg)[:500]}
+        rec.update(fields)
+        sys.stderr.write(json.dumps(rec, default=str) + '\n')
+    except Exception:
+        pass
+
+
 def _render_response(status: int, data) -> None:
     """Render an HTTP response to stdout. Used by main() — handlers should
     use respond()/HTTPError instead so the response is uniformly handled."""
@@ -3187,6 +3259,7 @@ def _render_response(status: int, data) -> None:
     print("Content-Type: application/json")
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
+    print(f"X-Request-Id: {_request_id()}")   # v5.4.1 (F1): correlation id
     raw = body.encode('utf-8')
     if _gzip_response_wanted(len(raw)):
         print("Content-Encoding: gzip")
@@ -3605,6 +3678,7 @@ def _record_slow_handler(path, method_, elapsed_ms):
         'path':   _sanitize_str(str(path).split('?', 1)[0], 200),
         'method': _sanitize_str(str(method_), 8),
         'ms':     int(elapsed_ms),
+        'rid':    _request_id(),   # v5.4.1 (F1): correlation id
     }
     try:
         _m = _dbmod()
@@ -34136,6 +34210,43 @@ def handle_scan_schedule_toggle(sid):
     respond(200, {'ok': True, 'enabled': new_state})
 
 
+def handle_client_error():
+    """v5.4.1 (F4): frontend error beacon. POST {message,source,line,col,stack,url}
+    from window.onerror / unhandledrejection so client-side failures are visible to
+    operators instead of dying silently in a browser console. IP-rate-limited,
+    field-capped, capped ring. GET (admin) lists recent entries for Server Status."""
+    if method() == 'GET':
+        require_admin_auth()
+        store = load(CLIENT_ERRORS_FILE) or {}
+        respond(200, {'ok': True, 'errors': (store.get('errors') or [])[-100:]})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _ip_ratelimit('clienterr', _get_client_ip(), 30, window=60):
+        respond(429, {'error': 'rate limited'})
+    body = get_json_obj()
+    def _int(v):
+        return v if isinstance(v, int) and 0 <= v < 10_000_000 else 0
+    entry = {
+        'ts':      int(time.time()),
+        'message': _sanitize_str(str(body.get('message', '')), 500),
+        'source':  _sanitize_str(str(body.get('source', '')), 300),
+        'line':    _int(body.get('line')),
+        'col':     _int(body.get('col')),
+        'stack':   _sanitize_str(str(body.get('stack', '')), 2000),
+        'page':    _sanitize_str(str(body.get('url', '')), 300),
+        'ua':      _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+        'ip':      _get_client_ip(),
+    }
+    if not entry['message']:
+        respond(200, {'ok': True})
+    with _LockedUpdate(CLIENT_ERRORS_FILE) as store:
+        errs = store.setdefault('errors', [])
+        errs.append(entry)
+        if len(errs) > MAX_CLIENT_ERRORS:
+            del errs[:len(errs) - MAX_CLIENT_ERRORS]
+    respond(200, {'ok': True})
+
+
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
@@ -34191,7 +34302,10 @@ def handle_apikeys_create():
             dd = 0
         if dd > 0:
             expires_at = int(time.time()) + dd * 86400
-    apikeys[kid] = {'name': name, 'key': key_value, 'user': user, 'role': role,
+    # v5.4.1 (C1): store only the SHA-256 hash; the raw key is shown once here and
+    # never persisted in cleartext.
+    apikeys[kid] = {'name': name, 'key_hash': _apikey_hash(key_value),
+                    'user': user, 'role': role,
                     'created': int(time.time()), 'active': True,
                     'rate_limit': rate_limit,
                     'expires_at': expires_at}
@@ -49642,6 +49756,8 @@ def _build_exact_routes():
         ('GET', '/api/confirmations'): handle_confirmations_list,
         ('GET', '/api/containers'): handle_containers_overview,
         ('POST', '/api/csp-report'): handle_csp_report,
+        ('POST', '/api/client-error'): handle_client_error,   # v5.4.1 (F4)
+        ('GET', '/api/client-error'): handle_client_error,    # v5.4.1 (F4): admin list
         ('GET', '/api/custom-scripts'): handle_custom_scripts_list,
         ('GET', '/api/monitoring-profiles'): handle_monitoring_profiles,
         ('POST', '/api/monitoring-profiles'): handle_monitoring_profiles,

@@ -296,7 +296,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | SSO-only | Refuse local-password logins when an IdP is configured; per-account `local_login` break-glass *(v5.4.1)* |
 | Roles | Admin, Viewer, Auditor (read-only + audit/compliance, reveals nothing) *(v4.10.0)*, plus custom scoped roles *(v3.4.2)* |
 | Granular RBAC | Custom roles granting exec/reboot/upgrade scoped to groups/tags; roster filtered to scope *(v3.4.2)* |
-| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)* |
+| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.4.1)* |
 | Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)* |
 | PIN enrolment | 6-digit, single-use, 10-min expiry |
 | Session caps | Limit concurrent sessions per user; oldest evicted *(v4.2.0)* |
@@ -418,6 +418,9 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Hardened persistence | flock-serialised writes, per-process tmp, fsync, rolling `.bak` fallback + recovery *(v1.12.1)* |
 | GitOps | Config-from-Git *(v4.0.0)*; Terraform via REST; Ansible runner |
 | Swagger / OpenAPI | OpenAPI 3.1 at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected token |
+| API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.4.1)* |
+| Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.4.1)* |
+| Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.4.1)* |
 | Turnkey install | Unified `install.sh` wizard; one-command Docker (HTTPS, no default password); served `/install` quick-install agent; `install.sh agent push` SSH bootstrap; `install.sh uninstall` *(v4.8.0)* |
 | Install update | **Settings → Install** version check + guided self-update via a server-side update script *(v5.0.0)* |
 | Setup checklist | Settings → Install live getting-started checklist *(v3.4.2)* |

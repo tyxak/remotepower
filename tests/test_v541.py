@@ -270,5 +270,82 @@ class TestEnterpriseHardening(unittest.TestCase):
         self.assertIn('_drawerReturnFocus', js)
 
 
+class TestEnterpriseHardening2(unittest.TestCase):
+    """v5.4.1 batch 2 — credential hashing (C1), API versioning (E2),
+    correlation IDs (F1), frontend error reporting (F4)."""
+
+    # C1 — API-key hashing at rest
+    def test_apikey_hash_deterministic(self):
+        self.assertEqual(api._apikey_hash('abc'), api._apikey_hash('abc'))
+        self.assertNotEqual(api._apikey_hash('abc'), api._apikey_hash('abd'))
+        self.assertEqual(len(api._apikey_hash('x')), 64)  # sha256 hex
+
+    def test_apikey_create_stores_hash_not_plaintext(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("'key_hash': _apikey_hash(key_value)", src)
+        # the list handler must not echo key/key_hash
+        self.assertNotIn("'key': v.get('key'", src)
+
+    def test_apikey_legacy_plaintext_migrates(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = api.APIKEYS_FILE
+        try:
+            api.APIKEYS_FILE = api.Path(d) / 'apikeys.json'
+            api.save(api.APIKEYS_FILE, {'k': {'name': 'o', 'key': 'PLAINKEY0001',
+                                              'user': 'api', 'role': 'admin', 'active': True}})
+            self.assertEqual(api.verify_token('PLAINKEY0001'), ('api', 'admin'))
+            rec = api.load(api.APIKEYS_FILE)['k']
+            self.assertNotIn('key', rec)            # plaintext gone
+            self.assertTrue(rec.get('key_hash'))    # migrated to hash
+            self.assertEqual(api.verify_token('PLAINKEY0001'), ('api', 'admin'))  # hash path
+            self.assertEqual(api.verify_token('WRONGKEY'), (None, None))
+        finally:
+            api.APIKEYS_FILE = orig
+
+    # E2 — /api/v1 alias
+    def test_api_v1_alias(self):
+        import os
+        old = os.environ.get('PATH_INFO')
+        try:
+            os.environ['PATH_INFO'] = '/api/v1/devices'
+            self.assertEqual(api.path_info(), '/api/devices')
+            os.environ['PATH_INFO'] = '/api/v1'
+            self.assertEqual(api.path_info(), '/api')
+            os.environ['PATH_INFO'] = '/api/devices'
+            self.assertEqual(api.path_info(), '/api/devices')
+        finally:
+            if old is None:
+                os.environ.pop('PATH_INFO', None)
+            else:
+                os.environ['PATH_INFO'] = old
+
+    # F1 — correlation IDs + structured logging
+    def test_request_id_and_log_helper(self):
+        import os
+        api._REQUEST_ID = None
+        os.environ['HTTP_X_REQUEST_ID'] = 'trace-abc_123'
+        self.assertEqual(api._request_id(), 'trace-abc_123')
+        api._REQUEST_ID = None
+        os.environ['HTTP_X_REQUEST_ID'] = 'bad id !!'
+        self.assertRegex(api._request_id(), r'^[0-9a-f]{16}$')   # minted
+        os.environ.pop('HTTP_X_REQUEST_ID', None)
+        self.assertTrue(callable(api.log_json))
+        src = (_CGI / "api.py").read_text()
+        self.assertIn('print(f"X-Request-Id: {_request_id()}")', src)
+
+    # F4 — frontend error reporting
+    def test_client_error_endpoint(self):
+        self.assertTrue(hasattr(api, 'handle_client_error'))
+        routes = api._build_exact_routes()
+        self.assertIn(('POST', '/api/client-error'), routes)
+        self.assertIn(('GET', '/api/client-error'), routes)
+        self.assertTrue(isinstance(api.MAX_CLIENT_ERRORS, int))
+        js = _appjs()
+        self.assertIn("fetch('/api/client-error'", js)
+        self.assertIn("addEventListener('error'", js)
+        self.assertIn("addEventListener('unhandledrejection'", js)
+
+
 if __name__ == "__main__":
     unittest.main()

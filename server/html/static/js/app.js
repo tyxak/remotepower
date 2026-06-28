@@ -1,4 +1,38 @@
 // ══════════════════════════════════════════════════════════════════════════════
+// v5.4.1 (F4): report uncaught client errors to the server so frontend failures
+// are visible to operators (Server Status) instead of dying in a browser console.
+// Throttled + capped + best-effort; CSP-safe (addEventListener, not inline on*).
+// ══════════════════════════════════════════════════════════════════════════════
+(function () {
+  let _errSent = 0, _errLast = 0;
+  function _reportClientError(message, source, line, col, stack) {
+    try {
+      const now = Date.now();
+      if (now - _errLast < 5000 || _errSent >= 20) return;   // ≤1/5s, ≤20/page
+      _errLast = now; _errSent++;
+      fetch('/api/client-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+                   'X-Token': (typeof getToken === 'function' ? getToken() : '') },
+        body: JSON.stringify({
+          message: String(message || '').slice(0, 500),
+          source:  String(source || '').slice(0, 300),
+          line: line || 0, col: col || 0,
+          stack: String(stack || '').slice(0, 2000),
+          url: String(location.href || '').slice(0, 300),
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch (_) { /* never let the reporter throw */ }
+  }
+  window.addEventListener('error', e => _reportClientError(e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack));
+  window.addEventListener('unhandledrejection', e => {
+    const r = e && e.reason;
+    _reportClientError((r && r.message) || String(r), '', 0, 0, r && r.stack);
+  });
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
 // State
 // ══════════════════════════════════════════════════════════════════════════════
 let devices         = [];
