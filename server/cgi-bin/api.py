@@ -3924,6 +3924,18 @@ def audit_log(actor, action, detail='', source_ip=None,
         # Count-bound (legacy safety net so a misconfigured retention_days=0
         # doesn't let the file grow without limit)
         al['entries'] = entries[-MAX_AUDIT_LOG:]
+    # v5.4.1 (WORM): also append the hash-chained entry to an append-only sink the
+    # app NEVER rotates or prunes — the operator makes it immutable (chattr +a, or
+    # a WORM / S3-Object-Lock-backed mount), giving a tamper-resistant audit copy
+    # independent of the live (bounded) log. Best-effort; a failure never breaks
+    # audit logging. The entry already carries its _hash from inside the lock.
+    _worm = (cfg.get('audit_worm_path') or '').strip()
+    if _worm:
+        try:
+            with open(_worm, 'a') as _wf:
+                _wf.write(json.dumps(entry) + '\n')
+        except Exception as _worm_err:
+            sys.stderr.write(f'[remotepower] audit WORM append failed: {_worm_err}\n')
     # v3.7.0: forward to an external SIEM/syslog if configured. Best-effort and
     # fully isolated — a forwarding outage must never break audit logging.
     if cfg.get('audit_forward_enabled'):
@@ -16466,6 +16478,7 @@ def handle_config_get():
     safe.setdefault('ip_allowlist_enabled',   False)
     # v3.7.0: audit forwarding — surface config + a *_set flag, never the token.
     safe.setdefault('audit_forward_enabled', False)
+    safe.setdefault('audit_worm_path', '')   # v5.4.1 (WORM): append-only audit sink
     safe.setdefault('audit_forward_mode', 'http')
     safe.setdefault('audit_forward_port', 514)
     safe['audit_forward_token_set'] = bool(safe.pop('audit_forward_token', None))
@@ -17625,6 +17638,14 @@ def handle_config_save():
     # v3.7.0: audit-log forwarding to an external SIEM / syslog.
     if 'audit_forward_enabled' in body:
         cfg['audit_forward_enabled'] = bool(body['audit_forward_enabled'])
+    if 'audit_worm_path' in body:   # v5.4.1 (WORM): append-only audit sink path
+        wp = _sanitize_str(body.get('audit_worm_path') or '', 512).strip()
+        if wp:
+            if not wp.startswith('/'):
+                respond(400, {'error': 'audit_worm_path must be absolute'})
+            if any(c in wp for c in ('\n', '\r', '\x00', ';', '|', '`', '$', '<', '>')):
+                respond(400, {'error': 'audit_worm_path has illegal characters'})
+        cfg['audit_worm_path'] = wp
     if 'audit_forward_mode' in body:
         m = str(body['audit_forward_mode']).strip().lower()
         if m not in ('http', 'syslog'):
@@ -37293,6 +37314,11 @@ def handle_security_posture():
     add('audit_forward', 'Audit/events forwarded to a SIEM', fwd,
         'configured' if fwd else 'not configured',
         'Configure under Settings → Security → Audit log forwarding (or SIEM event streaming).', fix_tab='security')
+    _worm_p = (cfg.get('audit_worm_path') or '').strip()
+    add('audit_worm', 'Append-only (WORM) audit sink', bool(_worm_p),
+        _worm_p or 'not configured',
+        'Set an append-only audit sink path under Settings → Security → Audit log '
+        'forwarding (make it immutable with chattr +a / a WORM mount).', fix_tab='security')
     add('secrets_scan', 'Secrets-on-disk scanning enabled', bool(cfg.get('secrets_scan_enabled')),
         'on' if cfg.get('secrets_scan_enabled') else 'off',
         'Enable under Settings → Security → Secrets-on-disk scanning.', fix_tab='security')

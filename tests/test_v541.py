@@ -636,5 +636,44 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         self.assertIn("'config_secrets_encrypted'", (_CGI / "api.py").read_text())
 
 
+class TestWormAuditSink(unittest.TestCase):
+    """v5.4.1 (WORM): append-only audit sink."""
+
+    def test_append_and_off(self):
+        import json
+        import os
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = (api.DATA_DIR, api.CONFIG_FILE, api._get_client_ip)
+        try:
+            api.DATA_DIR = api.Path(d)
+            api.CONFIG_FILE = api.DATA_DIR / 'config.json'
+            api._get_client_ip = lambda: '1.2.3.4'
+            api._LOAD_CACHE.clear()
+            worm = os.path.join(d, 'worm.jsonl')
+            api.save(api.CONFIG_FILE, {'audit_worm_path': worm})
+            api._LOAD_CACHE.clear()
+            api.audit_log('alice', 'act', 'detail')
+            lines = open(worm).read().strip().splitlines()
+            self.assertEqual(len(lines), 1)
+            e = json.loads(lines[0])
+            self.assertEqual(e['actor'], 'alice')
+            self.assertTrue(e.get('_hash'))          # the hash-chained entry
+            # off → no crash, no further writes
+            api.save(api.CONFIG_FILE, {})
+            api._LOAD_CACHE.clear()
+            api.audit_log('bob', 'act2', 'd')
+            self.assertEqual(len(open(worm).read().strip().splitlines()), 1)
+        finally:
+            api.DATA_DIR, api.CONFIG_FILE, api._get_client_ip = orig
+            api._LOAD_CACHE.clear()
+
+    def test_config_and_posture_wired(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("cfg['audit_worm_path'] = wp", src)
+        self.assertIn("'audit_worm'", src)            # posture row
+        self.assertIn('id="cfg-audit-worm-path"', _html())
+
+
 if __name__ == "__main__":
     unittest.main()

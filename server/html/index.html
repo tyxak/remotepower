@@ -1919,6 +1919,8 @@
           <div class="settings-section">
             <h3>Audit log forwarding</h3>
             <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging.</p>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-worm-path">Append-only (WORM) sink — absolute file path (each audit entry is appended; make it immutable with <code>chattr +a</code> or a WORM mount for a tamper-resistant copy)</label>
+              <input type="text" id="cfg-audit-worm-path" class="form-input mw-380" placeholder="/var/log/remotepower-audit.jsonl (blank = off)"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-enabled"> Enable forwarding</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-audit-forward-mode">Mode</label>
               <select id="cfg-audit-forward-mode" class="form-input mw-160"><option value="http">HTTP (JSON)</option><option value="syslog">Syslog</option></select></div>

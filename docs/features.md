@@ -267,6 +267,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |
 | Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for SMTP/OIDC/LDAP/SIEM/audit-forward secrets; transparent at load/save, fail-graceful *(v5.4.1)* |
+| WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.4.1)* |
 | Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.4.1)* |
 | Backup export | One-click redacted ZIP of all data JSON |
 

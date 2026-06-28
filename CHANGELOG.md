@@ -108,6 +108,10 @@ Batch 2 (credential-at-rest + API contract + observability):
   destination** (by webhook-destination name or id) instead of always re-notifying every
   channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
   (Settings → Notifications → On-call & escalation).
+- **Append-only (WORM) audit sink**: point `audit_worm_path` at a file the operator
+  makes immutable (`chattr +a` / a WORM mount) and every hash-chained audit entry is
+  also appended there — a tamper-resistant audit copy independent of the live, bounded
+  log. Best-effort; graded on the posture page.
 - **Config secrets encrypted at rest (opt-in)**: set **`RP_CONFIG_KEY`** (a stable env
   secret, like `RP_BACKUP_PASSPHRASE`) and the sensitive `config.json` fields —
   `smtp_password`, `oidc_client_secret`, `ldap_bind_password`, `siem_token`,

@@ -2896,6 +2896,7 @@ async function loadSettings() {
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v ?? ''; };
     set('cfg-audit-forward-mode', data.audit_forward_mode || 'http');
     set('cfg-audit-forward-url', data.audit_forward_url || '');
+    set('cfg-audit-worm-path', data.audit_worm_path || '');   // v5.4.1 (WORM)
     set('cfg-audit-forward-host', data.audit_forward_host || '');
     set('cfg-audit-forward-port', data.audit_forward_port || 514);
     const tcp = document.getElementById('cfg-audit-forward-tcp'); if (tcp) tcp.checked = !!data.audit_forward_tcp;
@@ -3335,6 +3336,8 @@ async function saveSettings(btn) {
     payload.webhook_block_local = !!document.getElementById('cfg-webhook-block-local')?.checked;
   }
   // v3.7.0: audit forwarding + change approval (maker-checker)
+  const _wormEl = document.getElementById('cfg-audit-worm-path');   // v5.4.1 (WORM): independent of forwarding
+  if (_wormEl) payload.audit_worm_path = (_wormEl.value || '').trim();
   const _afEn = document.getElementById('cfg-audit-forward-enabled');
   if (_afEn) {
     payload.audit_forward_enabled = _afEn.checked;
