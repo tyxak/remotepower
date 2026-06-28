@@ -895,5 +895,199 @@ class TestEnrollmentTokenHashing(unittest.TestCase):
         self.assertIn("(meta.get('prefix') or token[:8])", src)                # list
 
 
+class TestG3ControlPlaneUptime(unittest.TestCase):
+    """v5.4.1 (G3): honest observed control-plane self-availability — hourly
+    buckets the server served a request, surfaced in self-test + Prometheus."""
+
+    def _tmp(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        return api.Path(d) / 'control_uptime.json'
+
+    def test_record_then_compute_100pct(self):
+        orig = api.CONTROL_UPTIME_FILE
+        try:
+            api.CONTROL_UPTIME_FILE = self._tmp()
+            api._record_self_alive()
+            self.assertTrue(api.CONTROL_UPTIME_FILE.exists())
+            up = api._control_uptime()
+            self.assertTrue(up['tracking'])
+            w = up['windows']['24h']
+            # only the current hour is recorded → denominator starts at first
+            # tracked hour → 1/1 hours observed = 100%.
+            self.assertEqual((w['hours_observed'], w['hours_total']), (1, 1))
+            self.assertEqual(w['percent'], 100.0)
+            self.assertIn('downtime', up['note'])   # honest labelling
+        finally:
+            api.CONTROL_UPTIME_FILE = orig
+
+    def test_partial_window_is_honest(self):
+        orig = api.CONTROL_UPTIME_FILE
+        try:
+            import time
+            api.CONTROL_UPTIME_FILE = self._tmp()
+            now = int(time.time())
+            cur = now - (now % 3600)
+            # tracked 5h ago; only 3 of the 6 hour-buckets present → 50%.
+            hrs = [cur - 5 * 3600, cur - 4 * 3600, cur]
+            api.save(api.CONTROL_UPTIME_FILE, {'hours': hrs, 'since': hrs[0]})
+            up = api._control_uptime()
+            w = up['windows']['24h']
+            self.assertEqual(w['hours_total'], 6)     # cur..cur-5h inclusive
+            self.assertEqual(w['hours_observed'], 3)
+            self.assertEqual(w['percent'], 50.0)
+        finally:
+            api.CONTROL_UPTIME_FILE = orig
+
+    def test_untracked_is_no_op(self):
+        orig = api.CONTROL_UPTIME_FILE
+        try:
+            api.CONTROL_UPTIME_FILE = self._tmp()
+            up = api._control_uptime()
+            self.assertFalse(up['tracking'])
+            self.assertEqual(up['windows'], {})
+        finally:
+            api.CONTROL_UPTIME_FILE = orig
+
+    def test_prometheus_gauge_emitted(self):
+        import prometheus_export
+        ctx = {'now': 1_700_000_000, 'online_ttl': 300, 'devices': {},
+               'server_version': api.SERVER_VERSION,
+               'control_uptime': {'tracking': True,
+                                  'windows': {'24h': {'percent': 99.5}}}}
+        out = prometheus_export.generate_metrics(ctx)
+        self.assertIn('remotepower_control_plane_uptime_percent', out)
+        self.assertIn('window="24h"', out)
+
+    def test_wired_into_cadence_and_selftest(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("_safe(_record_self_alive, '_record_self_alive')", src)
+        self.assertIn("'control_uptime':  _control_uptime()", src)
+        self.assertIn("'uptime': up,", src)
+
+
+class TestC8ExternalKeySourcing(unittest.TestCase):
+    """v5.4.1 (C8): RP_CONFIG_KEY / RP_BACKUP_PASSPHRASE may be sourced from an
+    external command (<name>_CMD → Vault/KMS/pass), cached per-process; raw env wins."""
+
+    _N = 'RP_TEST_C8'
+
+    def setUp(self):
+        import os
+        api._SECRET_CMD_CACHE.pop(self._N, None)
+        self._saved = {k: os.environ.get(k) for k in (self._N, self._N + '_CMD')}
+
+    def tearDown(self):
+        import os
+        api._SECRET_CMD_CACHE.pop(self._N, None)
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_raw_env_wins(self):
+        import os
+        os.environ[self._N] = 'rawval'
+        os.environ[self._N + '_CMD'] = 'echo cmdval'
+        self.assertEqual(api._secret_from_env(self._N), 'rawval')
+
+    def test_command_fallback_and_cache(self):
+        # Hermetic: patch subprocess.run so a leaked global mock from another test
+        # file can't interfere (the helper's logic is what we're verifying).
+        import os
+        from unittest import mock
+        os.environ.pop(self._N, None)
+        os.environ[self._N + '_CMD'] = 'whatever'
+        fake = mock.Mock(returncode=0, stdout='supersecret\n', stderr='')
+        with mock.patch.object(api.subprocess, 'run', return_value=fake):
+            self.assertEqual(api._secret_from_env(self._N), 'supersecret')
+        # cached: a changed command does NOT re-run within the process lifetime
+        os.environ[self._N + '_CMD'] = 'printf changed'
+        self.assertEqual(api._secret_from_env(self._N), 'supersecret')
+
+    def test_neither_is_none(self):
+        import os
+        os.environ.pop(self._N, None)
+        os.environ.pop(self._N + '_CMD', None)
+        self.assertIsNone(api._secret_from_env(self._N))
+
+    def test_failing_command_is_none(self):
+        import os
+        from unittest import mock
+        os.environ.pop(self._N, None)
+        os.environ[self._N + '_CMD'] = 'whatever'
+        fake = mock.Mock(returncode=3, stdout='', stderr='boom')
+        with mock.patch.object(api.subprocess, 'run', return_value=fake):
+            self.assertIsNone(api._secret_from_env(self._N))
+
+    def test_wired_into_both_key_sources(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("return _secret_from_env('RP_CONFIG_KEY') or None", src)
+        self.assertIn("return (_secret_from_env('RP_BACKUP_PASSPHRASE') or '').strip()", src)
+
+
+class TestF2TraceContext(unittest.TestCase):
+    """v5.4.1 (F2): W3C trace-context — ingest inbound traceparent, carry the
+    trace-id in structured logs, propagate a child span on outbound webhooks."""
+
+    def setUp(self):
+        import os
+        self._saved = os.environ.get('HTTP_TRACEPARENT')
+        api._TRACE_ID = None
+
+    def tearDown(self):
+        import os
+        api._TRACE_ID = None
+        if self._saved is None:
+            os.environ.pop('HTTP_TRACEPARENT', None)
+        else:
+            os.environ['HTTP_TRACEPARENT'] = self._saved
+
+    def test_honours_inbound_traceparent(self):
+        import os
+        tid = 'abcdef0123456789abcdef0123456789'
+        os.environ['HTTP_TRACEPARENT'] = f'00-{tid}-0011223344556677-01'
+        self.assertEqual(api._trace_id(), tid)
+
+    def test_rejects_all_zero_trace_id(self):
+        import os, re
+        os.environ['HTTP_TRACEPARENT'] = '00-' + '0' * 32 + '-0011223344556677-01'
+        t = api._trace_id()
+        self.assertNotEqual(t, '0' * 32)
+        self.assertTrue(re.fullmatch(r'[0-9a-f]{32}', t))
+
+    def test_mints_when_absent(self):
+        import os, re
+        os.environ.pop('HTTP_TRACEPARENT', None)
+        self.assertTrue(re.fullmatch(r'[0-9a-f]{32}', api._trace_id()))
+
+    def test_traceparent_out_format_reuses_trace_id(self):
+        import os, re
+        tid = '11112222333344445555666677778888'
+        os.environ['HTTP_TRACEPARENT'] = f'00-{tid}-0011223344556677-01'
+        tp = api._traceparent_out()
+        m = re.fullmatch(r'00-([0-9a-f]{32})-([0-9a-f]{16})-01', tp)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), tid)         # same trace
+        # a second call mints a distinct span-id (new child)
+        self.assertNotEqual(api._traceparent_out().split('-')[2], m.group(2))
+
+    def test_log_json_carries_trace_id(self):
+        import io, json, os
+        from contextlib import redirect_stderr
+        os.environ['HTTP_TRACEPARENT'] = '00-' + 'a' * 32 + '-0011223344556677-01'
+        api._TRACE_ID = None
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            api.log_json('error', 'hi')
+        rec = json.loads(buf.getvalue().strip().splitlines()[-1])
+        self.assertEqual(rec['trace_id'], 'a' * 32)
+
+    def test_webhook_propagation_wired(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("headers.setdefault('traceparent', _traceparent_out())", src)
+
+
 if __name__ == "__main__":
     unittest.main()

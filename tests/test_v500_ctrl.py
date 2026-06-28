@@ -143,7 +143,9 @@ class TestBackupApiWiring(unittest.TestCase):
     def test_passphrase_from_env_only(self):
         self.assertIn("RP_BACKUP_PASSPHRASE", API_SRC)
         i = API_SRC.index("def _backup_passphrase(")
-        self.assertIn("os.environ.get('RP_BACKUP_PASSPHRASE'", API_SRC[i:i + 400])
+        # v5.4.1 (C8): sourced via _secret_from_env (env var OR a *_CMD helper) —
+        # still never from the config/data dir (which the backup itself contains).
+        self.assertIn("_secret_from_env('RP_BACKUP_PASSPHRASE')", API_SRC[i:i + 800])
 
     def test_backup_run_encrypts(self):
         i = API_SRC.index("def _run_data_backup(")
@@ -894,8 +896,9 @@ class TestT5Polish(unittest.TestCase):
         # (can't call the handler directly — it needs auth/respond — so assert the
         # shape via the source contract instead).
         i = API_SRC.index("def handle_self_test(")
-        self.assertIn("'ok': overall", API_SRC[i:i + 3000])
-        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 3000])
+        # window widened for the v5.4.1 (G3) control-plane-uptime check block.
+        self.assertIn("'ok': overall", API_SRC[i:i + 3800])
+        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 3800])
 
 
 # ─────────────────────────── T6 industrial design pass ─────────────────────────

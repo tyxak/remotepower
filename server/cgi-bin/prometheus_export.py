@@ -364,6 +364,19 @@ def generate_metrics(ctx: dict) -> str:
                 lines.append(_metric('remotepower_monitor_slo_burn_rate',
                                      {'label': str(m.get('label', ''))}, float(m.get('burn_rate') or 0)))
 
+    # v5.4.1 (G3): observed control-plane availability over rolling windows.
+    # A gap is downtime OR a quiet hour with zero traffic (see the API note).
+    cu = ctx.get('control_uptime')
+    if isinstance(cu, dict) and cu.get('tracking'):
+        wins = cu.get('windows') or {}
+        if wins:
+            lines.append('# HELP remotepower_control_plane_uptime_percent Observed hours the control plane served a request, over hours tracked.')
+            lines.append('# TYPE remotepower_control_plane_uptime_percent gauge')
+            for label, w in sorted(wins.items()):
+                if isinstance(w, dict):
+                    lines.append(_metric('remotepower_control_plane_uptime_percent',
+                                         {'window': str(label)}, float(w.get('percent') or 0)))
+
     # Trailing newline per spec
     lines.append('')
     return '\n'.join(lines)

@@ -324,6 +324,10 @@ HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
 HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
 HEALTH_ALERT_STATE_FILE = DATA_DIR / 'health_alert_state.json'
+# v5.4.1 (G3): control-plane self-availability — one hourly bucket per hour the
+# server served at least one request. Honest "observed availability" (see
+# _control_uptime); ~92 days of buckets retained.
+CONTROL_UPTIME_FILE = DATA_DIR / 'control_uptime.json'
 # v3.4.2: automation rules (when event matches → run script / notify).
 RULES_FILE       = DATA_DIR / 'automation_rules.json'
 # v3.4.2: rolling log of selected events that fired outside business hours.
@@ -1841,8 +1845,44 @@ _CONFIG_SECRET_FIELDS = ('smtp_password', 'oidc_client_secret', 'ldap_bind_passw
 _CONFIG_ENC_PREFIX = 'enc:v1:'
 
 
+_SECRET_CMD_CACHE = {}
+
+
+def _secret_from_env(name):
+    """v5.4.1 (C8): resolve a bootstrap secret (RP_CONFIG_KEY / RP_BACKUP_PASSPHRASE)
+    from EITHER the raw env var OR an external command named in ``<name>_CMD`` — so
+    the key can be fetched from Vault / AWS-KMS / `pass` / age at start-up instead of
+    living in the process environment (which is readable via /proc/<pid>/environ and
+    leaks into crash dumps). The command's stdout (stripped) is the secret. It runs at
+    most once per worker (cached for the process lifetime). The raw env var wins when
+    both are set. Returns None when neither is configured. Never raises."""
+    raw = os.environ.get(name)
+    if raw:
+        return raw
+    cmd = os.environ.get(name + '_CMD')
+    if not cmd:
+        return None
+    if name in _SECRET_CMD_CACHE:
+        return _SECRET_CMD_CACHE[name]
+    val = None
+    try:
+        # Operator-supplied command (same trust level as the env var it replaces);
+        # shell=True so pipelines like `vault kv get -field=k secret/rp | tr -d '\n'`
+        # work. Bounded timeout so a hung helper can't wedge the worker.
+        out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+        if out.returncode == 0:
+            val = (out.stdout or '').strip() or None
+        else:
+            sys.stderr.write(f'[remotepower] {name}_CMD exited {out.returncode}: '
+                             f'{(out.stderr or "")[:200]}\n')
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] {name}_CMD failed: {e}\n')
+    _SECRET_CMD_CACHE[name] = val
+    return val
+
+
 def _config_master_key():
-    return os.environ.get('RP_CONFIG_KEY') or None
+    return _secret_from_env('RP_CONFIG_KEY') or None
 
 
 def _cfg_enc(plain):
@@ -3334,6 +3374,7 @@ def _gzip_response_wanted(body_len: int) -> bool:
 
 
 _REQUEST_ID = None
+_TRACE_ID = None    # v5.4.1 (F2): W3C trace-id for the current request
 
 
 def _request_id():
@@ -3346,6 +3387,27 @@ def _request_id():
         inbound = (os.environ.get('HTTP_X_REQUEST_ID', '') or '').strip()
         _REQUEST_ID = inbound if re.fullmatch(r'[A-Za-z0-9._-]{1,64}', inbound) else secrets.token_hex(8)
     return _REQUEST_ID
+
+
+def _trace_id():
+    """v5.4.1 (F2): the W3C trace-id (32 hex) for this request. Honours an inbound
+    ``traceparent`` header (00-<traceid>-<spanid>-<flags>) from an upstream tracer
+    so RemotePower's logs + outbound calls join the same distributed trace; mints a
+    fresh trace-id otherwise. Cached per request (reset in _begin_request)."""
+    global _TRACE_ID
+    if _TRACE_ID is None:
+        tp = (os.environ.get('HTTP_TRACEPARENT', '') or '').strip()
+        m = re.fullmatch(r'00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}', tp)
+        # reject the all-zero trace-id (invalid per spec); else mint one
+        _TRACE_ID = m.group(1) if (m and m.group(1) != '0' * 32) else secrets.token_hex(16)
+    return _TRACE_ID
+
+
+def _traceparent_out():
+    """v5.4.1 (F2): a W3C ``traceparent`` value to attach to an OUTBOUND request
+    (webhook / SIEM forward) so the downstream system joins this trace as a child
+    span. Reuses our trace-id with a fresh 8-byte span-id, sampled flag set."""
+    return f'00-{_trace_id()}-{secrets.token_hex(8)}-01'
 
 
 # ── v5.4.1 (keystone Stage A): request lifecycle ─────────────────────────────
@@ -3364,9 +3426,10 @@ def _request_id():
 # in-process `run_*_if_due` sweeps) and must NOT be cleared.
 def _begin_request():
     """Reset per-request process-local state at the start of a request."""
-    global _REQUEST_ID
+    global _REQUEST_ID, _TRACE_ID
     _LOAD_CACHE.clear()   # the load() memoiser is per-request, never cross-request
     _REQUEST_ID = None    # mint a fresh correlation id for this request
+    _TRACE_ID = None      # v5.4.1 (F2): re-read traceparent per request
 
 
 def _end_request():
@@ -3386,7 +3449,8 @@ def log_json(level, msg, **fields):
     if _LOG_LEVELS.get(level, 20) < want:
         return
     try:
-        rec = {'ts': int(time.time()), 'level': level, 'rid': _request_id(), 'msg': str(msg)[:500]}
+        rec = {'ts': int(time.time()), 'level': level, 'rid': _request_id(),
+               'trace_id': _trace_id(), 'msg': str(msg)[:500]}
         rec.update(fields)
         sys.stderr.write(json.dumps(rec, default=str) + '\n')
     except Exception:
@@ -7697,6 +7761,12 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
             event, title, message, priority, safe_payload)
     headers.setdefault('Content-Type', content_type)
     headers.setdefault('User-Agent', f'RemotePower/{SERVER_VERSION}')
+    # v5.4.1 (F2): propagate W3C trace-context so a downstream receiver joins this
+    # request's distributed trace as a child span (harmless to services that ignore it).
+    try:
+        headers.setdefault('traceparent', _traceparent_out())
+    except Exception:
+        pass
     # Optional HMAC-SHA256 signature so a generic receiver can verify payload
     # authenticity. Signs the exact bytes sent. Generic format only — signing a
     # hosted-service body (Discord/Slack/Telegram/Matrix) is meaningless.
@@ -19884,6 +19954,72 @@ def _cadence_job_status(now):
     return jobs
 
 
+def _record_self_alive():
+    """v5.4.1 (G3): note that the control plane served a request this hour. Runs
+    once per request but writes at most once per hour (cheap mtime-gated path) —
+    a gap in the bucket list means the server served NO request that hour. NEVER
+    raises into the request pipeline."""
+    try:
+        now = int(time.time())
+        hr = now - (now % 3600)
+        mt = backend_mtime(CONTROL_UPTIME_FILE)
+        if mt and int(mt) >= hr:
+            return  # already recorded an hour-bucket this hour — stat-only path
+        with _LockedUpdate(CONTROL_UPTIME_FILE) as st:
+            # st is the yielded load() result (a dict, {} for a missing key);
+            # mutate IN PLACE so __exit__ persists it (rebinding would not save).
+            hrs = st.get('hours')
+            if not isinstance(hrs, list):
+                hrs = []
+            if not hrs or hrs[-1] != hr:
+                hrs.append(hr)
+            st['hours'] = hrs[-2208:]            # ~92 days of hourly buckets
+            st.setdefault('since', hrs[0] if hrs else hr)
+    except Exception:
+        pass
+
+
+def _control_uptime():
+    """v5.4.1 (G3): observed control-plane availability over rolling windows.
+    HONEST by construction: the denominator starts at the first tracked hour
+    (never counts pre-deployment time), and a missing hour means the server
+    served zero requests that hour — which is downtime OR simply a quiet period
+    with no traffic. Returned to /api/self-test + the Prometheus exporter."""
+    try:
+        st = load(CONTROL_UPTIME_FILE) or {}
+    except Exception:
+        st = {}
+    hrs = st.get('hours') if isinstance(st, dict) else None
+    if not isinstance(hrs, list) or not hrs:
+        return {'tracking': False, 'windows': {}}
+    seen = set(int(h) for h in hrs if isinstance(h, (int, float)))
+    if not seen:
+        return {'tracking': False, 'windows': {}}
+    now = int(time.time())
+    cur = now - (now % 3600)
+    first = min(seen)
+    out = {}
+    for label, days in (('24h', 1), ('7d', 7), ('30d', 30)):
+        start = max(cur - days * 86400, first)
+        total = (cur - start) // 3600 + 1
+        if total <= 0:
+            continue
+        got = sum(1 for h in seen if start <= h <= cur)
+        out[label] = {
+            'percent': round(100.0 * got / total, 3),
+            'hours_observed': got,
+            'hours_total': int(total),
+        }
+    return {
+        'tracking': True,
+        'since': int(st.get('since', first)),
+        'windows': out,
+        'note': 'Observed availability: hours the control plane served at least '
+                'one request, over hours since tracking began. A gap is downtime '
+                'OR an hour with zero traffic.',
+    }
+
+
 def handle_self_test():
     """v5.0.0 (#U9): ``GET /api/self-test`` — a fast green/red health summary the
     UI shows on one click: storage reachable, config loads, disk headroom, audit
@@ -19944,9 +20080,22 @@ def handle_self_test():
     except Exception:
         pass
 
+    # G3: observed control-plane availability (informational — never reds the suite).
+    try:
+        up = _control_uptime()
+        if up.get('tracking'):
+            w24 = (up.get('windows') or {}).get('24h') or {}
+            _add('Control-plane uptime', True,
+                 f"{w24.get('percent', 0)}% observed (24h, "
+                 f"{w24.get('hours_observed', 0)}/{w24.get('hours_total', 0)} h)")
+        else:
+            up = None
+    except Exception:
+        up = None
+
     overall = all(c['ok'] for c in checks)
     respond(200, {'ok': overall, 'checks': checks, 'server_version': SERVER_VERSION,
-                  'generated_at': now})
+                  'uptime': up, 'generated_at': now})
 
 
 def handle_diagnostics_bundle():
@@ -20507,8 +20656,9 @@ def _backup_passphrase():
     """v5.0.0 (#C2): the DR-backup encryption passphrase, sourced ONLY from the
     `RP_BACKUP_PASSPHRASE` environment variable — never the config/data dir (the
     backup contains the data dir, so storing the key there would be circular).
-    Empty/unset → backups stay plaintext (legacy behavior)."""
-    return (os.environ.get('RP_BACKUP_PASSPHRASE') or '').strip()
+    Empty/unset → backups stay plaintext (legacy behavior). v5.4.1 (C8): may also
+    be sourced from an external command via RP_BACKUP_PASSPHRASE_CMD (Vault/KMS)."""
+    return (_secret_from_env('RP_BACKUP_PASSPHRASE') or '').strip()
 
 
 def _run_data_backup(triggered_by='scheduled'):
@@ -37488,8 +37638,8 @@ def handle_security_posture():
     add('config_secrets_encrypted', 'Config secrets encrypted at rest', _cfg_enc_armed,
         'armed (RP_CONFIG_KEY set)' if _cfg_enc_armed else 'plaintext at rest',
         'Set the RP_CONFIG_KEY environment variable (a stable secret, like '
-        'RP_BACKUP_PASSPHRASE) so SMTP/OIDC/SAML/LDAP/SIEM secrets are AES-GCM '
-        'encrypted in config.json.')
+        'RP_BACKUP_PASSPHRASE) — or RP_CONFIG_KEY_CMD to fetch it from Vault/KMS — '
+        'so SMTP/OIDC/SAML/LDAP/SIEM secrets are AES-GCM encrypted in config.json.')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
 
@@ -44542,6 +44692,7 @@ def _build_metrics_ctx():
     return {
         'server_version':  SERVER_VERSION,
         'slo':             _compute_slo(),   # v5.4.1 (F3): SLO/error-budget gauges
+        'control_uptime':  _control_uptime(),  # v5.4.1 (G3): observed self-availability
         'now':             now,
         'online_ttl':      get_online_ttl(),
         'devices':         load(DEVICES_FILE),
@@ -51346,6 +51497,9 @@ def main():
     _safe(_sqlite_maintenance_if_due, '_sqlite_maintenance_if_due')
     # v3.12.0: daily age-based purge for logs with a configured retention.
     _safe(_retention_sweep_if_due, '_retention_sweep_if_due')
+    # v5.4.1 (G3): record an hourly control-plane "served a request" bucket.
+    # Cheap (mtime-gated; writes at most once/hour) — feeds observed-availability.
+    _safe(_record_self_alive, '_record_self_alive')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch
