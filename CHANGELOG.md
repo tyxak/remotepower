@@ -80,6 +80,16 @@ Batch 2 (credential-at-rest + API contract + observability):
 - **Branded notification email**: alert, fleet-report/digest and SMTP-test emails now
   send a branded HTML alternative (white-label `brand_name` + `brand_accent`) alongside
   the plain-text body, instead of plain text only.
+- **List API convention**: list endpoints now share a documented superset convention —
+  optional `?q=<substr>` filter, `?sort=<field>&order=`, `?limit`/`?offset`, and
+  `?meta=1` for a `{items,total,limit,offset,next}` envelope. With none of these the
+  response is byte-for-byte the old bare list (backward-compatible). Applied to the
+  audit log, command history, API-keys and client-errors lists.
+- **Signed exports**: the compliance **evidence pack** now carries an HMAC-SHA256
+  `signature` (over the canonical pack), and the **audit-log archive** download emits an
+  `X-RP-Signature: hmac-sha256=…` header over its bytes — tamper-evidence on exports
+  (keyed by a new per-install `export_sign.key`, 0600). A WORM forward sink for true
+  third-party non-repudiation remains a documented follow-up.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

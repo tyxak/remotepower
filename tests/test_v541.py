@@ -363,5 +363,73 @@ class TestEnterpriseHardening2(unittest.TestCase):
         self.assertIn('html_body=smtp_notifier.brand_html(cfg, subject, body)', src)
 
 
+class TestEnterpriseHardening3(unittest.TestCase):
+    """v5.4.1 batch 4 — pagination convention (E3), signed exports (C4)."""
+
+    def setUp(self):
+        self._qs = __import__('os').environ.get('QUERY_STRING')
+
+    def tearDown(self):
+        import os
+        if self._qs is None:
+            os.environ.pop('QUERY_STRING', None)
+        else:
+            os.environ['QUERY_STRING'] = self._qs
+
+    # E3 — pagination / sort / filter convention
+    def test_paginate_backward_compatible(self):
+        import os
+        data = [{'n': i} for i in range(5)]
+        os.environ['QUERY_STRING'] = ''
+        self.assertEqual(api._paginate_list(data), data)   # bare list unchanged
+
+    def test_paginate_slice_and_envelope(self):
+        import os
+        data = [{'n': i} for i in range(10)]
+        os.environ['QUERY_STRING'] = 'limit=3&offset=2'
+        self.assertEqual(api._paginate_list(data), data[2:5])
+        os.environ['QUERY_STRING'] = 'limit=3&meta=1'
+        env = api._paginate_list(data)
+        self.assertEqual((env['total'], env['limit'], env['offset'], env['next']), (10, 3, 0, 3))
+
+    def test_paginate_sort_and_filter(self):
+        import os
+        data = [{'n': i, 'name': f'h{i}'} for i in range(5)]
+        os.environ['QUERY_STRING'] = 'sort=n&order=desc'
+        self.assertEqual([x['n'] for x in api._paginate_list(data)], [4, 3, 2, 1, 0])
+        os.environ['QUERY_STRING'] = 'q=h3'
+        r = api._paginate_list(data)
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]['n'], 3)
+
+    def test_paginate_applied_to_list_endpoints(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("respond(200, _paginate_list([{'id': kid", src)  # apikeys list
+
+    # C4 — signed exports
+    def test_export_sign_deterministic_and_keyed(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = api.DATA_DIR
+        try:
+            api.DATA_DIR = api.Path(d)
+            a, b = api._export_sign(b'x'), api._export_sign('x')
+            self.assertEqual(a, b)
+            self.assertEqual(len(a), 64)
+            self.assertNotEqual(api._export_sign(b'x'), api._export_sign(b'y'))
+            import os
+            import stat as _st
+            kf = api.DATA_DIR / 'export_sign.key'
+            self.assertTrue(kf.exists())
+            self.assertEqual(_st.S_IMODE(os.stat(kf).st_mode), 0o600)
+        finally:
+            api.DATA_DIR = orig
+
+    def test_evidence_pack_and_archive_signed(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("pack['signature'] = {", src)
+        self.assertIn('X-RP-Signature: hmac-sha256=', src)
+
+
 if __name__ == "__main__":
     unittest.main()

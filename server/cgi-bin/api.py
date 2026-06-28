@@ -3727,6 +3727,41 @@ def _audit_entry_hash(prev_hash, entry):
     return hmac.new(_audit_hmac_key(), msg.encode('utf-8'), hashlib.sha256).hexdigest()
 
 
+def _export_signing_key():
+    """v5.4.1 (C4): per-install key for signing EXPORTED artefacts (evidence pack,
+    audit archive). Separate from the audit-chain key so the two rotate
+    independently. Created once at 0600 with O_EXCL|O_NOFOLLOW."""
+    kf = DATA_DIR / 'export_sign.key'
+    try:
+        if kf.exists():
+            return bytes.fromhex(kf.read_text().strip())
+    except Exception:
+        pass
+    key = os.urandom(32)
+    try:
+        fd = os.open(str(kf), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(key.hex())
+    except FileExistsError:
+        try:
+            return bytes.fromhex(kf.read_text().strip())
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return key
+
+
+def _export_sign(raw):
+    """v5.4.1 (C4): HMAC-SHA256 tamper-evidence tag over an exported artefact's
+    bytes. Symmetric (verify needs the per-install key) — proves the artefact
+    wasn't altered after generation. Closes the 'exports are unsigned' gap; a WORM
+    forward sink for true third-party non-repudiation is a documented follow-up."""
+    if isinstance(raw, str):
+        raw = raw.encode('utf-8')
+    return hmac.new(_export_signing_key(), raw, hashlib.sha256).hexdigest()
+
+
 def audit_log(actor, action, detail='', source_ip=None,
               ai_host=None, ai_prompt=None):
     """Log action with actor, IP, and detail for security auditing.
@@ -17833,19 +17868,47 @@ def _paginate_list(items):
     (audit log, command history). Reads `limit`/`offset` from the query string.
     With no `limit` the full list is returned unchanged — existing callers and
     the in-app UI (which page client-side) are unaffected. The response stays a
-    plain JSON list either way, so it's a pure superset of the old contract."""
+    plain JSON list either way, so it's a pure superset of the old contract.
+
+    v5.4.1 (E3): the standard list convention — also honours, all OPTIONAL and
+    backward-compatible:
+      ?q=<substr>            case-insensitive substring filter over each item
+      ?sort=<field>&order=   sort by a dict field (asc|desc; type-safe stringify)
+      ?meta=1                return an envelope {items,total,limit,offset,next}
+                             instead of a bare slice (for total + next-page paging)
+    Filtering/sorting apply before slicing; with neither ?limit nor ?meta the
+    response is byte-for-byte the old bare list."""
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    items = list(items or [])
+    # optional substring filter (only pay the serialization cost when ?q is set)
+    q = (qs.get('q', [''])[0] or '').strip().lower()
+    if q:
+        items = [it for it in items if q in json.dumps(it, default=str).lower()]
+    # optional sort by a dict field (stringified key → never TypeErrors on mixed types)
+    sort = (qs.get('sort', [''])[0] or '').strip()
+    if sort and items and isinstance(items[0], dict):
+        rev = (qs.get('order', ['asc'])[0] or 'asc').lower() == 'desc'
+        items = sorted(items, key=lambda it: (it.get(sort) is None, str(it.get(sort))), reverse=rev)
+    want_meta = (qs.get('meta', ['0'])[0] or '0').lower() in ('1', 'true', 'yes')
+
+    def _env(page, limit, offset, nxt):
+        return {'items': page, 'total': len(items), 'limit': limit, 'offset': offset, 'next': nxt}
+
     if 'limit' not in qs:
-        return items
+        return _env(items, None, 0, None) if want_meta else items
     try:
         limit = max(0, min(100000, int(qs.get('limit', ['0'])[0])))
     except (ValueError, TypeError):
-        return items
+        return _env(items, None, 0, None) if want_meta else items
     try:
         offset = max(0, int(qs.get('offset', ['0'])[0]))
     except (ValueError, TypeError):
         offset = 0
-    return items[offset:offset + limit] if limit else items[offset:]
+    page = items[offset:offset + limit] if limit else items[offset:]
+    if want_meta:
+        nxt = offset + limit if (limit and offset + limit < len(items)) else None
+        return _env(page, (limit or None), offset, nxt)
+    return page
 
 
 def handle_history():
@@ -34220,7 +34283,10 @@ def handle_client_error():
     if method() == 'GET':
         require_admin_auth()
         store = load(CLIENT_ERRORS_FILE) or {}
-        respond(200, {'ok': True, 'errors': (store.get('errors') or [])[-100:]})
+        # v5.4.1 (E3): newest-first, through the shared list convention (?q/?sort/
+        # ?limit/?offset/?meta). Default cap stays 100 when unpaginated.
+        errs = list(reversed(store.get('errors') or []))
+        respond(200, _paginate_list(errs) if os.environ.get('QUERY_STRING') else {'ok': True, 'errors': errs[:100]})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _ip_ratelimit('clienterr', _get_client_ip(), 30, window=60):
@@ -34252,12 +34318,12 @@ def handle_client_error():
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
-    respond(200, [{'id': kid, 'name': v.get('name', ''), 'user': v.get('user', ''),
+    respond(200, _paginate_list([{'id': kid, 'name': v.get('name', ''), 'user': v.get('user', ''),
                    'role': v.get('role', 'admin'), 'created': v.get('created', 0),
                    'active': v.get('active', True),
                    'rate_limit': int(v.get('rate_limit') or 0),
                    'expires_at': v.get('expires_at')}
-                  for kid, v in apikeys.items()])
+                  for kid, v in apikeys.items()]))   # v5.4.1 (E3): list convention
 
 
 def handle_apikeys_create():
@@ -36641,6 +36707,13 @@ def handle_evidence_pack():
         'audit_excerpt':  audit[-2000:],   # cap so the pack can't balloon
         'audit_count':    len(audit),
     }
+    # v5.4.1 (C4): tamper-evidence signature over the canonical pack (computed
+    # before the `signature` field is added; verify = recompute over the pack
+    # minus `signature`). Closes the "evidence exports are unsigned" gap.
+    pack['signature'] = {
+        'alg': 'hmac-sha256',
+        'value': _export_sign(json.dumps(pack, sort_keys=True, separators=(',', ':'))),
+    }
     audit_log(actor, 'evidence_pack_generated', detail=f'period={days}d entries={len(audit)}')
     fmt = (qs.get('format') or ['json'])[0].lower()
     if fmt == 'download':
@@ -36954,20 +37027,25 @@ def handle_audit_log_archive():
     stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
     fname = f'remotepower-audit-archive-{stamp}.jsonl.gz'
     audit_log(actor, 'audit_archive_download', fname)
+    # v5.4.1 (C4): tamper-evidence signature over the archive bytes, emitted as a
+    # header so a verifier can confirm the download wasn't altered. The archive is
+    # the bounded evicted tail, so reading it whole to sign is cheap.
+    try:
+        _arch_bytes = arch.read_bytes()
+        _arch_sig = _export_sign(_arch_bytes)
+    except OSError:
+        respond(404, {'error': 'no archived audit entries yet'})
     print("Status: 200 OK")
     print("Content-Type: application/gzip")
     print(f'Content-Disposition: attachment; filename="{fname}"')
+    print(f"X-RP-Signature: hmac-sha256={_arch_sig}")
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
     print()
     sys.stdout.flush()
-    with open(arch, 'rb') as f:
-        while True:
-            chunk = f.read(65536)
-            if not chunk:
-                break
-            sys.stdout.buffer.write(chunk)
+    sys.stdout.buffer.write(_arch_bytes)
     sys.stdout.buffer.flush()
+    return
 
 
 def handle_security_posture():
