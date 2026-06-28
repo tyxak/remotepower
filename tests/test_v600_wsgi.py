@@ -1,0 +1,130 @@
+"""Phase-5 "keystone" Stage B — WSGI shim parity + per-request isolation.
+
+Drives the opt-in `wsgi:application` against the REAL api.main() and asserts it
+produces correct CGI-equivalent responses while leaking no per-request state
+between requests (the cross-request-leak risk the whole migration hinges on).
+
+`_run_detached` is neutralised so the per-request maintenance cadence can't spawn
+network children in the test; everything else is the real request path.
+"""
+import io
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_ROOT = Path(__file__).parent.parent
+_CGI = _ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(_CGI))
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-wsgi-test-"))
+
+import wsgi  # noqa: E402  (imports api)
+api = wsgi.api
+
+
+def _environ(method, path, body=b'', query='', headers=None):
+    env = {
+        'REQUEST_METHOD': method,
+        'PATH_INFO': path,
+        'QUERY_STRING': query,
+        'SERVER_NAME': 'localhost',
+        'SERVER_PORT': '80',
+        'SERVER_PROTOCOL': 'HTTP/1.1',
+        'REMOTE_ADDR': '127.0.0.1',
+        'wsgi.input': io.BytesIO(body),
+        'wsgi.errors': io.BytesIO(),
+    }
+    if body:
+        env['CONTENT_LENGTH'] = str(len(body))
+        env['CONTENT_TYPE'] = 'application/json'
+    for k, v in (headers or {}).items():
+        env['HTTP_' + k.upper().replace('-', '_')] = v
+    return env
+
+
+def _call(method, path, **kw):
+    cap = {}
+
+    def start_response(status, headers):
+        cap['status'] = status
+        cap['headers'] = headers
+
+    cap['body'] = b''.join(wsgi.application(_environ(method, path, **kw), start_response))
+    cap['hdr'] = {h[0].lower(): h[1] for h in cap['headers']}
+    return cap
+
+
+class TestWsgiShim(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Don't let the per-request cadence fork network children in the test.
+        cls._orig_detached = api._run_detached
+        api._run_detached = lambda *a, **k: None
+
+    @classmethod
+    def tearDownClass(cls):
+        api._run_detached = cls._orig_detached
+
+    def test_health_200_json(self):
+        r = _call('GET', '/api/health')
+        self.assertTrue(r['status'].startswith('200'), r['status'])
+        self.assertIn('content-type', r['hdr'])
+        self.assertIn(b'ok', r['body'].lower())
+
+    def test_protected_route_clean_response(self):
+        # The shim must convey a protected route's response as a well-formed HTTP
+        # reply (valid 3-digit status + a content-type), never a 5xx crash. The
+        # actual auth verdict (401 vs 200 under demo/shared state) is covered by
+        # the rest of the suite — asserting it here would be order-fragile.
+        r = _call('GET', '/api/devices')
+        self.assertRegex(r['status'], r'^[1-4]\d\d ', r['status'])   # not a 5xx
+        self.assertIn('content-type', r['hdr'])
+
+    def test_unknown_route_404(self):
+        r = _call('GET', '/api/_definitely_not_a_route_')
+        self.assertTrue(r['status'].startswith('404'), r['status'])
+
+    def test_api_v1_alias_through_shim(self):
+        # the /api/v1 alias (E2) must resolve the same as the unversioned path
+        r = _call('GET', '/api/v1/health')
+        self.assertTrue(r['status'].startswith('200'), r['status'])
+
+    def test_no_load_cache_leak_between_requests(self):
+        _call('GET', '/api/health')
+        self.assertEqual(api._LOAD_CACHE, {}, 'load cache must be cleared after a request')
+        _call('GET', '/api/health')
+        self.assertEqual(api._LOAD_CACHE, {})
+
+    def test_correlation_id_differs_per_request(self):
+        r1 = _call('GET', '/api/health')
+        r2 = _call('GET', '/api/health')
+        a, b = r1['hdr'].get('x-request-id'), r2['hdr'].get('x-request-id')
+        self.assertTrue(a and b, 'X-Request-Id should be emitted on rendered responses')
+        self.assertNotEqual(a, b, 'correlation id must reset per request (no leak)')
+
+    def test_request_env_does_not_leak(self):
+        before = dict(os.environ)
+        _call('GET', '/api/health', query='x=1', headers={'X-Test': 'hi'})
+        after = dict(os.environ)
+        leaked = {k for k in after if k not in before
+                  and (k in wsgi._CGI_META or k.startswith('HTTP_'))}
+        self.assertEqual(leaked, set(), f'request vars leaked into os.environ: {leaked}')
+        self.assertEqual(after.get('RP_DATA_DIR'), before.get('RP_DATA_DIR'))
+
+    def test_post_body_is_read(self):
+        # Posting a JSON body must produce a clean response (a 4xx), never a 5xx
+        # from a stdin/Content-Length mishap in the shim.
+        r = _call('POST', '/api/devices', body=b'{"hello":"world"}')
+        self.assertRegex(r['status'], r'^4\d\d ', r['status'])
+
+    def test_parse_cgi_response_helper(self):
+        raw = b'Status: 201 Created\r\nContent-Type: application/json\r\n\r\n{"ok":true}'
+        status, headers, body = wsgi._parse_cgi_response(raw)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(body, b'{"ok":true}')
+        self.assertIn(('Content-Type', 'application/json'), headers)
+
+
+if __name__ == '__main__':
+    unittest.main()
