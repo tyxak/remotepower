@@ -941,6 +941,16 @@
   .tk-att-chip .tk-att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
   /* v5.4.1: small ticket marker before a device hostname (Devices page). */
   .dev-ticket-ic { display: inline-flex; vertical-align: middle; margin-right: 4px; color: var(--accent); }
+  /* v5.4.1 (H6): first-run onboarding tour (CSP-safe; built via DOM + .style). */
+  .tour-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1200; }
+  .tour-target { position: relative; z-index: 1201; box-shadow: 0 0 0 3px var(--accent); border-radius: 6px; }
+  .tour-pop { position: fixed; z-index: 1202; width: 300px; max-width: 92vw; background: var(--card-bg, #fff);
+    color: var(--text, #16181d); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.30); }
+  .tour-pop-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .tour-pop-body { font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+  .tour-pop-row { display: flex; align-items: center; gap: 6px; }
+  .tour-pop-meta { font-size: 12px; color: var(--muted); margin-right: auto; }
   /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused. */
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 1000;
     background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 0 0 6px 0;

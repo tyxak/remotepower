@@ -1329,6 +1329,63 @@ document.addEventListener('click', e => {
   if (box && wrap && !wrap.contains(e.target)) box.classList.add('hidden');
 });
 
+// ── v5.4.1 (H6): first-run onboarding tour ────────────────────────────────────
+// A lightweight coach-mark walkthrough, built entirely with DOM + element.style +
+// element.onclick (CSP-safe — no inline handlers/styles). Steps target stable nav
+// selectors; a step whose target is absent (e.g. a hidden nav button) is skipped.
+// Dismissal persists in localStorage (`rp_tour_done`); auto-shows once on the first
+// authenticated dashboard view, and a "Take a tour" button re-runs it anytime.
+const _TOUR_STEPS = [
+  { sel: '[data-page="home"]', title: 'Dashboard', body: 'Your fleet at a glance — health, alerts and composable widgets. This is home base.' },
+  { sel: '[data-page="devices"]', title: 'Devices', body: 'Every enrolled host. Open one to inspect it, run commands, reboot, patch and more.' },
+  { sel: '[data-page="alerts"]', title: 'Alerts', body: 'The operational inbox — acknowledge, resolve and track every fired event.' },
+  { sel: '#sidebar-search', title: 'Search anything', body: 'Jump to any page, device, alert or CVE — press “/” anywhere to focus it.' },
+  { sel: '[data-page="settings"]', title: 'Settings', body: 'Integrations, notifications, security policy, backups — configure RemotePower here.' },
+];
+function _tourDone() { try { return localStorage.getItem('rp_tour_done') === '1'; } catch (_) { return true; } }
+function _tourEnd(complete) {
+  document.getElementById('tour-backdrop')?.remove();
+  document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
+  try { localStorage.setItem('rp_tour_done', '1'); } catch (_) {}
+  if (complete) toast('Tour complete — explore away!', 'success');
+}
+function startTour() { _tourStep(0); }
+function _tourStep(i) {
+  document.getElementById('tour-backdrop')?.remove();
+  document.querySelectorAll('.tour-target').forEach(e => e.classList.remove('tour-target'));
+  while (i < _TOUR_STEPS.length && !document.querySelector(_TOUR_STEPS[i].sel)) i++;
+  if (i >= _TOUR_STEPS.length) { _tourEnd(true); return; }
+  const step = _TOUR_STEPS[i];
+  const target = document.querySelector(step.sel);
+  target.classList.add('tour-target');
+  const r = target.getBoundingClientRect();
+  const back = document.createElement('div');
+  back.id = 'tour-backdrop'; back.className = 'tour-backdrop';
+  const pop = document.createElement('div'); pop.className = 'tour-pop';
+  const h = document.createElement('div'); h.className = 'tour-pop-title'; h.textContent = step.title; pop.appendChild(h);
+  const b = document.createElement('div'); b.className = 'tour-pop-body'; b.textContent = step.body; pop.appendChild(b);
+  const row = document.createElement('div'); row.className = 'tour-pop-row';
+  const meta = document.createElement('span'); meta.className = 'tour-pop-meta'; meta.textContent = `${i + 1} / ${_TOUR_STEPS.length}`; row.appendChild(meta);
+  const skip = document.createElement('button'); skip.className = 'btn-icon cell-sm'; skip.textContent = 'Skip'; skip.onclick = () => _tourEnd(false); row.appendChild(skip);
+  if (i > 0) { const bk = document.createElement('button'); bk.className = 'btn-icon cell-sm'; bk.textContent = 'Back'; bk.onclick = () => _tourStep(i - 1); row.appendChild(bk); }
+  const last = (i === _TOUR_STEPS.length - 1);
+  const next = document.createElement('button'); next.className = 'btn-primary cell-sm'; next.textContent = last ? 'Done' : 'Next';
+  next.onclick = () => last ? _tourEnd(true) : _tourStep(i + 1);
+  row.appendChild(next); pop.appendChild(row);
+  back.appendChild(pop); document.body.appendChild(back);
+  // position the popover beside the target (clamped to the viewport)
+  pop.style.left = Math.max(12, Math.min(window.innerWidth - 320, r.right + 12)) + 'px';
+  pop.style.top = Math.max(12, Math.min(window.innerHeight - 180, r.top)) + 'px';
+}
+function _maybeStartTour() {
+  // Once per account, after the first authenticated dashboard render; the delay
+  // lets the nav finish painting so the targets exist.
+  if (_tourDone() || window._tourTried) return;
+  window._tourTried = true;
+  if (typeof getToken === 'function' && !getToken()) return;
+  setTimeout(() => { if (!_tourDone() && document.querySelector('[data-page="home"]')) startTour(); }, 1200);
+}
+
 // v3.4.0: dismiss a nav "new" badge once its page is visited (persisted).
 function _markNavSeen(page) {
   try {
@@ -1507,7 +1564,7 @@ function showPage(name, btn) {
       try { localStorage.setItem(`sidebar.${group.dataset.group}.collapsed`, '0'); } catch(_){}
     }
   }
-  if (name === 'home')     loadHome();
+  if (name === 'home')     { loadHome(); _maybeStartTour(); }   // v5.4.1 (H6)
   if (name === 'devices')  loadDevices();   // v5.0.1 perf: render the grid on entry (was 60s-tick-only)
   if (name === 'board')    loadBoard();
   if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }

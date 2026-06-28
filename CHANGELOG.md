@@ -113,6 +113,10 @@ Batch 2 (credential-at-rest + API contract + observability):
   over each monitor's recent check window — exposed at **`GET /api/slo`** and as Prometheus
   gauges (`remotepower_monitor_availability_percent`, `…_slo_budget_remaining_percent`,
   `…_slo_burn_rate`) for Grafana SLO dashboards + burn-rate alerts.
+- **Guided onboarding tour**: a first-run coach-mark walkthrough highlights the main
+  areas (Dashboard, Devices, Alerts, Search, Settings) with Next/Back/Skip; shows once
+  per account (persisted) and is re-runnable via a **Take a tour** button on the docs
+  page. CSP-safe (built with DOM + CSSOM, no inline handlers/styles).
 - **Postman collection**: `make postman` generates a Postman v2.1 collection from the
   (now fully route-covering) OpenAPI spec — one request per endpoint, foldered by tag,
   with `X-Token` auth + `{{baseUrl}}`/`{{token}}` variables pre-wired. Import into

@@ -435,6 +435,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Turnkey install | Unified `install.sh` wizard; one-command Docker (HTTPS, no default password); served `/install` quick-install agent; `install.sh agent push` SSH bootstrap; `install.sh uninstall` *(v4.8.0)* |
 | Install update | **Settings → Install** version check + guided self-update via a server-side update script *(v5.0.0)* |
 | Setup checklist | Settings → Install live getting-started checklist *(v3.4.2)* |
+| Guided tour | First-run coach-mark walkthrough (Dashboard/Devices/Alerts/Search/Settings); once per account, re-runnable via "Take a tour" *(v5.4.1)* |
 
 ## UX, interface & accessibility
 

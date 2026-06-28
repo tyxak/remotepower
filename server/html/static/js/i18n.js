@@ -1435,6 +1435,7 @@
     "Save auto-reply": { "zh": "保存自动回复", "hi": "स्वतः-उत्तर सहेजें", "es": "Guardar respuesta automática", "ar": "حفظ الرد التلقائي" },
     "Rotate export-signing key": { "zh": "轮换导出签名密钥", "hi": "निर्यात-हस्ताक्षर कुंजी घुमाएँ", "es": "Rotar la clave de firma de exportación", "ar": "تدوير مفتاح توقيع التصدير" },
     "Test restore (latest backup)": { "zh": "测试恢复（最新备份）", "hi": "पुनर्स्थापना परीक्षण (नवीनतम बैकअप)", "es": "Probar restauración (última copia)", "ar": "اختبار الاستعادة (أحدث نسخة احتياطية)" },
+    "Take a tour": { "zh": "开始导览", "hi": "एक टूर लें", "es": "Hacer un recorrido", "ar": "جولة تعريفية" },
     "Test IMAP": { "zh": "测试 IMAP", "hi": "IMAP जाँचें", "es": "Probar IMAP", "ar": "اختبار IMAP" },
     "Save signature": { "zh": "保存签名", "hi": "हस्ताक्षर सहेजें", "es": "Guardar firma", "ar": "حفظ التوقيع" },
     "Save team": { "zh": "保存团队", "hi": "टीम सहेजें", "es": "Guardar equipo", "ar": "حفظ الفريق" },

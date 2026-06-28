@@ -675,6 +675,24 @@ class TestWormAuditSink(unittest.TestCase):
         self.assertIn('id="cfg-audit-worm-path"', _html())
 
 
+class TestH6OnboardingTour(unittest.TestCase):
+    """v5.4.1 (H6): first-run onboarding tour, CSP-safe + persisted."""
+
+    def test_tour_wired(self):
+        js = _appjs()
+        self.assertIn('const _TOUR_STEPS = [', js)
+        self.assertIn('function startTour()', js)
+        self.assertIn('function _maybeStartTour()', js)
+        self.assertIn("localStorage.setItem('rp_tour_done', '1')", js)   # persisted
+        self.assertIn('_maybeStartTour();', js)                          # fired on home
+        # CSP-safe: built via DOM, no runtime <style>, no inline handler strings
+        self.assertNotIn("createElement('style')", js[js.find('const _TOUR_STEPS'):js.find('const _TOUR_STEPS') + 3000])
+
+    def test_trigger_button_and_css(self):
+        self.assertIn('data-action="startTour"', _html())
+        self.assertIn('.tour-pop', (_ROOT / "server/html/static/css/styles.css").read_text())
+
+
 class TestE5Postman(unittest.TestCase):
     """v5.4.1 (E5): Postman collection generated from the OpenAPI spec."""
 
