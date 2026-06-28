@@ -104,6 +104,10 @@ Batch 2 (credential-at-rest + API contract + observability):
   mount), and a new **Test restore** action (`POST /api/backup/test-restore`,
   Settings → Maintenance) decrypts + decompresses + structure-checks the latest archive
   to prove it's restorable. The posture page grades whether backups are mirrored off-host.
+- **Per-tier escalation targets**: an escalation **tier can now page a specific
+  destination** (by webhook-destination name or id) instead of always re-notifying every
+  channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
+  (Settings → Notifications → On-call & escalation).
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

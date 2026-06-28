@@ -17269,6 +17269,7 @@ async function loadDashboardSettings() {
   setVal('esc-enabled', es.enabled ? '1' : '0');
   setVal('esc-severities', (es.severities || ['critical', 'high']).join(', '));
   setVal('esc-tiers', (es.tiers || []).map(t => t.after_minutes).join(', '));
+  setVal('esc-tier-targets', (es.tiers || []).map(t => t.target || '').join(', '));   // v5.4.1 (G2)
   api('GET', '/oncall').then(r => { const e = document.getElementById('oncall-current'); if (e && r) e.textContent = r.current || '(rotation off)'; }).catch(() => {});
 
   // v3.2.3: channel routing matrix — replaces the two legacy
@@ -17386,7 +17387,15 @@ async function saveOncall() {
   const escalation = {
     enabled: document.getElementById('esc-enabled').value === '1',
     severities: document.getElementById('esc-severities').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
-    tiers: document.getElementById('esc-tiers').value.split(',').map(s => parseInt(s.trim())).filter(n => n > 0).map(after_minutes => ({ after_minutes })),
+    // v5.4.1 (G2): zip the minutes with the aligned per-tier targets BEFORE
+    // filtering so position-based targets stay matched to their tier.
+    tiers: (() => {
+      const mins = document.getElementById('esc-tiers').value.split(',').map(s => parseInt(s.trim()));
+      const tgts = (document.getElementById('esc-tier-targets')?.value || '').split(',').map(s => s.trim());
+      return mins.map((after_minutes, i) => ({ after_minutes, target: tgts[i] || '' }))
+        .filter(t => t.after_minutes > 0)
+        .map(t => { const o = { after_minutes: t.after_minutes }; if (t.target) o.target = t.target; return o; });
+    })(),
   };
   if (escalation.enabled && !escalation.tiers.length) { toast('Add at least one escalation tier (minutes)', 'error'); return; }
   if (oncall.enabled && !oncall.contacts.length) { toast('Add at least one on-call contact', 'error'); return; }

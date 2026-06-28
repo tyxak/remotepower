@@ -541,5 +541,36 @@ class TestG1OffsiteBackup(unittest.TestCase):
         self.assertIn("'backup_offsite'", (_CGI / "api.py").read_text())  # posture row
 
 
+class TestG2EscalationTargets(unittest.TestCase):
+    """v5.4.1 (G2): per-tier escalation target routing."""
+
+    def test_send_webhook_only_dest_ids_filter(self):
+        sent = []
+        orig = api._dispatch_one_webhook
+        try:
+            api._dispatch_one_webhook = lambda ev, dest, sp, msg, title, prio: sent.append(dest.get("name"))
+            cfg = {"webhook_urls": [
+                {"id": "wh1", "name": "Slack", "url": "https://h/x", "format": "slack", "enabled": True},
+                {"id": "wh2", "name": "PagerDuty", "url": "https://p/x", "format": "generic", "enabled": True},
+            ]}
+            sent.clear(); api._send_webhook_to_url("e", {}, "m", cfg)
+            self.assertEqual(set(sent), {"Slack", "PagerDuty"})           # no filter → all
+            sent.clear(); api._send_webhook_to_url("e", {}, "m", cfg, only_dest_ids={"PagerDuty"})
+            self.assertEqual(sent, ["PagerDuty"])                          # by name
+            sent.clear(); api._send_webhook_to_url("e", {}, "m", cfg, only_dest_ids={"wh1"})
+            self.assertEqual(sent, ["Slack"])                             # by id
+            sent.clear(); api._send_webhook_to_url("e", {}, "m", cfg, only_dest_ids={"nope"})
+            self.assertEqual(sent, [])                                    # unknown → none
+        finally:
+            api._dispatch_one_webhook = orig
+
+    def test_tier_target_wired(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("tier.get('target')", src)               # captured in the tick
+        self.assertIn("only_dest_ids=({_tgt} if _tgt else None)", src)
+        self.assertIn("tier['target'] = tgt", src)             # accepted in config save
+        self.assertIn('id="esc-tier-targets"', _html())        # UI
+
+
 if __name__ == "__main__":
     unittest.main()

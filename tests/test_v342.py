@@ -1011,7 +1011,7 @@ class TestV342NinjaParity(unittest.TestCase):
         import json, time
         api, d = self._api()
         sent = []
-        api._send_webhook_to_url = lambda ev, pl, msg, cfg: sent.append((ev, msg))
+        api._send_webhook_to_url = lambda ev, pl, msg, cfg, only_dest_ids=None: sent.append((ev, msg))
         now = int(time.time())
         (d / 'config.json').write_text(json.dumps({'escalation': {
             'enabled': True, 'severities': ['critical'], 'tiers': [{'after_minutes': 10}]}}))

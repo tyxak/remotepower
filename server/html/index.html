@@ -2740,6 +2740,8 @@
           </div>
           <div class="mb-12"><label for="esc-tiers" class="form-label">Tiers — minutes unacked before re-notify <span class="meta-sm-nm">(comma-separated, e.g. 15, 60, 240)</span></label>
             <input type="text" id="esc-tiers" class="form-input input-wide" placeholder="15, 60, 240"></div>
+          <div class="mb-12"><label for="esc-tier-targets" class="form-label">Per-tier target <span class="meta-sm-nm">(optional; aligned to the tiers above — a webhook destination name, blank = all. e.g. <code>Slack, , PagerDuty</code> pages PagerDuty only at tier 3)</span></label>
+            <input type="text" id="esc-tier-targets" class="form-input input-wide" placeholder="Slack, , PagerDuty"></div>
           <button class="btn-primary mt-8" data-action="saveOncall">Save</button>
         </div>
 

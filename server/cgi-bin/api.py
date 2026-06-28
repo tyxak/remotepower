@@ -7088,7 +7088,7 @@ def fire_webhook(event, payload):
         _send_event_email(event, payload_with_branding, message, cfg, server_name)
 
 
-def _send_webhook_to_url(event, safe_payload, message, cfg):
+def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
     """Fan out to every configured webhook destination.
 
     v3.0.2: was single-URL. Now supports any number of destinations under
@@ -7133,6 +7133,14 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
         # didn't clear the old field)
         if url == legacy: continue
         destinations.append(entry)
+    # v5.4.1 (G2): an escalation tier can target ONE destination (by id or name,
+    # case-insensitive). When set, restrict the fan-out to that destination so a
+    # later tier can page a different/louder channel.
+    if only_dest_ids:
+        want = {str(x).strip().lower() for x in only_dest_ids if str(x).strip()}
+        destinations = [d for d in destinations
+                        if str(d.get('id', '')).lower() in want
+                        or str(d.get('name', '')).lower() in want]
     if not destinations:
         return
     # Sanitize the per-event payload once, reuse across destinations
@@ -17281,7 +17289,14 @@ def handle_config_save():
                 mins = max(1, min(10080, int(t.get('after_minutes') or 0)))
             except (TypeError, ValueError):
                 continue
-            tiers.append({'after_minutes': mins})
+            # v5.4.1 (G2): optional per-tier target — a webhook destination
+            # name/id this tier escalates to (blank = all destinations). Lets a
+            # later tier page a different/louder channel (e.g. PagerDuty, a manager).
+            tier = {'after_minutes': mins}
+            tgt = _sanitize_str(str(t.get('target') or ''), 64).strip()
+            if tgt:
+                tier['target'] = tgt
+            tiers.append(tier)
         tiers.sort(key=lambda t: t['after_minutes'])
         sevs = [s for s in (es.get('severities') or ['critical', 'high'])
                 if s in ('critical', 'high', 'medium', 'low', 'info')][:5]
@@ -38711,7 +38726,8 @@ def _escalation_tick(now=None):
                     # SQLite a nested BEGIN IMMEDIATE errors and the failed-delivery
                     # DLQ row was silently dropped (un-retryable missed escalation).
                     pending_sends.append((a.get('event', 'alert_escalated'),
-                                          dict(a.get('payload') or {}), msg))
+                                          dict(a.get('payload') or {}), msg,
+                                          tier.get('target') or ''))   # v5.4.1 (G2)
                     done.add(i)
                     fired_any = True
                 a['escalated_tiers'] = sorted(done)
@@ -38726,9 +38742,10 @@ def _escalation_tick(now=None):
     # Fire the buffered escalation webhooks OUTSIDE the ALERTS_FILE lock so a
     # delivery failure's DLQ write (its own _LockedUpdate) isn't nested. Empty
     # when nothing escalated.
-    for _ev, _pl, _msg in pending_sends:
+    for _ev, _pl, _msg, _tgt in pending_sends:
         try:
-            _send_webhook_to_url(_ev, _pl, _msg, cfg)
+            _send_webhook_to_url(_ev, _pl, _msg, cfg,
+                                 only_dest_ids=({_tgt} if _tgt else None))   # v5.4.1 (G2)
         except Exception:
             pass
 
