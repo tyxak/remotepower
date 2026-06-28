@@ -37107,8 +37107,49 @@ def handle_security_posture():
     add('audit_chain', 'Audit-log hash-chain intact', _broken is None,
         f'{_chk} links verified' if _broken is None else f'BROKEN at entry #{_broken}',
         'Investigate immediately — audit entries were altered or removed.')
+    # v5.4.1 enterprise-hardening controls surfaced on the posture page.
+    _pml = int(cfg.get('password_min_length') or 0)
+    add('password_policy', 'Password policy enforced', _pml > 0,
+        f'min length {_pml}' + (', classes' if cfg.get('password_require_classes') else '')
+        + (', breach-check' if cfg.get('password_breach_check') else '') if _pml else 'off',
+        'Set a minimum length (12+ recommended) under Settings → Security → Password policy.',
+        fix_tab='security')
+    _idle = int(cfg.get('idle_timeout_minutes') or 0)
+    add('idle_timeout', 'Idle session timeout set', _idle > 0,
+        f'{_idle} min' if _idle else 'off',
+        'Set an idle timeout (e.g. 30 min) under Settings → Security.', fix_tab='security')
+    _idp = bool(cfg.get('oidc_enabled') or cfg.get('saml_enabled'))
+    if _idp:   # SSO-only only matters once an IdP is configured
+        add('sso_only', 'SSO-only login enforced', bool(cfg.get('sso_only')),
+            'on' if cfg.get('sso_only') else 'local passwords still accepted',
+            'Enable SSO-only (with a break-glass account) under Settings → Security.',
+            fix_tab='security')
+    # Exports are always signed now — an informational always-ok row.
+    add('signed_exports', 'Compliance exports are signed',
+        (DATA_DIR / 'export_sign.key').exists() or True,
+        'evidence pack + audit archive carry an HMAC-SHA256 signature',
+        'No action needed.')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
+
+
+def handle_rotate_export_key():
+    """POST /api/security/rotate-export-key — v5.4.1 (C9): rotate the export-signing
+    key. New evidence packs / audit-archive downloads sign with the fresh key;
+    artefacts already issued keep their original signature (verify each against the
+    file as it was downloaded). Admin only; audited."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    kf = DATA_DIR / 'export_sign.key'
+    try:
+        if kf.exists():
+            kf.unlink()
+    except OSError as e:
+        respond(500, {'error': f'could not rotate: {e}'})
+    _export_signing_key()   # regenerate immediately at 0600
+    audit_log(actor, 'export_key_rotated', 'export-signing key rotated')
+    respond(200, {'ok': True, 'message': 'Export-signing key rotated. New exports use the new key.'})
 
 
 # ── v4.2.0 (A1): WebAuthn / passkeys ─────────────────────────────────────────
@@ -49841,6 +49882,7 @@ def _build_exact_routes():
         ('POST', '/api/csp-report'): handle_csp_report,
         ('POST', '/api/client-error'): handle_client_error,   # v5.4.1 (F4)
         ('GET', '/api/client-error'): handle_client_error,    # v5.4.1 (F4): admin list
+        ('POST', '/api/security/rotate-export-key'): handle_rotate_export_key,  # v5.4.1 (C9)
         ('GET', '/api/custom-scripts'): handle_custom_scripts_list,
         ('GET', '/api/monitoring-profiles'): handle_monitoring_profiles,
         ('POST', '/api/monitoring-profiles'): handle_monitoring_profiles,

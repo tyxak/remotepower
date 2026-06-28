@@ -1433,6 +1433,7 @@
     "New ticket": { "zh": "新建工单", "hi": "नया टिकट", "es": "Nuevo ticket", "ar": "تذكرة جديدة" },
     "Save ticket mailbox": { "zh": "保存工单邮箱", "hi": "टिकट मेलबॉक्स सहेजें", "es": "Guardar buzón de tickets", "ar": "حفظ صندوق بريد التذاكر" },
     "Save auto-reply": { "zh": "保存自动回复", "hi": "स्वतः-उत्तर सहेजें", "es": "Guardar respuesta automática", "ar": "حفظ الرد التلقائي" },
+    "Rotate export-signing key": { "zh": "轮换导出签名密钥", "hi": "निर्यात-हस्ताक्षर कुंजी घुमाएँ", "es": "Rotar la clave de firma de exportación", "ar": "تدوير مفتاح توقيع التصدير" },
     "Test IMAP": { "zh": "测试 IMAP", "hi": "IMAP जाँचें", "es": "Probar IMAP", "ar": "اختبار IMAP" },
     "Save signature": { "zh": "保存签名", "hi": "हस्ताक्षर सहेजें", "es": "Guardar firma", "ar": "حفظ التوقيع" },
     "Save team": { "zh": "保存团队", "hi": "टीम सहेजें", "es": "Guardar equipo", "ar": "حفظ الفريق" },

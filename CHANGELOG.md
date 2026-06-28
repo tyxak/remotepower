@@ -90,6 +90,10 @@ Batch 2 (credential-at-rest + API contract + observability):
   `X-RP-Signature: hmac-sha256=…` header over its bytes — tamper-evidence on exports
   (keyed by a new per-install `export_sign.key`, 0600). A WORM forward sink for true
   third-party non-repudiation remains a documented follow-up.
+- **Export-key rotation + posture visibility**: an admin can **rotate the export-signing
+  key** (Settings → Security), and the **Security posture** page now grades the new
+  controls (password policy, idle timeout, SSO-only, signed exports) alongside the
+  existing rows.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

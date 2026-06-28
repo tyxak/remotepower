@@ -1908,6 +1908,10 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-pw-breach"> Reject breached passwords (checks HaveIBeenPwned by k-anonymity — only a SHA-1 prefix leaves the server; fails open if unreachable)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-max-devices">Maximum enrolled devices (enroll is refused past this; existing devices unaffected)</label>
               <input type="number" id="cfg-max-devices" class="form-input mw-160" min="1" max="10000000" placeholder="50000"></div>
+            <h3 class="mt-16">Compliance exports</h3>
+            <p class="hint">The compliance evidence pack and the audit-log archive download are signed (HMAC-SHA256) with a per-install key so a tampered export is detectable. Rotate the key if it may be compromised — new exports use the new key; already-issued exports keep their original signature.</p>
+            <div class="row-6"><button class="btn-secondary" data-action="rotateExportKey">Rotate export-signing key</button></div>
+            <div id="export-key-result" class="hint mt-6" role="status" aria-live="polite"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webhook-block-local"> Block webhooks to link-local / cloud-metadata addresses (on by default; LAN and loopback stay allowed)</label></div>
           </div>
 

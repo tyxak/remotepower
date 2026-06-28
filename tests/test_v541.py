@@ -431,5 +431,40 @@ class TestEnterpriseHardening3(unittest.TestCase):
         self.assertIn('X-RP-Signature: hmac-sha256=', src)
 
 
+class TestEnterpriseHardening5(unittest.TestCase):
+    """v5.4.1 batch 5 — export-key rotation (C9) + posture surfacing of the new
+    v5.4.1 controls."""
+
+    def test_rotate_export_key_endpoint(self):
+        self.assertTrue(hasattr(api, 'handle_rotate_export_key'))
+        self.assertIn(('POST', '/api/security/rotate-export-key'), api._build_exact_routes())
+        # rotation changes the key
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = api.DATA_DIR
+        try:
+            api.DATA_DIR = api.Path(d)
+            k1 = api._export_signing_key()
+            (api.DATA_DIR / 'export_sign.key').unlink()
+            self.assertNotEqual(k1, api._export_signing_key())
+        finally:
+            api.DATA_DIR = orig
+
+    def test_posture_surfaces_new_controls(self):
+        src = (_CGI / "api.py").read_text()
+        for key in ("'password_policy'", "'idle_timeout'", "'sso_only'", "'signed_exports'"):
+            self.assertIn(key, src, f'posture row {key} missing')
+
+    def test_settings_button_and_handler(self):
+        self.assertIn('data-action="rotateExportKey"', _html())
+        self.assertIn('async function rotateExportKey', _appjs())
+
+    def test_cache_busted_for_asset_changes(self):
+        # The SW cache name must have moved past the original v5.4.1 so the
+        # enterprise-hardening asset changes actually reach browsers.
+        sw = (_ROOT / "server/html/sw.js").read_text()
+        self.assertRegex(sw, r"remotepower-shell-v5\.4\.1-\d+")
+
+
 if __name__ == "__main__":
     unittest.main()

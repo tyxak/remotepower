@@ -20613,6 +20613,16 @@ function _downloadAuthed(url, fallbackName, okLabel) {
     .catch(() => toast('Export failed', 'error'));
 }
 
+// v5.4.1 (C9): rotate the export-signing key used for the evidence pack +
+// audit-archive signatures.
+async function rotateExportKey() {
+  if (!await uiConfirm('Rotate the export-signing key? New exports will use the new key; exports already issued keep their original signature.')) return;
+  const r = await api('POST', '/security/rotate-export-key');
+  const el = document.getElementById('export-key-result');
+  if (r?.ok) { toast('Export-signing key rotated', 'success'); if (el) el.textContent = r.message || 'Rotated.'; }
+  else { toast(r?.error || 'Failed', 'error'); if (el) el.textContent = r?.error || 'Failed'; }
+}
+
 function _sbomDeviceBtn(btn) {
   const id = btn.dataset.devId;
   const fmt = btn.dataset.fmt === 'spdx' ? 'spdx' : 'cyclonedx';

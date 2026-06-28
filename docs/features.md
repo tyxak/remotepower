@@ -424,6 +424,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.4.1)* |
 | List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.4.1)* |
 | Signed exports | Evidence pack carries an HMAC-SHA256 `signature`; audit-archive download emits `X-RP-Signature` (per-install `export_sign.key`) *(v5.4.1)* |
+| Export-key rotation | Admin can rotate the export-signing key (Settings → Security); posture page grades password-policy / idle-timeout / SSO-only / signed-exports *(v5.4.1)* |
 | Turnkey install | Unified `install.sh` wizard; one-command Docker (HTTPS, no default password); served `/install` quick-install agent; `install.sh agent push` SSH bootstrap; `install.sh uninstall` *(v4.8.0)* |
 | Install update | **Settings → Install** version check + guided self-update via a server-side update script *(v5.0.0)* |
 | Setup checklist | Settings → Install live getting-started checklist *(v3.4.2)* |
