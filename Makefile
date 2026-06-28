@@ -149,6 +149,13 @@ sbom-self:
 	$(PY) tools/gen-self-sbom.py $(VERSION) > $(DIST_DIR)/remotepower-server-$(VERSION).sbom.json
 	@echo "wrote $(DIST_DIR)/remotepower-server-$(VERSION).sbom.json"
 
+# v5.4.1 (E5): Postman v2.1 collection generated from the (route-table-driven,
+# fully-covering) OpenAPI spec. Import into Postman/Insomnia/Bruno.
+postman:
+	@mkdir -p $(DIST_DIR)
+	$(PY) tools/gen-postman.py > $(DIST_DIR)/remotepower.postman_collection.json
+	@echo "wrote $(DIST_DIR)/remotepower.postman_collection.json"
+
 # Fast SAST proxy for GitHub Code Scanning: bandit at medium+ severity AND
 # confidence over the shipped server + agent Python. The codebase has a large
 # INTENTIONAL sink surface (a fleet manager runs subprocesses / opens URLs), so

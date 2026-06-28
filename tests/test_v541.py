@@ -675,6 +675,34 @@ class TestWormAuditSink(unittest.TestCase):
         self.assertIn('id="cfg-audit-worm-path"', _html())
 
 
+class TestE5Postman(unittest.TestCase):
+    """v5.4.1 (E5): Postman collection generated from the OpenAPI spec."""
+
+    def test_postman_collection(self):
+        import importlib.util as _u
+        path = _ROOT / "tools" / "gen-postman.py"
+        self.assertTrue(path.exists())
+        spec = _u.spec_from_file_location("gen_postman", path)
+        mod = _u.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        coll = mod.build()
+        self.assertTrue(coll["info"]["schema"].endswith("v2.1.0/collection.json"))
+        self.assertEqual(coll["auth"]["type"], "apikey")
+        self.assertTrue(any(a["value"] == "X-Token" for a in coll["auth"]["apikey"]))
+        self.assertTrue(any(v["key"] == "baseUrl" for v in coll["variable"]))
+        reqs = sum(len(f["item"]) for f in coll["item"])
+        self.assertGreater(reqs, 200, "should cover the whole API")
+        # every request is well-formed
+        for folder in coll["item"]:
+            for it in folder["item"]:
+                r = it["request"]
+                self.assertIn(r["method"], ("GET", "POST", "PUT", "PATCH", "DELETE"))
+                self.assertTrue(r["url"]["raw"].startswith("{{baseUrl}}"))
+
+    def test_make_target(self):
+        self.assertIn("postman:", (_ROOT / "Makefile").read_text())
+
+
 class TestF3Slo(unittest.TestCase):
     """v5.4.1 (F3): availability SLO + error-budget per monitor."""
 

@@ -113,6 +113,10 @@ Batch 2 (credential-at-rest + API contract + observability):
   over each monitor's recent check window — exposed at **`GET /api/slo`** and as Prometheus
   gauges (`remotepower_monitor_availability_percent`, `…_slo_budget_remaining_percent`,
   `…_slo_burn_rate`) for Grafana SLO dashboards + burn-rate alerts.
+- **Postman collection**: `make postman` generates a Postman v2.1 collection from the
+  (now fully route-covering) OpenAPI spec — one request per endpoint, foldered by tag,
+  with `X-Token` auth + `{{baseUrl}}`/`{{token}}` variables pre-wired. Import into
+  Postman / Insomnia / Bruno.
 - **Supply-chain: app-self SBOM + SLSA provenance**: `make sbom-self` emits a CycloneDX
   SBOM of the **control plane's own** Python dependencies (`packaging/requirements-server.txt`
   + `tools/gen-self-sbom.py`) — distinct from the fleet SBOM at `/api/sbom`. The release
