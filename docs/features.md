@@ -107,6 +107,9 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Patch alerts | Webhook when pending updates exceed a threshold |
 | Admin-only alert mutation | Optionally require admin role to ack / unack / resolve (`viewers_can_ack_alerts`) *(v3.3.0)* |
 | Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
+| Ticket attachments | Inbound email attachments stored + downloadable/previewable; attach files to an outbound reply (≤15 MB each, ≤10/msg); access bound to the ticket, served `nosniff`. `GET …/tickets/{id}/attachments/{aid}[?inline=1]` *(v5.4.1)* |
+| Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.4.1)* |
+| Email thread view | One-click printable window of a ticket's full correspondence *(v5.4.1)* |
 | Posture digest | Opt-in daily/weekly email summary over SMTP *(v3.11.0)* |
 | Digest endpoint | `/api/digest` for cron-driven email summaries |
 | Flap cap | Server-wide cap stops a flapping monitor flooding channels |
@@ -208,7 +211,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Desired-state enforcement | Correct-on-drift mode *(v3.7.0)* |
 | Host-config collect & export | Drift page: collect all host configs fleet-wide + export one JSON bundle of desired/current/drift *(v3.13.0)* |
 | SSH-key audit | Fleet-wide authorized_keys audit — fingerprints, weak-type flags, reuse counts *(v4.0.0)* |
-| Endpoint AV posture | ClamAV / rkhunter status + on-demand scan; last-scan time *(v3.6.0)*; `av_infected` on rising infection *(v5.1.0)* |
+| Endpoint AV posture | ClamAV / rkhunter status + on-demand scan; last-scan time *(v3.6.0)*; `av_infected` on rising infection *(v5.1.0)*; `av_warning` on rising rkhunter-warning / stale-DB count *(v5.4.1)* |
 | OpenSCAP scans | `oscap xccdf eval` — CIS/STIG/PCI-DSS, USG, ANSSI; score + failing rules; HTML report; by host/tag/group *(v3.4.2)* |
 | CIS-style compliance baseline | Pass/fail checks, severity-weighted score + daily trend *(v3.4.2)* |
 | Compliance frameworks | PCI DSS / HIPAA / SOC 2 controls mapped to collected data with evidence + remediation *(v3.4.0)* |
@@ -345,6 +348,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Unified time ledger | One entry per logged block: hours (0.25 steps), date, billable flag, customer (site) / device / ticket link, note or internal category. `GET/POST /api/time-entries` |
 | Hours on tickets | **Log hours** on any ticket; billable hours attach to the ticket's customer (site, derived from device); running total on the ticket. `…/tickets/{id}/hours` |
 | Weekly timesheet | Personal **Timesheet** page (Planning, + linked from My Account) — week navigator, per-day/weekly totals, ad-hoc internal time; ticket hours roll in. `GET /api/timesheet?week=` |
+| Billing page (opt-in) | The Billing surface (worksheet / invoices / rates & fees) is gated under Advanced → `billing_enabled` (default off); logging hours + the Timesheet stay on regardless *(v5.4.1)* |
 | Billing worksheet | Per-customer per-month: billable hours × rate + recurring fees → subtotal / VAT / total. `GET /api/billing/worksheet` |
 | Invoices | draft → sent → paid (+ void); issuing **locks** the billed hours (frozen amounts), voiding frees them to re-bill. `GET/POST /api/invoices`, `PATCH /api/invoices/{id}` |
 | Rates & fees | Named rate card + global default rate / currency / VAT / invoice prefix; per-customer rate / VAT / billing address / recurring license-operation-service fees. `GET/POST /api/billing/config` |

@@ -62,7 +62,9 @@ class TestVersionBumps(unittest.TestCase):
                       (_ROOT / "server/html/index.html").read_text())
 
     def test_codename(self):
-        self.assertIn("UnityMatters", (_ROOT / "docs" / "v5.1.0.md").read_text())
+        # docs/v5.1.0.md was pruned under the keep-last-5 rule (v5.4.1); the
+        # codename lives on in the complete CHANGELOG history.
+        self.assertIn("UnityMatters", (_ROOT / "CHANGELOG.md").read_text())
 
 
 if __name__ == "__main__":

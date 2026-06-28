@@ -81,7 +81,8 @@ class TestBillingHandlers(unittest.TestCase):
         self._orig = (api.respond, api.method, api.require_auth,
                       api.require_admin_auth, api.require_admin_or_finance_auth,
                       api.audit_log, api._caller_role, api.verify_token,
-                      api.get_token_from_request, api._tickets_enabled)
+                      api.get_token_from_request, api._tickets_enabled,
+                      api._billing_enabled)
         self.role = {'v': 'admin'}
 
         def _respond(code, body=None):
@@ -92,6 +93,7 @@ class TestBillingHandlers(unittest.TestCase):
         api.require_admin_or_finance_auth = lambda *a, **k: 'alice'
         api.audit_log = lambda *a, **k: None
         api._tickets_enabled = lambda: True
+        api._billing_enabled = lambda: True   # v5.4.1: Billing page opt-in gate
         api._caller_role = lambda: self.role['v']
         api.verify_token = lambda *a, **k: ('alice', self.role['v'])
         api.get_token_from_request = lambda: 'x'
@@ -108,7 +110,8 @@ class TestBillingHandlers(unittest.TestCase):
     def tearDown(self):
         (api.respond, api.method, api.require_auth, api.require_admin_auth,
          api.require_admin_or_finance_auth, api.audit_log, api._caller_role,
-         api.verify_token, api.get_token_from_request, api._tickets_enabled) = self._orig
+         api.verify_token, api.get_token_from_request, api._tickets_enabled,
+         api._billing_enabled) = self._orig
 
     def _call(self, fn, method='GET', body=None, qs='', arg=None):
         api.method = lambda: method

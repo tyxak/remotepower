@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.4.0'
+SERVER_VERSION = '5.4.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -128,6 +128,22 @@ TICKET_STATUSES = ('ongoing', 'pending_customer', 'pending_internal', 'resolved'
 TICKET_STANDALONE_BASE = 900000   # standalone ticket numbers live in a reserved band so
                                   # they never collide with alert-derived numbers (the alert seq)
 MAX_TICKETS = 5000
+# v5.4.1: ticket attachments. Binary blobs live on the filesystem (a real dir,
+# NOT a logical storage key) keyed by an opaque random id; only the metadata
+# (id/filename/content_type/size) is recorded on the ticket message. Download
+# access is bound to the owning ticket — a caller must be able to see the ticket
+# AND the attachment id must appear on one of its messages, so ids aren't
+# guessable across tickets. Sharded one level to keep the dir from going flat.
+TICKET_ATTACH_DIR = DATA_DIR / 'ticket_attachments'
+MAX_ATTACH_BYTES = 15 * 1024 * 1024   # 15 MB per file
+MAX_ATTACH_PER_MSG = 10
+# Content types we'll serve INLINE (?inline=1) for in-browser preview. Anything
+# else is always sent as a download with Content-Disposition: attachment and a
+# generic octet-stream type, so a hostile upload can't be sniffed into script.
+ATTACH_INLINE_TYPES = frozenset({
+    'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp',
+    'application/pdf', 'text/plain',
+})
 CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
 MAX_CONTACTS = 2000
 
@@ -904,6 +920,12 @@ WEBHOOK_EVENTS = (
     # alerted). No recover event — a malware finding stays actionable until an
     # operator clears it; coalescing keeps repeat reports to one open alert.
     ('av_infected',           'Antivirus / rootkit scan found an active infection',  True),
+    # v5.4.1: AV/rootkit posture WARNINGS (rkhunter [Warning] lines, stale ClamAV
+    # signature DB) now also alert — previously a "Needs attention" card only, so a
+    # host's rkhunter warnings never landed in the Alerts inbox. Rising-edge +
+    # coalesced per host (same model as av_infected); no recover event (sticky until
+    # an operator reviews the scan and the warning count drops on a fresh report).
+    ('av_warning',            'Antivirus / rootkit scan reported warnings',          True),
     # v5.2.0 (AccessMatters): WG Access road-warrior VPN — a client connected /
     # disconnected / went handshake-stale. connected is the recover event for the
     # other two; clients aren't devices (coalesced + auto-resolved by client_id).
@@ -4482,6 +4504,7 @@ _ALERT_RULES = {
     'resolver_unhealthy':         ('high', None),        # v4.9.0
     'fail2ban_ban':               ('medium', None),      # v5.1.0
     'av_infected':                ('high', None),        # v5.1.0: active malware/rootkit
+    'av_warning':                 ('medium', None),      # v5.4.1: rkhunter warnings / stale AV DB
     'vpn_client_disconnected':    ('medium', None),      # v5.2.0
     'vpn_handshake_stale':        ('medium', None),      # v5.2.0
     'ticket_sla_breached':        (None, None),          # v5.3.0: severity from ticket priority
@@ -4637,7 +4660,8 @@ CHANNEL_KINDS = [
     ('support_expiry',  'Support expiry (NA)',   'informational', []),
     # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA).
     # v5.1.0: av_posture now also carries the av_infected alert event.
-    ('av_posture',      'Malware / AV posture',        'operational', ['av_infected']),
+    # v5.4.1: ...and av_warning (rkhunter warnings / stale AV DB).
+    ('av_posture',      'Malware / AV posture',        'operational', ['av_infected', 'av_warning']),
     ('tickets',         'Helpdesk tickets',            'operational', ['ticket_sla_breached']),  # v5.3.0
     ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
     # v3.7.0: CMDB credential rotation due (NA)
@@ -4919,6 +4943,11 @@ def _alert_title(event, payload):
         _n = p.get('infected') or 0
         return (f'Malware detected on {name}: {_tool}'
                 + (f' — {_n} infected item(s)' if _n else ' reported an infection'))[:200]
+    if event == 'av_warning':
+        _tool = p.get('tool', 'AV')
+        _n = p.get('warnings') or 0
+        return (f'{_tool} reported warnings on {name}'
+                + (f' — {_n} warning(s)' if _n else ''))[:200]
     if event == 'ticket_sla_breached':
         return (f'Ticket #RP{int(p.get("number") or 0):06d} SLA breached: '
                 f'{(p.get("subject") or "")[:80]}')[:200]
@@ -5665,9 +5694,31 @@ def handle_ticket_send_email(tid):
         _esc_text = _html_mod.escape(text).replace('\n', '<br>')
         html_body = (f'<div style="font-family:sans-serif;font-size:14px">{_esc_text}</div>'
                      f'<br><div style="border-top:1px solid #ccc;margin-top:12px;padding-top:8px">{sig}</div>')
+    # v5.4.1: optional outbound attachments — the client base64-encodes each file
+    # and POSTs {filename, content_type, data_b64}. Decode, cap, store a blob, and
+    # ride them along on the SMTP message; metadata is logged on the ticket message.
+    send_atts = []   # (filename, content_type, bytes) for SMTP
+    att_meta = []    # stored metadata for the message record
+    raw_atts = body.get('attachments')
+    if isinstance(raw_atts, list):
+        import base64 as _b64
+        for a in raw_atts[:MAX_ATTACH_PER_MSG]:
+            if not isinstance(a, dict):
+                continue
+            try:
+                blob = _b64.b64decode(str(a.get('data_b64') or ''), validate=True)
+            except Exception:
+                continue
+            if not blob or len(blob) > MAX_ATTACH_BYTES:
+                continue
+            meta = _ticket_store_attachment(blob, a.get('filename'), a.get('content_type'))
+            if meta:
+                send_atts.append((meta['filename'], meta['content_type'], blob))
+                att_meta.append(meta)
     subject = f"#RP{int(t.get('number') or 0):06d} {t.get('subject', '')}"[:200]
     try:
-        smtp_notifier.send_email(cfg, [to], subject, out_body, html_body=html_body, extra_headers={
+        smtp_notifier.send_email(cfg, [to], subject, out_body, html_body=html_body,
+            attachments=send_atts or None, extra_headers={
             'Auto-Submitted': 'auto-generated', 'X-RP-Ticket': str(t.get('number'))})
     except Exception as e:
         respond(200, {'ok': False, 'error': f'send failed: {str(e)[:200]}'})
@@ -5676,7 +5727,7 @@ def handle_ticket_send_email(tid):
         tk = next((x for x in (st.get('tickets') or []) if x.get('id') == tid), None)
         if tk:
             tk.setdefault('messages', []).append({'ts': now, 'author': actor, 'body': text,
-                'channel': 'email', 'direction': 'out', 'to': to})
+                'channel': 'email', 'direction': 'out', 'to': to, 'attachments': att_meta})
             if not tk.get('to_email'):
                 tk['to_email'] = to
             tk['updated_at'] = now
@@ -5702,6 +5753,133 @@ def _ticket_email_text(msg):
         return ''
 
 
+def _attach_safe_name(name):
+    """Sanitise a user/email-supplied attachment filename for display + the
+    Content-Disposition header. Strips any path component, control chars and the
+    quote/CR/LF that could break the header; caps length. NEVER used to build a
+    filesystem path (blobs are stored under an opaque id) — display only."""
+    name = str(name or '').replace('\\', '/').split('/')[-1]
+    name = re.sub(r'[\x00-\x1f\x7f"\r\n]', '', name).strip()
+    name = name[:120].strip() or 'attachment'
+    return name
+
+
+def _attach_safe_ct(ct):
+    """Clamp a declared content-type to a single safe token (no params, no CRLF)."""
+    ct = str(ct or '').split(';')[0].strip().lower()
+    if not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', ct or ''):
+        return 'application/octet-stream'
+    return ct[:100]
+
+
+def _ticket_store_attachment(raw, filename, content_type):
+    """Persist one attachment blob to TICKET_ATTACH_DIR under an opaque id and
+    return its metadata dict, or None if it's empty / over the size cap. The blob
+    filename on disk is the id only — never any caller-supplied string."""
+    if not raw or len(raw) > MAX_ATTACH_BYTES:
+        return None
+    aid = secrets.token_hex(16)
+    sub = TICKET_ATTACH_DIR / aid[:2]
+    try:
+        sub.mkdir(parents=True, exist_ok=True)
+        with open(sub / aid, 'wb') as f:
+            f.write(raw)
+    except OSError as e:
+        sys.stderr.write(f'[remotepower] attachment store failed: {e}\n')
+        return None
+    return {'id': aid, 'filename': _attach_safe_name(filename),
+            'content_type': _attach_safe_ct(content_type), 'size': len(raw)}
+
+
+def _attach_blob_path(aid):
+    """Resolve the on-disk path for a stored attachment id (sharded). The id is
+    validated as hex so it can't escape TICKET_ATTACH_DIR."""
+    if not re.fullmatch(r'[0-9a-f]{32}', str(aid or '')):
+        return None
+    return TICKET_ATTACH_DIR / aid[:2] / aid
+
+
+def _email_attachments(msg):
+    """Extract real attachments (Content-Disposition: attachment, or any non-text
+    named part) from an inbound email.message.Message → a list of stored-metadata
+    dicts. Skips the text/plain body part; caps count + per-file size."""
+    out = []
+    try:
+        if not msg.is_multipart():
+            return out
+        for part in msg.walk():
+            if part.is_multipart():
+                continue
+            ctype = (part.get_content_type() or '').lower()
+            disp = str(part.get('Content-Disposition') or '').lower()
+            fname = part.get_filename()
+            # The body part: text/* with no attachment disposition and no filename.
+            if ctype.startswith('text/') and 'attachment' not in disp and not fname:
+                continue
+            try:
+                payload = part.get_payload(decode=True)
+            except Exception:
+                payload = None
+            if not payload:
+                continue
+            meta = _ticket_store_attachment(payload, fname or f'{ctype.replace("/", "_")}.bin', ctype)
+            if meta:
+                out.append(meta)
+            if len(out) >= MAX_ATTACH_PER_MSG:
+                break
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] email attachment parse failed: {e}\n')
+    return out
+
+
+def handle_ticket_attachment(tid, aid):
+    """GET /api/tickets/{id}/attachments/{aid}[?inline=1] — stream one attachment.
+    Access is bound to the ticket: the caller must be authed AND the attachment id
+    must appear on a message of THIS ticket (so ids aren't fetchable across
+    tickets). Served as a download by default; ?inline=1 previews a small allowlist
+    of safe types in-browser (always nosniff)."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    actor = require_auth()
+    t = next((x for x in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+              if x.get('id') == tid), None)
+    if not t:
+        respond(404, {'error': 'ticket not found'})
+    meta = None
+    for m in (t.get('messages') or []):
+        for a in (m.get('attachments') or []):
+            if a.get('id') == aid:
+                meta = a
+                break
+        if meta:
+            break
+    if not meta:
+        respond(404, {'error': 'attachment not found'})
+    path = _attach_blob_path(aid)
+    if not path or not path.exists():
+        respond(404, {'error': 'attachment blob missing'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    ct = _attach_safe_ct(meta.get('content_type'))
+    inline = qs.get('inline', ['0'])[0] == '1' and ct in ATTACH_INLINE_TYPES
+    fname = _attach_safe_name(meta.get('filename'))
+    try:
+        data = path.read_bytes()
+    except OSError:
+        respond(404, {'error': 'attachment unreadable'})
+    audit_log(actor, 'ticket_attachment', f'id={tid} aid={aid}')
+    print("Status: 200 OK")
+    print(f"Content-Type: {ct if inline else 'application/octet-stream'}")
+    print(f'Content-Disposition: {"inline" if inline else "attachment"}; filename="{fname}"')
+    print(f"Content-Length: {len(data)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
 def _fetch_ticket_replies():
     """Poll the dedicated ticket mailbox and append replies to their ticket by the
     #RP<number> subject token. LOOP-SAFE: skips auto-submitted / bulk / our own
@@ -5723,6 +5901,7 @@ def _fetch_ticket_replies():
     username = (c.get('username') or '').strip()
     password = c.get('password') or ''
     last_uid = int((load(TICKETS_FILE) or {}).get('imap_last_uid', 0) or 0)
+    autoreply_jobs = []   # v5.4.1: (to_email, number, subject) for freshly auto-created tickets
     try:
         _ctx = _ssl.create_default_context()
         if not verify_tls:
@@ -5753,7 +5932,8 @@ def _fetch_ticket_replies():
             frm = str(msg.get('From') or '')[:200]
             subj = (str(msg.get('Subject') or '').strip()[:200]) or '(no subject)'
             text = _ticket_email_text(msg)[:8000]
-            if not text:
+            atts = _email_attachments(msg)   # v5.4.1: store inbound attachments
+            if not text and not atts:
                 continue
             _fm = _TICKET_EMAIL_RE.search(frm)
             frm_email = _fm.group(0) if _fm else ''
@@ -5763,7 +5943,8 @@ def _fetch_ticket_replies():
                       if number is not None else None)
                 if tk:
                     tk.setdefault('messages', []).append({'ts': now, 'author': frm,
-                        'body': text, 'channel': 'email', 'direction': 'in'})
+                        'body': text, 'channel': 'email', 'direction': 'in',
+                        'attachments': atts})
                     if tk.get('status') == 'pending_customer':
                         tk['status'] = 'pending_internal'
                     tk['new_reply'] = True   # unread customer reply -> list badge
@@ -5789,8 +5970,12 @@ def _fetch_ticket_replies():
                             'priority': 4, 'assignee': '', 'group': '', 'new_reply': True,
                             'created_by': 'email', 'created_at': now, 'updated_at': now,
                             'messages': [{'ts': now, 'author': frm, 'body': text,
-                                          'channel': 'email', 'direction': 'in'}],
+                                          'channel': 'email', 'direction': 'in',
+                                          'attachments': atts}],
                         })
+                        # v5.4.1: queue a one-time acknowledgement (sent post-lock).
+                        autoreply_jobs.append((frm_email, TICKET_STANDALONE_BASE + seq,
+                                               re.sub(r'\s*#RP0*\d+\s*', ' ', subj).strip() or subj))
         try:
             M.logout()
         except Exception:
@@ -5803,6 +5988,11 @@ def _fetch_ticket_replies():
             st['imap_last_fetch'] = int(time.time())
     except Exception:
         pass
+    # v5.4.1: send the queued acknowledgement auto-replies AFTER the lock (SMTP is
+    # I/O; never inside a _LockedUpdate). Loop-safe by construction — see
+    # _send_ticket_autoreply (stamps Auto-Submitted, skips automated senders).
+    for _to, _num, _subj in autoreply_jobs:
+        _send_ticket_autoreply(_to, _num, _subj)
 
 
 def run_ticket_imap_if_due():
@@ -5903,6 +6093,72 @@ def handle_ticket_imap_save():
         }
     audit_log(actor, 'ticket_imap_save', detail=f'host={host} enabled={bool(body.get("enabled"))}')
     respond(200, {'ok': True})
+
+
+# v5.4.1: one-time acknowledgement auto-reply for inbound-created tickets.
+_TICKET_AUTOREPLY_DEFAULT = (
+    "Thank you for contacting support. We've received your message and opened a "
+    "ticket — our team will get back to you as soon as possible.\n\n"
+    "Please keep the ticket number in the subject line when replying so we can "
+    "track your request.")
+# Senders we must NEVER auto-reply to (mail loops / bounces / no-reply boxes).
+_AUTOREPLY_SKIP_RE = re.compile(
+    r'(?:^|[<\s])(?:no-?reply|do-?not-?reply|donotreply|mailer-daemon|postmaster|'
+    r'bounce[sd]?|abuse|notifications?)@', re.I)
+
+
+def _ticket_autoreply_cfg():
+    c = (load(CONFIG_FILE) or {}).get('ticket_autoreply')
+    return c if isinstance(c, dict) else {}
+
+
+def handle_ticket_autoreply():
+    """GET/POST /api/tickets/autoreply — the one-time acknowledgement auto-reply
+    sent when a NEW ticket is auto-created from an inbound email. Loop-safe: it is
+    stamped Auto-Submitted (so our own poller skips it), sent at most once per
+    ticket (only on creation), and never sent to no-reply / mailer-daemon / bounce
+    senders. Admin only."""
+    if not _tickets_enabled():
+        respond(404, {'error': 'ticket system is disabled'})
+    if method() == 'GET':
+        require_admin_auth()
+        c = _ticket_autoreply_cfg()
+        respond(200, {'ok': True, 'enabled': bool(c.get('enabled')),
+                      'subject': c.get('subject', ''),
+                      'body': c.get('body', '') or _TICKET_AUTOREPLY_DEFAULT})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['ticket_autoreply'] = {
+            'enabled': bool(body.get('enabled')),
+            'subject': _no_ctrl(_sanitize_str(body.get('subject', ''), 200)),
+            'body': _sanitize_str(str(body.get('body', '')), 4000),
+        }
+    audit_log(actor, 'ticket_autoreply_save', detail=f'enabled={bool(body.get("enabled"))}')
+    respond(200, {'ok': True})
+
+
+def _send_ticket_autoreply(to_email, number, subject):
+    """Best-effort: send the one-time acknowledgement to a new ticket's reporter.
+    Caller has already confirmed the ticket was freshly auto-created. Returns
+    quietly on any gate miss (disabled, no SMTP, automated sender, send error)."""
+    c = _ticket_autoreply_cfg()
+    if not c.get('enabled'):
+        return
+    to = (to_email or '').strip()
+    if '@' not in to or _AUTOREPLY_SKIP_RE.search(to):
+        return
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('smtp_host'):
+        return
+    ar_subject = _no_ctrl(_sanitize_str(c.get('subject', '') or f'Re: {subject}', 200))
+    full_subject = f"#RP{int(number or 0):06d} {ar_subject}"[:200]
+    ar_body = (c.get('body') or _TICKET_AUTOREPLY_DEFAULT)
+    try:
+        smtp_notifier.send_email(cfg, [to], full_subject, ar_body, extra_headers={
+            'Auto-Submitted': 'auto-replied', 'X-RP-Ticket': str(number)})
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] ticket autoreply send failed: {e}\n')
 
 
 def handle_ticket_imap_test():
@@ -6718,6 +6974,7 @@ def _webhook_title(event):
         'resolver_recovered':    'DNS Resolution Recovered',
         'fail2ban_ban':          'fail2ban Ban',
         'av_infected':           'Malware Detected',
+        'av_warning':            'AV / Rootkit Warning',
         'ticket_sla_breached':   'Ticket SLA Breached',
         'snmp_trap_received':    'SNMP Trap',
         'service_down':    'Service Down',
@@ -9357,6 +9614,14 @@ def _billing_defaults():
     }
 
 
+def _billing_enabled():
+    """v5.4.1: the Billing PAGE (worksheet / invoices / rates & fees) is opt-in,
+    gated under Settings -> Advanced, exactly like the ticket system. The
+    time-tracking half (ticket hours + the weekly timesheet) stays always-on —
+    only the invoicing/billing surface is gated."""
+    return bool((load(CONFIG_FILE) or {}).get('billing_enabled'))
+
+
 def _billing_cfg():
     """Billing config merged onto defaults (read view). Mutate the copy + save()."""
     cfg = _billing_defaults()
@@ -9644,6 +9909,8 @@ def handle_billing_config():
     """GET /api/billing/config — rate card / currency / per-site rates+fees
     (admin or finance). POST — save (admin only). Per-site config is saved one
     site at a time via {site:{site_id, ...}} so payloads never clobber siblings."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
     if method() == 'GET':
         require_admin_or_finance_auth()
         cfg = _billing_cfg()
@@ -9725,6 +9992,8 @@ def handle_billing_config():
 def handle_billing_worksheet():
     """GET /api/billing/worksheet?site=&month=YYYY-MM | &from=&to= [&format=csv]
     — the pre-invoice billing worksheet for one site (admin/finance)."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
     require_admin_or_finance_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     site = (qs.get('site') or [''])[0].strip()
@@ -9754,6 +10023,8 @@ def handle_invoices():
     """GET /api/invoices[?site=&status=] — list (admin/finance). POST — issue an
     invoice from a worksheet, snapshotting + LOCKING the contributing entries
     (admin only)."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
     if method() == 'GET':
         require_admin_or_finance_auth()
         qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
@@ -9844,6 +10115,8 @@ def handle_invoices():
 
 def handle_invoice_get(iid):
     """GET /api/invoices/{id}[?format=csv] — one invoice (admin/finance)."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
     require_admin_or_finance_auth()
     inv = next((x for x in ((load(INVOICES_FILE) or {}).get('invoices') or [])
                 if x.get('id') == iid), None)
@@ -9864,6 +10137,8 @@ def handle_invoice_get(iid):
 def handle_invoice_update(iid):
     """PATCH/POST /api/invoices/{id} — change status (draft/sent/paid/void) or
     notes (admin only). Voiding frees its entries so they can be re-billed."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
     if method() not in ('PATCH', 'POST'):
         respond(405, {'error': 'Method not allowed'})
     actor = require_admin_auth()
@@ -15910,6 +16185,7 @@ def handle_config_get():
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
+    safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('fleet_note',             '')     # fleet-wide operator note (dashboard)
     safe.setdefault('cert_expiry_alerts_enabled', False)  # v3.14.0: cert-expiry alerts, opt-in (noisy)
     safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
@@ -17118,6 +17394,8 @@ def handle_config_save():
     # OFF resolves the open backlog for those events in one action.
     if 'tickets_enabled' in body:
         cfg['tickets_enabled'] = bool(body['tickets_enabled'])
+    if 'billing_enabled' in body:   # v5.4.1: Billing page opt-in (Advanced)
+        cfg['billing_enabled'] = bool(body['billing_enabled'])
     if 'port_audit_enabled' in body:
         _was_on = bool(cfg.get('port_audit_enabled', False))
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
@@ -27406,6 +27684,19 @@ def _ingest_av(dev_id, av, now, dev_name=None):
                     'device_id': dev_id, 'name': nm,
                     'tool': tool, 'infected': new_inf,
                 })
+            # v5.4.1: edge-trigger av_warning on the rising warnings count
+            # (rkhunter [Warning] lines; ClamAV has no warnings field so it is a
+            # no-op for that tool). Same rising-edge + coalesce model so a steady
+            # warning count doesn't re-fire every heartbeat. Suppressed when the
+            # same tool also reports an active infection this beat (the
+            # higher-severity av_infected already alerts — don't double-fire).
+            new_w = int((rec.get(tool) or {}).get('warnings') or 0)
+            old_w = int((prev.get(tool) or {}).get('warnings') or 0)
+            if new_w > 0 and new_w > old_w and new_inf == 0:
+                fire_webhook('av_warning', {
+                    'device_id': dev_id, 'name': nm,
+                    'tool': tool, 'warnings': new_w,
+                })
     except Exception as e:
         sys.stderr.write(f"[remotepower] av_infected fire failed dev={dev_id}: {e}\n")
 
@@ -31261,6 +31552,7 @@ def handle_home():
         'server_tz':    _server_tz_label(),
         'fleet_note':   cfg.get('fleet_note', ''),
         'tickets_enabled': bool(cfg.get('tickets_enabled')),
+        'billing_enabled': bool(cfg.get('billing_enabled')),   # v5.4.1: gate the Billing page
         'ticket_devices': _open_ticket_device_ids() if cfg.get('tickets_enabled') else [],
         'tickets_open': (sum(1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
                              if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal'))
@@ -49201,6 +49493,8 @@ def _build_exact_routes():
         ('GET', '/api/tickets/imap'): handle_ticket_imap_get,
         ('POST', '/api/tickets/imap'): handle_ticket_imap_save,
         ('POST', '/api/tickets/imap/test'): handle_ticket_imap_test,
+        ('GET', '/api/tickets/autoreply'): handle_ticket_autoreply,
+        ('POST', '/api/tickets/autoreply'): handle_ticket_autoreply,
         ('GET', '/api/tickets/sla'): handle_ticket_sla,
         ('POST', '/api/tickets/sla'): handle_ticket_sla,
         # v5.4.0 RackMatters: time-tracking + billing
@@ -50164,6 +50458,12 @@ def _dispatch(pi, m):
         handle_invoice_update(pi[len('/api/invoices/'):])
     elif pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST':
         handle_ticket_send_email(pi[len('/api/tickets/'):-len('/email')])
+    elif pi.startswith('/api/tickets/') and '/attachments/' in pi and m == 'GET':
+        # v5.4.1: GET /api/tickets/{id}/attachments/{aid} — must precede the
+        # generic /api/tickets/{id} GET matcher below.
+        _arest = pi[len('/api/tickets/'):]
+        _atid, _asep, _aaid = _arest.partition('/attachments/')
+        handle_ticket_attachment(_atid, _aaid)
     elif pi.startswith('/api/tickets/') and m == 'GET':
         handle_ticket_get(pi[len('/api/tickets/'):])
     elif pi.startswith('/api/tickets/') and m in ('PATCH', 'POST'):

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.4.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.4.1">
 
 </head>
 <body>
@@ -451,7 +451,7 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span>Automation</span>
         </button>
-        <button class="nav-btn" data-page="billing" title="Billing — worksheet, invoices and per-customer rates &amp; fees (admin / finance)">
+        <button class="nav-btn d-none" id="nav-billing" data-page="billing" title="Billing — worksheet, invoices and per-customer rates &amp; fees (admin / finance)">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l3-2 3 2 3-2 3 2 3-2V2l-3 2-3-2-3 2-3-2-3 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="14" y2="13"/></svg>
           <span>Billing</span>
         </button>
@@ -2176,6 +2176,7 @@
           <div class="settings-section">
             <h3>Tickets</h3>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices) — off by default</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-billing-enabled"> Billing (time-tracking worksheet, per-customer invoices and rates &amp; fees; admin / finance) — off by default. Logging hours on tickets and the weekly timesheet stay available regardless.</label></div>
             <div class="meta-sm-nm mt-4">Ticket mailbox (IMAP) — dedicated inbox for customer replies. Replies are matched to a ticket by the #RP number in the subject; auto-replies and our own mail are ignored (loop-safe). Outbound uses your existing SMTP.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-enabled"> Poll a mailbox for ticket replies</label></div>
             <div class="settings-row"><label class="form-label" for="tkimap-host">IMAP host</label><input type="text" id="tkimap-host" class="form-input ff-mono" placeholder="imap.example.com"></div>
@@ -2188,6 +2189,14 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-verify-tls" checked> Verify TLS certificate (uncheck to ignore — self-signed / internal IMAP)</label></div>
             <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
             <div id="tkimap-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
+
+            <h3 class="mt-16">Ticket auto-reply</h3>
+            <div class="meta-sm-nm mt-4">Send a one-time acknowledgement ("Thank you for contacting support…") when a NEW ticket is auto-created from an inbound email. Loop-safe: stamped <code>Auto-Submitted</code>, sent once per ticket, and never to no-reply / mailer-daemon / bounce senders. Requires SMTP (Notifications).</div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkar-enabled"> Auto-reply to new email tickets</label></div>
+            <div class="settings-row"><label class="form-label" for="tkar-subject">Subject (the <code>#RP&lt;number&gt;</code> is prefixed automatically)</label><input type="text" id="tkar-subject" class="form-input" placeholder="Re: your support request" maxlength="200"></div>
+            <div class="settings-row"><label class="form-label" for="tkar-body">Message</label><textarea id="tkar-body" class="form-input" rows="4" maxlength="4000" placeholder="Thank you for contacting support…"></textarea></div>
+            <div class="row-6"><button class="btn-primary" data-action="saveTicketAutoreply">Save auto-reply</button></div>
+            <div id="tkar-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
             <h3 class="mt-16">Ticket SLA targets</h3>
             <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
@@ -2944,7 +2953,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.4.0 rackmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
+          <details class="doc-card" open data-keywords="release notes changelog v5.4.1 rackmatters av antivirus rkhunter rootkit clamav warning av_warning alert needs attention ticket attachment attachments file download preview inbound outbound email auto-reply autoreply acknowledgement thank you loop-safe view email thread correspondence print billing opt-in advanced settings gate device hostname ticket icon">
+            <summary><strong>What's new — v5.4.1 "RackMatters"</strong> — AV/rootkit scan warnings now alert, ticket attachments (in/out), a loop-safe ticket auto-reply, a "View email thread" window, and Billing is now opt-in (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.4.1 is a follow-up patch on the RackMatters line — a missing alert signal, two helpdesk improvements, a billing opt-in and a Devices polish. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.4.1</code>).</p>
+              <ul>
+                <li><strong>AV / rootkit scan warnings now alert.</strong> rkhunter <code>[Warning]</code> lines (and a stale ClamAV signature DB) were only shown on the dashboard "Needs attention" card — they never reached the Alerts inbox. A new <code>av_warning</code> event (medium, coalesced per host) now fires on the rising warning count. An active infection still raises the higher-severity <code>av_infected</code>.</li>
+                <li><strong>Ticket attachments.</strong> Inbound email attachments are now stored (previously text only); you can <em>Attach files</em> to an email reply (≤15 MB each). Every attachment has a download and an in-browser preview (images / PDF / text). Access is bound to the ticket and served <code>nosniff</code>.</li>
+                <li><strong>Ticket auto-reply.</strong> Opt-in, one-time acknowledgement ("Thank you for contacting support…") emailed when a new ticket is auto-created from inbound mail. Loop-safe: stamped <code>Auto-Submitted</code>, sent once, never to no-reply / mailer-daemon senders. Settings → Advanced → Tickets.</li>
+                <li><strong>View email thread.</strong> A button on every ticket opens the full correspondence in a clean, printable window.</li>
+                <li><strong>Billing is now opt-in.</strong> The Billing page is gated behind a Settings → Advanced checkbox (like the ticket system). Logging hours on tickets and the weekly Timesheet stay available regardless.</li>
+                <li><strong>Devices page.</strong> A small ticket glyph now marks a host that has an open ticket, in front of its hostname.</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.4.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.4.0 rackmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
             <summary><strong>What's new — v5.4.0 "RackMatters"</strong> — time-tracking and billing: log billable / internal hours on tickets and a weekly timesheet, then turn them (plus recurring fees) into per-customer invoices (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.4.0 adds a lightweight <strong>time-tracking + billing</strong> layer on one shared ledger. Log hours where the work happens; bill them where the money is. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.4.0</code>).</p>
@@ -2999,20 +3023,8 @@
               <p class="hint">Contributed by @tbouquet (#9, #12) and @loryanstrant (#10, #11). See <code>docs/v5.1.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.1.0 unitymatters community contributor tbouquet fail2ban ban banned ip intrusion jail event alert webhook siem arabic rtl right-to-left layout localization i18n translation">
-            <summary><strong>What's new — v5.1.0 "UnityMatters"</strong> — fail2ban bans become a first-class alert / webhook event, Arabic gets a full right-to-left layout, and more of the UI is localized (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.1.0 turns intrusion bans into a signal you actually see, finishes Arabic localisation with a mirrored layout, and translates more of the dashboard. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.1.0</code>).</p>
-              <ul>
-                <li><strong>fail2ban bans reach your inbox.</strong> When a host's fail2ban jail bans a new IP, RemotePower now fires a first-class <code>fail2ban_ban</code> event — it lands in Alerts, the dashboard activity feed and any configured webhook / SIEM, carrying the jail and banned IPs. Bans were previously audit-only. Repeat bans on a host coalesce into one live alert so a brute-force flood doesn't drown the inbox.</li>
-                <li><strong>Arabic right-to-left layout.</strong> The Arabic locale now mirrors the whole chrome — sidebar, navigation, cards, tables and drawers flip to a true RTL layout, not just RTL text.</li>
-                <li><strong>More localized UI.</strong> Another batch of labels across the Firewall, Reputation/DMARC, AI Insights, Alerts and Checks pages are now translated in all five languages.</li>
-              </ul>
-              <p class="hint">See <code>docs/v5.1.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
 
-          <details class="doc-card" data-keywords="release notes changelog older versions history v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
+          <details class="doc-card" data-keywords="release notes changelog older versions history v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
               <p>Per-release notes for the five most recent versions are kept above. The complete, forensic release history &mdash; every version, newest first &mdash; lives in <code>CHANGELOG.md</code> at the repository root.</p>
@@ -8217,36 +8229,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.4.0"></script>
-<script defer src="static/js/app.js?v=5.4.0"></script>
+<script defer src="static/js/i18n.js?v=5.4.1"></script>
+<script defer src="static/js/app.js?v=5.4.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.4.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.4.0"></script>
-<script defer src="static/js/app-containers.js?v=5.4.0"></script>
-<script defer src="static/js/app-network.js?v=5.4.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.4.1"></script>
+<script defer src="static/js/app-cmdb.js?v=5.4.1"></script>
+<script defer src="static/js/app-containers.js?v=5.4.1"></script>
+<script defer src="static/js/app-network.js?v=5.4.1"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.4.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.4.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.4.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.4.1"></script>
+<script defer src="static/js/app-compliance.js?v=5.4.1"></script>
+<script defer src="static/js/app-integrations.js?v=5.4.1"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.4.0"></script>
-<script defer src="static/js/app-dns.js?v=5.4.0"></script>
-<script defer src="static/js/app-drift.js?v=5.4.0"></script>
-<script defer src="static/js/app-dmarc.js?v=5.4.0"></script>
-<script defer src="static/js/app-cve.js?v=5.4.0"></script>
-<script defer src="static/js/app-firewall.js?v=5.4.0"></script>
-<script defer src="static/js/app-backups.js?v=5.4.0"></script>
-<script defer src="static/js/app-iac.js?v=5.4.0"></script>
-<script defer src="static/js/app-rollouts.js?v=5.4.0"></script>
-<script defer src="static/js/app-power.js?v=5.4.0"></script>
-<script defer src="static/js/app-gpu.js?v=5.4.0"></script>
-<script defer src="static/js/app-proxmox.js?v=5.4.0"></script>
-<script defer src="static/js/wg-access.js?v=5.4.0"></script>
-<script defer src="static/js/app-billing.js?v=5.4.0"></script>
+<script defer src="static/js/app-ai.js?v=5.4.1"></script>
+<script defer src="static/js/app-dns.js?v=5.4.1"></script>
+<script defer src="static/js/app-drift.js?v=5.4.1"></script>
+<script defer src="static/js/app-dmarc.js?v=5.4.1"></script>
+<script defer src="static/js/app-cve.js?v=5.4.1"></script>
+<script defer src="static/js/app-firewall.js?v=5.4.1"></script>
+<script defer src="static/js/app-backups.js?v=5.4.1"></script>
+<script defer src="static/js/app-iac.js?v=5.4.1"></script>
+<script defer src="static/js/app-rollouts.js?v=5.4.1"></script>
+<script defer src="static/js/app-power.js?v=5.4.1"></script>
+<script defer src="static/js/app-gpu.js?v=5.4.1"></script>
+<script defer src="static/js/app-proxmox.js?v=5.4.1"></script>
+<script defer src="static/js/wg-access.js?v=5.4.1"></script>
+<script defer src="static/js/app-billing.js?v=5.4.1"></script>
 
-<script defer src="static/js/sw-register.js?v=5.4.0"></script>
+<script defer src="static/js/sw-register.js?v=5.4.1"></script>
 </body>
 </html>

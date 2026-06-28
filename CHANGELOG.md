@@ -2,6 +2,38 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.4.1 — "RackMatters" — unreleased (test)
+
+A follow-up patch on the RackMatters line — signals, helpdesk polish and a billing
+opt-in. No breaking changes.
+
+- **AV/rootkit scan _warnings_ now alert.** rkhunter `[Warning]` lines (and a stale
+  ClamAV signature DB) were only shown on the "Needs attention" card, so a host's
+  warnings never reached the Alerts inbox. A new **`av_warning`** event (medium)
+  is edge-triggered on the rising warning count, coalesced per host, and routed
+  through the existing `av_posture` channel. `av_infected` still supersedes it for
+  an active infection. **WEBHOOK_EVENTS → 88.**
+- **Ticket attachments (in + out).** Inbound email attachments are now extracted
+  and stored (previously text/plain only); operators can **attach files** to an
+  email reply (≤15 MB each, ≤10 per message). Every attachment has a
+  **download** and an in-browser **preview** (images / PDF / text) — access is
+  bound to the owning ticket, served `nosniff`, with opaque ids so they can't be
+  fetched across tickets.
+- **Ticket auto-reply.** An opt-in, one-time acknowledgement ("Thank you for
+  contacting support…") is emailed when a new ticket is auto-created from inbound
+  mail. **Loop-safe**: stamped `Auto-Submitted`, sent once per ticket, and never to
+  no-reply / mailer-daemon / bounce / postmaster senders. Settings → Advanced →
+  Tickets.
+- **"View email thread".** A button on every ticket opens the full correspondence
+  in a clean, printable window (CSP-safe — built entirely in the browser, no new
+  endpoint).
+- **Billing is now opt-in.** The **Billing** page (worksheet / invoices / rates &
+  fees) is gated behind a new **Settings → Advanced** checkbox, mirroring the
+  ticket system. Logging hours on tickets and the weekly **Timesheet** stay
+  available regardless.
+- **Devices page** shows a small ticket glyph (the Tickets-nav icon) in front of a
+  hostname when that host has an open ticket — replacing the prior "ticket" pill.
+
 ## v5.4.0 — "RackMatters" — unreleased (test)
 
 A lightweight **time-tracking + billing** layer on one shared time-entry ledger:

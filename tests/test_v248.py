@@ -37,7 +37,8 @@ class TestActivityDedup(unittest.TestCase):
         # v4.7.0: widened 4200→4600 — added integration_down/integration_recovered.
         # v5.0.0: widened 4600→4800 — added vault_break_glass to FLEET_EVENTS.
         # v5.1.0: widened 4800→5200→5600 — added fail2ban_ban + av_infected.
-        cls.chunk = cls.js[start:start + 5600]
+        # v5.4.1: widened 5600→5800 — added av_warning to FLEET_EVENTS.
+        cls.chunk = cls.js[start:start + 5800]
 
     def test_dedup_runs_before_slice(self):
         # The de-dup filter must come before .slice(0, 8) — otherwise

@@ -26,6 +26,8 @@ import ssl
 import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders as _email_encoders
 from email.utils import formatdate, make_msgid
 
 
@@ -55,7 +57,7 @@ class SmtpError(Exception):
     """Wraps any SMTP failure with a human-readable message."""
 
 
-def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None, html_body: str = None) -> dict:
+def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None, html_body: str = None, attachments: list = None) -> dict:
     """
     Send a plain-text email. cfg is the SMTP config dict from /api/config.
     Returns {'ok': True} on success, raises SmtpError otherwise.
@@ -124,11 +126,33 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     # so clients that can render HTML show the rich version (e.g. an HTML
     # signature) and the rest still get readable plain text.
     if html_body:
-        msg = MIMEMultipart('alternative')
-        msg.attach(MIMEText(body, 'plain', _charset='utf-8'))
-        msg.attach(MIMEText(html_body, 'html', _charset='utf-8'))
+        content = MIMEMultipart('alternative')
+        content.attach(MIMEText(body, 'plain', _charset='utf-8'))
+        content.attach(MIMEText(html_body, 'html', _charset='utf-8'))
     else:
-        msg = MIMEText(body, _charset='utf-8')
+        content = MIMEText(body, _charset='utf-8')
+    # v5.4.1: file attachments (ticket replies) — wrap the text/alternative body in
+    # a multipart/mixed and append each file as a base64 octet-stream part. Each
+    # attachment is (filename, content_type, bytes); the filename is header-safe.
+    if attachments:
+        msg = MIMEMultipart('mixed')
+        msg.attach(content)
+        for att in attachments:
+            try:
+                fname, ctype, raw = att
+            except (ValueError, TypeError):
+                continue
+            if not raw:
+                continue
+            maintype, _, subtype = (str(ctype or 'application/octet-stream')).partition('/')
+            part = MIMEBase(maintype or 'application', subtype or 'octet-stream')
+            part.set_payload(raw)
+            _email_encoders.encode_base64(part)
+            safe_fn = str(fname or 'attachment').replace('\r', '').replace('\n', '').replace('"', '')
+            part.add_header('Content-Disposition', 'attachment', filename=safe_fn)
+            msg.attach(part)
+    else:
+        msg = content
     msg['Subject'] = subject
     msg['From']    = sender
     msg['To']      = ', '.join(recipients)

@@ -933,6 +933,14 @@
   #tk-conversation .tk-msg-in  { background: rgba(127,127,127,0.10); border: 1px solid var(--border); margin-right: auto; }
   #tk-conversation .tk-msg-out { background: rgba(59,130,246,0.12); border: 1px solid var(--accent); margin-left: auto; }
   #tk-conversation .tk-msg-note { background: rgba(255,193,7,0.10); border: 1px dashed #d4a017; margin-right: auto; }
+  /* v5.4.1: ticket attachment chips (under each message + staged-for-send row). */
+  .tk-att-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .tk-att-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+    padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px;
+    background: rgba(127,127,127,0.08); max-width: 100%; }
+  .tk-att-chip .tk-att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+  /* v5.4.1: small ticket marker before a device hostname (Devices page). */
+  .dev-ticket-ic { display: inline-flex; vertical-align: middle; margin-right: 4px; color: var(--accent); }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1890,14 +1890,16 @@ function renderDevices() {
     const decommPill = d.decommissioned
       ? ` <span class="hw-pill decomm-pill" title="Decommissioned — a retired asset. Monitoring, alerts, health and SLA are suppressed.">${_icon('power',12)} DECOMMED</span>`
       : '';
-    const ticketPill = (window._ticketDevices && window._ticketDevices.has(d.id))
-      ? ` <span class="hw-pill hw-warn pointer" title="Has an open ticket" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1">${_icon('list',12)} ticket</span>`
+    // v5.4.1: small ticket-glyph marker (same icon as the Tickets nav) shown
+    // IN FRONT of the hostname when the host has an open ticket.
+    const ticketMark = (window._ticketDevices && window._ticketDevices.has(d.id))
+      ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1">${_icon('ticket',13)}</span>`
       : '';
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}${d.decommissioned ? ' decommissioned' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}${ticketPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${ticketMark}${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}${auditPill}${decommPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -2034,7 +2036,7 @@ function _registerDevicesMinimalTable() {
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}${d.decommissioned ? ' decommissioned' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
         <td class="dev-status-cell ta-center"><span class="status-dot ${isOnline ? 'online' : 'offline'}" title="${isOnline ? 'Online' : 'Offline'}" aria-label="${isOnline ? 'Online' : 'Offline'}"></span></td>
-        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${(window._ticketDevices && window._ticketDevices.has(d.id)) ? ` <span class="hw-pill hw-warn pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default>${_icon('list', 12)} ticket</span>` : ''}${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
+        <td class="dev-name-cell">${(window._ticketDevices && window._ticketDevices.has(d.id)) ? `<span class="dev-ticket-ic pointer" title="Open ticket on this host" data-action="openDeviceTickets" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-stop-prop="1" data-prevent-default>${_icon('ticket', 13)}</span>` : ''}<a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.decommissioned ? ' <span class="isl-320" title="Decommissioned — retired, fully silenced">decomm</span>' : ''}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
@@ -2914,7 +2916,10 @@ async function loadSettings() {
   const _tke = document.getElementById('cfg-tickets-enabled');
   if (_tke) _tke.checked = !!data.tickets_enabled;
   document.getElementById('nav-tickets')?.classList.toggle('d-none', !data.tickets_enabled);
-  if (data.tickets_enabled) { loadTicketImap(); loadTicketSla(); }
+  if (data.tickets_enabled) { loadTicketImap(); loadTicketSla(); loadTicketAutoreply(); }
+  const _ble = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
+  if (_ble) _ble.checked = !!data.billing_enabled;
+  document.getElementById('nav-billing')?.classList.toggle('d-none', !data.billing_enabled);
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3337,6 +3342,8 @@ async function saveSettings(btn) {
   if (_paEn) payload.port_audit_enabled = _paEn.checked;
   const _tkEn = document.getElementById('cfg-tickets-enabled');
   if (_tkEn) payload.tickets_enabled = _tkEn.checked;
+  const _blEn = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
+  if (_blEn) payload.billing_enabled = _blEn.checked;
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
@@ -3999,6 +4006,8 @@ async function openTicket(tid) {
   const data = await api('GET', '/tickets/' + encodeURIComponent(tid));
   if (!data || !data.ticket) { toast('Failed to load ticket', 'error'); return; }
   const t = data.ticket;
+  window._tkOutAttach = [];          // v5.4.1: outbound attachments staged for the next reply
+  window._tkLastDetail = t;          // v5.4.1: snapshot for the "View email thread" window
   document.getElementById('tk-detail-title').textContent = `${_tkNo(t.number)} — ${t.subject || ''}`;
   const statusOpts = Object.keys(_TK_STATUS).map(s => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${_TK_STATUS[s]}</option>`).join('');
   const typeOpts = ['incident', 'request', 'change'].map(s => `<option value="${s}" ${t.type === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('');
@@ -4027,7 +4036,7 @@ async function openTicket(tid) {
     const who = isIn ? `${escHtml(m.author || 'Customer')} · received`
       : (dir === 'note' ? `${escHtml(m.author || '')} · internal note` : `${escHtml(m.author || '')} · sent`);
     const when = m.ts ? new Date(m.ts * 1000).toLocaleString() : '';
-    return `<div class="${cls}"><div class="tk-msg-meta">${who} · ${when}</div><div class="tk-msg-body">${escHtml(m.body || '').replace(/\n/g, '<br>')}</div></div>`;
+    return `<div class="${cls}"><div class="tk-msg-meta">${who} · ${when}</div><div class="tk-msg-body">${escHtml(m.body || '').replace(/\n/g, '<br>')}</div>${_tkAttachHtml(tid, m.attachments)}</div>`;
   }).join('') || '<div class="meta-sm-nm">No messages yet.</div>';
   const alertLink = t.alertid ? `<div class="fs-12 mb-8">Linked alert: <code>${escHtml(_rpNo(t.alertid))}</code></div>` : '';
   const parentBlock = t.parent_ticket
@@ -4082,12 +4091,20 @@ async function openTicket(tid) {
       <button class="btn-icon cell-sm ml-8" data-action="openTicketHours" data-arg="${escAttr(tid)}" data-arg2="${escAttr(t.device_id || '')}" data-arg3="${escAttr(t.device_name || '')}" title="Log billable or internal hours against this ticket">+ Log hours</button>
     </div>
     <div id="tk-hours-box"><div class="meta-sm-nm">Loading…</div></div>
-    <div class="fw-500 mt-12 mb-4">Conversation <span class="meta-sm-nm">(oldest first, newest at bottom)</span></div>
+    <div class="row-6-center mt-12 mb-4">
+      <span class="fw-500">Conversation <span class="meta-sm-nm">(oldest first, newest at bottom)</span></span>
+      <button class="btn-icon cell-sm ml-auto" data-action="openTicketThread" data-arg="${escAttr(tid)}" title="Open the full email correspondence in a clean, printable window">${_icon('bookOpen', 13)} View email thread</button>
+    </div>
     <div class="scroll-cap" id="tk-conversation">${msgs}</div>
     <div class="mt-12">
       <textarea id="tk-d-msg" class="form-input" rows="3" maxlength="8000" placeholder="Add a note or reply…"></textarea>
+      <div class="row-6-center mt-6">
+        <input type="file" id="tk-att-input" class="d-none" multiple aria-label="Attach files to this reply">
+        <button class="btn-icon cell-sm" data-action-btn="_tkAttachPick" title="Attach files to the email reply (max 15 MB each)">${_icon('paperclip', 13)} Attach files</button>
+        <span id="tk-att-pending" class="meta-sm-nm"></span>
+      </div>
       <div class="row-6 mt-6">
-        <button class="btn-primary" data-action="sendTicketEmail" data-arg="${escAttr(tid)}" title="Actually send this text as an email to the contact (and log it on the ticket)">Send email</button>
+        <button class="btn-primary" data-action="sendTicketEmail" data-arg="${escAttr(tid)}" title="Actually send this text (and any attached files) as an email to the contact, and log it on the ticket">Send email</button>
         <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="note" title="Save an internal note — NOT emailed to anyone">Add internal note</button>
         <button class="btn-secondary" data-action="addTicketMessage" data-arg="${escAttr(tid)}" data-arg2="out" title="Record a reply you sent by another channel (phone, in person…) — does NOT send an email">Log reply (not sent)</button>
         <button class="btn-icon c-danger-outline" data-action="deleteTicket" data-arg="${escAttr(tid)}">Delete ticket</button>
@@ -4098,6 +4115,8 @@ async function openTicket(tid) {
   if (_ds) _ds.oninput = () => _tkDetailDevResults(_ds.value);
   const _as = document.getElementById('tk-d-assignee');
   if (_as) { _as.oninput = () => _tkAssigneeResults(_as.value); _as.onfocus = () => _tkAssigneeResults(_as.value); }
+  const _ai = document.getElementById('tk-att-input');   // v5.4.1: stage chosen files
+  if (_ai) _ai.onchange = () => _tkAttachInputChange(_ai);
   const _save = document.getElementById('tk-detail-save');
   if (_save) _save.dataset.arg = tid;   // footer Save targets this ticket
   window._tkCurrentChildren = t.children || [];   // for cascade-close prompt
@@ -4264,10 +4283,140 @@ async function addTicketMessage(tid, direction) {
 async function sendTicketEmail(tid) {
   const ta = document.getElementById('tk-d-msg');
   const body = ta?.value.trim();
-  if (!body) { toast('Write the email body first', 'warning'); return; }
-  const r = await api('POST', '/tickets/' + encodeURIComponent(tid) + '/email', { body });
-  if (r?.ok) { toast('Email sent to ' + r.to, 'success'); openTicket(tid); }
+  const atts = (window._tkOutAttach || []);
+  if (!body && !atts.length) { toast('Write the email body first', 'warning'); return; }
+  const payload = { body: body || '' };
+  if (atts.length) payload.attachments = atts.map(a => ({ filename: a.filename, content_type: a.content_type, data_b64: a.data_b64 }));
+  const r = await api('POST', '/tickets/' + encodeURIComponent(tid) + '/email', payload);
+  if (r?.ok) { window._tkOutAttach = []; toast('Email sent to ' + r.to, 'success'); openTicket(tid); }
   else toast(r?.error || 'Failed', 'error');
+}
+
+// ── v5.4.1: ticket attachments (in/out) ───────────────────────────────────────
+const _TK_INLINE_CT = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'application/pdf', 'text/plain']);
+const _TK_ATTACH_MAX = 15 * 1024 * 1024;   // mirror the server per-file cap
+// Render the attachment chips under a conversation message. Element-based
+// dispatch (data-action-btn) passes the button so the opaque hex id is read as a
+// string (never numerically coerced).
+function _tkAttachHtml(tid, list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  const chips = list.map(a => {
+    const fn = a.filename || 'attachment';
+    const view = _TK_INLINE_CT.has(a.content_type)
+      ? ` <button class="btn-icon cell-sm" data-action-btn="_tkAttachView" data-tid="${escAttr(tid)}" data-aid="${escAttr(a.id)}" data-ct="${escAttr(a.content_type || '')}" data-fname="${escAttr(fn)}" title="Preview">${_icon('eye', 12)}</button>`
+      : '';
+    return `<span class="tk-att-chip">${_icon('paperclip', 12)} <span class="tk-att-name" title="${escAttr(fn)}">${escHtml(fn)}</span> <span class="meta-sm-nm">${escHtml(_fmtBytes(a.size))}</span> <button class="btn-icon cell-sm" data-action-btn="_tkAttachDl" data-tid="${escAttr(tid)}" data-aid="${escAttr(a.id)}" data-fname="${escAttr(fn)}" title="Download">${_icon('download', 12)}</button>${view}</span>`;
+  }).join('');
+  return `<div class="tk-att-row">${chips}</div>`;
+}
+function _tkAttachDl(btn) {
+  const tid = btn.dataset.tid, aid = btn.dataset.aid, fn = btn.dataset.fname || 'attachment';
+  _downloadAuthed(`/api/tickets/${encodeURIComponent(tid)}/attachments/${encodeURIComponent(aid)}`, fn, 'Downloaded');
+}
+function _tkAttachView(btn) {
+  const tid = btn.dataset.tid, aid = btn.dataset.aid;
+  fetch(`/api/tickets/${encodeURIComponent(tid)}/attachments/${encodeURIComponent(aid)}?inline=1`, { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(b => { const u = URL.createObjectURL(b); window.open(u, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(u), 60000); })
+    .catch(() => toast('Could not open attachment', 'error'));
+}
+function _tkAttachPick() { document.getElementById('tk-att-input')?.click(); }
+function _tkAttachInputChange(input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  window._tkOutAttach = window._tkOutAttach || [];
+  let pending = files.length;
+  files.forEach(f => {
+    if (f.size > _TK_ATTACH_MAX) { toast(`${f.name} is over 15 MB — skipped`, 'warning'); pending--; if (!pending) _tkRenderPendingAttach(); return; }
+    if ((window._tkOutAttach.length) >= 10) { toast('Max 10 files per reply', 'warning'); pending--; if (!pending) _tkRenderPendingAttach(); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = String(reader.result || '');
+      const b64 = res.includes(',') ? res.slice(res.indexOf(',') + 1) : res;
+      window._tkOutAttach.push({ filename: f.name, content_type: f.type || 'application/octet-stream', size: f.size, data_b64: b64 });
+      pending--; if (!pending) _tkRenderPendingAttach();
+    };
+    reader.onerror = () => { pending--; if (!pending) _tkRenderPendingAttach(); };
+    reader.readAsDataURL(f);
+  });
+  input.value = '';   // allow re-picking the same file
+}
+function _tkRenderPendingAttach() {
+  const el = document.getElementById('tk-att-pending');
+  if (!el) return;
+  const list = window._tkOutAttach || [];
+  if (!list.length) { el.textContent = ''; return; }
+  el.innerHTML = list.map((a, i) =>
+    `<span class="tk-att-chip">${_icon('paperclip', 11)} ${escHtml(a.filename)} <span class="meta-sm-nm">${escHtml(_fmtBytes(a.size))}</span> <button class="btn-icon cell-sm" data-action-btn="_tkAttachUnstage" data-idx="${i}" title="Remove">${_icon('x', 11)}</button></span>`).join(' ');
+}
+function _tkAttachUnstage(btn) {
+  const i = parseInt(btn.dataset.idx, 10);
+  if (window._tkOutAttach && i >= 0) { window._tkOutAttach.splice(i, 1); _tkRenderPendingAttach(); }
+}
+
+// ── v5.4.1: "View email thread" — full correspondence in a clean, printable
+// window. Built entirely with DOM APIs + CSSOM (element.style.x), which are
+// CSP-safe (script-src/style-src only block inline <script>/<style> and HTML
+// style="" attributes, NOT property assignments). No new server endpoint —
+// re-fetches the ticket the operator already has access to.
+async function openTicketThread(tid) {
+  let t = window._tkLastDetail;
+  try { const d = await api('GET', '/tickets/' + encodeURIComponent(tid)); if (d && d.ticket) t = d.ticket; } catch (_) {}
+  if (!t) { toast('No ticket loaded', 'error'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { toast('Popup blocked — allow popups to view the thread', 'warning'); return; }
+  const doc = w.document;
+  const noStr = _tkNo(t.number);
+  doc.title = `${noStr} — ${t.subject || 'Ticket'}`;
+  const el = (tag, style, txt) => { const e = doc.createElement(tag); if (style) Object.assign(e.style, style); if (txt != null) e.textContent = txt; return e; };
+  const b = doc.body;
+  Object.assign(b.style, { margin: '0', background: '#eef0f3', color: '#16181d',
+    font: '14px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' });
+  // Toolbar (hidden when printing).
+  const bar = el('div', { position: 'sticky', top: '0', display: 'flex', gap: '8px',
+    alignItems: 'center', padding: '10px 16px', background: '#1f2430', color: '#fff' });
+  bar.className = 'noprint';
+  bar.appendChild(el('strong', { fontSize: '13px', flex: '1' }, `RemotePower · ${noStr}`));
+  const mkBtn = (label, fn) => { const x = el('button', { padding: '6px 12px', border: '0',
+    borderRadius: '5px', cursor: 'pointer', background: '#3b82f6', color: '#fff', fontSize: '13px' }, label);
+    x.onclick = fn; return x; };
+  bar.appendChild(mkBtn('Print', () => w.print()));
+  bar.appendChild(mkBtn('Close', () => w.close()));
+  b.appendChild(bar);
+  // Hide the toolbar (and lighten the background) only while printing — done with
+  // before/afterprint handlers toggling .style, NOT a runtime <style> element
+  // (which the CSP-fidelity guard forbids and which inline style-src would block).
+  w.onbeforeprint = () => { bar.style.display = 'none'; b.style.background = '#fff'; };
+  w.onafterprint = () => { bar.style.display = 'flex'; b.style.background = '#eef0f3'; };
+  const wrap = el('div', { maxWidth: '820px', margin: '0 auto', padding: '20px 16px 60px' });
+  b.appendChild(wrap);
+  // Header card.
+  const head = el('div', { background: '#fff', border: '1px solid #d9dde3', borderRadius: '10px', padding: '16px 18px', marginBottom: '16px' });
+  head.appendChild(el('div', { fontSize: '18px', fontWeight: '700', marginBottom: '4px' }, t.subject || '(no subject)'));
+  const meta = `${noStr} · ${(t.status || '').replace(/_/g, ' ')}` + (t.to_email ? ` · ${t.to_email}` : '') + (t.device_name ? ` · ${t.device_name}` : '');
+  head.appendChild(el('div', { fontSize: '12px', color: '#5b626d' }, meta));
+  wrap.appendChild(head);
+  const msgs = (t.messages || []);
+  if (!msgs.length) wrap.appendChild(el('div', { color: '#5b626d' }, 'No correspondence yet.'));
+  msgs.forEach(m => {
+    const dir = m.direction || 'note';
+    const isIn = dir === 'in', isNote = dir === 'note';
+    const accent = isIn ? '#64748b' : (isNote ? '#d4a017' : '#3b82f6');
+    const card = el('div', { background: isNote ? '#fffbf0' : '#fff', border: '1px solid #d9dde3',
+      borderLeft: `4px solid ${accent}`, borderRadius: '8px', padding: '12px 14px', marginBottom: '12px' });
+    const label = isIn ? 'Received' : (isNote ? 'Internal note' : (m.channel === 'email' ? 'Sent (email)' : 'Reply (logged)'));
+    const who = m.author || (isIn ? 'Customer' : '');
+    const when = m.ts ? new Date(m.ts * 1000).toLocaleString() : '';
+    const head2 = el('div', { fontSize: '12px', color: '#5b626d', marginBottom: '6px', fontWeight: '600' },
+      `${label} — ${who}${m.to ? ' → ' + m.to : ''} · ${when}`);
+    card.appendChild(head2);
+    card.appendChild(el('div', { whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '14px' }, m.body || ''));
+    (m.attachments || []).forEach(a => {
+      card.appendChild(el('div', { fontSize: '12px', color: '#3b5bdb', marginTop: '6px' },
+        `Attachment: ${a.filename || 'file'} (${_fmtBytes(a.size)})`));
+    });
+    wrap.appendChild(card);
+  });
 }
 async function deleteTicket(tid) {
   if (!await uiConfirm('Delete this ticket permanently?')) return;
@@ -4295,6 +4444,23 @@ async function saveTicketImap() {
   const r = await api('POST', '/tickets/imap', body);
   if (r?.ok) { toast('Ticket mailbox saved', 'success'); loadTicketImap(); }
   else toast(r?.error || 'Failed', 'error');
+}
+// v5.4.1: one-time acknowledgement auto-reply for inbound-created tickets.
+async function loadTicketAutoreply() {
+  const r = await api('GET', '/tickets/autoreply');
+  if (!r || !r.ok) return;
+  const en = document.getElementById('tkar-enabled'); if (en) en.checked = !!r.enabled;
+  const su = document.getElementById('tkar-subject'); if (su) su.value = r.subject || '';
+  const bo = document.getElementById('tkar-body'); if (bo) bo.value = r.body || '';
+}
+async function saveTicketAutoreply() {
+  const v = id => document.getElementById(id)?.value;
+  const body = { enabled: !!document.getElementById('tkar-enabled')?.checked,
+    subject: (v('tkar-subject') || '').trim(), body: v('tkar-body') || '' };
+  const r = await api('POST', '/tickets/autoreply', body);
+  const res = document.getElementById('tkar-result');
+  if (r?.ok) { toast('Auto-reply saved', 'success'); if (res) res.textContent = 'Saved.'; }
+  else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
 }
 async function loadTicketSla() {
   const r = await api('GET', '/tickets/sla');
@@ -14168,7 +14334,9 @@ async function loadHome() {
   if (home.server_tz) { window._serverTz = home.server_tz; _applyServerTzNotes(); }
   window._lastAttention = home.attention || null;   // for the health "why?" expander
   document.getElementById('nav-tickets')?.classList.toggle('d-none', !home.tickets_enabled);
+  document.getElementById('nav-billing')?.classList.toggle('d-none', !home.billing_enabled);   // v5.4.1
   window._ticketsOn = !!home.tickets_enabled;
+  window._billingOn = !!home.billing_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);
   { // sidebar open-tickets counter (blue), mirrors the alerts/confirmations badges
     const tb = document.getElementById('tickets-badge');
@@ -15349,6 +15517,8 @@ function _renderHomeActivity(fleetEvents) {
     'fail2ban_ban',
     // v5.1.0: endpoint AV/malware detection
     'av_infected',
+    // v5.4.1: AV/rootkit scan warnings (rkhunter [Warning] / stale AV DB)
+    'av_warning',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach
@@ -15549,7 +15719,8 @@ function _homeActivityAttrs(event, p) {
     case 'fail2ban_ban':
       return `${base} data-home-act="${devId ? 'detail' : 'firewall'}"`;
     // v5.1.0: malware/rootkit detection → the affected host's drawer
-    case 'av_infected':
+    // v5.4.1: av_warning (rkhunter warnings / stale AV DB) routes the same way
+    case 'av_infected': case 'av_warning':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
@@ -17440,6 +17611,10 @@ const _ICONS = {
   copy:        '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   bellOff:     '<path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/>',
   partyPopper: '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-1.53.84a2.91 2.91 0 0 1-3.18-.13c-.86-.6-2.08-.55-2.86.13l-.51.43"/><path d="M5 5c2 0 5 1 5 6 0 0 .35.21.61.34"/><path d="M3 21c.6-3.6 4-7 7-7"/>',
+  // v5.4.1: paperclip for ticket attachments; ticket glyph matches the Tickets
+  // nav-button SVG exactly (used as the device-row open-ticket marker).
+  paperclip:   '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  ticket:      '<path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z"/><path d="M9 5v14"/>',
 };
 
 function _icon(name, size) {
