@@ -108,6 +108,13 @@ Batch 2 (credential-at-rest + API contract + observability):
   destination** (by webhook-destination name or id) instead of always re-notifying every
   channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
   (Settings → Notifications → On-call & escalation).
+- **Device tokens hashed at rest**: a device's auth token is now stored as a SHA-256
+  hash (`token_hash`), not plaintext — so a datastore read no longer yields a usable
+  agent credential. Fully transparent: the **agent keeps sending its plaintext token**;
+  the server compares hashes, accepts a legacy plaintext token, and **migrates it to a
+  hash on the device's next heartbeat** (under the existing device lock). New
+  enrollments + re-enrollments store only the hash. Completes the credential-at-rest
+  work alongside API-key hashing (C1).
 - **Append-only (WORM) audit sink**: point `audit_worm_path` at a file the operator
   makes immutable (`chattr +a` / a WORM mount) and every hash-chained audit entry is
   also appended there — a tamper-resistant audit copy independent of the live, bounded

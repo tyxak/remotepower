@@ -675,5 +675,31 @@ class TestWormAuditSink(unittest.TestCase):
         self.assertIn('id="cfg-audit-worm-path"', _html())
 
 
+class TestDeviceTokenHashing(unittest.TestCase):
+    """v5.4.1: device tokens hashed at rest, with a legacy-plaintext fallback +
+    transparent migration on heartbeat."""
+
+    def test_device_token_ok(self):
+        h = api._hash_device_token('TOK123')
+        self.assertEqual(len(h), 64)
+        self.assertTrue(api._device_token_ok({'token_hash': h}, 'TOK123'))   # hashed
+        self.assertFalse(api._device_token_ok({'token_hash': h}, 'WRONG'))
+        self.assertTrue(api._device_token_ok({'token': 'TOK123'}, 'TOK123'))  # legacy
+        self.assertFalse(api._device_token_ok({'token': 'TOK123'}, 'WRONG'))
+        self.assertFalse(api._device_token_ok({}, 'x'))
+        self.assertFalse(api._device_token_ok({'token_hash': h}, ''))
+
+    def test_enroll_stores_hash_and_heartbeat_migrates(self):
+        src = (_CGI / "api.py").read_text()
+        # enroll (new + re-enroll) stores token_hash, not plaintext
+        self.assertEqual(src.count("'token_hash': _hash_device_token(new_token)"), 2)
+        # every device-token auth goes through the helper (no raw plaintext compare)
+        self.assertNotIn("hmac.compare_digest(dev.get('token', ''), dev_token)", src)
+        self.assertNotIn("hmac.compare_digest(_d.get('token', ''), dev_token)", src)
+        # heartbeat migrates a legacy plaintext token to a hash under its lock
+        self.assertIn("dev['token_hash'] = _hash_device_token(dev['token'])", src)
+        self.assertIn("dev.pop('token', None)", src)
+
+
 if __name__ == "__main__":
     unittest.main()

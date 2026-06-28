@@ -2748,6 +2748,29 @@ def _apikey_hash(raw):
     return hashlib.sha256(str(raw).encode()).hexdigest()
 
 
+def _hash_device_token(raw):
+    """v5.4.1 (device-token hashing): SHA-256 of a device token for storage-at-rest.
+    Device tokens are `secrets.token_urlsafe(32)` (≈256 bits random) → a plain
+    SHA-256 is sufficient, no salt/KDF. The AGENT keeps sending its plaintext token;
+    only the server's stored copy becomes a hash."""
+    return hashlib.sha256(str(raw).encode()).hexdigest()
+
+
+def _device_token_ok(dev, presented):
+    """v5.4.1: constant-time device-token check that accepts both the new hashed
+    form (`token_hash`) and a legacy plaintext `token` (pre-hashing devices, until
+    they migrate on their next heartbeat). Returns False for a missing dev/token."""
+    if not presented or not isinstance(dev, dict):
+        return False
+    th = dev.get('token_hash')
+    if th:
+        return hmac.compare_digest(str(th), _hash_device_token(presented))
+    legacy = dev.get('token', '')
+    if legacy:
+        return hmac.compare_digest(legacy, presented)
+    return False
+
+
 def verify_token(token):
     """Returns (username, role) or (None, None).
     Session tokens: O(1) dict lookup.
@@ -12643,8 +12666,7 @@ def handle_enroll_register():
             # without that device's current token). Hardened with audit
             # logging and a fresh token rotation so a one-time PIN/token
             # leak doesn't yield a permanently usable device credential.
-            if not provided_token or not hmac.compare_digest(
-                    dev.get('token', ''), provided_token):
+            if not _device_token_ok(dev, provided_token):
                 pending_audit = ('reenroll_denied',
                                  f'device={existing_id} ip={_get_client_ip()} reason=token_mismatch')
                 outcome = ('denied',)
@@ -12655,8 +12677,9 @@ def handle_enroll_register():
                 dev.update({
                     'hostname': hostname, 'name': name, 'os': os_str,
                     'ip': ip, 'mac': mac, 'version': version, 'last_seen': now,
-                    'token': new_token,
+                    'token_hash': _hash_device_token(new_token),   # v5.4.1: hashed at rest
                 })
+                dev.pop('token', None)   # drop any legacy plaintext token
                 pending_audit = ('reenroll',
                                  f'device={existing_id} hostname={hostname} ip={_get_client_ip()}')
                 outcome = ('reenroll', existing_id, new_token)
@@ -12679,7 +12702,7 @@ def handle_enroll_register():
                     'ip': ip, 'mac': mac, 'version': version,
                     'tags': list(default_tags), 'group': default_group, 'notes': '',
                     'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
-                    'token': new_token,
+                    'token_hash': _hash_device_token(new_token),   # v5.4.1: hashed at rest
                 }
                 outcome = ('new', dev_id, new_token)
 
@@ -12831,7 +12854,7 @@ def handle_heartbeat():
     if body.get('agent_stopping'):
         _now = int(time.time())
         _d = device_get(dev_id)
-        if not _d or not hmac.compare_digest(_d.get('token', ''), dev_token):
+        if not _d or not _device_token_ok(_d, dev_token):
             respond(403, {'error': 'Unauthorized device'})
         if not _d.get('agent_stopping_at'):       # edge-trigger; ignore repeats
             with _DeviceUpdate(dev_id) as _du:
@@ -12903,10 +12926,16 @@ def handle_heartbeat():
     metric_pending = []
     with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
-        if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+        if not dev or not _device_token_ok(dev, dev_token):
             # respond() raises SystemExit; __exit__ skips the save, releases
             # the lock. No partial write on disk.
             respond(403, {'error': 'Unauthorized device'})
+        # v5.4.1: migrate a legacy plaintext token to a hash on first authenticated
+        # heartbeat (we already hold the device lock + are mutating dev). The agent
+        # keeps sending its plaintext token; only the stored copy becomes a hash.
+        if dev.get('token') and not dev.get('token_hash'):
+            dev['token_hash'] = _hash_device_token(dev['token'])
+            dev.pop('token', None)
 
         # v4.3.0: heartbeat rate floor — same early-exit mechanics as the 403
         # above (no partial write). Only authenticated devices reach this, so
@@ -36085,7 +36114,7 @@ def handle_scap_report():
         respond(403, {'error': 'Unauthorized device'})
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
-    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+    if not dev or not _device_token_ok(dev, dev_token):
         respond(403, {'error': 'Unauthorized device'})
     rec = {
         'ts': int(time.time()),
@@ -41349,7 +41378,7 @@ def handle_compose_fetch():
     token = str(body.get('token', '')).strip()
     stack_id = str(body.get('stack_id', '')).strip()
     dev = device_get(device_id)
-    if not dev or not hmac.compare_digest(dev.get('token', ''), token):
+    if not dev or not _device_token_ok(dev, token):
         respond(403, {'error': 'Unauthorized device'})
     s = (load(COMPOSE_STACKS_FILE) or {}).get(stack_id)
     if not s or s.get('device_id') != device_id:
@@ -42652,7 +42681,7 @@ def handle_packages_submit():
 
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
-    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+    if not dev or not _device_token_ok(dev, dev_token):
         respond(403, {'error': 'Unauthorized device'})
 
     raw_pkgs = body.get('packages') or []
@@ -46338,7 +46367,7 @@ def handle_log_submit():
 
     devices = load(DEVICES_FILE)
     dev = devices.get(dev_id)
-    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+    if not dev or not _device_token_ok(dev, dev_token):
         respond(403, {'error': 'Unauthorized device'})
 
     units_in = body.get('units') or {}
