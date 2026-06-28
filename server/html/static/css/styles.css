@@ -944,7 +944,7 @@
   /* v5.4.1 (H6): first-run onboarding tour (CSP-safe; built via DOM + .style). */
   .tour-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1200; }
   .tour-target { position: relative; z-index: 1201; box-shadow: 0 0 0 3px var(--accent); border-radius: 6px; }
-  .tour-pop { position: fixed; z-index: 1202; width: 300px; max-width: 92vw; background: var(--card-bg, #fff);
+  .tour-pop { position: fixed; z-index: 1202; width: 300px; max-width: 92vw; background: var(--surface, #fff);
     color: var(--text, #16181d); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.30); }
   .tour-pop-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
