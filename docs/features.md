@@ -266,6 +266,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Backup integrity verification | Agent runs the tool's own check (`tar -tf` / `restic check` / `borg check`); `backup_verify_failed` *(v4.10.0)* |
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |
+| Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.4.1)* |
 | Backup export | One-click redacted ZIP of all data JSON |
 
 ## CMDB, credentials & documentation

@@ -17738,6 +17738,14 @@ def handle_config_save():
                 clean_bk['retain_days'] = v
             except (TypeError, ValueError):
                 respond(400, {'error': 'backup.retain_days must be an integer'})
+        if 'offsite_dir' in bk:   # v5.4.1 (G1): off-host backup mirror (a mount path)
+            od = _sanitize_str(bk.get('offsite_dir') or '', 512).strip()
+            if od:
+                if not od.startswith('/'):
+                    respond(400, {'error': 'backup.offsite_dir must be absolute'})
+                if any(c in od for c in ('\n', '\r', '\x00', ';', '|', '`', '$', '<', '>')):
+                    respond(400, {'error': 'backup.offsite_dir has illegal characters'})
+            clean_bk['offsite_dir'] = od
         cfg['backup'] = clean_bk
 
     # v3.2.0 (B3): OIDC SSO config. Validate URL shape; secret is opt-in
@@ -20388,6 +20396,29 @@ def _run_data_backup(triggered_by='scheduled'):
                     f.unlink(); pruned += 1
             except OSError:
                 pass
+    # v5.4.1 (G1): mirror the finished archive to an offsite destination — a path,
+    # typically an NFS/SMB/sshfs mount to OFF-host storage, so a host loss doesn't
+    # take the backups with it. Best-effort: a copy failure NEVER fails the backup;
+    # the result is recorded in state + graded on the posture page. The same
+    # retention prunes the offsite copies.
+    offsite = (bcfg.get('offsite_dir') or '').strip()
+    offsite_ok = None
+    if offsite:
+        try:
+            od = Path(offsite)
+            od.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copy2(str(out_path), str(od / out_path.name))
+            for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
+                for f in od.glob(pat):
+                    try:
+                        if f.stat().st_mtime < cutoff:
+                            f.unlink()
+                    except OSError:
+                        pass
+            offsite_ok = True
+        except Exception as e:
+            offsite_ok = False
+            sys.stderr.write(f'[remotepower] offsite backup copy failed: {e}\n')
     state = {
         'last_run':    int(time.time()),
         'last_file':   str(out_path),
@@ -20396,10 +20427,66 @@ def _run_data_backup(triggered_by='scheduled'):
         'encrypted':   encrypted,
         'pruned':      pruned,
         'retain_days': keep,
+        'offsite_dir': offsite,
+        'offsite_ok':  offsite_ok,
     }
     save(DATA_DIR / 'self_backup_state.json', state)
     return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
-            'bytes': out_path.stat().st_size, 'pruned': pruned}
+            'bytes': out_path.stat().st_size, 'pruned': pruned,
+            'offsite_ok': offsite_ok}
+
+
+def handle_backup_test_restore():
+    """POST /api/backup/test-restore — v5.4.1 (G1): verify the LATEST backup is
+    actually restorable without touching the live data. Decrypts it (if encrypted +
+    RP_BACKUP_PASSPHRASE set), opens the gzip/tar stream, and confirms it carries
+    the expected ``remotepower/`` tree — exercising the whole decrypt→decompress→
+    parse path. Nothing is extracted to a real location. Admin only; audited."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    base = (cfg.get('backup') or {}).get('path') or '/var/lib/remotepower/backups'
+    p_base = Path(base)
+    files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
+                         + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]
+    if not files:
+        respond(404, {'error': 'no backup archives found to test'})
+    latest = max(files, key=lambda f: f.stat().st_mtime)
+    import tarfile
+    import tempfile as _tf
+    scratch = Path(_tf.mkdtemp(prefix='rp_restore_test_'))
+    try:
+        src = latest
+        if str(latest).endswith('.enc'):
+            pp = _backup_passphrase()
+            if not pp:
+                respond(400, {'error': 'latest backup is encrypted but RP_BACKUP_PASSPHRASE is not set'})
+            if not backup_crypto.available():
+                respond(400, {'error': "encrypted backup but the 'cryptography' library is missing"})
+            dec = scratch / 'dec.tar.gz'
+            backup_crypto.decrypt_file(latest, dec, pp)
+            src = dec
+        members = 0
+        saw_root = False
+        with tarfile.open(str(src), 'r:gz') as tar:
+            for m in tar:
+                members += 1
+                top = m.name.split('/', 1)[0]
+                if top == 'remotepower':
+                    saw_root = True
+        ok = saw_root and members > 0
+        audit_log(actor, 'backup_test_restore', f'file={latest.name} members={members} ok={ok}')
+        respond(200, {'ok': ok, 'file': latest.name, 'members': members,
+                      'encrypted': str(latest).endswith('.enc'),
+                      'message': ('Backup is restorable (decrypted, decompressed, '
+                                  f'{members} entries, data tree present).' if ok
+                                  else 'Archive opened but the expected remotepower/ tree was missing.')})
+    except Exception as e:
+        audit_log(actor, 'backup_test_restore', f'file={latest.name} FAILED: {str(e)[:120]}')
+        respond(200, {'ok': False, 'file': latest.name, 'error': f'restore test failed: {str(e)[:200]}'})
+    finally:
+        shutil.rmtree(str(scratch), ignore_errors=True)
 
 
 def handle_backup_clear():
@@ -37132,6 +37219,11 @@ def handle_security_posture():
         (DATA_DIR / 'export_sign.key').exists() or True,
         'evidence pack + audit archive carry an HMAC-SHA256 signature',
         'No action needed.')
+    _offsite = ((cfg.get('backup') or {}).get('offsite_dir') or '').strip()
+    add('backup_offsite', 'Backups mirrored off-host', bool(_offsite),
+        _offsite or 'local-host only',
+        'Set an off-host backup destination (an NFS/SMB/sshfs mount) under '
+        'Settings → Maintenance → Backup, and test-restore it.', fix_tab='maintenance')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
 
@@ -50036,6 +50128,7 @@ def _build_exact_routes():
         ('POST', '/api/tls/import-p12'): handle_tls_import_p12,
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('POST', '/api/self/backup-encrypt'): handle_backup_encrypt_existing,   # v5.0.0
+        ('POST', '/api/backup/test-restore'): handle_backup_test_restore,       # v5.4.1 (G1)
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
         ('GET', '/api/self-test'): handle_self_test,                 # v5.0.0 #U9

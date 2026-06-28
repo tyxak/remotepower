@@ -2277,6 +2277,12 @@
               <label class="form-label" for="backup-retain-days">Retain (days)</label>
               <input type="number" id="backup-retain-days" class="form-input mw-160" min="1" max="365" placeholder="14">
             </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-offsite-dir">Off-host copy (absolute path — typically an NFS/SMB/sshfs mount to off-host storage)</label>
+              <input type="text" id="backup-offsite-dir" class="form-input mw-380" placeholder="/mnt/offsite/remotepower (leave blank for local-host only)">
+            </div>
+            <div class="row-6 mt-8"><button class="btn-secondary" data-action="testRestore">Test restore (latest backup)</button></div>
+            <div id="test-restore-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
 
           <div class="settings-section">

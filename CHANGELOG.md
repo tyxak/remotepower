@@ -99,6 +99,11 @@ Batch 2 (credential-at-rest + API contract + observability):
   from ~28), the hand-written rich specs are kept, and the document advertises the
   versioned **`/api/v1`** base. Uncovered endpoints get an auto-stub instead of being
   absent.
+- **Off-host backups + restore-verify (DR)**: the DR backup can now be mirrored to an
+  **off-host destination** (`backup.offsite_dir` — a path, typically an NFS/SMB/sshfs
+  mount), and a new **Test restore** action (`POST /api/backup/test-restore`,
+  Settings → Maintenance) decrypts + decompresses + structure-checks the latest archive
+  to prove it's restorable. The posture page grades whether backups are mirrored off-host.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

@@ -2983,6 +2983,8 @@ async function loadSettings() {
   if (_bp) _bp.value = _bk.path || '';
   const _br = document.getElementById('backup-retain-days');
   if (_br) _br.value = _bk.retain_days || '';
+  const _bo = document.getElementById('backup-offsite-dir');   // v5.4.1 (G1)
+  if (_bo) _bo.value = _bk.offsite_dir || '';
 
   // v2.3.0: Proxmox connection. Token secret is masked — the field
   // shows a placeholder when one is set; blank means "keep current".
@@ -3309,6 +3311,7 @@ async function saveSettings(btn) {
     payload.backup = {
       enabled:     _bkEl.checked,
       path:        (document.getElementById('backup-path')?.value || '').trim() || undefined,
+      offsite_dir: (document.getElementById('backup-offsite-dir')?.value || '').trim(),   // v5.4.1 (G1)
       retain_days: parseInt(document.getElementById('backup-retain-days')?.value || '14', 10),
     };
   }
@@ -20611,6 +20614,15 @@ function _downloadAuthed(url, fallbackName, okLabel) {
       toast(okLabel || 'Downloaded', 'success');
     })
     .catch(() => toast('Export failed', 'error'));
+}
+
+// v5.4.1 (G1): verify the latest backup is actually restorable.
+async function testRestore() {
+  const el = document.getElementById('test-restore-result');
+  if (el) el.textContent = 'Testing…';
+  const r = await api('POST', '/backup/test-restore');
+  if (r?.ok) { toast('Backup restore test passed', 'success'); if (el) el.textContent = '✓ ' + (r.message || 'Restorable.'); }
+  else { toast(r?.error || 'Restore test failed', 'error'); if (el) el.textContent = (r?.error || r?.message || 'Failed'); }
 }
 
 // v5.4.1 (C9): rotate the export-signing key used for the evidence pack +

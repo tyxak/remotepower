@@ -507,5 +507,39 @@ class TestE1OpenApiCoverage(unittest.TestCase):
         self.assertIn("routes=list(_build_exact_routes().keys())", (_CGI / "api.py").read_text())
 
 
+class TestG1OffsiteBackup(unittest.TestCase):
+    """v5.4.1 (G1): off-host backup mirror + restore-verify."""
+
+    def test_offsite_copy_and_restore_verify(self):
+        import os
+        import tempfile
+        d = tempfile.mkdtemp()
+        orig = (api.DATA_DIR, api.CONFIG_FILE)
+        try:
+            api.DATA_DIR = api.Path(d)
+            api.CONFIG_FILE = api.DATA_DIR / 'config.json'
+            (api.DATA_DIR / 'sentinel.txt').write_text('hi')
+            api.save(api.CONFIG_FILE, {'backup': {'enabled': True,
+                     'path': os.path.join(d, 'bk'),
+                     'offsite_dir': os.path.join(d, 'offsite'), 'retain_days': 14}})
+            res = api._run_data_backup('manual')
+            self.assertTrue(res['ok'])
+            self.assertTrue(res['offsite_ok'])
+            copies = list((api.Path(d) / 'offsite').glob('remotepower_data_*.tar.gz*'))
+            self.assertTrue(copies, 'offsite copy missing')
+        finally:
+            api.DATA_DIR, api.CONFIG_FILE = orig
+
+    def test_route_and_handler(self):
+        self.assertTrue(hasattr(api, 'handle_backup_test_restore'))
+        self.assertIn(('POST', '/api/backup/test-restore'), api._build_exact_routes())
+
+    def test_settings_ui_and_posture(self):
+        html = _html()
+        self.assertIn('id="backup-offsite-dir"', html)
+        self.assertIn('data-action="testRestore"', html)
+        self.assertIn("'backup_offsite'", (_CGI / "api.py").read_text())  # posture row
+
+
 if __name__ == "__main__":
     unittest.main()
