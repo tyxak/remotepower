@@ -111,6 +111,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.4.1)* |
 | Email thread view | One-click printable window of a ticket's full correspondence *(v5.4.1)* |
 | Posture digest | Opt-in daily/weekly email summary over SMTP *(v3.11.0)* |
+| Branded email | Alert / digest / test emails send a branded HTML alternative (white-label name + accent) + plain-text fallback *(v5.4.1)* |
 | Digest endpoint | `/api/digest` for cron-driven email summaries |
 | Flap cap | Server-wide cap stops a flapping monitor flooding channels |
 

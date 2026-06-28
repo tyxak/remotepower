@@ -346,6 +346,22 @@ class TestEnterpriseHardening2(unittest.TestCase):
         self.assertIn("addEventListener('error'", js)
         self.assertIn("addEventListener('unhandledrejection'", js)
 
+    # H4 — branded email
+    def test_branded_email(self):
+        import importlib.util as _u
+        _s = _u.spec_from_file_location("smtp_notifier_b", _CGI / "smtp_notifier.py")
+        sn = _u.module_from_spec(_s); _s.loader.exec_module(sn)
+        h = sn.brand_html({'brand_name': 'Acme RMM', 'brand_accent': 'emerald'}, 'Subj', 'line1\nline2')
+        self.assertIn('Acme RMM', h)
+        self.assertIn('#10b981', h)             # emerald accent
+        # body HTML is escaped (no injection)
+        self.assertNotIn('<script>', sn.brand_html({}, 't', '<script>x</script>'))
+        # default brand + accent
+        self.assertIn('RemotePower', sn.brand_html(None, 't', 'b'))
+        # alert + digest emails pass a branded html_body
+        src = (_CGI / "api.py").read_text()
+        self.assertIn('html_body=smtp_notifier.brand_html(cfg, subject, body)', src)
+
 
 if __name__ == "__main__":
     unittest.main()

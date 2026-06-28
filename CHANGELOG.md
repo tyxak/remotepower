@@ -77,6 +77,9 @@ Batch 2 (credential-at-rest + API contract + observability):
   `unhandledrejection`) are beaconed to **`/api/client-error`** (throttled, scrubbed,
   capped ring) so browser-side failures are visible to operators instead of dying in
   a console.
+- **Branded notification email**: alert, fleet-report/digest and SMTP-test emails now
+  send a branded HTML alternative (white-label `brand_name` + `brand_accent`) alongside
+  the plain-text body, instead of plain text only.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

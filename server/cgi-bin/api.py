@@ -4476,7 +4476,9 @@ def _send_event_email(event, payload, message, cfg, server_name):
         return
     try:
         subject, body = smtp_notifier.render_event_email(server_name, event, payload, message)
-        smtp_notifier.send_email(cfg, recipients, subject, body)
+        # v5.4.1 (H4): branded HTML alternative; plain text stays as the fallback.
+        smtp_notifier.send_email(cfg, recipients, subject, body,
+                                 html_body=smtp_notifier.brand_html(cfg, subject, body))
         _log_email(event, recipients, 'ok', '')
     except smtp_notifier.SmtpError as e:
         _log_email(event, recipients, 'error', str(e))
@@ -36739,7 +36741,8 @@ def _maybe_send_scheduled_report():
     try:
         report = _build_fleet_report()
         subject, body = _render_report_email(report)
-        smtp_notifier.send_email(cfg, recipients, subject, body)
+        smtp_notifier.send_email(cfg, recipients, subject, body,
+                                 html_body=smtp_notifier.brand_html(cfg, subject, body))
         _log_email('fleet_report', recipients, 'ok', '')
     except smtp_notifier.SmtpError as e:
         _log_email('fleet_report', recipients, 'error', str(e))
@@ -36894,7 +36897,8 @@ def _maybe_send_report_definitions():
             report = _filter_report_sections(_build_fleet_report(), d.get('sections'))
             subject, body = _render_report_email(report)
             subject = f"[{d.get('name')}] " + subject
-            smtp_notifier.send_email(cfg, recipients, subject, body)
+            smtp_notifier.send_email(cfg, recipients, subject, body,
+                                     html_body=smtp_notifier.brand_html(cfg, subject, body))
             _log_email('fleet_report', recipients, 'ok', d.get('name', ''))
         except smtp_notifier.SmtpError as e:
             _log_email('fleet_report', recipients, 'error', str(e))
@@ -42159,19 +42163,20 @@ def handle_smtp_test():
         respond(400, {'error': 'No recipients configured. Set "smtp_recipients" or pass {"recipient": "..."}'})
 
     server_name = get_server_name()
+    _test_subject = f'[{server_name}] Test email from RemotePower'
+    _test_body = (
+        f'This is a test email from {server_name}.\n\n'
+        f'Triggered by: {actor}\n'
+        f'Server version: {SERVER_VERSION}\n'
+        f'Timestamp: {time.strftime("%Y-%m-%d %H:%M:%S %Z")}\n\n'
+        'If you received this, your SMTP configuration works correctly.\n'
+        'If you did NOT request this email, someone with admin access '
+        'on the RemotePower server triggered it. Investigate.\n'
+    )
     try:
         result = smtp_notifier.send_email(
-            cfg, recipients,
-            subject=f'[{server_name}] Test email from RemotePower',
-            body=(
-                f'This is a test email from {server_name}.\n\n'
-                f'Triggered by: {actor}\n'
-                f'Server version: {SERVER_VERSION}\n'
-                f'Timestamp: {time.strftime("%Y-%m-%d %H:%M:%S %Z")}\n\n'
-                'If you received this, your SMTP configuration works correctly.\n'
-                'If you did NOT request this email, someone with admin access '
-                'on the RemotePower server triggered it. Investigate.\n'
-            ),
+            cfg, recipients, subject=_test_subject, body=_test_body,
+            html_body=smtp_notifier.brand_html(cfg, _test_subject, _test_body),  # v5.4.1 (H4)
         )
         _log_email('test', recipients, 'ok', f'test sent to {len(recipients)} recipient(s)')
         audit_log(actor, 'smtp_test', f'test email sent to {len(recipients)} recipient(s)')

@@ -202,6 +202,45 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
         raise SmtpError(f'{type(e).__name__}: {e}')
 
 
+# v5.4.1 (H4): white-label accent name → hex (mirrors api.BRAND_ACCENTS).
+_BRAND_ACCENT_HEX = {
+    'blue': '#3b82f6', 'emerald': '#10b981', 'violet': '#8b5cf6',
+    'amber': '#f59e0b', 'rose': '#f43f5e', 'cyan': '#06b6d4',
+}
+
+
+def brand_html(cfg: dict, title: str, plain_body: str) -> str:
+    """v5.4.1 (H4): wrap a plain-text notification in a branded, email-client-safe
+    HTML body. Inline styles are REQUIRED for email and are unrelated to the web
+    app's CSP (this never renders in the app). Honours the white-label `brand_name`
+    + `brand_accent`. Returns the HTML string (the plain text stays the alternative)."""
+    import html as _h
+    cfg = cfg or {}
+    product = (str(cfg.get('brand_name') or 'RemotePower'))[:40]
+    accent = _BRAND_ACCENT_HEX.get(str(cfg.get('brand_accent') or '').lower(), '#3b82f6')
+    p = _h.escape(product)
+    safe_title = _h.escape(str(title or product))
+    safe_body = _h.escape(str(plain_body or '')).replace('\n', '<br>')
+    return (
+        '<div style="margin:0;padding:0;background:#f4f5f7;'
+        'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="background:#f4f5f7;padding:24px 0"><tr><td align="center">'
+        '<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
+        'style="max-width:600px;background:#ffffff;border:1px solid #e2e5ea;'
+        'border-radius:10px;overflow:hidden">'
+        f'<tr><td style="background:{accent};padding:14px 20px;color:#ffffff;'
+        f'font-size:16px;font-weight:700">{p}</td></tr>'
+        '<tr><td style="padding:20px;color:#16181d;font-size:14px;line-height:1.6">'
+        f'<div style="font-size:15px;font-weight:600;margin-bottom:10px">{safe_title}</div>'
+        f'<div>{safe_body}</div></td></tr>'
+        '<tr><td style="padding:12px 20px;background:#f7f8fa;color:#8a929d;'
+        'font-size:12px;border-top:1px solid #e2e5ea">'
+        f'Sent by {p} · edit recipients in Settings &rarr; Notifications</td></tr>'
+        '</table></td></tr></table></div>'
+    )
+
+
 def render_event_email(server_name: str, event: str, payload: dict, message: str) -> tuple:
     """
     Build (subject, body) for an event. Mirrors what the webhook would send,
