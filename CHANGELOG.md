@@ -157,6 +157,29 @@ Batch 2 (credential-at-rest + API contract + observability):
   plaintext behaviour; a lost/changed key is **fail-graceful** (the field is left as-is,
   reads never crash). Graded on the Security posture page. (Nested secrets — webhook
   tokens, IMAP password, ACME creds — are a documented follow-up.)
+- **External key sourcing (Vault/KMS)**: `RP_CONFIG_KEY` and `RP_BACKUP_PASSPHRASE` can
+  now be fetched from an **external command** via a `<NAME>_CMD` env var (e.g.
+  `RP_CONFIG_KEY_CMD="vault kv get -field=key secret/rp"`) instead of holding the raw
+  secret in the process environment (where it leaks via `/proc/<pid>/environ`). The
+  command runs at most once per worker (cached); the raw env var still wins when both
+  are set.
+- **SSO group → role matrix**: a new **`sso_group_roles`** mapping (`{group: role}`,
+  Settings → SSO) lets an OIDC/SAML group map to **any** builtin or custom role
+  (admin / auditor / a custom finance role / …), not just the prior binary
+  admin-or-viewer. `admin` wins when several groups match, the legacy single
+  admin-group still maps to admin, and unknown role names are ignored (fail-safe). A
+  viewer is promoted to their mapped role on next login; an existing admin / custom-role
+  user is **never auto-demoted**.
+- **Control-plane uptime**: RemotePower now records its **own** observed availability
+  (one hourly "served a request" bucket) and reports it over 24 h / 7 d / 30 d at
+  `GET /api/self-test` and as a Prometheus gauge
+  (`remotepower_control_plane_uptime_percent{window}`). Honest by construction — the
+  denominator starts at the first tracked hour (never counts pre-deployment time) and a
+  gap is labelled as downtime *or* an hour with no traffic.
+- **Distributed trace-context (W3C)**: an inbound **`traceparent`** header is honoured
+  so RemotePower's structured logs (`trace_id`) and **outbound webhooks** join the same
+  distributed trace (a fresh child span is attached to each webhook). Full server-side
+  spans across request → DB → job remain gated on the future persistent app tier.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

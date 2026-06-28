@@ -62,6 +62,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Trends charts | Zero-dep multi-series SVG — fleet health, compliance %, per-device resources, CPU-load saturation % *(v3.4.2)* |
 | Prometheus metrics | `/api/metrics` exposition (Grafana); status-token auth; health/needs-attention/CVE gauges *(v3.4.1)*; metrics push *(v4.0.0)* |
 | Availability SLO + error budgets | Per-monitor availability vs a `slo_target_percent` target → error-budget remaining + burn rate; `GET /api/slo` + Prometheus gauges *(v5.4.1)* |
+| Control-plane uptime | RemotePower's own observed availability (hourly "served a request" buckets) over 24h/7d/30d at `GET /api/self-test` + a Prometheus gauge; denominator starts at first tracked hour *(v5.4.1)* |
 | Capacity dashboard | Fleet-wide CPU/mem/disk rollup, top consumers, on Reports *(v3.4.1)* |
 
 ## Checks & custom checks *(v4.1.0)*
@@ -93,7 +94,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Metric alerts | Disk/memory/swap/CPU-load thresholds with hysteresis *(v1.11.10)*; per-device + per-mount overrides *(v1.12.0)* |
-| Webhook event registry | 86 event types, per-event toggles, test-event button |
+| Webhook event registry | 88 event types, per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.4.1)* |
 | Channel routing matrix | Per event-kind, which surfaces it reaches — Needs Attention / Recent Activity / Alerts inbox / Webhook *(v3.3.0)* |
 | Host-grouped alert inbox | Open alerts stacked per host (worst first), Ack-all/Resolve-all, symptoms folded under `device_offline` root cause *(v4.1.0)* |
 | Alert correlation | Tags `_root_cause` / `_symptom_of` for the grouped inbox |
@@ -268,6 +269,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |
 | Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for SMTP/OIDC/LDAP/SIEM/audit-forward secrets; transparent at load/save, fail-graceful *(v5.4.1)* |
+| External key sourcing | `RP_CONFIG_KEY` / `RP_BACKUP_PASSPHRASE` can be fetched from an external command (`<NAME>_CMD`, e.g. Vault/KMS/`pass`) instead of the process environment; cached per worker *(v5.4.1)* |
 | WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.4.1)* |
 | Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.4.1)* |
 | Backup export | One-click redacted ZIP of all data JSON |
@@ -299,6 +301,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | MFA enforcement | Require MFA (TOTP or passkey) per role; forced before any other action *(v4.2.0)* |
 | Password policy | Opt-in min length + 3-of-4 character classes + HaveIBeenPwned breach check (k-anonymity, fails open); enforced on new users + changes *(v5.4.1)* |
 | SSO-only | Refuse local-password logins when an IdP is configured; per-account `local_login` break-glass *(v5.4.1)* |
+| SSO group→role matrix | `sso_group_roles` maps an OIDC/SAML group to any builtin/custom role (not just admin-or-viewer); admin wins, legacy admin-group still works, viewer promoted on login, never auto-demotes *(v5.4.1)* |
 | Roles | Admin, Viewer, Auditor (read-only + audit/compliance, reveals nothing) *(v4.10.0)*, plus custom scoped roles *(v3.4.2)* |
 | Granular RBAC | Custom roles granting exec/reboot/upgrade scoped to groups/tags; roster filtered to scope *(v3.4.2)* |
 | API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.4.1)* |
@@ -428,6 +431,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.4.1)* |
 | Postman collection | `make postman` → a Postman v2.1 collection from the OpenAPI spec (foldered by tag, auth + baseUrl pre-wired) *(v5.4.1)* |
 | Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.4.1)* |
+| Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.4.1)* |
 | Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.4.1)* |
 | List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.4.1)* |
 | Signed exports | Evidence pack carries an HMAC-SHA256 `signature`; audit-archive download emits `X-RP-Signature` (per-install `export_sign.key`) *(v5.4.1)* |
