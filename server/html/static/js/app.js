@@ -11280,6 +11280,12 @@ async function loadIntegrationsTab() {
       setIf('saml-attr-groups', 'saml_attr_groups');
       setIf('saml-admin-group', 'saml_admin_group');
       setIf('saml-allow-unsolicited', 'saml_allow_unsolicited', true);
+      // v5.4.1 (D5): group→role matrix textarea — one "group=role" per line.
+      const ssoMap = document.getElementById('sso-group-roles');
+      if (ssoMap) {
+        const m = cfg.sso_group_roles || {};
+        ssoMap.value = Object.keys(m).map(g => `${g}=${m[g]}`).join('\n');
+      }
     }
   } catch (_) { /* non-fatal */ }
   const samlHint = document.getElementById('saml-metadata-hint');
@@ -11734,6 +11740,21 @@ async function testOidcConfig() {
     (warns ? `<div class="mt-8"><strong>Warnings:</strong><ul>${warns}</ul></div>` : '');
 }
 
+// v5.4.1 (D5): parse the SSO group→role matrix textarea ("group=role" per line)
+// into a {group: role} object. Blank/comment lines and malformed rows are skipped.
+function _parseGroupRoleMap(text) {
+  const out = {};
+  (text || '').split('\n').forEach(line => {
+    const s = line.trim();
+    if (!s || s.startsWith('#')) return;
+    const i = s.indexOf('=');
+    if (i <= 0) return;
+    const g = s.slice(0, i).trim(), r = s.slice(i + 1).trim();
+    if (g && r) out[g] = r;
+  });
+  return out;
+}
+
 // OIDC config save is wired here so the Integrations tab is self-contained
 async function saveOidcConfig() {
   const payload = {
@@ -11745,6 +11766,9 @@ async function saveOidcConfig() {
   };
   const secret = document.getElementById('oidc-client-secret').value;
   if (secret) payload.oidc_client_secret = secret;
+  // v5.4.1 (D5): parse the shared SSO group→role matrix ("group=role" per line).
+  const ssoMap = document.getElementById('sso-group-roles');
+  if (ssoMap) payload.sso_group_roles = _parseGroupRoleMap(ssoMap.value);
   const r = await api('POST', '/config', payload);
   if (r && r.ok !== false) {
     toast('OIDC config saved', 'success');
@@ -11767,6 +11791,9 @@ async function saveSamlConfig() {
     saml_admin_group:       val('saml-admin-group'),
     saml_allow_unsolicited: document.getElementById('saml-allow-unsolicited').checked,
   };
+  // v5.4.1 (D5): persist the shared SSO group→role matrix from here too.
+  const ssoMap = document.getElementById('sso-group-roles');
+  if (ssoMap) payload.sso_group_roles = _parseGroupRoleMap(ssoMap.value);
   const r = await api('POST', '/config', payload);
   if (r && r.ok !== false) toast('SAML config saved', 'success');
   else toast((r && r.error) || 'Failed', 'error');

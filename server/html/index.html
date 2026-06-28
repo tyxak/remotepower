@@ -1757,6 +1757,10 @@
                 <input type="text" id="oidc-admin-group" class="form-input" data-config="oidc_admin_group" placeholder="remotepower-admins">
                 <span class="hint">Members of this group get admin role on first login; everyone else gets viewer.</span>
               </label>
+              <label class="form-label">Group → role map (optional)
+                <textarea id="sso-group-roles" class="form-input" rows="3" placeholder="sec-ops=auditor&#10;finance-team=finance&#10;sre=admin"></textarea>
+                <span class="hint">One <code>group=role</code> per line. Maps an IdP/SAML group to any builtin or custom role (admin/auditor/viewer/…), not just admin-or-viewer. Shared by OIDC + SAML. Admin always wins; unknown roles are ignored.</span>
+              </label>
               <div id="oidc-redirect-hint" class="hint mt-12"></div>
               <div class="mt-12">
                 <button type="button" class="btn-primary" data-action="saveOidcConfig">Save OIDC config</button>

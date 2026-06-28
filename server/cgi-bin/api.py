@@ -2710,11 +2710,43 @@ def _key_session_id(k):
 # protocols, and SAML can reuse this instead of copy-pasting. (The password
 # login + LDAP path in handle_login keeps its own inline copy for now to avoid
 # disturbing the most security-critical flow; it converges here in the SAML pass.)
+_SSO_BUILTIN_ROLES = ('admin', 'viewer', 'auditor', 'mcp')
+
+
+def _role_from_groups(groups, cfg, admin_group_key):
+    """v5.4.1 (D5): resolve an SSO/IdP user's RemotePower role from their group
+    memberships. Honours a configurable group→role MATRIX (config
+    ``sso_group_roles``: {group_name: role_name}) so a group can map to ANY builtin
+    OR custom role (admin/auditor/finance/…), not just admin-or-viewer. Falls back
+    to the legacy single ``<admin_group_key>`` (→ admin) for backward compatibility,
+    then to ``viewer``. ``admin`` wins when several groups match; an unknown mapped
+    role name is ignored (fail-safe — never strand a user in a no-perms role)."""
+    if isinstance(groups, str):
+        groups = [groups]
+    groups = [str(g).strip() for g in (groups or []) if str(g).strip()]
+    gset = set(groups)
+    matched = []
+    matrix = cfg.get('sso_group_roles')
+    if isinstance(matrix, dict) and matrix:
+        valid = set(_SSO_BUILTIN_ROLES) | _custom_role_names()
+        for g in groups:                       # input order; admin priority below
+            r = matrix.get(g)
+            if isinstance(r, str) and r.strip() in valid:
+                matched.append(r.strip())
+    admin_group = str(cfg.get(admin_group_key) or '').strip()
+    if admin_group and admin_group in gset:
+        matched.append('admin')
+    if not matched:
+        return 'viewer'
+    return 'admin' if 'admin' in matched else matched[0]
+
+
 def _provision_or_promote_user(username, role, metadata, source):
-    """JIT-provision an SSO user, or promote viewer→admin on group match. Never
-    auto-demotes (an operator may have changed the role for cause). `metadata`
-    is merged only on create (e.g. {'oidc_subject': …} / {'saml_name_id': …}).
-    Returns the current user record (a copy)."""
+    """JIT-provision an SSO user, or promote a viewer→their group-mapped role on
+    match. Never auto-demotes (an operator may have changed the role for cause;
+    an existing admin / custom-role user is never downgraded). `metadata` is merged
+    only on create (e.g. {'oidc_subject': …} / {'saml_name_id': …}). Returns the
+    current user record (a copy)."""
     # Audit AFTER the lock is released — audit_log takes its own
     # AUDIT_LOG_FILE lock, and nesting locks (or SQLite transactions)
     # inside the USERS_FILE update would deadlock/abort.
@@ -2733,7 +2765,15 @@ def _provision_or_promote_user(username, role, metadata, source):
                              f'created from {source}, role={role}')
             result = dict(rec)
         else:
-            if role == 'admin' and user.get('role') != 'admin':
+            # v5.4.1 (D5): promote a viewer up to whatever role their groups now
+            # map to (admin OR a custom/auditor/finance role); also keep the legacy
+            # promote-to-admin for any non-admin existing user. Never demotes.
+            cur = user.get('role')
+            if role and role != 'viewer' and cur in (None, '', 'viewer'):
+                user['role'] = role
+                users[username] = user
+                pending_audit = (f'{source}_role_promoted', f'group-mapped to {role}')
+            elif role == 'admin' and cur != 'admin':
                 user['role'] = 'admin'
                 users[username] = user
                 pending_audit = (f'{source}_role_promoted', 'matched admin group')
@@ -18057,6 +18097,20 @@ def handle_config_save():
             _OIDC_METADATA_CACHE.clear()
         except Exception:
             pass
+
+    # v5.4.1 (D5): SSO/IdP group→role matrix (shared by OIDC + SAML). A dict of
+    # {group_name: role_name}; role_name is any builtin or custom role. Sanitised +
+    # bounded; unknown roles are ignored at resolve time (_role_from_groups).
+    if 'sso_group_roles' in body:
+        raw = body.get('sso_group_roles')
+        clean = {}
+        if isinstance(raw, dict):
+            for g, r in list(raw.items())[:200]:
+                gk = _sanitize_str(str(g or ''), 256).strip()
+                rv = _sanitize_str(str(r or ''), 64).strip()
+                if gk and rv:
+                    clean[gk] = rv
+        cfg['sso_group_roles'] = clean
 
     # v4.2.0 (B1): SAML 2.0 SP config. The IdP entity-id / SSO URL / x509 cert
     # plus the attribute→user/role mapping. All plain strings (the cert is the
@@ -37983,15 +38037,11 @@ def _saml_username_for(name_id, attrs, cfg):
 
 
 def _saml_role_for(attrs, cfg):
-    """Map SAML group attributes to a role (mirrors _oidc_role_for; safe default
-    is viewer when no admin-group mapping is configured)."""
-    admin_group = str(cfg.get('saml_admin_group') or '').strip()
-    if not admin_group:
-        return 'viewer'
+    """Map SAML group attributes to a role (mirrors _oidc_role_for). v5.4.1 (D5):
+    honours the sso_group_roles matrix; legacy saml_admin_group still → admin;
+    safe default is viewer."""
     groups = attrs.get(str(cfg.get('saml_attr_groups') or 'groups')) or attrs.get('roles') or []
-    if isinstance(groups, str):
-        groups = [groups]
-    return 'admin' if admin_group in groups else 'viewer'
+    return _role_from_groups(groups, cfg, 'saml_admin_group')
 
 
 def handle_saml_available():
@@ -40488,14 +40538,10 @@ def handle_oidc_start():
 
 
 def _oidc_role_for(claims, cfg):
-    """Map an id_token claim set to a RemotePower role."""
-    admin_group = (cfg.get('oidc_admin_group') or '').strip()
-    if not admin_group:
-        return 'viewer'   # No mapping → safest default
+    """Map an id_token claim set to a RemotePower role. v5.4.1 (D5): honours the
+    sso_group_roles matrix; legacy oidc_admin_group still → admin; viewer default."""
     groups = claims.get('groups') or claims.get('roles') or []
-    if isinstance(groups, str):
-        groups = [groups]
-    return 'admin' if admin_group in groups else 'viewer'
+    return _role_from_groups(groups, cfg, 'oidc_admin_group')
 
 
 def _oidc_username_for(claims):

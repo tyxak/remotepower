@@ -1089,5 +1089,67 @@ class TestF2TraceContext(unittest.TestCase):
         self.assertIn("headers.setdefault('traceparent', _traceparent_out())", src)
 
 
+class TestD5GroupRoleMatrix(unittest.TestCase):
+    """v5.4.1 (D5): SSO/IdP group→role MATRIX (sso_group_roles) so a group maps to
+    ANY builtin/custom role, not just admin-or-viewer; legacy admin_group still works;
+    never auto-demotes; shared by OIDC + SAML resolvers."""
+
+    def test_matrix_maps_to_builtin_role(self):
+        cfg = {'sso_group_roles': {'sec-ops': 'auditor'}}
+        self.assertEqual(api._role_from_groups(['sec-ops'], cfg, 'oidc_admin_group'), 'auditor')
+
+    def test_admin_wins_over_other_matches(self):
+        cfg = {'sso_group_roles': {'g1': 'auditor'}, 'oidc_admin_group': 'admins'}
+        self.assertEqual(api._role_from_groups(['g1', 'admins'], cfg, 'oidc_admin_group'), 'admin')
+        cfg2 = {'sso_group_roles': {'g1': 'auditor', 'g2': 'admin'}}
+        self.assertEqual(api._role_from_groups(['g1', 'g2'], cfg2, 'oidc_admin_group'), 'admin')
+
+    def test_legacy_admin_group_still_works(self):
+        cfg = {'oidc_admin_group': 'ops'}
+        self.assertEqual(api._role_from_groups(['ops'], cfg, 'oidc_admin_group'), 'admin')
+        self.assertEqual(api._role_from_groups(['other'], cfg, 'oidc_admin_group'), 'viewer')
+
+    def test_unknown_role_is_ignored(self):
+        cfg = {'sso_group_roles': {'g1': 'superuser-nope'}}
+        self.assertEqual(api._role_from_groups(['g1'], cfg, 'oidc_admin_group'), 'viewer')
+
+    def test_no_match_is_viewer(self):
+        self.assertEqual(api._role_from_groups([], {}, 'oidc_admin_group'), 'viewer')
+        self.assertEqual(api._role_from_groups('g', {}, 'oidc_admin_group'), 'viewer')
+
+    def test_both_resolvers_use_helper(self):
+        cfg = {'sso_group_roles': {'a': 'auditor'}}
+        self.assertEqual(api._oidc_role_for({'groups': ['a']}, cfg), 'auditor')
+        self.assertEqual(api._saml_role_for({'groups': ['a']}, cfg), 'auditor')
+
+    def test_promote_viewer_to_mapped_role_never_demotes(self):
+        import tempfile
+        orig = api.USERS_FILE
+        try:
+            api.USERS_FILE = api.Path(tempfile.mkdtemp()) / 'users.json'
+            api.save(api.USERS_FILE, {
+                'alice': {'role': 'viewer', 'password_hash': 'x'},
+                'bob':   {'role': 'admin',  'password_hash': 'y'}})
+            api._provision_or_promote_user('alice', 'auditor', {}, 'oidc')  # promote
+            api._provision_or_promote_user('bob', 'viewer', {}, 'oidc')     # must NOT demote
+            users = api.load(api.USERS_FILE)
+            self.assertEqual(users['alice']['role'], 'auditor')
+            self.assertEqual(users['bob']['role'], 'admin')
+        finally:
+            api.USERS_FILE = orig
+
+    def test_config_save_whitelisted_and_sanitised(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("cfg['sso_group_roles'] = clean", src)
+        self.assertIn("if 'sso_group_roles' in body:", src)
+
+    def test_frontend_matrix_wired(self):
+        appjs, html = _appjs(), _html()
+        self.assertIn('id="sso-group-roles"', html)            # textarea present
+        self.assertIn('function _parseGroupRoleMap', appjs)    # parser
+        self.assertIn('payload.sso_group_roles = _parseGroupRoleMap', appjs)  # save (OIDC+SAML)
+        self.assertEqual(appjs.count('payload.sso_group_roles = _parseGroupRoleMap'), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
