@@ -108,6 +108,11 @@ Batch 2 (credential-at-rest + API contract + observability):
   destination** (by webhook-destination name or id) instead of always re-notifying every
   channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
   (Settings → Notifications → On-call & escalation).
+- **Availability SLO + error budgets**: a configurable **`slo_target_percent`** (default
+  99.9%) now drives a per-monitor **availability / error-budget / burn-rate** computation
+  over each monitor's recent check window — exposed at **`GET /api/slo`** and as Prometheus
+  gauges (`remotepower_monitor_availability_percent`, `…_slo_budget_remaining_percent`,
+  `…_slo_burn_rate`) for Grafana SLO dashboards + burn-rate alerts.
 - **Supply-chain: app-self SBOM + SLSA provenance**: `make sbom-self` emits a CycloneDX
   SBOM of the **control plane's own** Python dependencies (`packaging/requirements-server.txt`
   + `tools/gen-self-sbom.py`) — distinct from the fleet SBOM at `/api/sbom`. The release

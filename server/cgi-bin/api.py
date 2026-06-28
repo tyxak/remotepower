@@ -16598,6 +16598,7 @@ def handle_config_get():
     safe.setdefault('sso_only',               False)  # v5.4.1 (D2): mandate IdP auth
     safe.setdefault('idle_timeout_minutes',   0)      # v5.4.1 (D3): 0 = off
     safe.setdefault('max_devices',            MAX_DEVICES)  # v5.4.1 (A7): enroll cap
+    safe.setdefault('slo_target_percent',     99.9)   # v5.4.1 (F3): availability SLO target
     safe.setdefault('fleet_note',             '')     # fleet-wide operator note (dashboard)
     safe.setdefault('cert_expiry_alerts_enabled', False)  # v3.14.0: cert-expiry alerts, opt-in (noisy)
     safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
@@ -18047,6 +18048,13 @@ def handle_config_save():
     if 'max_devices' in body:                # A7
         try:
             cfg['max_devices'] = max(1, min(10000000, int(body['max_devices'])))
+        except (TypeError, ValueError):
+            pass
+    if 'slo_target_percent' in body:         # F3: availability SLO target
+        try:
+            _t = float(body['slo_target_percent'])
+            if 0 < _t < 100:
+                cfg['slo_target_percent'] = _t
         except (TypeError, ValueError):
             pass
 
@@ -21341,6 +21349,56 @@ def handle_monitor_history(label):
     label = _sanitize_str(label, 128)
     mh = load(MON_HIST_FILE)
     respond(200, {'label': label, 'history': mh.get(label, [])})
+
+
+def _slo_target():
+    """v5.4.1 (F3): the configured availability SLO target (percent), default 99.9."""
+    try:
+        t = float(_config_ro().get('slo_target_percent') or 0)
+    except (TypeError, ValueError):
+        t = 0.0
+    return t if 0 < t < 100 else 99.9
+
+
+def _compute_slo():
+    """v5.4.1 (F3): per-monitor availability vs the SLO target + error-budget
+    remaining, computed over each monitor's recent check history (count-bounded by
+    MAX_MON_HISTORY — so this is "availability over the recent check window", which
+    we label honestly). Error budget = the allowed downtime (100 - target); remaining
+    is what's left of it; burn > 1 means the budget is blown."""
+    target = _slo_target()
+    budget = 100.0 - target            # allowed downtime %
+    mh = load(MON_HIST_FILE) or {}
+    out = []
+    for label, hist in mh.items():
+        if not isinstance(hist, list) or not hist:
+            continue
+        checks = [h for h in hist if isinstance(h, dict) and 'ok' in h]
+        if not checks:
+            continue
+        up = sum(1 for h in checks if h.get('ok'))
+        avail = 100.0 * up / len(checks)
+        consumed = max(0.0, 100.0 - avail)   # actual downtime %
+        remaining = 100.0 if budget <= 0 else max(0.0, min(100.0, (budget - consumed) / budget * 100.0))
+        burn = 0.0 if budget <= 0 else round(consumed / budget, 3)
+        out.append({
+            'label':                _sanitize_str(str(label), 128),
+            'checks':               len(checks),
+            'availability':         round(avail, 4),
+            'target':               target,
+            'budget_remaining_pct': round(remaining, 2),
+            'burn_rate':            burn,
+            'meeting_slo':          avail >= target,
+        })
+    out.sort(key=lambda x: x['budget_remaining_pct'])   # worst budget first
+    return {'target': target, 'window': 'recent checks', 'monitors': out}
+
+
+def handle_slo():
+    """GET /api/slo — v5.4.1 (F3): availability SLO + error-budget per monitor.
+    The same numbers are exported as Prometheus gauges for Grafana SLO dashboards."""
+    require_auth()
+    respond(200, _compute_slo())
 
 
 def handle_schedule_list():
@@ -44483,6 +44541,7 @@ def _build_metrics_ctx():
             pass
     return {
         'server_version':  SERVER_VERSION,
+        'slo':             _compute_slo(),   # v5.4.1 (F3): SLO/error-budget gauges
         'now':             now,
         'online_ttl':      get_online_ttl(),
         'devices':         load(DEVICES_FILE),
@@ -50188,6 +50247,7 @@ def _build_exact_routes():
         ('POST', '/api/client-error'): handle_client_error,   # v5.4.1 (F4)
         ('GET', '/api/client-error'): handle_client_error,    # v5.4.1 (F4): admin list
         ('POST', '/api/security/rotate-export-key'): handle_rotate_export_key,  # v5.4.1 (C9)
+        ('GET', '/api/slo'): handle_slo,                                        # v5.4.1 (F3)
         ('GET', '/api/custom-scripts'): handle_custom_scripts_list,
         ('GET', '/api/monitoring-profiles'): handle_monitoring_profiles,
         ('POST', '/api/monitoring-profiles'): handle_monitoring_profiles,

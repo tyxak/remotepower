@@ -675,6 +675,56 @@ class TestWormAuditSink(unittest.TestCase):
         self.assertIn('id="cfg-audit-worm-path"', _html())
 
 
+class TestF3Slo(unittest.TestCase):
+    """v5.4.1 (F3): availability SLO + error-budget per monitor."""
+
+    def setUp(self):
+        import tempfile
+        self._orig = (api.DATA_DIR, api.CONFIG_FILE, api.MON_HIST_FILE)
+        d = tempfile.mkdtemp()
+        api.DATA_DIR = api.Path(d)
+        api.CONFIG_FILE = api.DATA_DIR / 'config.json'
+        api.MON_HIST_FILE = api.DATA_DIR / 'monitor_history.json'
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        api.DATA_DIR, api.CONFIG_FILE, api.MON_HIST_FILE = self._orig
+        api._LOAD_CACHE.clear()
+
+    def test_compute_slo(self):
+        api.save(api.CONFIG_FILE, {'slo_target_percent': 99.0})
+        api.save(api.MON_HIST_FILE, {
+            'web': [{'ts': i, 'ok': (i != 5)} for i in range(20)],   # 95%
+            'db':  [{'ts': i, 'ok': True} for i in range(20)],        # 100%
+        })
+        api._LOAD_CACHE.clear()
+        slo = api._compute_slo()
+        self.assertEqual(slo['target'], 99.0)
+        byl = {m['label']: m for m in slo['monitors']}
+        self.assertAlmostEqual(byl['web']['availability'], 95.0, places=2)
+        self.assertFalse(byl['web']['meeting_slo'])
+        self.assertTrue(byl['db']['meeting_slo'])
+        # target 99 → budget 1%; web's 5% downtime blows it → 0 remaining, burn 5
+        self.assertEqual(byl['web']['budget_remaining_pct'], 0.0)
+        self.assertEqual(byl['web']['burn_rate'], 5.0)
+        self.assertEqual(byl['db']['budget_remaining_pct'], 100.0)
+        self.assertEqual([m['label'] for m in slo['monitors']][0], 'web')   # worst first
+
+    def test_target_default_and_clamp(self):
+        api.save(api.CONFIG_FILE, {})
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api._slo_target(), 99.9)            # default
+        api.save(api.CONFIG_FILE, {'slo_target_percent': 150})
+        api._LOAD_CACHE.clear()
+        self.assertEqual(api._slo_target(), 99.9)            # out-of-range → default
+
+    def test_route_and_prometheus(self):
+        self.assertIn(('GET', '/api/slo'), api._build_exact_routes())
+        self.assertIn('remotepower_slo_target_percent',
+                      (_CGI / "prometheus_export.py").read_text())
+        self.assertIn("'slo':             _compute_slo()", (_CGI / "api.py").read_text())
+
+
 class TestC7SupplyChain(unittest.TestCase):
     """v5.4.1 (C7): app-self SBOM + SLSA provenance."""
 

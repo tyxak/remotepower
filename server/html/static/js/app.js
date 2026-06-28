@@ -2886,6 +2886,7 @@ async function loadSettings() {
     _setv('cfg-pw-classes', data.password_require_classes);
     _setv('cfg-pw-breach', data.password_breach_check);
     _setv('cfg-max-devices', data.max_devices ?? 50000);
+  _setv('cfg-slo-target', data.slo_target_percent ?? 99.9);   // v5.4.1 (F3)
     const wbl = document.getElementById('cfg-webhook-block-local');
     if (wbl) wbl.checked = data.webhook_block_local !== false;
   }
@@ -3333,6 +3334,7 @@ async function saveSettings(btn) {
     payload.password_require_classes = !!document.getElementById('cfg-pw-classes')?.checked;
     payload.password_breach_check = !!document.getElementById('cfg-pw-breach')?.checked;
     payload.max_devices = parseInt(document.getElementById('cfg-max-devices')?.value || '50000', 10) || 50000;
+  payload.slo_target_percent = parseFloat(document.getElementById('cfg-slo-target')?.value || '99.9') || 99.9;   // v5.4.1 (F3)
     payload.webhook_block_local = !!document.getElementById('cfg-webhook-block-local')?.checked;
   }
   // v3.7.0: audit forwarding + change approval (maker-checker)

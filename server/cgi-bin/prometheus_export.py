@@ -339,6 +339,31 @@ def generate_metrics(ctx: dict) -> str:
         lines.append('# TYPE remotepower_cve_fixable_total gauge')
         lines.append(f'remotepower_cve_fixable_total {cf}')
 
+    # v5.4.1 (F3): availability SLO + error-budget per monitor (for Grafana SLO
+    # dashboards / burn-rate alerts).
+    slo = ctx.get('slo')
+    if isinstance(slo, dict):
+        lines.append('# HELP remotepower_slo_target_percent Configured availability SLO target.')
+        lines.append('# TYPE remotepower_slo_target_percent gauge')
+        lines.append(f'remotepower_slo_target_percent {float(slo.get("target") or 0)}')
+        mons = slo.get('monitors') or []
+        if mons:
+            lines.append('# HELP remotepower_monitor_availability_percent Monitor availability over the recent check window.')
+            lines.append('# TYPE remotepower_monitor_availability_percent gauge')
+            for m in mons:
+                lines.append(_metric('remotepower_monitor_availability_percent',
+                                     {'label': str(m.get('label', ''))}, float(m.get('availability') or 0)))
+            lines.append('# HELP remotepower_monitor_slo_budget_remaining_percent Error budget remaining for the monitor.')
+            lines.append('# TYPE remotepower_monitor_slo_budget_remaining_percent gauge')
+            for m in mons:
+                lines.append(_metric('remotepower_monitor_slo_budget_remaining_percent',
+                                     {'label': str(m.get('label', ''))}, float(m.get('budget_remaining_pct') or 0)))
+            lines.append('# HELP remotepower_monitor_slo_burn_rate Error-budget burn rate (>1 = over budget).')
+            lines.append('# TYPE remotepower_monitor_slo_burn_rate gauge')
+            for m in mons:
+                lines.append(_metric('remotepower_monitor_slo_burn_rate',
+                                     {'label': str(m.get('label', ''))}, float(m.get('burn_rate') or 0)))
+
     # Trailing newline per spec
     lines.append('')
     return '\n'.join(lines)

@@ -61,6 +61,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | What changed (drift over time) | Diff oldest vs latest snapshot — package/port/unit/reboot/disk deltas *(v3.4.0)* |
 | Trends charts | Zero-dep multi-series SVG — fleet health, compliance %, per-device resources, CPU-load saturation % *(v3.4.2)* |
 | Prometheus metrics | `/api/metrics` exposition (Grafana); status-token auth; health/needs-attention/CVE gauges *(v3.4.1)*; metrics push *(v4.0.0)* |
+| Availability SLO + error budgets | Per-monitor availability vs a `slo_target_percent` target → error-budget remaining + burn rate; `GET /api/slo` + Prometheus gauges *(v5.4.1)* |
 | Capacity dashboard | Fleet-wide CPU/mem/disk rollup, top consumers, on Reports *(v3.4.1)* |
 
 ## Checks & custom checks *(v4.1.0)*
