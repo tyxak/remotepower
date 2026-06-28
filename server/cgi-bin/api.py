@@ -128,6 +128,12 @@ TICKET_STATUSES = ('ongoing', 'pending_customer', 'pending_internal', 'resolved'
 TICKET_STANDALONE_BASE = 900000   # standalone ticket numbers live in a reserved band so
                                   # they never collide with alert-derived numbers (the alert seq)
 MAX_TICKETS = 5000
+# v5.4.1 (enterprise hardening A7): soft enrollment cap. The device store is
+# reassembled whole for every fleet-wide reader, so an unbounded fleet degrades
+# every poll. Default high enough to never bother a normal install; overridable
+# down/up via config `max_devices`. Enforced at enroll only (existing devices and
+# re-enrollment are never blocked).
+MAX_DEVICES = 50000
 # v5.4.1: ticket attachments. Binary blobs live on the filesystem (a real dir,
 # NOT a logical storage key) keyed by an opaque random id; only the metadata
 # (id/filename/content_type/size) is recorded on the ticket message. Download
@@ -329,6 +335,9 @@ AFTER_HOURS_FILE = DATA_DIR / 'after_hours_hits.json'
 WEBHOOK_RATELIMIT_FILE = DATA_DIR / 'webhook_ratelimit.json'
 WEBHOOK_RATE_MAX    = 120   # max webhook sends ...
 WEBHOOK_RATE_WINDOW = 60    # ... per this many seconds, server-wide
+# v5.4.1 (E4): version stamped on every generic-webhook + SIEM payload envelope so
+# downstream consumers can guard against shape drift. Bump on a breaking change.
+WEBHOOK_SCHEMA_VERSION = '1'
 
 # ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────
 CONTAINERS_FILE = DATA_DIR / 'containers.json'
@@ -1282,6 +1291,68 @@ def hash_password(plain):
         return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt(12)).decode()
     # No bcrypt — salted PBKDF2 rather than the old bare sha256.
     return _pbkdf2_hash(plain)
+
+
+def _password_breached(plain):
+    """v5.4.1 (D1): k-anonymity breach check against HaveIBeenPwned's range API.
+    Only the first 5 chars of the SHA-1 are ever sent (the password never leaves
+    the box). Best-effort: any network/timeout error returns False (fail-open —
+    we never block a password because HIBP is down). Opt-in via config."""
+    try:
+        # SHA-1 is the lookup key the HIBP range API mandates — it's a public
+        # breach-corpus index, not a stored credential. usedforsecurity=False.
+        sha1 = hashlib.sha1(plain.encode(), usedforsecurity=False).hexdigest().upper()
+        prefix, suffix = sha1[:5], sha1[5:]
+        req = urllib.request.Request(
+            f'https://api.pwnedpasswords.com/range/{prefix}',
+            headers={'User-Agent': 'RemotePower', 'Add-Padding': 'true'})
+        with urllib.request.urlopen(req, timeout=4) as r:  # nosec B310 - fixed https host
+            for line in r.read().decode('utf-8', 'replace').splitlines():
+                h, _, count = line.partition(':')
+                if h.strip().upper() == suffix and (count.strip() or '0') != '0':
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def _validate_password_policy(plain, username=''):
+    """v5.4.1 (D1): enterprise password policy. OPT-IN — every knob defaults OFF
+    (`password_min_length`=0), so existing installs + the test suite are unchanged
+    until an admin configures it (Settings → Security). Returns (ok, message)."""
+    cfg = _config_ro()
+    try:
+        min_len = int(cfg.get('password_min_length') or 0)
+    except (TypeError, ValueError):
+        min_len = 0
+    if min_len and len(plain) < min_len:
+        return False, f'Password must be at least {min_len} characters'
+    if cfg.get('password_require_classes'):
+        classes = sum(bool(re.search(p, plain)) for p in
+                      (r'[a-z]', r'[A-Z]', r'[0-9]', r'[^A-Za-z0-9]'))
+        if classes < 3:
+            return False, ('Password must mix at least 3 of: lowercase, uppercase, '
+                           'digits, symbols')
+    if username and plain.lower() == username.lower():
+        return False, 'Password must not equal the username'
+    if cfg.get('password_breach_check') and _password_breached(plain):
+        return False, ('This password appears in a known breach corpus — choose '
+                       'a different one')
+    return True, ''
+
+
+def _sso_only_blocks(user):
+    """v5.4.1 (D2): when `sso_only` is enabled AND an IdP (OIDC/SAML) is actually
+    configured, refuse local-password-store logins so the org can mandate IdP
+    auth. Break-glass: a user record flagged `local_login: true` is always exempt
+    (set this on an emergency admin BEFORE enabling sso_only). LDAP is treated as
+    an IdP path and is not blocked here (handled by the caller)."""
+    cfg = _config_ro()
+    if not cfg.get('sso_only'):
+        return False
+    if not (cfg.get('oidc_enabled') or cfg.get('saml_enabled')):
+        return False   # never lock everyone out when no IdP is live
+    return not (user or {}).get('local_login')
 
 def verify_password(plain, stored):
     if stored.startswith('$2'):
@@ -2605,6 +2676,22 @@ def verify_token(token):
             # v3.14.0 (SCIM): a deprovisioned/disabled user's sessions die at once.
             if u.get('disabled'):
                 return None, None
+            # v5.4.1 (D3): idle / sliding-window timeout. Independent of the
+            # absolute TTL above — a session unused for `idle_timeout_minutes`
+            # expires even if its absolute TTL hasn't elapsed. last_seen is the
+            # activity stamp (advanced ≤1/min below); fall back to created for
+            # pre-stamp sessions. Default 0 = off (no behaviour change).
+            try:
+                _idle = int(_config_ro().get('idle_timeout_minutes') or 0)
+            except (TypeError, ValueError):
+                _idle = 0
+            if _idle > 0 and now - int(entry.get('last_seen') or entry.get('created') or 0) > _idle * 60:
+                try:
+                    del tokens[tkey]
+                    save(TOKENS_FILE, tokens)
+                except Exception:
+                    pass
+                return None, None
             # v4.8.0 (#S6): enforce the session cap at VALIDATION, not only at
             # mint time. Login-time eviction is advisory — if the cap is lowered
             # afterward (or an evicted token lingers), the over-cap session stays
@@ -3769,6 +3856,7 @@ def _siem_record(event, payload):
     except Exception:
         title = event
     return {
+        'schema_version': WEBHOOK_SCHEMA_VERSION,   # v5.4.1 (E4)
         'source':    'remotepower',
         'event':     event,
         'severity':  sev or 'info',
@@ -7698,6 +7786,7 @@ def _build_generic_body(event, title, message, priority, safe_payload):
     that isn't a recognised hosted service — your homelab Gotify, an internal
     aggregator, custom scripts via webhook.site, etc."""
     body = json.dumps({
+        'schema_version': WEBHOOK_SCHEMA_VERSION,   # v5.4.1 (E4): payload contract version
         'event':    str(event)[:64],
         'ts':       int(time.time()),
         'title':    title,
@@ -8737,6 +8826,13 @@ def handle_login():
         audit_log(username, 'login_blocked_disabled', 'account is deactivated')
         time.sleep(0.5)
         respond(200, {'ok': False})
+
+    # v5.4.1 (D2): SSO-only enforcement — refuse local-password logins (not LDAP)
+    # when the org mandates IdP auth and this account isn't a break-glass exemption.
+    if ldap_user_info is None and _sso_only_blocks((load(USERS_FILE) or {}).get(username)):
+        audit_log(username, 'login_blocked_sso_only', 'local login disabled (SSO-only)')
+        time.sleep(0.3)
+        respond(200, {'ok': False, 'sso_only': True})
 
     _clear_login_failures(username)
     if ldap_user_info is None:
@@ -12339,19 +12435,33 @@ def handle_enroll_register():
                                  f'device={existing_id} hostname={hostname} ip={_get_client_ip()}')
                 outcome = ('reenroll', existing_id, new_token)
         else:
-            dev_id = secrets.token_urlsafe(12)
-            new_token = secrets.token_urlsafe(32)
-            devices[dev_id] = {
-                'name': name, 'hostname': hostname, 'os': os_str,
-                'ip': ip, 'mac': mac, 'version': version,
-                'tags': list(default_tags), 'group': default_group, 'notes': '',
-                'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
-                'token': new_token,
-            }
-            outcome = ('new', dev_id, new_token)
+            # v5.4.1 (A7): soft fleet cap — refuse a NEW enrollment past the limit
+            # (re-enrollment of an existing device above is never blocked).
+            try:
+                _cap = int(_config_ro().get('max_devices') or MAX_DEVICES)
+            except (TypeError, ValueError):
+                _cap = MAX_DEVICES
+            if _cap and len(devices) >= _cap:
+                pending_audit = ('enroll_denied',
+                                 f'fleet at device cap ({_cap}) ip={_get_client_ip()}')
+                outcome = ('denied_cap', _cap)
+            else:
+                dev_id = secrets.token_urlsafe(12)
+                new_token = secrets.token_urlsafe(32)
+                devices[dev_id] = {
+                    'name': name, 'hostname': hostname, 'os': os_str,
+                    'ip': ip, 'mac': mac, 'version': version,
+                    'tags': list(default_tags), 'group': default_group, 'notes': '',
+                    'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
+                    'token': new_token,
+                }
+                outcome = ('new', dev_id, new_token)
 
     if pending_audit:
         audit_log('enroll', pending_audit[0], pending_audit[1])
+    if outcome[0] == 'denied_cap':
+        respond(403, {'error': f'Device limit reached (max_devices={outcome[1]}). '
+                               'Raise the cap in Settings or retire unused devices.'})
     if outcome[0] == 'denied':
         respond(403, {'error': 'Existing device token required for re-enrollment'})
     if outcome[0] == 'reenroll':
@@ -16186,6 +16296,12 @@ def handle_config_get():
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
+    safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
+    safe.setdefault('password_require_classes', False)  # v5.4.1 (D1)
+    safe.setdefault('password_breach_check',  False)  # v5.4.1 (D1): HIBP k-anon, opt-in
+    safe.setdefault('sso_only',               False)  # v5.4.1 (D2): mandate IdP auth
+    safe.setdefault('idle_timeout_minutes',   0)      # v5.4.1 (D3): 0 = off
+    safe.setdefault('max_devices',            MAX_DEVICES)  # v5.4.1 (A7): enroll cap
     safe.setdefault('fleet_note',             '')     # fleet-wide operator note (dashboard)
     safe.setdefault('cert_expiry_alerts_enabled', False)  # v3.14.0: cert-expiry alerts, opt-in (noisy)
     safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
@@ -16356,9 +16472,10 @@ def handle_config_get():
 
 
 def handle_config_save():
-    require_admin_auth()
+    _cfg_actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); cfg = load(CONFIG_FILE)
+    _cfg_before = dict(cfg or {})   # v5.4.1 (D4): snapshot for the change-audit diff
 
     if 'webhook_url' in body:
         url = str(body['webhook_url']).strip()
@@ -17591,7 +17708,42 @@ def handle_config_save():
         except (TypeError, ValueError):
             pass
 
+    # v5.4.1 enterprise hardening — security knobs (all opt-in, defaults off).
+    if 'password_min_length' in body:        # D1
+        try:
+            cfg['password_min_length'] = max(0, min(256, int(body['password_min_length'])))
+        except (TypeError, ValueError):
+            pass
+    if 'password_require_classes' in body:   # D1
+        cfg['password_require_classes'] = bool(body['password_require_classes'])
+    if 'password_breach_check' in body:      # D1
+        cfg['password_breach_check'] = bool(body['password_breach_check'])
+    if 'sso_only' in body:                   # D2
+        cfg['sso_only'] = bool(body['sso_only'])
+    if 'idle_timeout_minutes' in body:       # D3
+        try:
+            cfg['idle_timeout_minutes'] = max(0, min(43200, int(body['idle_timeout_minutes'])))
+        except (TypeError, ValueError):
+            pass
+    if 'max_devices' in body:                # A7
+        try:
+            cfg['max_devices'] = max(1, min(10000000, int(body['max_devices'])))
+        except (TypeError, ValueError):
+            pass
+
     save(CONFIG_FILE, cfg)
+    # v5.4.1 (D4): audit which settings changed (key NAMES only — values are never
+    # logged, so secrets can't leak into the audit trail). The most security-
+    # sensitive surface (MFA policy, IP allowlist, SSO/SCIM/LDAP, session caps,
+    # the new password/SSO knobs) was previously saved with zero audit trace.
+    try:
+        _changed = sorted(k for k in (set(_cfg_before) | set(cfg))
+                          if _cfg_before.get(k) != cfg.get(k))
+        if _changed:
+            audit_log(_cfg_actor, 'config_changed',
+                      f'keys={",".join(_changed)[:480]}')
+    except Exception as _ce:
+        sys.stderr.write(f'[remotepower] config_changed audit failed: {_ce}\n')
     # v3.14.0 (#30): if we just minted a SCIM token, return it once so the
     # operator can copy it into the IdP (it's masked on every subsequent GET).
     _resp = {'ok': True}
@@ -17839,9 +17991,13 @@ def handle_user_create():
         respond(400, {'error': 'Invalid username (2-32 chars, alphanumeric/_/-)'})
     if not isinstance(password, str) or not password or len(password) > 1024:
         respond(400, {'error': 'Password required (max 1024 chars)'})
+    _pp_ok, _pp_msg = _validate_password_policy(password, username)   # v5.4.1 (D1)
+    if not _pp_ok:
+        respond(400, {'error': _pp_msg})
     users = load(USERS_FILE)
     if username in users: respond(400, {'error': 'User already exists'})
-    users[username] = {'password_hash': hash_password(password), 'created': int(time.time()), 'role': role}
+    users[username] = {'password_hash': hash_password(password), 'created': int(time.time()),
+                       'password_changed_at': int(time.time()), 'role': role}
     save(USERS_FILE, users)
     respond(201, {'ok': True, 'username': username, 'role': role})
 
@@ -17998,6 +18154,9 @@ def handle_user_passwd():
 
     if not isinstance(new_pw, str) or not new_pw or len(new_pw) > 1024:
         respond(400, {'error': 'new_password required (max 1024 chars)'})
+    _pp_ok, _pp_msg = _validate_password_policy(new_pw, username)   # v5.4.1 (D1)
+    if not _pp_ok:
+        respond(400, {'error': _pp_msg})
 
     users = load(USERS_FILE)
     _, requester_role = verify_token(get_token_from_request())
@@ -18018,6 +18177,7 @@ def handle_user_passwd():
             respond(401, {'error': 'Old password incorrect'})
 
     users[username]['password_hash'] = hash_password(new_pw)
+    users[username]['password_changed_at'] = int(time.time())   # v5.4.1 (D1)
     # v2.3.2: once the password is changed, clear the default-password
     # warning flag so the UI banner stops showing.
     users[username].pop('must_change_password', None)

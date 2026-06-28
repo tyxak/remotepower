@@ -34,6 +34,33 @@ opt-in. No breaking changes.
 - **Devices page** shows a small ticket glyph (the Tickets-nav icon) in front of a
   hostname when that host has an open ticket — replacing the prior "ticket" pill.
 
+### Enterprise hardening batch (folded in, all opt-in — defaults unchanged)
+
+A first slice of the enterprise gap-analysis (identity/governance/a11y checkboxes;
+each is configured, so existing installs behave exactly as before):
+
+- **Password policy** (Settings → Security): configurable minimum length, optional
+  3-of-4 character-class requirement, optional **HaveIBeenPwned** breach check
+  (k-anonymity — only a SHA-1 prefix leaves the box, fails open). Applies to new
+  users + password changes; existing passwords are never invalidated. Off by default.
+- **SSO-only** toggle: refuse local-password logins when an IdP (OIDC/SAML) is
+  configured, with a per-account `local_login` break-glass exemption.
+- **Idle session timeout**: expire a session after N minutes of inactivity,
+  independent of its absolute TTL. Off by default.
+- **Config-change auditing**: every Settings save now writes a `config_changed`
+  audit row (changed key *names* only — values never logged) — the security-config
+  surface (MFA policy, IP allowlist, SSO/SCIM/LDAP, session caps) was previously
+  saved with no audit trace.
+- **Webhook `schema_version`**: the generic-webhook + SIEM payload envelope now
+  carries a contract version so consumers can guard against shape drift.
+- **`max_devices` enrollment cap**: refuse new enrollments past a configurable
+  limit (existing devices + re-enrollment unaffected).
+- **Localization**: dates, numbers and **billing currency** now follow the in-app
+  language picker via `Intl` (was the browser locale / a bare `"USD 1,234.00"`).
+- **Accessibility (WCAG)**: toast notifications are an `aria-live` status region;
+  the active nav carries `aria-current="page"`; the device drawer has a focus trap +
+  focus restore + `aria-labelledby`; a skip-to-content link was added.
+
 ## v5.4.0 — "RackMatters" — unreleased (test)
 
 A lightweight **time-tracking + billing** layer on one shared time-entry ledger:

@@ -27,6 +27,11 @@ function _bRole() { return _bMe().role || ''; }
 function _bIsAdmin() { return !!_bMe().admin; }                 // canonical (matches app.js)
 function _bCanBilling() { return _bIsAdmin() || _bRole() === 'finance'; }
 function _bMoney(n, cur) {
+  // v5.4.1 (H2): locale-aware currency via the shared Intl helper — a real
+  // currency symbol localized to the active UI language; empty `cur` (line-item
+  // unit/amount columns, where the column header carries the currency) → plain
+  // localized decimal.
+  try { if (typeof fmtMoney === 'function') return fmtMoney(n, cur); } catch (_) {}
   return (cur ? cur + ' ' : '') + Number(n || 0).toLocaleString(undefined,
     { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

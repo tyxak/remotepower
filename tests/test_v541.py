@@ -179,5 +179,96 @@ class TestF6DeviceTicketIcon(unittest.TestCase):
         self.assertIn("_icon('ticket'", js)
 
 
+class TestEnterpriseHardening(unittest.TestCase):
+    """v5.4.1 enterprise-hardening batch (gap IDs D1/D2/D3/D4/E4/A7/H2/H3).
+    All security knobs are OPT-IN — default behaviour must be unchanged."""
+
+    def setUp(self):
+        import tempfile
+        self._d = tempfile.mkdtemp()
+        self._orig_cfg = api.CONFIG_FILE
+        api.CONFIG_FILE = api.Path(self._d) / 'config.json'
+
+    def tearDown(self):
+        api.CONFIG_FILE = self._orig_cfg
+
+    # D1 — password policy
+    def test_password_policy_off_by_default(self):
+        api.save(api.CONFIG_FILE, {})
+        ok, _ = api._validate_password_policy('x', 'bob')
+        self.assertTrue(ok, 'policy must be off by default (1-char ok)')
+
+    def test_password_policy_enforced_when_configured(self):
+        api.save(api.CONFIG_FILE, {'password_min_length': 12, 'password_require_classes': True})
+        self.assertFalse(api._validate_password_policy('short', 'bob')[0])
+        self.assertFalse(api._validate_password_policy('alllowercaseletters', 'b')[0])  # classes
+        self.assertTrue(api._validate_password_policy('LongEnough1!', 'bob')[0])
+
+    def test_password_not_equal_username(self):
+        api.save(api.CONFIG_FILE, {'password_min_length': 1})
+        self.assertFalse(api._validate_password_policy('alice', 'alice')[0])
+
+    # D2 — SSO-only
+    def test_sso_only_blocks_logic(self):
+        api.save(api.CONFIG_FILE, {'sso_only': True, 'oidc_enabled': True})
+        self.assertTrue(api._sso_only_blocks({'role': 'admin'}))
+        self.assertFalse(api._sso_only_blocks({'local_login': True}))   # break-glass
+        api.save(api.CONFIG_FILE, {'sso_only': True})                   # no IdP live
+        self.assertFalse(api._sso_only_blocks({}))
+        api.save(api.CONFIG_FILE, {})
+        self.assertFalse(api._sso_only_blocks({}))
+
+    # D3 — idle timeout (config surface)
+    def test_idle_timeout_in_config_defaults(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("idle_timeout_minutes", src)
+        self.assertIn("now - int(entry.get('last_seen') or entry.get('created') or 0) > _idle * 60", src)
+
+    # D4 — config-change audit
+    def test_config_change_audit_wired(self):
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("_cfg_before = dict(cfg or {})", src)
+        self.assertIn("'config_changed'", src)
+
+    # E4 — webhook schema_version
+    def test_webhook_schema_version(self):
+        self.assertEqual(api.WEBHOOK_SCHEMA_VERSION, '1')
+        self.assertEqual(api._siem_record('x', {'name': 'h'}).get('schema_version'), '1')
+        self.assertIn("'schema_version': WEBHOOK_SCHEMA_VERSION", (_CGI / "api.py").read_text())
+
+    # A7 — MAX_DEVICES cap
+    def test_max_devices_cap(self):
+        self.assertTrue(isinstance(api.MAX_DEVICES, int) and api.MAX_DEVICES > 0)
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("denied_cap", src)
+        self.assertIn("get('max_devices') or MAX_DEVICES", src)
+
+    # config persistence + GET exposure of the new knobs
+    def test_new_config_keys_persisted_and_exposed(self):
+        src = (_CGI / "api.py").read_text()
+        for k in ('password_min_length', 'password_require_classes', 'password_breach_check',
+                  'sso_only', 'idle_timeout_minutes', 'max_devices'):
+            self.assertIn(f"'{k}' in body", src, f'{k} not in config-save whitelist')
+            self.assertIn(f"safe.setdefault('{k}'", src, f'{k} not exposed on GET /api/config')
+
+    # H2 — Intl helpers
+    def test_intl_helpers_present(self):
+        js = _appjs()
+        for fn in ('function fmtMoney', 'function _localeTag', 'function fmtDateTime'):
+            self.assertIn(fn, js, fn)
+        self.assertIn('fmtMoney', (_ROOT / "server/html/static/js/app-billing.js").read_text())
+
+    # H3 — WCAG fixes
+    def test_wcag_fixes(self):
+        html = _html()
+        self.assertIn('id="toast-container" role="status" aria-live="polite"', html)
+        self.assertIn('class="skip-link"', html)
+        self.assertIn('id="main-content"', html)
+        self.assertIn('aria-labelledby="drawer-device-name"', html)
+        js = _appjs()
+        self.assertIn("setAttribute('aria-current', 'page')", js)
+        self.assertIn('_drawerReturnFocus', js)
+
+
 if __name__ == "__main__":
     unittest.main()

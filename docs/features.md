@@ -292,13 +292,17 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | SAML 2.0 SSO | Okta/Entra/OneLogin/Ping/ADFS; signed assertions + replay protection; attribute→role *(v4.2.0)* |
 | LDAP / AD + SCIM 2.0 | Bind-mode auth; IdP-driven create/deactivate so offboarding revokes access + sessions |
 | MFA enforcement | Require MFA (TOTP or passkey) per role; forced before any other action *(v4.2.0)* |
+| Password policy | Opt-in min length + 3-of-4 character classes + HaveIBeenPwned breach check (k-anonymity, fails open); enforced on new users + changes *(v5.4.1)* |
+| SSO-only | Refuse local-password logins when an IdP is configured; per-account `local_login` break-glass *(v5.4.1)* |
 | Roles | Admin, Viewer, Auditor (read-only + audit/compliance, reveals nothing) *(v4.10.0)*, plus custom scoped roles *(v3.4.2)* |
 | Granular RBAC | Custom roles granting exec/reboot/upgrade scoped to groups/tags; roster filtered to scope *(v3.4.2)* |
 | API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)* |
 | Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)* |
 | PIN enrolment | 6-digit, single-use, 10-min expiry |
 | Session caps | Limit concurrent sessions per user; oldest evicted *(v4.2.0)* |
+| Idle session timeout | Opt-in sliding-window expiry — a session unused for N minutes dies before its absolute TTL *(v5.4.1)* |
 | Active session management | Review/revoke live sessions *(v4.0.0)* |
+| Config-change audit | Every Settings save logs a `config_changed` entry (changed key names; values never logged) *(v5.4.1)* |
 | Rate limiting | Per-IP login throttle + per-username lockout; enroll/register throttle |
 | IP allowlist | Per-IP/CIDR allowlist; loopback always allowed; agent paths exempt; can't lock yourself out *(v3.3.0)* |
 | Login banner | Optional security notice above the sign-in form *(v5.0.0)* |

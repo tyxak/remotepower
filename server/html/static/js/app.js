@@ -1435,10 +1435,13 @@ function showPage(name, btn) {
   _markNavSeen(name);
   _stopPagePollers();   // v5.0.1 perf: stop the leaving page's continuous pollers
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  // v5.4.1 (H3): aria-current="page" tracks the active nav for assistive tech
+  // (class-only active state is invisible to a screen reader).
+  document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('active'); b.removeAttribute('aria-current'); });
   const el = document.getElementById('page-' + name);
   if (el) el.classList.add('active');
-  if (btn) btn.classList.add('active');
+  const _navBtn = btn || document.querySelector('.nav-btn[data-page="' + name + '"]');
+  if (_navBtn) { _navBtn.classList.add('active'); _navBtn.setAttribute('aria-current', 'page'); }
   try { _applyPageSubtitleInfo(); } catch (_) {}   // v4.6.0: fold the page subtitle into its info icon
   // v3.0.2: keep the URL bar in sync with the visible page. Without this,
   // the hash sticks at whatever switchSettingsTab last wrote (e.g.
@@ -2841,6 +2844,14 @@ async function loadSettings() {
     if (exp) exp.value = data.apikey_default_expiry_days ?? 0;
     const cap = document.getElementById('cfg-max-sessions');
     if (cap) cap.value = data.max_sessions_per_user ?? 0;
+    // v5.4.1 enterprise hardening knobs
+    const _setv = (id, v) => { const e = document.getElementById(id); if (e) { if (e.type === 'checkbox') e.checked = !!v; else e.value = v ?? 0; } };
+    _setv('cfg-idle-timeout', data.idle_timeout_minutes);
+    _setv('cfg-sso-only', data.sso_only);
+    _setv('cfg-pw-min-length', data.password_min_length);
+    _setv('cfg-pw-classes', data.password_require_classes);
+    _setv('cfg-pw-breach', data.password_breach_check);
+    _setv('cfg-max-devices', data.max_devices ?? 50000);
     const wbl = document.getElementById('cfg-webhook-block-local');
     if (wbl) wbl.checked = data.webhook_block_local !== false;
   }
@@ -3277,6 +3288,13 @@ async function saveSettings(btn) {
     payload.mfa_required_roles = [...new Set(roles)];
     payload.apikey_default_expiry_days = parseInt(document.getElementById('cfg-apikey-expiry-days')?.value || '0', 10) || 0;
     payload.max_sessions_per_user = parseInt(document.getElementById('cfg-max-sessions')?.value || '0', 10) || 0;
+    // v5.4.1 enterprise hardening knobs
+    payload.idle_timeout_minutes = parseInt(document.getElementById('cfg-idle-timeout')?.value || '0', 10) || 0;
+    payload.sso_only = !!document.getElementById('cfg-sso-only')?.checked;
+    payload.password_min_length = parseInt(document.getElementById('cfg-pw-min-length')?.value || '0', 10) || 0;
+    payload.password_require_classes = !!document.getElementById('cfg-pw-classes')?.checked;
+    payload.password_breach_check = !!document.getElementById('cfg-pw-breach')?.checked;
+    payload.max_devices = parseInt(document.getElementById('cfg-max-devices')?.value || '50000', 10) || 50000;
     payload.webhook_block_local = !!document.getElementById('cfg-webhook-block-local')?.checked;
   }
   // v3.7.0: audit forwarding + change approval (maker-checker)
@@ -6867,6 +6885,30 @@ function _fmtBytes(n) {
   if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
   return (n / 1073741824).toFixed(1) + ' GB';
 }
+
+// v5.4.1 (H2): locale-aware Intl helpers. The in-app language picker
+// (window.RPi18n.current) — not the browser locale — drives date/number/currency
+// formatting so a Spanish/Arabic/Hindi/Chinese UI gets matching dates & money.
+function _localeTag() {
+  try {
+    const l = (window.RPi18n && window.RPi18n.current) || 'en';
+    return { en: 'en', zh: 'zh-CN', hi: 'hi-IN', es: 'es-ES', ar: 'ar' }[l] || 'en';
+  } catch (_) { return 'en'; }
+}
+function fmtMoney(amount, currency) {
+  const n = Number(amount || 0);
+  const cur = String(currency || '').trim().toUpperCase();
+  try {
+    if (/^[A-Z]{3}$/.test(cur)) {
+      return new Intl.NumberFormat(_localeTag(), { style: 'currency', currency: cur }).format(n);
+    }
+  } catch (_) { /* unknown currency code → fall through to plain decimal */ }
+  return n.toLocaleString(_localeTag(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    + (cur ? ' ' + cur : '');
+}
+function fmtNum(n, opts) { try { return Number(n || 0).toLocaleString(_localeTag(), opts || {}); } catch (_) { return String(n); } }
+function fmtDateTime(ts, opts) { try { return new Date((ts || 0) * 1000).toLocaleString(_localeTag(), opts || {}); } catch (_) { return ''; } }
+function fmtDate(ts, opts) { try { return new Date((ts || 0) * 1000).toLocaleDateString(_localeTag(), opts || {}); } catch (_) { return ''; } }
 
 async function loadStorageBackendStatus() {
   const el = document.getElementById('storage-backend-status');
@@ -17484,8 +17526,15 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   document.getElementById('drawer-device-sub').textContent  = 'Loading…';
 
   const drawer = document.getElementById('device-drawer');
+  // v5.4.1 (H3): remember the opener + move focus into the drawer so keyboard /
+  // screen-reader users land inside it (and get restored on close).
+  window._drawerReturnFocus = document.activeElement;
   drawer.classList.add('open');
   document.body.style.overflow = 'hidden';
+  setTimeout(() => {
+    const f = drawer.querySelector('button:not([disabled]), a[href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])');
+    (f || drawer).focus();
+  }, 0);
 
   // v4.3.0: deep-linkable drawer — the URL becomes #device/<id> while open,
   // so a device view can be copied/pasted/bookmarked (and webhooks/tickets
@@ -17529,11 +17578,29 @@ function closeDeviceDrawer() {
   try {
     if (location.hash.startsWith('#device/')) history.replaceState(null, '', '#devices');
   } catch (_) {}
+  // v5.4.1 (H3): restore focus to whatever opened the drawer.
+  try { if (window._drawerReturnFocus && window._drawerReturnFocus.focus) window._drawerReturnFocus.focus(); } catch (_) {}
+  window._drawerReturnFocus = null;
 }
 
 // Close on Escape
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && _drawerDeviceId) closeDeviceDrawer();
+});
+
+// v5.4.1 (H3): trap Tab inside the open device drawer so keyboard focus can't
+// wander to the page behind it (matches the modal focus-trap behaviour).
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const drawer = document.getElementById('device-drawer');
+  if (!drawer || !drawer.classList.contains('open')) return;
+  const vis = Array.from(drawer.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+  if (!vis.length) return;
+  const first = vis[0], last = vis[vis.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
 function switchDrawerTab(tab) {

@@ -941,6 +941,11 @@
   .tk-att-chip .tk-att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
   /* v5.4.1: small ticket marker before a device hostname (Devices page). */
   .dev-ticket-ic { display: inline-flex; vertical-align: middle; margin-right: 4px; color: var(--accent); }
+  /* v5.4.1 (H3): skip-to-content link — off-screen until keyboard-focused. */
+  .skip-link { position: absolute; left: -9999px; top: 0; z-index: 1000;
+    background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 0 0 6px 0;
+    font-size: 14px; text-decoration: none; }
+  .skip-link:focus { left: 0; }
   .fl-wrap { flex-wrap: wrap; }
   .fl-1 { flex: 1; min-width: 0; }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
