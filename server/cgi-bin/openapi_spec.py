@@ -977,12 +977,50 @@ def _path_auth_misc() -> dict[str, Any]:
     }
 
 
-def build_spec(server_version: str) -> dict[str, Any]:
+def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None) -> None:
+    """v5.4.1 (E1): fill a minimal valid operation for every registered route the
+    hand-written specs above don't already cover, so the document describes 100%
+    of the API surface (not just the ~28 richly-documented endpoints). ``routes``
+    is the caller's ``(METHOD, '/api/<path>')`` table; the ``/api`` prefix is
+    stripped to match this document's server-relative paths. Routes with a path
+    template (``{id}``) are left to the hand-written specs (they declare the path
+    parameters), so only literal paths are stubbed."""
+    if not routes:
+        return
+    for method, full in routes:
+        m = str(method).lower()
+        if m not in ("get", "post", "put", "patch", "delete"):
+            continue
+        rel = full[4:] if full.startswith("/api") else full
+        if not rel or "{" in rel:
+            continue
+        op = paths.setdefault(rel, {})
+        if m in op:
+            continue  # already richly documented — never overwrite
+        op[m] = {
+            "summary": f"{method.upper()} {rel}",
+            "tags": ["Other"],
+            "description": (
+                "Auto-generated stub — see the in-app docs / source for the "
+                "full request and response shape."
+            ),
+            "responses": {
+                "200": {"description": "Success"},
+                "401": {"$ref": "#/components/responses/Unauthorized"},
+            },
+        }
+
+
+def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None) -> dict[str, Any]:
     """Return the full OpenAPI 3.1 document.
 
     Args:
         server_version: The current ``SERVER_VERSION`` string from
             :mod:`api`. Embedded as the spec's ``info.version``.
+        routes: Optional ``(METHOD, '/api/<path>')`` table (e.g.
+            ``api._build_exact_routes()`` keys). Every literal route not already
+            richly documented gets a minimal stub so the spec covers the whole
+            API surface (v5.4.1, E1).
 
     Returns:
         A dict serializable to JSON via :func:`json.dumps`. The returned
@@ -993,6 +1031,7 @@ def build_spec(server_version: str) -> dict[str, Any]:
     paths.update(_path_cmdb())
     paths.update(_path_vault())
     paths.update(_path_auth_misc())
+    _stub_operations(paths, routes)
 
     return {
         "openapi": "3.1.0",
@@ -1016,7 +1055,10 @@ def build_spec(server_version: str) -> dict[str, Any]:
                 "(where applicable) the source IP."
             ),
         },
-        "servers": [{"url": "/api", "description": "This server."}],
+        "servers": [
+            {"url": "/api/v1", "description": "Versioned base (recommended)."},
+            {"url": "/api", "description": "Unversioned alias of /api/v1."},
+        ],
         "tags": [
             {"name": "Auth", "description": "Login, logout, audit log."},
             {"name": "Devices", "description": "Enrolled device CRUD and inspection."},
@@ -1025,6 +1067,7 @@ def build_spec(server_version: str) -> dict[str, Any]:
             {"name": "Vault", "description": "Encrypted credential vault (PBKDF2 + AES-GCM)."},
             {"name": "Credentials", "description": "Per-asset credential storage."},
             {"name": "Reporting", "description": "Metrics and read-only reports."},
+            {"name": "Other", "description": "Endpoints not yet richly documented (auto-stubbed)."},
         ],
         "paths": paths,
         "components": {

@@ -8841,7 +8841,10 @@ def handle_openapi_spec() -> None:
     endpoint with the user's existing session token.
     """
     require_auth()
-    respond(200, openapi_spec.build_spec(SERVER_VERSION))
+    # v5.4.1 (E1): pass the registered exact-route table so the spec covers the
+    # whole API surface (every literal route gets at least a stub), not only the
+    # ~28 hand-documented endpoints.
+    respond(200, openapi_spec.build_spec(SERVER_VERSION, routes=list(_build_exact_routes().keys())))
 
 
 def handle_login():

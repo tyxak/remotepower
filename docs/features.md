@@ -418,7 +418,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Self-signed CA onboarding | `make tls-selfsigned` CA + leaf; agents trust the CA (client-free renew/migration); `--ca-fingerprint` installers *(v4.5.0)* |
 | Hardened persistence | flock-serialised writes, per-process tmp, fsync, rolling `.bak` fallback + recovery *(v1.12.1)* |
 | GitOps | Config-from-Git *(v4.0.0)*; Terraform via REST; Ansible runner |
-| Swagger / OpenAPI | OpenAPI 3.1 at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected token |
+| Swagger / OpenAPI | OpenAPI 3.1 at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected token; **route-table-driven so every endpoint is covered** (~290 paths), advertises the `/api/v1` base *(v5.4.1)* |
 | API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.4.1)* |
 | Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.4.1)* |
 | Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.4.1)* |

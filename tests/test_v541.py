@@ -466,5 +466,46 @@ class TestEnterpriseHardening5(unittest.TestCase):
         self.assertRegex(sw, r"remotepower-shell-v5\.4\.1-\d+")
 
 
+class TestE1OpenApiCoverage(unittest.TestCase):
+    """v5.4.1 (E1): the OpenAPI spec covers the whole literal-route surface, not
+    just the ~28 hand-documented endpoints."""
+
+    def setUp(self):
+        import importlib.util as _u
+        _s = _u.spec_from_file_location("openapi_spec_t", _CGI / "openapi_spec.py")
+        self.osp = _u.module_from_spec(_s)
+        _s.loader.exec_module(self.osp)
+
+    def test_every_literal_exact_route_is_in_spec(self):
+        routes = list(api._build_exact_routes().keys())
+        spec = self.osp.build_spec("5.4.1", routes=routes)
+        paths = spec["paths"]
+        missing = []
+        for m, full in routes:
+            if not isinstance(m, str):
+                continue   # agent-only None-method routes are intentionally excluded
+            rel = full[4:] if full.startswith("/api") else full
+            if not rel or "{" in rel:
+                continue
+            if rel not in paths or m.lower() not in paths[rel]:
+                missing.append((m, rel))
+        self.assertEqual(missing, [], f"routes missing from OpenAPI spec: {missing[:10]}")
+        self.assertGreater(len(paths), 200, "spec should now cover the whole surface")
+
+    def test_spec_advertises_v1_server(self):
+        spec = self.osp.build_spec("5.4.1", routes=[])
+        urls = [s["url"] for s in spec["servers"]]
+        self.assertIn("/api/v1", urls)
+        # every operation declares responses (valid-ish OpenAPI)
+        full = self.osp.build_spec("5.4.1", routes=list(api._build_exact_routes().keys()))
+        for p, ops in full["paths"].items():
+            for verb, op in ops.items():
+                if verb in ("get", "post", "put", "patch", "delete"):
+                    self.assertIn("responses", op, f"{verb} {p} has no responses")
+
+    def test_handler_passes_routes(self):
+        self.assertIn("routes=list(_build_exact_routes().keys())", (_CGI / "api.py").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

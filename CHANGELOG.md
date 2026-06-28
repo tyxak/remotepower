@@ -94,6 +94,11 @@ Batch 2 (credential-at-rest + API contract + observability):
   key** (Settings → Security), and the **Security posture** page now grades the new
   controls (password policy, idle timeout, SSO-only, signed exports) alongside the
   existing rows.
+- **OpenAPI now covers the whole API**: the spec (`/api/openapi.json`, Swagger UI) is
+  driven from the live route table — every registered endpoint appears (≈290 paths, up
+  from ~28), the hand-written rich specs are kept, and the document advertises the
+  versioned **`/api/v1`** base. Uncovered endpoints get an auto-stub instead of being
+  absent.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 
