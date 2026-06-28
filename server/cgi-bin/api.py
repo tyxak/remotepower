@@ -1826,6 +1826,95 @@ def _data_file_bytes(path):
         return 0
 
 
+# ── v5.4.1 (C2): config-secret encryption at rest ────────────────────────────
+# Opt-in: only active when RP_CONFIG_KEY is set in the environment (like
+# RP_BACKUP_PASSPHRASE for backups). With it unset — the default — every helper
+# below is a NO-OP, so existing installs and the test suite are byte-identical.
+# Encryption happens transparently at save(CONFIG_FILE); decryption at the
+# load(CONFIG_FILE) cache-fill, so EVERY secret consumer (SMTP/OIDC/SAML/LDAP/
+# SIEM/audit-forward) gets plaintext without being touched. Fail-graceful: a
+# decrypt error (e.g. a changed/lost key) returns the value as-is — it never
+# crashes config reads. The key must be STABLE (a lost key = unreadable secrets,
+# same contract as RP_BACKUP_PASSPHRASE).
+_CONFIG_SECRET_FIELDS = ('smtp_password', 'oidc_client_secret', 'ldap_bind_password',
+                         'siem_token', 'audit_forward_token')
+_CONFIG_ENC_PREFIX = 'enc:v1:'
+
+
+def _config_master_key():
+    return os.environ.get('RP_CONFIG_KEY') or None
+
+
+def _cfg_enc(plain):
+    """AES-256-GCM encrypt one config-secret string → ``enc:v1:<b64(salt+nonce+ct)>``.
+    No-op (returns the input) when there's no master key, no crypto lib, it's not a
+    non-empty str, or it's already encrypted."""
+    key = _config_master_key()
+    if not key or not isinstance(plain, str) or not plain or plain.startswith(_CONFIG_ENC_PREFIX):
+        return plain
+    try:
+        if not backup_crypto.available():
+            return plain   # operator set a key but crypto is missing — don't break saves
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        import base64 as _b64
+        salt = os.urandom(16)
+        dk = hashlib.pbkdf2_hmac('sha256', key.encode(), salt, 200000)
+        nonce = os.urandom(12)
+        ct = AESGCM(dk).encrypt(nonce, plain.encode('utf-8'), None)
+        return _CONFIG_ENC_PREFIX + _b64.b64encode(salt + nonce + ct).decode()
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] config secret encrypt failed: {e}\n')
+        return plain
+
+
+def _cfg_dec(blob):
+    """Decrypt one config secret. Fail-graceful — returns the input unchanged if it
+    isn't enc-marked, there's no key, or on ANY error (a key mismatch leaves the
+    field as-is rather than crashing every config read)."""
+    if not isinstance(blob, str) or not blob.startswith(_CONFIG_ENC_PREFIX):
+        return blob
+    key = _config_master_key()
+    if not key:
+        return blob
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        import base64 as _b64
+        raw = _b64.b64decode(blob[len(_CONFIG_ENC_PREFIX):])
+        salt, nonce, ct = raw[:16], raw[16:28], raw[28:]
+        dk = hashlib.pbkdf2_hmac('sha256', key.encode(), salt, 200000)
+        return AESGCM(dk).decrypt(nonce, ct, None).decode('utf-8')
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] config secret decrypt failed: {e}\n')
+        return blob
+
+
+def _config_secrets_inbound(path, data):
+    """Decrypt secret fields after loading CONFIG_FILE (in place). No-op unless this
+    is the config file and a master key is set."""
+    if path != CONFIG_FILE or not _config_master_key() or not isinstance(data, dict):
+        return data
+    for f in _CONFIG_SECRET_FIELDS:
+        v = data.get(f)
+        if isinstance(v, str) and v.startswith(_CONFIG_ENC_PREFIX):
+            data[f] = _cfg_dec(v)
+    return data
+
+
+def _config_secrets_outbound(path, data):
+    """Encrypt secret fields before writing CONFIG_FILE. Returns a deepcopy with the
+    secrets encrypted (so the caller's in-memory dict is NOT mutated to ciphertext);
+    a no-op returning the original otherwise."""
+    if path != CONFIG_FILE or not _config_master_key() or not isinstance(data, dict):
+        return data
+    import copy as _c
+    out = _c.deepcopy(data)
+    for f in _CONFIG_SECRET_FIELDS:
+        v = out.get(f)
+        if isinstance(v, str) and v and not v.startswith(_CONFIG_ENC_PREFIX):
+            out[f] = _cfg_enc(v)
+    return out
+
+
 def load(path):
     """Robust load: try the canonical file, fall back to the rolling .bak.
 
@@ -1863,6 +1952,7 @@ def load(path):
         # canonical copy (same invariant as the JSON path) and hand back a
         # separate deepcopy so caller mutations don't leak into the cache.
         data = _m.load(path)
+        data = _config_secrets_inbound(path, data)   # v5.4.1 (C2)
         _LOAD_CACHE[path] = (data, True)
         return _copy.deepcopy(data)
     if not path.exists():
@@ -1870,6 +1960,7 @@ def load(path):
         return {}
     try:
         data = json.loads(path.read_text())
+        data = _config_secrets_inbound(path, data)   # v5.4.1 (C2)
         # Cache one canonical copy + return a separate one. Both originate
         # from the same parse — but caller mutations on the returned dict
         # don't leak into the cache, and vice-versa.
@@ -1884,7 +1975,7 @@ def load(path):
                     f"[remotepower] WARN: {path} corrupted ({exc}); "
                     f"served from {bak.name}\n")
                 # Don't cache the .bak — caller may want to retry primary
-                return data
+                return _config_secrets_inbound(path, data)   # v5.4.1 (C2)
             except json.JSONDecodeError:
                 pass
         sys.stderr.write(
@@ -2109,6 +2200,7 @@ def save(path, data, non_blocking=False, clamp_last_seen=True):
     pre-save snapshot.
     """
     _invalidate_load_cache(path)
+    data = _config_secrets_outbound(path, data)   # v5.4.1 (C2): encrypt cfg secrets at rest
     _m = _dbmod()
     if _m is not None:
         try:
@@ -37239,6 +37331,12 @@ def handle_security_posture():
         _offsite or 'local-host only',
         'Set an off-host backup destination (an NFS/SMB/sshfs mount) under '
         'Settings → Maintenance → Backup, and test-restore it.', fix_tab='maintenance')
+    _cfg_enc_armed = bool(_config_master_key())
+    add('config_secrets_encrypted', 'Config secrets encrypted at rest', _cfg_enc_armed,
+        'armed (RP_CONFIG_KEY set)' if _cfg_enc_armed else 'plaintext at rest',
+        'Set the RP_CONFIG_KEY environment variable (a stable secret, like '
+        'RP_BACKUP_PASSPHRASE) so SMTP/OIDC/SAML/LDAP/SIEM secrets are AES-GCM '
+        'encrypted in config.json.')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
 

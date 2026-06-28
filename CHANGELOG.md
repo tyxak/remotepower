@@ -108,6 +108,15 @@ Batch 2 (credential-at-rest + API contract + observability):
   destination** (by webhook-destination name or id) instead of always re-notifying every
   channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
   (Settings → Notifications → On-call & escalation).
+- **Config secrets encrypted at rest (opt-in)**: set **`RP_CONFIG_KEY`** (a stable env
+  secret, like `RP_BACKUP_PASSPHRASE`) and the sensitive `config.json` fields —
+  `smtp_password`, `oidc_client_secret`, `ldap_bind_password`, `siem_token`,
+  `audit_forward_token` — are **AES-256-GCM encrypted at rest** (PBKDF2-SHA256, per-value
+  salt/nonce). Encryption is transparent: it happens at `save()`, decryption at
+  `load()`, so no secret consumer changes. Default (no key) is byte-for-byte the previous
+  plaintext behaviour; a lost/changed key is **fail-graceful** (the field is left as-is,
+  reads never crash). Graded on the Security posture page. (Nested secrets — webhook
+  tokens, IMAP password, ACME creds — are a documented follow-up.)
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

@@ -572,5 +572,69 @@ class TestG2EscalationTargets(unittest.TestCase):
         self.assertIn('id="esc-tier-targets"', _html())        # UI
 
 
+class TestC2ConfigSecretEncryption(unittest.TestCase):
+    """v5.4.1 (C2): config-secret encryption at rest — OPT-IN via RP_CONFIG_KEY,
+    transparent at load/save, fail-graceful."""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self._k = os.environ.pop('RP_CONFIG_KEY', None)
+        self._d = tempfile.mkdtemp()
+        self._orig = api.CONFIG_FILE
+        api.CONFIG_FILE = api.Path(self._d) / 'config.json'
+        api._LOAD_CACHE.clear()
+
+    def tearDown(self):
+        import os
+        api.CONFIG_FILE = self._orig
+        api._LOAD_CACHE.clear()
+        if self._k is None:
+            os.environ.pop('RP_CONFIG_KEY', None)
+        else:
+            os.environ['RP_CONFIG_KEY'] = self._k
+
+    def test_default_off_is_plaintext(self):
+        import json
+        import os
+        os.environ.pop('RP_CONFIG_KEY', None)
+        api._LOAD_CACHE.clear()
+        api.save(api.CONFIG_FILE, {'smtp_password': 's3cret'})
+        on_disk = json.loads(api.CONFIG_FILE.read_text())
+        self.assertEqual(on_disk['smtp_password'], 's3cret')      # no key → plaintext
+
+    @unittest.skipUnless(__import__('backup_crypto').available(), 'cryptography not installed')
+    def test_roundtrip_with_key(self):
+        import json
+        import os
+        os.environ['RP_CONFIG_KEY'] = 'master-key-xyz'
+        api._LOAD_CACHE.clear()
+        api.save(api.CONFIG_FILE, {'smtp_password': 's3cret', 'siem_token': 'st', 'plain': 'v'})
+        on_disk = json.loads(api.CONFIG_FILE.read_text())
+        self.assertTrue(on_disk['smtp_password'].startswith('enc:v1:'))  # ciphertext at rest
+        self.assertEqual(on_disk['plain'], 'v')                          # non-secret untouched
+        api._LOAD_CACHE.clear()
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertEqual(cfg['smtp_password'], 's3cret')                 # decrypted transparently
+        self.assertEqual(cfg['siem_token'], 'st')
+
+    @unittest.skipUnless(__import__('backup_crypto').available(), 'cryptography not installed')
+    def test_wrong_key_is_fail_graceful(self):
+        import os
+        os.environ['RP_CONFIG_KEY'] = 'key-A'
+        api._LOAD_CACHE.clear()
+        api.save(api.CONFIG_FILE, {'smtp_password': 's3cret'})
+        os.environ['RP_CONFIG_KEY'] = 'key-B'   # changed/lost key
+        api._LOAD_CACHE.clear()
+        cfg = api.load(api.CONFIG_FILE)          # must not raise
+        self.assertTrue(cfg['smtp_password'].startswith('enc:v1:'))  # left as-is, not crashed
+
+    def test_helpers_and_posture(self):
+        self.assertEqual(set(api._CONFIG_SECRET_FIELDS) >= {
+            'smtp_password', 'oidc_client_secret', 'ldap_bind_password',
+            'siem_token', 'audit_forward_token'}, True)
+        self.assertIn("'config_secrets_encrypted'", (_CGI / "api.py").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
