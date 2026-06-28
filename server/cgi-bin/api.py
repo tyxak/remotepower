@@ -3348,6 +3348,33 @@ def _request_id():
     return _REQUEST_ID
 
 
+# ── v5.4.1 (keystone Stage A): request lifecycle ─────────────────────────────
+# RemotePower is written for the CGI contract — "the process dies at the end of
+# every request" — so a few module globals hold PER-REQUEST state that process
+# death implicitly resets. A future persistent app server (gunicorn/uvicorn,
+# Phase 5) reuses the process across requests, so any such global that isn't
+# explicitly reset at request boundaries becomes a cross-request LEAK (request B
+# seeing request A's state). `_begin_request()`/`_end_request()` make those
+# boundaries explicit. Under the current CGI/fork model they are a harmless no-op
+# (the process is already fresh per request); they are the foundation every later
+# migration stage stands on. See docs/keystone-design-internal.md.
+#
+# IMPORTANT: only PER-REQUEST caches are reset here. Cadence timers like
+# `_last_escalation_tick` are LEGITIMATELY cross-request state (they gate the
+# in-process `run_*_if_due` sweeps) and must NOT be cleared.
+def _begin_request():
+    """Reset per-request process-local state at the start of a request."""
+    global _REQUEST_ID
+    _LOAD_CACHE.clear()   # the load() memoiser is per-request, never cross-request
+    _REQUEST_ID = None    # mint a fresh correlation id for this request
+
+
+def _end_request():
+    """Per-request teardown. A no-op today; the persistent-server migration will
+    use it to release per-request resources (e.g. return pooled DB connections)."""
+    _LOAD_CACHE.clear()
+
+
 _LOG_LEVELS = {'debug': 10, 'info': 20, 'warning': 30, 'error': 40}
 
 
@@ -51152,6 +51179,11 @@ def _dispatch(pi, m):
 
 
 def main():
+    # v5.4.1 (keystone Stage A): reset per-request process-local state at the very
+    # start. No-op under CGI (fresh process); the boundary a persistent app server
+    # (Phase 5) will rely on so request B never sees request A's load()-cache /
+    # correlation id. Cadence timers below are intentionally preserved.
+    _begin_request()
     # v2.1.1: these per-request maintenance sweeps used to be wrapped in
     # bare `except Exception: pass` blocks. That silently swallowed every
     # error — including the ones an operator most needs to see: "why

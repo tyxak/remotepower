@@ -108,6 +108,12 @@ Batch 2 (credential-at-rest + API contract + observability):
   destination** (by webhook-destination name or id) instead of always re-notifying every
   channel — so e.g. tier 1 hits Slack and tier 3 pages PagerDuty / a manager
   (Settings → Notifications → On-call & escalation).
+- **Request-lifecycle isolation (keystone Stage A)**: `_begin_request()` / `_end_request()`
+  now bracket every request, resetting the per-request process-local state (the `load()`
+  cache + correlation id) at request boundaries while preserving the legitimately
+  cross-request cadence timers. A **no-op under the current CGI model**, but it's the
+  foundation that makes the codebase safe for a future persistent app server (so request
+  B can never see request A's state). Guardrail-tested for cross-request-leak.
 - **Device tokens hashed at rest**: a device's auth token is now stored as a SHA-256
   hash (`token_hash`), not plaintext — so a datastore read no longer yields a usable
   agent credential. Fully transparent: the **agent keeps sending its plaintext token**;

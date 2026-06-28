@@ -675,6 +675,38 @@ class TestWormAuditSink(unittest.TestCase):
         self.assertIn('id="cfg-audit-worm-path"', _html())
 
 
+class TestKeystoneStageA(unittest.TestCase):
+    """v5.4.1 (keystone Stage A): the request-context reset that makes the codebase
+    safe for a future persistent app server — per-request globals reset at request
+    boundaries, while legitimately-persistent cadence timers survive."""
+
+    def test_begin_request_resets_per_request_state(self):
+        # Simulate request 1 leaving state behind.
+        api._LOAD_CACHE[api.CONFIG_FILE] = ({'leaked': True}, True)
+        api._REQUEST_ID = 'req-1-id'
+        # A cadence timer is legitimately cross-request — record it.
+        api._last_escalation_tick[0] = 12345.0
+        # Request 2 begins.
+        api._begin_request()
+        # Per-request state is gone (no cross-request leak)…
+        self.assertEqual(api._LOAD_CACHE, {})
+        self.assertIsNone(api._REQUEST_ID)
+        # …but the cadence timer is preserved (it gates the in-process sweeps).
+        self.assertEqual(api._last_escalation_tick[0], 12345.0)
+
+    def test_end_request_defined_and_clears_cache(self):
+        api._LOAD_CACHE[api.CONFIG_FILE] = ({'x': 1}, True)
+        api._end_request()
+        self.assertEqual(api._LOAD_CACHE, {})
+
+    def test_main_calls_begin_request(self):
+        src = (_CGI / "api.py").read_text()
+        idx = src.find('def main():')
+        self.assertGreater(idx, 0)
+        # _begin_request() is the first call in main(), before the cadence sweeps.
+        self.assertIn('_begin_request()', src[idx:idx + 600])
+
+
 class TestDeviceTokenHashing(unittest.TestCase):
     """v5.4.1: device tokens hashed at rest, with a legacy-plaintext fallback +
     transparent migration on heartbeat."""
