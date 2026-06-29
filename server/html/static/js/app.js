@@ -2946,6 +2946,8 @@ async function loadSettings() {
   _setv('cfg-slo-target', data.slo_target_percent ?? 99.9);   // v5.4.1 (F3)
     const wbl = document.getElementById('cfg-webhook-block-local');
     if (wbl) wbl.checked = data.webhook_block_local !== false;
+    const ntm = document.getElementById('cfg-notifications-test-mode');   // v5.4.1 (E6)
+    if (ntm) ntm.checked = !!data.notifications_test_mode;
   }
   // v3.7.0: audit forwarding + change approval
   const _afe = document.getElementById('cfg-audit-forward-enabled');
@@ -3393,6 +3395,7 @@ async function saveSettings(btn) {
     payload.max_devices = parseInt(document.getElementById('cfg-max-devices')?.value || '50000', 10) || 50000;
   payload.slo_target_percent = parseFloat(document.getElementById('cfg-slo-target')?.value || '99.9') || 99.9;   // v5.4.1 (F3)
     payload.webhook_block_local = !!document.getElementById('cfg-webhook-block-local')?.checked;
+    payload.notifications_test_mode = !!document.getElementById('cfg-notifications-test-mode')?.checked;   // v5.4.1 (E6)
   }
   // v3.7.0: audit forwarding + change approval (maker-checker)
   const _wormEl = document.getElementById('cfg-audit-worm-path');   // v5.4.1 (WORM): independent of forwarding

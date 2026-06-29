@@ -7818,6 +7818,13 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
             return
     except (TypeError, ValueError):
         pass
+    # v5.4.1 (E6): notification sandbox/test mode. Per-destination `dry_run` (test a
+    # single new destination) OR the global `notifications_test_mode` (a whole sandbox
+    # instance). The would-be delivery is LOGGED — so an integrator can confirm the
+    # event fired + matched this destination's filters — but NOT sent.
+    if dest.get('dry_run') or cfg.get('notifications_test_mode'):
+        _log_webhook(event, url, 'dry-run', 'test mode — matched, not sent')
+        return
     fmt = dest.get('format') or _auto_detect_format(url)
     if fmt not in _WEBHOOK_FORMATS:
         fmt = 'generic'
@@ -17102,6 +17109,10 @@ def handle_config_save():
 
     if 'service_webhook_enabled' in body:
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
+    if 'notifications_test_mode' in body:   # v5.4.1 (E6): notification sandbox mode
+        cfg['notifications_test_mode'] = bool(body['notifications_test_mode'])
+    if 'external_scheduler' in body:        # v6.0.0 (Stage D): out-of-band scheduler owns cadence
+        cfg['external_scheduler'] = bool(body['external_scheduler'])
 
     # v1.8.4: per-event toggles (preferred over legacy flags above)
     if 'webhook_events' in body and isinstance(body['webhook_events'], dict):
@@ -42948,6 +42959,7 @@ def handle_smtp_test():
         result = smtp_notifier.send_email(
             cfg, recipients, subject=_test_subject, body=_test_body,
             html_body=smtp_notifier.brand_html(cfg, _test_subject, _test_body),  # v5.4.1 (H4)
+            force=True,   # v5.4.1 (E6): an explicit connectivity test bypasses sandbox mode
         )
         _log_email('test', recipients, 'ok', f'test sent to {len(recipients)} recipient(s)')
         audit_log(actor, 'smtp_test', f'test email sent to {len(recipients)} recipient(s)')

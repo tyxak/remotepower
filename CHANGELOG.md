@@ -186,6 +186,12 @@ Batch 2 (credential-at-rest + API contract + observability):
   its role scope, and **binding even an admin-role key** (the point of a service
   account). A key with no scope behaves exactly as before. Enforced at the same RBAC
   chokepoints as role scope (`_caller_scope`/`require_perm`).
+- **Notification sandbox / test mode**: a new **`notifications_test_mode`** toggle
+  (Settings → Notifications) makes a staging/test instance **log** webhook + email
+  deliveries instead of sending them — so you can validate that events fire and route
+  correctly without spamming real recipients. A per-destination `dry_run` does the same
+  for a single webhook destination. The explicit "Send test email" connectivity check
+  bypasses it. Default off.
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

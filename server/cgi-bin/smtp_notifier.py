@@ -57,10 +57,16 @@ class SmtpError(Exception):
     """Wraps any SMTP failure with a human-readable message."""
 
 
-def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None, html_body: str = None, attachments: list = None) -> dict:
+def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_headers: dict = None, html_body: str = None, attachments: list = None, force: bool = False) -> dict:
     """
     Send a plain-text email. cfg is the SMTP config dict from /api/config.
     Returns {'ok': True} on success, raises SmtpError otherwise.
+
+    v5.4.1 (E6): when ``cfg['notifications_test_mode']`` is set the instance is in
+    notification SANDBOX mode — the message is NOT sent and a dry-run result is
+    returned, so a staging/test deployment can validate event routing without
+    emailing real recipients. ``force=True`` bypasses it (the explicit "send test
+    email" SMTP connectivity check passes force so it can still verify delivery).
 
     Required cfg keys:
       smtp_host (str)
@@ -75,6 +81,12 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     """
     if not recipients:
         raise SmtpError('no recipients')
+
+    # v5.4.1 (E6): notification sandbox/test mode — don't actually send.
+    if not force and cfg.get('notifications_test_mode'):
+        return {'ok': True, 'dry_run': True,
+                'detail': 'notifications_test_mode active — email not sent',
+                'recipients': len(recipients)}
 
     # Header-injection defense-in-depth: strip CR/LF from any value that lands in
     # an email header. _sanitize_str only .strip()s, and Python's email/smtplib
