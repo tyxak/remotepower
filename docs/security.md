@@ -130,6 +130,15 @@ sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
 
 ---
 
+## Compliance frameworks (SOC 2 / ISO 27001)
+
+For a mapping of RemotePower's built-in controls (RBAC, MFA/SSO, encryption at
+rest + in transit, the hash-chained + WORM audit log, signed evidence exports,
+vulnerability management, backup/DR, …) to **SOC 2** Trust Services Criteria and
+**ISO/IEC 27001:2022** Annex A controls — plus what stays the operator's
+responsibility — see [compliance.md](compliance.md). It's a mapping aid for
+audit prep, not a certification claim.
+
 ## Security posture
 
 RemotePower has been audited end-to-end across multiple releases — the server
