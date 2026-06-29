@@ -30,6 +30,15 @@ RP_DATA_DIR=/var/lib/remotepower \
   gunicorn --workers 4 --threads 1 --bind 127.0.0.1:8090 wsgi:application
 ```
 
+A ready-made systemd unit ships at `server/conf/remotepower-wsgi.service` (gunicorn,
+4 sync workers; pair it with `remotepower-scheduler.service`):
+
+```bash
+pip install gunicorn
+cp server/conf/remotepower-wsgi.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now remotepower-wsgi
+```
+
 Then proxy nginx to it instead of fcgiwrap:
 
 ```nginx

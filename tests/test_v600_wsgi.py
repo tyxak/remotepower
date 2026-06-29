@@ -118,6 +118,14 @@ class TestWsgiShim(unittest.TestCase):
         r = _call('POST', '/api/devices', body=b'{"hello":"world"}')
         self.assertRegex(r['status'], r'^4\d\d ', r['status'])
 
+    def test_wsgi_systemd_unit_present_and_wired(self):
+        unit = _ROOT / "server" / "conf" / "remotepower-wsgi.service"
+        self.assertTrue(unit.exists(), "remotepower-wsgi.service missing")
+        txt = unit.read_text()
+        self.assertIn("wsgi:application", txt)        # runs the shim
+        self.assertIn("--threads 1", txt)             # the mandatory single-thread model
+        self.assertIn("[Install]", txt)
+
     def test_parse_cgi_response_helper(self):
         raw = b'Status: 201 Created\r\nContent-Type: application/json\r\n\r\n{"ok":true}'
         status, headers, body = wsgi._parse_cgi_response(raw)

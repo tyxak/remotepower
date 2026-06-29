@@ -1,0 +1,56 @@
+# RemotePower persistent WSGI app tier (v6.0.0 keystone, EXPERIMENTAL — opt-in).
+#
+# Runs the SAME api.py under gunicorn (persistent workers) instead of the
+# fork-per-request CGI / SCGI models. Validated correct under load on both the
+# SQLite and Postgres backends (per-request isolation holds: no load-cache /
+# correlation-id / response-body bleed). The default + fully supported deployment
+# is still CGI (api_cgi.py) or the SCGI worker (remotepower-api.service); use this
+# only for large fleets that want a pre-warmed persistent tier, and keep CGI as the
+# fallback until you've validated it under your own load. See docs/wsgi.md.
+#
+# IMPORTANT — process model: wsgi.py serialises requests WITHIN a worker (it
+# briefly redirects process-global os.environ/stdin/stdout per request), so use
+# SYNC workers with ONE thread each and scale with PROCESSES (--workers N
+# --threads 1). Do NOT use gthread/gevent worker classes yet.
+#
+# Prereqs: pip install gunicorn  (gunicorn is NOT a RemotePower dependency).
+# Install:
+#   cp server/conf/remotepower-wsgi.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now remotepower-wsgi
+# then point nginx /api/ at http://127.0.0.1:8090 (proxy_pass; see docs/wsgi.md)
+# and reload nginx. Pair with remotepower-scheduler.service + RP_EXTERNAL_SCHEDULER=1
+# (in api.env) so the cadence runs out-of-band (measured ~25x lower request latency
+# on a networked DB). Roll back by repointing nginx at fcgiwrap/SCGI.
+
+[Unit]
+Description=RemotePower WSGI app tier (gunicorn, experimental)
+Documentation=file:///var/www/remotepower/cgi-bin/wsgi.py
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/remotepower/cgi-bin
+RuntimeDirectory=remotepower
+RuntimeDirectoryMode=0750
+Environment=RP_DATA_DIR=/var/lib/remotepower
+EnvironmentFile=-/etc/remotepower/api.env
+# Sync workers, 1 thread each; scale with --workers. Bind to localhost for nginx.
+ExecStart=/usr/bin/gunicorn --workers 4 --threads 1 --timeout 120 \
+          --bind 127.0.0.1:8090 wsgi:application
+Restart=always
+RestartSec=2
+
+# Hardening — mirrors remotepower-api.service (same cadence/feature surface).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/remotepower
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+Environment=RP_WG_DIRECT=1
+Environment=RP_WG_DIR=/var/lib/remotepower/wg
+
+[Install]
+WantedBy=multi-user.target
