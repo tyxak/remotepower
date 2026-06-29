@@ -176,7 +176,9 @@ sudo make app-server-cgi      # → back to CGI/fcgiwrap (and stop the scheduler
 make app-server-status        # which tier is active + unit/scheduler state
 ```
 
-`app-server-wsgi` installs gunicorn, enables `remotepower-wsgi.service`, repoints the nginx `/api/` snippet to the gunicorn proxy (validated with `nginx -t`, auto-reverted on failure; the CGI snippet is saved to `…/remotepower-locations.conf.cgi.bak` so the switch back is lossless), and enables the scheduler (`NO_SCHEDULER=1` to skip). `app-server-cgi` restores the fcgiwrap snippet and disables the scheduler (`KEEP_SCHEDULER=1` to keep it). The underlying units also carry manual install/rollback steps in their headers — see **[scaling.md](scaling.md)** and **[wsgi.md](wsgi.md)**.
+`app-server-wsgi` installs gunicorn, enables `remotepower-wsgi.service`, repoints the nginx `/api/` blocks to the gunicorn proxy (validated with `nginx -t`, auto-reverted on failure; the original config is saved to `<file>.cgi.bak` so the switch back is lossless), and enables the scheduler (`NO_SCHEDULER=1` to skip). `app-server-cgi` restores that backup and disables the scheduler (`KEEP_SCHEDULER=1` to keep it).
+
+It works with **fcgiwrap CGI _and_ the SCGI worker**, and with a **custom vhost**: it finds the shared snippet, or auto-detects the nginx file holding your `/api` backend, or you point it at one with `RP_NGINX_CONF=/etc/nginx/sites-available/<your-vhost>`. The rewrite is **surgical** — it swaps only the `fastcgi_pass`/`scgi_pass` (+ their `*_param`/`*_params`/`*_read_timeout`) lines for `proxy_pass`, preserving every other directive in the block (`include …/fw_private_rp`, `modsecurity off`, `limit_except`, `auth_request`, …) and leaving non-backend locations (e.g. a webterm websocket proxy) untouched. The underlying units also carry manual install/rollback steps in their headers — see **[scaling.md](scaling.md)** and **[wsgi.md](wsgi.md)**.
 
 ### Public demo / sandbox
 

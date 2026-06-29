@@ -1,59 +1,85 @@
 #!/usr/bin/env bash
 # remotepower-app-server.sh — switch an EXISTING RemotePower install between the
-# default CGI/fcgiwrap app tier and the persistent gunicorn WSGI tier (v5.5.0),
-# back and forth, idempotently. Also manages the out-of-band scheduler.
+# CGI/fcgiwrap (or SCGI worker) app tier and the persistent gunicorn WSGI tier
+# (v5.5.0), back and forth, idempotently. Also manages the out-of-band scheduler.
 #
 #   sudo bash packaging/remotepower-app-server.sh wsgi [--no-scheduler]
 #   sudo bash packaging/remotepower-app-server.sh cgi  [--keep-scheduler]
-#   bash      packaging/remotepower-app-server.sh status
+#        bash packaging/remotepower-app-server.sh status
 #
-# Usually invoked via the Makefile: `sudo make app-server-wsgi`,
-# `sudo make app-server-cgi`, `make app-server-status`.
+# Usually via the Makefile: `sudo make app-server-wsgi`, `sudo make app-server-cgi`,
+# `make app-server-status`.
 #
-# - wsgi: install gunicorn (if missing), enable remotepower-wsgi.service, and
-#   repoint the deployed nginx /api/ snippet from fcgiwrap to gunicorn proxy_pass
-#   (validated with `nginx -t`, auto-reverted on failure). The pristine CGI
-#   snippet is saved to <snippet>.cgi.bak so the switch back is lossless. By
-#   default ALSO enables the out-of-band scheduler (recommended pairing) — pass
-#   --no-scheduler to leave the cadence on the request path.
-# - cgi: restore the fcgiwrap snippet from the backup, stop remotepower-wsgi, and
-#   (by default) disable the scheduler + drop RP_EXTERNAL_SCHEDULER so the request
-#   path resumes the cadence (avoids a double-run). Pass --keep-scheduler to leave
-#   the scheduler enabled (only sensible if you run the SCGI worker, which reads
-#   api.env). Data is never touched.
-# - status: show the active app tier, unit states and scheduler mode.
+# NGINX CONFIG LOCATION — works with custom vhosts, not just the shared snippet:
+#   1. $RP_NGINX_CONF (or $RP_NGINX_SNIPPET) if you set it — point it at the file
+#      that holds your `location /api/ { … }` blocks (e.g. a hand-tuned
+#      /etc/nginx/sites-available/<vhost>).
+#   2. else the shared snippet /etc/nginx/snippets/remotepower-locations.conf.
+#   3. else AUTO-DETECT: the nginx file under /etc/nginx that defines the
+#      RemotePower /api backend (fcgiwrap, the RP scgi socket, or gunicorn:8090).
 #
-# Safe to re-run: each mode detects the current state and only changes what differs.
+# The WSGI switch is SURGICAL: in every ACTIVE RemotePower `/api` location it
+# swaps only the backend directives (fastcgi_pass/scgi_pass + their *_param /
+# *_params / *_read_timeout lines) for `proxy_pass http://127.0.0.1:8090` + the
+# proxy headers, and PRESERVES every other line in the block (your
+# `include …/fw_private_rp`, `modsecurity off`, `limit_except`, `auth_request`,
+# add_header, …). A `location` that doesn't drive the RP backend (e.g. the
+# webterm websocket proxy to :8765) is left untouched. The pristine file is saved
+# to <file>.cgi.bak first, so the switch back is byte-lossless. PATH_INFO
+# overrides (e.g. /install → /api/agent/install) are carried onto proxy_pass.
+#
+# Validated with `nginx -t`; on failure it auto-reverts. Data is never touched.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # repo root
-SNIP="/etc/nginx/snippets/remotepower-locations.conf"
+SNIP_DEFAULT="/etc/nginx/snippets/remotepower-locations.conf"
 CANON_SNIP="$SCRIPT_DIR/server/conf/remotepower-locations.conf"
 ENVFILE="/etc/remotepower/api.env"
 WSGI_UNIT="remotepower-wsgi.service"
 SCHED_UNIT="remotepower-scheduler.service"
 GUNICORN_BIND="127.0.0.1:8090"
+SNIP=""   # resolved by init_conf()
 
 c_g=$'\033[0;32m'; c_y=$'\033[1;33m'; c_r=$'\033[0;31m'; c_n=$'\033[0m'
 info()  { echo "${c_g}==>${c_n} $*"; }
 warn()  { echo "${c_y}WARN:${c_n} $*" >&2; }
-die()   { echo "${c_r}ERROR:${c_n} $*" >&2; exit 1; }
+die()   { echo -e "${c_r}ERROR:${c_n} $*" >&2; exit 1; }
 
 need_root() { [[ ${EUID:-$(id -u)} -eq 0 ]] || die "run as root (sudo)"; }
 
-current_mode() {   # echoes "wsgi" or "cgi" based on the deployed snippet
+# Resolve which nginx file holds the RemotePower /api backend (see header).
+init_conf() {
+  if   [[ -n "${RP_NGINX_CONF:-}"    ]]; then SNIP="$RP_NGINX_CONF"
+  elif [[ -n "${RP_NGINX_SNIPPET:-}" ]]; then SNIP="$RP_NGINX_SNIPPET"
+  elif [[ -f "$SNIP_DEFAULT"         ]]; then SNIP="$SNIP_DEFAULT"
+  else
+    local cands=() uniq=() c r
+    mapfile -t cands < <(grep -rlsE \
+      'fcgiwrap\.socket|scgi_pass[[:space:]]+unix:/run/remotepower/|proxy_pass[[:space:]]+http://127\.0\.0\.1:8090|cgi-bin/api(_cgi)?\.py' \
+      /etc/nginx/ 2>/dev/null || true)
+    for c in "${cands[@]}"; do
+      grep -qE '^[[:space:]]*location[[:space:]].*\/api' "$c" 2>/dev/null || continue
+      r=$(readlink -f "$c" 2>/dev/null || echo "$c")
+      [[ " ${uniq[*]-} " == *" $r "* ]] || uniq+=("$r")
+    done
+    if   [[ ${#uniq[@]} -eq 1 ]]; then SNIP="${uniq[0]}"; info "auto-detected nginx config: $SNIP"
+    elif [[ ${#uniq[@]} -eq 0 ]]; then SNIP="$SNIP_DEFAULT"   # keep a value for the error message
+    else die "multiple nginx files define the RemotePower /api backend:\n$(printf '  %s\n' "${uniq[@]}")\n  → re-run with RP_NGINX_CONF=<the right file>"
+    fi
+  fi
+}
+
+current_mode() {   # echoes "wsgi" / "cgi" / "unknown" for the resolved file
   [[ -f "$SNIP" ]] || { echo "unknown"; return; }
   if grep -q "proxy_pass http://${GUNICORN_BIND}" "$SNIP"; then echo "wsgi"; else echo "cgi"; fi
 }
 
 reload_nginx() {   # validate then reload; restore arg-file on failure
   local restore="${1:-}"
-  if nginx -t >/dev/null 2>&1; then
-    systemctl reload nginx && return 0
-  fi
+  if nginx -t >/dev/null 2>&1; then systemctl reload nginx && return 0; fi
   warn "nginx -t failed"
   if [[ -n "$restore" && -f "$restore" ]]; then
-    warn "restoring previous snippet ($restore)"
+    warn "restoring previous config ($restore)"
     cp -a "$restore" "$SNIP"
     nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
   fi
@@ -68,31 +94,31 @@ ensure_gunicorn() {
   elif command -v dnf     >/dev/null 2>&1; then dnf install -y -q python3-gunicorn 2>/dev/null || pip3 install gunicorn 2>/dev/null || true
   else pip3 install gunicorn 2>/dev/null || true; fi
   command -v gunicorn >/dev/null 2>&1 || die "gunicorn install failed — install it then re-run"
-  # The unit hardcodes /usr/bin/gunicorn; symlink if pip put it elsewhere.
   [[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
 }
 
-rewrite_nginx_to_wsgi() {   # fcgiwrap → gunicorn proxy_pass on the DEPLOYED snippet
-  [[ -f "$SNIP" ]] || die "deployed snippet not found at $SNIP — is the server installed?"
-  cp -a "$SNIP" "${SNIP}.cgi.bak"     # pristine CGI snippet for a lossless switch back
+# Surgically rewrite the RP /api backend blocks in $SNIP to gunicorn proxy_pass.
+rewrite_nginx_to_wsgi() {
+  [[ -f "$SNIP" ]] || die "nginx config not found at $SNIP — set RP_NGINX_CONF=<your vhost> (the file with your 'location /api/ {…}' blocks)"
+  grep -qE 'fcgiwrap\.socket|scgi_pass[[:space:]]+unix:/run/remotepower/' "$SNIP" \
+    || die "no active fcgiwrap/SCGI RemotePower /api block found in $SNIP — already on WSGI, or set RP_NGINX_CONF to the right file"
+  cp -a "$SNIP" "${SNIP}.cgi.bak"     # pristine backend config → lossless switch back
   python3 - "$SNIP" "$GUNICORN_BIND" <<'PYEOF'
 import re, sys
 from pathlib import Path
 p = Path(sys.argv[1]); bind = sys.argv[2]; text = p.read_text()
-# Rewrite every ACTIVE (non-commented) location block that drives fcgiwrap into a
-# gunicorn proxy_pass block. Commented example blocks start with '#' so the
-# line-anchored matcher skips them; brace matching is depth-aware so the nested
-# `limit_except { … }` doesn't confuse it. (Same transform install-server.sh uses.)
+RP_SCGI = re.compile(r'scgi_pass\s+unix:/run/remotepower/')
+def is_backend(b):                      # an ACTIVE RemotePower CGI/SCGI block?
+    return ('fcgiwrap.socket' in b) or bool(RP_SCGI.search(b))
 loc_re = re.compile(r'(?m)^[ \t]*location\b[^{]*')
 out, pos = [], 0
 while True:
     m = loc_re.search(text, pos)
     if not m:
         out.append(text[pos:]); break
-    out.append(text[pos:m.start()])
-    sel = m.group(0)
-    bopen = text.index('{', m.start())
-    depth, j = 0, bopen
+    out.append(text[pos:m.start()]); sel = m.group(0)
+    # depth-aware brace match (handles the nested `limit_except { … }`)
+    bopen = text.index('{', m.start()); depth, j = 0, bopen
     while j < len(text):
         if text[j] == '{': depth += 1
         elif text[j] == '}':
@@ -100,36 +126,52 @@ while True:
             if depth == 0: break
         j += 1
     block = text[bopen:j + 1]
-    if 'fcgiwrap.socket' in block:
-        pim = re.search(r'PATH_INFO\s+(\S+);', block)
-        suffix = pim.group(1) if (pim and pim.group(1) != '$uri') else ''
-        le = re.search(r'limit_except[^{]*\{[^}]*\}', block)
-        le_line = ('\n    ' + le.group(0)) if le else ''
-        indent = re.match(r'[ \t]*', sel).group(0)
-        out.append(
-            sel.rstrip() + ' {\n'
-            '    proxy_pass http://' + bind + suffix + ';\n'
-            '    proxy_set_header Host $host;\n'
-            '    proxy_set_header X-Real-IP $remote_addr;\n'
-            '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
-            '    proxy_set_header X-Forwarded-Proto $scheme;\n'
-            '    proxy_read_timeout 130s;' + le_line + '\n' + indent + '}')
-    else:
-        out.append(sel + block)
+    if not is_backend(block) or ('proxy_pass http://' + bind) in block:
+        out.append(sel + block); pos = j + 1; continue
+    inner = block[1:-1]
+    lines = inner.split('\n')
+    # pass 1 — capture PATH_INFO override + the backend read-timeout
+    suffix, timeout = '', '130s'
+    for ln in lines:
+        s = ln.strip()
+        mm = re.match(r'(?:fastcgi|scgi)_param\s+PATH_INFO\s+(\S+?);', s)
+        if mm and mm.group(1) != '$uri': suffix = mm.group(1)
+        mt = re.match(r'(?:fastcgi|scgi)_read_timeout\s+(\S+?);', s)
+        if mt: timeout = mt.group(1)
+    # pass 2 — drop backend directives, inject proxy_pass where the pass line was,
+    # keep every other line (fw_private_rp, modsecurity, limit_except, …) verbatim
+    new, injected = [], False
+    for ln in lines:
+        s = ln.strip()
+        if re.match(r'include\s+(?:fastcgi|scgi)_params\s*;', s):       continue
+        if re.match(r'(?:fastcgi|scgi)_param\b', s):                    continue
+        if re.match(r'(?:fastcgi|scgi)_read_timeout\b', s):             continue
+        if re.match(r'(?:fastcgi|scgi)_pass\b', s):
+            ind = re.match(r'[ \t]*', ln).group(0)
+            new += [ind + 'proxy_pass http://' + bind + suffix + ';',
+                    ind + 'proxy_set_header Host $host;',
+                    ind + 'proxy_set_header X-Real-IP $remote_addr;',
+                    ind + 'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;',
+                    ind + 'proxy_set_header X-Forwarded-Proto $scheme;',
+                    ind + 'proxy_read_timeout ' + timeout + ';']
+            injected = True
+            continue
+        new.append(ln)
+    out.append(sel + '{' + '\n'.join(new) + '}')
     pos = j + 1
-p.write_text(''.join(out))
+Path(sys.argv[1]).write_text(''.join(out))
 PYEOF
 }
 
 restore_nginx_to_cgi() {
   if [[ -f "${SNIP}.cgi.bak" ]]; then
-    info "restoring fcgiwrap snippet from ${SNIP}.cgi.bak"
+    info "restoring the original backend config from ${SNIP}.cgi.bak"
     cp -a "${SNIP}.cgi.bak" "$SNIP"
-  elif [[ -f "$CANON_SNIP" ]]; then
-    warn "no .cgi.bak backup — installing the canonical snippet from the checkout"
+  elif [[ "$SNIP" == "$SNIP_DEFAULT" && -f "$CANON_SNIP" ]]; then
+    warn "no .cgi.bak backup — installing the canonical fcgiwrap snippet from the checkout"
     cp -a "$CANON_SNIP" "$SNIP"
   else
-    die "no CGI snippet to restore (neither ${SNIP}.cgi.bak nor $CANON_SNIP)"
+    die "no ${SNIP}.cgi.bak backup to restore — this looks like a custom vhost that wasn't switched by this tool; revert the /api proxy_pass block to your fcgiwrap/scgi block by hand"
   fi
 }
 
@@ -163,11 +205,12 @@ restart_worker() {   # restart whichever persistent worker is active (if any)
 }
 
 do_status() {
-  echo "Active app tier:  $(current_mode)   (snippet: $SNIP)"
+  init_conf
+  echo "Active app tier:  $(current_mode)   (nginx config: $SNIP)"
   local u act en
   for u in "$WSGI_UNIT" "$SCHED_UNIT" remotepower-api.service fcgiwrap.service; do
-    act=$(systemctl is-active "$u" 2>/dev/null | head -n1 || true);   act=${act:-unknown}
-    en=$(systemctl is-enabled "$u" 2>/dev/null | head -n1 || true);   en=${en:-n/a}
+    act=$(systemctl is-active "$u" 2>/dev/null | head -n1 || true);  act=${act:-unknown}
+    en=$(systemctl is-enabled "$u" 2>/dev/null | head -n1 || true);  en=${en:-n/a}
     printf '  %-30s %s / %s\n' "$u" "$act" "$en"
   done
   if [[ -f "$ENVFILE" ]] && grep -q '^RP_EXTERNAL_SCHEDULER=1' "$ENVFILE"; then
@@ -180,7 +223,7 @@ do_status() {
 cmd="${1:-}"; shift || true
 case "$cmd" in
   wsgi)
-    need_root
+    need_root; init_conf
     want_sched=1
     for a in "$@"; do [[ "$a" == "--no-scheduler" ]] && want_sched=0; done
     ensure_gunicorn
@@ -190,39 +233,38 @@ case "$cmd" in
       && info "$WSGI_UNIT running (gunicorn on $GUNICORN_BIND)" \
       || warn "could not start $WSGI_UNIT — check: systemctl status $WSGI_UNIT"
     if [[ "$(current_mode)" == "wsgi" ]]; then
-      info "nginx /api/ already proxies to the WSGI tier — leaving the snippet as-is"
+      info "nginx /api/ already proxies to the WSGI tier — leaving $SNIP as-is"
     else
       rewrite_nginx_to_wsgi
       reload_nginx "${SNIP}.cgi.bak" \
         && info "nginx /api/ now proxies to gunicorn (backup: ${SNIP}.cgi.bak)" \
-        || die "nginx validation failed — reverted to fcgiwrap; WSGI switch aborted"
+        || die "nginx validation failed — reverted to the previous config; WSGI switch aborted"
     fi
     [[ "$want_sched" == 1 ]] && enable_scheduler || warn "scheduler left as-is (--no-scheduler)"
     restart_worker
     info "Done — app tier is WSGI. Roll back with: sudo make app-server-cgi"
     ;;
   cgi)
-    need_root
+    need_root; init_conf
     keep_sched=0
     for a in "$@"; do [[ "$a" == "--keep-scheduler" ]] && keep_sched=1; done
     if [[ "$(current_mode)" == "cgi" ]]; then
-      info "nginx /api/ already on fcgiwrap — leaving the snippet as-is"
+      info "nginx /api/ already on the CGI/SCGI backend — leaving $SNIP as-is"
     else
       restore_nginx_to_cgi
       reload_nginx \
-        && info "nginx /api/ restored to fcgiwrap (CGI)" \
-        || die "nginx validation failed after restoring the CGI snippet — inspect $SNIP"
+        && info "nginx /api/ restored to the original backend (backup: ${SNIP}.cgi.bak)" \
+        || die "nginx validation failed after restoring — inspect $SNIP"
     fi
-    systemctl disable --now "$WSGI_UNIT" 2>/dev/null \
-      && info "stopped $WSGI_UNIT" || true
-    systemctl enable --now fcgiwrap.socket 2>/dev/null || systemctl enable --now fcgiwrap 2>/dev/null || true
+    systemctl disable --now "$WSGI_UNIT" 2>/dev/null && info "stopped $WSGI_UNIT" || true
     [[ "$keep_sched" == 1 ]] \
-      && warn "scheduler left enabled (--keep-scheduler) — only safe with the SCGI worker" \
+      && warn "scheduler left enabled (--keep-scheduler) — only safe with the SCGI worker (it reads api.env)" \
       || disable_scheduler
-    info "Done — app tier is CGI/fcgiwrap. Switch with: sudo make app-server-wsgi"
+    info "Done — app tier is CGI/SCGI. Switch with: sudo make app-server-wsgi"
     ;;
   status) do_status ;;
   *)
     echo "usage: $0 {wsgi [--no-scheduler] | cgi [--keep-scheduler] | status}" >&2
+    echo "  custom vhost? set RP_NGINX_CONF=/etc/nginx/sites-available/<your-vhost>" >&2
     exit 2 ;;
 esac
