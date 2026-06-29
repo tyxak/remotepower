@@ -1,43 +1,36 @@
-"""RemotePower — Phase-5 "keystone" Stage B: an OPT-IN WSGI entry point.
+"""RemotePower — Phase-5 "keystone": an OPT-IN WSGI entry point.
 
 The default + permanent fallback entry point is still the CGI shim ``api_cgi.py``
 (fork-per-request). This module lets the SAME unchanged ``api.py`` be served by a
-**persistent** WSGI worker (gunicorn sync workers, uvicorn's WSGI bridge, …) so the
-process is reused across requests instead of re-forked + re-interpreted each time.
+**persistent** WSGI worker (gunicorn, uvicorn's WSGI bridge, …) so the process is
+reused across requests instead of re-forked + re-interpreted each time.
 
-How it works — a CGI-under-WSGI bridge, NOT a rewrite:
-  * ``api.py`` is written for the CGI contract (read the request from ``os.environ``
-    + ``sys.stdin``, write the response to ``sys.stdout``, ``respond()`` raises
-    ``HTTPError`` which the ``__main__`` block renders). We keep ALL of that.
-  * ``application()`` adapts the WSGI ``environ`` → the CGI ``os.environ`` + a stdin
-    buffer, runs api's exact ``main()`` + ``__main__`` contract with ``sys.stdout``
-    redirected to a buffer, then parses that captured CGI response back into a WSGI
-    ``(status, headers, body)``.
-  * Per-request isolation rides on Stage A: ``api.main()`` calls ``_begin_request()``
-    at its top (clears the ``load()`` cache + correlation id); we call
-    ``_end_request()`` in teardown and restore the request slice of ``os.environ`` +
-    ``sys.stdin``/``sys.stdout`` so nothing leaks into the next request.
+How it works — a CGI-under-WSGI bridge, NOT a handler rewrite:
+  * ``api.py`` keeps its CGI contract — read the request from ``os.environ`` +
+    ``sys.stdin`` (now via ``_env()`` / ``_read_request_body()``, which read a
+    thread-local request context when one is active), write the response to
+    ``sys.stdout``, ``respond()`` raises ``HTTPError`` which the ``__main__`` block
+    renders.
+  * ``application()`` populates api's **thread-local** request context (``_RCTX``)
+    — environ + body — runs api's exact ``main()`` + ``__main__`` contract, and reads
+    the response from a per-request buffer that a thread-dispatching ``sys.stdout``
+    proxy routes ``print``/``buffer.write`` into. Per-request state (``_LOAD_CACHE``,
+    correlation/trace ids, auth-key scope, DB connections) is all thread-local.
 
-THREADING — IMPORTANT: ``os.environ`` and ``sys.stdin``/``sys.stdout`` are
-process-global, so this shim **serialises requests with a lock**. Run it with
-*synchronous, single-thread* workers and scale with PROCESSES:
+THREADING: because the request context + output buffer + storage connections are
+thread-local, this NO LONGER needs a process-wide lock — it serves requests
+**concurrently on threads**. Run with either model:
 
-    gunicorn --workers 4 --threads 1 wsgi:application        # from server/cgi-bin/
+    gunicorn --workers 4 --threads 8 wsgi:application     # threaded (in-process concurrency)
+    gunicorn --workers 8 --threads 1 wsgi:application     # process-per-worker
 
-That trades in-process concurrency for a zero-rewrite, provably-correct Stage B; the
-streaming-response abstraction that removes the lock is a later stage. SQLite stays
-single-node; multi-node needs Postgres (see the keystone design doc).
+The CGI path (api_cgi.py) is untouched and remains the supported default + fallback.
+SQLite stays single-node; multi-node needs Postgres (see the keystone design doc).
 """
 import io
-import os
 import sys
-import threading
 
 import api  # imported ONCE per worker and reused — the whole point of the persistent tier
-
-# Serialises the process-global os.environ / sys.stdio swap. One request at a time
-# per worker process; concurrency comes from running multiple worker PROCESSES.
-_LOCK = threading.Lock()
 
 # CGI meta-variables (RFC 3875) copied straight from the WSGI environ.
 _CGI_META = (
@@ -87,25 +80,75 @@ def _parse_cgi_response(raw):
     return status, headers, body
 
 
-def _run_capture(cgi_env, body_bytes):
-    """Run api's CGI request contract once with env + stdio redirected; return raw bytes.
+# ── Thread-dispatching stdout proxy ──────────────────────────────────────────
+# Installed ONCE (process-global) but routes writes to the CURRENT THREAD's
+# per-request buffer (api._RCTX.out / .out_text) when one is set, else to the real
+# stdout. That removes the per-request sys.stdout SWAP (and the lock it required):
+# concurrent request threads each capture into their own buffer.
+class _OutProxyBuffer:
+    def __init__(self, real_buffer):
+        self._real = real_buffer
 
-    Replicates api.py's ``__main__`` block exactly (HTTPError → render, SystemExit
-    from a streaming handler → already written, any other exception → 500), then
-    restores every process-global it touched."""
-    out = io.BytesIO()
-    # Snapshot ONLY the request-variable slice of os.environ (CGI meta + HTTP_* +
-    # whatever this request sets) — never the deploy env (RP_DATA_DIR, RP_CONFIG_KEY…).
-    touched = set(_CGI_META) | {h for h in os.environ if h.startswith('HTTP_')} | set(cgi_env)
-    saved_env = {k: os.environ.get(k) for k in touched}
-    saved_stdin, saved_stdout = sys.stdin, sys.stdout
-    cap = io.TextIOWrapper(out, encoding='utf-8', write_through=True, newline='')
+    def _target(self):
+        o = getattr(api._RCTX, 'out', None)
+        return o if o is not None else self._real
+
+    def write(self, b):
+        return self._target().write(b)
+
+    def flush(self):
+        try:
+            self._target().flush()
+        except Exception:
+            pass
+
+
+class _OutProxy:
+    def __init__(self, real):
+        self._real = real
+        self.buffer = _OutProxyBuffer(getattr(real, 'buffer', real))
+
+    def _target(self):
+        o = getattr(api._RCTX, 'out_text', None)
+        return o if o is not None else self._real
+
+    def write(self, s):
+        return self._target().write(s)
+
+    def flush(self):
+        try:
+            self._target().flush()
+        except Exception:
+            pass
+
+    def __getattr__(self, name):      # encoding / isatty / fileno / … → real stdout
+        return getattr(self._real, name)
+
+
+# Install the proxy once, when this module is imported by the WSGI server. The CGI
+# entry point (api_cgi.py) never imports this module, so its stdout is untouched.
+if not isinstance(sys.stdout, _OutProxy):
+    sys.stdout = _OutProxy(sys.stdout)
+
+
+def application(environ, start_response):
+    """WSGI entry point (``wsgi:application``). Thread-safe — no lock."""
     try:
-        for k in touched:              # drop stale request vars from the previous request
-            os.environ.pop(k, None)
-        os.environ.update(cgi_env)
-        sys.stdin = io.TextIOWrapper(io.BytesIO(body_bytes), encoding='utf-8')
-        sys.stdout = cap
+        n = int(environ.get('CONTENT_LENGTH') or 0)
+    except (TypeError, ValueError):
+        n = 0
+    body = environ['wsgi.input'].read(n) if n > 0 else b''
+
+    out = io.BytesIO()
+    out_text = io.TextIOWrapper(out, encoding='utf-8', write_through=True, newline='')
+    # Populate api's thread-local request context (read by _env / _read_request_body
+    # and the stdout proxy). No process-global swap → safe under concurrent threads.
+    api._RCTX.environ = _cgi_env_from_wsgi(environ)
+    api._RCTX.stdin = body
+    api._RCTX.out = out
+    api._RCTX.out_text = out_text
+    try:
+        # api.py's __main__ contract, replicated.
         try:
             api.main()
         except api.HTTPError as e:
@@ -113,47 +156,31 @@ def _run_capture(cgi_env, body_bytes):
         except SystemExit:
             pass                       # a streaming handler wrote its body then exited
         except Exception:
-            # Under CGI the exception reached fcgiwrap's stderr; here we catch it, so
-            # log the traceback ourselves (else WSGI deployments lose all 500 detail).
-            import traceback as _tb
+            import traceback as _tb     # WSGI catches it → log the traceback ourselves
             _tb.print_exc(file=sys.stderr)
             try:
                 api._render_response(500, {'error': 'Internal server error'})
             except Exception:
                 pass
-        finally:
-            try:
-                api._end_request()
-            except Exception:
-                pass
+        try:
+            out_text.flush()
+        except Exception:
+            pass
     finally:
         try:
-            cap.flush()
+            api._end_request()
         except Exception:
             pass
         try:
-            cap.detach()               # disconnect from `out` so GC of cap won't close it
+            out_text.detach()          # disconnect from `out` so GC won't close it
         except Exception:
             pass
-        sys.stdin, sys.stdout = saved_stdin, saved_stdout
-        for k, v in saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-    return out.getvalue()
+        for _a in ('environ', 'stdin', 'out', 'out_text'):
+            try:
+                setattr(api._RCTX, _a, None)
+            except Exception:
+                pass
 
-
-def application(environ, start_response):
-    """WSGI entry point. gunicorn etc. import this as ``wsgi:application``."""
-    try:
-        n = int(environ.get('CONTENT_LENGTH') or 0)
-    except (TypeError, ValueError):
-        n = 0
-    body = environ['wsgi.input'].read(n) if n > 0 else b''
-    cgi_env = _cgi_env_from_wsgi(environ)
-    with _LOCK:
-        raw = _run_capture(cgi_env, body)
-    status, headers, out_body = _parse_cgi_response(raw)
+    status, headers, out_body = _parse_cgi_response(out.getvalue())
     start_response(status, headers)
     return [out_body]

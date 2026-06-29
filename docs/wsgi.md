@@ -27,11 +27,11 @@ module from the `cgi-bin` directory:
 pip install gunicorn
 cd /var/www/remotepower/server/cgi-bin     # where api.py + wsgi.py live
 RP_DATA_DIR=/var/lib/remotepower \
-  gunicorn --workers 4 --threads 1 --bind 127.0.0.1:8090 wsgi:application
+  gunicorn --workers 4 --threads 8 --bind 127.0.0.1:8090 wsgi:application
 ```
 
 A ready-made systemd unit ships at `server/conf/remotepower-wsgi.service` (gunicorn,
-4 sync workers; pair it with `remotepower-scheduler.service`):
+threaded workers; pair it with `remotepower-scheduler.service`):
 
 ```bash
 pip install gunicorn
@@ -54,19 +54,26 @@ location /api/ {
 
 Static files (`/`, `/static/…`) keep being served directly by nginx exactly as today.
 
-## IMPORTANT: use synchronous, single-thread workers — scale with *processes*
+## Concurrency: threads and/or processes
 
-This Stage-B shim serialises requests **within** a worker process (it briefly redirects
-the process-global `os.environ` / `sys.stdin` / `sys.stdout` to service one request).
-So:
+Request state — the request context (environ + body), the response buffer, the
+`load()` cache, the correlation/trace ids, and the database connections — is all
+**thread-local**, so the shim serves requests **concurrently on threads** (no global
+lock). Scale on either axis:
 
-- Use **sync** workers with **one thread each** (`--threads 1`). Do **not** use
-  `gthread`/`gevent` worker classes yet — concurrent requests in one process would
-  contend on the shared stdio.
-- Get concurrency by running **more worker processes** (`--workers N`). Each process
-  is independent. This is the standard, safe way to scale the shim today.
-- The lock-free, fully-threaded path (a streaming response abstraction that removes the
-  global stdio redirect) is a later stage of the keystone work.
+- **`--threads N`** for in-process concurrency (lower memory; ideal when requests are
+  I/O-bound on the database, which most are). A thread-dispatching `sys.stdout` proxy
+  routes each request's output to its own buffer.
+- **`--workers N`** for process-level parallelism (uses more memory but sidesteps the
+  GIL for CPU-bound work). Multiple worker processes are independent.
+- A typical mix is `--workers <cpus> --threads 8`. Tune threads to your DB connection
+  budget (each active thread may hold one connection).
+- SQLite multi-thread within one process is fine (WAL + per-thread connections);
+  multiple **hosts** still require Postgres.
+
+Validated under load on real Postgres: 800 concurrent requests (24 threads), zero
+errors, unique correlation ids per request (no cross-request state leak), correct
+per-path responses.
 
 ## Database
 

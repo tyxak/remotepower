@@ -123,8 +123,41 @@ class TestWsgiShim(unittest.TestCase):
         self.assertTrue(unit.exists(), "remotepower-wsgi.service missing")
         txt = unit.read_text()
         self.assertIn("wsgi:application", txt)        # runs the shim
-        self.assertIn("--threads 1", txt)             # the mandatory single-thread model
+        self.assertIn("--threads", txt)               # threaded workers (state is thread-local)
         self.assertIn("[Install]", txt)
+
+    def test_concurrent_requests_no_cross_thread_leak(self):
+        # The shim serves requests on threads (no lock). Fire many concurrent
+        # requests across distinct paths and assert: each response matches its own
+        # path (no output-buffer bleed) and every correlation id is unique (no
+        # _RCTX / request-id leak between threads). Validates thread-safety on the
+        # SQLite backend (make test has no Postgres; the PG path is the same code).
+        import threading
+        cases = [('/api/health', b'"status"'), ('/api/public-info', b'server_name'),
+                 ('/api/_nope_', None)]
+        out, lock = [], threading.Lock()
+
+        def worker(i):
+            path, marker = cases[i % len(cases)]
+            r = _call('GET', path)
+            with lock:
+                out.append((path, marker, r['status'], r['hdr'].get('x-request-id'), r['body']))
+
+        ts = [threading.Thread(target=worker, args=(i,)) for i in range(24)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+
+        self.assertEqual(len(out), 24)
+        rids = [t[3] for t in out if t[3]]
+        self.assertEqual(len(rids), len(set(rids)), "correlation ids must be unique across threads")
+        for path, marker, status, rid, body in out:
+            if path == '/api/_nope_':
+                self.assertRegex(status, r'^404')
+            else:
+                self.assertRegex(status, r'^200', f'{path} -> {status}')
+                self.assertIn(marker, body, f'{path} body missing {marker!r} (cross-thread bleed?)')
 
     def test_parse_cgi_response_helper(self):
         raw = b'Status: 201 Created\r\nContent-Type: application/json\r\n\r\n{"ok":true}'

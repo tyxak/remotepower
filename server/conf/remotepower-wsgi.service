@@ -8,10 +8,9 @@
 # only for large fleets that want a pre-warmed persistent tier, and keep CGI as the
 # fallback until you've validated it under your own load. See docs/wsgi.md.
 #
-# IMPORTANT — process model: wsgi.py serialises requests WITHIN a worker (it
-# briefly redirects process-global os.environ/stdin/stdout per request), so use
-# SYNC workers with ONE thread each and scale with PROCESSES (--workers N
-# --threads 1). Do NOT use gthread/gevent worker classes yet.
+# Process model: request state (context, output buffer, DB connections) is
+# thread-local, so the worker serves requests CONCURRENTLY on threads — gthread is
+# supported. Tune --workers (processes) x --threads to your CPU + DB-pool budget.
 #
 # Prereqs: pip install gunicorn  (gunicorn is NOT a RemotePower dependency).
 # Install:
@@ -36,8 +35,8 @@ RuntimeDirectory=remotepower
 RuntimeDirectoryMode=0750
 Environment=RP_DATA_DIR=/var/lib/remotepower
 EnvironmentFile=-/etc/remotepower/api.env
-# Sync workers, 1 thread each; scale with --workers. Bind to localhost for nginx.
-ExecStart=/usr/bin/gunicorn --workers 4 --threads 1 --timeout 120 \
+# Threaded workers (request state is thread-local). Bind to localhost for nginx.
+ExecStart=/usr/bin/gunicorn --workers 4 --threads 8 --timeout 120 \
           --bind 127.0.0.1:8090 wsgi:application
 Restart=always
 RestartSec=2
