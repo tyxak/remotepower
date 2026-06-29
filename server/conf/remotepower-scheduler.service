@@ -31,8 +31,10 @@ After=network.target
 Type=simple
 User=www-data
 Group=www-data
-RuntimeDirectory=remotepower
-RuntimeDirectoryMode=0750
+# NB: deliberately NO `RuntimeDirectory=remotepower` — the scheduler uses RP_DATA_DIR,
+# nothing in /run. Declaring the shared `remotepower` runtime dir would make systemd
+# delete /run/remotepower (and the SCGI worker's api.sock in it) when this unit
+# stops/restarts. See remotepower-wsgi.service.
 Environment=RP_DATA_DIR=/var/lib/remotepower
 # This process OWNS the cadence; the flag also keeps semantics consistent if the
 # scheduler ever imports a code path that checks it.

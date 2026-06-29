@@ -67,6 +67,9 @@ init_conf() {
     else die "multiple nginx files define the RemotePower /api backend:\n$(printf '  %s\n' "${uniq[@]}")\n  → re-run with RP_NGINX_CONF=<the right file>"
     fi
   fi
+  # Resolve symlinks (sites-enabled/* is often a symlink) so we edit + back up the
+  # REAL file — otherwise `cp -a` would copy the symlink, not its contents.
+  [[ -n "$SNIP" && -e "$SNIP" ]] && SNIP="$(readlink -f "$SNIP" 2>/dev/null || echo "$SNIP")"
 }
 
 current_mode() {   # echoes "wsgi" / "cgi" / "unknown" for the resolved file

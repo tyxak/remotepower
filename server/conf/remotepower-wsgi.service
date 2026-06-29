@@ -31,8 +31,11 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/var/www/remotepower/cgi-bin
-RuntimeDirectory=remotepower
-RuntimeDirectoryMode=0750
+# NB: deliberately NO `RuntimeDirectory=remotepower`. gunicorn binds TCP
+# (127.0.0.1:8090) and needs nothing in /run. If this unit declared the shared
+# `remotepower` RuntimeDirectory, systemd would DELETE /run/remotepower when this
+# unit stops/restarts — which would nuke the SCGI worker's /run/remotepower/api.sock
+# out from under a co-resident remotepower-api during a CGI⇄WSGI cutover.
 Environment=RP_DATA_DIR=/var/lib/remotepower
 EnvironmentFile=-/etc/remotepower/api.env
 # Threaded workers (request state is thread-local). Bind to localhost for nginx.
