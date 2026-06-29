@@ -7331,7 +7331,7 @@ function _setApiKeyScope(scope) {
   if (st) st.value = (scope && scope.type) || 'all';
   if (sv) sv.value = (scope && Array.isArray(scope.values)) ? scope.values.join(', ') : '';
 }
-function openApiKeyCreate() { _apiKeyEditId = null; const t = _apiKeyModalTitle(); if (t) t.textContent = 'Create API key'; document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; _setApiKeyScope(null); document.getElementById('apikey-result').style.display = 'none'; const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Create'; openModal('apikey-create-modal'); }
+function openApiKeyCreate() { _apiKeyEditId = null; const t = _apiKeyModalTitle(); if (t) t.textContent = 'Create API key'; document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; const rl = document.getElementById('apikey-rate'); if (rl) rl.value = ''; _setApiKeyScope(null); const ia = document.getElementById('apikey-ip-allow'); if (ia) ia.value = ''; document.getElementById('apikey-result').style.display = 'none'; const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Create'; openModal('apikey-create-modal'); }
 function editApiKey(id) {
   const k = _apiKeysCache.find(x => x.id === id);
   if (!k) { toast('Key not found', 'error'); return; }
@@ -7343,6 +7343,7 @@ function editApiKey(id) {
   if (ex) ex.value = k.expires_at ? new Date(k.expires_at * 1000).toISOString().slice(0, 10) : '';
   const rl = document.getElementById('apikey-rate'); if (rl) rl.value = k.rate_limit || '';
   _setApiKeyScope(k.scope);
+  const ia = document.getElementById('apikey-ip-allow'); if (ia) ia.value = (Array.isArray(k.ip_allow) ? k.ip_allow.join(', ') : '');
   document.getElementById('apikey-result').style.display = 'none';   // never show a secret on edit
   const btn = document.getElementById('apikey-create-btn'); btn.style.display = ''; btn.textContent = 'Save changes';
   openModal('apikey-create-modal');
@@ -7356,9 +7357,10 @@ async function createApiKey() {
   if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } expires_at = ts; }
   const rlVal = parseInt(document.getElementById('apikey-rate')?.value || '0', 10);
   // Edit mode: PATCH metadata in place; the key secret is never touched.
+  const ipAllow = (document.getElementById('apikey-ip-allow')?.value || '').trim();
   if (_apiKeyEditId) {
-    // scope sent explicitly (null clears it) so edit can remove a key's scope
-    const body = {name, role, expires_at, rate_limit: rlVal > 0 ? rlVal : 0, scope: _apiKeyScopeFromForm()};
+    // scope + ip_allow sent explicitly (empty clears) so edit can remove them
+    const body = {name, role, expires_at, rate_limit: rlVal > 0 ? rlVal : 0, scope: _apiKeyScopeFromForm(), ip_allow: ipAllow};
     const data = await api('PATCH', '/apikeys/' + _apiKeyEditId, body);
     if (data?.ok) { toast('Key updated', 'info'); closeModal('apikey-create-modal'); _apiKeyEditId = null; loadApiKeys(); } else toast(data?.error || 'Failed', 'error');
     return;
@@ -7367,6 +7369,7 @@ async function createApiKey() {
   if (expires_at) body.expires_at = expires_at;
   if (rlVal > 0) body.rate_limit = rlVal;
   const sc = _apiKeyScopeFromForm(); if (sc) body.scope = sc;
+  if (ipAllow) body.ip_allow = ipAllow;
   const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteApiKey(id) { if (!await uiConfirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 

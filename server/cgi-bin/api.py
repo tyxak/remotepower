@@ -2981,6 +2981,12 @@ def verify_token(token):
                 if not stored_hash:
                     _legacy_migrate = kid
     if matched_user:
+        # v5.4.1 (D7): source-IP allowlist — a key restricted to a set of CIDRs is
+        # rejected when used from any other IP (lock a CI / service-account key to
+        # its egress IP). Fails closed; no allowlist = no restriction (legacy).
+        _ipallow = matched_kdata.get('ip_allow') if isinstance(matched_kdata, dict) else None
+        if isinstance(_ipallow, list) and _ipallow and not _ip_in_cidrs(_get_client_ip(), _ipallow):
+            return None, None
         # v5.0.0 (#C4): enforce the key's per-minute budget before it counts as
         # authenticated (429s a runaway/leaked key; no-op when rate_limit is 0).
         _enforce_apikey_ratelimit(matched_kid, matched_kdata)
@@ -3756,6 +3762,53 @@ def _validate_key_scope(raw):
     if not clean:
         respond(400, {'error': 'scope.values must contain at least one non-empty value'})
     return {'type': t, 'values': clean}
+
+
+def _ip_in_cidrs(ip, cidrs):
+    """v5.4.1 (D7): True if `ip` falls inside any CIDR / exact IP in `cidrs`. A
+    malformed list entry is skipped; a malformed/empty client IP fails CLOSED."""
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(str(ip))
+    except (ValueError, TypeError):
+        return False
+    for c in (cidrs or []):
+        c = str(c).strip()
+        if not c:
+            continue
+        try:
+            if '/' in c:
+                if addr in ipaddress.ip_network(c, strict=False):
+                    return True
+            elif ipaddress.ip_address(c) == addr:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _validate_ip_allow(raw):
+    """v5.4.1 (D7): validate an optional API-key source-IP allowlist (IPs/CIDRs).
+    Accepts a list or a comma/space-separated string. Returns a cleaned list, or
+    None for 'no restriction'. Raises 400 via respond() on a malformed entry."""
+    if raw is None or raw == '':
+        return None
+    if isinstance(raw, str):
+        raw = [p for p in re.split(r'[,\s]+', raw) if p]
+    if not isinstance(raw, list):
+        respond(400, {'error': 'ip_allow must be a list of IPs/CIDRs'})
+    import ipaddress
+    clean = []
+    for c in raw[:100]:
+        s = str(c).strip()
+        if not s:
+            continue
+        try:
+            ipaddress.ip_network(s, strict=False) if '/' in s else ipaddress.ip_address(s)
+        except ValueError:
+            respond(400, {'error': f'invalid IP/CIDR in ip_allow: {s[:64]}'})
+        clean.append(s)
+    return clean or None
 
 
 def require_perm(perm, device_ids=None):
@@ -34966,6 +35019,7 @@ def handle_apikeys_list():
                    'active': v.get('active', True),
                    'rate_limit': int(v.get('rate_limit') or 0),
                    'scope': v.get('scope'),            # v5.4.1 (D6): per-key device scope (or null)
+                   'ip_allow': v.get('ip_allow'),      # v5.4.1 (D7): per-key source-IP allowlist (or null)
                    'expires_at': v.get('expires_at')}
                   for kid, v in apikeys.items()]))   # v5.4.1 (E3): list convention
 
@@ -34993,6 +35047,7 @@ def handle_apikeys_create():
     if rate_limit < 0 or rate_limit > 100000:
         respond(400, {'error': 'rate_limit must be 0..100000'})
     key_scope = _validate_key_scope(body.get('scope'))   # v5.4.1 (D6)
+    key_ipallow = _validate_ip_allow(body.get('ip_allow'))   # v5.4.1 (D7)
     apikeys = load(APIKEYS_FILE)
     if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
     key_value = secrets.token_urlsafe(40)
@@ -35024,6 +35079,8 @@ def handle_apikeys_create():
                     'expires_at': expires_at}
     if key_scope:                                        # v5.4.1 (D6)
         apikeys[kid]['scope'] = key_scope
+    if key_ipallow:                                      # v5.4.1 (D7)
+        apikeys[kid]['ip_allow'] = key_ipallow
     save(APIKEYS_FILE, apikeys)
     respond(201, {'ok': True, 'id': kid, 'key': key_value,
                   'note': 'Store this key securely — it will not be shown again.'})
@@ -35087,6 +35144,12 @@ def handle_apikeys_update(kid):
             rec['scope'] = ks
         else:
             rec.pop('scope', None)                       # {type:all}/null clears it
+    if 'ip_allow' in body:                               # v5.4.1 (D7)
+        ia = _validate_ip_allow(body.get('ip_allow'))
+        if ia:
+            rec['ip_allow'] = ia
+        else:
+            rec.pop('ip_allow', None)                    # empty/null clears it
     save(APIKEYS_FILE, apikeys)
     respond(200, {'ok': True})
 

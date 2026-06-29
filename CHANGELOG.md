@@ -185,7 +185,9 @@ Batch 2 (credential-at-rest + API contract + observability):
   confines what the key can see and act on to a subset of the fleet — intersected with
   its role scope, and **binding even an admin-role key** (the point of a service
   account). A key with no scope behaves exactly as before. Enforced at the same RBAC
-  chokepoints as role scope (`_caller_scope`/`require_perm`).
+  chokepoints as role scope (`_caller_scope`/`require_perm`). A key may also carry a
+  **source-IP allowlist** (`ip_allow`: IPs/CIDRs) — it's rejected at auth from any other
+  IP, so a CI or service-account key can be locked to its egress address.
 - **Notification sandbox / test mode**: a new **`notifications_test_mode`** toggle
   (Settings → Notifications) makes a staging/test instance **log** webhook + email
   deliveries instead of sending them — so you can validate that events fire and route
