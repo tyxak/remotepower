@@ -304,7 +304,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | SSO group→role matrix | `sso_group_roles` maps an OIDC/SAML group to any builtin/custom role (not just admin-or-viewer); admin wins, legacy admin-group still works, viewer promoted on login, never auto-demotes *(v5.4.1)* |
 | Roles | Admin, Viewer, Auditor (read-only + audit/compliance, reveals nothing) *(v4.10.0)*, plus custom scoped roles *(v3.4.2)* |
 | Granular RBAC | Custom roles granting exec/reboot/upgrade scoped to groups/tags; roster filtered to scope *(v3.4.2)* |
-| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.4.1)* |
+| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.4.1)*; optional **per-key device scope** (scoped service account — confines visibility+actions to groups/tags/sites, binds even an admin key) *(v5.4.1)* |
 | Device tokens hashed | Agent auth tokens stored as SHA-256 `token_hash` (not plaintext); agent unchanged; legacy tokens migrate on next heartbeat *(v5.4.1)* |
 | Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)*; **hashed at rest** (keyed by SHA-256, display prefix kept) *(v5.4.1)* |
 | PIN enrolment | 6-digit, single-use, 10-min expiry |

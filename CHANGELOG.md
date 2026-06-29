@@ -180,6 +180,12 @@ Batch 2 (credential-at-rest + API contract + observability):
   so RemotePower's structured logs (`trace_id`) and **outbound webhooks** join the same
   distributed trace (a fresh child span is attached to each webhook). Full server-side
   spans across request → DB → job remain gated on the future persistent app tier.
+- **Scoped service-account API keys**: an API key can now carry an optional **device
+  scope** (`scope: {type: groups|tags|sites, values: […]}`, Settings → API keys) that
+  confines what the key can see and act on to a subset of the fleet — intersected with
+  its role scope, and **binding even an admin-role key** (the point of a service
+  account). A key with no scope behaves exactly as before. Enforced at the same RBAC
+  chokepoints as role scope (`_caller_scope`/`require_perm`).
 
 ## v5.4.0 — "RackMatters" — unreleased (test)
 

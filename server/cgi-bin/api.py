@@ -2875,6 +2875,8 @@ def verify_token(token):
     v5.4.1 (C1): keys are stored as `key_hash` (sha256). A legacy plaintext `key`
     is still accepted and transparently migrated to `key_hash` on first use.
     """
+    global _CALLER_KEY_SCOPE
+    _CALLER_KEY_SCOPE = None   # v5.4.1 (D6): cleared each call; set only on an API-key match
     if not token:
         return None, None
 
@@ -2993,6 +2995,13 @@ def verify_token(token):
                         _e['key_hash'] = _apikey_hash(_e.pop('key'))
             except Exception:
                 pass
+        # v5.4.1 (D6): a per-key device scope confines this key's visibility +
+        # actions to a subset of the fleet, intersected with its role scope (and
+        # enforced even for an admin-role key — that's the point of a scoped
+        # service account). Absent/`all` → no extra restriction (legacy behaviour).
+        _ks = matched_kdata.get('scope') if isinstance(matched_kdata, dict) else None
+        if isinstance(_ks, dict) and _ks.get('type') and _ks.get('type') != 'all':
+            _CALLER_KEY_SCOPE = _ks
         return matched_user, matched_role
 
     return None, None
@@ -3431,6 +3440,7 @@ def _gzip_response_wanted(body_len: int) -> bool:
 
 _REQUEST_ID = None
 _TRACE_ID = None    # v5.4.1 (F2): W3C trace-id for the current request
+_CALLER_KEY_SCOPE = None   # v5.4.1 (D6): device scope of the API key that authed this request
 
 
 def _request_id():
@@ -3482,10 +3492,11 @@ def _traceparent_out():
 # in-process `run_*_if_due` sweeps) and must NOT be cleared.
 def _begin_request():
     """Reset per-request process-local state at the start of a request."""
-    global _REQUEST_ID, _TRACE_ID
+    global _REQUEST_ID, _TRACE_ID, _CALLER_KEY_SCOPE
     _LOAD_CACHE.clear()   # the load() memoiser is per-request, never cross-request
     _REQUEST_ID = None    # mint a fresh correlation id for this request
     _TRACE_ID = None      # v5.4.1 (F2): re-read traceparent per request
+    _CALLER_KEY_SCOPE = None   # v5.4.1 (D6): re-resolve the auth key's scope per request
 
 
 def _end_request():
@@ -3708,6 +3719,8 @@ def _device_in_scope(scope, dev):
     t = (scope or {}).get('type', 'all')
     if t == 'all':
         return True
+    if t == 'all_of':   # v5.4.1 (D6): composite — every sub-scope must admit the device
+        return all(_device_in_scope(s, dev) for s in (scope.get('scopes') or []))
     vals = (scope or {}).get('values') or []
     if t == 'groups':
         return (dev.get('group') or '') in vals
@@ -3716,6 +3729,33 @@ def _device_in_scope(scope, dev):
     if t == 'sites':                                   # v3.12.0
         return (dev.get('site') or '') in vals
     return False
+
+
+def _validate_key_scope(raw):
+    """v5.4.1 (D6): validate an optional API-key device scope from request input.
+    Returns a clean ``{'type': groups|tags|sites, 'values': [...]}`` dict, or None
+    for 'no scope' (missing / null / ``{'type':'all'}``). Raises a 400 via respond()
+    on a malformed shape."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        respond(400, {'error': 'scope must be an object {type, values}'})
+    t = str(raw.get('type') or 'all').strip().lower()
+    if t == 'all':
+        return None
+    if t not in ('groups', 'tags', 'sites'):
+        respond(400, {'error': "scope.type must be 'groups', 'tags', 'sites', or 'all'"})
+    vals = raw.get('values')
+    if not isinstance(vals, list) or not vals:
+        respond(400, {'error': 'scope.values must be a non-empty list'})
+    clean = []
+    for v in vals[:200]:
+        s = _sanitize_str(str(v or ''), 128).strip()
+        if s:
+            clean.append(s)
+    if not clean:
+        respond(400, {'error': 'scope.values must contain at least one non-empty value'})
+    return {'type': t, 'values': clean}
 
 
 def require_perm(perm, device_ids=None):
@@ -3727,26 +3767,53 @@ def require_perm(perm, device_ids=None):
     if not username:
         respond(401, {'error': 'Unauthorized'})
     rd = _resolve_role(role)
+    # v5.4.1 (D6): a per-key device scope confines the targets even for an
+    # admin-role key (scoped service account). None unless a scoped API key authed.
+    ks = _CALLER_KEY_SCOPE if (isinstance(_CALLER_KEY_SCOPE, dict)
+                               and _CALLER_KEY_SCOPE.get('type', 'all') != 'all') else None
     if rd['admin']:
+        if device_ids and ks:
+            devices = load(DEVICES_FILE)
+            for did in device_ids:
+                if not _device_in_scope(ks, devices.get(did) or {}):
+                    respond(403, {'error': 'One or more targets are outside this API key scope'})
         return username
     if perm not in rd['permissions']:
         respond(403, {'error': f"Your role lacks the '{perm}' permission"})
-    if device_ids and rd['scope'].get('type') != 'all':
+    if device_ids:
         devices = load(DEVICES_FILE)
         for did in device_ids:
-            if not _device_in_scope(rd['scope'], devices.get(did) or {}):
+            dev = devices.get(did) or {}
+            if rd['scope'].get('type') != 'all' and not _device_in_scope(rd['scope'], dev):
                 respond(403, {'error': 'One or more targets are outside your role scope'})
+            if ks and not _device_in_scope(ks, dev):
+                respond(403, {'error': 'One or more targets are outside this API key scope'})
     return username
 
 
 def _caller_scope():
-    """The current caller's device scope if it restricts visibility, else None
-    (admin and any all-scope role — including viewer — see the whole fleet)."""
+    """The current caller's EFFECTIVE device scope if it restricts visibility, else
+    None (admin / any all-scope role — including viewer — see the whole fleet).
+    v5.4.1 (D6): the role scope is intersected with the authenticating API key's
+    own scope (if any) — and a scoped key confines even an admin-role caller. When
+    BOTH restrict, the result is an `all_of` composite (every sub-scope must admit
+    the device); when one restricts, that scope; when neither, None."""
     token = get_token_from_request()
-    _, role = verify_token(token)
+    _, role = verify_token(token)         # also (re)sets _CALLER_KEY_SCOPE
     rd = _resolve_role(role)
-    sc = rd.get('scope') or {'type': 'all'}
-    return None if (rd['admin'] or sc.get('type') == 'all') else sc
+    parts = []
+    if not rd['admin']:
+        rs = rd.get('scope') or {'type': 'all'}
+        if rs.get('type') != 'all':
+            parts.append(rs)
+    ks = _CALLER_KEY_SCOPE
+    if isinstance(ks, dict) and ks.get('type', 'all') != 'all':
+        parts.append(ks)
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    return {'type': 'all_of', 'scopes': parts}
 
 
 def _scope_filter_devices(devices, scope=None):
@@ -34887,6 +34954,7 @@ def handle_apikeys_list():
                    'role': v.get('role', 'admin'), 'created': v.get('created', 0),
                    'active': v.get('active', True),
                    'rate_limit': int(v.get('rate_limit') or 0),
+                   'scope': v.get('scope'),            # v5.4.1 (D6): per-key device scope (or null)
                    'expires_at': v.get('expires_at')}
                   for kid, v in apikeys.items()]))   # v5.4.1 (E3): list convention
 
@@ -34913,6 +34981,7 @@ def handle_apikeys_create():
         respond(400, {'error': 'rate_limit must be an integer (requests/minute, 0 = unlimited)'})
     if rate_limit < 0 or rate_limit > 100000:
         respond(400, {'error': 'rate_limit must be 0..100000'})
+    key_scope = _validate_key_scope(body.get('scope'))   # v5.4.1 (D6)
     apikeys = load(APIKEYS_FILE)
     if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
     key_value = secrets.token_urlsafe(40)
@@ -34942,6 +35011,8 @@ def handle_apikeys_create():
                     'created': int(time.time()), 'active': True,
                     'rate_limit': rate_limit,
                     'expires_at': expires_at}
+    if key_scope:                                        # v5.4.1 (D6)
+        apikeys[kid]['scope'] = key_scope
     save(APIKEYS_FILE, apikeys)
     respond(201, {'ok': True, 'id': kid, 'key': key_value,
                   'note': 'Store this key securely — it will not be shown again.'})
@@ -34999,6 +35070,12 @@ def handle_apikeys_update(kid):
             if expires_at <= int(time.time()):
                 respond(400, {'error': 'expires_at must be in the future'})
             rec['expires_at'] = expires_at
+    if 'scope' in body:                                  # v5.4.1 (D6)
+        ks = _validate_key_scope(body.get('scope'))
+        if ks:
+            rec['scope'] = ks
+        else:
+            rec.pop('scope', None)                       # {type:all}/null clears it
     save(APIKEYS_FILE, apikeys)
     respond(200, {'ok': True})
 
