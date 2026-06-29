@@ -323,10 +323,10 @@ class TestEnterpriseHardening2(unittest.TestCase):
     # F1 — correlation IDs + structured logging
     def test_request_id_and_log_helper(self):
         import os
-        api._REQUEST_ID = None
+        api._RCTX.request_id = None
         os.environ['HTTP_X_REQUEST_ID'] = 'trace-abc_123'
         self.assertEqual(api._request_id(), 'trace-abc_123')
-        api._REQUEST_ID = None
+        api._RCTX.request_id = None
         os.environ['HTTP_X_REQUEST_ID'] = 'bad id !!'
         self.assertRegex(api._request_id(), r'^[0-9a-f]{16}$')   # minted
         os.environ.pop('HTTP_X_REQUEST_ID', None)
@@ -812,14 +812,14 @@ class TestKeystoneStageA(unittest.TestCase):
     def test_begin_request_resets_per_request_state(self):
         # Simulate request 1 leaving state behind.
         api._LOAD_CACHE[api.CONFIG_FILE] = ({'leaked': True}, True)
-        api._REQUEST_ID = 'req-1-id'
+        api._RCTX.request_id = 'req-1-id'
         # A cadence timer is legitimately cross-request — record it.
         api._last_escalation_tick[0] = 12345.0
         # Request 2 begins.
         api._begin_request()
         # Per-request state is gone (no cross-request leak)…
         self.assertEqual(api._LOAD_CACHE, {})
-        self.assertIsNone(api._REQUEST_ID)
+        self.assertIsNone(getattr(api._RCTX, 'request_id', None))
         # …but the cadence timer is preserved (it gates the in-process sweeps).
         self.assertEqual(api._last_escalation_tick[0], 12345.0)
 
@@ -1034,11 +1034,11 @@ class TestF2TraceContext(unittest.TestCase):
     def setUp(self):
         import os
         self._saved = os.environ.get('HTTP_TRACEPARENT')
-        api._TRACE_ID = None
+        api._RCTX.trace_id = None
 
     def tearDown(self):
         import os
-        api._TRACE_ID = None
+        api._RCTX.trace_id = None
         if self._saved is None:
             os.environ.pop('HTTP_TRACEPARENT', None)
         else:
@@ -1077,7 +1077,7 @@ class TestF2TraceContext(unittest.TestCase):
         import io, json, os
         from contextlib import redirect_stderr
         os.environ['HTTP_TRACEPARENT'] = '00-' + 'a' * 32 + '-0011223344556677-01'
-        api._TRACE_ID = None
+        api._RCTX.trace_id = None
         buf = io.StringIO()
         with redirect_stderr(buf):
             api.log_json('error', 'hi')

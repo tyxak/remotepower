@@ -2029,7 +2029,50 @@ def load(path):
 
 
 # Process-local cache for load(). Lives only as long as the CGI handler.
-_LOAD_CACHE = {}
+class _ThreadLocalCache:
+    """v6.0.0 (Stage E): the per-request load() memoiser, made THREAD-LOCAL so a
+    persistent threaded worker never serves request B from request A's cached
+    config/devices (the load-cache cross-request leak the keystone design flags).
+    Single-thread / fork deployments (CGI, the SCGI prefork worker) have exactly one
+    thread per process → one backing dict → behaviour is byte-identical. Implements
+    only the dict interface the cache actually uses: get / [] / `in` / clear."""
+    __slots__ = ('_l',)
+
+    def __init__(self):
+        self._l = threading.local()
+
+    def _d(self):
+        d = getattr(self._l, 'd', None)
+        if d is None:
+            d = {}
+            self._l.d = d
+        return d
+
+    def get(self, key, default=None):
+        return self._d().get(key, default)
+
+    def __getitem__(self, key):
+        return self._d()[key]
+
+    def __setitem__(self, key, value):
+        self._d()[key] = value
+
+    def __contains__(self, key):
+        return key in self._d()
+
+    def clear(self):
+        self._d().clear()
+
+    def __len__(self):
+        return len(self._d())
+
+    def __eq__(self, other):   # so `cache == {}` (an "is it empty" check) works
+        return self._d() == other
+
+    __hash__ = None   # mutable, never used as a key
+
+
+_LOAD_CACHE = _ThreadLocalCache()
 
 
 def _config_ro():
@@ -2876,8 +2919,7 @@ def verify_token(token):
     v5.4.1 (C1): keys are stored as `key_hash` (sha256). A legacy plaintext `key`
     is still accepted and transparently migrated to `key_hash` on first use.
     """
-    global _CALLER_KEY_SCOPE
-    _CALLER_KEY_SCOPE = None   # v5.4.1 (D6): cleared each call; set only on an API-key match
+    _RCTX.key_scope = None   # v5.4.1 (D6): cleared each call; set only on an API-key match
     if not token:
         return None, None
 
@@ -3008,7 +3050,7 @@ def verify_token(token):
         # service account). Absent/`all` → no extra restriction (legacy behaviour).
         _ks = matched_kdata.get('scope') if isinstance(matched_kdata, dict) else None
         if isinstance(_ks, dict) and _ks.get('type') and _ks.get('type') != 'all':
-            _CALLER_KEY_SCOPE = _ks
+            _RCTX.key_scope = _ks
         return matched_user, matched_role
 
     return None, None
@@ -3458,9 +3500,10 @@ def _gzip_response_wanted(body_len: int) -> bool:
         return False
 
 
-_REQUEST_ID = None
-_TRACE_ID = None    # v5.4.1 (F2): W3C trace-id for the current request
-_CALLER_KEY_SCOPE = None   # v5.4.1 (D6): device scope of the API key that authed this request
+# v6.0.0 (keystone Stage E): _REQUEST_ID / _TRACE_ID / _CALLER_KEY_SCOPE used to be
+# module globals (process-global per-request state — a cross-request leak under a
+# threaded worker). They now live in the thread-local _RCTX below
+# (.request_id / .trace_id / .key_scope), reset per request in _begin_request().
 
 # ── v6.0.0 (keystone Stage E): per-request I/O context ───────────────────────
 # To let a PERSISTENT, THREADED worker handle requests concurrently without the
@@ -3489,11 +3532,12 @@ def _request_id():
     X-Request-Id from a trusted proxy (validated charset) or mint one. Echoed on
     JSON responses and available to log_json() so a log line, the slow-handler
     record and an audit lookup can be joined for the same request."""
-    global _REQUEST_ID
-    if _REQUEST_ID is None:
+    rid = getattr(_RCTX, 'request_id', None)
+    if rid is None:
         inbound = (_env('HTTP_X_REQUEST_ID', '') or '').strip()
-        _REQUEST_ID = inbound if re.fullmatch(r'[A-Za-z0-9._-]{1,64}', inbound) else secrets.token_hex(8)
-    return _REQUEST_ID
+        rid = inbound if re.fullmatch(r'[A-Za-z0-9._-]{1,64}', inbound) else secrets.token_hex(8)
+        _RCTX.request_id = rid
+    return rid
 
 
 def _trace_id():
@@ -3501,13 +3545,14 @@ def _trace_id():
     ``traceparent`` header (00-<traceid>-<spanid>-<flags>) from an upstream tracer
     so RemotePower's logs + outbound calls join the same distributed trace; mints a
     fresh trace-id otherwise. Cached per request (reset in _begin_request)."""
-    global _TRACE_ID
-    if _TRACE_ID is None:
+    tid = getattr(_RCTX, 'trace_id', None)
+    if tid is None:
         tp = (_env('HTTP_TRACEPARENT', '') or '').strip()
         m = re.fullmatch(r'00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}', tp)
         # reject the all-zero trace-id (invalid per spec); else mint one
-        _TRACE_ID = m.group(1) if (m and m.group(1) != '0' * 32) else secrets.token_hex(16)
-    return _TRACE_ID
+        tid = m.group(1) if (m and m.group(1) != '0' * 32) else secrets.token_hex(16)
+        _RCTX.trace_id = tid
+    return tid
 
 
 def _traceparent_out():
@@ -3532,12 +3577,14 @@ def _traceparent_out():
 # `_last_escalation_tick` are LEGITIMATELY cross-request state (they gate the
 # in-process `run_*_if_due` sweeps) and must NOT be cleared.
 def _begin_request():
-    """Reset per-request process-local state at the start of a request."""
-    global _REQUEST_ID, _TRACE_ID, _CALLER_KEY_SCOPE
-    _LOAD_CACHE.clear()   # the load() memoiser is per-request, never cross-request
-    _REQUEST_ID = None    # mint a fresh correlation id for this request
-    _TRACE_ID = None      # v5.4.1 (F2): re-read traceparent per request
-    _CALLER_KEY_SCOPE = None   # v5.4.1 (D6): re-resolve the auth key's scope per request
+    """Reset per-request process-local state at the start of a request. v6.0.0: the
+    state is THREAD-LOCAL (_LOAD_CACHE proxy + _RCTX), so this resets only the current
+    thread/request — does NOT touch _RCTX.environ/.stdin/.out, which wsgi.py sets for
+    the request and _end_request() clears."""
+    _LOAD_CACHE.clear()        # the load() memoiser is per-request, never cross-request
+    _RCTX.request_id = None    # mint a fresh correlation id for this request
+    _RCTX.trace_id = None      # v5.4.1 (F2): re-read traceparent per request
+    _RCTX.key_scope = None     # v5.4.1 (D6): re-resolve the auth key's scope per request
 
 
 def _end_request():
@@ -3862,8 +3909,8 @@ def require_perm(perm, device_ids=None):
     rd = _resolve_role(role)
     # v5.4.1 (D6): a per-key device scope confines the targets even for an
     # admin-role key (scoped service account). None unless a scoped API key authed.
-    ks = _CALLER_KEY_SCOPE if (isinstance(_CALLER_KEY_SCOPE, dict)
-                               and _CALLER_KEY_SCOPE.get('type', 'all') != 'all') else None
+    _ks0 = getattr(_RCTX, 'key_scope', None)
+    ks = _ks0 if (isinstance(_ks0, dict) and _ks0.get('type', 'all') != 'all') else None
     if rd['admin']:
         if device_ids and ks:
             devices = load(DEVICES_FILE)
@@ -3892,14 +3939,14 @@ def _caller_scope():
     BOTH restrict, the result is an `all_of` composite (every sub-scope must admit
     the device); when one restricts, that scope; when neither, None."""
     token = get_token_from_request()
-    _, role = verify_token(token)         # also (re)sets _CALLER_KEY_SCOPE
+    _, role = verify_token(token)         # also (re)sets _RCTX.key_scope
     rd = _resolve_role(role)
     parts = []
     if not rd['admin']:
         rs = rd.get('scope') or {'type': 'all'}
         if rs.get('type') != 'all':
             parts.append(rs)
-    ks = _CALLER_KEY_SCOPE
+    ks = getattr(_RCTX, 'key_scope', None)
     if isinstance(ks, dict) and ks.get('type', 'all') != 'all':
         parts.append(ks)
     if not parts:

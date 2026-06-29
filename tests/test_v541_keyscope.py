@@ -59,7 +59,7 @@ class TestCallerScopeIntersection(unittest.TestCase):
     """_caller_scope() combines role scope + the auth key's scope."""
 
     def setUp(self):
-        self._saved = api._CALLER_KEY_SCOPE
+        self._saved = getattr(api._RCTX, 'key_scope', None)
         # neutralise token plumbing: pretend an admin key authed.
         self._gt = api.get_token_from_request
         self._vt = api.verify_token
@@ -67,16 +67,16 @@ class TestCallerScopeIntersection(unittest.TestCase):
         api.verify_token = lambda t: ('api', 'admin')   # NB: does NOT set the global
 
     def tearDown(self):
-        api._CALLER_KEY_SCOPE = self._saved
+        api._RCTX.key_scope = self._saved
         api.get_token_from_request = self._gt
         api.verify_token = self._vt
 
     def test_admin_key_with_no_scope_sees_all(self):
-        api._CALLER_KEY_SCOPE = None
+        api._RCTX.key_scope = None
         self.assertIsNone(api._caller_scope())
 
     def test_admin_key_with_scope_is_confined(self):
-        api._CALLER_KEY_SCOPE = {'type': 'tags', 'values': ['edge']}
+        api._RCTX.key_scope = {'type': 'tags', 'values': ['edge']}
         self.assertEqual(api._caller_scope(), {'type': 'tags', 'values': ['edge']})
 
     def test_role_and_key_scope_compose_to_all_of(self):
@@ -87,7 +87,7 @@ class TestCallerScopeIntersection(unittest.TestCase):
                                         'scope': {'type': 'groups', 'values': ['prod']}}
                                        if r == 'fieldtech' else orig(r))
         try:
-            api._CALLER_KEY_SCOPE = {'type': 'sites', 'values': ['dc1']}
+            api._RCTX.key_scope = {'type': 'sites', 'values': ['dc1']}
             sc = api._caller_scope()
             self.assertEqual(sc['type'], 'all_of')
             self.assertIn({'type': 'groups', 'values': ['prod']}, sc['scopes'])
@@ -109,7 +109,7 @@ class TestVerifyTokenSetsKeyScope(unittest.TestCase):
 
     def tearDown(self):
         api.APIKEYS_FILE = self._orig
-        api._CALLER_KEY_SCOPE = None
+        api._RCTX.key_scope = None
 
     def test_scoped_key_sets_global_unscoped_clears(self):
         import secrets
@@ -123,10 +123,10 @@ class TestVerifyTokenSetsKeyScope(unittest.TestCase):
         })
         u, r = api.verify_token(scoped)
         self.assertEqual((u, r), ('api', 'admin'))
-        self.assertEqual(api._CALLER_KEY_SCOPE, {'type': 'tags', 'values': ['edge']})
+        self.assertEqual(api._RCTX.key_scope, {'type': 'tags', 'values': ['edge']})
         # a different (unscoped) key must CLEAR the scope, not inherit the prior one
         api.verify_token(plain)
-        self.assertIsNone(api._CALLER_KEY_SCOPE)
+        self.assertIsNone(getattr(api._RCTX, 'key_scope', None))
 
 
 class TestSourceWiring(unittest.TestCase):
