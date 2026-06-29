@@ -115,14 +115,89 @@ if [ "${RP_TLS_SELFSIGNED:-}" = "1" ] || [ "${RP_TLS_SELFSIGNED:-}" = "true" ]; 
     echo ""
 fi
 
-# Start fcgiwrap (socket for nginx)
-echo "[*] Starting fcgiwrap..."
-# Create socket dir
-mkdir -p /run
-spawn-fcgi -s /run/fcgiwrap.socket -u www-data -g www-data -- /usr/sbin/fcgiwrap
-chmod 660 /run/fcgiwrap.socket
-chown www-data:www-data /run/fcgiwrap.socket
-echo "[+] fcgiwrap started"
+# ── Opt-in persistent WSGI app tier (v6.x) ──────────────────────────────────
+# RP_APP_SERVER=wsgi runs the SAME api.py under gunicorn (persistent, threaded
+# workers) instead of fork-per-request fcgiwrap, and repoints nginx /api/ at it.
+# Default (unset) = the unchanged fcgiwrap path. Validated by nginx -t; reverts
+# to fcgiwrap if the location rewrite doesn't parse. See docs/wsgi.md.
+if [ "${RP_APP_SERVER:-}" = "wsgi" ]; then
+    echo "[*] RP_APP_SERVER=wsgi — switching nginx /api/ to the gunicorn proxy"
+    SNIP=/etc/nginx/snippets/remotepower-docker-locations.conf
+    cp -a "$SNIP" "$SNIP.cgi.bak"
+    python3 - "$SNIP" <<'PYEOF'
+import re, sys
+from pathlib import Path
+p = Path(sys.argv[1]); text = p.read_text()
+loc_re = re.compile(r'(?m)^[ \t]*location\b[^{]*')
+out, pos = [], 0
+while True:
+    m = loc_re.search(text, pos)
+    if not m:
+        out.append(text[pos:]); break
+    out.append(text[pos:m.start()])
+    sel = m.group(0)
+    bopen = text.index('{', m.start())
+    depth, j = 0, bopen
+    while j < len(text):
+        if text[j] == '{': depth += 1
+        elif text[j] == '}':
+            depth -= 1
+            if depth == 0: break
+        j += 1
+    block = text[bopen:j + 1]
+    if 'fcgiwrap.socket' in block:
+        pim = re.search(r'PATH_INFO\s+(\S+);', block)
+        suffix = pim.group(1) if (pim and pim.group(1) != '$uri') else ''
+        le = re.search(r'limit_except[^{]*\{[^}]*\}', block)
+        le_line = ('\n    ' + le.group(0)) if le else ''
+        indent = re.match(r'[ \t]*', sel).group(0)
+        out.append(
+            sel.rstrip() + ' {\n'
+            '    proxy_pass http://127.0.0.1:8090' + suffix + ';\n'
+            '    proxy_set_header Host $host;\n'
+            '    proxy_set_header X-Real-IP $remote_addr;\n'
+            '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+            '    proxy_set_header X-Forwarded-Proto $scheme;\n'
+            '    proxy_read_timeout 130s;' + le_line + '\n' + indent + '}')
+    else:
+        out.append(sel + block)
+    pos = j + 1
+p.write_text(''.join(out))
+PYEOF
+    if ! nginx -t >/dev/null 2>&1; then
+        echo "[!] nginx -t failed after the WSGI switch — reverting to fcgiwrap"
+        cp -a "$SNIP.cgi.bak" "$SNIP"
+        RP_APP_SERVER=""
+    fi
+fi
+
+if [ "${RP_APP_SERVER:-}" = "wsgi" ]; then
+    echo "[*] Starting gunicorn WSGI tier on 127.0.0.1:8090..."
+    cd /var/www/remotepower/cgi-bin
+    RP_DATA_DIR=/var/lib/remotepower \
+      gunicorn --workers 2 --threads 8 --timeout 120 --bind 127.0.0.1:8090 wsgi:application &
+    cd /
+    echo "[+] gunicorn started (pid $!)"
+else
+    # Default path — classic CGI via fcgiwrap (unchanged).
+    echo "[*] Starting fcgiwrap..."
+    # Create socket dir
+    mkdir -p /run
+    spawn-fcgi -s /run/fcgiwrap.socket -u www-data -g www-data -- /usr/sbin/fcgiwrap
+    chmod 660 /run/fcgiwrap.socket
+    chown www-data:www-data /run/fcgiwrap.socket
+    echo "[+] fcgiwrap started"
+fi
+
+# ── Opt-in out-of-band maintenance scheduler (v6.x) ──────────────────────────
+# RP_EXTERNAL_SCHEDULER=1 launches scheduler.py in the background; the WSGI/CGI
+# request path stops running the cadence (gunicorn inherits the env var). Default
+# (unset) = the cadence piggy-backs on requests exactly as before.
+if [ "${RP_EXTERNAL_SCHEDULER:-}" = "1" ] || [ "${RP_EXTERNAL_SCHEDULER:-}" = "true" ]; then
+    echo "[*] RP_EXTERNAL_SCHEDULER set — launching scheduler.py in the background"
+    RP_DATA_DIR=/var/lib/remotepower python3 /var/www/remotepower/cgi-bin/scheduler.py &
+    echo "[+] scheduler started (pid $!)"
+fi
 
 # First-greeting to the logs — the address to open.
 _scheme=http

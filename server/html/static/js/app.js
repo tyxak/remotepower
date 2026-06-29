@@ -6345,8 +6345,8 @@ async function _sftpList(path) {
         ? `<button class="btn-icon" data-action-btn="_sftpCdBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}">${_icon('hardDrive',12)} ${escHtml(e.name)}/</button>`
         : `${escHtml(e.name)}`;
       const acts = isDir
-        ? `<button class="btn-icon isl-45" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-dir="1">Delete</button>`
-        : `<button class="btn-icon" data-action-btn="_sftpDlBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-name="${escAttr(e.name)}">Download</button> <button class="btn-icon isl-45" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}">Delete</button>`;
+        ? `<button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-dir="1">${_icon('trash',14)}</button>`
+        : `<button class="btn-icon" data-action-btn="_sftpDlBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-name="${escAttr(e.name)}">Download</button> <button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}">${_icon('trash',14)}</button>`;
       rows.push(`<tr><td>${nameCell}</td><td class="hint">${isDir ? '' : _fmtBytes(e.size)}</td><td class="hint">${e.mtime ? new Date(e.mtime*1000).toLocaleString() : ''}</td><td class="nowrap">${acts}</td></tr>`);
     }
     document.getElementById('files-tbody').innerHTML = rows.join('');
@@ -7457,7 +7457,7 @@ function _registerVpnTunnelsTable() {
       const acts =
         `<button class="btn-icon" data-action="selectVpnTunnel" data-arg="${id}" title="View clients">Clients</button> ` +
         `<button class="btn-icon" data-action="editVpnTunnel" data-arg="${id}" title="Edit tunnel">${_icon('edit', 12)} Edit</button> ` +
-        `<button class="btn-icon isl-45" data-action="deleteVpnTunnel" data-arg="${id}" data-arg2="${escAttr(t.name || '')}">Delete</button>`;
+        `<button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteVpnTunnel" data-arg="${id}" data-arg2="${escAttr(t.name || '')}">${_icon('trash',14)}</button>`;
       return `<tr><td class="fw-600">${nameCell}</td><td class="hint">${escHtml(_vpnReachLabel(t))}</td><td>${clients}</td><td class="hint">${t.listen_port || '—'}</td><td>${_vpnExpiryCell(t.expires_at)}</td><td>${acts}</td></tr>`;
     },
     emptyMsg: 'No tunnels yet. Create one to issue road-warrior clients.',
@@ -7493,7 +7493,7 @@ function _registerVpnClientsTable() {
       const xfer = `<span class="hint" title="received / sent">${_fmtBytes(c.rx_bytes || 0)} ↓ / ${_fmtBytes(c.tx_bytes || 0)} ↑</span>`;
       const acts =
         `<button class="btn-icon" data-action="editVpnClient" data-arg="${id}" title="Edit client">${_icon('edit', 12)} Edit</button> ` +
-        `<button class="btn-icon isl-45" data-action="deleteVpnClient" data-arg="${id}" data-arg2="${escAttr(c.name || '')}">Delete</button>`;
+        `<button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteVpnClient" data-arg="${id}" data-arg2="${escAttr(c.name || '')}">${_icon('trash',14)}</button>`;
       return `<tr><td class="fw-600">${escHtml(c.name || c.id)}${dis}</td><td class="ff-mono">${escHtml(c.address || '—')}</td><td>${stCell}</td><td>${epCell}</td><td>${xfer}</td><td>${_vpnExpiryCell(c.expires_at)}</td><td>${acts}</td></tr>`;
     },
     emptyMsg: 'No clients on this tunnel yet. Create one to get a config + QR.',
@@ -7831,7 +7831,7 @@ function _registerSitesTable() {
       device_count: s.device_count || 0,
       created:      s.created || 0,
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td class="row-6"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button></td></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="mono-12 hint">${escHtml(s.slug)}</td><td>${s.device_count}</td><td class="hint">${s.created ? new Date(s.created*1000).toLocaleDateString() : '—'}</td><td class="row-6"><button class="btn-icon" data-action="downloadSiteReport" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}" title="Download this site's posture report (devices, patches, SLA, CVEs, health)">Report</button><button class="btn-icon" data-action-btn="_editSiteBtn" data-site-id="${escAttr(s.id)}" data-site-name="${escAttr(s.name)}">Rename</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteSite" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">${_icon('trash',14)}</button></td></tr>`,
     emptyMsg: 'No sites yet. Create one to organise the fleet.',
     emptyMsgFiltered: 'No sites match the filter.',
   });
@@ -7911,7 +7911,7 @@ function _registerAutopatchTable() {
     columns: ['name', 'target', 'cron', 'reboot', 'enabled'],
     getColumns: (p) => ({ name: p.name || '', target: `${p.target?.type}:${p.target?.value || ''}`,
       cron: p.cron || '', reboot: p.reboot ? 1 : 0, enabled: p.enabled ? 1 : 0 }),
-    row: (p) => `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${escHtml(p.target?.type)}${p.target?.value ? ':' + escHtml(p.target.value) : ''}</td><td class="mono-12">${escHtml(p.cron)}</td><td>${p.reboot ? 'yes' : 'no'}</td><td>${p.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_autopatchRunBtn" data-id="${escAttr(p.id)}">Run now</button><button class="btn-icon" data-action-btn="_autopatchEditBtn" data-id="${escAttr(p.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteAutopatch" data-arg="${escAttr(p.id)}">Delete</button></td></tr>`,
+    row: (p) => `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${escHtml(p.target?.type)}${p.target?.value ? ':' + escHtml(p.target.value) : ''}</td><td class="mono-12">${escHtml(p.cron)}</td><td>${p.reboot ? 'yes' : 'no'}</td><td>${p.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_autopatchRunBtn" data-id="${escAttr(p.id)}">Run now</button><button class="btn-icon" title="Edit" data-action-btn="_autopatchEditBtn" data-id="${escAttr(p.id)}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteAutopatch" data-arg="${escAttr(p.id)}">${_icon('trash',14)}</button></td></tr>`,
     emptyMsg: 'No auto-patch policies. Create one to schedule fleet updates.',
     emptyMsgFiltered: 'No policies match the filter.',
   });
@@ -8003,7 +8003,7 @@ function _registerCmdLibTable() {
     }),
     row: (s) => {
       const sKey = _storeEvtData(s);
-      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-44" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">Edit</button><button class="btn-icon isl-45" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >✕</button></tr>`;
+      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></tr>`;
     },
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
@@ -8450,7 +8450,7 @@ function _registerScansTable() {
                             failed: 'c-red', cancelled: 'c-muted' }[s.status] || 'c-muted';
       const cell = (n, cls) => n > 0 ? `<td class="ta-center ${cls}">${n}</td>` : '<td class="ta-center c-muted">0</td>';
       const when = s.created ? new Date(s.created * 1000).toLocaleString() : '—';
-      const removeBtn = ` <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">Remove</button>`;
+      const removeBtn = ` <button class="btn-icon cell-sm c-danger-outline" data-stop-prop="1" data-prevent-default="1" data-action-btn="_deleteScanBtn" data-scan-id="${escAttr(s.id)}" title="Remove this scan and its findings">${_icon('trash',14)}</button>`;
       return `<tr data-action="viewScan" data-arg="${escAttr(s.id)}" class="pointer"><td class="fw-500">${escHtml(s.target_name || s.target)}<div class="hint">${escHtml(s.target)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity || 'quick')}</div></td><td class="${statusColor}" title="${escAttr(s.error || '')}">${escHtml(s.status)}</td>${cell(sc.critical, 'c-red')}${cell(sc.high, 'c-red')}${cell(sc.medium, 'c-amber')}${cell(sc.low, 'c-muted')}<td class="meta-sm-nm">${when}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_viewScanBtn" data-scan-id="${escAttr(s.id)}">View</button>${removeBtn}</td></tr>`;
     },
     emptyMsg: 'No scans yet. Select an enrolled device and queue one.',
@@ -8521,7 +8521,7 @@ function _renderCatalog() {
       : `<span class="hint">Pick a target host above to deploy</span>`;
     const badge = a.custom ? ' <span class="rp-tag">custom</span>' : '';
     const rm = (a.custom && isAdmin)
-      ? ` <button class="btn-icon c-danger-outline" data-action="removeCatalogApp" data-arg="${escAttr(a.id)}" data-arg2="${escAttr(a.name)}">Remove</button>`
+      ? ` <button class="btn-icon c-danger-outline" title="Remove" data-action="removeCatalogApp" data-arg="${escAttr(a.id)}" data-arg2="${escAttr(a.name)}">${_icon('trash',14)}</button>`
       : '';
     return `<div class="dash-card mb-16"><div class="section-title">${escHtml(a.name)}${badge} <span class="hint">· ${escHtml(a.category || '')}</span></div><div class="mb-8">${escHtml(a.description || '')}</div><div class="hint mb-8">Default port: ${escHtml(String(a.port || '—'))}</div>${dep}${rm}</div>`;
   }).join('');
@@ -9038,7 +9038,7 @@ async function loadScanTargets() {
     const proofBlock = (!t.verified && proof)
       ? `<div class="hint mb-8">Publish ONE proof, then Verify:<br>• DNS TXT <code>${escHtml(proof.dns ? proof.dns.name : '(IP target — use file)')}</code>${proof.dns ? ` = <code>${escHtml(proof.dns.value)}</code>` : ''}<br>• File <code>${escHtml(proof.file.path)}</code> containing <code>${escHtml(proof.file.content)}</code></div>`
       : '';
-    return `<div class="mb-8"><strong>${escHtml(t.target)}</strong> <span class="hint">${escHtml(t.kind)}</span> — ${badge} ${actions} <button class="btn-icon cell-sm" data-action="deleteScanTarget" data-arg="${escAttr(t.id)}">Remove</button>${proofBlock}</div>`;
+    return `<div class="mb-8"><strong>${escHtml(t.target)}</strong> <span class="hint">${escHtml(t.kind)}</span> — ${badge} ${actions} <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deleteScanTarget" data-arg="${escAttr(t.id)}">${_icon('trash',14)}</button>${proofBlock}</div>`;
   }).join('');
 }
 
@@ -9099,7 +9099,7 @@ async function loadScanSchedules() {
     const paused = s.enabled === false;
     const stateBadge = paused ? ' <span class="patch-badge warn fs-11">paused</span>' : '';
     const nextStr = paused ? '' : ` · next ${escHtml(when)}`;
-    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong>${stateBadge} <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · last ${escHtml(last)}${nextStr}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="toggleScanSchedule" data-arg="${escAttr(s.id)}" title="${paused ? 'Resume the cron' : 'Pause without deleting'}">${paused ? 'Resume' : 'Pause'}</button> <button class="btn-icon cell-sm" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">Remove</button></div>`;
+    return `<div class="mb-8"><strong>${escHtml(s.name)}</strong>${stateBadge} <span class="hint">${escHtml(s.cron)} · ${escHtml(s.tool)}/${escHtml(s.profile)}/${escHtml(s.intensity)} · ${escHtml(tgt)} · last ${escHtml(last)}${nextStr}</span> <button class="btn-icon cell-sm" data-action="runScanSchedule" data-arg="${escAttr(s.id)}" title="Fire this schedule now">Run now</button> <button class="btn-icon cell-sm" data-action="toggleScanSchedule" data-arg="${escAttr(s.id)}" title="${paused ? 'Resume the cron' : 'Pause without deleting'}">${paused ? 'Resume' : 'Pause'}</button> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deleteScanSchedule" data-arg="${escAttr(s.id)}">${_icon('trash',14)}</button></div>`;
   }).join('');
 }
 
@@ -10519,7 +10519,7 @@ async function loadPasskeys() {
   const d = await api('GET', '/webauthn/credentials');
   const creds = (d && d.credentials) || [];
   box.innerHTML = creds.length
-    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? new Date(c.created * 1000).toLocaleDateString() : '—'}</span> <button class="btn-icon cell-sm" data-action="deletePasskey" data-arg="${escAttr(c.id)}">Remove</button></div>`).join('')
+    ? creds.map(c => `<div class="mb-8"><strong>${escHtml(c.name || 'passkey')}</strong> <span class="hint">added ${c.created ? new Date(c.created * 1000).toLocaleDateString() : '—'}</span> <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="deletePasskey" data-arg="${escAttr(c.id)}">${_icon('trash',14)}</button></div>`).join('')
     : '<div class="hint">No passkeys yet.</div>';
 }
 
@@ -11382,7 +11382,7 @@ function renderIntegrations() {
         ${badge}${detail}
         <span class="spacer"></span>
         <button class="btn-icon" data-action="testIntegration" data-arg="${idx}" title="Test connection">Test</button>
-        <button class="btn-icon" data-action="removeIntegration" data-arg="${idx}" title="Remove">×</button>
+        <button class="btn-icon c-danger-outline" data-action="removeIntegration" data-arg="${idx}" title="Remove">${_icon('trash',14)}</button>
       </div>
       ${note}
       <div class="settings-row">
@@ -11601,7 +11601,7 @@ function _renderInboundWebhooks(tokens) {
       <td>${t.hit_count || 0}</td>
       <td class="hint nowrap">${lastSeen}</td>
       <td>${status}</td>
-      <td class="nowrap">${toggle} <button class="btn-icon btn-xs" data-action-btn="_editInboundWebhookBtn" data-store-key="${_storeEvtData(t)}">Edit</button> <button class="btn-icon btn-xs c-danger-outline" data-action="revokeInboundWebhook" data-arg="${t.id}" data-arg2="${_escapeHtml(t.label||'')}">Revoke</button></td>
+      <td class="nowrap">${toggle} <button class="btn-icon btn-xs" title="Edit" data-action-btn="_editInboundWebhookBtn" data-store-key="${_storeEvtData(t)}">${_icon('edit',14)}</button> <button class="btn-icon btn-xs c-danger-outline" data-action="revokeInboundWebhook" data-arg="${t.id}" data-arg2="${_escapeHtml(t.label||'')}">Revoke</button></td>
     </tr>`;
   }).join('');
 }
@@ -12777,7 +12777,7 @@ function _renderRunbookSectionHtml(devId, resp) {
       <div class="row-6">
         <button class="btn-icon badge-xs" data-action="aiViewRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">Open full</button>
         <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">${_icon('sparkles',14)} Regenerate</button>
-        <button class="btn-icon isl-459" data-action="aiDeleteRunbook" data-arg="${escAttr(devId)}" >Delete</button>
+        <button class="btn-icon isl-459 c-danger-outline" title="Delete" data-action="aiDeleteRunbook" data-arg="${escAttr(devId)}" >${_icon('trash',14)}</button>
       </div>
     </div>
     <div class="ai-content isl-532">${renderMarkdown(resp.content || '')}</div>
@@ -12856,7 +12856,7 @@ function _fwStateBadge(active) {
 
 function _fwRuleRow(devId, backend, r, editable) {
   const del = (editable && r.ref)
-    ? `<button class="btn-icon cell-sm" data-action="firewallRuleDelete" data-arg="${escAttr(devId)}" data-arg2="${escAttr(backend)}" data-arg3="${escAttr(r.ref)}" data-pass-btn="1" title="Delete this rule">Delete</button>`
+    ? `<button class="btn-icon cell-sm c-danger-outline" data-action="firewallRuleDelete" data-arg="${escAttr(devId)}" data-arg2="${escAttr(backend)}" data-arg3="${escAttr(r.ref)}" data-pass-btn="1" title="Delete this rule">${_icon('trash',14)}</button>`
     : '';
   return `<div class="fw-rule-row"><code>${escHtml(r.text)}</code>${del}</div>`;
 }
@@ -13252,7 +13252,7 @@ function _renderExposureMutes(mutes) {
     if (m.proto) parts.push('proto=' + escHtml(m.proto));
     if (m.port !== undefined && m.port !== null) parts.push('port=' + escHtml(String(m.port)));
     const label = parts.join(' · ') || '(empty)';
-    return `<div class="sb-controls"><span>${label}</span><button class="btn-icon cell-sm" data-action="removeExposureMute" data-arg="${escAttr(m.process || '')}" data-arg2="${escAttr(m.proto || '')}" data-arg3="${escAttr(m.port !== undefined && m.port !== null ? String(m.port) : '')}" data-arg4="${escAttr(m.device_id || '')}">Remove</button></div>`;
+    return `<div class="sb-controls"><span>${label}</span><button class="btn-icon cell-sm" data-action="removeExposureMute" data-arg="${escAttr(m.process || '')}" data-arg2="${escAttr(m.proto || '')}" data-arg3="${escAttr(m.port !== undefined && m.port !== null ? String(m.port) : '')}" data-arg4="${escAttr(m.device_id || '')}" title="Remove">${_icon('trash',14)}</button></div>`;
   }).join('');
 }
 async function addExposureMute() {
@@ -13498,7 +13498,7 @@ function _renderSnapshotList(out, target, hit) {
     return;
   }
   const rows = names.map(n =>
-    `<div class="row-8-center mb-4"><code class="fl-1 ellipsis">${escHtml(n)}</code><button class="btn-icon cell-sm c-red" data-action="storageDeleteNamedSnapshot" data-arg="${escAttr(n)}" title="Delete this snapshot">Delete</button></div>`
+    `<div class="row-8-center mb-4"><code class="fl-1 ellipsis">${escHtml(n)}</code><button class="btn-icon cell-sm c-red c-danger-outline" data-action="storageDeleteNamedSnapshot" data-arg="${escAttr(n)}" title="Delete this snapshot">${_icon('trash',14)}</button></div>`
   ).join('');
   // If the host truncated the output (very long list), say so + point at the
   // right tool for bulk cleanup rather than implying the list is complete.
@@ -13866,7 +13866,7 @@ function _renderSwRules() {
     const ver = r.type === 'min_version' ? ` ≥ ${escHtml(r.version || '?')}` : '';
     return `<div class="row-flex">
       <span><span class="pill">${escHtml(r.type)}</span> <span class="fw-500">${escHtml(r.package)}</span>${ver}<span class="hint">${scope}</span></span>
-      <button class="btn-icon cell-sm" data-action="swPolDeleteRule" data-arg="${i}">Remove</button>
+      <button class="btn-icon cell-sm c-danger-outline" title="Remove" data-action="swPolDeleteRule" data-arg="${i}">${_icon('trash',14)}</button>
     </div>`;
   }).join('');
 }
@@ -16543,7 +16543,7 @@ async function loadSnapshots() {
         <td class="isl-545">${escHtml(s.description || '—')}</td>
         <td class="isl-589">
           <button class="btn-icon isl-590" data-action="snapshotRollback" data-arg="${escAttr(s.name)}" >Rollback</button>
-          <button class="btn-icon isl-591" data-action="snapshotDelete" data-arg="${escAttr(s.name)}" >Delete</button>
+          <button class="btn-icon isl-591 c-danger-outline" title="Delete" data-action="snapshotDelete" data-arg="${escAttr(s.name)}" >${_icon('trash',14)}</button>
         </td></tr>`;
     }).join('') + '</tbody></table></div>';
 }
@@ -17073,7 +17073,7 @@ function _renderSpComponents() {
       <div class="row-8-center">
         <input type="text" class="form-input sp-name" data-i="${i}" placeholder="Component name" value="${escAttr(c.name)}">
         <input type="text" class="form-input sp-group" data-i="${i}" placeholder="Group (optional)" value="${escAttr(c.group)}">
-        <button class="btn-icon c-red" data-action="spRemoveComponent" data-arg="${i}">Remove</button>
+        <button class="btn-icon c-red c-danger-outline" title="Remove" data-action="spRemoveComponent" data-arg="${i}">${_icon('trash',14)}</button>
       </div>
       <div class="hint-mb6">Devices:</div>
       <div>${c.device_ids.map(d => `<span class="group-badge">${escHtml(_spDevName(d))} <button class="btn-icon" data-action="spRemoveDev" data-arg="${i}" data-arg2="${escAttr(d)}">×</button></span>`).join(' ') || '<span class="hint">none</span>'}</div>
@@ -17569,7 +17569,7 @@ function renderCloudAccounts(accounts) {
       <span class="isl-618">${escHtml(a.region || '')}</span>
       <span class="hint"><code>${escHtml(a.access_key_id || '')}</code></span>
       <span class="hint">${a.secret_key_set ? 'secret set' : '<span class="c-red">no secret</span>'}</span>
-      <button class="btn-icon c-red" data-action="removeCloudAccount" data-arg="${i}">✕</button>
+      <button class="btn-icon c-red" data-action="removeCloudAccount" data-arg="${i}" title="Remove">${_icon('trash',14)}</button>
     </div>`).join('');
 }
 async function _saveCloudAccounts() {
@@ -17631,7 +17631,7 @@ function renderProcessWatches(watches) {
     <div class="isl-617">
       <span class="isl-618"><code>${escHtml(w.name)}</code></span>
       <span class="cmd-badge">${w.metric === 'mem' ? 'Memory' : 'CPU'} ≥ ${escHtml(String(w.threshold))}%</span>
-      <button class="btn-icon c-red" data-action="removeProcessWatch" data-arg="${i}">✕</button>
+      <button class="btn-icon c-red" data-action="removeProcessWatch" data-arg="${i}" title="Remove">${_icon('trash',14)}</button>
     </div>`).join('');
 }
 
@@ -21311,8 +21311,8 @@ function _renderLogIgnoreList() {
   el.innerHTML = _logIgnorePatterns.map((p, i) =>
     `<div class="isl-655">
        <code class="isl-656">${escHtml(p)}</code>
-       <button class="btn-icon" data-action="editLogIgnorePattern" data-arg="${i}">Edit</button>
-       <button class="btn-icon isl-657" data-action="removeLogIgnorePattern" data-arg="${i}">×</button>
+       <button class="btn-icon" title="Edit" data-action="editLogIgnorePattern" data-arg="${i}">${_icon('edit',14)}</button>
+       <button class="btn-icon isl-657 c-danger-outline" title="Delete" data-action="removeLogIgnorePattern" data-arg="${i}">${_icon('trash',14)}</button>
      </div>`
   ).join('');
   const addBtn = document.querySelector('[data-action="addLogIgnorePattern"]');
@@ -23480,7 +23480,7 @@ function renderWebhookDests() {
           </label>
           <input type="text" data-field="name" class="form-input isl-738" placeholder="Label (e.g. Pushover crit-only)" value="${escAttr(d.name || '')}">
           <button class="btn-icon isl-739" title="Test — fire a 'test' event to this destination" data-action="testWebhookDest" data-arg="${idx}">Test</button>
-          <button class="btn-icon isl-740" title="Remove" data-action="removeWebhookDest" data-arg="${idx}">×</button>
+          <button class="btn-icon isl-740 c-danger-outline" title="Remove" data-action="removeWebhookDest" data-arg="${idx}">${_icon('trash',14)}</button>
         </div>
         <div class="isl-741">
           <select data-field="format" class="form-input isl-742" data-change="updateWebhookDest" data-change-arg="${idx}">${fmtOpts}</select>

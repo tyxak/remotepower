@@ -62,12 +62,13 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v5.4.1.md](v5.4.1.md)** — "RackMatters" follow-up: AV/rootkit scan **warnings**
- (rkhunter) now raise an Alert (not just a "Needs attention" card), ticket
- **attachments** (view/download inbound + send outbound), a loop-safe ticket
- **auto-reply**, a one-click **"View email thread"** window, the **Billing** page
- is now opt-in under Settings → Advanced, and a small ticket glyph marks ticketed
- hosts on the Devices page. No breaking changes.
+- **[v5.5.0.md](v5.5.0.md)** — "ScaleMatters": the persistent-tier + enterprise
+ release — the **keystone** (opt-in **gunicorn WSGI app server** + leader-elected
+ **out-of-band scheduler**) that lifts the fork-per-request scale ceiling, **hard
+ multi-tenancy** with optional **Postgres row-level security**, a large opt-in
+ **enterprise-hardening** program, plus helpdesk-signal + billing polish (AV
+ **`av_warning`** alerts, ticket **attachments**, **auto-reply**, **"View email
+ thread"**, opt-in **Billing**). All opt-in, default-off. No breaking changes.
 - **[v5.4.0.md](v5.4.0.md)** — "RackMatters": a lightweight **time-tracking +
  billing** layer on one shared time-entry ledger — log billable (debtable) or
  internal hours on tickets and a weekly **timesheet**, then turn them plus

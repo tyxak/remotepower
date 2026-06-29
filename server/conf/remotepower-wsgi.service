@@ -1,4 +1,4 @@
-# RemotePower persistent WSGI app tier (v6.0.0 keystone, EXPERIMENTAL — opt-in).
+# RemotePower persistent WSGI app tier (v5.5.0 keystone, EXPERIMENTAL — opt-in).
 #
 # Runs the SAME api.py under gunicorn (persistent workers) instead of the
 # fork-per-request CGI / SCGI models. Validated correct under load on both the

@@ -15,7 +15,7 @@ LABEL org.opencontainers.image.source="https://github.com/tyxak/remotepower"
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         nginx fcgiwrap spawn-fcgi procps xmlsec1 openssl && \
-    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 && \
+    pip install --no-cache-dir bcrypt reportlab 'cryptography>=44.0.1' dnspython webauthn pysaml2 gunicorn && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Directories

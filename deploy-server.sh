@@ -195,6 +195,25 @@ if [[ -f "$SVC_SRC" ]]; then
     fi
 fi
 
+# ── Optional WSGI tier + out-of-band scheduler — keep current + restart ───────
+# wsgi.py / scheduler.py already deploy via the *.py glob above (644, importable).
+# If the operator has the optional units installed, refresh them and — because a
+# persistent process won't pick up the freshly-deployed code on its own — restart
+# any that are running (same reason the SCGI worker is restarted above). No-op
+# when neither unit is installed (the default CGI deployment).
+for _svc in remotepower-wsgi remotepower-scheduler; do
+    _src="$SCRIPT_DIR/server/conf/${_svc}.service"
+    _dst="/etc/systemd/system/${_svc}.service"
+    if [[ -f "$_src" && -f "$_dst" ]]; then
+        install -m 644 "$_src" "$_dst"
+        systemctl daemon-reload
+        if systemctl is-active --quiet "$_svc"; then
+            systemctl restart "$_svc"
+            info "${_svc} restarted (service was active)"
+        fi
+    fi
+done
+
 info "Publishing agent binary..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent
 
@@ -314,4 +333,8 @@ echo "  v1.11.0: TLS / DNS expiry probe is at:"
 echo "    /var/www/remotepower/cgi-bin/remotepower-tls-check"
 echo "  To run it on a schedule, add a systemd timer or cron entry, e.g.:"
 echo "    0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check"
+echo ""
+echo "  If you run the optional WSGI tier or out-of-band scheduler, the deploy"
+echo "  restarted them automatically; otherwise restart manually to load new code:"
+echo "    systemctl restart remotepower-wsgi remotepower-scheduler"
 echo ""

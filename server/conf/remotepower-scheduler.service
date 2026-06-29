@@ -1,4 +1,4 @@
-# RemotePower out-of-band maintenance scheduler (v6.0.0 keystone Stage D).
+# RemotePower out-of-band maintenance scheduler (v5.5.0 keystone Stage D).
 #
 # Runs the ~33 run_*_if_due maintenance sweeps from a DEDICATED process instead of
 # piggy-backing them on request traffic. Two wins, both validated against a real

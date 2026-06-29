@@ -61,8 +61,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | What changed (drift over time) | Diff oldest vs latest snapshot — package/port/unit/reboot/disk deltas *(v3.4.0)* |
 | Trends charts | Zero-dep multi-series SVG — fleet health, compliance %, per-device resources, CPU-load saturation % *(v3.4.2)* |
 | Prometheus metrics | `/api/metrics` exposition (Grafana); status-token auth; health/needs-attention/CVE gauges *(v3.4.1)*; metrics push *(v4.0.0)* |
-| Availability SLO + error budgets | Per-monitor availability vs a `slo_target_percent` target → error-budget remaining + burn rate; `GET /api/slo` + Prometheus gauges *(v5.4.1)* |
-| Control-plane uptime | RemotePower's own observed availability (hourly "served a request" buckets) over 24h/7d/30d at `GET /api/self-test` + a Prometheus gauge; denominator starts at first tracked hour *(v5.4.1)* |
+| Availability SLO + error budgets | Per-monitor availability vs a `slo_target_percent` target → error-budget remaining + burn rate; `GET /api/slo` + Prometheus gauges *(v5.5.0)* |
+| Control-plane uptime | RemotePower's own observed availability (hourly "served a request" buckets) over 24h/7d/30d at `GET /api/self-test` + a Prometheus gauge; denominator starts at first tracked hour *(v5.5.0)* |
 | Capacity dashboard | Fleet-wide CPU/mem/disk rollup, top consumers, on Reports *(v3.4.1)* |
 
 ## Checks & custom checks *(v4.1.0)*
@@ -94,8 +94,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Metric alerts | Disk/memory/swap/CPU-load thresholds with hysteresis *(v1.11.10)*; per-device + per-mount overrides *(v1.12.0)* |
-| Webhook event registry | 88 event types, per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.4.1)* |
-| Notification sandbox mode | `notifications_test_mode` (or per-destination `dry_run`) logs webhook + email deliveries without sending — validate event routing on a staging instance without spamming recipients *(v5.4.1)* |
+| Webhook event registry | 88 event types, per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.5.0)* |
+| Notification sandbox mode | `notifications_test_mode` (or per-destination `dry_run`) logs webhook + email deliveries without sending — validate event routing on a staging instance without spamming recipients *(v5.5.0)* |
 | Channel routing matrix | Per event-kind, which surfaces it reaches — Needs Attention / Recent Activity / Alerts inbox / Webhook *(v3.3.0)* |
 | Host-grouped alert inbox | Open alerts stacked per host (worst first), Ack-all/Resolve-all, symptoms folded under `device_offline` root cause *(v4.1.0)* |
 | Alert correlation | Tags `_root_cause` / `_symptom_of` for the grouped inbox |
@@ -104,17 +104,17 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Quiet hours | Hold non-critical delivery during a daily window; critical always pages *(v3.4.1)* |
 | Maintenance windows | Suppress alerts and/or gate command execution; per-device/group/fleet; one-shot or recurring cron+duration; audit trail *(v3.4.2)* |
 | After-hours detection | Flag selected events firing outside business hours *(v3.4.2)* |
-| On-call & escalation | Escalation tiers re-notify unacked alerts; on-call rotation names the contact *(v3.4.2)*; **per-tier target** routes a tier to one webhook destination *(v5.4.1)* |
+| On-call & escalation | Escalation tiers re-notify unacked alerts; on-call rotation names the contact *(v3.4.2)*; **per-tier target** routes a tier to one webhook destination *(v5.5.0)* |
 | Automation rules engine | Event (at severity) on matching devices → run saved script and/or notify; per-rule cooldown, admin-only, audited *(v3.4.2)* |
 | Device dependency map | Declare device→upstream deps; downstream alerts held while upstream offline *(v3.4.2)* |
 | Patch alerts | Webhook when pending updates exceed a threshold |
 | Admin-only alert mutation | Optionally require admin role to ack / unack / resolve (`viewers_can_ack_alerts`) *(v3.3.0)* |
 | Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
-| Ticket attachments | Inbound email attachments stored + downloadable/previewable; attach files to an outbound reply (≤15 MB each, ≤10/msg); access bound to the ticket, served `nosniff`. `GET …/tickets/{id}/attachments/{aid}[?inline=1]` *(v5.4.1)* |
-| Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.4.1)* |
-| Email thread view | One-click printable window of a ticket's full correspondence *(v5.4.1)* |
+| Ticket attachments | Inbound email attachments stored + downloadable/previewable; attach files to an outbound reply (≤15 MB each, ≤10/msg); access bound to the ticket, served `nosniff`. `GET …/tickets/{id}/attachments/{aid}[?inline=1]` *(v5.5.0)* |
+| Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.5.0)* |
+| Email thread view | One-click printable window of a ticket's full correspondence *(v5.5.0)* |
 | Posture digest | Opt-in daily/weekly email summary over SMTP *(v3.11.0)* |
-| Branded email | Alert / digest / test emails send a branded HTML alternative (white-label name + accent) + plain-text fallback *(v5.4.1)* |
+| Branded email | Alert / digest / test emails send a branded HTML alternative (white-label name + accent) + plain-text fallback *(v5.5.0)* |
 | Digest endpoint | `/api/digest` for cron-driven email summaries |
 | Flap cap | Server-wide cap stops a flapping monitor flooding channels |
 
@@ -215,7 +215,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Desired-state enforcement | Correct-on-drift mode *(v3.7.0)* |
 | Host-config collect & export | Drift page: collect all host configs fleet-wide + export one JSON bundle of desired/current/drift *(v3.13.0)* |
 | SSH-key audit | Fleet-wide authorized_keys audit — fingerprints, weak-type flags, reuse counts *(v4.0.0)* |
-| Endpoint AV posture | ClamAV / rkhunter status + on-demand scan; last-scan time *(v3.6.0)*; `av_infected` on rising infection *(v5.1.0)*; `av_warning` on rising rkhunter-warning / stale-DB count *(v5.4.1)* |
+| Endpoint AV posture | ClamAV / rkhunter status + on-demand scan; last-scan time *(v3.6.0)*; `av_infected` on rising infection *(v5.1.0)*; `av_warning` on rising rkhunter-warning / stale-DB count *(v5.5.0)* |
 | OpenSCAP scans | `oscap xccdf eval` — CIS/STIG/PCI-DSS, USG, ANSSI; score + failing rules; HTML report; by host/tag/group *(v3.4.2)* |
 | CIS-style compliance baseline | Pass/fail checks, severity-weighted score + daily trend *(v3.4.2)* |
 | Compliance frameworks | PCI DSS / HIPAA / SOC 2 controls mapped to collected data with evidence + remediation *(v3.4.0)* |
@@ -269,10 +269,10 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Backup integrity verification | Agent runs the tool's own check (`tar -tf` / `restic check` / `borg check`); `backup_verify_failed` *(v4.10.0)* |
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |
-| Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for SMTP/OIDC/LDAP/SIEM/audit-forward secrets; transparent at load/save, fail-graceful *(v5.4.1)* |
-| External key sourcing | `RP_CONFIG_KEY` / `RP_BACKUP_PASSPHRASE` can be fetched from an external command (`<NAME>_CMD`, e.g. Vault/KMS/`pass`) instead of the process environment; cached per worker *(v5.4.1)* |
-| WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.4.1)* |
-| Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.4.1)* |
+| Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for SMTP/OIDC/LDAP/SIEM/audit-forward secrets; transparent at load/save, fail-graceful *(v5.5.0)* |
+| External key sourcing | `RP_CONFIG_KEY` / `RP_BACKUP_PASSPHRASE` can be fetched from an external command (`<NAME>_CMD`, e.g. Vault/KMS/`pass`) instead of the process environment; cached per worker *(v5.5.0)* |
+| WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.5.0)* |
+| Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.5.0)* |
 | Backup export | One-click redacted ZIP of all data JSON |
 
 ## CMDB, credentials & documentation
@@ -300,19 +300,19 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | SAML 2.0 SSO | Okta/Entra/OneLogin/Ping/ADFS; signed assertions + replay protection; attribute→role *(v4.2.0)* |
 | LDAP / AD + SCIM 2.0 | Bind-mode auth; IdP-driven create/deactivate so offboarding revokes access + sessions |
 | MFA enforcement | Require MFA (TOTP or passkey) per role; forced before any other action *(v4.2.0)* |
-| Password policy | Opt-in min length + 3-of-4 character classes + HaveIBeenPwned breach check (k-anonymity, fails open); enforced on new users + changes *(v5.4.1)* |
-| SSO-only | Refuse local-password logins when an IdP is configured; per-account `local_login` break-glass *(v5.4.1)* |
-| SSO group→role matrix | `sso_group_roles` maps an OIDC/SAML group to any builtin/custom role (not just admin-or-viewer); admin wins, legacy admin-group still works, viewer promoted on login, never auto-demotes *(v5.4.1)* |
+| Password policy | Opt-in min length + 3-of-4 character classes + HaveIBeenPwned breach check (k-anonymity, fails open); enforced on new users + changes *(v5.5.0)* |
+| SSO-only | Refuse local-password logins when an IdP is configured; per-account `local_login` break-glass *(v5.5.0)* |
+| SSO group→role matrix | `sso_group_roles` maps an OIDC/SAML group to any builtin/custom role (not just admin-or-viewer); admin wins, legacy admin-group still works, viewer promoted on login, never auto-demotes *(v5.5.0)* |
 | Roles | Admin, Viewer, Auditor (read-only + audit/compliance, reveals nothing) *(v4.10.0)*, plus custom scoped roles *(v3.4.2)* |
 | Granular RBAC | Custom roles granting exec/reboot/upgrade scoped to groups/tags; roster filtered to scope *(v3.4.2)* |
-| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.4.1)*; optional **per-key device scope** (scoped service account — confines visibility+actions to groups/tags/sites, binds even an admin key) + **source-IP allowlist** (`ip_allow` CIDRs — key rejected from any other IP) *(v5.4.1)* |
-| Device tokens hashed | Agent auth tokens stored as SHA-256 `token_hash` (not plaintext); agent unchanged; legacy tokens migrate on next heartbeat *(v5.4.1)* |
-| Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)*; **hashed at rest** (keyed by SHA-256, display prefix kept) *(v5.4.1)* |
+| API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.5.0)*; optional **per-key device scope** (scoped service account — confines visibility+actions to groups/tags/sites, binds even an admin key) + **source-IP allowlist** (`ip_allow` CIDRs — key rejected from any other IP) *(v5.5.0)* |
+| Device tokens hashed | Agent auth tokens stored as SHA-256 `token_hash` (not plaintext); agent unchanged; legacy tokens migrate on next heartbeat *(v5.5.0)* |
+| Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)*; **hashed at rest** (keyed by SHA-256, display prefix kept) *(v5.5.0)* |
 | PIN enrolment | 6-digit, single-use, 10-min expiry |
 | Session caps | Limit concurrent sessions per user; oldest evicted *(v4.2.0)* |
-| Idle session timeout | Opt-in sliding-window expiry — a session unused for N minutes dies before its absolute TTL *(v5.4.1)* |
+| Idle session timeout | Opt-in sliding-window expiry — a session unused for N minutes dies before its absolute TTL *(v5.5.0)* |
 | Active session management | Review/revoke live sessions *(v4.0.0)* |
-| Config-change audit | Every Settings save logs a `config_changed` entry (changed key names; values never logged) *(v5.4.1)* |
+| Config-change audit | Every Settings save logs a `config_changed` entry (changed key names; values never logged) *(v5.5.0)* |
 | Rate limiting | Per-IP login throttle + per-username lockout; enroll/register throttle |
 | IP allowlist | Per-IP/CIDR allowlist; loopback always allowed; agent paths exempt; can't lock yourself out *(v3.3.0)* |
 | Login banner | Optional security notice above the sign-in form *(v5.0.0)* |
@@ -362,7 +362,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Unified time ledger | One entry per logged block: hours (0.25 steps), date, billable flag, customer (site) / device / ticket link, note or internal category. `GET/POST /api/time-entries` |
 | Hours on tickets | **Log hours** on any ticket; billable hours attach to the ticket's customer (site, derived from device); running total on the ticket. `…/tickets/{id}/hours` |
 | Weekly timesheet | Personal **Timesheet** page (Planning, + linked from My Account) — week navigator, per-day/weekly totals, ad-hoc internal time; ticket hours roll in. `GET /api/timesheet?week=` |
-| Billing page (opt-in) | The Billing surface (worksheet / invoices / rates & fees) is gated under Advanced → `billing_enabled` (default off); logging hours + the Timesheet stay on regardless *(v5.4.1)* |
+| Billing page (opt-in) | The Billing surface (worksheet / invoices / rates & fees) is gated under Advanced → `billing_enabled` (default off); logging hours + the Timesheet stay on regardless *(v5.5.0)* |
 | Billing worksheet | Per-customer per-month: billable hours × rate + recurring fees → subtotal / VAT / total. `GET /api/billing/worksheet` |
 | Invoices | draft → sent → paid (+ void); issuing **locks** the billed hours (frozen amounts), voiding frees them to re-bill. `GET/POST /api/invoices`, `PATCH /api/invoices/{id}` |
 | Rates & fees | Named rate card + global default rate / currency / VAT / invoice prefix; per-customer rate / VAT / billing address / recurring license-operation-service fees. `GET/POST /api/billing/config` |
@@ -406,7 +406,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Platforms | Linux, Windows, macOS *(v4.0.0)*; macOS loadavg + fd% + Windows NVIDIA GPU parity *(v4.8.0)* |
 | Self-update | SHA-256-verified, atomic replace, no SSH; hash-driven decision *(v3.3.0)* |
 | Signed updates | Detached GPG signature; pinned-key agents refuse unsigned/invalid; opt-in fail-closed `require-signed-updates`; Admin → Release Signing server-side key gen/sign + distribution + refused-agent list *(v3.4.2 / v3.8.0)* |
-| App-self SBOM + SLSA | `make sbom-self` → CycloneDX of the control plane's own Python deps; release images carry SLSA build provenance *(v5.4.1)* |
+| App-self SBOM + SLSA | `make sbom-self` → CycloneDX of the control plane's own Python deps; release images carry SLSA build provenance *(v5.5.0)* |
 | Integrity attestation | Reports running-binary hash each heartbeat; mismatch flagged; `integrity` subcommand; signed-agent badge *(v3.4.2)* |
 | mTLS agent authentication | Agents present a CA-verified client certificate per connection, pinned per device; optional/additive, fleet-wide enforceable *(v5.0.0)* |
 | Version-compatibility checks | Server flags agents whose version is too far out of step before they cause surprises *(v5.0.0)* |
@@ -423,28 +423,28 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Architecture | nginx + fcgiwrap + stdlib Python; one HTML + CSS + vanilla-JS modules; no build step |
 | SQLite backend | Optional, WAL, stdlib; row-per-entity hot data; reversible migration *(v3.12.0)* |
 | PostgreSQL backend | Optional, automatic failover + read replicas *(v4.0.0)* |
-| Persistent app server | Optional gunicorn WSGI tier (`remotepower-wsgi.service`) as an alternative to CGI fork-per-request — pre-warmed threaded workers with thread-local request isolation for large fleets; CGI stays the default + fallback *(v6.0.0)* |
-| Out-of-band scheduler | Optional dedicated maintenance process (`remotepower-scheduler.service`, `RP_EXTERNAL_SCHEDULER=1`) — leader-elected (host file-lock + Postgres `pg_advisory_lock`) so one node runs the cadence; runs sweeps without request traffic and cuts per-request latency *(v6.0.0)* |
-| Hard multi-tenancy | Optional tenant entity + `tenancy_enforced` (Settings → Security) — tenant admins confined to their own devices; a default-tenant admin is the cross-tenant superadmin *(v6.0.0)* |
-| Postgres row-level security | Optional DB-enforced tenant isolation (`tenancy_rls`) on the devices table — `FORCE` RLS + per-request `app.rp_tenant` GUC, fail-closed; defense-in-depth beneath the app-layer tenancy; schema applied live *(v6.0.0)* |
+| Persistent app server | Optional gunicorn WSGI tier (`remotepower-wsgi.service`) as an alternative to CGI fork-per-request — pre-warmed threaded workers with thread-local request isolation for large fleets; CGI stays the default + fallback *(v5.5.0)* |
+| Out-of-band scheduler | Optional dedicated maintenance process (`remotepower-scheduler.service`, `RP_EXTERNAL_SCHEDULER=1`) — leader-elected (host file-lock + Postgres `pg_advisory_lock`) so one node runs the cadence; runs sweeps without request traffic and cuts per-request latency *(v5.5.0)* |
+| Hard multi-tenancy | Optional tenant entity + `tenancy_enforced` (Settings → Security) — tenant admins confined to their own devices; a default-tenant admin is the cross-tenant superadmin *(v5.5.0)* |
+| Postgres row-level security | Optional DB-enforced tenant isolation (`tenancy_rls`) on the devices table — `FORCE` RLS + per-request `app.rp_tenant` GUC, fail-closed; defense-in-depth beneath the app-layer tenancy; schema applied live *(v5.5.0)* |
 | Relay satellites | For segmented networks; agent→satellite over HTTPS; internal-CA trust *(v4.0.0)* |
 | Load-balanced multi-node | Horizontal scale *(v4.0.0)* |
 | Self-signed CA onboarding | `make tls-selfsigned` CA + leaf; agents trust the CA (client-free renew/migration); `--ca-fingerprint` installers *(v4.5.0)* |
 | Hardened persistence | flock-serialised writes, per-process tmp, fsync, rolling `.bak` fallback + recovery *(v1.12.1)* |
 | GitOps | Config-from-Git *(v4.0.0)*; Terraform via REST; Ansible runner |
-| Swagger / OpenAPI | OpenAPI 3.1 at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected token; **route-table-driven so every endpoint is covered** (~290 paths), advertises the `/api/v1` base *(v5.4.1)* |
-| API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.4.1)* |
-| Postman collection | `make postman` → a Postman v2.1 collection from the OpenAPI spec (foldered by tag, auth + baseUrl pre-wired) *(v5.4.1)* |
-| Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.4.1)* |
-| Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.4.1)* |
-| Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.4.1)* |
-| List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.4.1)* |
-| Signed exports | Evidence pack carries an HMAC-SHA256 `signature`; audit-archive download emits `X-RP-Signature` (per-install `export_sign.key`) *(v5.4.1)* |
-| Export-key rotation | Admin can rotate the export-signing key (Settings → Security); posture page grades password-policy / idle-timeout / SSO-only / signed-exports *(v5.4.1)* |
+| Swagger / OpenAPI | OpenAPI 3.1 at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected token; **route-table-driven so every endpoint is covered** (~290 paths), advertises the `/api/v1` base *(v5.5.0)* |
+| API versioning | Every route is also reachable under `/api/v1/...` (permanent alias of the unversioned path) *(v5.5.0)* |
+| Postman collection | `make postman` → a Postman v2.1 collection from the OpenAPI spec (foldered by tag, auth + baseUrl pre-wired) *(v5.5.0)* |
+| Correlation IDs | `X-Request-Id` on every JSON response (honours an inbound proxy id); `RP_LOG_LEVEL`-gated `log_json` + slow-handler ring carry it *(v5.5.0)* |
+| Distributed trace-context | Inbound W3C `traceparent` is honoured → carried in structured logs (`trace_id`) and propagated as a child span on outbound webhooks *(v5.5.0)* |
+| Frontend error beacon | Uncaught client errors POST to `/api/client-error` (throttled, scrubbed, capped); admin-visible *(v5.5.0)* |
+| List API convention | Optional `?q` filter, `?sort`/`?order`, `?limit`/`?offset`, `?meta=1` envelope on list endpoints; bare list unchanged when omitted *(v5.5.0)* |
+| Signed exports | Evidence pack carries an HMAC-SHA256 `signature`; audit-archive download emits `X-RP-Signature` (per-install `export_sign.key`) *(v5.5.0)* |
+| Export-key rotation | Admin can rotate the export-signing key (Settings → Security); posture page grades password-policy / idle-timeout / SSO-only / signed-exports *(v5.5.0)* |
 | Turnkey install | Unified `install.sh` wizard; one-command Docker (HTTPS, no default password); served `/install` quick-install agent; `install.sh agent push` SSH bootstrap; `install.sh uninstall` *(v4.8.0)* |
 | Install update | **Settings → Install** version check + guided self-update via a server-side update script *(v5.0.0)* |
 | Setup checklist | Settings → Install live getting-started checklist *(v3.4.2)* |
-| Guided tour | First-run coach-mark walkthrough (Dashboard/Devices/Alerts/Search/Settings); once per account, re-runnable via "Take a tour" *(v5.4.1)* |
+| Guided tour | First-run coach-mark walkthrough (Dashboard/Devices/Alerts/Search/Settings); once per account, re-runnable via "Take a tour" *(v5.5.0)* |
 
 ## UX, interface & accessibility
 

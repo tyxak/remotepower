@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.4.1'
+SERVER_VERSION = '5.5.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2030,7 +2030,7 @@ def load(path):
 
 # Process-local cache for load(). Lives only as long as the CGI handler.
 class _ThreadLocalCache:
-    """v6.0.0 (Stage E): the per-request load() memoiser, made THREAD-LOCAL so a
+    """v5.5.0 (Stage E): the per-request load() memoiser, made THREAD-LOCAL so a
     persistent threaded worker never serves request B from request A's cached
     config/devices (the load-cache cross-request leak the keystone design flags).
     Single-thread / fork deployments (CGI, the SCGI prefork worker) have exactly one
@@ -2094,7 +2094,7 @@ def _config_ro():
 
 
 def _external_scheduler_active():
-    """v6.0.0 (keystone Stage D): True when an out-of-band scheduler process owns
+    """v5.5.0 (keystone Stage D): True when an out-of-band scheduler process owns
     the maintenance cadence, so the request path stops piggy-backing the
     run_*_if_due sweeps (decouples maintenance from traffic; avoids N nodes each
     double-running). Opt-in: env RP_EXTERNAL_SCHEDULER (1/true/yes/on) OR config
@@ -3314,7 +3314,7 @@ def _enforce_apikey_ratelimit(kid: str, kdata: dict) -> None:
 
 # ── Request helpers ────────────────────────────────────────────────────────────
 def _read_request_body(length):
-    """v6.0.0 (Stage E): read up to `length` body bytes from the thread-local
+    """v5.5.0 (Stage E): read up to `length` body bytes from the thread-local
     request context (re-readable bytes, set by wsgi.py) when active, else from
     sys.stdin (CGI). Routing the body through the context lets a threaded worker
     avoid swapping the process-global sys.stdin per request."""
@@ -3380,7 +3380,7 @@ def _peek_heartbeat_dev_id():
         if length <= 0 or length > MAX_BODY_BYTES:
             return None
         raw = _read_request_body(length)
-        # v6.0.0 (Stage E): in request-context mode the body bytes are re-readable
+        # v5.5.0 (Stage E): in request-context mode the body bytes are re-readable
         # (get_body() re-reads _RCTX.stdin), so we must NOT mutate the process-global
         # sys.stdin (that's exactly what threading must avoid). Only under CGI (no
         # context) do we replace stdin so the heartbeat handler's get_body() re-reads
@@ -3502,12 +3502,12 @@ def _gzip_response_wanted(body_len: int) -> bool:
         return False
 
 
-# v6.0.0 (keystone Stage E): _REQUEST_ID / _TRACE_ID / _CALLER_KEY_SCOPE used to be
+# v5.5.0 (keystone Stage E): _REQUEST_ID / _TRACE_ID / _CALLER_KEY_SCOPE used to be
 # module globals (process-global per-request state — a cross-request leak under a
 # threaded worker). They now live in the thread-local _RCTX below
 # (.request_id / .trace_id / .key_scope), reset per request in _begin_request().
 
-# ── v6.0.0 (keystone Stage E): per-request I/O context ───────────────────────
+# ── v5.5.0 (keystone Stage E): per-request I/O context ───────────────────────
 # To let a PERSISTENT, THREADED worker handle requests concurrently without the
 # wsgi shim's process-global os.environ/stdin/stdout swap (which forces a lock),
 # request input + output are routed through a THREAD-LOCAL context. `_env()` is a
@@ -3579,7 +3579,7 @@ def _traceparent_out():
 # `_last_escalation_tick` are LEGITIMATELY cross-request state (they gate the
 # in-process `run_*_if_due` sweeps) and must NOT be cleared.
 def _begin_request():
-    """Reset per-request process-local state at the start of a request. v6.0.0: the
+    """Reset per-request process-local state at the start of a request. v5.5.0: the
     state is THREAD-LOCAL (_LOAD_CACHE proxy + _RCTX), so this resets only the current
     thread/request — does NOT touch _RCTX.environ/.stdin/.out, which wsgi.py sets for
     the request and _end_request() clears."""
@@ -3599,7 +3599,7 @@ def _end_request():
     """Per-request teardown. A no-op today; the persistent-server migration will
     use it to release per-request resources (e.g. return pooled DB connections)."""
     _LOAD_CACHE.clear()
-    # v6.0.0 (Stage E): drop the per-request I/O context so a reused worker thread
+    # v5.5.0 (Stage E): drop the per-request I/O context so a reused worker thread
     # never serves the next request with the previous request's environ/body/output.
     for _a in ('environ', 'stdin', 'out'):
         if hasattr(_RCTX, _a):
@@ -17289,7 +17289,7 @@ def handle_config_save():
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
     if 'notifications_test_mode' in body:   # v5.4.1 (E6): notification sandbox mode
         cfg['notifications_test_mode'] = bool(body['notifications_test_mode'])
-    if 'external_scheduler' in body:        # v6.0.0 (Stage D): out-of-band scheduler owns cadence
+    if 'external_scheduler' in body:        # v5.5.0 (Stage D): out-of-band scheduler owns cadence
         cfg['external_scheduler'] = bool(body['external_scheduler'])
 
     # v1.8.4: per-event toggles (preferred over legacy flags above)
@@ -20421,7 +20421,7 @@ def handle_self_test():
     except Exception:
         up = None
 
-    # v6.0.0 (Stage D): on a (networked) Postgres backend, running the maintenance
+    # v5.5.0 (Stage D): on a (networked) Postgres backend, running the maintenance
     # cadence on the request path adds ~33 DB round-trips per request — measured
     # ~25× request-latency overhead vs running it out-of-band. Nudge operators to
     # the scheduler. Informational only (never reds the suite).
@@ -51772,7 +51772,7 @@ def main():
     # it lands in nginx's error log, but still doesn't propagate (the
     # CGI response itself must complete regardless of a maintenance
     # task failing).
-    # v6.0.0 (keystone Stage D): when an out-of-band scheduler process owns the
+    # v5.5.0 (keystone Stage D): when an out-of-band scheduler process owns the
     # maintenance cadence, the request path stops piggy-backing it. _safe wraps
     # EXCLUSIVELY the run_*_if_due sweeps below (request-critical calls like
     # _record_satellite/_enforce_* are invoked directly), so one early-return here

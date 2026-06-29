@@ -32,6 +32,17 @@ services:
       # which is the systemd path and doesn't exist in the container. Without it,
       # scheduled backups are written in PLAINTEXT.
       # RP_BACKUP_PASSPHRASE: "${RP_BACKUP_PASSPHRASE:-}"
+      # ── Optional scaling (v6.x) — all default OFF; uncomment to opt in ──────
+      # Run the API under a persistent gunicorn WSGI tier (instead of fork-per-
+      # request fcgiwrap) and run the maintenance sweeps from a dedicated in-
+      # container process. See docs/wsgi.md and docs/scaling.md.
+      # RP_APP_SERVER: "wsgi"        # gunicorn on 127.0.0.1:8090; nginx auto-repointed
+      # RP_EXTERNAL_SCHEDULER: "1"   # run scheduler.py; request path stops the cadence
+      # Point the storage backend at the optional postgres service below:
+      # RP_STORAGE_BACKEND: "postgres"
+      # RP_PG_DSN: "postgresql://rp:CHANGE_ME@postgres:5432/remotepower"
+    # depends_on:                    # uncomment alongside the postgres service below
+    #   - postgres
     volumes:
       - remotepower_data:/var/lib/remotepower
     healthcheck:
@@ -43,5 +54,22 @@ services:
       start_period: 15s
       retries: 3
 
+  # ── Optional PostgreSQL backend (v6.x) ──────────────────────────────────────
+  # The default backend is the single-file SQLite/JSON store baked into the data
+  # volume — fine for typical fleets. For large fleets / multiple app nodes,
+  # uncomment this service AND the RP_STORAGE_BACKEND / RP_PG_DSN env above, then
+  # migrate existing data with tools/migrate_storage.py after first switching.
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: remotepower-db
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: remotepower
+  #     POSTGRES_USER: rp
+  #     POSTGRES_PASSWORD: CHANGE_ME
+  #   volumes:
+  #     - remotepower_pg:/var/lib/postgresql/data
+
 volumes:
   remotepower_data:
+  # remotepower_pg:   # uncomment together with the optional postgres service above

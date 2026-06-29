@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.4.1">
+<link rel="stylesheet" href="static/css/styles.css?v=5.5.0">
 
 </head>
 <body>
@@ -2987,17 +2987,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.4.1 rackmatters av antivirus rkhunter rootkit clamav warning av_warning alert needs attention ticket attachment attachments file download preview inbound outbound email auto-reply autoreply acknowledgement thank you loop-safe view email thread correspondence print billing opt-in advanced settings gate device hostname ticket icon enterprise hardening password policy haveibeenpwned breach sso-only idle session timeout config-change audit webhook schema_version max_devices intl localization currency wcag accessibility aria api key device token enrollment token hashed at rest sha-256 config secret encryption rp_config_key aes-256-gcm vault kms external key sourcing api versioning v1 correlation id x-request-id structured log client error beacon branded email pagination list convention signed export hmac export-key rotation openapi swagger postman sbom slsa provenance off-host backup restore-verify per-tier escalation target availability slo error budget burn rate control-plane uptime traceparent trace-context distributed tracing worm audit sink sso group role matrix onboarding tour keystone">
-            <summary><strong>What's new — v5.4.1 "RackMatters"</strong> — helpdesk + signals (AV scan warnings alert, ticket attachments, auto-reply, email-thread view, opt-in billing) plus a large opt-in <strong>enterprise-hardening</strong> program — identity, credential-at-rest, DR, API contract and observability (no breaking changes)</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v5.5.0 scalematters keystone wsgi gunicorn persistent app server thread-local out-of-band scheduler leader election pg_advisory_lock multi-tenancy tenant tenancy enforced rls row-level-security postgres hard isolation scale fork-per-request av antivirus rkhunter rootkit clamav warning av_warning alert needs attention ticket attachment attachments file download preview inbound outbound email auto-reply autoreply acknowledgement thank you loop-safe view email thread correspondence print billing opt-in advanced settings gate device hostname ticket icon enterprise hardening password policy haveibeenpwned breach sso-only idle session timeout config-change audit webhook schema_version max_devices intl localization currency wcag accessibility aria api key device token enrollment token hashed at rest sha-256 config secret encryption rp_config_key aes-256-gcm vault kms external key sourcing api versioning v1 correlation id x-request-id structured log client error beacon branded email pagination list convention signed export hmac export-key rotation openapi swagger postman sbom slsa provenance off-host backup restore-verify per-tier escalation target availability slo error budget burn rate control-plane uptime traceparent trace-context distributed tracing worm audit sink sso group role matrix onboarding tour">
+            <summary><strong>What's new — v5.5.0 "ScaleMatters"</strong> — the persistent-tier + enterprise release: the <strong>keystone</strong> (opt-in gunicorn WSGI app server + leader-elected out-of-band scheduler) that lifts the fork-per-request scale ceiling, <strong>hard multi-tenancy</strong> with optional Postgres row-level security, a large opt-in <strong>enterprise-hardening</strong> program (identity, credential-at-rest, DR, API contract, observability) plus helpdesk-signal + billing polish (no breaking changes)</summary>
             <div class="doc-body">
-              <p>v5.4.1 starts as a follow-up on the RackMatters line and grew into a broad enterprise-hardening release. <strong>Everything new is opt-in</strong> — every knob defaults off / unset, so existing installs behave exactly as before until configured. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.4.1-15</code>).</p>
+              <p>v5.5.0 "ScaleMatters" is the persistent-tier + enterprise release: the <strong>keystone</strong> that lifts the fork-per-request scale ceiling (opt-in gunicorn WSGI app server + a leader-elected out-of-band scheduler), <strong>hard multi-tenancy</strong> with optional Postgres row-level security, and a broad enterprise-hardening program. <strong>Everything new is opt-in</strong> — every knob defaults off / unset, so existing installs behave exactly as before until configured. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.5.0</code>).</p>
+              <p><strong>Scale &amp; isolation (keystone)</strong></p>
+              <ul>
+                <li><strong>Persistent WSGI app server</strong> (opt-in, experimental) — run the same <code>api.py</code> under gunicorn with thread-local request isolation instead of fork-per-request CGI; CGI stays the default. Paired with a <strong>leader-elected out-of-band scheduler</strong> (<code>remotepower-scheduler.service</code>) that runs maintenance off the request path (~25× lower request latency on a networked Postgres backend).</li>
+                <li><strong>Hard multi-tenancy</strong> (<code>tenancy_enforced</code>) confines tenant admins to their own devices, with optional <strong>Postgres row-level security</strong> (<code>tenancy_rls</code>) for DB-enforced isolation — applied live, no migration.</li>
+              </ul>
               <p><strong>Helpdesk &amp; signals</strong></p>
               <ul>
                 <li><strong>AV / rootkit scan warnings now alert.</strong> rkhunter <code>[Warning]</code> lines (and a stale ClamAV signature DB) only showed on the dashboard "Needs attention" card. A new <code>av_warning</code> event (medium, coalesced per host) now fires on the rising warning count; an active infection still raises the higher-severity <code>av_infected</code>.</li>
                 <li><strong>Ticket attachments, auto-reply, email-thread view.</strong> Inbound attachments are stored and you can attach files to replies (download + in-browser preview, ticket-scoped, <code>nosniff</code>); an opt-in loop-safe acknowledgement is emailed on auto-created tickets; a button opens the full correspondence in a printable window.</li>
                 <li><strong>Billing is now opt-in</strong> (Settings → Advanced), and a small ticket glyph marks a host with an open ticket on the Devices page.</li>
               </ul>
-              <p><strong>Enterprise hardening</strong> (all opt-in — see <code>docs/v5.4.1.md</code> + <code>CHANGELOG.md</code> for the full detail)</p>
+              <p><strong>Enterprise hardening</strong> (all opt-in — see <code>docs/v5.5.0.md</code> + <code>CHANGELOG.md</code> for the full detail)</p>
               <ul>
                 <li><strong>Identity &amp; sessions.</strong> Password policy (length / character-classes / HaveIBeenPwned breach check), SSO-only with a break-glass exemption, idle session timeout, and an <strong>SSO group→role matrix</strong> mapping IdP groups to any builtin/custom role (not just admin-or-viewer).</li>
                 <li><strong>Credential-at-rest.</strong> API keys, device tokens and enrollment tokens are stored as SHA-256 hashes (agents unchanged, migrated transparently); config secrets are AES-256-GCM encrypted at rest with an opt-in <code>RP_CONFIG_KEY</code> — which (like the backup passphrase) can be sourced from an external Vault/KMS command.</li>
@@ -3006,7 +3011,7 @@
                 <li><strong>API &amp; observability.</strong> Full OpenAPI coverage (~290 paths) + a <code>/api/v1</code> alias, a Postman collection, correlation IDs + structured logs + W3C trace-context, a frontend error beacon, a list-API convention, branded notification email, and an app-self SBOM + SLSA build provenance.</li>
                 <li><strong>UX.</strong> Localized dates/numbers/currency (<code>Intl</code>), WCAG fixes (aria-live toasts, focus-trapped drawer, skip link), and a first-run guided onboarding tour.</li>
               </ul>
-              <p class="hint">See <code>docs/v5.4.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+              <p class="hint">See <code>docs/v5.5.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog v5.4.0 rackmatters time tracking timesheet hours billable debtable invoice invoiceable billing worksheet rate card recurring fee license operation service vat currency finance role customer site export csv pdf print quarter hour 0.25">
@@ -8270,36 +8275,36 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.4.1"></script>
-<script defer src="static/js/app.js?v=5.4.1"></script>
+<script defer src="static/js/i18n.js?v=5.5.0"></script>
+<script defer src="static/js/app.js?v=5.5.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.4.1"></script>
-<script defer src="static/js/app-cmdb.js?v=5.4.1"></script>
-<script defer src="static/js/app-containers.js?v=5.4.1"></script>
-<script defer src="static/js/app-network.js?v=5.4.1"></script>
+<script defer src="static/js/app-calendar.js?v=5.5.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.5.0"></script>
+<script defer src="static/js/app-containers.js?v=5.5.0"></script>
+<script defer src="static/js/app-network.js?v=5.5.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.4.1"></script>
-<script defer src="static/js/app-compliance.js?v=5.4.1"></script>
-<script defer src="static/js/app-integrations.js?v=5.4.1"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.5.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.5.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.5.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.4.1"></script>
-<script defer src="static/js/app-dns.js?v=5.4.1"></script>
-<script defer src="static/js/app-drift.js?v=5.4.1"></script>
-<script defer src="static/js/app-dmarc.js?v=5.4.1"></script>
-<script defer src="static/js/app-cve.js?v=5.4.1"></script>
-<script defer src="static/js/app-firewall.js?v=5.4.1"></script>
-<script defer src="static/js/app-backups.js?v=5.4.1"></script>
-<script defer src="static/js/app-iac.js?v=5.4.1"></script>
-<script defer src="static/js/app-rollouts.js?v=5.4.1"></script>
-<script defer src="static/js/app-power.js?v=5.4.1"></script>
-<script defer src="static/js/app-gpu.js?v=5.4.1"></script>
-<script defer src="static/js/app-proxmox.js?v=5.4.1"></script>
-<script defer src="static/js/wg-access.js?v=5.4.1"></script>
-<script defer src="static/js/app-billing.js?v=5.4.1"></script>
+<script defer src="static/js/app-ai.js?v=5.5.0"></script>
+<script defer src="static/js/app-dns.js?v=5.5.0"></script>
+<script defer src="static/js/app-drift.js?v=5.5.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.5.0"></script>
+<script defer src="static/js/app-cve.js?v=5.5.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.5.0"></script>
+<script defer src="static/js/app-backups.js?v=5.5.0"></script>
+<script defer src="static/js/app-iac.js?v=5.5.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.5.0"></script>
+<script defer src="static/js/app-power.js?v=5.5.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.5.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.5.0"></script>
+<script defer src="static/js/wg-access.js?v=5.5.0"></script>
+<script defer src="static/js/app-billing.js?v=5.5.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.4.1"></script>
+<script defer src="static/js/sw-register.js?v=5.5.0"></script>
 </body>
 </html>

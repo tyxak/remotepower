@@ -48,8 +48,8 @@ need it. Start at the top; most installs only need the first two rows.
 | **Postgres HA (primary)** | `packaging/postgres-ha-primary.sh` | DB failover |
 | **Postgres HA (standby)** | `packaging/postgres-ha-standby.sh` | DB failover |
 | **PgBouncer pooler** | `packaging/pgbouncer-setup.sh` | very high request rates |
-| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | large fleets wanting a pre-warmed gunicorn app server instead of CGI — see [wsgi.md](wsgi.md) *(opt-in, v6.0.0)* |
-| **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | run the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) *(opt-in, v6.0.0)* |
+| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | large fleets wanting a pre-warmed gunicorn app server instead of CGI — see [wsgi.md](wsgi.md) *(opt-in, v5.5.0)* |
+| **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | run the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) *(opt-in, v5.5.0)* |
 | **Load balancer** | `packaging/loadbalancer-haproxy.cfg.example` | multi-node |
 | **Web SSH terminal** | `packaging/install-webterm.sh` | optional browser SSH |
 | **Read-only demo** | `packaging/install-demo.sh` | a public sandbox vhost |
@@ -137,7 +137,7 @@ Postgres** — the app is stateless, so any node serves any request:
    — HAProxy, or the nginx `upstream` in its comments). Health check
    `GET /api/health`. No session stickiness needed.
 
-### Hard multi-tenancy & DB row-level security (opt-in, v6.0.0)
+### Hard multi-tenancy & DB row-level security (opt-in, v5.5.0)
 
 Both are **config switches, applied live — there is no migration script to run.**
 

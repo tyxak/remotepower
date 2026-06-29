@@ -62,7 +62,7 @@ def _pg():
 
 _DSN = None        # primary / read-write DSN (configure_dsn; else env RP_PG_DSN)
 _READ_DSN = None   # optional read-replica DSN (configure_read_dsn; else env RP_PG_READ_DSN)
-# v6.0.0 (keystone): connections are cached PER-THREAD in a threading.local, not in
+# v5.5.0 (keystone): connections are cached PER-THREAD in a threading.local, not in
 # module globals. A psycopg/libpq connection is NOT safe to share across threads
 # (concurrent use corrupts the wire protocol) — a threaded WSGI worker would crash —
 # nor across processes. So each (thread) holds its own conn, tagged with the PID that

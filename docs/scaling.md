@@ -148,7 +148,7 @@ block swap in reverse — the worker and fcgiwrap can coexist; nginx decides
 which serves. On a busy fleet this is the single biggest latency win in this
 guide: it applies to **every** request, heartbeats and dashboard alike.
 
-### Or go fully persistent: the WSGI app server (v6.0.0, experimental, opt-in)
+### Or go fully persistent: the WSGI app server (v5.5.0, experimental, opt-in)
 
 The SCGI worker still **forks per request**. For the largest fleets there is a
 fully-persistent tier: the same `api.py` served under **gunicorn** with threaded
@@ -172,7 +172,7 @@ default and fully-supported deployment; keep it as the fallback (repoint nginx)
 until you've validated the WSGI tier under your own load. See
 [wsgi.md](wsgi.md).
 
-### The out-of-band maintenance scheduler (v6.0.0)
+### The out-of-band maintenance scheduler (v5.5.0)
 
 RemotePower runs ~33 `run_*_if_due` maintenance sweeps. By default they
 **piggy-back on request traffic** — convenient on a single CGI node, but it means

@@ -2,10 +2,38 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.4.1 — "RackMatters" — unreleased (test)
+## v5.5.0 — "ScaleMatters" — unreleased (test)
 
-A follow-up patch on the RackMatters line — signals, helpdesk polish and a billing
-opt-in. No breaking changes.
+The persistent-tier + enterprise release: a large opt-in **enterprise-hardening**
+program, the **keystone** that lifts the CGI/fork-per-request scale ceiling
+(persistent WSGI app server + out-of-band scheduler), **hard multi-tenancy** with
+optional Postgres row-level security, plus helpdesk-signal and billing polish.
+Everything new here is opt-in and **default-off — no breaking changes.**
+
+### Scale & isolation (keystone)
+
+- **Persistent WSGI app server (opt-in, experimental).** The same `api.py` can now
+  run under **gunicorn** with threaded workers and **thread-local request
+  isolation** (request context, output buffer and DB connections are per-thread),
+  instead of fork-per-request CGI. Validated under load on SQLite and Postgres
+  (no cross-request load-cache / correlation-id / response-body bleed). CGI stays
+  the default + fallback. `server/conf/remotepower-wsgi.service`; see docs/wsgi.md.
+- **Out-of-band maintenance scheduler (opt-in).** A dedicated
+  `remotepower-scheduler.service` runs the ~33 `run_*_if_due` sweeps off the
+  request path (set `RP_EXTERNAL_SCHEDULER=1` on the worker). **Leader-elected**
+  (host file-lock + Postgres `pg_advisory_lock`) so exactly one node runs the
+  cadence — HA-safe — and it cut request latency ~25× on a networked Postgres
+  backend (no more per-request "is it due?" round-trips).
+- **Hard multi-tenancy (opt-in, `tenancy_enforced`).** A tenant entity confines
+  tenant admins to their own devices; a default-tenant admin is the cross-tenant
+  superadmin. Applied live from Settings → Security.
+- **Postgres row-level security (opt-in, `tenancy_rls`, Postgres only).**
+  DB-enforced tenant isolation on the `devices` table — `FORCE ROW LEVEL SECURITY`
+  + a per-request `app.rp_tenant` GUC, fail-closed — as defense-in-depth beneath
+  the app-layer scope. The column/trigger/policy are added **idempotently at
+  runtime** when you flip the switch (no migration script).
+
+### Helpdesk signals & billing
 
 - **AV/rootkit scan _warnings_ now alert.** rkhunter `[Warning]` lines (and a stale
   ClamAV signature DB) were only shown on the "Needs attention" card, so a host's

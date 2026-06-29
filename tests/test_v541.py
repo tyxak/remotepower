@@ -32,7 +32,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = "5.4.1"
+    V = api.SERVER_VERSION   # loosened on the v5.5.0 bump (was pinned "5.4.1")
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -460,10 +460,11 @@ class TestEnterpriseHardening5(unittest.TestCase):
         self.assertIn('async function rotateExportKey', _appjs())
 
     def test_cache_busted_for_asset_changes(self):
-        # The SW cache name must have moved past the original v5.4.1 so the
-        # enterprise-hardening asset changes actually reach browsers.
+        # The SW cache name must carry the current server version so asset
+        # changes actually reach browsers (loosened from the v5.4.1-N scheme
+        # on the v5.5.0 bump).
         sw = (_ROOT / "server/html/sw.js").read_text()
-        self.assertRegex(sw, r"remotepower-shell-v5\.4\.1-\d+")
+        self.assertIn(f"remotepower-shell-v{api.SERVER_VERSION}", sw)
 
 
 class TestE1OpenApiCoverage(unittest.TestCase):

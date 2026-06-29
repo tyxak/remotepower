@@ -197,7 +197,7 @@ def _is_network_fs(path):
 def _connect(data_dir=None):
     global _ATEXIT_REGISTERED
     d = Path(data_dir or DATA_DIR)
-    # v6.0.0 (keystone): key by (dir, pid, thread) so the cache is BOTH fork-safe
+    # v5.5.0 (keystone): key by (dir, pid, thread) so the cache is BOTH fork-safe
     # (a forked child gets a fresh connection, never the parent's socket) AND
     # thread-safe (sqlite3 connections are bound to their creating thread — sharing
     # one across threads raises "created in a thread can only be used in that same

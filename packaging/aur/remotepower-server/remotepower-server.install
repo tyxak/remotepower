@@ -20,7 +20,7 @@ _setup_msg() {
     AUR), python-pysaml2 + xmlsec (SAML, AUR).
     Faster backend (optional): the persistent SCGI worker —
       /usr/share/doc/remotepower-server/remotepower-api.service
-    Large-fleet backend (optional, v6.0.0): the gunicorn WSGI tier +
+    Large-fleet backend (optional, v5.5.0): the gunicorn WSGI tier +
     out-of-band scheduler (install gunicorn first) —
       /usr/share/doc/remotepower-server/remotepower-wsgi.service
       /usr/share/doc/remotepower-server/remotepower-scheduler.service

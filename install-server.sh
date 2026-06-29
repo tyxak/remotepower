@@ -11,6 +11,48 @@ die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
 [[ $EUID -ne 0 ]] && die "Run as root: sudo bash install-server.sh"
 
+# ── Optional opt-in scaling features (v6.x) — DEFAULT OFF ─────────────────────
+# With none of these requested the install below is the standard, unchanged
+# nginx + fcgiwrap (CGI) deployment. Each can also be set via an env var so the
+# unified wizard (install.sh) and CI can pass them through.
+APP_SERVER="${RP_APP_SERVER:-}"          # "wsgi" → persistent gunicorn app tier
+WITH_SCHEDULER="${RP_WITH_SCHEDULER:-0}" # 1 → out-of-band maintenance scheduler
+WITH_POSTGRES="${RP_WITH_POSTGRES:-0}"   # 1 → provision a PostgreSQL backend
+
+_usage() {
+  cat <<EOF
+RemotePower server installer
+
+Usage: sudo bash install-server.sh [options]
+
+  --app-server=wsgi   Run the API under a persistent gunicorn WSGI tier
+  --with-wsgi         (alias for --app-server=wsgi) — installs gunicorn +
+                      remotepower-wsgi.service and points nginx /api/ at
+                      http://127.0.0.1:8090 (default deployment stays CGI)
+  --with-scheduler    Run the ~33 maintenance sweeps out-of-band — installs
+                      remotepower-scheduler.service and sets
+                      RP_EXTERNAL_SCHEDULER=1 in /etc/remotepower/api.env
+  --with-postgres     Provision a PostgreSQL backend (packaging/postgres-setup.sh)
+  -h, --help          Show this help
+
+All three are OPT-IN and default OFF; the standard install is unchanged when
+none are given. See docs/wsgi.md and docs/scaling.md.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app-server=*)   APP_SERVER="${1#*=}" ;;
+    --app-server)     APP_SERVER="${2:?--app-server needs a value (wsgi)}"; shift ;;
+    --with-wsgi)      APP_SERVER="wsgi" ;;
+    --with-scheduler) WITH_SCHEDULER=1 ;;
+    --with-postgres)  WITH_POSTGRES=1 ;;
+    -h|--help)        _usage; exit 0 ;;
+    *) die "Unknown option: $1 (try --help)" ;;
+  esac
+  shift
+done
+
 echo ""
 echo "╔══════════════════════════════════════════════╗"
 echo "║   RemotePower Server Installer               ║"
@@ -400,6 +442,137 @@ PYEOF
 
 chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/users.json
 success "Admin user '${ADMIN_USER}' created"
+
+# ── OPT-IN: PostgreSQL backend (v6.x; default backend is single-file) ─────────
+# Runs the existing provisioner so the operator can pick PG at install time. It
+# writes the storage marker; existing file-based data (incl. the admin user just
+# created) still needs a one-time migration to land in the DB.
+if [[ "$WITH_POSTGRES" == "1" ]]; then
+    info "Provisioning PostgreSQL backend (packaging/postgres-setup.sh)..."
+    if [[ -f "$SCRIPT_DIR/packaging/postgres-setup.sh" ]]; then
+        if bash "$SCRIPT_DIR/packaging/postgres-setup.sh" --install --write-marker /var/lib/remotepower; then
+            chown "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/storage_backend.json 2>/dev/null || true
+            success "PostgreSQL provisioned + storage marker written"
+            warn "Migrate existing data into Postgres so the admin user is visible:"
+            warn "  python3 tools/migrate_storage.py  (or Settings → Advanced → Storage backend)"
+        else
+            warn "postgres-setup.sh failed — install continues on the default backend"
+        fi
+    else
+        warn "packaging/postgres-setup.sh not found — skipping Postgres provisioning"
+    fi
+fi
+
+# ── OPT-IN: out-of-band maintenance scheduler (v6.x) ──────────────────────────
+# Installs remotepower-scheduler.service and tells the API worker to stop running
+# the cadence on the request path (RP_EXTERNAL_SCHEDULER=1 in api.env). NB the
+# plain CGI/fcgiwrap path does NOT read api.env — pair --with-scheduler with the
+# SCGI worker (remotepower-api) or --with-wsgi so the flag is actually honoured.
+if [[ "$WITH_SCHEDULER" == "1" ]]; then
+    info "Enabling the out-of-band maintenance scheduler..."
+    install -m 644 "$SCRIPT_DIR/server/conf/remotepower-scheduler.service" \
+        /etc/systemd/system/remotepower-scheduler.service
+    install -d -m 755 -o root -g root /etc/remotepower
+    touch /etc/remotepower/api.env && chmod 600 /etc/remotepower/api.env
+    if ! grep -q '^RP_EXTERNAL_SCHEDULER=1' /etc/remotepower/api.env 2>/dev/null; then
+        printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env
+    fi
+    systemctl daemon-reload
+    systemctl enable --now remotepower-scheduler \
+        && success "Out-of-band scheduler enabled (remotepower-scheduler)" \
+        || warn "Could not start remotepower-scheduler — check: systemctl status remotepower-scheduler"
+    # If a persistent worker is running, restart it so it picks up the flag.
+    systemctl is-active --quiet remotepower-api  2>/dev/null && systemctl restart remotepower-api  || true
+    systemctl is-active --quiet remotepower-wsgi 2>/dev/null && systemctl restart remotepower-wsgi || true
+fi
+
+# ── OPT-IN: persistent gunicorn WSGI app tier (v6.x) ──────────────────────────
+# Installs gunicorn + remotepower-wsgi.service and repoints nginx /api/ from
+# fcgiwrap to the gunicorn proxy. The rewrite of the DEPLOYED locations snippet
+# is validated with `nginx -t` and reverted to fcgiwrap if it fails.
+if [[ "$APP_SERVER" == "wsgi" ]]; then
+    info "Setting up the persistent WSGI app tier (gunicorn)..."
+    # gunicorn is NOT a RemotePower dependency. Prefer the distro package (lands
+    # at /usr/bin/gunicorn, matching the unit's ExecStart) and fall back to pip.
+    if ! command -v gunicorn >/dev/null 2>&1; then
+        case $PKG_MGR in
+          apt)    apt-get install -y --no-install-recommends gunicorn 2>/dev/null \
+                    || pip3 install gunicorn --break-system-packages 2>/dev/null \
+                    || pip3 install gunicorn || warn "gunicorn install failed — WSGI tier unavailable" ;;
+          dnf)    dnf install -y -q python3-gunicorn 2>/dev/null \
+                    || pip3 install gunicorn || warn "gunicorn install failed — WSGI tier unavailable" ;;
+          pacman) pacman -S --noconfirm gunicorn 2>/dev/null \
+                    || pip install gunicorn || warn "gunicorn install failed — WSGI tier unavailable" ;;
+        esac
+    fi
+    if command -v gunicorn >/dev/null 2>&1; then
+        # The unit hardcodes /usr/bin/gunicorn; symlink if pip put it elsewhere.
+        [[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
+        install -m 644 "$SCRIPT_DIR/server/conf/remotepower-wsgi.service" \
+            /etc/systemd/system/remotepower-wsgi.service
+        install -d -m 755 -o root -g root /etc/remotepower
+        systemctl daemon-reload
+        systemctl enable --now remotepower-wsgi \
+            && success "remotepower-wsgi started (gunicorn on 127.0.0.1:8090)" \
+            || warn "Could not start remotepower-wsgi — check: systemctl status remotepower-wsgi"
+        _snip=/etc/nginx/snippets/remotepower-locations.conf
+        if [[ -f "$_snip" ]]; then
+            cp -a "$_snip" "${_snip}.cgi.bak"
+            python3 - "$_snip" <<'PYEOF'
+import re, sys
+from pathlib import Path
+p = Path(sys.argv[1]); text = p.read_text()
+# Rewrite each ACTIVE (non-commented) location block that drives fcgiwrap into a
+# gunicorn proxy_pass block. Commented example blocks start with '#' so the
+# line-anchored matcher skips them; brace matching is depth-aware so the nested
+# `limit_except { … }` doesn't confuse it.
+loc_re = re.compile(r'(?m)^[ \t]*location\b[^{]*')
+out, pos = [], 0
+while True:
+    m = loc_re.search(text, pos)
+    if not m:
+        out.append(text[pos:]); break
+    out.append(text[pos:m.start()])
+    sel = m.group(0)
+    bopen = text.index('{', m.start())
+    depth, j = 0, bopen
+    while j < len(text):
+        if text[j] == '{': depth += 1
+        elif text[j] == '}':
+            depth -= 1
+            if depth == 0: break
+        j += 1
+    block = text[bopen:j + 1]
+    if 'fcgiwrap.socket' in block:
+        pim = re.search(r'PATH_INFO\s+(\S+);', block)
+        suffix = pim.group(1) if (pim and pim.group(1) != '$uri') else ''
+        le = re.search(r'limit_except[^{]*\{[^}]*\}', block)
+        le_line = ('\n    ' + le.group(0)) if le else ''
+        indent = re.match(r'[ \t]*', sel).group(0)
+        out.append(
+            sel.rstrip() + ' {\n'
+            '    proxy_pass http://127.0.0.1:8090' + suffix + ';\n'
+            '    proxy_set_header Host $host;\n'
+            '    proxy_set_header X-Real-IP $remote_addr;\n'
+            '    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
+            '    proxy_set_header X-Forwarded-Proto $scheme;\n'
+            '    proxy_read_timeout 130s;' + le_line + '\n' + indent + '}')
+    else:
+        out.append(sel + block)
+    pos = j + 1
+p.write_text(''.join(out))
+PYEOF
+            if nginx -t >/dev/null 2>&1; then
+                systemctl reload nginx
+                success "nginx /api/ now proxies to the WSGI tier (backup: ${_snip}.cgi.bak)"
+            else
+                warn "nginx -t failed after the WSGI switch — reverting to fcgiwrap"
+                cp -a "${_snip}.cgi.bak" "$_snip"
+                nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
+            fi
+        fi
+    fi
+fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────────
 echo ""
