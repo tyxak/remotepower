@@ -93,14 +93,20 @@ RP_DATA_DIR=/var/lib/remotepower python3 server/cgi-bin/scheduler.py
 - **Interval:** `RP_SCHEDULER_INTERVAL` seconds (default 60). The sweeps are each
   `_if_due`-gated, so the interval just controls how often "what's due" is checked.
 
-A systemd unit is the natural way to run it:
+**Why it matters (measured):** against a networked Postgres backend, the per-request
+cadence costs ~33 "is it due?" DB round-trips per request. In a staging test that was
+**~0.68 s/request with the cadence on the request path vs ~0.027 s with it off — a 25×
+latency drop.** On a networked DB, turning the external scheduler on is strongly
+recommended.
 
-```ini
-[Service]
-Environment=RP_EXTERNAL_SCHEDULER=1
-Environment=RP_DATA_DIR=/var/lib/remotepower
-ExecStart=/usr/bin/python3 /var/www/remotepower/server/cgi-bin/scheduler.py
-Restart=always
+A ready-made systemd unit ships at `server/conf/remotepower-scheduler.service`
+(mirrors the API worker's user/env/capabilities since it runs the same sweeps):
+
+```bash
+cp server/conf/remotepower-scheduler.service /etc/systemd/system/
+printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env   # tell the WORKER to stop running it
+systemctl daemon-reload && systemctl enable --now remotepower-scheduler
+systemctl restart remotepower-api
 ```
 
 ## Falling back

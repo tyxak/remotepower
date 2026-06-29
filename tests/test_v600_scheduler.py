@@ -117,5 +117,18 @@ class TestRequestPathGuard(unittest.TestCase):
         self.assertIn('if _ext_sched:', src[i:i + 4000])
 
 
+class TestSchedulerSystemdUnit(unittest.TestCase):
+    """The out-of-band scheduler ships a ready-made systemd unit."""
+
+    def test_unit_present_and_wired(self):
+        unit = _ROOT / "server" / "conf" / "remotepower-scheduler.service"
+        self.assertTrue(unit.exists(), "remotepower-scheduler.service missing")
+        txt = unit.read_text()
+        self.assertIn("scheduler.py", txt)                 # runs the scheduler
+        self.assertIn("RP_EXTERNAL_SCHEDULER=1", txt)       # owns the cadence
+        self.assertIn("EnvironmentFile=-/etc/remotepower/api.env", txt)  # same secrets as worker
+        self.assertIn("[Install]", txt)
+
+
 if __name__ == '__main__':
     unittest.main()

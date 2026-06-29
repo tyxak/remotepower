@@ -1,0 +1,63 @@
+# RemotePower out-of-band maintenance scheduler (v6.0.0 keystone Stage D).
+#
+# Runs the ~33 run_*_if_due maintenance sweeps from a DEDICATED process instead of
+# piggy-backing them on request traffic. Two wins, both validated against a real
+# Postgres backend (2026-06-29):
+#   * maintenance runs even with zero UI/agent traffic, and
+#   * request latency drops sharply — measured ~0.68s -> ~0.027s per request (25x)
+#     on a networked Postgres backend, because the request path no longer makes
+#     ~33 "is it due?" DB round-trips per request.
+#
+# PAIR IT WITH THE WORKER: set RP_EXTERNAL_SCHEDULER=1 on the API worker
+# (/etc/remotepower/api.env) so the request path STOPS running the cadence, then
+# enable this unit so exactly one process runs it. A host file-lock + (on the
+# Postgres backend) a pg_advisory_lock make it safe to run one per node for HA —
+# only the elected leader executes the sweeps.
+#
+# Install:
+#   cp server/conf/remotepower-scheduler.service /etc/systemd/system/
+#   printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env   # on the WORKER
+#   systemctl daemon-reload && systemctl enable --now remotepower-scheduler
+#   systemctl restart remotepower-api
+# Roll back: disable this unit + remove RP_EXTERNAL_SCHEDULER from api.env +
+# restart the worker — the request path resumes running the cadence as before.
+
+[Unit]
+Description=RemotePower out-of-band maintenance scheduler
+Documentation=file:///var/www/remotepower/cgi-bin/scheduler.py
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+RuntimeDirectory=remotepower
+RuntimeDirectoryMode=0750
+Environment=RP_DATA_DIR=/var/lib/remotepower
+# This process OWNS the cadence; the flag also keeps semantics consistent if the
+# scheduler ever imports a code path that checks it.
+Environment=RP_EXTERNAL_SCHEDULER=1
+# Poll interval (seconds): how often "what's due" is checked. The sweeps are each
+# _if_due-gated, so a short interval doesn't run anything more often than its cadence.
+Environment=RP_SCHEDULER_INTERVAL=60
+# Same secrets file as the worker (RP_BACKUP_PASSPHRASE, RP_PG_DSN, RP_CONFIG_KEY,
+# SMTP/LDAP creds, …) — the scheduler runs the same sweeps, so it needs the same env.
+EnvironmentFile=-/etc/remotepower/api.env
+ExecStart=/usr/bin/python3 /var/www/remotepower/cgi-bin/scheduler.py
+Restart=always
+RestartSec=5
+
+# Hardening — mirrors remotepower-api.service (the scheduler runs the same cadence:
+# agentless ICMP reachability shells out to `ping` → CAP_NET_RAW; WG Access stats →
+# CAP_NET_ADMIN + the wg helper run directly under NoNewPrivileges).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/remotepower
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+Environment=RP_WG_DIRECT=1
+Environment=RP_WG_DIR=/var/lib/remotepower/wg
+
+[Install]
+WantedBy=multi-user.target
