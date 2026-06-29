@@ -100,6 +100,20 @@ ensure_gunicorn() {
   [[ -x /usr/bin/gunicorn ]] || ln -sf "$(command -v gunicorn)" /usr/bin/gunicorn
 }
 
+# Poll the gunicorn worker until it actually answers — so we never repoint nginx
+# at a dead :8090 and 502 the live API. Any HTTP status (200/401/403/404) means
+# the socket served a response; "000" means connection refused / not up.
+wait_gunicorn_healthy() {
+  command -v curl >/dev/null 2>&1 || { warn "curl not found — skipping the gunicorn health gate"; return 0; }
+  local i code
+  for i in $(seq 1 15); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://${GUNICORN_BIND}/api/health" 2>/dev/null || echo 000)
+    [[ "$code" =~ ^[234][0-9][0-9]$ ]] && { info "gunicorn healthy on ${GUNICORN_BIND} (HTTP $code)"; return 0; }
+    sleep 1
+  done
+  return 1
+}
+
 # Surgically rewrite the RP /api backend blocks in $SNIP to gunicorn proxy_pass.
 rewrite_nginx_to_wsgi() {
   [[ -f "$SNIP" ]] || die "nginx config not found at $SNIP — set RP_NGINX_CONF=<your vhost> (the file with your 'location /api/ {…}' blocks)"
@@ -238,6 +252,9 @@ case "$cmd" in
     if [[ "$(current_mode)" == "wsgi" ]]; then
       info "nginx /api/ already proxies to the WSGI tier — leaving $SNIP as-is"
     else
+      # Health gate: never repoint nginx at a dead gunicorn (that's a guaranteed 502).
+      wait_gunicorn_healthy \
+        || die "gunicorn on $GUNICORN_BIND is not answering — NOT touching nginx (you're still on CGI/SCGI).\n  Check: systemctl status remotepower-wsgi ; journalctl -u remotepower-wsgi -n 40\n  (most common cause: the served code in /var/www/remotepower isn't v5.5.0 — run deploy-server.sh)"
       rewrite_nginx_to_wsgi
       reload_nginx "${SNIP}.cgi.bak" \
         && info "nginx /api/ now proxies to gunicorn (backup: ${SNIP}.cgi.bak)" \
