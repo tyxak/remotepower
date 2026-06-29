@@ -136,22 +136,39 @@ def _peer_ip_blocked(ip_str, allow_loopback=False):
 
 
 def _ssrf_opener(ctx, allow_loopback=False):
+    def _guard_peer(conn):
+        try:
+            peer = conn.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            return
+        if _peer_ip_blocked(peer, allow_loopback):
+            conn.close()
+            raise OSError(f'SSRF guard: AI endpoint peer {peer} is a blocked address')
+
     class _GuardConn(_httpclient.HTTPSConnection):
         def connect(self):
             super().connect()
-            try:
-                peer = self.sock.getpeername()[0]
-            except (OSError, AttributeError, IndexError):
-                return
-            if _peer_ip_blocked(peer, allow_loopback):
-                self.close()
-                raise OSError(f'SSRF guard: AI endpoint peer {peer} is a blocked address')
+            _guard_peer(self)
+
+    # v5.5.0 (M2): plain-http:// AI endpoints (ollama/localai, or an admin-set
+    # http base_url) must get the SAME connect-time peer recheck — otherwise an
+    # http base_url that passes the save-time preflight could DNS-rebind to
+    # 169.254.169.254 / an internal HTTP service at connect time and replay the
+    # Bearer api_key. (Previously only the HTTPS handler was guarded.)
+    class _GuardHTTPConn(_httpclient.HTTPConnection):
+        def connect(self):
+            super().connect()
+            _guard_peer(self)
 
     class _GuardHTTPSHandler(urllib.request.HTTPSHandler):
         def https_open(self, req):
             return self.do_open(_GuardConn, req, context=ctx)
 
-    return urllib.request.build_opener(_NoRedirect, _GuardHTTPSHandler())
+    class _GuardHTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(_GuardHTTPConn, req)
+
+    return urllib.request.build_opener(_NoRedirect, _GuardHTTPHandler(), _GuardHTTPSHandler())
 
 
 # ── Redaction ──────────────────────────────────────────────────────────────

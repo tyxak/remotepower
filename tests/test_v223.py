@@ -91,7 +91,8 @@ class TestActivityFilter(unittest.TestCase):
         # v4.7.0: widened again — added integration_down/integration_recovered.
         # v5.0.0: widened 4600→4800 — added vault_break_glass.
         # v5.1.0: widened 4800→5200 — added fail2ban_ban + av_infected.
-        chunk = self.js[func_start:func_start + 5200]
+        # v5.5.0: widened 5200→5600 — added failed_unit.
+        chunk = self.js[func_start:func_start + 5600]
         self.assertIn('.filter(', chunk)
         self.assertIn('.slice(', chunk)
         filter_pos = chunk.find('.filter(')

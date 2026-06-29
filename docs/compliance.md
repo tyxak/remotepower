@@ -60,7 +60,7 @@ Many of these controls are **opt-in** — see the linked feature docs and
 | Backup & DR — encrypted controller backup, off-host mirroring, **test-restore** verification | A1.2 | A.8.13, A.5.30 |
 | Availability — agent/agentless monitoring, maintenance mode/windows, webhook DLQ + replay | A1.1, A1.2 | A.5.30, A.8.16 |
 | Boundary protection — SSRF guards on all outbound, per-IP/login rate limits, IP allowlist, CSP | CC6.6 | A.8.20, A.8.23 |
-| Multi-tenant isolation — RBAC-scoped soft tenancy (group/tag/site) **(operator)** | CC6.1 | A.5.15, A.8.2 |
+| Multi-tenant isolation — RBAC-scoped soft tenancy (group/tag/site); optional **hard multi-tenancy** (`tenancy_enforced`) with optional Postgres **row-level security** (`tenancy_rls`) **(operator)** | CC6.1 | A.5.15, A.8.2 |
 
 ## Operator responsibilities (not provided by the software)
 

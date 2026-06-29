@@ -38,22 +38,21 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.3.0.md](security-review-5.3.0.md)** — Latest review:
- the new built-in ticket system + Contacts directory (inbound mail parsing,
- IMAP/SMTP, ticket↔alert linkage, HTML signatures) plus a whole-project server +
- agent audit and a live authenticated penetration test, with CodeQL + Bandit +
- semgrep + gitleaks all clean (no Critical/High/Medium ships) — a Medium
- strict-mode alert-permission fix and a Low email-header-injection hardening.
+- **[security-review-5.5.0.md](security-review-5.5.0.md)** — Latest review:
+ the v5.5.0 "ScaleMatters" release (persistent WSGI app tier, out-of-band scheduler,
+ hard multi-tenancy + Postgres RLS) plus a whole-project server + agent audit, SAST
+ (CodeQL + Bandit + semgrep + gitleaks, all clean) and a live authenticated
+ penetration test — no Critical/High/Medium ships; a High drift-authz fix, two Medium
+ fixes (DMARC entity-guard window, AI-provider HTTP SSRF) and a Low secret-URL fix.
+- **[security-review-5.3.0.md](security-review-5.3.0.md)** — A prior review:
+ the built-in ticket system + Contacts directory plus a whole-project audit and a
+ live authenticated penetration test — a Medium strict-mode alert-permission fix
+ and a Low email-header-injection hardening.
 - **[security-review-5.2.0.md](security-review-5.2.0.md)** — A prior review:
  the new WG Access (WireGuard VPN) feature plus a whole-project server + agent
  audit and a live authenticated penetration test, with CodeQL + Bandit + gitleaks
  all clean (no Critical/High/Medium ships) — the privileged-helper boundary,
  browser keygen, and two Low-severity tunnel-confinement/teardown fixes.
-- **[security-review-5.1.1.md](security-review-5.1.1.md)** — A prior review:
- a whole-project server + agent audit and a live authenticated penetration test,
- with CodeQL + Bandit + gitleaks all clean (no Critical/High/Medium ships) — the
- community-contribution surface (Proxmox cluster, hash routing, LocalAI keys, the
- separate embedding service) plus Low-severity escaping and request-body hardening.
 
 ## Release notes
 

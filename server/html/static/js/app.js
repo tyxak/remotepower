@@ -4516,7 +4516,7 @@ async function openTicketThread(tid) {
   b.appendChild(wrap);
   // Header card.
   const head = el('div', { background: '#fff', border: '1px solid #d9dde3', borderRadius: '10px', padding: '16px 18px', marginBottom: '16px' });
-  head.appendChild(el('div', { fontSize: '18px', fontWeight: '700', marginBottom: '4px' }, t.subject || '(no subject)'));
+  head.appendChild(el('div', { fontSize: '16px', fontWeight: '700', marginBottom: '4px' }, t.subject || '(no subject)'));
   const meta = `${noStr} · ${(t.status || '').replace(/_/g, ' ')}` + (t.to_email ? ` · ${t.to_email}` : '') + (t.device_name ? ` · ${t.device_name}` : '');
   head.appendChild(el('div', { fontSize: '12px', color: '#5b626d' }, meta));
   wrap.appendChild(head);
@@ -15720,6 +15720,7 @@ function _renderHomeActivity(fleetEvents) {
     'resolver_unhealthy', 'resolver_recovered',
     // v5.1.0: fail2ban intrusion bans
     'fail2ban_ban',
+    'failed_unit',
     // v5.1.0: endpoint AV/malware detection
     'av_infected',
     // v5.4.1: AV/rootkit scan warnings (rkhunter [Warning] / stale AV DB)
@@ -15923,6 +15924,9 @@ function _homeActivityAttrs(event, p) {
     // v5.1.0: fail2ban bans → host drawer (or the Firewall page fleet-wide)
     case 'fail2ban_ban':
       return `${base} data-home-act="${devId ? 'detail' : 'firewall'}"`;
+    // v5.5.0: a unit entering the failed state → the host drawer (or Checks fleet-wide)
+    case 'failed_unit':
+      return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
     // v5.1.0: malware/rootkit detection → the affected host's drawer
     // v5.4.1: av_warning (rkhunter warnings / stale AV DB) routes the same way
     case 'av_infected': case 'av_warning':
@@ -22712,7 +22716,7 @@ async function loadSelfStatus() {
     ? `<details class="mt-8"><summary class="c-muted">View ${perf.health_flags.length} reason(s)</summary><ul class="mt-4">${perf.health_flags.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul></details>`
     : '';
   body.innerHTML = `
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Site health ${healthPill}</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
@@ -22726,7 +22730,7 @@ async function loadSelfStatus() {
       ${flagsHtml}
     </div>
 
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Devices</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
@@ -22737,7 +22741,7 @@ async function loadSelfStatus() {
       </table>
     </div>
 
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Webhook delivery — outbound</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Last 24h</td><td>${_whHtml(w24)}</td></tr>
@@ -22759,7 +22763,7 @@ async function loadSelfStatus() {
         return `<strong>${w.success}</strong> / ${w.attempts} <span class="${pctCls}">(${pct}%)</span>` +
                (kindsTxt ? ` <span class="hint">[${kindsTxt}]</span>` : '');
       };
-      return `<div class="card p-16">
+      return `<div class="dash-card">
         <div class="fw-600-mb10">Inbound webhooks &amp; syslog</div>
         <table class="fs-13">
           <tr><td class="c-muted-padded">Last 24h</td><td>${_iwHtml(i24)}</td></tr>
@@ -22769,7 +22773,7 @@ async function loadSelfStatus() {
       </div>`;
     })()}
 
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
       <table class="isl-714">
         <tr><td class="c-muted-padded">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
@@ -22778,7 +22782,7 @@ async function loadSelfStatus() {
       ${bigFiles ? `<details><summary class="isl-715">Largest files (>100KB)</summary><div class="mt-8">${bigFiles}</div></details>` : ''}
     </div>
 
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Audit log</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
@@ -22787,7 +22791,7 @@ async function loadSelfStatus() {
       </table>
     </div>
 
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Backup</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Encryption</td><td>${bk.encryption_armed
@@ -22834,7 +22838,7 @@ sudo systemctl restart remotepower-api</pre>
 
     ${_slowHandlersCard(s.slow_handlers)}
 
-    <div class="card p-16">
+    <div class="dash-card">
       <div class="fw-600-mb10">Fleet events</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
@@ -22853,7 +22857,7 @@ function _slowHandlersCard(sh) {
     return `<tr><td class="c-muted-padded">${escHtml(r.method || '')} <code class="fs-11">${escHtml(r.path || '')}</code></td>`
       + `<td class="${cls}">${r.ms} ms</td><td class="hint">${_selfFmtAgo(r.ts)}</td></tr>`;
   }).join('');
-  return `<div class="card p-16">
+  return `<div class="dash-card">
       <div class="fw-600-mb10">Slow requests <span class="hint">(> ${sh.threshold_ms} ms; last ${sh.count})</span></div>
       <table class="fs-13">${rows}</table>
     </div>`;
@@ -22879,7 +22883,7 @@ function _cadenceJobsCard(jobs) {
     return `<tr><td class="c-muted-padded">${escHtml(labels[k])}${cnt}</td><td class="${cls}">${escHtml(state)}</td></tr>`;
   }).join('');
   if (!rows) return '';
-  return `<div class="card p-16">
+  return `<div class="dash-card">
       <div class="fw-600-mb10">Recurring jobs</div>
       <table class="fs-13">${rows}</table>
     </div>`;
@@ -22894,7 +22898,7 @@ async function runSelfTest() {
   const rows = data.checks.map(c =>
     `<tr><td>${c.ok ? '<span class="c-green">●</span>' : '<span class="c-red">●</span>'}</td>`
     + `<td class="fw-600">${escHtml(c.name)}</td><td class="hint">${escHtml(c.detail || '')}</td></tr>`).join('');
-  box.innerHTML = `<div class="card p-16"><div class="fw-600-mb10">${data.ok
+  box.innerHTML = `<div class="dash-card"><div class="fw-600-mb10">${data.ok
     ? '<span class="c-green">● All checks passed</span>'
     : '<span class="c-red">● Some checks failed</span>'}</div>`
     + `<table class="fs-13">${rows}</table></div>`;

@@ -223,7 +223,7 @@ class TestHeartbeatWiring(unittest.TestCase):
         # v3.12.0: widened 50000→60000 — handle_heartbeat grew (single-row
         # device update + mount-issue sanitisation), pushing the strings this
         # test greps for past the old slice boundary.
-        cls.hb = cls.api[idx: idx + 84000]   # widened (v4.9.0/v4.10.0 ingests; v5.0.1 finalize-sweep pushed 'custom_scripts' to ~78002, 2 past the old 78000)
+        cls.hb = cls.api[idx: idx + 90000]   # widened (v4.9.0/v4.10.0 ingests; v5.0.1 →78002; v5.5.0 failed_unit edge-trigger pushed 'custom_scripts' to ~84220)
 
     def test_custom_script_results_ingested(self):
         self.assertIn('custom_script_results', self.hb)

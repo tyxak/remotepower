@@ -198,7 +198,13 @@ def parse_aggregate_report(xml_bytes):
     if not xml_bytes:
         return None
     import xml.etree.ElementTree as ET
-    if b'<!doctype' in xml_bytes[:4096].lower() or b'<!entity' in xml_bytes[:4096].lower():
+    # v5.5.0 (M1): scan the WHOLE buffer, not just the first 4 KB. expat expands
+    # internal entities, so a DOCTYPE/ENTITY pushed past a 4 KB window (e.g. behind
+    # a large leading comment) would slip the guard → billion-laughs DoS on a
+    # report deliverable by any unauthenticated sender (RUA addresses are public).
+    # The buffer is already size-capped at ingestion; a full scan is cheap.
+    _head = xml_bytes.lower()
+    if b'<!doctype' in _head or b'<!entity' in _head:
         return None
     try:
         root = ET.fromstring(xml_bytes)

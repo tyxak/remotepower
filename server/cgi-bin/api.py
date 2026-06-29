@@ -932,6 +932,7 @@ WEBHOOK_EVENTS = (
     # v5.1.0: fail2ban banned a NEW IP on a host — a first-class security event
     # (previously audit-only). No recover event: a ban expiry isn't actionable.
     ('fail2ban_ban',          'fail2ban banned a new IP address on a host',          True),
+    ('failed_unit',           'a systemd unit entered the failed state on a host',   True),
     # v5.1.0: endpoint AV/malware — ClamAV/rkhunter reported an ACTIVE infection
     # (rising edge; previously a posture card only, so a detected infection never
     # alerted). No recover event — a malware finding stays actionable until an
@@ -1869,8 +1870,10 @@ def _secret_from_env(name):
     try:
         # Operator-supplied command (same trust level as the env var it replaces);
         # shell=True so pipelines like `vault kv get -field=k secret/rp | tr -d '\n'`
-        # work. Bounded timeout so a hung helper can't wedge the worker.
-        out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+        # work. Bounded timeout so a hung helper can't wedge the worker. nosec B602:
+        # the command is operator config (RP_*_CMD), never request data — identical
+        # trust to setting the secret in the env directly.
+        out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)  # nosec B602
         if out.returncode == 0:
             val = (out.stdout or '').strip() or None
         else:
@@ -5191,6 +5194,7 @@ _ALERT_RULES = {
     'ip_blacklisted':             ('high', None),        # v4.8.0
     'resolver_unhealthy':         ('high', None),        # v4.9.0
     'fail2ban_ban':               ('medium', None),      # v5.1.0
+    'failed_unit':                ('medium', None),      # v5.5.0
     'av_infected':                ('high', None),        # v5.1.0: active malware/rootkit
     'av_warning':                 ('medium', None),      # v5.4.1: rkhunter warnings / stale AV DB
     'vpn_client_disconnected':    ('medium', None),      # v5.2.0
@@ -5295,7 +5299,7 @@ CHANNEL_KINDS = [
     # v4.2.0 sweep: NA-only kind (like acme) — _compute_attention emits
     # failed_units cards but they had no matrix row, so the Needs-Attention
     # filter fell back to always-on with no operator toggle.
-    ('failed_units', 'Failed systemd units',    'operational',   []),
+    ('failed_units', 'Failed systemd units',    'operational',   ['failed_unit']),
     ('snapshot',    'Old snapshots',            'operational',   ['snapshot_old']),
     ('reboot',      'Pending reboot',           'operational',   ['reboot_required']),
     ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
@@ -7669,6 +7673,7 @@ def _webhook_title(event):
         'resolver_unhealthy':    'DNS Resolution Failing',
         'resolver_recovered':    'DNS Resolution Recovered',
         'fail2ban_ban':          'fail2ban Ban',
+        'failed_unit':           'Failed systemd Unit',
         'av_infected':           'Malware Detected',
         'av_warning':            'AV / Rootkit Warning',
         'ticket_sla_breached':   'Ticket SLA Breached',
@@ -8687,6 +8692,10 @@ def _webhook_message(event, payload):
         return (f'{name}: fail2ban jail {payload.get("jail","?")} banned '
                 f'{payload.get("first_ip","?")}'
                 + (f' (+{_fn - 1} more new this cycle)' if _fn > 1 else ''))
+    elif event == 'failed_unit':
+        _un = payload.get('new_count') or 1
+        return (f'{name}: systemd unit {payload.get("unit","?")} entered the failed state'
+                + (f' (+{_un - 1} more new this cycle)' if _un > 1 else ''))
     return f'{event}: {name}'
 
 
@@ -13335,6 +13344,7 @@ def handle_heartbeat():
     _reinstall_audit_pending = False  # audit AFTER the device lock (audit_log locks too)
     _agent_started_pending = None     # v4.10.0: ('agent resumed after graceful stop') payload
     _fail2ban_pending = []            # v5.1.0: ('fail2ban_ban', payload) — new bans, fired post-lock
+    _failed_unit_pending = []         # v5.5.0: ('failed_unit', payload) — newly-failed units, post-lock
     # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
     # this device's row (O(1)) instead of reconstructing every device; under
     # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
@@ -13931,6 +13941,22 @@ def handle_heartbeat():
                     _sanitize_str(u, 128) for u in si['failed_units'][:50]
                     if isinstance(u, str)
                 ]
+                # v5.5.0: edge-trigger failed_unit on units newly in the failed
+                # state since the previous heartbeat (seed silently on first
+                # sight — no prior snapshot → don't fire the whole set at once).
+                # Buffer here; fire AFTER the DEVICES lock (B2 lock-nesting class).
+                _prev_fu = (dev.get('sysinfo') or {}).get('failed_units')
+                if isinstance(_prev_fu, list):
+                    _new_fu = sorted(set(safe_si['failed_units']) - set(_prev_fu))
+                    if _new_fu:
+                        _new_fu = _new_fu[:50]
+                        _failed_unit_pending.append(('failed_unit', {
+                            'device_id': dev_id,
+                            'name':      dev.get('name', dev_id),
+                            'unit':      _new_fu[0],
+                            'units':     _new_fu,
+                            'new_count': len(_new_fu),
+                        }))
             # v3.8.0: persist currently-logged-in users (operational signal —
             # who is on the box right now). Same omission as failed_units.
             if isinstance(si.get('logged_in'), list):
@@ -14114,6 +14140,12 @@ def handle_heartbeat():
     for _f2bev, _f2bpl in _fail2ban_pending:
         try:
             fire_webhook(_f2bev, _f2bpl)
+        except Exception:
+            pass
+    # v5.5.0: fire failed_unit webhooks buffered inside the lock (B2 class).
+    for _fuev, _fupl in _failed_unit_pending:
+        try:
+            fire_webhook(_fuev, _fupl)
         except Exception:
             pass
 
@@ -17108,9 +17140,16 @@ def handle_config_get():
     # ai.api_key is surfaced as ai_configured. (Before v5.0.0 it was returned
     # raw to admin tokens, putting a reusable secret in a GET response body.)
     safe.pop('webhook_url', None)
+    # v5.5.0 (L1): the Healthchecks.io ping URL has a secret UUID in its path — a
+    # reusable credential. The Settings form round-trips it on save, so admins keep
+    # seeing it (like webhook_urls[].url), but a non-admin (viewer/MCP) token must
+    # NOT get the raw URL in a GET body — it isn't caught by the name-based
+    # _scrub_config_secrets. Always expose the boolean; withhold the URL below.
+    safe['healthchecks_configured'] = bool((cfg.get('healthchecks_url') or '').strip())
     # webhook_urls[].url stays visible to admins because the multi-webhook editor
     # round-trips it on save; viewers / MCP keys get only the url_set indicator.
     if not _cfg_is_admin:
+        safe.pop('healthchecks_url', None)   # v5.5.0 (L1): secret-bearing URL
         if isinstance(safe.get('webhook_urls'), list):
             for _e in safe['webhook_urls']:
                 if isinstance(_e, dict) and _e.get('url'):
@@ -33871,7 +33910,12 @@ def handle_drift_fetch_content(dev_id):
     paths are dropped silently from the queue list (returned in
     `denied`). Other paths in the same request still get queued.
     """
-    actor = require_auth()
+    # v5.5.0 (H1): this queues an `exec:cat <path>` on the device, so it must
+    # require the `command` permission AND device-scope — not bare auth. A bare
+    # require_auth() let a viewer/mcp token (or a scoped operator targeting an
+    # out-of-scope device) make a host execute a command and exfiltrate the
+    # watched file's contents. Mirrors the sibling drift baseline/reset handlers.
+    actor = require_perm('command', [dev_id])
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):

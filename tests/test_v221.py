@@ -59,6 +59,9 @@ def _capture_respond():
 def _stub_auth(username='admin'):
     api.require_auth = lambda **kw: username
     api.require_admin_auth = lambda: username
+    # v5.5.0 (H1): handle_drift_fetch_content now gates on require_perm('command',
+    # [dev_id]); stub it too or it does a real scope check and 401s the tests.
+    api.require_perm = lambda *a, **kw: username
 
 
 def _set_method(m='GET', body=None, qs=None):

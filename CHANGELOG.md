@@ -33,6 +33,33 @@ Everything new here is opt-in and **default-off — no breaking changes.**
   the app-layer scope. The column/trigger/policy are added **idempotently at
   runtime** when you flip the switch (no migration script).
 
+### Finalize sweep — security, fixes & polish
+
+- **Security review + hardening** (full server/agent audit, SAST — Bandit, gitleaks,
+  semgrep, CodeQL — all clean, plus a live authenticated penetration test; see
+  `docs/security-review-5.5.0.md`). Fixed: a **High** missing authorization/scope on
+  the drift content-fetch endpoint (a read-only or out-of-scope token could queue a
+  watched-file read); two **Medium** issues — the DMARC report parser's entity-expansion
+  guard now scans the whole report (was first-4 KB only), and the AI-provider client
+  now re-checks the peer IP at connect time for plain-HTTP endpoints too; and a **Low** —
+  a secret-bearing monitoring URL is withheld from non-admin tokens. No Critical/High/
+  Medium ships. Added `Cross-Origin-Opener-Policy`/`Cross-Origin-Resource-Policy` to the
+  shipped nginx template.
+- **New `failed_unit` event** — a systemd unit entering the failed state now raises a
+  first-class alert/webhook (edge-triggered, coalesced per host) instead of only a
+  "Needs attention" card. **WEBHOOK_EVENTS → 89.**
+- **Fixes:** the "Add integration" picker is a plain dropdown again (no stray
+  type-to-filter); the package-upgrade command on dnf hosts now runs
+  `dnf upgrade --refresh -y && dnf autoremove -y && dnf clean all`; the Command
+  Library "Use" button copies the snippet to the clipboard (it previously did nothing
+  useful); the recurring narrow-`<select>`-spans-full-width layout bug is fixed at the
+  root (the dropdown wrapper no longer stretches in a stacked settings row).
+- **UI polish:** the app-catalog and generated-IaC panes now scroll instead of growing
+  unbounded; the Server-status page sections are framed as cards in every theme; one
+  off-scale heading folded onto the type scale. About-page description refreshed.
+- **Perf:** the synthetic-monitor probe paths read config read-only instead of
+  deep-copying the whole config per target.
+
 ### Helpdesk signals & billing
 
 - **AV/rootkit scan _warnings_ now alert.** rkhunter `[Warning]` lines (and a stale

@@ -26,9 +26,9 @@ mail parsing, IMAP/SMTP, the ticket↔alert linkage, HTML signatures) and a
 whole-project server + agent security review with SAST tooling (CodeQL, Bandit,
 semgrep, gitleaks — all clean) plus a live authenticated penetration test of the
 production deployment, held to the bar — **no Critical, High, or Medium finding
-ships** — see [security-review-5.3.0.md](security-review-5.3.0.md). It builds on
-**v5.2.0** (see [security-review-5.2.0.md](security-review-5.2.0.md)) and **v5.1.1**
-(see [security-review-5.1.1.md](security-review-5.1.1.md)), which underwent the
+ships** — see [security-review-5.5.0.md](security-review-5.5.0.md). It builds on
+**v5.3.0** (see [security-review-5.3.0.md](security-review-5.3.0.md)) and **v5.2.0**
+(see [security-review-5.2.0.md](security-review-5.2.0.md)), which underwent the
 same review. The v4.10.0
 headline surface, the **Security → Firewall** page (view/edit
 nftables/iptables/ufw/firewalld rules and fail2ban jails), is safe by
@@ -109,7 +109,7 @@ All data in `/var/lib/remotepower/` (owned by `www-data`, mode `700`):
 | `users.json` | Admin accounts + bcrypt hashes + roles |
 | `devices.json` | Enrolled devices, MAC, group, notes, cached sysinfo + journal |
 | `tokens.json` | Active browser sessions (7-day TTL), keyed by SHA-256 of the token |
-| `apikeys.json` | Named API keys (values stored here) |
+| `apikeys.json` | Named API keys — stored as a SHA-256 `key_hash` (the raw key is shown once at creation and never persisted) |
 | `pins.json` | Pending enrollment PINs |
 | `commands.json` | Pending command queue per device |
 | `config.json` | Webhook URL, WoL settings, monitor targets, patch threshold |
@@ -147,9 +147,9 @@ the extended subsystems (WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI
 provider, Proxmox/OPNsense/RouterOS integrations, SSRF-guarded outbound calls,
 backup/restore, host-config, and the RBAC scope model). The full reviews live in
 `docs/security-review-*.md`; each release-over-release pass is
-summarised in the latest, [security-review-5.3.0.md](security-review-5.3.0.md).
-The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit;
-OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
+summarised in the latest, [security-review-5.5.0.md](security-review-5.5.0.md).
+The codebase is also scanned with a combined **SAST + DAST** pipeline (Bandit,
+gitleaks, semgrep, CodeQL; OWASP ZAP, Nikto, Nuclei, Wapiti, WhatWeb) — the most recent full run reported
 **no exploitable findings** (see *Security testing* below). Summary of the
 defences in place (kept current):
 
@@ -159,8 +159,9 @@ defences in place (kept current):
   carried in the `X-Token` HTTP header. **Not cookies** — this means cross-site
   requests cannot forge state-changing API calls without a CORS preflight that
   the server never permits.
-- **Passwords** are PBKDF2-HMAC-SHA256 at 600 000 iterations (OWASP 2023 minimum)
-  with per-account salts. Legacy SHA-256 hashes are auto-upgraded on next login.
+- **Passwords** are hashed with **bcrypt** (cost 12); where bcrypt is unavailable
+  the server falls back to PBKDF2-HMAC-SHA256 at 600 000 iterations (OWASP minimum)
+  with per-account salts. Legacy hashes are auto-upgraded on next login.
 - **Login rate limiting** uses an exponential backoff ladder
   (10 s → 1 min → 5 min → 30 min → 2 h) and a dummy-verify on missing users to
   prevent timing-based account enumeration.
@@ -177,8 +178,11 @@ defences in place (kept current):
   role, **cap concurrent sessions** per user, set a **default API-key expiry**,
   and read a graded **security-posture self-check** on the Audit page. The audit
   log is **hash-chained** (tamper-evident) with a one-click integrity verify.
-- **API keys** are 320-bit, compared with `hmac.compare_digest`, shown to the
-  operator only at creation, support per-key expiry, capped at 50 per server.
+- **API keys** are 320-bit, **stored hashed at rest** (SHA-256 `key_hash`; a
+  legacy plaintext key is migrated to a hash on first use) and compared by hash
+  with `hmac.compare_digest`, shown to the operator only at creation, support
+  per-key expiry, an optional per-key device scope and a source-IP allowlist, and
+  are capped at 50 per server.
 - **LDAP** binds use `CERT_REQUIRED` TLS verification by default; opt-out
   exists for self-signed CAs.
 - **`Authorization: Bearer`** is accepted alongside `X-Token` as of v3.2.0
@@ -318,11 +322,11 @@ this guidance inline.
 
 RemotePower is reviewed and scanned on an ongoing basis:
 
-- **Manual security reviews** of the server and agent every few releases
+- **Manual security reviews** of the server and agent every release
   (see the `docs/security-review-*.md` files; latest:
-  [security-review-5.3.0.md](security-review-5.3.0.md)).
-- **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
-  Python codebase.
+  [security-review-5.5.0.md](security-review-5.5.0.md)).
+- **SAST** — [Bandit](https://bandit.readthedocs.io/), gitleaks (secrets),
+  semgrep, and a local **CodeQL** run using GitHub's default query suites.
 - **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
   [Nikto](https://github.com/sullo/nikto), [Nuclei](https://github.com/projectdiscovery/nuclei),
   [Wapiti](https://wapiti-scanner.github.io/) and WhatWeb against a running

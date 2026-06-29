@@ -1826,6 +1826,14 @@
    * and keep their horizontal layout. */
   .settings-row:has(> .form-label) { flex-direction: column; align-items: stretch; gap: 6px; }
   .settings-row:has(> .form-label) > .form-label { margin-bottom: 0; }
+  /* v5.5.0: a width-capped <select> (mw-160/mw-200) is JS-wrapped in a .rp-ddwrap
+     span; that span is a direct flex child of this column-stretch row, so
+     align-items:stretch blew the wrapper out to full row width — the capped select
+     then sat left-aligned inside a full-width box (and the industrial accent border
+     painted across the whole row). Opt ONLY the capped wrappers out of the stretch
+     so they hug their select; genuinely full-width selects are untouched. */
+  .settings-row:has(> .form-label) .rp-ddwrap:has(> .mw-160),
+  .settings-row:has(> .form-label) .rp-ddwrap:has(> .mw-200) { align-self: flex-start; }
   .user-row td:last-child { text-align: right; }
   .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
@@ -3644,6 +3652,7 @@ td .kev-badge { margin-left: 0; }
   padding: 14px 16px;
   margin: 0;
   overflow-x: auto;
+  max-height: 55vh; overflow-y: auto;   /* v5.5.0: cap generated IaC; was unbounded */
   white-space: pre;
   color: var(--text);
   background: var(--surface2);
