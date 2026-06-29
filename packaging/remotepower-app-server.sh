@@ -39,6 +39,8 @@ WSGI_UNIT="remotepower-wsgi.service"
 SCHED_UNIT="remotepower-scheduler.service"
 GUNICORN_BIND="127.0.0.1:8090"
 SNIP=""   # resolved by init_conf()
+BAK=""    # backup path, set by init_conf() — OUTSIDE any nginx include dir
+BAK_DIR="/var/backups/remotepower-app-server"
 
 c_g=$'\033[0;32m'; c_y=$'\033[1;33m'; c_r=$'\033[0;31m'; c_n=$'\033[0m'
 info()  { echo "${c_g}==>${c_n} $*"; }
@@ -70,6 +72,23 @@ init_conf() {
   # Resolve symlinks (sites-enabled/* is often a symlink) so we edit + back up the
   # REAL file — otherwise `cp -a` would copy the symlink, not its contents.
   [[ -n "$SNIP" && -e "$SNIP" ]] && SNIP="$(readlink -f "$SNIP" 2>/dev/null || echo "$SNIP")"
+  # Backup lives OUTSIDE any nginx include dir. CRITICAL: nginx.conf often globs
+  # `include sites-enabled/*` (no .conf filter), so a backup written next to the
+  # vhost (the old `${SNIP}.cgi.bak`) gets loaded as a SECOND server block →
+  # "conflicting server name … ignored". Keep backups in /var/backups instead.
+  BAK="$BAK_DIR/$(basename "$SNIP").cgi.bak"
+}
+
+# Migrate (and clean up) a legacy backup that an older version of this script
+# wrote next to the vhost — it may be inside an `include`d dir and cause a
+# duplicate-server_name conflict. Move it to the safe backup dir.
+migrate_legacy_bak() {
+  local legacy="${SNIP}.cgi.bak"
+  [[ -f "$legacy" ]] || return 0
+  mkdir -p "$BAK_DIR"
+  [[ -f "$BAK" ]] || cp -a "$legacy" "$BAK"
+  rm -f "$legacy"
+  warn "moved a stale adjacent backup out of nginx's path: $legacy → $BAK"
 }
 
 current_mode() {   # echoes "wsgi" / "cgi" / "unknown" for the resolved file
@@ -119,7 +138,9 @@ rewrite_nginx_to_wsgi() {
   [[ -f "$SNIP" ]] || die "nginx config not found at $SNIP — set RP_NGINX_CONF=<your vhost> (the file with your 'location /api/ {…}' blocks)"
   grep -qE 'fcgiwrap\.socket|scgi_pass[[:space:]]+unix:/run/remotepower/' "$SNIP" \
     || die "no active fcgiwrap/SCGI RemotePower /api block found in $SNIP — already on WSGI, or set RP_NGINX_CONF to the right file"
-  cp -a "$SNIP" "${SNIP}.cgi.bak"     # pristine backend config → lossless switch back
+  mkdir -p "$BAK_DIR"
+  cp -a "$SNIP" "$BAK"                 # pristine backend config (in /var/backups, never include'd)
+  migrate_legacy_bak                  # clean up any old adjacent backup that nginx would load
   python3 - "$SNIP" "$GUNICORN_BIND" <<'PYEOF'
 import re, sys
 from pathlib import Path
@@ -181,14 +202,15 @@ PYEOF
 }
 
 restore_nginx_to_cgi() {
-  if [[ -f "${SNIP}.cgi.bak" ]]; then
-    info "restoring the original backend config from ${SNIP}.cgi.bak"
-    cp -a "${SNIP}.cgi.bak" "$SNIP"
+  migrate_legacy_bak   # pull in (and clear) any old adjacent backup first
+  if [[ -f "$BAK" ]]; then
+    info "restoring the original backend config from $BAK"
+    cp -a "$BAK" "$SNIP"
   elif [[ "$SNIP" == "$SNIP_DEFAULT" && -f "$CANON_SNIP" ]]; then
-    warn "no .cgi.bak backup — installing the canonical fcgiwrap snippet from the checkout"
+    warn "no backup — installing the canonical fcgiwrap snippet from the checkout"
     cp -a "$CANON_SNIP" "$SNIP"
   else
-    die "no ${SNIP}.cgi.bak backup to restore — this looks like a custom vhost that wasn't switched by this tool; revert the /api proxy_pass block to your fcgiwrap/scgi block by hand"
+    die "no backup at $BAK to restore — this looks like a custom vhost that wasn't switched by this tool; revert the /api proxy_pass block to your fcgiwrap/scgi block by hand"
   fi
 }
 
@@ -256,8 +278,8 @@ case "$cmd" in
       wait_gunicorn_healthy \
         || die "gunicorn on $GUNICORN_BIND is not answering — NOT touching nginx (you're still on CGI/SCGI).\n  Check: systemctl status remotepower-wsgi ; journalctl -u remotepower-wsgi -n 40\n  (most common cause: the served code in /var/www/remotepower isn't v5.5.0 — run deploy-server.sh)"
       rewrite_nginx_to_wsgi
-      reload_nginx "${SNIP}.cgi.bak" \
-        && info "nginx /api/ now proxies to gunicorn (backup: ${SNIP}.cgi.bak)" \
+      reload_nginx "$BAK" \
+        && info "nginx /api/ now proxies to gunicorn (backup: $BAK)" \
         || die "nginx validation failed — reverted to the previous config; WSGI switch aborted"
     fi
     [[ "$want_sched" == 1 ]] && enable_scheduler || warn "scheduler left as-is (--no-scheduler)"
@@ -273,7 +295,7 @@ case "$cmd" in
     else
       restore_nginx_to_cgi
       reload_nginx \
-        && info "nginx /api/ restored to the original backend (backup: ${SNIP}.cgi.bak)" \
+        && info "nginx /api/ restored to the original backend (backup: $BAK)" \
         || die "nginx validation failed after restoring — inspect $SNIP"
     fi
     systemctl disable --now "$WSGI_UNIT" 2>/dev/null && info "stopped $WSGI_UNIT" || true
