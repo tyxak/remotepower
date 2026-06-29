@@ -4,7 +4,9 @@
 Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       │
                       ├─ /              → Dashboard (1 HTML + 1 CSS + 1 JS, no framework, no build)
-                      ├─ /api/*         → Python CGI (via fcgiwrap)
+                      ├─ /api/*         → Python app tier — CGI via fcgiwrap (default), or the
+                      │                   persistent SCGI worker, or the gunicorn WSGI server (v6.0.0)
+                      │                   — same api.py, nginx picks which serves; see docs/wsgi.md
                       ├─ /api/webterm/connect → wss://, proxied to remotepower-webterm daemon
                       ├─ /static/*      → Logos, CSS, JS
                       ├─ /agent/        → Agent binary (static, for self-update)
@@ -48,6 +50,16 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
       every hop refuses TLS below 1.2. See docs/satellites.md.
     • Load-balanced multi-node — several stateless app nodes behind a trusted
       proxy, all pointed at the shared PostgreSQL backend.
+    • Persistent app server + out-of-band scheduler (v6.0.0, opt-in) — gunicorn
+      WSGI workers (thread-local request isolation) instead of fork-per-request,
+      plus remotepower-scheduler.service running the maintenance cadence from one
+      leader-elected process (file-lock + pg_advisory_lock). See docs/scaling.md.
+
+  Hard multi-tenancy (optional, v6.0.0):
+    • App-layer — tenancy_enforced confines tenant admins to their own devices.
+    • Postgres row-level security — tenancy_rls adds FORCE RLS on the devices
+      table keyed on a per-request GUC, applied live; DB-enforced defense-in-depth
+      beneath the app-layer scope. Both default off, flipped from Settings.
 
 Optional sibling daemon (only if you install the web terminal):
   systemd: remotepower-webterm.service

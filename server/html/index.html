@@ -2082,30 +2082,28 @@
               <div class="meta-sm"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
             </div>
 
-            <div class="settings-row">
+            <div class="settings-row ldap-row">
               <div class="form-group isl-28">
                 <label class="isl-51">
                   <input type="checkbox" id="cfg-ldap-tls-verify" checked class="isl-3">
                   <span class="fs-14">Verify TLS cert</span>
                 </label>
               </div>
-              <div class="form-group isl-52">
-                <label for="cfg-ldap-timeout" class="form-label">Timeout</label>
+              <div class="form-group ldap-narrow">
+                <label for="cfg-ldap-timeout" class="form-label">Timeout (s)</label>
                 <input type="number" id="cfg-ldap-timeout" class="form-input" min="1" max="60" placeholder="5">
               </div>
             </div>
 
-            <div class="settings-row">
-              <div class="form-group flex-1">
-                <label for="cfg-ldap-bind-dn" class="form-label">Service account DN <span class="meta-sm-nm">(searches the directory)</span></label>
-                <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
-              </div>
-              <div class="form-group flex-1">
-                <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
-                <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
-                <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
-                <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
-              </div>
+            <div class="form-group">
+              <label for="cfg-ldap-bind-dn" class="form-label">Service account DN <span class="meta-sm-nm">(searches the directory)</span></label>
+              <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
+            </div>
+            <div class="form-group">
+              <label for="cfg-ldap-bind-password" class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
+              <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
+              <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
             </div>
 
             <div class="form-group">

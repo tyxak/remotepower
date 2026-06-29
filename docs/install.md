@@ -164,6 +164,10 @@ nginx -t && systemctl reload nginx
 
 Roll back at any time by reverting the nginx block to `fastcgi_pass` — the worker and fcgiwrap can coexist.
 
+#### Persistent WSGI app server + out-of-band scheduler (optional, v6.0.0)
+
+For the largest fleets there is a fully-persistent tier — the same `api.py` under **gunicorn** with thread-local request isolation (no fork) — paired with a dedicated, leader-elected maintenance scheduler that runs the cadence off the request path (measured ~25× lower request latency on a networked Postgres backend). Both are opt-in and default-off; CGI stays the supported default. The two systemd units (`remotepower-wsgi.service`, `remotepower-scheduler.service`) carry full install + rollback steps in their headers — see **[scaling.md](scaling.md)** and **[wsgi.md](wsgi.md)**.
+
 ### Public demo / sandbox
 
 If you want to host a read-only demo at e.g. `demoremote.example.com` alongside your production install:

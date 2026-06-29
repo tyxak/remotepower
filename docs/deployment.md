@@ -48,6 +48,8 @@ need it. Start at the top; most installs only need the first two rows.
 | **Postgres HA (primary)** | `packaging/postgres-ha-primary.sh` | DB failover |
 | **Postgres HA (standby)** | `packaging/postgres-ha-standby.sh` | DB failover |
 | **PgBouncer pooler** | `packaging/pgbouncer-setup.sh` | very high request rates |
+| **Persistent WSGI tier** | `server/conf/remotepower-wsgi.service` | large fleets wanting a pre-warmed gunicorn app server instead of CGI — see [wsgi.md](wsgi.md) *(opt-in, v6.0.0)* |
+| **Out-of-band scheduler** | `server/conf/remotepower-scheduler.service` | run the maintenance cadence off the request path / leader-elected for multi-node — see [scaling.md](scaling.md) *(opt-in, v6.0.0)* |
 | **Load balancer** | `packaging/loadbalancer-haproxy.cfg.example` | multi-node |
 | **Web SSH terminal** | `packaging/install-webterm.sh` | optional browser SSH |
 | **Read-only demo** | `packaging/install-demo.sh` | a public sandbox vhost |
@@ -134,6 +136,27 @@ Postgres** — the app is stateless, so any node serves any request:
 5. Add the node to the load balancer (`packaging/loadbalancer-haproxy.cfg.example`
    — HAProxy, or the nginx `upstream` in its comments). Health check
    `GET /api/health`. No session stickiness needed.
+
+### Hard multi-tenancy & DB row-level security (opt-in, v6.0.0)
+
+Both are **config switches, applied live — there is no migration script to run.**
+
+- **App-layer tenancy** — *Settings → Security → Multi-tenancy* (`tenancy_enforced`,
+  default off). Assign users and devices to a tenant; tenant admins are confined to
+  their own devices, while an admin in the **default** tenant is the cross-tenant
+  superadmin. Toggling it on takes effect immediately; existing data stays in the
+  `default` tenant until reassigned.
+- **Postgres row-level security** — the deeper, DB-enforced layer beneath it
+  (`tenancy_rls`, default off; **Postgres backend only**). When enabled the app adds
+  a `tenant_id` column to the `devices` table, a trigger to keep it in sync with each
+  device's tenant, and a `FORCE ROW LEVEL SECURITY` policy keyed on a per-request
+  `app.rp_tenant` GUC — all **idempotently and at runtime** on the first request after
+  you flip the switch (no downtime, no `ALTER` by hand). It fails *closed* (an unset
+  GUC matches no rows). This is defense-in-depth: even a bug in the app-layer scope
+  would not leak another tenant's device rows.
+
+Disable either by un-ticking it; the RLS objects are harmless if left in place, and
+the policy is bypassed (`app.rp_tenant = '*'`) for agent/system/tool paths.
 
 ---
 

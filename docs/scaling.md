@@ -148,6 +148,53 @@ block swap in reverse — the worker and fcgiwrap can coexist; nginx decides
 which serves. On a busy fleet this is the single biggest latency win in this
 guide: it applies to **every** request, heartbeats and dashboard alike.
 
+### Or go fully persistent: the WSGI app server (v6.0.0, experimental, opt-in)
+
+The SCGI worker still **forks per request**. For the largest fleets there is a
+fully-persistent tier: the same `api.py` served under **gunicorn** with threaded
+workers, where request state (request context, output buffer, DB connections) is
+**thread-local**, so a worker serves requests concurrently on threads with no
+fork and no per-request startup. It is validated correct under load on both the
+SQLite and Postgres backends — per-request isolation holds (no load-cache,
+correlation-id, or response-body bleed across threads).
+
+```bash
+pip install gunicorn                       # NOT a RemotePower dependency
+cp server/conf/remotepower-wsgi.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now remotepower-wsgi
+# point nginx /api/ at the proxy_pass block (http://127.0.0.1:8090) and reload
+```
+
+Tune `--workers` (processes) × `--threads` (per process) to your CPU and DB-pool
+budget. **Pair it with the out-of-band scheduler below** (`RP_EXTERNAL_SCHEDULER=1`)
+so the request path stops running the cadence. CGI/`api_cgi.py` remains the
+default and fully-supported deployment; keep it as the fallback (repoint nginx)
+until you've validated the WSGI tier under your own load. See
+[wsgi.md](wsgi.md).
+
+### The out-of-band maintenance scheduler (v6.0.0)
+
+RemotePower runs ~33 `run_*_if_due` maintenance sweeps. By default they
+**piggy-back on request traffic** — convenient on a single CGI node, but it means
+(a) no traffic ⇒ no maintenance, (b) every request makes ~33 "is it due?" DB
+round-trips, and (c) N horizontal nodes all race the same sweep. The optional
+`remotepower-scheduler.service` runs the cadence from one dedicated process:
+
+```bash
+cp server/conf/remotepower-scheduler.service /etc/systemd/system/
+printf 'RP_EXTERNAL_SCHEDULER=1\n' >> /etc/remotepower/api.env   # on the WORKER
+systemctl daemon-reload && systemctl enable --now remotepower-scheduler
+systemctl restart remotepower-api          # (or remotepower-wsgi)
+```
+
+A host file-lock plus (on Postgres) a `pg_advisory_lock` make it **leader-elected**:
+run one scheduler per node and exactly one — the elected leader — executes the
+sweeps, so it is HA-safe across the load-balanced topology in Step 4. Measured
+**~25× lower request latency** on a networked Postgres backend (the request path
+no longer makes the per-request due-checks). Roll back by disabling the unit,
+removing `RP_EXTERNAL_SCHEDULER` from `api.env`, and restarting the worker — the
+request path resumes the cadence.
+
 ---
 
 ## Step 4 — Go horizontal (load balancer + shared Postgres)

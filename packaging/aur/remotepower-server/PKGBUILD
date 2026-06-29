@@ -16,6 +16,8 @@ optdepends=(
   'xmlsec: SAML signature verification (pairs with python-pysaml2)'
   'wireguard-go: WG Access road-warrior VPN hub (Admin -> WG Access)'
   'wireguard-tools: WG Access — wg/wg-quick used by the VPN hub helper'
+  'gunicorn: persistent WSGI app tier (remotepower-wsgi.service, large fleets)'
+  'postgresql: PostgreSQL storage backend for large / multi-node fleets'
 )
 backup=('etc/nginx/snippets/remotepower-locations.conf')
 install="$pkgname.install"
@@ -86,11 +88,17 @@ package() {
   # ── nginx: shared locations snippet (works as-is with /var/www/remotepower). ──
   install -Dm644 server/conf/remotepower-locations.conf \
     "$pkgdir/etc/nginx/snippets/remotepower-locations.conf"
-  # Sample vhost + optional SCGI-worker unit → docs (user sets server_name/TLS).
+  # Sample vhost + optional backend units → docs (user sets server_name/TLS).
   install -Dm644 server/conf/remotepower.conf \
     "$pkgdir/usr/share/doc/$pkgname/remotepower.conf.sample"
   install -Dm644 server/conf/remotepower-api.service \
     "$pkgdir/usr/share/doc/$pkgname/remotepower-api.service"
+  # Optional v6.0.0 persistent WSGI tier + out-of-band scheduler (each unit
+  # carries its own install/rollback steps in the header). See docs/scaling.md.
+  install -Dm644 server/conf/remotepower-wsgi.service \
+    "$pkgdir/usr/share/doc/$pkgname/remotepower-wsgi.service"
+  install -Dm644 server/conf/remotepower-scheduler.service \
+    "$pkgdir/usr/share/doc/$pkgname/remotepower-scheduler.service"
 
   # ── Data dir, created + owned by the nginx user (http) at install/boot. ──
   install -dm755 "$pkgdir/usr/lib/tmpfiles.d"

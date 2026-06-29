@@ -423,6 +423,10 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Architecture | nginx + fcgiwrap + stdlib Python; one HTML + CSS + vanilla-JS modules; no build step |
 | SQLite backend | Optional, WAL, stdlib; row-per-entity hot data; reversible migration *(v3.12.0)* |
 | PostgreSQL backend | Optional, automatic failover + read replicas *(v4.0.0)* |
+| Persistent app server | Optional gunicorn WSGI tier (`remotepower-wsgi.service`) as an alternative to CGI fork-per-request — pre-warmed threaded workers with thread-local request isolation for large fleets; CGI stays the default + fallback *(v6.0.0)* |
+| Out-of-band scheduler | Optional dedicated maintenance process (`remotepower-scheduler.service`, `RP_EXTERNAL_SCHEDULER=1`) — leader-elected (host file-lock + Postgres `pg_advisory_lock`) so one node runs the cadence; runs sweeps without request traffic and cuts per-request latency *(v6.0.0)* |
+| Hard multi-tenancy | Optional tenant entity + `tenancy_enforced` (Settings → Security) — tenant admins confined to their own devices; a default-tenant admin is the cross-tenant superadmin *(v6.0.0)* |
+| Postgres row-level security | Optional DB-enforced tenant isolation (`tenancy_rls`) on the devices table — `FORCE` RLS + per-request `app.rp_tenant` GUC, fail-closed; defense-in-depth beneath the app-layer tenancy; schema applied live *(v6.0.0)* |
 | Relay satellites | For segmented networks; agent→satellite over HTTPS; internal-CA trust *(v4.0.0)* |
 | Load-balanced multi-node | Horizontal scale *(v4.0.0)* |
 | Self-signed CA onboarding | `make tls-selfsigned` CA + leaf; agents trust the CA (client-free renew/migration); `--ca-fingerprint` installers *(v4.5.0)* |

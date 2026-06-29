@@ -3885,18 +3885,22 @@ body.no-anim * { transition: none !important; }
    render it as normal 14px sentence-case body text, inline with the box. */
 label.form-label:has(> input[type="checkbox"]),
 label.form-label:has(> input[type="radio"]) {
-  /* checkbox in col 1, label text in col 2, and any .hint stacked UNDER the text
-     (col 2 row 2) — not inline/centered with the box. Row gap gives stacked
-     toggles real breathing room (was margin-bottom:0 → cramped). */
-  display: grid; grid-template-columns: auto 1fr; align-items: start;
-  column-gap: 8px; row-gap: 3px;
-  font-size: 14px; text-transform: none; letter-spacing: normal;
+  /* A block with the checkbox absolutely positioned in the left gutter and ALL
+     text (incl. inline <strong>/<code>) flowing with a hanging indent. The old
+     grid (auto 1fr) treated each inline element + text node as a SEPARATE grid
+     item, so a <strong>/<code> mid-label got dropped into column 1 under the box
+     — the "weird indentation". Block + padding-left keeps it one flowing run, and
+     any .hint stacks underneath at the same indent. */
+  display: block; position: relative; padding-left: 26px;
+  font-size: 14px; text-transform: none; letter-spacing: normal; line-height: 1.5;
   color: var(--text); margin-bottom: 14px; cursor: pointer;
 }
-label.form-label:has(> input[type="checkbox"]) > input,
-label.form-label:has(> input[type="radio"]) > input { margin-top: 2px; }
+label.form-label:has(> input[type="checkbox"]) > input[type="checkbox"],
+label.form-label:has(> input[type="radio"]) > input[type="radio"] {
+  position: absolute; left: 0; top: 3px; margin: 0;
+}
 label.form-label:has(> input[type="checkbox"]) > .hint,
-label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0; }
+label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3px 0 0; }
 .row-12-center { display: flex; align-items: center; gap: 12px; }
 .row-6-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
 .col-4 { display: flex; flex-direction: column; gap: 4px; }
@@ -3970,12 +3974,19 @@ label.form-label:has(> input[type="radio"]) > .hint { grid-column: 2; margin: 0;
 .isl-44 { padding:4px 8px }
 .isl-45 { padding:4px 8px; color:var(--red); border-color:rgba(239,68,68,0.3) }
 .isl-46 { max-height:300px; overflow-y:auto }
-.isl-47 { display:flex; align-items:center; gap:10px; cursor:pointer; margin-top:14px }
+.isl-47 { display:flex; align-items:flex-start; gap:10px; cursor:pointer; margin-top:14px }
 .isl-48 { font-size:13px; font-weight:500 }
 .isl-49 { max-width:280px }
 .isl-50 { margin-top:6px }
 .isl-51 { display:flex; align-items:center; gap:6px; cursor:pointer; padding:9px 4px }
 .isl-52 { flex:0 0 90px }
+/* LDAP "Verify TLS cert + Timeout" row: top-align and let both fields size to
+   content (the generic `.settings-row .form-group{flex:1}` would otherwise stretch
+   each to a half-width column and `align-items:flex-end` would drop the shorter one
+   to the bottom — the ragged look). */
+.settings-row.ldap-row { align-items: flex-start; }
+.settings-row.ldap-row .form-group.isl-28 { flex: 0 0 auto; min-width: 0; }
+.settings-row.ldap-row .form-group.ldap-narrow { flex: 0 0 140px; min-width: 0; }
 .isl-53 { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap }
 .isl-54 { font-size:12px; margin-top:8px; display:none; padding:8px 12px; border-radius:6px; font-family: var(--font-mono) }
 .isl-55 { margin-top:8px; font-size:12px }

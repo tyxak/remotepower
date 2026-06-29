@@ -2409,7 +2409,7 @@ function _registerMonitorTable() {
     }),
     row: (m) => {
       const i = (window.monitorTargets || []).indexOf(m);
-      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Delete" data-action="removeMonitor" data-arg="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -2556,7 +2556,7 @@ function _registerUsersTable() {
         : '<span class="patch-badge crit fs-11">none</span>';
       const srcBadge = `<span class="patch-badge fs-11">${escHtml(u.source || 'local')}</span>`
         + (u.disabled ? ' <span class="patch-badge crit fs-11">disabled</span>' : '');
-      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" data-action="openPasswd" data-arg="${escAttr(u.username)}" >Change pw</button><button class="btn-icon" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">Edit role</button><button class="btn-icon c-danger-outline" data-action="deleteUser" data-arg="${escAttr(u.username)}" >Delete</button></div></td></tr>`;
+      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td>${mfaBadge}</td><td>${srcBadge}</td><td><div class="user-actions"><button class="btn-icon" title="Change password" data-action="openPasswd" data-arg="${escAttr(u.username)}" >${_icon('lock',14)}</button><button class="btn-icon" title="Edit role" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete user" data-action="deleteUser" data-arg="${escAttr(u.username)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -2591,7 +2591,7 @@ async function loadRoles() {
     <td><strong>${escHtml(role.name)}</strong></td>
     <td class="fs-12">${escHtml((role.permissions || []).join(', ') || '—')}</td>
     <td class="fs-12 c-muted">${scopeLabel(role.scope)}</td>
-    <td class="ta-right"><button class="btn-icon fs-12" data-action="editRole" data-arg="${escAttr(role.name)}">Edit</button><button class="btn-icon fs-12 c-red" data-action="deleteRole" data-arg="${escAttr(role.name)}">Delete</button></td>
+    <td class="ta-right"><div class="user-actions"><button class="btn-icon" title="Edit role" data-action="editRole" data-arg="${escAttr(role.name)}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete role" data-action="deleteRole" data-arg="${escAttr(role.name)}">${_icon('trash',14)}</button></div></td>
   </tr>`).join('');
   out.innerHTML = `<div class="table-card"><table><thead id="roles-thead"><tr><th data-col="role">Role</th><th data-col="permissions">Permissions</th><th data-col="scope">Scope</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('roles-thead', 'roles', loadRoles);
@@ -4356,7 +4356,7 @@ async function loadContacts() {
     <td class="fs-12">${escHtml(c.company || '—')}</td>
     <td class="fs-12">${c.email ? `<a href="mailto:${escAttr(c.email)}" class="c-accent">${escHtml(c.email)}</a>` : '—'}</td>
     <td class="fs-12">${c.phone ? `<a href="tel:${escAttr(c.phone)}" class="c-accent">${escHtml(c.phone)}</a>` : '—'}</td>
-    <td><div class="user-actions"><button class="btn-icon" data-action="openContactEdit" data-arg="${escAttr(c.id)}">Edit</button><button class="btn-icon c-danger-outline" data-action="deleteContact" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || '')}">Delete</button></div></td>
+    <td><div class="user-actions"><button class="btn-icon" title="Edit" data-action="openContactEdit" data-arg="${escAttr(c.id)}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete" data-action="deleteContact" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.name || '')}">${_icon('trash',14)}</button></div></td>
   </tr>`).join('');
   window._contactsCache = cs;
 }
@@ -7176,8 +7176,8 @@ function _registerApiKeysTable() {
         exp = `<span class="${cls}">${pre}${new Date(k.expires_at*1000).toLocaleDateString()}</span>`;
       }
       const rate = k.rate_limit ? `${k.rate_limit}/min` : '<span class="hint">unlimited</span>';
-      const editBtn = `<button class="btn-icon" data-action="editApiKey" data-arg="${escAttr(k.id)}" title="Edit name, role, expiry and rate limit (the key secret stays the same)"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Edit</button>`;
-      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td>${editBtn} <button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`;
+      const editBtn = `<button class="btn-icon" data-action="editApiKey" data-arg="${escAttr(k.id)}" title="Edit name, role, expiry and rate limit (the key secret stays the same)">${_icon('edit',14)}</button>`;
+      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td>${rate}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><div class="user-actions">${editBtn}<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >${_icon('trash',14)}</button></div></td></tr>`;
     },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
@@ -9389,7 +9389,7 @@ function _registerMaintTable() {
         <td class="fs-12">${when}</td>
         <td class="meta-sm-nm">${events}</td>
         <td class="ta-center">${status}</td>
-        <td><button class="btn-icon isl-416" data-action-btn="_editMaintenanceBtn" data-store-key="${winKey}">Edit</button> <button class="btn-icon isl-416" data-action="deleteMaintenance" data-arg="${escAttr(w.id)}" >Delete</button></td>
+        <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editMaintenanceBtn" data-store-key="${winKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action="deleteMaintenance" data-arg="${escAttr(w.id)}" >${_icon('trash',14)}</button></div></td>
       </tr>`;
     },
     emptyMsg: 'No maintenance windows defined.',
@@ -10039,7 +10039,7 @@ async function loadPerDeviceLogRules() {
       <td><code class="fs-12">${escHtml(r.unit)}</code></td>
       <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
       <td class="ta-center">≥ ${r.threshold}</td>
-      <td><button class="btn-icon isl-416" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">Edit</button> <button class="btn-icon isl-416" data-action="deleteLogRule" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.unit)}" data-arg3="${escAttr(r.pattern)}" >Delete</button></td>
+      <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action="deleteLogRule" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.unit)}" data-arg3="${escAttr(r.pattern)}" >${_icon('trash',14)}</button></div></td>
     </tr>`;
   }).join('');
 }
@@ -10078,7 +10078,7 @@ async function loadGlobalLogRules() {
       <td>${excludeCell}</td>
       <td class="ta-center">≥ ${r.threshold}</td>
       <td class="meta-sm-nm">${created} <span class="opacity-60">by ${escHtml(r.created_by || '?')}</span></td>
-      <td><button class="btn-icon isl-416" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">Edit</button> <button class="btn-icon isl-416" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >Delete</button></td>
+      <td><div class="user-actions"><button class="btn-icon isl-416" title="Edit" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">${_icon('edit',14)}</button><button class="btn-icon isl-416 c-danger-outline" title="Delete" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >${_icon('trash',14)}</button></div></td>
     </tr>`;
   }).join('');
 }
@@ -10799,9 +10799,9 @@ async function loadCustomCheckList() {
   _ccCache = checks;
   if (!checks.length) { el.innerHTML = '<div class="empty-state">No custom checks yet.</div>'; return; }
   const scope = c => c.target_kind === 'all' ? 'whole fleet' : `${c.target_kind}: ${escHtml(c.target)}`;
-  const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>`;
+  const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check">${_icon('edit',14)}</button>`;
   el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
-    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td>${editBtn(c.id)} <button class="btn-icon btn-xs c-danger-outline" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">Delete</button></td></tr>`).join('')
+    checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
   }</tbody></table></div>`;
 }
 function editCustomCheck(id) {
@@ -12043,9 +12043,9 @@ function renderScriptsList() {
       <td class="hint">${escHtml(updated)}</td>
       <td>${dangerBadge}</td>
       <td class="nowrap">
-        <button class="btn-icon isl-352" data-action="openScriptEdit" data-arg="${escAttr(s.id)}" >Edit</button>
+        <button class="btn-icon isl-352" title="Edit" data-action="openScriptEdit" data-arg="${escAttr(s.id)}" >${_icon('edit',14)}</button>
         <button class="btn-icon isl-352" data-action="dryRunScript" data-arg="${escAttr(s.id)}" >Dry run</button>
-        <button class="btn-icon isl-502" data-action="deleteScript" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name||'')}">Delete</button>
+        <button class="btn-icon isl-502 c-danger-outline" title="Delete" data-action="deleteScript" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name||'')}">${_icon('trash',14)}</button>
       </td>
     </tr>`;
   }).join('');
@@ -20365,8 +20365,8 @@ function _renderAutomationList() {
     + `</div>`
     + `<div class="auto-rule-acts">`
     +   `<button class="btn-icon" data-action="toggleAutomationRule" data-arg="${escAttr(r.id)}">${r.enabled ? 'Disable' : 'Enable'}</button>`
-    +   `<button class="btn-icon" data-action="openAutomationEditor" data-arg="${escAttr(r.id)}">Edit</button>`
-    +   `<button class="btn-icon" data-action="deleteAutomationRule" data-arg="${escAttr(r.id)}">Delete</button>`
+    +   `<button class="btn-icon" title="Edit" data-action="openAutomationEditor" data-arg="${escAttr(r.id)}">${_icon('edit',14)}</button>`
+    +   `<button class="btn-icon c-danger-outline" title="Delete" data-action="deleteAutomationRule" data-arg="${escAttr(r.id)}">${_icon('trash',14)}</button>`
     + `</div></div>`).join('');
 }
 
@@ -20953,8 +20953,8 @@ async function loadReportDefs() {
       <span class="rdef-row-name">${escHtml(d.name)} <span class="hint">· ${(d.sections||[]).length} sections · ${escHtml(d.format||'json')}</span> ${sched}</span>
       <span class="sb-controls">
         <button class="btn-icon cell-sm" data-action="downloadReportDef" data-arg="${escAttr(d.id)}">Download</button>
-        <button class="btn-icon cell-sm" data-action="editReportDef" data-arg="${escAttr(d.id)}">Edit</button>
-        <button class="btn-icon cell-sm c-danger-outline" data-action="deleteReportDef" data-arg="${escAttr(d.id)}">Delete</button>
+        <button class="btn-icon cell-sm" title="Edit" data-action="editReportDef" data-arg="${escAttr(d.id)}">${_icon('edit',14)}</button>
+        <button class="btn-icon cell-sm c-danger-outline" title="Delete" data-action="deleteReportDef" data-arg="${escAttr(d.id)}">${_icon('trash',14)}</button>
       </span></div>`;
   }).join('');
 }
