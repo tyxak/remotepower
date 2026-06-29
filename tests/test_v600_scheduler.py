@@ -116,6 +116,13 @@ class TestRequestPathGuard(unittest.TestCase):
         self.assertIn('_ext_sched = _external_scheduler_active()', src[i:i + 4000])
         self.assertIn('if _ext_sched:', src[i:i + 4000])
 
+    def test_self_test_nudges_scheduler_on_postgres(self):
+        src = (_CGI / "api.py").read_text()
+        i = src.index('def handle_self_test(')
+        block = src[i:i + 6000]
+        self.assertIn("_storage_backend() == 'postgres' and not _external_scheduler_active()", block)
+        self.assertIn("'Maintenance scheduler'", block)
+
 
 class TestSchedulerSystemdUnit(unittest.TestCase):
     """The out-of-band scheduler ships a ready-made systemd unit."""

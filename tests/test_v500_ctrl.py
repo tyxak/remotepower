@@ -896,9 +896,9 @@ class TestT5Polish(unittest.TestCase):
         # (can't call the handler directly — it needs auth/respond — so assert the
         # shape via the source contract instead).
         i = API_SRC.index("def handle_self_test(")
-        # window widened for the v5.4.1 (G3) control-plane-uptime check block.
-        self.assertIn("'ok': overall", API_SRC[i:i + 3800])
-        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 3800])
+        # window widened for the v5.4.1 (G3) uptime + (Stage D) scheduler-nudge blocks.
+        self.assertIn("'ok': overall", API_SRC[i:i + 4600])
+        self.assertIn("all(c['ok'] for c in checks)", API_SRC[i:i + 4600])
 
 
 # ─────────────────────────── T6 industrial design pass ─────────────────────────

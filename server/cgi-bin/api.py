@@ -20294,6 +20294,21 @@ def handle_self_test():
     except Exception:
         up = None
 
+    # v6.0.0 (Stage D): on a (networked) Postgres backend, running the maintenance
+    # cadence on the request path adds ~33 DB round-trips per request — measured
+    # ~25× request-latency overhead vs running it out-of-band. Nudge operators to
+    # the scheduler. Informational only (never reds the suite).
+    try:
+        if _storage_backend() == 'postgres' and not _external_scheduler_active():
+            _add('Maintenance scheduler', True,
+                 'cadence runs on the request path — on Postgres, enable the '
+                 'out-of-band scheduler (RP_EXTERNAL_SCHEDULER=1 + remotepower-scheduler) '
+                 'for much lower request latency')
+        elif _external_scheduler_active():
+            _add('Maintenance scheduler', True, 'out-of-band (RP_EXTERNAL_SCHEDULER)')
+    except Exception:
+        pass
+
     overall = all(c['ok'] for c in checks)
     respond(200, {'ok': overall, 'checks': checks, 'server_version': SERVER_VERSION,
                   'uptime': up, 'generated_at': now})
