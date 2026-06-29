@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.5.0 — "ScaleMatters" — unreleased (test)
+## v5.5.0 — "ScaleMatters" — 2026-06-29
 
 The persistent-tier + enterprise release: a large opt-in **enterprise-hardening**
 program, the **keystone** that lifts the CGI/fork-per-request scale ceiling
@@ -250,7 +250,7 @@ Batch 2 (credential-at-rest + API contract + observability):
   for a single webhook destination. The explicit "Send test email" connectivity check
   bypasses it. Default off.
 
-## v5.4.0 — "RackMatters" — unreleased (test)
+## v5.4.0 — "RackMatters" — 2026-06-29 (shipped within v5.5.0 — no standalone release/tag)
 
 A lightweight **time-tracking + billing** layer on one shared time-entry ledger:
 log billable (debtable) or internal hours on tickets and a weekly timesheet, then
