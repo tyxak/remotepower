@@ -19,6 +19,10 @@ Thanks to everyone who has contributed fixes, features, and reports.
     every lifecycle action), not just the configured node
   - #12 — restore the page named in the URL hash on refresh instead of always
     dropping back to home
+  - #14 — bypass the HTTP cache when the service worker pre-caches the app shell
+    (so a stale shell can't be re-cached after an upgrade)
+  - #16 — don't hand the WireGuard hub's private key to the unprivileged caller
+    (security hardening of the WG Access apply path)
 - **@loryanstrant** — first contributed in v5.1.1:
   - #10 — reported that the API-key field was blocked for LocalAI (which now
     supports API keys for per-app usage tracking)

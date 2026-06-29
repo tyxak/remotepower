@@ -6087,7 +6087,7 @@ def execute_command(cmd):
             # trailing `systemctl reboot` never ran, so the host upgraded but
             # never rebooted. Give upgrade/reboot commands 30 min.
             _is_upgrade = any(n in actual_shell for n in (
-                'apt-get -y upgrade', 'dnf -y upgrade', 'yum -y upgrade',
+                'apt-get -y upgrade', 'dnf -y upgrade', 'dnf upgrade', 'yum -y upgrade',
                 'pacman -Syu', 'zypper', 'apk upgrade', 'remotepower_update.log'))
             # v5.0.0 (#F3): an explicit per-command timeout wins over the heuristic.
             exec_timeout = exec_timeout_override or (1800 if _is_upgrade else 300)
@@ -6103,7 +6103,7 @@ def execute_command(cmd):
             # — their output is verbose (cert chains, journalctl dumps, du
             # output).
             is_pkg_upgrade = any(needle in actual_shell for needle in
-                                 ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu'))
+                                 ('apt-get -y upgrade', 'dnf -y upgrade', 'dnf upgrade', 'pacman -Syu'))
             is_tagged      = bool(acme_tag_m or mitigate_tag_m)
             # v5.0.0: 4 KB was too small for routine diagnostics (zpool status -v,
             # btrfs subvolume list, systemctl status, …) — they were silently cut

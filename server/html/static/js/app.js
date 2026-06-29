@@ -8003,7 +8003,7 @@ function _registerCmdLibTable() {
     }),
     row: (s) => {
       const sKey = _storeEvtData(s);
-      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></tr>`;
+      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
@@ -8056,7 +8056,18 @@ async function addCmdSnippet() {
   } else toast(data?.error || 'Failed', 'error');
 }
 async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
-function useCmdSnippet(cmd) { document.getElementById('exec-cmd').value = cmd; closeModal('cmdlib-add-modal'); toast('Command pasted into exec modal', 'info'); }
+function useCmdSnippet(cmd) {
+  // The Command Library page has no device target (and the Run-command modal has
+  // its own snippet picker), so "Use" copies the command to the clipboard to paste
+  // into Run command on a device.
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd).then(
+      () => toast('Command copied — open a device and paste into Run command', 'success'),
+      () => toast('Copy failed — select the command text manually', 'error'));
+  } else {
+    toast('Copy not supported here — select the command text manually', 'info');
+  }
+}
 function generateQRCode(containerId, text) {
   if (window.qrcode) { _renderQR(containerId, text); return; }
   // qrcode-generator@1.4.4, self-hosted under /static/vendor/ so the

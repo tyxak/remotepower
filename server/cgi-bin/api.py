@@ -14293,7 +14293,7 @@ def handle_heartbeat():
         except Exception:
             pass    # never let mirroring break heartbeat
         if any(needle in cmd_text for needle in
-               ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu')):
+               ('apt-get -y upgrade', 'dnf -y upgrade', 'dnf upgrade', 'pacman -Syu')):
             pkg_mgr = ('apt' if 'apt-get' in cmd_text
                        else 'dnf' if 'dnf' in cmd_text
                        else 'pacman' if 'pacman' in cmd_text
@@ -15626,7 +15626,7 @@ _UPGRADE_CMD = (
     '  ALT="-o DPkg::Lock::Timeout=300"; '
     '  apt-get $ALT update && apt-get $ALT -y upgrade && apt-get $ALT -y autoremove && apt-get clean; '
     'elif command -v dnf >/dev/null 2>&1; then '
-    '  dnf -y upgrade && dnf autoremove -y && dnf clean packages; '
+    '  dnf upgrade --refresh -y && dnf autoremove -y && dnf clean all; '
     'elif command -v yum >/dev/null 2>&1; then '
     '  yum -y update && yum autoremove -y && yum clean packages; '
     'elif command -v pacman >/dev/null 2>&1; then '
@@ -16045,7 +16045,7 @@ def _db_health_probe(host, port, kind, timeout=3):
     - redis/valkey: send inline ``PING``. ``+PONG`` = up; ``-NOAUTH``/``-ERR``
       still proves the server is alive and speaking RESP.
     """
-    _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+    _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             try:
@@ -16111,7 +16111,7 @@ def _run_one_monitor_check(mtype, target, label, m):
         host, _, port_s = target.partition(':')
         try:
             port = int(port_s)
-            _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+            _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
             with socket.create_connection((host, port), timeout=3) as _s:
                 try:
                     _peer = _s.getpeername()[0]
@@ -16155,7 +16155,7 @@ def _run_one_monitor_check(mtype, target, label, m):
         try:
             req = urllib.request.Request(target, method='GET' if bm else 'HEAD')
             ctx = _get_ssl_context()
-            _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+            _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
             _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
                                         ssl_ctx=ctx, no_redirect=True)
             t0 = time.monotonic()
@@ -36524,7 +36524,7 @@ def _cis_disabled():
 def _cis_remediation(check_id, dev):
     """Return {label, command} for a failed check, or None if not remediable."""
     mgr = ((dev.get('sysinfo') or {}).get('packages') or {}).get('manager')
-    upgrade = {'apt': 'apt-get -y upgrade', 'dnf': 'dnf -y upgrade',
+    upgrade = {'apt': 'apt-get -y upgrade', 'dnf': 'dnf upgrade --refresh -y',
                'zypper': 'zypper --non-interactive update'}.get(mgr)
     pkg = {'label': 'Install pending updates',
            'command': f'exec:{upgrade}'} if upgrade else None
