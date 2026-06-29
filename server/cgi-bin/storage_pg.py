@@ -74,6 +74,12 @@ _READ_DSN = None   # optional read-replica DSN (configure_read_dsn; else env RP_
 _LOCAL = threading.local()   # .conn/.conn_pid/.conn_gen + .read/.read_pid/.read_gen
 _DSN_GEN = 0                 # bumped by configure_dsn/configure_read_dsn
 _ATEXIT = False
+# v6.1.0 (Phase 6): opt-in DB row-level-security multi-tenancy. api sets this True
+# when tenancy_enforced + tenancy_rls + postgres. Default OFF → no RLS, no GUC, the
+# storage layer is byte-identical to before.
+RLS_ACTIVE = False
+_RLS_TABLES = ('devices',)   # per-tenant tables hardened at the DB (the device roster)
+_RLS_DONE = False
 # v3.14.0: a primary failover (or a mid-promotion connect) shouldn't fail the
 # request — retry the connect a few times so libpq can re-resolve hosts and land
 # on the newly-promoted primary.
@@ -205,6 +211,17 @@ def _connect(data_dir=None):
     if not _ATEXIT:
         atexit.register(close_connection)
         _ATEXIT = True
+    # v6.1.0 (Phase 6, opt-in DB-RLS): apply the row-level-security migration once,
+    # and DEFAULT this fresh connection's tenant GUC to '*' (bypass). RLS+FORCE means
+    # an unset GUC would fail-CLOSED (deny all rows) → break every path that didn't
+    # set it; defaulting to '*' keeps every path working, and request handling NARROWS
+    # the GUC to the caller's tenant for authenticated tenant-users (set_request_tenant).
+    if RLS_ACTIVE:
+        try:
+            _enable_rls(conn)
+            conn.execute("SELECT set_config('app.rp_tenant', '*', false)")
+        except Exception:
+            pass
     return conn
 
 
@@ -243,6 +260,56 @@ def close_connection():
             except Exception:
                 pass
         setattr(_LOCAL, attr, None)
+
+
+def _enable_rls(conn):
+    """v6.1.0 (Phase 6, opt-in): apply Postgres row-level security to the per-tenant
+    tables so a tenant's rows are unreachable cross-tenant AT THE DATABASE — defence
+    in depth beneath the app-layer tenancy. Idempotent; runs once per process.
+
+    Per table: a `tenant_id` column kept in sync with the doc's `tenant` field by a
+    BEFORE-trigger (so the app writes the doc as usual), RLS ENABLE + **FORCE** (the
+    app connects as the table OWNER, and owners bypass RLS without FORCE — the silent
+    fail-open this guards against), and a policy keyed on the per-request GUC
+    `app.rp_tenant`: '*' = bypass (superadmin / agent / system), else exact match.
+    An unset GUC matches nothing → fail-CLOSED (deny)."""
+    global _RLS_DONE
+    if _RLS_DONE:
+        return
+    for t in _RLS_TABLES:
+        conn.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'")
+        conn.execute(f"""CREATE OR REPLACE FUNCTION rp_tenant_sync_{t}() RETURNS trigger AS $$
+                         BEGIN NEW.tenant_id := COALESCE(NULLIF(NEW.doc::jsonb->>'tenant',''),'default');
+                               RETURN NEW; END; $$ LANGUAGE plpgsql""")
+        conn.execute(f"DROP TRIGGER IF EXISTS trg_rp_tenant_{t} ON {t}")
+        conn.execute(f"""CREATE TRIGGER trg_rp_tenant_{t} BEFORE INSERT OR UPDATE ON {t}
+                         FOR EACH ROW EXECUTE FUNCTION rp_tenant_sync_{t}()""")
+        conn.execute(f"UPDATE {t} SET tenant_id = COALESCE(NULLIF(doc::jsonb->>'tenant',''),'default')")
+        conn.execute(f"ALTER TABLE {t} ENABLE ROW LEVEL SECURITY")
+        conn.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
+        conn.execute(f"DROP POLICY IF EXISTS rp_tenant_iso ON {t}")
+        conn.execute(f"""CREATE POLICY rp_tenant_iso ON {t} USING
+                         (current_setting('app.rp_tenant', true) = '*'
+                          OR tenant_id = current_setting('app.rp_tenant', true))
+                         WITH CHECK
+                         (current_setting('app.rp_tenant', true) = '*'
+                          OR tenant_id = current_setting('app.rp_tenant', true))""")
+    _RLS_DONE = True
+
+
+def set_request_tenant(value):
+    """v6.1.0 (Phase 6, opt-in): set this thread's per-request tenant GUC. '*' =
+    bypass (superadmin / agent / system); a tenant id confines reads+writes to that
+    tenant's rows. No-op unless RLS is active. Best-effort — never raises into the
+    request (the app-layer tenancy is the independent primary filter)."""
+    if not RLS_ACTIVE:
+        return
+    try:
+        conn = _connect()
+        _enable_rls(conn)          # idempotent; covers a connection opened before RLS was active
+        conn.execute("SELECT set_config('app.rp_tenant', %s, false)", (str(value or '*'),))
+    except Exception:
+        pass
 
 
 def pg_status():

@@ -2994,6 +2994,7 @@ def verify_token(token):
                     save(TOKENS_FILE, tokens)
                 except Exception:
                     pass  # activity stamp is best-effort, never block auth
+            _rls_narrow(username, role)   # v6.1.0 (Phase 6): set DB-RLS tenant GUC before device queries
             return username, role
 
     # API keys — full constant-time scan (no early exit)
@@ -3051,6 +3052,7 @@ def verify_token(token):
         _ks = matched_kdata.get('scope') if isinstance(matched_kdata, dict) else None
         if isinstance(_ks, dict) and _ks.get('type') and _ks.get('type') != 'all':
             _RCTX.key_scope = _ks
+        _rls_narrow(matched_user, matched_role)   # v6.1.0 (Phase 6): DB-RLS tenant GUC
         return matched_user, matched_role
 
     return None, None
@@ -3585,6 +3587,12 @@ def _begin_request():
     _RCTX.request_id = None    # mint a fresh correlation id for this request
     _RCTX.trace_id = None      # v5.4.1 (F2): re-read traceparent per request
     _RCTX.key_scope = None     # v5.4.1 (D6): re-resolve the auth key's scope per request
+    # v6.1.0 (Phase 6, opt-in DB-RLS): default this request's tenant GUC to bypass so
+    # every path works (agent/system/unauth); verify_token narrows it for an
+    # authenticated tenant user. No-op unless opt-in RLS is active.
+    if _tenancy_rls_active():
+        storage_pg.RLS_ACTIVE = True
+        storage_pg.set_request_tenant('*')
 
 
 def _end_request():
@@ -11073,6 +11081,35 @@ def _tenancy_enforced():
     return bool(_config_ro().get('tenancy_enforced'))
 
 
+def _tenancy_rls_active():
+    """v6.1.0 (Phase 6): opt-in DB-level row-level-security isolation — active only
+    when tenancy is enforced AND `tenancy_rls` is set AND the backend is Postgres.
+    Default OFF. This is the defense-in-depth layer BENEATH the app-layer device
+    tenancy (which stays the primary, always-on-when-enforced filter)."""
+    try:
+        return (_storage_backend() == 'postgres'
+                and bool(_config_ro().get('tenancy_enforced'))
+                and bool(_config_ro().get('tenancy_rls')))
+    except Exception:
+        return False
+
+
+def _rls_narrow(username, role):
+    """v6.1.0: narrow the per-request DB-RLS tenant GUC to an authenticated caller's
+    tenant — '*' (bypass) for a superadmin (admin in the default tenant), else the
+    user's tenant. Called from verify_token after auth, BEFORE the handler's device
+    queries, so the DB filters those reads/writes by tenant. No-op unless opt-in RLS
+    is active. Best-effort; the app-layer tenancy is the independent primary filter."""
+    if not _tenancy_rls_active():
+        return
+    try:
+        storage_pg.RLS_ACTIVE = True
+        t = _user_tenant(username) if username else DEFAULT_TENANT
+        storage_pg.set_request_tenant('*' if (role == 'admin' and t == DEFAULT_TENANT) else t)
+    except Exception:
+        pass
+
+
 def _device_tenant(dev):
     return (dev.get('tenant') if isinstance(dev, dict) else None) or DEFAULT_TENANT
 
@@ -16912,6 +16949,7 @@ def handle_config_get():
     safe.setdefault('webpush_subject', '')
     safe['vapid_keyed'] = bool(cfg.get('vapid_private_key'))
     safe.setdefault('tenancy_enforced', False)   # v3.14.0 #24 P2
+    safe.setdefault('tenancy_rls', False)        # v6.1.0 Phase 6 (opt-in DB-RLS)
     safe.setdefault('trust_proxy', False)         # v3.14.0: XFF behind a load balancer
     safe.setdefault('require_agent_mtls', False)  # v5.0.0 #C1: mutual-TLS gate
     safe.setdefault('disk_watchdog_pct', 85)      # v5.0.0 #R1: server disk alert %
@@ -17714,6 +17752,8 @@ def handle_config_save():
     # v3.14.0 (#24 P2): tenant isolation enforcement (opt-in, default off).
     if 'tenancy_enforced' in body:
         cfg['tenancy_enforced'] = bool(body['tenancy_enforced'])
+    if 'tenancy_rls' in body:               # v6.1.0 (Phase 6): opt-in DB-level RLS isolation (Postgres)
+        cfg['tenancy_rls'] = bool(body['tenancy_rls'])
 
     # v3.14.0: trust X-Forwarded-For (only behind a load balancer / reverse
     # proxy that sets it — otherwise clients could spoof their source IP).

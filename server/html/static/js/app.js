@@ -2993,6 +2993,8 @@ async function loadSettings() {
   // v3.14.0 #24 P2: tenant isolation enforcement
   const _tEn = document.getElementById('cfg-tenancy-enforced');
   if (_tEn) _tEn.checked = !!data.tenancy_enforced;
+  const _tRls = document.getElementById('cfg-tenancy-rls');   // v6.1.0 (Phase 6): DB-RLS
+  if (_tRls) _tRls.checked = !!data.tenancy_rls;
   // v3.14.0 #48: agentless SSH
   const _sshEn = document.getElementById('cfg-agentless-ssh-enabled');
   if (_sshEn) {
@@ -3438,6 +3440,8 @@ async function saveSettings(btn) {
   // v3.14.0 #24 P2: tenant isolation enforcement
   const _tSaveEn = document.getElementById('cfg-tenancy-enforced');
   if (_tSaveEn) payload.tenancy_enforced = _tSaveEn.checked;
+  const _tSaveRls = document.getElementById('cfg-tenancy-rls');   // v6.1.0 (Phase 6): DB-RLS
+  if (_tSaveRls) payload.tenancy_rls = _tSaveRls.checked;
   // v3.14.0 #48: agentless SSH
   const _sshSaveEn = document.getElementById('cfg-agentless-ssh-enabled');
   if (_sshSaveEn) {
