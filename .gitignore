@@ -15,9 +15,13 @@ AGENTS.md
 scan-*.tar.gz
 scan-*/
 
-# Local-only Claude Code working notes — kept on disk for the agent to read,
-# but never tracked, so it doesn't mirror to the production repo or releases.
+# Local-only AI-assistant working notes — kept on disk for the agent to read,
+# but never tracked, so they don't mirror to the production repo or releases.
+# opencode.md is the OpenCode twin of CLAUDE.md and carries the same internal
+# operational guidance, so it gets the same treatment (it was previously tracked
+# by oversight — untracked in the v5.5.0 sweep).
 CLAUDE.md
+opencode.md
 
 # Marketing landing page for remotepower.tvipper.com — a standalone deployable
 # kept on disk but untracked, so it never reaches the production repo. Deploy it

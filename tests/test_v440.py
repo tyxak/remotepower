@@ -216,7 +216,8 @@ class TestReleaseTarballExcludes(unittest.TestCase):
         for needle in ("--exclude='./deploy'",
                        "--exclude='./docs/*-internal.md'",
                        "--exclude='./site'",
-                       "--exclude='./CLAUDE.md'"):
+                       "--exclude='./CLAUDE.md'",
+                       "--exclude='./opencode.md'"):
             self.assertIn(needle, dist, f'dist target missing {needle}')
 
 

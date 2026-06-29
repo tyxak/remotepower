@@ -4076,6 +4076,10 @@ async function loadTickets() {
   render(bTeam, 'tickets_team', 'tk-tbody-team', 'tk-count-team',
     myTeam ? `No open tickets for team "${escHtml(myTeam)}".` : 'Set your team under Profile to use this view.');
   render(bOther, 'tickets_other', 'tk-tbody-other', 'tk-count-other');
+  // v5.5.0: reconcile the sidebar Tickets badge immediately after any ticket
+  // mutation (loadTickets() is the common tail of create/assign/resolve/delete)
+  // instead of waiting for the next 60s nav-counts poll.
+  try { if (typeof refreshNavCounts === 'function') refreshNavCounts(); } catch (_) {}
 }
 
 let _tkNewDevs = [];
@@ -11901,6 +11905,18 @@ async function refreshNavCounts() {
         if (off > 0) { bb.classList.remove('d-none'); bb.classList.add('nav-badge-alert'); bb.textContent = off > 99 ? '99+' : String(off); bb.title = `${off} device(s) offline`; }
         else bb.classList.add('d-none');
       } }
+    // v5.5.0: keep the sidebar Tickets badge live on the 60s poll (it used to
+    // only update on a full dashboard load, so the count lingered after a
+    // ticket was resolved until the user manually refreshed the page).
+    if (typeof c.tickets_open === 'number') {
+      const tb = document.getElementById('tickets-badge');
+      if (tb) {
+        const n = c.tickets_open;   // server already returns 0 when tickets are off
+        tb.classList.toggle('d-none', n === 0);
+        tb.textContent = n > 99 ? '99+' : String(n);
+        tb.title = n === 1 ? '1 open ticket' : `${n} open tickets`;
+      }
+    }
     // v5.0.0 (#U4): live pending-command count on the Command Queue nav item.
     { const b = document.getElementById('cmdqueue-badge');
       if (b) {

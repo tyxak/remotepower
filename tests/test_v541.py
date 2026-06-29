@@ -595,13 +595,23 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         else:
             os.environ['RP_CONFIG_KEY'] = self._k
 
+    def _at_rest(self):
+        """Read the raw stored config form (encrypt/decrypt hooks live in
+        api.load/save, above storage), backend-agnostically: the DB backends
+        store it as a row, the JSON backend as a file on disk."""
+        m = api._dbmod()
+        if m is not None:
+            return m.load(api.CONFIG_FILE)
+        import json
+        return json.loads(api.CONFIG_FILE.read_text())
+
     def test_default_off_is_plaintext(self):
         import json
         import os
         os.environ.pop('RP_CONFIG_KEY', None)
         api._LOAD_CACHE.clear()
         api.save(api.CONFIG_FILE, {'smtp_password': 's3cret'})
-        on_disk = json.loads(api.CONFIG_FILE.read_text())
+        on_disk = self._at_rest()
         self.assertEqual(on_disk['smtp_password'], 's3cret')      # no key → plaintext
 
     @unittest.skipUnless(__import__('backup_crypto').available(), 'cryptography not installed')
@@ -611,7 +621,7 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         os.environ['RP_CONFIG_KEY'] = 'master-key-xyz'
         api._LOAD_CACHE.clear()
         api.save(api.CONFIG_FILE, {'smtp_password': 's3cret', 'siem_token': 'st', 'plain': 'v'})
-        on_disk = json.loads(api.CONFIG_FILE.read_text())
+        on_disk = self._at_rest()
         self.assertTrue(on_disk['smtp_password'].startswith('enc:v1:'))  # ciphertext at rest
         self.assertEqual(on_disk['plain'], 'v')                          # non-secret untouched
         api._LOAD_CACHE.clear()
@@ -910,7 +920,7 @@ class TestG3ControlPlaneUptime(unittest.TestCase):
         try:
             api.CONTROL_UPTIME_FILE = self._tmp()
             api._record_self_alive()
-            self.assertTrue(api.CONTROL_UPTIME_FILE.exists())
+            self.assertTrue(api.backend_exists(api.CONTROL_UPTIME_FILE))
             up = api._control_uptime()
             self.assertTrue(up['tracking'])
             w = up['windows']['24h']

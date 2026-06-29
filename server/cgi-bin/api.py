@@ -39433,7 +39433,8 @@ def handle_nav_counts():
             if (time.time() - _cmt) < 15:
                 _fresh = True
                 for _src in (DEVICES_FILE, MON_HIST_FILE, CVE_FINDINGS_FILE,
-                             ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE):
+                             ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE,
+                             TICKETS_FILE):
                     try:
                         if backend_mtime(_src) > _cmt:
                             _fresh = False
@@ -39485,6 +39486,18 @@ def handle_nav_counts():
     out = {'fleet': offline, 'monitoring': down, 'security': crit}
     try:
         out['alerts'] = _alerts_summary((load(ALERTS_FILE) or {}).get('alerts', []))
+    except Exception:
+        pass
+    # v5.5.0: carry the open-ticket count so the sidebar Tickets badge stays live
+    # on the 60s poll (it used to only refresh on a full dashboard load → the
+    # badge lingered after a ticket was resolved until the user reloaded).
+    try:
+        if _tickets_enabled():
+            out['tickets_open'] = sum(
+                1 for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])
+                if t.get('status') in ('ongoing', 'pending_customer', 'pending_internal'))
+        else:
+            out['tickets_open'] = 0
     except Exception:
         pass
     if _resolve_role(_nc_role).get('admin'):
