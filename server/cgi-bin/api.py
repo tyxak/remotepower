@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import secrets
 import socket
+import threading
 import subprocess
 import shlex
 import shutil
@@ -2825,8 +2826,8 @@ def _mint_session(username, extra=None, remember_me=False):
         'user':      username,
         'created':   int(time.time()),
         'ttl':       get_session_ttl(remember_me=remember_me),
-        'ip':        os.environ.get('REMOTE_ADDR', ''),
-        'ua':        _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+        'ip':        _env('REMOTE_ADDR', ''),
+        'ua':        _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
         'last_seen': int(time.time()),
     }
     if extra:
@@ -2945,8 +2946,8 @@ def verify_token(token):
             # every request. Backfill ip/ua for sessions created before v3.14.0.
             if now - int(entry.get('last_seen', 0)) > 60:
                 entry['last_seen'] = now
-                entry.setdefault('ip', os.environ.get('REMOTE_ADDR', ''))
-                entry.setdefault('ua', _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256))
+                entry.setdefault('ip', _env('REMOTE_ADDR', ''))
+                entry.setdefault('ua', _sanitize_str(_env('HTTP_USER_AGENT', ''), 256))
                 try:
                     save(TOKENS_FILE, tokens)
                 except Exception:
@@ -3034,10 +3035,10 @@ def _get_client_ip():
     actually connected to (a client can prepend spoofed entries, but the proxy
     appends the real one last, so this can't be forged). Off by default →
     REMOTE_ADDR, unchanged for single-node installs."""
-    remote = os.environ.get('REMOTE_ADDR', '0.0.0.0')
+    remote = _env('REMOTE_ADDR', '0.0.0.0')
     try:
         if _config_ro().get('trust_proxy'):
-            xff = os.environ.get('HTTP_X_FORWARDED_FOR', '').strip()
+            xff = _env('HTTP_X_FORWARDED_FOR', '').strip()
             if xff:
                 ip = xff.split(',')[-1].strip()
                 if ip:
@@ -3268,12 +3269,25 @@ def _enforce_apikey_ratelimit(kid: str, kdata: dict) -> None:
                       'limit_per_min': limit, 'retry_after': 60})
 
 # ── Request helpers ────────────────────────────────────────────────────────────
+def _read_request_body(length):
+    """v6.0.0 (Stage E): read up to `length` body bytes from the thread-local
+    request context (re-readable bytes, set by wsgi.py) when active, else from
+    sys.stdin (CGI). Routing the body through the context lets a threaded worker
+    avoid swapping the process-global sys.stdin per request."""
+    if length <= 0:
+        return b''
+    body = getattr(_RCTX, 'stdin', None)
+    if body is not None:
+        return bytes(body[:length])
+    return sys.stdin.buffer.read(length)
+
+
 def get_body():
-    length = int(os.environ.get('CONTENT_LENGTH', 0) or 0)
+    length = int(_env('CONTENT_LENGTH', 0) or 0)
     # Hard cap: reject oversized bodies
     if length > MAX_BODY_BYTES:
         respond(413, {'error': 'Request body too large'})
-    return sys.stdin.buffer.read(length) if length > 0 else b''
+    return _read_request_body(length)
 
 def get_json_body():
     # Returns the raw parsed JSON (which MAY be a non-dict — some handlers, e.g.
@@ -3314,23 +3328,23 @@ def _peek_heartbeat_dev_id():
     subsequent get_body() call sees the same payload.
     """
     try:
-        if os.environ.get('REQUEST_METHOD', '').upper() != 'POST':
+        if _env('REQUEST_METHOD', '').upper() != 'POST':
             return None
-        if (os.environ.get('PATH_INFO', '') or '') != '/api/heartbeat':
+        if (_env('PATH_INFO', '') or '') != '/api/heartbeat':
             return None
-        length = int(os.environ.get('CONTENT_LENGTH', 0) or 0)
+        length = int(_env('CONTENT_LENGTH', 0) or 0)
         if length <= 0 or length > MAX_BODY_BYTES:
             return None
-        raw = sys.stdin.buffer.read(length)
-        # Replace stdin with a buffer holding the same bytes. The
-        # heartbeat handler's get_body() then re-reads from the
-        # replacement and sees the same payload. tests that swap
-        # sys.stdin themselves never call _peek_heartbeat_dev_id
-        # (it only fires when PATH_INFO == /api/heartbeat AND main()
-        # entered the dispatcher loop) so test fixtures are unaffected.
-        import io as _io
-        sys.stdin = _io.TextIOWrapper(_io.BytesIO(raw),
-                                      encoding='utf-8', errors='replace')
+        raw = _read_request_body(length)
+        # v6.0.0 (Stage E): in request-context mode the body bytes are re-readable
+        # (get_body() re-reads _RCTX.stdin), so we must NOT mutate the process-global
+        # sys.stdin (that's exactly what threading must avoid). Only under CGI (no
+        # context) do we replace stdin so the heartbeat handler's get_body() re-reads
+        # the same payload. tests that swap sys.stdin never call this.
+        if getattr(_RCTX, 'stdin', None) is None:
+            import io as _io
+            sys.stdin = _io.TextIOWrapper(_io.BytesIO(raw),
+                                          encoding='utf-8', errors='replace')
         try:
             data = json.loads(raw) if raw else {}
         except Exception:
@@ -3352,16 +3366,16 @@ def get_token_from_request():
     The existing Prometheus /api/metrics handler already accepted Bearer;
     this generalises that across every endpoint.
     """
-    tok = os.environ.get('HTTP_X_TOKEN', '').strip()
+    tok = _env('HTTP_X_TOKEN', '').strip()
     if tok:
         return tok
-    auth = os.environ.get('HTTP_AUTHORIZATION', '').strip()
+    auth = _env('HTTP_AUTHORIZATION', '').strip()
     if auth.lower().startswith('bearer '):
         return auth[7:].strip()
     return ''
 
 def path_info():
-    p = os.environ.get('PATH_INFO', '').rstrip('/')
+    p = _env('PATH_INFO', '').rstrip('/')
     # v5.4.1 (E2): /api/v1/* is a permanent alias of the unversioned /api/* — strip
     # the version segment so every route (exact table + parametrized chains)
     # resolves identically. Lets integrators pin a versioned base URL today; future
@@ -3371,7 +3385,7 @@ def path_info():
     return p
 
 def method():
-    return os.environ.get('REQUEST_METHOD', 'GET').upper()
+    return _env('REQUEST_METHOD', 'GET').upper()
 
 # ── Response helpers ───────────────────────────────────────────────────────────
 
@@ -3434,11 +3448,11 @@ def _gzip_response_wanted(body_len: int) -> bool:
     try:
         if body_len < _GZIP_MIN_BYTES:
             return False
-        if os.environ.get('REQUEST_METHOD', '') != 'GET':
+        if _env('REQUEST_METHOD', '') != 'GET':
             return False
-        if 'gzip' not in os.environ.get('HTTP_ACCEPT_ENCODING', '').lower():
+        if 'gzip' not in _env('HTTP_ACCEPT_ENCODING', '').lower():
             return False
-        pi = os.environ.get('PATH_INFO', '')
+        pi = _env('PATH_INFO', '')
         return any(pi == p or pi.startswith(p + '/') for p in _GZIP_SAFE_GET_PATHS)
     except Exception:
         return False
@@ -3448,6 +3462,27 @@ _REQUEST_ID = None
 _TRACE_ID = None    # v5.4.1 (F2): W3C trace-id for the current request
 _CALLER_KEY_SCOPE = None   # v5.4.1 (D6): device scope of the API key that authed this request
 
+# ── v6.0.0 (keystone Stage E): per-request I/O context ───────────────────────
+# To let a PERSISTENT, THREADED worker handle requests concurrently without the
+# wsgi shim's process-global os.environ/stdin/stdout swap (which forces a lock),
+# request input + output are routed through a THREAD-LOCAL context. `_env()` is a
+# drop-in for `os.environ.get` for REQUEST variables: it reads the active context
+# when one is set, else falls back to os.environ — so under CGI (no context) and
+# under the current lock-holding shim (which still sets os.environ) behaviour is
+# byte-identical. This is inert until wsgi.py populates _RCTX (then it can drop the
+# lock). `.environ` = request CGI vars; `.stdin` = body bytes; `.out` = response
+# buffer (BytesIO) when the response should be captured instead of printed.
+_RCTX = threading.local()
+
+
+def _env(key, default=None):
+    """Read a REQUEST CGI variable from the thread-local request context if active,
+    else from os.environ — a faithful drop-in for os.environ.get(key[, default])."""
+    ctx = getattr(_RCTX, 'environ', None)
+    if ctx is not None:
+        return ctx.get(key, default)
+    return os.environ.get(key, default)
+
 
 def _request_id():
     """v5.4.1 (F1): one correlation id per request — honour an inbound
@@ -3456,7 +3491,7 @@ def _request_id():
     record and an audit lookup can be joined for the same request."""
     global _REQUEST_ID
     if _REQUEST_ID is None:
-        inbound = (os.environ.get('HTTP_X_REQUEST_ID', '') or '').strip()
+        inbound = (_env('HTTP_X_REQUEST_ID', '') or '').strip()
         _REQUEST_ID = inbound if re.fullmatch(r'[A-Za-z0-9._-]{1,64}', inbound) else secrets.token_hex(8)
     return _REQUEST_ID
 
@@ -3468,7 +3503,7 @@ def _trace_id():
     fresh trace-id otherwise. Cached per request (reset in _begin_request)."""
     global _TRACE_ID
     if _TRACE_ID is None:
-        tp = (os.environ.get('HTTP_TRACEPARENT', '') or '').strip()
+        tp = (_env('HTTP_TRACEPARENT', '') or '').strip()
         m = re.fullmatch(r'00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}', tp)
         # reject the all-zero trace-id (invalid per spec); else mint one
         _TRACE_ID = m.group(1) if (m and m.group(1) != '0' * 32) else secrets.token_hex(16)
@@ -3509,6 +3544,11 @@ def _end_request():
     """Per-request teardown. A no-op today; the persistent-server migration will
     use it to release per-request resources (e.g. return pooled DB connections)."""
     _LOAD_CACHE.clear()
+    # v6.0.0 (Stage E): drop the per-request I/O context so a reused worker thread
+    # never serves the next request with the previous request's environ/body/output.
+    for _a in ('environ', 'stdin', 'out'):
+        if hasattr(_RCTX, _a):
+            setattr(_RCTX, _a, None)
 
 
 _LOG_LEVELS = {'debug': 10, 'info': 20, 'warning': 30, 'error': 40}
@@ -3940,8 +3980,8 @@ def get_mcp_attribution():
     audit_log() so every state change carries the prompt that caused it.
     """
     return (
-        os.environ.get('HTTP_X_MCP_CLIENT') or None,
-        os.environ.get('HTTP_X_MCP_PROMPT') or None,
+        _env('HTTP_X_MCP_CLIENT') or None,
+        _env('HTTP_X_MCP_PROMPT') or None,
     )
 
 
@@ -4171,7 +4211,7 @@ def audit_log(actor, action, detail='', source_ip=None,
         'action':    _sanitize_str(action, 128),
         'detail':    _sanitize_str(detail, 512),
         'source_ip': _sanitize_ip(source_ip or _get_client_ip()),
-        'user_agent': _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+        'user_agent': _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
     }
     # Only attach AI fields when present — keeps the entry compact for
     # the human-initiated path and makes MCP-initiated entries visually
@@ -5812,7 +5852,7 @@ def handle_tickets():
     if method() == 'GET':
         require_auth()
         tickets = (load(TICKETS_FILE) or {}).get('tickets') or []
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         q = (qs.get('q') or [''])[0].lower().strip()
         st = (qs.get('status') or [''])[0]
         ty = (qs.get('type') or [''])[0]
@@ -6147,7 +6187,7 @@ def handle_contacts():
     if method() == 'GET':
         require_auth()
         contacts = (load(CONTACTS_FILE) or {}).get('contacts') or []
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         q = (qs.get('q') or [''])[0].lower().strip()
         out = []
         for c in contacts:
@@ -6451,7 +6491,7 @@ def handle_ticket_attachment(tid, aid):
     path = _attach_blob_path(aid)
     if not path or not path.exists():
         respond(404, {'error': 'attachment blob missing'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     ct = _attach_safe_ct(meta.get('content_type'))
     inline = qs.get('inline', ['0'])[0] == '1' and ct in ATTACH_INLINE_TYPES
     fname = _attach_safe_name(meta.get('filename'))
@@ -9180,7 +9220,7 @@ def handle_csp_report():
     is captured separately via the audit_log()'s standard field.
     """
     try:
-        length = int(os.environ.get('CONTENT_LENGTH', '0') or 0)
+        length = int(_env('CONTENT_LENGTH', '0') or 0)
         if length > _CSP_REPORT_MAX_BYTES:
             respond(204, '')
             return
@@ -9192,12 +9232,12 @@ def handle_csp_report():
         # Throttle: silently drop reports beyond the per-IP per-minute
         # cap. Default 10 is comfortably above what a healthy page
         # generates and well below an abusive flood.
-        ip = os.environ.get('REMOTE_ADDR', '?') or '?'
+        ip = _env('REMOTE_ADDR', '?') or '?'
         per_min = int(cfg.get('csp_report_throttle_per_minute', 10) or 0)
         if _csp_report_should_throttle(ip, per_min):
             respond(204, '')
             return
-        raw = sys.stdin.buffer.read(length) if length else b''
+        raw = _read_request_body(length)
         try:
             report = json.loads(raw.decode('utf-8', errors='replace'))
         except Exception:
@@ -9213,7 +9253,7 @@ def handle_csp_report():
         source_file= (r or {}).get('source-file')        or ''
         line_no    = (r or {}).get('line-number')        or ''
         sample     = (r or {}).get('script-sample')      or ''
-        referer    = os.environ.get('HTTP_REFERER', '')[:120]
+        referer    = _env('HTTP_REFERER', '')[:120]
         # Browser extensions (ad blockers, dark-mode, password managers,
         # Grammarly, translators, …) inject inline styles/scripts that our
         # strict CSP blocks. Those violations originate in the EXTENSION, not the
@@ -9437,8 +9477,8 @@ def handle_login():
             'created':   _now_login,
             'ttl':       ttl,
             # v3.14.0: session-origin metadata for the My Account → Sessions UI.
-            'ip':        os.environ.get('REMOTE_ADDR', ''),
-            'ua':        _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+            'ip':        _env('REMOTE_ADDR', ''),
+            'ua':        _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
             'last_seen': _now_login,
         }
     respond(200, {
@@ -9480,7 +9520,7 @@ def handle_devices_list():
     # are no-ops at default (limit=0 means unbounded). Order is stable:
     # sorted by device name then id, so a paged client iterating with
     # increasing offset gets a deterministic walk over the fleet.
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     slim = (qs.get('slim') or [''])[0] == '1'
     try:
         limit = int((qs.get('limit') or ['0'])[0])
@@ -10360,7 +10400,7 @@ def handle_time_entries():
     if method() == 'GET':
         actor = require_auth()
         see_all = _caller_billing_view()
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         f_user = (qs.get('user') or [''])[0].strip()
         f_site = (qs.get('site') or [''])[0].strip()
         f_from = (qs.get('from') or [''])[0].strip()
@@ -10493,7 +10533,7 @@ def handle_timesheet():
     """GET /api/timesheet?week=YYYY-Www[&user=] — a week grouped by day (the
     caller's own, or another user's for admin/finance)."""
     actor = require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     week = (qs.get('week') or [''])[0].strip()
     want_user = (qs.get('user') or [''])[0].strip()
     target = actor
@@ -10620,7 +10660,7 @@ def handle_billing_worksheet():
     if not _billing_enabled():
         respond(404, {'error': 'billing is disabled'})
     require_admin_or_finance_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     site = (qs.get('site') or [''])[0].strip()
     sites = load(SITES_FILE) or {}
     if not site or site not in sites:
@@ -10652,7 +10692,7 @@ def handle_invoices():
         respond(404, {'error': 'billing is disabled'})
     if method() == 'GET':
         require_admin_or_finance_auth()
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         f_site = (qs.get('site') or [''])[0].strip()
         f_status = (qs.get('status') or [''])[0].strip()
         invs = (load(INVOICES_FILE) or {}).get('invoices') or []
@@ -10753,7 +10793,7 @@ def handle_invoice_get(iid):
     resp['site_name'] = sites.get(inv.get('site_id'), {}).get('name', inv.get('site_id'))
     resp['billing_contact'] = sb.get('billing_contact', '')
     resp['billing_address'] = sb.get('billing_address', '')
-    if (urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    if (urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
             .get('format') or [''])[0].strip().lower() == 'csv':
         _csv_invoice(resp)   # exits
     respond(200, {'ok': True, 'invoice': resp})
@@ -11274,7 +11314,7 @@ def handle_firewall_overview():
     lists, to keep the payload lean). Telemetry view: unmonitored hosts still show,
     flagged."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want_dev = (qs.get('device', [''])[0] or '').strip()
     devices = load(DEVICES_FILE)
     rows = []
@@ -11313,7 +11353,7 @@ def handle_fail2ban_overview():
     """GET /api/fail2ban — fleet fail2ban posture. ?device=<id> returns that host
     WITH per-jail banned-IP lists; otherwise a fleet summary (counts only)."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want_dev = (qs.get('device', [''])[0] or '').strip()
     devices = load(DEVICES_FILE)
     rows = []
@@ -11479,7 +11519,7 @@ def handle_device_files(dev_id):
     m = method()
     content = None
     if m == 'GET':
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         op = (qs.get('op', ['list'])[0] or 'list').strip().lower()
         path = (qs.get('path', [''])[0] or '').strip()
         if op not in _FILE_MGR_OPS_READ:
@@ -11550,7 +11590,7 @@ def handle_cron_overview():
     host's full crontabs / cron.d / timers; otherwise a lean fleet summary.
     Telemetry view: unmonitored hosts still show, flagged."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want = (qs.get('device', [''])[0] or '').strip()
     devices = load(DEVICES_FILE)
     rows = []
@@ -12852,7 +12892,7 @@ def handle_webterm_session_audit():
     # user). If they match, it's the legit daemon talking.
     cfg = load(CONFIG_FILE)
     expected = cfg.get('webterm_daemon_secret', '')
-    provided = os.environ.get('HTTP_X_WEBTERM_SECRET', '')
+    provided = _env('HTTP_X_WEBTERM_SECRET', '')
     if not expected or not provided or not hmac.compare_digest(expected, provided):
         respond(403, {'error': 'Daemon secret mismatch'})
 
@@ -13052,12 +13092,12 @@ def _client_cert_identity():
         X-SSL-Client-Fingerprint: <sha1 hex of the client cert>
         X-SSL-Client-DN:          <subject DN>
     Returns (verified: bool, fingerprint: str, dn: str)."""
-    verify = os.environ.get('HTTP_X_SSL_CLIENT_VERIFY', '').strip().upper()
-    fp = os.environ.get('HTTP_X_SSL_CLIENT_FINGERPRINT', '').strip().lower()
+    verify = _env('HTTP_X_SSL_CLIENT_VERIFY', '').strip().upper()
+    fp = _env('HTTP_X_SSL_CLIENT_FINGERPRINT', '').strip().lower()
     # nginx emits "SHA1:AA:BB:.." for $ssl_client_fingerprint on some builds and
     # a bare hex on others — normalise to lowercase hex with no separators.
     fp = fp.replace('sha1:', '').replace(':', '')
-    dn = os.environ.get('HTTP_X_SSL_CLIENT_DN', '').strip()
+    dn = _env('HTTP_X_SSL_CLIENT_DN', '').strip()
     return (verify == 'SUCCESS', fp, dn)
 
 
@@ -15273,7 +15313,7 @@ def handle_command_queue_clear(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     idx_raw = (qs.get('index') or [''])[0]
     with _LockedUpdate(CMDS_FILE) as cmds:
         queue = cmds.get(dev_id) or []
@@ -15860,7 +15900,7 @@ def handle_sysinfo_batch():
     the per-device drawer.
     """
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     ids_raw = (qs.get('ids') or [''])[0]
     # Cap at 200 ids per request so a malicious or buggy client can't
     # ask the server to serialise every device's sysinfo (some entries
@@ -15887,7 +15927,7 @@ def handle_metrics(dev_id):
     # v3.14.0: ?range=<seconds> serves the long-retention time-series (DB
     # backends), downsampled to keep the chart readable. No range / JSON backend
     # → the recent metrics.json window (unchanged).
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     rng = qs.get('range', [''])[0]
     _m = _dbmod()
     if rng and _m is not None:
@@ -18365,7 +18405,7 @@ def _paginate_list(items):
                              instead of a bare slice (for total + next-page paging)
     Filtering/sorting apply before slicing; with neither ?limit nor ?meta the
     response is byte-for-byte the old bare list."""
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     items = list(items or [])
     # optional substring filter (only pay the serialization cost when ?q is set)
     q = (qs.get('q', [''])[0] or '').strip().lower()
@@ -18378,15 +18418,15 @@ def _paginate_list(items):
         items = sorted(items, key=lambda it: (it.get(sort) is None, str(it.get(sort))), reverse=rev)
     want_meta = (qs.get('meta', ['0'])[0] or '0').lower() in ('1', 'true', 'yes')
 
-    def _env(page, limit, offset, nxt):
+    def _envelope(page, limit, offset, nxt):
         return {'items': page, 'total': len(items), 'limit': limit, 'offset': offset, 'next': nxt}
 
     if 'limit' not in qs:
-        return _env(items, None, 0, None) if want_meta else items
+        return _envelope(items, None, 0, None) if want_meta else items
     try:
         limit = max(0, min(100000, int(qs.get('limit', ['0'])[0])))
     except (ValueError, TypeError):
-        return _env(items, None, 0, None) if want_meta else items
+        return _envelope(items, None, 0, None) if want_meta else items
     try:
         offset = max(0, int(qs.get('offset', ['0'])[0]))
     except (ValueError, TypeError):
@@ -18394,7 +18434,7 @@ def _paginate_list(items):
     page = items[offset:offset + limit] if limit else items[offset:]
     if want_meta:
         nxt = offset + limit if (limit and offset + limit < len(items)) else None
-        return _env(page, (limit or None), offset, nxt)
+        return _envelope(page, (limit or None), offset, nxt)
     return page
 
 
@@ -18464,7 +18504,7 @@ def _scim_auth():
     if not cfg.get('scim_enabled'):
         _scim_error(404, 'SCIM provisioning is not enabled')
     tok = cfg.get('scim_token') or ''
-    auth = os.environ.get('HTTP_AUTHORIZATION', '')
+    auth = _env('HTTP_AUTHORIZATION', '')
     presented = auth[7:].strip() if auth[:7].lower() == 'bearer ' else ''
     if not tok or not secrets.compare_digest(presented, tok):
         _scim_error(401, 'invalid or missing SCIM bearer token')
@@ -18516,7 +18556,7 @@ def handle_scim_users_collection():
     _scim_auth()
     m = method()
     if m == 'GET':
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
         flt = (qs.get('filter', [''])[0] or '')
         users = load(USERS_FILE) or {}
         want = None
@@ -19298,7 +19338,7 @@ def _resolve_agent_channel():
     'beta' ONLY when beta is requested AND a beta binary exists on disk; else
     'stable'. Never raises."""
     try:
-        qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
         ch = (qs.get('channel') or [''])[0].lower()
         if ch not in ('stable', 'beta'):
             did = (qs.get('device_id') or [''])[0]
@@ -21454,7 +21494,7 @@ def handle_fleet_sla():
     SLA target (per device / tag / group / default) is resolved per row.
     Auth: require_auth."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = int((qs.get('days') or ['30'])[0])
     except ValueError:
@@ -21617,7 +21657,7 @@ def handle_fleet_anomalies():
     deviations. A model-free complement to the AI anomaly scan. Auth:
     require_auth."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         z = float((qs.get('z') or ['2.5'])[0])
     except ValueError:
@@ -23378,7 +23418,7 @@ def handle_proxmox_snapshots_list() -> None:
     """``GET /api/proxmox/snapshots?type=qemu&vmid=100`` — list a
     guest's snapshots."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     guest_type = (qs.get('type') or [''])[0]
     vmid_str = (qs.get('vmid') or [''])[0]
     if guest_type not in ('qemu', 'lxc') or not vmid_str.isdigit():
@@ -23893,8 +23933,8 @@ def handle_tls_internal_webhook() -> None:
     Only accepts requests from loopback. Fires a tls_expiry webhook with
     the cert/DANE details supplied by the cron script.
     """
-    remote = os.environ.get('REMOTE_ADDR', '')
-    hdr    = os.environ.get('HTTP_X_REMOTEPOWER_INTERNAL', '')
+    remote = _env('REMOTE_ADDR', '')
+    hdr    = _env('HTTP_X_REMOTEPOWER_INTERNAL', '')
     if remote not in ('127.0.0.1', '::1') or not hdr:
         respond(403, {'error': 'forbidden'})
     body = get_json_body() or {}
@@ -24902,7 +24942,7 @@ def handle_network_map() -> None:
     }
     # v5.0.0: optional scope filter so a big fleet's topology can be viewed one
     # group / tag / site at a time instead of rendering all N nodes at once.
-    _qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    _qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     _fg = (_qs.get('group') or [''])[0].strip()
     _ft = (_qs.get('tag') or [''])[0].strip()
     _fs = (_qs.get('site') or [''])[0].strip()
@@ -27578,7 +27618,7 @@ def handle_device_changes(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = max(1, min(90, int(qs.get('days', ['1'])[0])))
     except ValueError:
@@ -27920,7 +27960,7 @@ def handle_compliance():
     require_auth()
     if method() != 'GET':
         respond(405, {'error': 'Method not allowed'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     fw_raw = (qs.get('frameworks', [''])[0] or '').strip()
     frameworks = [f for f in fw_raw.split(',') if f in compliance.FRAMEWORKS] or None
     facts = _compliance_facts()
@@ -30373,7 +30413,7 @@ def handle_fleet_checks():
     list + roll-up summary. Scope-filtered. Optional ?status=critical|warning to
     pre-filter hosts to those with a check at that level."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want = (qs.get('status', [''])[0] or '').strip().lower()
     devices_all = load(DEVICES_FILE) or {}
     allowed = set(_scope_filter_devices(devices_all).keys())
@@ -31875,7 +31915,7 @@ def handle_fleet_health_history():
     Without ?device, returns the fleet series. With it, that device's series.
     Auth: require_auth."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     dev_id = (qs.get('device') or [''])[0].strip()
     store = load(HEALTH_HIST_FILE) or {}
     if dev_id:
@@ -32547,7 +32587,7 @@ def handle_home():
 
     # v4.1.0: which widgets the operator actually has enabled (?w=key1,key2),
     # so _dashboard_extra_widgets can skip the heavy ones. Absent param → all.
-    _qs = os.environ.get('QUERY_STRING', '') or ''
+    _qs = _env('QUERY_STRING', '') or ''
     _want = None
     if 'w=' in _qs:
         _want = set(filter(None, urllib.parse.parse_qs(_qs).get('w', [''])[0].split(',')))
@@ -32771,7 +32811,7 @@ def handle_public_status():
     monitor up/down — no device names, IPs, or any other detail."""
     cfg = load(CONFIG_FILE) or {}
     token = cfg.get('status_token') or ''
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     given = (qs.get('token') or [''])[0]
     if not _ct_token_eq(given, token):
         respond(401, {'error': 'invalid or missing status token'})
@@ -32824,7 +32864,7 @@ def handle_status():
     """
     cfg = load(CONFIG_FILE)
     token = cfg.get('status_token')
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     given = (qs.get('token') or [''])[0]
     if not token:
         respond(403, {'error': 'status endpoint not enabled — generate a '
@@ -32901,7 +32941,7 @@ def handle_ha_bridge():
     Settings); without it, 403. Mirrors handle_status's computation."""
     cfg = load(CONFIG_FILE) or {}
     token = cfg.get('status_token')
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     given = (qs.get('token') or [''])[0]
     if not token:
         respond(403, {'error': 'status endpoint not enabled — generate a '
@@ -33438,7 +33478,7 @@ def handle_backup_restore():
     # passphrase comes from the X-RP-Backup-Passphrase header (so an operator can
     # restore on a fresh box) or falls back to RP_BACKUP_PASSPHRASE in the env.
     if raw[:len(backup_crypto.MAGIC)] == backup_crypto.MAGIC:
-        pw = (os.environ.get('HTTP_X_RP_BACKUP_PASSPHRASE') or _backup_passphrase()).strip()
+        pw = (_env('HTTP_X_RP_BACKUP_PASSPHRASE') or _backup_passphrase()).strip()
         if not pw:
             respond(400, {'error': 'encrypted backup — supply the passphrase via the '
                                    'X-RP-Backup-Passphrase header or RP_BACKUP_PASSPHRASE env'})
@@ -33812,7 +33852,7 @@ def handle_drift_get_content(dev_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     path = (qs.get('path') or [''])[0]
     if not path or not path.startswith('/'):
         respond(400, {'error': 'path query parameter required'})
@@ -33942,7 +33982,7 @@ def _record_satellite():
     satellite. Validate the token against the registry (reject if unknown) and
     stamp last_seen. Direct requests (no header) are untouched. Runs in main()
     before dispatch, so the device's own auth still applies on top."""
-    tok = os.environ.get('HTTP_X_RP_SATELLITE', '').strip()
+    tok = _env('HTTP_X_RP_SATELLITE', '').strip()
     if not tok:
         return
     h = _satellite_token_hash(tok)
@@ -33958,7 +33998,7 @@ def _record_satellite():
         with _locked_update(SATELLITES_FILE, non_blocking=True) as st:
             if matched in st:
                 st[matched]['last_seen'] = int(time.time())
-                ip = os.environ.get('REMOTE_ADDR', '')
+                ip = _env('REMOTE_ADDR', '')
                 if ip:
                     st[matched]['last_ip'] = _sanitize_ip(ip)
     except Exception:
@@ -34066,7 +34106,7 @@ def require_satellite_scanner():
     require the scanner capability. Returns the satellite id. _record_satellite()
     already 401s globally on an unknown token; this REQUIRES the header and that
     the satellite is scanner-enabled."""
-    tok = os.environ.get('HTTP_X_RP_SATELLITE', '').strip()
+    tok = _env('HTTP_X_RP_SATELLITE', '').strip()
     if not tok:
         respond(401, {'error': 'satellite token required'})
     h = _satellite_token_hash(tok)
@@ -34997,7 +35037,7 @@ def handle_client_error():
         # v5.4.1 (E3): newest-first, through the shared list convention (?q/?sort/
         # ?limit/?offset/?meta). Default cap stays 100 when unpaginated.
         errs = list(reversed(store.get('errors') or []))
-        respond(200, _paginate_list(errs) if os.environ.get('QUERY_STRING') else {'ok': True, 'errors': errs[:100]})
+        respond(200, _paginate_list(errs) if _env('QUERY_STRING') else {'ok': True, 'errors': errs[:100]})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _ip_ratelimit('clienterr', _get_client_ip(), 30, window=60):
@@ -35013,7 +35053,7 @@ def handle_client_error():
         'col':     _int(body.get('col')),
         'stack':   _sanitize_str(str(body.get('stack', '')), 2000),
         'page':    _sanitize_str(str(body.get('url', '')), 300),
-        'ua':      _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
+        'ua':      _sanitize_str(_env('HTTP_USER_AGENT', ''), 256),
         'ip':      _get_client_ip(),
     }
     if not entry['message']:
@@ -35470,7 +35510,7 @@ def handle_fleet_query():
       format=csv|xml downloads the filtered set (JSON otherwise; the print/PDF
       view fetches the JSON). Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     def q(k):
         return (qs.get(k) or [''])[0].strip()
     def qi(k):
@@ -36760,7 +36800,7 @@ def handle_inventory_search():
     case-insensitive substring unless ?exact=1. The optional version filter is
     best-effort (per the device's ecosystem). Auth: require_auth."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     q = (qs.get('q') or [''])[0].strip().lower()
     if not q:
         respond(200, {'query': '', 'results': [], 'total': 0, 'truncated': False})
@@ -36804,7 +36844,7 @@ def handle_inventory_catalog():
     package with the set of installed versions and how many hosts run each.
     Answers "what's installed and which versions" at a glance. Auth: require_auth."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     q = (qs.get('q') or [''])[0].strip().lower()
     store = load(PACKAGES_FILE) or {}
     devices = _scope_filter_devices(load(DEVICES_FILE) or {})
@@ -37061,7 +37101,7 @@ def handle_patch_report_device(dev_id):
 def _filter_devices_for_export():
     """Filter devices by query params: group, device_id."""
     from urllib.parse import parse_qs
-    qs = parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = parse_qs(_env('QUERY_STRING', ''))
     group_filter = qs.get('group', [''])[0].strip()
     device_filter = qs.get('device_id', [''])[0].strip()
     devices = load(DEVICES_FILE)
@@ -37344,7 +37384,7 @@ def handle_fleet_report():
     static report.html page, which fetches this JSON and renders a light document
     with external CSS/JS (CSP-clean) for the browser's Print / Save-as-PDF."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
     report = _build_fleet_report()
     # v3.14.0: optional ?sections=devices,cve,health filter (custom reports).
@@ -37384,7 +37424,7 @@ def handle_site_report(site_id):
     if scope is not None and not (
             scope.get('type') == 'sites' and site_id in (scope.get('values') or [])):
         respond(403, {'error': 'site outside your role scope'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
     report = _build_fleet_report(site_id=site_id)
     if fmt == 'csv':
@@ -37413,7 +37453,7 @@ def handle_evidence_pack():
     from data RemotePower already holds, no recompute. The act of generating it is
     itself audit-logged."""
     actor = require_admin_or_auditor_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = int((qs.get('days') or ['90'])[0])
     except ValueError:
@@ -37921,11 +37961,11 @@ def _webauthn_rp():
     """(rp_id, origin) for the ceremony — derived from the request host, or the
     config overrides (webauthn_rp_id / webauthn_origin) behind a proxy."""
     cfg = load(CONFIG_FILE) or {}
-    host_full = os.environ.get('HTTP_HOST', '')
+    host_full = _env('HTTP_HOST', '')
     host = host_full.split(':')[0]
     rp_id = cfg.get('webauthn_rp_id') or host
-    proto = (os.environ.get('HTTP_X_FORWARDED_PROTO')
-             or ('https' if os.environ.get('HTTPS') in ('on', '1') else 'http'))
+    proto = (_env('HTTP_X_FORWARDED_PROTO')
+             or ('https' if _env('HTTPS') in ('on', '1') else 'http'))
     origin = cfg.get('webauthn_origin') or f'{proto}://{host_full}'
     return rp_id, origin
 
@@ -38145,9 +38185,9 @@ def _saml():
 
 def _saml_base_url():
     """Public base URL (scheme://host) — same proxy-aware derivation as OIDC."""
-    host = os.environ.get('HTTP_HOST', '').strip()
-    scheme = 'https' if os.environ.get('HTTPS', 'on') in ('on', '1', 'true') else 'http'
-    fwd = os.environ.get('HTTP_X_FORWARDED_PROTO', '').strip().lower()
+    host = _env('HTTP_HOST', '').strip()
+    scheme = 'https' if _env('HTTPS', 'on') in ('on', '1', 'true') else 'http'
+    fwd = _env('HTTP_X_FORWARDED_PROTO', '').strip().lower()
     if fwd in ('http', 'https'):
         scheme = fwd
     return f'{scheme}://{host}'
@@ -38424,7 +38464,7 @@ def handle_alerts_list():
       - all       → everything
     """
     user = require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     status = (qs.get('status', ['open'])[0] or 'open').lower()
     try:
         limit = max(1, min(1000, int(qs.get('limit', ['200'])[0])))
@@ -38846,7 +38886,7 @@ def handle_alert_resolution_stats():
     Pairs with the ack-webhook: 'manual' rows carry the operator who acked /
     resolved, so you can see who closed what and how fast."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         days = int(qs.get('days', ['30'])[0] or '30')
     except ValueError:
@@ -39024,7 +39064,7 @@ def handle_board():
     fleet: group/site/tag ROLLUP tiles + a capped problem-host strip + totals —
     never 1000 raw tiles."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     by = (qs.get('by') or ['group'])[0]
     if by not in ('group', 'site', 'tag'):
         by = 'group'
@@ -39099,7 +39139,7 @@ def handle_network_metrics():
     Telemetry view: shows unmonitored / decommissioned hosts too (flagged), per
     the unmonitored-data-visibility principle — only alerting suppresses them."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     by = (qs.get('by') or ['fleet'])[0]
     if by not in ('fleet', 'group', 'tag', 'site'):
         by = 'fleet'
@@ -39461,7 +39501,7 @@ def handle_alerts_clear():
     """
     actor = require_admin_auth()
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     scope = (qs.get('scope', ['resolved'])[0] or 'resolved').lower()
     if scope not in ('resolved', 'all'):
         respond(400, {'error': 'scope must be "resolved" or "all"'})
@@ -39941,7 +39981,7 @@ def handle_syslog_in(token_str):
 
     # Parse body: JSON first, then plain text fallback
     raw_lines = []
-    content_type = (os.environ.get('CONTENT_TYPE', '') or '').lower()
+    content_type = (_env('CONTENT_TYPE', '') or '').lower()
     if 'json' in content_type:
         body = get_json_body() or {}
         if isinstance(body, dict) and isinstance(body.get('lines'), list):
@@ -39951,11 +39991,11 @@ def handle_syslog_in(token_str):
     if not raw_lines:
         # Plain-text fallback — read stdin directly
         try:
-            content_length = int(os.environ.get('CONTENT_LENGTH', '0') or 0)
+            content_length = int(_env('CONTENT_LENGTH', '0') or 0)
         except ValueError:
             content_length = 0
         if content_length > 0:
-            raw = sys.stdin.read(min(content_length, 256 * 1024))
+            raw = _read_request_body(min(content_length, 256 * 1024)).decode('utf-8', errors='replace')
             for line in raw.split('\n')[:_SYSLOG_MAX_LINES_PER_POST]:
                 line = line.strip()
                 if line:
@@ -40583,9 +40623,9 @@ def _oidc_discover(issuer):
 
 def _oidc_redirect_uri():
     """Build the public callback URL from the current request context."""
-    host = os.environ.get('HTTP_HOST', '').strip()
-    scheme = 'https' if os.environ.get('HTTPS', 'on') in ('on', '1', 'true') else 'http'
-    fwd_scheme = os.environ.get('HTTP_X_FORWARDED_PROTO', '').strip().lower()
+    host = _env('HTTP_HOST', '').strip()
+    scheme = 'https' if _env('HTTPS', 'on') in ('on', '1', 'true') else 'http'
+    fwd_scheme = _env('HTTP_X_FORWARDED_PROTO', '').strip().lower()
     if fwd_scheme in ('http', 'https'):
         scheme = fwd_scheme
     return f'{scheme}://{host}/api/auth/oidc/callback'
@@ -40746,7 +40786,7 @@ def handle_oidc_callback():
     if not _ip_ratelimit('sso', _get_client_ip(), 30, window=60):
         time.sleep(0.5)
         respond(429, {'error': 'Too many SSO attempts — wait a minute'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     err = (qs.get('error', [''])[0] or '').strip()
     if err:
         desc = (qs.get('error_description', [''])[0] or '')[:240]
@@ -42622,7 +42662,7 @@ def handle_fleet_events():
     require_auth()
     store = load(FLEET_EVENTS_FILE)
     events = (store or {}).get('events') or []
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         limit = int((qs.get('limit') or ['50'])[0])
     except ValueError:
@@ -42785,7 +42825,7 @@ def _timeline_collect(include_ids, name_map):
 
 def _timeline_parse_qs():
     """Shared ?limit/?kinds parsing for the timeline endpoints."""
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     try:
         limit = int((qs.get('limit') or ['100'])[0])
     except ValueError:
@@ -43009,7 +43049,7 @@ def handle_smtp_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
+    body = get_json_body() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE)
     override_recipient = _sanitize_str(body.get('recipient', ''), 320)
 
@@ -43060,7 +43100,7 @@ def handle_ldap_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
+    body = get_json_body() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE)
 
     # Allow body to override config for "try before save" UX
@@ -43397,7 +43437,7 @@ def handle_exposure_overview():
     """GET /api/exposure — fleet-wide listening-socket inventory with the
     bind-scope each agent reported. ?scope=world filters to world-reachable."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     want = (qs.get('scope', [''])[0] or '').strip().lower()
     _cfg = load(CONFIG_FILE) or {}
     audit_enabled = bool(_cfg.get('port_audit_enabled', False))
@@ -44251,7 +44291,7 @@ def handle_cve_scan():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
+    body = get_json_body() if _env('CONTENT_LENGTH', '0') != '0' else {}
     target = body.get('device_id')
     if target is not None:
         target = str(target).strip()
@@ -44555,7 +44595,7 @@ def handle_cve_device(dev_id):
 def _sbom_format_from_query():
     """Resolve ?format=cyclonedx|spdx (default cyclonedx)."""
     from urllib.parse import parse_qs
-    qs = parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = parse_qs(_env('QUERY_STRING', ''))
     fmt = (qs.get('format', ['cyclonedx'])[0] or 'cyclonedx').strip().lower()
     if fmt in ('spdx', 'spdx-2.3', 'spdx23'):
         return 'spdx'
@@ -44817,7 +44857,7 @@ def handle_schedule_ics(device_id=None):
 
     One-shot jobs and maintenance windows render exactly; recurring jobs render
     with an RRULE for the common daily/weekly/monthly patterns."""
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     qs_token = (qs.get('token') or [''])[0]
     authed = False
     if qs_token:
@@ -44826,7 +44866,7 @@ def handle_schedule_ics(device_id=None):
     else:
         token = get_token_from_request()
         if not token:
-            auth = os.environ.get('HTTP_AUTHORIZATION', '')
+            auth = _env('HTTP_AUTHORIZATION', '')
             if auth.lower().startswith('bearer '):
                 token = auth[7:].strip()
         username, _role = verify_token(token)
@@ -44963,7 +45003,7 @@ def handle_prometheus_metrics():
     """
     # v3.3.0: accept the status_token via query string for Prometheus
     # scrape configs. Falls through to session-token auth otherwise.
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     qs_token = (qs.get('token') or [''])[0]
     if qs_token:
         cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
@@ -44979,7 +45019,7 @@ def handle_prometheus_metrics():
     else:
         token = get_token_from_request()
         if not token:
-            auth = os.environ.get('HTTP_AUTHORIZATION', '')
+            auth = _env('HTTP_AUTHORIZATION', '')
             if auth.lower().startswith('bearer '):
                 token = auth[7:].strip()
         username, _role = verify_token(token)
@@ -45344,7 +45384,7 @@ def handle_gitops_sync():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     dry = (qs.get('dry', ['0'])[0] in ('1', 'true', 'yes'))
     result = _gitops_sync(actor=actor, dry=dry)
     respond(200 if result.get('ok') else 400, result)
@@ -47027,7 +47067,7 @@ def handle_log_search():
     Searches the rolling buffer across devices. No indexing — just grep.
     """
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     q       = (qs.get('q', [''])[0])[:128]
     device  = (qs.get('device', [''])[0])[:64]
     limit   = min(int(qs.get('limit', ['200'])[0] or 200), 1000)
@@ -47282,7 +47322,7 @@ def handle_log_tail():
     Use-case: live tail page, polls with monotonically-increasing `since`.
     """
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     try:
         since = int(qs.get('since', ['0'])[0] or 0)
     except ValueError:
@@ -47449,7 +47489,7 @@ def _expand_event(ev, from_ts, to_ts):
 def handle_calendar_list():
     """GET /api/calendar — list all events, optionally filtered by date range."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     from_ts = 0
     to_ts   = 10 ** 10  # far future
     try:
@@ -47715,7 +47755,7 @@ def _sanitize_task(body, require_all=True):
 def handle_tasks_list():
     """GET /api/tasks — all tasks with optional state / device filter."""
     require_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     state_filter  = (qs.get('state',  [''])[0])[:16]
     device_filter = (qs.get('device', [''])[0])[:64]
 
@@ -48104,7 +48144,7 @@ def _cmdb_get_request_key() -> bytes:
         cmdb_vault.VaultLockedError: Header is missing.
         cmdb_vault.VaultKeyError: Header is malformed (not hex, wrong length).
     """
-    raw = os.environ.get('HTTP_X_RP_VAULT_KEY', '')
+    raw = _env('HTTP_X_RP_VAULT_KEY', '')
     return cmdb_vault.parse_key_header(raw)
 
 
@@ -48158,7 +48198,7 @@ def handle_cmdb_list() -> None:
     # (mirrors the device-list filter — the per-device GET is already guarded).
     devices = _scope_filter_devices(load(DEVICES_FILE))
     cmdb = _cmdb_load()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
     q = (qs.get('q', [''])[0] or '').strip().lower()
     func_filter = (qs.get('function', [''])[0] or '').strip().lower()
 
@@ -49854,7 +49894,7 @@ def handle_vpn_tunnel_create() -> None:
     pool_base = cfg.get('vpn_pool_base', wg_access.POOL_BASE)
     port_base = int(cfg.get('vpn_port_base', wg_access.PORT_BASE) or wg_access.PORT_BASE)
     endpoint_host = (cfg.get('vpn_endpoint_host', '') or
-                     os.environ.get('HTTP_HOST', '').split(':')[0] or 'CHANGE-ME')
+                     _env('HTTP_HOST', '').split(':')[0] or 'CHANGE-ME')
     tid = 'wgt_' + secrets.token_hex(8)
     try:
         with _LockedUpdate(VPN_FILE) as store:
@@ -50338,12 +50378,12 @@ def _enforce_same_origin():
         return
     if path_info() == '/api/csp-report':
         return
-    origin = os.environ.get('HTTP_ORIGIN', '').strip()
-    referer = os.environ.get('HTTP_REFERER', '').strip()
+    origin = _env('HTTP_ORIGIN', '').strip()
+    referer = _env('HTTP_REFERER', '').strip()
     # Server-to-server clients (curl, agents, API automation) send neither.
     if not origin and not referer:
         return
-    host = os.environ.get('HTTP_HOST', '').strip().lower()
+    host = _env('HTTP_HOST', '').strip().lower()
     if not host:
         return  # No Host header at all — can't compare, fail open (handlers do their own auth)
 
@@ -51158,7 +51198,7 @@ def _dispatch(pi, m):
         handle_fleet_uptime7d()
     elif pi == '/api/monitor/history' and m == 'GET':
         from urllib.parse import parse_qs
-        label = parse_qs(os.environ.get('QUERY_STRING', '')).get('label', [''])[0]
+        label = parse_qs(_env('QUERY_STRING', '')).get('label', [''])[0]
         handle_monitor_history(label)
     elif pi.startswith('/api/cmd-library/') and m == 'PUT':
         handle_cmd_library_update(pi[len('/api/cmd-library/'):])
@@ -53354,7 +53394,7 @@ def _dns_vault_key_optional():
     None when no/invalid header or the vault isn't configured. Never raises —
     the vault is OPTIONAL for DNS: plaintext acme_dns_credentials is the fallback,
     and not every request carries (or needs) a vault key."""
-    raw = os.environ.get('HTTP_X_RP_VAULT_KEY', '')
+    raw = _env('HTTP_X_RP_VAULT_KEY', '')
     if not raw:
         return None
     meta = _cmdb_get_vault_meta()
@@ -53490,7 +53530,7 @@ def handle_dns_vault_creds_set():
         respond(409, {'error': 'vault not configured — set up the CMDB vault first',
                       'code': 'vault_not_configured'})
     try:
-        key = cmdb_vault.parse_key_header(os.environ.get('HTTP_X_RP_VAULT_KEY', ''))
+        key = cmdb_vault.parse_key_header(_env('HTTP_X_RP_VAULT_KEY', ''))
     except cmdb_vault.VaultError:
         respond(409, {'error': 'vault locked — unlock to store credentials',
                       'code': 'vault_locked'})
@@ -53581,7 +53621,7 @@ def handle_dns_import_status():
     'empty' (the agent ran but found no DNS credentials). Reading a finished
     result consumes the marker. Admin-only."""
     require_admin_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     dev_id = (qs.get('device_id', [''])[0] or '').strip()
     dev = device_get(dev_id) or {}
     if dev.get('dns_harvest_pending'):
@@ -53638,7 +53678,7 @@ def handle_dns_vault_import():
         respond(409, {'error': 'vault not configured — set up the CMDB vault first',
                       'code': 'vault_not_configured'})
     try:
-        key = cmdb_vault.parse_key_header(os.environ.get('HTTP_X_RP_VAULT_KEY', ''))
+        key = cmdb_vault.parse_key_header(_env('HTTP_X_RP_VAULT_KEY', ''))
     except cmdb_vault.VaultError:
         respond(409, {'error': 'vault locked — unlock to import credentials',
                       'code': 'vault_locked'})
@@ -53677,7 +53717,7 @@ def handle_dns_vault_import():
 def handle_dns_zones():
     """GET /api/dns/zones?provider=cloudflare — list a provider's zones."""
     require_admin_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     prov = _dns_make_provider((qs.get('provider', [''])[0] or '').strip())
     try:
         zones = prov.list_zones()
@@ -53689,7 +53729,7 @@ def handle_dns_zones():
 def handle_dns_records():
     """GET /api/dns/records?provider=&zone=&zone_name= — records in one zone."""
     require_admin_auth()
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     prov = _dns_make_provider((qs.get('provider', [''])[0] or '').strip())
     zone = (qs.get('zone', [''])[0] or '').strip()
     zone_name = (qs.get('zone_name', [''])[0] or '').strip()
@@ -53704,7 +53744,7 @@ def handle_dns_records():
 
 def _dns_resolve_args():
     """Validate the shared name/type query args for the resolve endpoints."""
-    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
     name = (qs.get('name', [''])[0] or '').strip()
     rtype = (qs.get('type', ['A'])[0] or 'A').strip().upper()
     if not dns_resolve_mod.valid_name(name):
