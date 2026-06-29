@@ -166,7 +166,17 @@ Roll back at any time by reverting the nginx block to `fastcgi_pass` — the wor
 
 #### Persistent WSGI app server + out-of-band scheduler (optional, v5.5.0)
 
-For the largest fleets there is a fully-persistent tier — the same `api.py` under **gunicorn** with thread-local request isolation (no fork) — paired with a dedicated, leader-elected maintenance scheduler that runs the cadence off the request path (measured ~25× lower request latency on a networked Postgres backend). Both are opt-in and default-off; CGI stays the supported default. The two systemd units (`remotepower-wsgi.service`, `remotepower-scheduler.service`) carry full install + rollback steps in their headers — see **[scaling.md](scaling.md)** and **[wsgi.md](wsgi.md)**.
+For the largest fleets there is a fully-persistent tier — the same `api.py` under **gunicorn** with thread-local request isolation (no fork) — paired with a dedicated, leader-elected maintenance scheduler that runs the cadence off the request path (measured ~25× lower request latency on a networked Postgres backend). Both are opt-in and default-off; CGI stays the supported default.
+
+**On an existing install, switch back and forth with one command** (from the checkout):
+
+```bash
+sudo make app-server-wsgi     # → gunicorn WSGI tier + out-of-band scheduler
+sudo make app-server-cgi      # → back to CGI/fcgiwrap (and stop the scheduler)
+make app-server-status        # which tier is active + unit/scheduler state
+```
+
+`app-server-wsgi` installs gunicorn, enables `remotepower-wsgi.service`, repoints the nginx `/api/` snippet to the gunicorn proxy (validated with `nginx -t`, auto-reverted on failure; the CGI snippet is saved to `…/remotepower-locations.conf.cgi.bak` so the switch back is lossless), and enables the scheduler (`NO_SCHEDULER=1` to skip). `app-server-cgi` restores the fcgiwrap snippet and disables the scheduler (`KEEP_SCHEDULER=1` to keep it). The underlying units also carry manual install/rollback steps in their headers — see **[scaling.md](scaling.md)** and **[wsgi.md](wsgi.md)**.
 
 ### Public demo / sandbox
 

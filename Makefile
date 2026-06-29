@@ -3,7 +3,7 @@
 # Nothing here is required for a deployment — install-server.sh handles
 # everything the running server needs.
 
-.PHONY: help test format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo
+.PHONY: help test format lint typecheck bandit bandit-baseline codeql check clean install-dev dist release version scan-demo app-server-wsgi app-server-cgi app-server-status
 
 PY      ?= python3
 PIP     ?= pip3
@@ -63,6 +63,9 @@ help:
 	@echo "  make version     - print the current version ($(VERSION))"
 	@echo "  make tls-selfsigned HOST=rp.internal [NGINX=1] - self-signed CA + leaf (prefer a real cert)"
 	@echo "  make tls-renew   - re-issue the server leaf from the existing CA (clients unaffected)"
+	@echo "  sudo make app-server-wsgi  - switch this install to the gunicorn WSGI tier + scheduler (NO_SCHEDULER=1 to skip)"
+	@echo "  sudo make app-server-cgi   - switch back to the CGI/fcgiwrap tier (KEEP_SCHEDULER=1 to keep the scheduler)"
+	@echo "  make app-server-status     - show the active app tier + unit/scheduler state"
 	@echo "  make install-dev - install black, isort, mypy locally"
 	@echo "  make scan-demo   - drive a B5 security scan to completion (needs a running server)"
 	@echo "  make clean       - drop __pycache__ trees + dist/"
@@ -105,6 +108,20 @@ tls-selfsigned:
 # Re-issue ONLY the server leaf from the existing CA (clients keep trust).
 tls-renew:
 	sudo bash tools/gen-ca.sh --renew $(if $(NGINX),--reload,)
+
+# v5.5.0: switch an EXISTING install between the persistent gunicorn WSGI app
+# tier and the default CGI/fcgiwrap tier, idempotently and reversibly. The WSGI
+# switch saves the CGI nginx snippet to .cgi.bak so the way back is lossless.
+# `app-server-wsgi` also enables the out-of-band scheduler (pass NO_SCHEDULER=1
+# to skip); `app-server-cgi` disables it (KEEP_SCHEDULER=1 to leave it on).
+app-server-wsgi:
+	sudo bash packaging/remotepower-app-server.sh wsgi $(if $(NO_SCHEDULER),--no-scheduler,)
+
+app-server-cgi:
+	sudo bash packaging/remotepower-app-server.sh cgi $(if $(KEEP_SCHEDULER),--keep-scheduler,)
+
+app-server-status:
+	@bash packaging/remotepower-app-server.sh status
 
 # v4.3.0: browser smoke suite (Playwright + Chromium). Self-skips when
 # playwright isn't installed: pip install playwright && python -m playwright

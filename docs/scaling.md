@@ -172,6 +172,20 @@ default and fully-supported deployment; keep it as the fallback (repoint nginx)
 until you've validated the WSGI tier under your own load. See
 [wsgi.md](wsgi.md).
 
+**Switch back and forth on an existing install with one command** (from the
+checkout) — no manual nginx editing:
+
+```bash
+sudo make app-server-wsgi     # gunicorn WSGI tier + out-of-band scheduler
+sudo make app-server-cgi      # back to CGI/fcgiwrap (stops the scheduler)
+make app-server-status        # show the active tier + unit/scheduler state
+```
+
+It saves the CGI nginx snippet to `…/remotepower-locations.conf.cgi.bak`, so the
+switch back is lossless, and validates every nginx change with `nginx -t`
+(auto-reverting on failure). `NO_SCHEDULER=1` / `KEEP_SCHEDULER=1` control the
+scheduler independently.
+
 ### The out-of-band maintenance scheduler (v5.5.0)
 
 RemotePower runs ~33 `run_*_if_due` maintenance sweeps. By default they
