@@ -113,7 +113,14 @@ def _run_capture(cgi_env, body_bytes):
         except SystemExit:
             pass                       # a streaming handler wrote its body then exited
         except Exception:
-            api._render_response(500, {'error': 'Internal server error'})
+            # Under CGI the exception reached fcgiwrap's stderr; here we catch it, so
+            # log the traceback ourselves (else WSGI deployments lose all 500 detail).
+            import traceback as _tb
+            _tb.print_exc(file=sys.stderr)
+            try:
+                api._render_response(500, {'error': 'Internal server error'})
+            except Exception:
+                pass
         finally:
             try:
                 api._end_request()
