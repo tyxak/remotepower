@@ -3835,6 +3835,61 @@ def _device_in_scope(scope, dev):
     return False
 
 
+def _service_baseline_units_for(dev, cfg=None):
+    """v5.5.0: the union of watched-unit names from every service BASELINE whose
+    scope covers `dev`. A baseline = {name, units:[...], scope:{type,values}} in the
+    config `service_baselines` list — a default set of units (e.g. sshd.service,
+    remotepower-agent.service) watched across many devices at once, without editing
+    each device's per-host list. Merged into the watch set pushed to the agent."""
+    if cfg is None:
+        cfg = _config_ro()
+    out = set()
+    for b in (cfg.get('service_baselines') or []):
+        if not isinstance(b, dict):
+            continue
+        if _device_in_scope(b.get('scope') or {'type': 'all'}, dev):
+            for u in (b.get('units') or []):
+                if isinstance(u, str) and u.strip():
+                    out.add(u.strip())
+    return out
+
+
+def handle_service_baselines():
+    """v5.5.0 service baselines (admin).
+       GET  /api/service-baselines → {'baselines': [{id,name,units,scope}]}
+       POST /api/service-baselines  {baselines:[...]} → replace the whole list.
+    A baseline is a default set of watched systemd units applied to every device its
+    scope (all/groups/tags/sites) covers — merged into the watch list pushed to the
+    agent, so e.g. sshd/remotepower-agent can be watched fleet-wide in one place."""
+    actor = require_admin_auth()
+    if method() == 'GET':
+        respond(200, {'baselines': _config_ro().get('service_baselines', [])})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    raw = get_json_obj().get('baselines')
+    if not isinstance(raw, list):
+        respond(400, {'error': 'baselines must be a list'})
+    clean = []
+    for b in raw[:50]:
+        if not isinstance(b, dict):
+            continue
+        units = sorted({u.strip() for u in (b.get('units') or [])
+                        if isinstance(u, str) and u.strip()})[:200]
+        if not units:
+            continue
+        scope = _validate_key_scope(b.get('scope')) or {'type': 'all'}
+        clean.append({
+            'id':    _sanitize_str(str(b.get('id') or secrets.token_hex(6)), 40),
+            'name':  _sanitize_str(str(b.get('name') or ''), 80) or 'baseline',
+            'units': units,
+            'scope': scope,
+        })
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['service_baselines'] = clean
+    audit_log(actor, 'service_baselines_set', f'{len(clean)} baseline(s)')   # self-locking → after the block
+    respond(200, {'ok': True, 'baselines': clean})
+
+
 def _validate_key_scope(raw):
     """v5.4.1 (D6): validate an optional API-key device scope from request input.
     Returns a clean ``{'type': groups|tags|sites, 'values': [...]}`` dict, or None
@@ -14730,7 +14785,11 @@ def handle_heartbeat():
     # holds.
     common_resp = {
         'poll_interval':    saved_dev['poll_interval'],
-        'services_watched': saved_dev.get('services_watched', []),
+        # v5.5.0: the agent watches the device's own list UNION any service-baseline
+        # units whose scope covers it (so a baseline like sshd/remotepower-agent is
+        # enforced fleet-wide without touching each device's per-host config).
+        'services_watched': sorted(set(saved_dev.get('services_watched', []))
+                                   | _service_baseline_units_for(saved_dev)),
         'log_watch':        saved_dev.get('log_watch', []),
         'watched_files':    watched_files,
         'mailbox_paths':    mailbox_paths,
@@ -50807,6 +50866,8 @@ def _build_exact_routes():
         ('POST', '/api/tickets'): handle_tickets,
         ('GET', '/api/contacts'): handle_contacts,
         ('POST', '/api/contacts'): handle_contacts,
+        ('GET', '/api/service-baselines'): handle_service_baselines,
+        ('POST', '/api/service-baselines'): handle_service_baselines,
         ('GET', '/api/tickets/imap'): handle_ticket_imap_get,
         ('POST', '/api/tickets/imap'): handle_ticket_imap_save,
         ('POST', '/api/tickets/imap/test'): handle_ticket_imap_test,

@@ -82,6 +82,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | DNS / ICMP / HTTP / DB monitors | DNS resolution with expected-address; ICMP latency + loss; HTTP status + latency-SLA; credential-less DB-liveness (PostgreSQL/MySQL/Redis); tag/group fan-out *(v4.1.0)* |
 | Monitor history | Uptime %, sparkline, last 50 results per target |
 | Service monitoring | Agent watches systemd units; matrix view; webhooks on transitions; shows resolved alias *(v3.9.0)* |
+| Service baselines | Fleet-wide default sets of watched units (e.g. `sshd.service`, `remotepower-agent.service`) scoped by all/group/tag/site and merged into each covered device's watch list — set once, no per-host editing. `GET/POST /api/service-baselines` *(v5.5.0)* |
+| Failed-unit alerting | A systemd unit entering the failed state raises a first-class `failed_unit` alert/webhook (edge-triggered, coalesced per host) *(v5.5.0)* |
 | Log tail + alerts | journalctl per watched unit; rolling 6-hour buffer; regex search; pattern-match alerts; per-rule template / exclude / snooze; matched line shown in NA card / inbox / webhook + Open-in-Logs deep link *(v3.3.0)* |
 | Inbound syslog | HTTP receiver — point rsyslog `omhttp`/fluent-bit/`curl` at `POST /api/syslog/in/<token>`; parses RFC 3164/5424 into the device log buffer for `log_alert` rules *(v3.2.0)* |
 | SNMP trap receiver | HTTP receiver — an `snmptrapd` handler POSTs decoded traps as JSON to `POST /api/snmp/trap/<token>`; traps attach to the pinned device's SNMP view and raise a coalesced `snmp_trap_received` alert |

@@ -8003,7 +8003,7 @@ function _registerCmdLibTable() {
     }),
     row: (s) => {
       const sKey = _storeEvtData(s);
-      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></td></tr>`;
+      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" title="Edit" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">${_icon('edit',14)}</button><button class="btn-icon isl-45 c-danger-outline" title="Delete" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
@@ -8056,18 +8056,6 @@ async function addCmdSnippet() {
   } else toast(data?.error || 'Failed', 'error');
 }
 async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
-function useCmdSnippet(cmd) {
-  // The Command Library page has no device target (and the Run-command modal has
-  // its own snippet picker), so "Use" copies the command to the clipboard to paste
-  // into Run command on a device.
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(cmd).then(
-      () => toast('Command copied — open a device and paste into Run command', 'success'),
-      () => toast('Copy failed — select the command text manually', 'error'));
-  } else {
-    toast('Copy not supported here — select the command text manually', 'info');
-  }
-}
 function generateQRCode(containerId, text) {
   if (window.qrcode) { _renderQR(containerId, text); return; }
   // qrcode-generator@1.4.4, self-hosted under /static/vendor/ so the
@@ -9336,6 +9324,65 @@ async function editServicesConfig(devId, devName) {
     }
   };
   openModal('service-edit-modal');
+}
+
+// v5.5.0: fleet service baselines — a default set of watched units applied to every
+// device a baseline's scope covers (merged into the per-host list server-side).
+async function openServiceBaselines() {
+  const data = await api('GET', '/api/service-baselines');
+  window._svcBaselines = (data && Array.isArray(data.baselines)) ? data.baselines : [];
+  _renderServiceBaselines();
+  openModal('service-baseline-modal');
+}
+function _renderServiceBaselines() {
+  const box = document.getElementById('service-baseline-list');
+  if (!box) return;
+  const bl = window._svcBaselines || [];
+  const opt = (b, t, label) => `<option value="${t}"${((b.scope || {}).type || 'all') === t ? ' selected' : ''}>${label}</option>`;
+  box.innerHTML = bl.length ? bl.map((b, i) => `
+    <div class="dash-card mb-12">
+      <div class="settings-row"><div class="form-group"><label class="form-label">Name</label>
+        <input type="text" class="form-input" data-blf="name" data-bl="${i}" value="${escAttr(b.name || '')}" placeholder="e.g. Core services"></div>
+        <button class="btn-icon c-danger-outline" data-action="removeServiceBaseline" data-arg="${i}" title="Delete baseline">${_icon('trash', 14)}</button></div>
+      <div class="settings-row"><label class="form-label">Units (one systemd unit per line)</label>
+        <textarea class="form-input isl-226" rows="3" data-blf="units" data-bl="${i}" placeholder="sshd.service&#10;remotepower-agent.service">${escHtml((b.units || []).join('\n'))}</textarea></div>
+      <div class="settings-row"><div class="form-group"><label class="form-label">Applies to</label>
+        <select class="form-input mw-160" data-blf="scopetype" data-bl="${i}">${opt(b, 'all', 'All devices')}${opt(b, 'groups', 'Group(s)')}${opt(b, 'tags', 'Tag(s)')}${opt(b, 'sites', 'Site(s)')}</select></div>
+        <div class="form-group"><label class="form-label">Names (comma-separated; ignored for "All")</label>
+        <input type="text" class="form-input" data-blf="scopevals" data-bl="${i}" value="${escAttr(((b.scope || {}).values || []).join(', '))}" placeholder="prod, db"></div></div>
+    </div>`).join('') : '<div class="empty-state">No baselines yet. Click "+ Add baseline".</div>';
+}
+function _collectServiceBaselines() {
+  (window._svcBaselines || []).forEach((b, i) => {
+    const g = (f) => document.querySelector(`[data-blf="${f}"][data-bl="${i}"]`);
+    if (!g('name')) return;
+    b.name = g('name').value.trim();
+    b.units = g('units').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const type = g('scopetype').value;
+    const vals = g('scopevals').value.split(',').map(s => s.trim()).filter(Boolean);
+    b.scope = (type === 'all') ? { type: 'all' } : { type, values: vals };
+  });
+}
+function addServiceBaseline() {
+  _collectServiceBaselines();
+  (window._svcBaselines = window._svcBaselines || []).push({ name: '', units: [], scope: { type: 'all' } });
+  _renderServiceBaselines();
+}
+function removeServiceBaseline(i) {
+  _collectServiceBaselines();
+  (window._svcBaselines || []).splice(Number(i), 1);
+  _renderServiceBaselines();
+}
+async function saveServiceBaselines() {
+  _collectServiceBaselines();
+  const bl = (window._svcBaselines || []).filter(b => (b.units || []).length);
+  const r = await api('POST', '/api/service-baselines', { baselines: bl });
+  if (r && r.ok) {
+    toast(`Saved ${r.baselines.length} baseline(s) — applied on each device's next heartbeat`, 'success');
+    closeModal('service-baseline-modal');
+  } else {
+    toast(r?.error || 'Failed to save baselines', 'error');
+  }
 }
 
 // ─── v1.8.0: Maintenance ──────────────────────────────────────────────────────
