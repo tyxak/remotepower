@@ -82,12 +82,14 @@ class TestPostgresForkSafety(unittest.TestCase):
 
     def test_pid_guarded_reconnect(self):
         src = (_CGI / 'storage_pg.py').read_text()
-        # both the write and read connection paths track the owning PID
-        self.assertIn('_CONN_PID', src)
-        self.assertIn('_READ_CONN_PID', src)
-        # the reconnect-on-mismatch guard is present
-        self.assertRegex(src, r'_CONN_PID\s*!=\s*os\.getpid\(\)')
-        self.assertRegex(src, r'_READ_CONN_PID\s*!=\s*os\.getpid\(\)')
+        # v6.0.0: connections are cached per-thread (threading.local); both the
+        # write and read paths still track the owning PID so a connection inherited
+        # across fork is dropped + reopened in the child.
+        self.assertIn('_LOCAL = threading.local()', src)
+        self.assertIn('conn_pid', src)
+        self.assertIn('read_pid', src)
+        self.assertRegex(src, r"getattr\(_LOCAL, 'conn_pid', None\)\s*!=\s*os\.getpid\(\)")
+        self.assertRegex(src, r"getattr\(_LOCAL, 'read_pid', None\)\s*!=\s*os\.getpid\(\)")
 
 
 class TestTlsHostReDoS(unittest.TestCase):

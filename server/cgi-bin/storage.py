@@ -41,6 +41,7 @@ import json
 import time
 import atexit
 import sqlite3
+import threading
 from pathlib import Path
 
 # ── data dir + db path ───────────────────────────────────────────────────────
@@ -196,7 +197,13 @@ def _is_network_fs(path):
 def _connect(data_dir=None):
     global _ATEXIT_REGISTERED
     d = Path(data_dir or DATA_DIR)
-    key = str(d)
+    # v6.0.0 (keystone): key by (dir, pid, thread) so the cache is BOTH fork-safe
+    # (a forked child gets a fresh connection, never the parent's socket) AND
+    # thread-safe (sqlite3 connections are bound to their creating thread — sharing
+    # one across threads raises "created in a thread can only be used in that same
+    # thread", which crashed a threaded WSGI worker). Single-thread/fork deployments
+    # (CGI, the SCGI prefork worker) have exactly one (pid,thread) → unchanged.
+    key = (str(d), os.getpid(), threading.get_ident())
     conn = _CONNS.get(key)
     if conn is not None:
         return conn

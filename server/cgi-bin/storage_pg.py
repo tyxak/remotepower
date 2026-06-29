@@ -33,6 +33,7 @@ import os
 import json
 import time
 import atexit
+import threading
 
 # Shared, backend-agnostic logic — single source of truth for classification +
 # serialisation so the SQLite and Postgres backends always agree on shape.
@@ -61,15 +62,17 @@ def _pg():
 
 _DSN = None        # primary / read-write DSN (configure_dsn; else env RP_PG_DSN)
 _READ_DSN = None   # optional read-replica DSN (configure_read_dsn; else env RP_PG_READ_DSN)
-_CONN = None       # cached primary connection
-_READ_CONN = None  # cached read-replica connection (only when a read DSN is set)
-# v4.6.1: PID that opened each cached connection. A psycopg/libpq connection must
-# NEVER be shared across processes — the SCGI prefork worker (api_worker.py)
-# forks per request, so a child that inherited the parent's connection would
-# corrupt the wire protocol ("consuming input failed: EOF detected"). We detect a
-# fork by PID mismatch and reconnect in the child.
-_CONN_PID = None
-_READ_CONN_PID = None
+# v6.0.0 (keystone): connections are cached PER-THREAD in a threading.local, not in
+# module globals. A psycopg/libpq connection is NOT safe to share across threads
+# (concurrent use corrupts the wire protocol) — a threaded WSGI worker would crash —
+# nor across processes. So each (thread) holds its own conn, tagged with the PID that
+# opened it (v4.6.1 fork-safety: the SCGI prefork worker forks per request, and a
+# child inheriting the parent's socket corrupts the protocol → reconnect on PID
+# mismatch) and the DSN generation it was opened at (so configure_dsn() invalidates
+# every thread's cached conn, not just the caller's). Single-thread/fork deployments
+# (CGI, SCGI worker) have exactly one (thread) → behaviour is unchanged.
+_LOCAL = threading.local()   # .conn/.conn_pid/.conn_gen + .read/.read_pid/.read_gen
+_DSN_GEN = 0                 # bumped by configure_dsn/configure_read_dsn
 _ATEXIT = False
 # v3.14.0: a primary failover (or a mid-promotion connect) shouldn't fail the
 # request — retry the connect a few times so libpq can re-resolve hosts and land
@@ -86,23 +89,26 @@ def configure_dsn(dsn):
     `postgresql://rp:pw@pg-a,pg-b:5432/db`) — `target_session_attrs=read-write`
     is added automatically so libpq always lands on the writable primary, and a
     failover is transparent on the next (retried) reconnect."""
-    global _DSN
-    close_connection()
+    global _DSN, _DSN_GEN
     _DSN = dsn or None
+    _DSN_GEN += 1          # invalidate every thread's cached connection
+    close_connection()     # drop THIS thread's promptly
 
 
 def configure_read_dsn(dsn):
     """Optional read-replica DSN. When set, pure `load()` reads are served from
     it; every write and every locked read-modify-write stays on the primary.
     Unset (default) → reads use the primary, behaviour unchanged."""
-    global _READ_DSN, _READ_CONN
-    if _READ_CONN is not None:
+    global _READ_DSN, _DSN_GEN
+    _READ_DSN = dsn or None
+    _DSN_GEN += 1          # invalidate every thread's cached read connection
+    rc = getattr(_LOCAL, 'read', None)
+    if rc is not None:
         try:
-            _READ_CONN.close()
+            rc.close()
         except Exception:
             pass
-        _READ_CONN = None
-    _READ_DSN = dsn or None
+        _LOCAL.read = None
 
 
 def configure(data_dir):
@@ -177,22 +183,25 @@ def _connect(data_dir=None):
     transaction). Reconnects if the cached connection was closed or BROKEN
     (psycopg marks a connection broken after a failover killed it), retrying so
     a promotion window doesn't surface as an error."""
-    global _CONN, _ATEXIT, _CONN_PID
-    # Fork safety: if the cached connection was opened in another process (we've
-    # been forked), abandon the reference WITHOUT closing it — the owning process
-    # still uses that real socket — and open a fresh connection for this process.
-    if _CONN is not None and _CONN_PID != os.getpid():
-        _CONN = None
-    if _alive(_CONN):
-        return _CONN
+    global _ATEXIT
+    conn = getattr(_LOCAL, 'conn', None)
+    # Drop the cached conn WITHOUT closing it (the owning process/thread may still
+    # use that real socket) when we've been forked (PID mismatch) or the DSN changed
+    # (generation mismatch); then open a fresh one for this (thread, pid, dsn-gen).
+    if conn is not None and (getattr(_LOCAL, 'conn_pid', None) != os.getpid()
+                             or getattr(_LOCAL, 'conn_gen', None) != _DSN_GEN):
+        conn = None
+    if _alive(conn):
+        return conn
     dsn = _dsn()
     if not dsn:
         raise RuntimeError('Postgres backend selected but no DSN configured '
                            '(set RP_PG_DSN or storage_pg.configure_dsn()).')
     conn = _new_conn(dsn, read_write=True)
     _ensure_schema(conn)
-    _CONN = conn
-    _CONN_PID = os.getpid()
+    _LOCAL.conn = conn
+    _LOCAL.conn_pid = os.getpid()
+    _LOCAL.conn_gen = _DSN_GEN
     if not _ATEXIT:
         atexit.register(close_connection)
         _ATEXIT = True
@@ -204,32 +213,36 @@ def _read_conn(data_dir=None):
     one is configured, else the primary. Never used for writes or locked RMW —
     those always go through _connect()/the primary, so replica lag can't cause a
     lost update."""
-    global _READ_CONN, _READ_CONN_PID
     rdsn = _read_dsn()
     if not rdsn:
         return _connect(data_dir)
-    # Fork safety (see _connect): never reuse a connection across a fork.
-    if _READ_CONN is not None and _READ_CONN_PID != os.getpid():
-        _READ_CONN = None
-    if _alive(_READ_CONN):
-        return _READ_CONN
-    _READ_CONN = _new_conn(rdsn, read_write=False)
-    _READ_CONN_PID = os.getpid()
-    return _READ_CONN
+    rc = getattr(_LOCAL, 'read', None)
+    # Fork/DSN-change safety (see _connect): never reuse across a fork or a DSN change.
+    if rc is not None and (getattr(_LOCAL, 'read_pid', None) != os.getpid()
+                           or getattr(_LOCAL, 'read_gen', None) != _DSN_GEN):
+        rc = None
+    if _alive(rc):
+        return rc
+    rc = _new_conn(rdsn, read_write=False)
+    _LOCAL.read = rc
+    _LOCAL.read_pid = os.getpid()
+    _LOCAL.read_gen = _DSN_GEN
+    return rc
 
 
 def close_connection():
-    global _CONN, _READ_CONN, _CONN_PID, _READ_CONN_PID
-    for c in (_CONN, _READ_CONN):
+    # Closes THIS thread's cached connections (threading.local can't reach other
+    # threads). Under the single-thread/fork model that's the only thread, so this
+    # is complete; threaded workers' other connections close via the connection
+    # object's destructor when each thread exits.
+    for attr in ('conn', 'read'):
+        c = getattr(_LOCAL, attr, None)
         if c is not None:
             try:
                 c.close()
             except Exception:
                 pass
-    _CONN = None
-    _READ_CONN = None
-    _CONN_PID = None
-    _READ_CONN_PID = None
+        setattr(_LOCAL, attr, None)
 
 
 def pg_status():

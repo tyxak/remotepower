@@ -122,12 +122,17 @@ class TestReadReplicaRouting(unittest.TestCase):
     Verified at the routing level (no live DB)."""
 
     def setUp(self):
-        self._cf = {n: getattr(s, n) for n in ('_connect', '_new_conn', '_READ_DSN', '_READ_CONN', '_alive')}
+        import threading
+        self._cf = {n: getattr(s, n) for n in ('_connect', '_new_conn', '_READ_DSN', '_alive')}
+        # v6.0.0: connections live in a thread-local cache; isolate each test with a
+        # fresh, empty one (restored in tearDown).
+        self._local = s._LOCAL
+        s._LOCAL = threading.local()
 
     def tearDown(self):
         for n, v in self._cf.items():
             setattr(s, n, v)
-        s._READ_CONN = None
+        s._LOCAL = self._local
 
     def test_read_conn_falls_back_to_primary_without_read_dsn(self):
         s._READ_DSN = None
@@ -137,7 +142,6 @@ class TestReadReplicaRouting(unittest.TestCase):
 
     def test_read_conn_uses_replica_when_configured(self):
         s._READ_DSN = 'postgresql://u:p@replica/db'
-        s._READ_CONN = None
         s._alive = lambda c: False
         replica = _FakeConn('replica')
         s._new_conn = lambda dsn, read_write=True: replica
