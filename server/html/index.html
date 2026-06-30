@@ -478,6 +478,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
           <span>IaC Generator</span>
         </button>
+        <button class="nav-btn d-none" id="nav-kb" data-page="kb" title="Knowledge base — operator-authored IT documentation (SOPs, how-tos, runbooks)">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>Knowledge base</span>
+        </button>
         <button class="nav-btn" data-page="cmdlib" title="Saved shell command snippets — pick from the exec modal">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-4c6702d5"/></svg>
           <span>Library</span>
@@ -2231,6 +2235,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-show-provisioning"> Provisioning (blueprint catalog: Terraform / cloud-init / Ansible / iPXE templates in a folder tree, plus the Ansible playbook runner; fill variables → render to copy or download).</label></div>
             <div class="settings-row ml-24"><label class="form-label"><input type="checkbox" id="cfg-iac-execute"> ↳ Allow server-side execution — run Terraform <strong>plan / apply / destroy</strong> on the server with your cloud credentials. Requires <code>terraform</code> installed. Admin-only and audited. Leave off to keep Provisioning render-only.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-file-manager" data-change="saveFileManager" data-change-checked="1"> Host file manager (browse / read / edit host files from the device drawer, under an allow-listed set of roots; gated on the <code>command</code> permission, audited; reads allowed under quarantine/audit mode, writes not).</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-kb-enabled"> Knowledge base (operator-authored IT documentation: markdown articles — SOPs, how-tos, runbooks — in a category folder tree, searchable, and fed to the AI as a RAG source so it can answer from your own docs).</label></div>
           </div>
 
           <div class="settings-section">
@@ -4545,6 +4550,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div><label class="form-label">Action: notify destination</label><select id="auto-notify" class="form-input input-auto"><option value="">— none —</option></select></div>
             <div><label class="form-label">Cooldown (s)</label><input type="number" id="auto-cooldown" class="form-input input-auto" min="0" max="86400" value="60"></div>
           </div>
+          <div class="mb-12 row-8-center">
+            <label class="form-label"><input type="checkbox" id="auto-act-ticket"> Open a ticket</label>
+            <div><label class="form-label">…priority</label>
+              <select id="auto-ticket-priority" class="form-input input-auto">
+                <option value="">auto (from severity)</option>
+                <option value="1">P1</option><option value="2">P2</option>
+                <option value="3">P3</option><option value="4">P4</option>
+              </select></div>
+            <div><label class="form-label">Action: add tag</label><input type="text" id="auto-act-tag" class="form-input input-auto" placeholder="none" autocomplete="off"></div>
+            <label class="form-label"><input type="checkbox" id="auto-act-mute"> Mute this alert</label>
+          </div>
           <div class="row-8-center">
             <button class="btn-primary fs-12" data-action="saveAutomationRule">Save rule</button>
             <button class="btn-secondary fs-12" data-action="closeAutomationEditor">Cancel</button>
@@ -5003,6 +5019,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="hint mb-12">Run Ansible playbooks against the fleet, with this server as the control node. Define a playbook, then run it against a group / tag / site over SSH. <span id="ansible-availability" class="hint"></span></div>
         <div class="mb-16"><input type="text" id="ansible-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
         <div class="table-card"><table><thead id="ansible-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="last_rc">Result</th><th scope="col"></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
+      </div>
+
+      <!-- ── v5.6.0: Knowledge base ──────────────────────────────────────── -->
+      <div id="page-kb" class="page">
+        <div class="page-title">Knowledge base</div>
+        <div class="page-subtitle">Operator-authored IT documentation — SOPs, how-tos and runbooks as markdown articles in a category folder tree. Searchable, and fed to the AI assistant so it can answer from your own docs.</div>
+        <div class="section-header"><div class="section-title">Articles</div><button class="enroll-btn" data-action="openKbCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New article</button></div>
+        <div class="mb-16"><input type="text" id="kb-filter" class="form-input input-wide-sm" placeholder="Search articles…" aria-label="Search articles" data-input="filterKb"></div>
+        <div class="hc-grid-2">
+          <div class="dash-card"><div id="kb-list" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
+          <div class="dash-card"><div id="kb-view"><div class="empty-state"><div class="empty-title">No article selected</div><div class="empty-text">Pick an article on the left to read it, or click <b>New article</b>.</div></div></div></div>
+        </div>
       </div>
 
       <!-- ── v5.6.0: Alert tuning ────────────────────────────────────────── -->
@@ -6769,6 +6797,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Playbook (YAML)</label><textarea id="ansible-content" class="form-textarea ff-mono" rows="14" placeholder="- hosts: targets&#10;  become: true&#10;  tasks:&#10;    - name: install nginx&#10;      package: { name: nginx, state: present }"></textarea></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-modal">Cancel</button><button class="btn-primary" id="ansible-save-btn" data-action="saveAnsiblePlaybook">Create</button></div>
 </div></div>
+<!-- v5.6.0: Knowledge base — create/edit article -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kb-edit-title" id="kb-edit-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="kb-edit-title">New article</div>
+  <input type="hidden" id="kb-edit-id">
+  <div class="form-group"><label class="form-label" for="kb-edit-title-input">Title</label><input type="text" id="kb-edit-title-input" class="form-input" maxlength="200" autocomplete="off" placeholder="How to rotate the VPN keys"></div>
+  <div class="hc-grid-2">
+    <div class="form-group"><label class="form-label" for="kb-edit-category">Category <span class="hint">folder path</span></label><input type="text" id="kb-edit-category" class="form-input" placeholder="network/vpn" autocomplete="off"></div>
+    <div class="form-group"><label class="form-label" for="kb-edit-tags">Tags <span class="hint">comma-separated</span></label><input type="text" id="kb-edit-tags" class="form-input" placeholder="vpn, wireguard" autocomplete="off"></div>
+  </div>
+  <div class="form-group"><label class="form-label"><input type="checkbox" id="kb-edit-pinned"> Pin to the top of the list</label></div>
+  <div class="form-group"><label class="form-label" for="kb-edit-body">Body <span class="hint">markdown</span></label><textarea id="kb-edit-body" class="form-textarea ff-mono" rows="16" placeholder="## Steps&#10;1. …"></textarea></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="kb-edit-modal">Cancel</button><button class="btn-primary" id="kb-save-btn" data-action="saveKbArticle">Create</button></div>
+</div></div>
 <!-- v5.6.0: Provisioning — create/edit blueprint -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="blueprint-modal-title" id="blueprint-modal"><div class="modal modal-wide">
   <div class="modal-title" id="blueprint-modal-title">New blueprint</div>
@@ -8400,6 +8441,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <script defer src="static/js/app-iac.js?v=5.6.0"></script>
 <script defer src="static/js/app-provisioning.js?v=5.6.0"></script>
 <script defer src="static/js/app-tuning.js?v=5.6.0"></script>
+<script defer src="static/js/app-kb.js?v=5.6.0"></script>
 <script defer src="static/js/app-rollouts.js?v=5.6.0"></script>
 <script defer src="static/js/app-power.js?v=5.6.0"></script>
 <script defer src="static/js/app-gpu.js?v=5.6.0"></script>

@@ -1977,6 +1977,23 @@
   .settings-pane { display: none; }
   .settings-pane.active { display: block; }
 
+  /* v5.6.0: Knowledge base list/article styles. */
+  .chip-sm { font-size: 11px; padding: 1px 6px; }
+  .kb-cat-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); margin: 12px 0 4px; font-weight: 600; }
+  .kb-cat-head:first-child { margin-top: 0; }
+  .kb-item { display: flex; flex-direction: column; gap: 2px; width: 100%;
+    text-align: left; background: transparent; border: none; border-radius: 6px;
+    padding: 7px 9px; cursor: pointer; color: var(--text); }
+  .kb-item:hover { background: var(--surface2, rgba(255,255,255,0.04)); }
+  .kb-item-sel { background: var(--surface2, rgba(255,255,255,0.06));
+    box-shadow: inset 2px 0 0 var(--accent); }
+  .kb-item-title { font-size: 13px; font-weight: 500; }
+  .kb-item-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .kb-view-head { display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; margin-bottom: 12px; }
+  .kb-view-body { font-size: 14px; line-height: 1.6; }
+
   .event-toggle-table {
     width: 100%;
     border-collapse: collapse;

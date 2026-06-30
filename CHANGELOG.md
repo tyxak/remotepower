@@ -30,6 +30,16 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
 - **Settings**: the opt-in modules (Tickets, Billing, Provisioning, File manager)
   are consolidated into an **"Optional features"** section. Fixed the Settings
   **Save** button hanging on "Saving…" when a request was dropped.
+- **Knowledge base** (Admin → Knowledge base, opt-in `kb_enabled`): operator-authored
+  markdown articles — SOPs, how-tos, runbooks — in a category folder tree, searchable,
+  admin-authored / all-roles-read. Wired in as a **RAG source** so the AI assistant can
+  answer from your own documentation. `GET/POST /api/kb`, `…/{id}`.
+- **Automation actions**: the existing event-driven automation engine gains three
+  actions that compose subsystems you already have — **open a ticket**, **add a tag**
+  and **mute the alert** — alongside the existing run-script / notify. No new webhook
+  event; same lock-safe firing path.
+- **Settings → Install**: squared the active settings-tab underline and the tab-strip
+  scrollbar (were rounded), with clearance under the scrollbar.
 
 ## v5.5.0 — "ScaleMatters" — 2026-06-29
 

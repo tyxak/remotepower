@@ -1254,7 +1254,8 @@ const _SIDEBAR_KW = {
   'release signing': 'release signing gpg sign signature verify artifacts provenance',
   'sites': 'sites locations regions geography datacenter site grouping',
   'software policy': 'software policy allowed banned packages blocklist allowlist required forbidden',
-  'automation': 'automation rules triggers actions auto remediation if then',
+  'automation': 'automation rules triggers actions auto remediation if then run script notify open ticket add tag mute alert',
+  'knowledge base': 'knowledge base kb documentation docs sop sops howto how-to runbook runbooks articles wiki notes procedures',
   'auto-patch': 'auto-patch autopatch automatic updates unattended upgrades patching policy windows',
   'provisioning': 'provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure template catalog spin up machine deploy ansible playbook automation configuration management run plan apply destroy',
   'tuning': 'tuning alert noise noisy mute silence ignore suppress quiet top 10 sources rkhunter per host',
@@ -1629,6 +1630,7 @@ function showPage(name, btn) {
   if (name === 'thermal')    loadThermal();
   if (name === 'tickets')    loadTickets();
   if (name === 'contacts')   loadContacts();
+  if (name === 'kb')         loadKb();
   if (name === 'dmarc')      loadDmarc();
   if (name === 'dns')        loadDns();
   if (name === 'vpn')        loadVpn();
@@ -3035,6 +3037,9 @@ async function loadSettings() {
   document.getElementById('nav-provisioning')?.classList.toggle('d-none', !data.show_provisioning);
   const _iace = document.getElementById('cfg-iac-execute');   // v5.6.0: terraform exec gate
   if (_iace) _iace.checked = !!data.iac_execute_enabled;
+  const _kbe = document.getElementById('cfg-kb-enabled');   // v5.6.0: Knowledge base opt-in
+  if (_kbe) _kbe.checked = !!data.kb_enabled;
+  document.getElementById('nav-kb')?.classList.toggle('d-none', !data.kb_enabled);
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3479,6 +3484,8 @@ async function saveSettings(btn) {
   if (_spEn) payload.show_provisioning = _spEn.checked;
   const _iacEn = document.getElementById('cfg-iac-execute');   // v5.6.0: terraform exec gate
   if (_iacEn) payload.iac_execute_enabled = _iacEn.checked;
+  const _kbEn = document.getElementById('cfg-kb-enabled');   // v5.6.0: Knowledge base opt-in
+  if (_kbEn) payload.kb_enabled = _kbEn.checked;
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
@@ -20458,6 +20465,9 @@ function _autoRuleSummary(r) {
   const acts = (r.actions || []).map(a => {
     if (a.type === 'run_script') { const s = _autoScripts.find(x => x.id === a.script_id); return 'run ' + (s ? s.name : a.script_id); }
     if (a.type === 'notify') { const d = _autoDests.find(x => x.id === a.dest_id); return 'notify ' + (d ? d.name : a.dest_id); }
+    if (a.type === 'open_ticket') return 'open ticket' + (a.priority ? ' P' + a.priority : '');
+    if (a.type === 'add_tag') return 'tag ' + a.tag;
+    if (a.type === 'mute_alert') return 'mute alert';
     return a.type;
   }).join(', ');
   return `when <b>${escHtml(evs)}</b>${escHtml(sev)} on <b>${escHtml(where)}</b> → <b>${escHtml(acts)}</b>`;
@@ -20503,6 +20513,11 @@ function openAutomationEditor(ruleId) {
   const acts = (r && r.actions) || [];
   document.getElementById('auto-script').value = (acts.find(a => a.type === 'run_script') || {}).script_id || '';
   document.getElementById('auto-notify').value = (acts.find(a => a.type === 'notify') || {}).dest_id || '';
+  const tk = acts.find(a => a.type === 'open_ticket');
+  document.getElementById('auto-act-ticket').checked = !!tk;
+  document.getElementById('auto-ticket-priority').value = (tk && tk.priority) ? String(tk.priority) : '';
+  document.getElementById('auto-act-tag').value = (acts.find(a => a.type === 'add_tag') || {}).tag || '';
+  document.getElementById('auto-act-mute').checked = !!acts.find(a => a.type === 'mute_alert');
   document.getElementById('auto-cooldown').value = r ? (r.cooldown_seconds != null ? r.cooldown_seconds : 60) : 60;
   document.getElementById('auto-editor-status').textContent = '';
   ed.classList.remove('d-none');
@@ -20524,7 +20539,16 @@ async function saveAutomationRule() {
   const did = document.getElementById('auto-notify').value;
   if (sid) actions.push({ type: 'run_script', script_id: sid });
   if (did) actions.push({ type: 'notify', dest_id: did });
-  if (!actions.length) { toast('Pick at least one action (script or notify)', 'error'); return; }
+  if (document.getElementById('auto-act-ticket').checked) {
+    const a = { type: 'open_ticket' };
+    const pr = document.getElementById('auto-ticket-priority').value;
+    if (pr) a.priority = parseInt(pr, 10);
+    actions.push(a);
+  }
+  const atag = document.getElementById('auto-act-tag').value.trim();
+  if (atag) actions.push({ type: 'add_tag', tag: atag });
+  if (document.getElementById('auto-act-mute').checked) actions.push({ type: 'mute_alert' });
+  if (!actions.length) { toast('Pick at least one action (script, notify, ticket, tag or mute)', 'error'); return; }
   if (!events.length && !severities.length) { toast('Specify at least one event or severity', 'error'); return; }
   const rule = {
     name: document.getElementById('auto-name').value.trim() || 'Rule',

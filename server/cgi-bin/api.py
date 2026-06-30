@@ -162,6 +162,14 @@ ATTACH_INLINE_TYPES = frozenset({
 CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
 MAX_CONTACTS = 2000
 
+# ── v5.6.0: Knowledge base — structured IT documentation (opt-in) ───────────
+# Markdown articles organised in a category folder-tree (SOPs, how-tos, runbooks).
+# Admin-authored, all-roles-readable, and exposed to the AI as a RAG source.
+KB_FILE = DATA_DIR / 'kb.json'
+MAX_KB_ARTICLES = 5000
+MAX_KB_BODY = 100_000   # per-article body cap (chars)
+
+
 # ── v5.4.0 "RackMatters": time-tracking + billing ───────────────────────────
 # A unified time-entry ledger (ticket "add hours" and the weekly timesheet are
 # two views of the same records), per-site rate/fee config, and stored invoices.
@@ -6401,6 +6409,152 @@ def handle_contact_update(cid):
     respond(200, {'ok': True})
 
 
+# ── v5.6.0: Knowledge base (structured IT documentation) ────────────────────
+def _kb_enabled():
+    return bool((load(CONFIG_FILE) or {}).get('kb_enabled'))
+
+
+def _kb_clean_category(s):
+    """Normalise a category path (folder-like): strip, collapse slashes, block
+    traversal. Mirrors _bp_clean_folder."""
+    parts = [p.strip() for p in str(s or '').replace('\\', '/').split('/')]
+    parts = [p for p in parts if p and p not in ('.', '..')]
+    return '/'.join(parts[:8])[:200]
+
+
+def _kb_clean_tags(v):
+    out = []
+    for t in (v if isinstance(v, list) else []):
+        t = _sanitize_str(str(t), 40).strip()
+        if t and t not in out:
+            out.append(t)
+        if len(out) >= 24:
+            break
+    return out
+
+
+def _kb_public(a, *, full=True):
+    """Safe shape of an article. Omit the body in list views for payload size."""
+    out = {
+        'id': a.get('id'), 'title': a.get('title') or '',
+        'category': a.get('category') or '', 'tags': a.get('tags') or [],
+        'pinned': bool(a.get('pinned')),
+        'linked_devices': a.get('linked_devices') or [],
+        'author': a.get('author') or '',
+        'created_at': a.get('created_at'), 'updated_at': a.get('updated_at'),
+    }
+    if full:
+        out['body'] = a.get('body') or ''
+    return out
+
+
+def handle_kb():
+    """GET /api/kb[?q=&category=] list/search (any auth), or POST create (admin)."""
+    if not _kb_enabled():
+        respond(404, {'error': 'knowledge base is disabled'})
+    if method() == 'GET':
+        require_auth()
+        articles = (load(KB_FILE) or {}).get('articles') or []
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+        q = (qs.get('q') or [''])[0].lower().strip()
+        cat = _kb_clean_category((qs.get('category') or [''])[0])
+        out = []
+        for a in articles:
+            if cat and (a.get('category') or '') != cat:
+                continue
+            if q:
+                hay = ' '.join([a.get('title', ''), a.get('category', ''),
+                                ' '.join(a.get('tags') or []), a.get('body', '')]).lower()
+                if q not in hay:
+                    continue
+            out.append(_kb_public(a, full=False))
+        out.sort(key=lambda x: (not x['pinned'], (x.get('title') or '').lower()))
+        cats = sorted({a.get('category') or '' for a in articles if a.get('category')})
+        respond(200, {'ok': True, 'articles': out, 'categories': cats,
+                      'count': len(articles)})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    title = _sanitize_str(str(body.get('title', '')), 200).strip()
+    if not title:
+        respond(400, {'error': 'title required'})
+    now = int(time.time())
+    aid = 'kb_' + secrets.token_hex(5)
+    rec = {
+        'id': aid, 'title': title,
+        'category': _kb_clean_category(body.get('category')),
+        'tags': _kb_clean_tags(body.get('tags')),
+        'body': _sanitize_str(str(body.get('body', '')), MAX_KB_BODY),
+        'pinned': bool(body.get('pinned')),
+        'linked_devices': [_sanitize_str(str(d), 64)
+                           for d in (body.get('linked_devices') or [])][:50],
+        'author': actor, 'created_at': now, 'updated_at': now,
+    }
+    with _LockedUpdate(KB_FILE) as store:
+        arts = store.setdefault('articles', [])
+        if len(arts) >= MAX_KB_ARTICLES:
+            respond(400, {'error': f'article limit reached (max {MAX_KB_ARTICLES})'})
+        arts.append(rec)
+    audit_log(actor, 'kb_create', f'id={aid} {title}')
+    respond(200, {'ok': True, 'id': aid})
+
+
+def handle_kb_article(aid):
+    """GET single (any auth), PATCH/POST update or DELETE (admin)."""
+    if not _kb_enabled():
+        respond(404, {'error': 'knowledge base is disabled'})
+    if method() == 'GET':
+        require_auth()
+        a = next((x for x in ((load(KB_FILE) or {}).get('articles') or [])
+                  if x.get('id') == aid), None)
+        if not a:
+            respond(404, {'error': 'article not found'})
+        respond(200, {'ok': True, 'article': _kb_public(a, full=True)})
+    if method() == 'DELETE':
+        actor = require_admin_auth()
+        found = False
+        with _LockedUpdate(KB_FILE) as store:
+            arts = store.get('articles') or []
+            kept = [x for x in arts if x.get('id') != aid]
+            found = len(kept) != len(arts)
+            store['articles'] = kept
+        if not found:
+            respond(404, {'error': 'article not found'})
+        audit_log(actor, 'kb_delete', f'id={aid}')
+        respond(200, {'ok': True})
+    if method() not in ('PATCH', 'POST'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    now = int(time.time())
+    ok = False
+    with _LockedUpdate(KB_FILE) as store:
+        a = next((x for x in (store.get('articles') or []) if x.get('id') == aid), None)
+        if a:
+            ok = True
+            if 'title' in body:
+                t = _sanitize_str(str(body['title']), 200).strip()
+                if t:
+                    a['title'] = t
+            if 'category' in body:
+                a['category'] = _kb_clean_category(body['category'])
+            if 'tags' in body:
+                a['tags'] = _kb_clean_tags(body['tags'])
+            if 'body' in body:
+                a['body'] = _sanitize_str(str(body['body']), MAX_KB_BODY)
+            if 'pinned' in body:
+                a['pinned'] = bool(body['pinned'])
+            if 'linked_devices' in body:
+                a['linked_devices'] = [_sanitize_str(str(d), 64)
+                                       for d in (body.get('linked_devices') or [])][:50]
+            a['updated_at'] = now
+    if not ok:
+        respond(404, {'error': 'article not found'})
+    audit_log(actor, 'kb_update', f'id={aid}')
+    respond(200, {'ok': True})
+
+
 _TICKET_EMAIL_RE = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 
 
@@ -7317,6 +7471,81 @@ def _run_automation_action(action, event, payload, dev_id, cfg, rule):
             msg = event
         _dispatch_one_webhook(event, dest, safe, msg,
                               _webhook_title(event), _webhook_priority(event))
+    elif atype == 'open_ticket':
+        # v5.6.0: auto-open a helpdesk ticket for the event's device. Reuses the
+        # ticket store (only when the ticket system is enabled). Deduped per rule
+        # so a flapping event doesn't pile up tickets — one open ticket per
+        # (rule, device) at a time (on top of the rule cooldown).
+        if not _tickets_enabled() or not dev_id:
+            return
+        _OPEN = ('ongoing', 'pending_customer', 'pending_internal')
+        if any(t.get('auto_rule') == rule.get('id') and t.get('device_id') == dev_id
+               and t.get('status') in _OPEN
+               for t in ((load(TICKETS_FILE) or {}).get('tickets') or [])):
+            return
+        sev = _alert_severity(event, payload) or 'info'
+        prio = _severity_to_priority(sev)
+        try:
+            prio = _coerce_priority(action.get('priority') or prio)
+        except Exception:
+            pass
+        dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+        subj = (_sanitize_str(str(action.get('subject') or ''), 200).strip()
+                or f"{_webhook_title(event)}: {dev.get('name', dev_id)}")
+        now = int(time.time())
+        tid = 'tk_' + secrets.token_hex(5)
+        with _LockedUpdate(TICKETS_FILE) as store:
+            tickets = store.setdefault('tickets', [])
+            if len(tickets) >= MAX_TICKETS:
+                return
+            seq = int(store.get('ticket_seq') or 0) + 1
+            store['ticket_seq'] = seq
+            number = TICKET_STANDALONE_BASE + seq
+            tickets.append({
+                'id': tid, 'number': number, 'subject': subj, 'type': 'incident',
+                'status': 'ongoing', 'device_id': dev_id,
+                'device_name': dev.get('name', dev_id), 'alert_id': '', 'alertid': '',
+                'affected_devices': [dev_id], 'parent': '', 'priority': prio,
+                'assignee': '', 'group': _sanitize_str(str(action.get('group', '')), 64),
+                'created_by': 'automation', 'auto_rule': rule.get('id'),
+                'created_at': now, 'updated_at': now, 'messages': [],
+            })
+        audit_log('automation', 'rule_open_ticket',
+                  f"rule={rule.get('id')} dev={dev_id} #{number} on {event}")
+    elif atype == 'add_tag':
+        # v5.6.0: auto-classify the event's device with a tag.
+        tag = _sanitize_str(str(action.get('tag') or ''), 40).strip()
+        if not tag or not dev_id:
+            return
+        changed = False
+        with _LockedUpdate(DEVICES_FILE) as devices:
+            d = devices.get(dev_id)
+            if d is not None:
+                tags = d.setdefault('tags', [])
+                if tag not in tags:
+                    tags.append(tag)
+                    changed = True
+        if changed:
+            audit_log('automation', 'rule_add_tag',
+                      f"rule={rule.get('id')} dev={dev_id} tag={tag} on {event}")
+    elif atype == 'mute_alert':
+        # v5.6.0: auto-mute THIS event from THIS host (same (device,event) mute the
+        # Alerts X button creates) — useful to self-suppress a known-noisy source.
+        if not dev_id:
+            return
+        added = False
+        with _LockedUpdate(ALERT_MUTES_FILE) as data:
+            mutes = data.setdefault('mutes', [])
+            if not any(m.get('device_id') == dev_id and m.get('event') == event
+                       for m in mutes) and len(mutes) < MAX_ALERT_MUTES:
+                dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+                mutes.append({'id': secrets.token_urlsafe(8), 'device_id': dev_id,
+                              'device_name': dev.get('name', dev_id), 'event': event,
+                              'created': int(time.time()), 'created_by': 'automation'})
+                added = True
+        if added:
+            audit_log('automation', 'rule_mute_alert',
+                      f"rule={rule.get('id')} dev={dev_id} event={event}")
 
 
 def _run_automation_rules(event, payload, cfg):
@@ -7398,8 +7627,26 @@ def _validate_rule(body):
         elif a.get('type') == 'notify' and a.get('dest_id'):
             actions.append({'type': 'notify',
                             'dest_id': _sanitize_str(a['dest_id'], 64)})
+        # v5.6.0: actions that compose the ticket / tag / mute subsystems. They
+        # act on the event's device (no-op for fleet-wide events with no device).
+        elif a.get('type') == 'open_ticket':
+            act = {'type': 'open_ticket',
+                   'subject': _sanitize_str(a.get('subject', ''), 200),
+                   'group': _sanitize_str(a.get('group', ''), 64)}
+            try:
+                if a.get('priority'):
+                    act['priority'] = max(1, min(4, int(a['priority'])))
+            except (TypeError, ValueError):
+                pass
+            actions.append(act)
+        elif a.get('type') == 'add_tag' and str(a.get('tag', '')).strip():
+            actions.append({'type': 'add_tag',
+                            'tag': _sanitize_str(a['tag'], 40)})
+        elif a.get('type') == 'mute_alert':
+            actions.append({'type': 'mute_alert'})
     if not actions:
-        return None, 'at least one valid action (run_script or notify) is required'
+        return None, ('at least one valid action (run_script, notify, open_ticket, '
+                      'add_tag or mute_alert) is required')
     if not (events or sevs):
         return None, 'specify at least one event or severity to match'
     try:
@@ -17619,6 +17866,7 @@ def handle_config_get():
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
+    safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
     safe.setdefault('password_require_classes', False)  # v5.4.1 (D1)
     safe.setdefault('password_breach_check',  False)  # v5.4.1 (D1): HIBP k-anon, opt-in
@@ -18869,6 +19117,8 @@ def handle_config_save():
         cfg['show_provisioning'] = bool(body['show_provisioning'])
     if 'iac_execute_enabled' in body:   # v5.6.0: server-side terraform execution
         cfg['iac_execute_enabled'] = bool(body['iac_execute_enabled'])
+    if 'kb_enabled' in body:   # v5.6.0: Knowledge base page opt-in (Advanced)
+        cfg['kb_enabled'] = bool(body['kb_enabled'])
     if 'port_audit_enabled' in body:
         _was_on = bool(cfg.get('port_audit_enabled', False))
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
@@ -26795,6 +27045,10 @@ _AI_DEFAULTS = {
             # the "helpdesk_triage" advisor + Q&A like "what tickets are open for
             # host X?" / "what's breaching SLA?".
             'tickets':      True,
+            # v5.6.0: knowledge base — operator-authored IT documentation
+            # (SOPs, how-tos, runbooks). Gated on the KB being enabled. Grounds
+            # Q&A like "how do we rotate the VPN keys?" with your own docs.
+            'kb':           True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -27001,7 +27255,7 @@ def handle_ai_config_set():
                 for k in ('docs', 'live_state', 'cmdb', 'history',
                           'drift', 'compliance', 'metrics',
                           'firewall', 'integrations', 'backups', 'dns_email',
-                          'posture', 'vpn', 'tickets'):
+                          'posture', 'vpn', 'tickets', 'kb'):
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -27135,6 +27389,9 @@ def _rag_source_files(sources):
         files.append(VPN_FILE)
     if sources.get('tickets'):
         files.append(TICKETS_FILE)
+    # v5.6.0: knowledge base articles.
+    if sources.get('kb'):
+        files.append(KB_FILE)
     return files
 
 
@@ -27435,6 +27692,12 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_tickets_corpus(load(TICKETS_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: tickets source failed: {e}\n')
+
+    if sources.get('kb') and _kb_enabled():
+        try:
+            docs += rag_index.build_kb_corpus(load(KB_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: kb source failed: {e}\n')
 
     return docs
 
@@ -51582,6 +51845,8 @@ def _build_exact_routes():
         ('POST', '/api/tickets'): handle_tickets,
         ('GET', '/api/contacts'): handle_contacts,
         ('POST', '/api/contacts'): handle_contacts,
+        ('GET', '/api/kb'): handle_kb,
+        ('POST', '/api/kb'): handle_kb,
         ('GET', '/api/service-baselines'): handle_service_baselines,
         ('POST', '/api/service-baselines'): handle_service_baselines,
         ('GET', '/api/tickets/imap'): handle_ticket_imap_get,
@@ -52587,6 +52852,8 @@ def _dispatch(pi, m):
         handle_ticket_delete(pi[len('/api/tickets/'):])
     elif pi.startswith('/api/contacts/') and m in ('PATCH', 'POST', 'DELETE'):
         handle_contact_update(pi[len('/api/contacts/'):])
+    elif pi.startswith('/api/kb/') and m in ('GET', 'PATCH', 'POST', 'DELETE'):
+        handle_kb_article(pi[len('/api/kb/'):])
 
     # ── v2.6.0: host configuration management ──────────────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'GET':

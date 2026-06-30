@@ -230,6 +230,9 @@
     'New blueprint': { zh: '新建蓝图', hi: 'नया ब्लूप्रिंट', es: 'Nueva plantilla', ar: 'مخطط جديد' },
     'Render':      { zh: '生成', hi: 'रेंडर', es: 'Generar', ar: 'إنشاء' },
     'Ansible playbooks': { zh: 'Ansible 剧本', hi: 'Ansible playbooks', es: 'Playbooks de Ansible', ar: 'كتب Ansible' },
+    'Knowledge base': { zh: '知识库', hi: 'ज्ञान आधार', es: 'Base de conocimiento', ar: 'قاعدة المعرفة' },
+    'Articles':    { zh: '文章', hi: 'लेख', es: 'Artículos', ar: 'المقالات' },
+    'New article': { zh: '新建文章', hi: 'नया लेख', es: 'Nuevo artículo', ar: 'مقال جديد' },
     'Plan':        { zh: '计划', hi: 'योजना', es: 'Plan', ar: 'خطة' },
     'Destroy':     { zh: '销毁', hi: 'नष्ट करें', es: 'Destruir', ar: 'تدمير' },
     'Timesheet watchers': { zh: '工时表查看者', hi: 'टाइमशीट दर्शक', es: 'Observadores de horas', ar: 'مراقبو سجل الوقت' },
@@ -1728,6 +1731,8 @@
   // v4.2: page-subtitle translations keyed by normalized English innerHTML
   // (markup-preserving — values keep the same <span>/<a> tags).
   var HTMLDICT = {
+    // ── v5.6.0: Knowledge base page subtitle ──
+    "Operator-authored IT documentation — SOPs, how-tos and runbooks as markdown articles in a category folder tree. Searchable, and fed to the AI assistant so it can answer from your own docs.": { "zh": "由运维人员撰写的 IT 文档——SOP、操作指南和运行手册，以 markdown 文章形式按分类文件夹组织。可搜索，并提供给 AI 助手，使其能够基于你自己的文档作答。", "hi": "ऑपरेटर द्वारा लिखित IT documentation — SOPs, how-tos और runbooks markdown लेखों के रूप में category फ़ोल्डर ट्री में। खोजने योग्य, और AI assistant को दिया जाता है ताकि वह आपके अपने docs से उत्तर दे सके।", "es": "Documentación de TI escrita por operadores: SOP, guías y runbooks como artículos en markdown organizados en un árbol de carpetas por categoría. Con búsqueda y suministrada al asistente de IA para que responda desde tus propios documentos.", "ar": "وثائق تقنية المعلومات بقلم المشغّلين — إجراءات تشغيل قياسية وأدلة عملية وكتيّبات تشغيل كمقالات Markdown منظّمة في شجرة مجلدات حسب الفئة. قابلة للبحث، وتُغذّى إلى مساعد الذكاء الاصطناعي ليجيب من وثائقك الخاصة." },
     // ── v5.6.0: Alert tuning page subtitle ──
     "Find your noisiest alerts and silence them at the source — per <strong>host + alert type</strong>. A silenced alert stops reaching the inbox, webhooks and the needs-attention card, but history keeps recording so you can always lift it. Counts are over the last 30 days.": { "zh": "找出最嘈杂的告警并从源头将其静音——按<strong>主机 + 告警类型</strong>。被静音的告警不再进入收件箱、Webhook 和需要关注卡片，但历史记录仍会保留，因此你随时可以解除。计数基于最近 30 天。", "hi": "अपने सबसे शोरगुल वाले अलर्ट खोजें और उन्हें स्रोत पर ही म्यूट करें — <strong>host + alert type</strong> के अनुसार। म्यूट किया गया अलर्ट inbox, webhooks और needs-attention कार्ड तक नहीं पहुँचता, पर इतिहास दर्ज होता रहता है, इसलिए आप इसे कभी भी हटा सकते हैं। गणना पिछले 30 दिनों की है।", "es": "Encuentra tus alertas más ruidosas y siléncialas en el origen, por <strong>host + tipo de alerta</strong>. Una alerta silenciada deja de llegar a la bandeja, los webhooks y la tarjeta de atención, pero el historial sigue registrándose, así que siempre puedes revertirla. Los recuentos son de los últimos 30 días.", "ar": "اعثر على أكثر تنبيهاتك ضجيجاً واكتمها من المصدر — لكل <strong>مضيف + نوع تنبيه</strong>. التنبيه المكتوم يتوقّف عن الوصول إلى صندوق الوارد وwebhooks وبطاقة الانتباه، لكن السجل يستمرّ في التسجيل، فيمكنك رفعه في أي وقت. الأعداد لآخر 30 يوماً." },
     // ── v5.6.0: Provisioning page subtitle ──

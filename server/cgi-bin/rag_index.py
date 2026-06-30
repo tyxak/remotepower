@@ -1278,6 +1278,42 @@ def build_tickets_corpus(store, resolve_device=None, now=0):
     return docs
 
 
+def build_kb_corpus(store, now=0):
+    """v5.6.0: operator-authored knowledge-base articles for the RAG. `store` is
+    the KB_FILE dict {'articles': [...]}. Each article (SOP / how-to / runbook)
+    becomes one doc so the model can answer "how do we …?" with your own docs,
+    plus a fleet rollup of titles. Caller should only invoke this when the KB is
+    enabled."""
+    docs = []
+    articles = (store or {}).get('articles', []) if isinstance(store, dict) else []
+    if not isinstance(articles, list) or not articles:
+        return docs
+    index = []
+    for a in articles:
+        if not isinstance(a, dict):
+            continue
+        aid = a.get('id') or ''
+        title = str(a.get('title') or 'Untitled')
+        cat = str(a.get('category') or '')
+        tags = a.get('tags') or []
+        tagline = (', '.join(str(t) for t in tags)) if isinstance(tags, list) else ''
+        body = str(a.get('body') or '')[:8000]
+        head = f"Knowledge-base article: {title}\n"
+        if cat:
+            head += f"Category: {cat}\n"
+        if tagline:
+            head += f"Tags: {tagline}\n"
+        docs.append(make_doc(
+            f"kb/{aid}", 'kb', 'kb_article', head + "\n" + body,
+            title=f"KB: {title[:80]}", ts=int(a.get('updated_at') or now)))
+        index.append(f"- {title[:80]}" + (f" [{cat}]" if cat else ''))
+    docs.append(make_doc(
+        'kb/_index', 'kb', 'kb_index',
+        f"Knowledge base: {len(index)} article(s).\n" + '\n'.join(index[:300]),
+        title='Knowledge base index', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):
