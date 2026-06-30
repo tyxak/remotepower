@@ -6521,7 +6521,10 @@ body[data-ui="industrial"] .rp-ddwrap select{ position:relative; z-index:1; disp
    and drop the input's own border/radius/focus-outline so nothing double-draws. */
 body[data-ui="industrial"] .dev-combo{ position:relative; display:block; padding:1.5px; }
 body[data-ui="industrial"] .dev-combo::before{
-  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:var(--accent-edge);
+  /* Rest on the NEUTRAL --border grey (like the toolbar buttons / icon buttons),
+     not --accent-edge — a blue resting border made the combobox much louder than
+     the grey controls next to it. Turn blue only on focus. */
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:var(--border);
   clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
 }
 body[data-ui="industrial"] .dev-combo:focus-within::before{ background:var(--accent); }
