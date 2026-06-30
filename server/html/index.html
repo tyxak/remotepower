@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.5.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.6.0">
 
 </head>
 <body>
@@ -3013,7 +3013,28 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.5.0 scalematters keystone wsgi gunicorn persistent app server thread-local out-of-band scheduler leader election pg_advisory_lock multi-tenancy tenant tenancy enforced rls row-level-security postgres hard isolation scale fork-per-request av antivirus rkhunter rootkit clamav warning av_warning alert needs attention ticket attachment attachments file download preview inbound outbound email auto-reply autoreply acknowledgement thank you loop-safe view email thread correspondence print billing opt-in advanced settings gate device hostname ticket icon enterprise hardening password policy haveibeenpwned breach sso-only idle session timeout config-change audit webhook schema_version max_devices intl localization currency wcag accessibility aria api key device token enrollment token hashed at rest sha-256 config secret encryption rp_config_key aes-256-gcm vault kms external key sourcing api versioning v1 correlation id x-request-id structured log client error beacon branded email pagination list convention signed export hmac export-key rotation openapi swagger postman sbom slsa provenance off-host backup restore-verify per-tier escalation target availability slo error budget burn rate control-plane uptime traceparent trace-context distributed tracing worm audit sink sso group role matrix onboarding tour">
+          <details class="doc-card" open data-keywords="release notes changelog v5.6.0 provisionmatters provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure as code render apply plan destroy run execute server-side ansible playbook catalog folder spin up machine deploy enroll alert tuning noise noisy mute silence ignore suppress quiet ack acknowledge timesheet watcher watch team finance read-only optional features settings save hanging file manager">
+            <summary><strong>What's new — v5.6.0 "ProvisionMatters"</strong> — the IaC / automation + alert-tuning release: a <strong>Provisioning</strong> blueprint catalog (Terraform / cloud-init / Ansible / iPXE) that renders or runs Terraform server-side, an <strong>alert Tuning</strong> page with per-host mute, and <strong>timesheet watchers</strong> (all opt-in, no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.6.0 "ProvisionMatters" is the IaC / automation + alert-tuning release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.6.0</code>).</p>
+              <p><strong>Provisioning</strong> (Admin → Provisioning; enable under Settings → Advanced → Optional features)</p>
+              <ul>
+                <li>A folder-tree <strong>catalog of infrastructure blueprints</strong> — Terraform, cloud-init, Ansible and iPXE. <strong>Render</strong> any blueprint (fill variables → copy/download; cloud-init can bake the agent install one-liner via <code>${rp_agent_install}</code>), or <strong>run Terraform</strong> server-side — <strong>Plan / Apply / Destroy</strong> — when the separate <code>iac_execute_enabled</code> gate is on.</li>
+                <li>Persistent per-blueprint state, a per-blueprint run lock, and <strong>secret variables passed as environment</strong> (never written to disk). Admin-only + audited; the former standalone <strong>Ansible</strong> page is folded in here as an "Ansible playbooks" card.</li>
+              </ul>
+              <p><strong>Alert tuning</strong> (Monitoring → Tuning)</p>
+              <ul>
+                <li>The <strong>noisiest alerts</strong> (host + event) and sources from the event timeline, each with a <strong>Silence</strong> toggle. The per-row <strong>Ack</strong> button on the Alerts page and the dashboard is now an <strong>X "Mute"</strong> that silences one exact alert from one host (inbox + webhook + needs-attention) while history keeps recording. Mutes are permanent, managed from Tuning.</li>
+              </ul>
+              <p><strong>Timesheet watchers &amp; settings</strong></p>
+              <ul>
+                <li>Let specific non-finance users view another user's <strong>timesheet</strong> (read-only, hours only, never rates) — by user or whole team; a "Watch for" omnisearch on the Timesheet page switches whose week you view.</li>
+                <li>The opt-in modules (Tickets, Billing, Provisioning, File manager) are consolidated into an <strong>"Optional features"</strong> settings section; fixed the Settings <strong>Save</strong> button hanging on "Saving…".</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.5.0 scalematters keystone wsgi gunicorn persistent app server thread-local out-of-band scheduler leader election pg_advisory_lock multi-tenancy tenant tenancy enforced rls row-level-security postgres hard isolation scale fork-per-request av antivirus rkhunter rootkit clamav warning av_warning alert needs attention ticket attachment attachments file download preview inbound outbound email auto-reply autoreply acknowledgement thank you loop-safe view email thread correspondence print billing opt-in advanced settings gate device hostname ticket icon enterprise hardening password policy haveibeenpwned breach sso-only idle session timeout config-change audit webhook schema_version max_devices intl localization currency wcag accessibility aria api key device token enrollment token hashed at rest sha-256 config secret encryption rp_config_key aes-256-gcm vault kms external key sourcing api versioning v1 correlation id x-request-id structured log client error beacon branded email pagination list convention signed export hmac export-key rotation openapi swagger postman sbom slsa provenance off-host backup restore-verify per-tier escalation target availability slo error budget burn rate control-plane uptime traceparent trace-context distributed tracing worm audit sink sso group role matrix onboarding tour">
             <summary><strong>What's new — v5.5.0 "ScaleMatters"</strong> — the persistent-tier + enterprise release: the <strong>keystone</strong> (opt-in gunicorn WSGI app server + leader-elected out-of-band scheduler) that lifts the fork-per-request scale ceiling, <strong>hard multi-tenancy</strong> with optional Postgres row-level security, a large opt-in <strong>enterprise-hardening</strong> program (identity, credential-at-rest, DR, API contract, observability) plus helpdesk-signal + billing polish (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.5.0 "ScaleMatters" is the persistent-tier + enterprise release: the <strong>keystone</strong> that lifts the fork-per-request scale ceiling (opt-in gunicorn WSGI app server + a leader-elected out-of-band scheduler), <strong>hard multi-tenancy</strong> with optional Postgres row-level security, and a broad enterprise-hardening program. <strong>Everything new is opt-in</strong> — every knob defaults off / unset, so existing installs behave exactly as before until configured. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.5.0</code>).</p>
@@ -3081,21 +3102,6 @@
               <p class="hint">Open <em>Admin → WG Access</em>. Requires the WireGuard helper on the server. See <code>docs/v5.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.1.1 clustermatters proxmox cluster resources node nodes guest vm lxc qemu migrate snapshot lifecycle multi-node fallback ssrf hostname validation contributor tbouquet loryanstrant localai ollama api key embeddings embedding provider semantic search rag url hash refresh deep link community">
-            <summary><strong>What's new — v5.1.1 "ClusterMatters"</strong> — cluster-wide Proxmox, plus community fixes: hash-on-refresh routing, LocalAI API keys, and a separate embedding service (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.1.1 is a small follow-up focused on Proxmox clusters and the first round of community-reported AI/UX fixes. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.1.1</code>).</p>
-              <ul>
-                <li><strong>Cluster-wide Proxmox.</strong> The Proxmox page now lists guests on every cluster member via <code>/cluster/resources</code>, each tagged with its owning <strong>node</strong>. Start / shutdown / reboot / snapshot / migrate resolve the owning node per guest, so an action targets the right host even for a guest on a non-configured node; backups are enumerated on every node a guest lives on. Node names are hostname-validated before they can reach any request path.</li>
-                <li><strong>Backwards compatible.</strong> A token with only node-scoped read falls back to the original single-node listing — existing setups are unchanged. Cluster-wide visibility needs cluster-scope read (<code>Sys.Audit</code> on <code>/</code>).</li>
-                <li><strong>Refresh keeps your page.</strong> Reloading on a deep page (e.g. <code>#containers</code>) now restores that page instead of dropping back to home. Contributed by @tbouquet (#12).</li>
-                <li><strong>LocalAI API keys.</strong> The AI API-key field is no longer blocked for LocalAI / Ollama — enter a key if your local endpoint requires one and it's sent as a Bearer token. Reported by @loryanstrant (#10).</li>
-                <li><strong>Separate embedding service.</strong> Settings → AI assistant → Knowledge index now has optional <em>Embedding provider / base URL / API key</em> fields, so semantic-search embeddings can run on a different box than chat (and can be enabled even when the chat provider can't embed). Requested by @loryanstrant (#11).</li>
-              </ul>
-              <p class="hint">Contributed by @tbouquet (#9, #12) and @loryanstrant (#10, #11). See <code>docs/v5.1.1.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-
           <details class="doc-card" data-keywords="release notes changelog older versions history v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
             <summary><strong>Older releases</strong> &mdash; v4.0.0 and earlier</summary>
             <div class="doc-body">
@@ -8369,38 +8375,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.5.0"></script>
-<script defer src="static/js/app.js?v=5.5.0"></script>
+<script defer src="static/js/i18n.js?v=5.6.0"></script>
+<script defer src="static/js/app.js?v=5.6.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.5.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.5.0"></script>
-<script defer src="static/js/app-containers.js?v=5.5.0"></script>
-<script defer src="static/js/app-network.js?v=5.5.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.6.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.6.0"></script>
+<script defer src="static/js/app-containers.js?v=5.6.0"></script>
+<script defer src="static/js/app-network.js?v=5.6.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.5.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.5.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.5.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.6.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.6.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.6.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.5.0"></script>
-<script defer src="static/js/app-dns.js?v=5.5.0"></script>
-<script defer src="static/js/app-drift.js?v=5.5.0"></script>
-<script defer src="static/js/app-dmarc.js?v=5.5.0"></script>
-<script defer src="static/js/app-cve.js?v=5.5.0"></script>
-<script defer src="static/js/app-firewall.js?v=5.5.0"></script>
-<script defer src="static/js/app-backups.js?v=5.5.0"></script>
-<script defer src="static/js/app-iac.js?v=5.5.0"></script>
-<script defer src="static/js/app-provisioning.js?v=5.5.0"></script>
-<script defer src="static/js/app-tuning.js?v=5.5.0"></script>
-<script defer src="static/js/app-rollouts.js?v=5.5.0"></script>
-<script defer src="static/js/app-power.js?v=5.5.0"></script>
-<script defer src="static/js/app-gpu.js?v=5.5.0"></script>
-<script defer src="static/js/app-proxmox.js?v=5.5.0"></script>
-<script defer src="static/js/wg-access.js?v=5.5.0"></script>
-<script defer src="static/js/app-billing.js?v=5.5.0"></script>
+<script defer src="static/js/app-ai.js?v=5.6.0"></script>
+<script defer src="static/js/app-dns.js?v=5.6.0"></script>
+<script defer src="static/js/app-drift.js?v=5.6.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.6.0"></script>
+<script defer src="static/js/app-cve.js?v=5.6.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.6.0"></script>
+<script defer src="static/js/app-backups.js?v=5.6.0"></script>
+<script defer src="static/js/app-iac.js?v=5.6.0"></script>
+<script defer src="static/js/app-provisioning.js?v=5.6.0"></script>
+<script defer src="static/js/app-tuning.js?v=5.6.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.6.0"></script>
+<script defer src="static/js/app-power.js?v=5.6.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.6.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.6.0"></script>
+<script defer src="static/js/wg-access.js?v=5.6.0"></script>
+<script defer src="static/js/app-billing.js?v=5.6.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.5.0"></script>
+<script defer src="static/js/sw-register.js?v=5.6.0"></script>
 </body>
 </html>

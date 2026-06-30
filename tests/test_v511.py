@@ -62,7 +62,8 @@ class TestVersionBumps(unittest.TestCase):
                       (_ROOT / "server/html/index.html").read_text())
 
     def test_codename(self):
-        self.assertIn("ClusterMatters", (_ROOT / "docs" / "v5.1.1.md").read_text())
+        # v5.1.1.md dropped on the v5.6.0 keep-5 prune — history lives in CHANGELOG.
+        self.assertIn("ClusterMatters", (_ROOT / "CHANGELOG.md").read_text())
 
 
 if __name__ == "__main__":

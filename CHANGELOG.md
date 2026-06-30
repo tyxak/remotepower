@@ -2,6 +2,35 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.6.0 — "ProvisionMatters" — unreleased (test)
+
+The IaC / automation + alert-tuning release. Everything new is opt-in,
+**default-off — no breaking changes.**
+
+- **Provisioning** (Admin → Provisioning, opt-in): a folder-tree catalog of
+  infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates.
+  Fill in a blueprint's variables and **render** to copy/download (cloud-init can
+  bake the agent install one-liner via the `${rp_agent_install}` macro), or **run
+  Terraform** server-side — **Plan / Apply / Destroy** — when the separate
+  `iac_execute_enabled` gate is on. Persistent per-blueprint state, a per-blueprint
+  run lock, and secret variables passed as environment (never written to disk or
+  the command line). Admin-only + audited; deleting a blueprint with live state is
+  refused until it's destroyed. The standalone **Ansible** page is folded in here
+  as an "Ansible playbooks" card.
+- **Alert tuning** (Monitoring → Tuning): the noisiest alerts (host + event) and
+  sources from the fleet-event timeline, each with a **Silence** toggle. The
+  per-row **Ack** button on the Alerts page and the dashboard is now an **X
+  "Mute"** that silences one exact alert from one host (inbox + webhook +
+  needs-attention) while history keeps recording. Mutes are permanent, managed
+  from Tuning.
+- **Timesheet watchers**: let specific non-finance users view another user's
+  **timesheet** (read-only, hours only, never rates) — granted by user or by whole
+  team. Managed under Users; a "Watch for" omnisearch on the Timesheet page
+  switches whose week you view.
+- **Settings**: the opt-in modules (Tickets, Billing, Provisioning, File manager)
+  are consolidated into an **"Optional features"** section. Fixed the Settings
+  **Save** button hanging on "Saving…" when a request was dropped.
+
 ## v5.5.0 — "ScaleMatters" — 2026-06-29
 
 The persistent-tier + enterprise release: a large opt-in **enterprise-hardening**

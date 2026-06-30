@@ -61,6 +61,13 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.6.0.md](v5.6.0.md)** — "ProvisionMatters": the IaC / automation +
+ alert-tuning release. An opt-in **Provisioning** blueprint catalog (Terraform /
+ cloud-init / Ansible / iPXE) that renders to copy/download or **runs Terraform
+ server-side** (Plan / Apply / Destroy, behind a separate execute gate); an
+ **alert Tuning** page that surfaces the noisiest alerts with per-host **mute**
+ (the Ack button becomes an X mute); and **timesheet watchers** (view another
+ user's hours, by user or team). All opt-in, default-off. No breaking changes.
 - **[v5.5.0.md](v5.5.0.md)** — "ScaleMatters": the persistent-tier + enterprise
  release — the **keystone** (opt-in **gunicorn WSGI app server** + leader-elected
  **out-of-band scheduler**) that lifts the fork-per-request scale ceiling, **hard
@@ -87,11 +94,6 @@ The five most recent per-release notes are kept here:
  site / group / tag), full- or split-tunnel egress and optional auto-expiry;
  per-client `.conf` + QR configs are issued with keys generated in your browser.
  No breaking changes.
-- **[v5.1.1.md](v5.1.1.md)** — "ClusterMatters": the Proxmox integration lists
- guests across the whole cluster (not just one node), resolving each guest's
- owning node for actions/snapshots/lifecycle, with hostname-validated node names;
- plus the test/polish gaps from that feature. Contributed by @tbouquet (#9). No
- breaking changes.
 
 Older release notes (v5.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

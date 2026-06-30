@@ -1,10 +1,9 @@
-"""Strict version-surface pins for v5.5.0 "ScaleMatters" — the persistent-tier +
-enterprise release (keystone WSGI app server + out-of-band scheduler, hard
-multi-tenancy + Postgres RLS, plus the folded-in enterprise-hardening program).
+"""Strict version-surface pins for v5.6.0 "ProvisionMatters" — the IaC /
+automation + alert-tuning release (Provisioning blueprint catalog + server-side
+Terraform exec, Monitoring → Tuning with per-host alert mute, timesheet watchers).
 
 Loosen TestVersionBumps to dynamic (V = api.SERVER_VERSION) on the next bump, the
-same way test_v540 / test_v541 were loosened. The keystone behaviour itself is
-covered by test_v600_* (WSGI / scheduler / thread-safe storage) and test_v610_rls.
+same way test_v540 / test_v550 were loosened.
 """
 import importlib.util
 import os
@@ -16,8 +15,8 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
-os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v550-test-"))
-_spec = importlib.util.spec_from_file_location("api_v550_ver", _CGI / "api.py")
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v560-test-"))
+_spec = importlib.util.spec_from_file_location("api_v560_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
@@ -27,7 +26,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    V = api.SERVER_VERSION   # loosened on the v5.6.0 bump — tracks current
+    V = "5.6.0"
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -48,8 +47,7 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"?v={self.V}", _html())
 
     def test_no_stale_cachebust(self):
-        # the previous dev line was v5.4.1 (its -N suffixed cache busts)
-        self.assertNotIn("?v=5.4.1", _html())
+        self.assertNotIn("?v=5.5.0", _html())
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
@@ -66,29 +64,29 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"What's new — v{self.V}", _html())
 
     def test_changelog_codename(self):
-        self.assertIn('## v5.5.0 — "ScaleMatters"', (_ROOT / "CHANGELOG.md").read_text())
+        self.assertIn('## v5.6.0 — "ProvisionMatters"', (_ROOT / "CHANGELOG.md").read_text())
 
 
-class TestKeystoneWiring(unittest.TestCase):
-    """The opt-in persistent-tier + tenancy surfaces ship with this version."""
+class TestProvisionMattersWiring(unittest.TestCase):
+    """The opt-in surfaces that ship with this version."""
 
-    def test_units_present(self):
-        for u in ("remotepower-wsgi.service", "remotepower-scheduler.service"):
-            self.assertTrue((_ROOT / "server/conf" / u).exists(), u)
+    def test_provisioning_handlers(self):
+        for fn in ("handle_blueprints_list", "handle_blueprint_render",
+                   "handle_blueprint_run", "_terraform_run", "_iac_execute_enabled"):
+            self.assertTrue(hasattr(api, fn), fn)
 
-    def test_app_modules_present(self):
-        for m in ("wsgi.py", "scheduler.py"):
-            self.assertTrue((_CGI / m).exists(), m)
+    def test_alert_mute_handlers(self):
+        for fn in ("handle_alert_mutes", "handle_alert_tuning", "_alert_muted"):
+            self.assertTrue(hasattr(api, fn), fn)
 
-    def test_tenancy_rls_gate(self):
-        self.assertTrue(hasattr(api, "_tenancy_rls_active"))
+    def test_timesheet_watch_handlers(self):
+        for fn in ("handle_timesheet_watchers", "handle_timesheet_watchable",
+                   "_can_view_timesheet"):
+            self.assertTrue(hasattr(api, fn), fn)
 
-    def test_no_v6_labels_leaked(self):
-        # the keystone was briefly labelled v6.0.0 then settled on v5.5.0
-        for f in ("docs/features.md", "docs/scaling.md", "docs/deployment.md",
-                  "server/conf/remotepower-wsgi.service",
-                  "server/conf/remotepower-scheduler.service"):
-            self.assertNotIn("v6.0.0", (_ROOT / f).read_text(), f)
+    def test_page_modules_present(self):
+        for m in ("app-provisioning.js", "app-tuning.js"):
+            self.assertTrue((_CGI.parent / "html" / "static" / "js" / m).exists(), m)
 
 
 if __name__ == "__main__":

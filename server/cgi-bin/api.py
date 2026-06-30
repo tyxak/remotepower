@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.5.0'
+SERVER_VERSION = '5.6.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -12883,11 +12883,29 @@ def handle_blueprint_delete(bp_id):
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     data = _blueprints_load()
-    n = len(data['blueprints'])
-    data['blueprints'] = [b for b in data['blueprints'] if b['id'] != bp_id]
-    if len(data['blueprints']) == n:
+    if not any(b['id'] == bp_id for b in data['blueprints']):
         respond(404, {'error': 'blueprint not found'})
+    # v5.6.0: don't orphan live infrastructure — a terraform blueprint with
+    # resources in its state must be destroyed (Run → Destroy) before deletion.
+    safe_id = re.sub(r'[^A-Za-z0-9_-]', '_', str(bp_id))[:64]
+    wd = IAC_RUNS_DIR / safe_id
+    state = wd / 'terraform.tfstate'
+    if state.exists():
+        try:
+            if (json.loads(state.read_text()) or {}).get('resources'):
+                respond(409, {'error': 'This blueprint has live Terraform state — '
+                                       'Run → Destroy first, then delete.'})
+        except (ValueError, OSError):
+            pass
+    data['blueprints'] = [b for b in data['blueprints'] if b['id'] != bp_id]
     save(PROVISION_FILE, data)
+    # clean up the (now state-free) workdir + lockfile
+    import shutil
+    shutil.rmtree(wd, ignore_errors=True)
+    try:
+        (IAC_RUNS_DIR / (safe_id + '.lock')).unlink()
+    except OSError:
+        pass
     audit_log(actor, 'blueprint_delete', detail=f'blueprint={bp_id}')
     respond(200, {'ok': True})
 
@@ -12905,6 +12923,13 @@ def handle_blueprint_render(bp_id):
     bp = next((b for b in _blueprints_load()['blueprints'] if b['id'] == bp_id), None)
     if not bp:
         respond(404, {'error': 'blueprint not found'})
+    fname = re.sub(r'[^A-Za-z0-9._-]', '_', bp.get('name', 'blueprint')) or 'blueprint'
+    # Terraform owns ${...} for its own HCL interpolation — never rewrite it.
+    # Terraform blueprints take their values natively as var.<name> at Run time;
+    # Render just returns the HCL verbatim so it copies cleanly.
+    if bp.get('kind') == 'terraform':
+        respond(200, {'ok': True, 'rendered': bp.get('content', ''),
+                      'missing': [], 'filename': fname})
     supplied = body.get('vars') if isinstance(body.get('vars'), dict) else {}
     base = _request_base_url(os.environ)
     # Convenience macros, always available to every blueprint.
@@ -12929,7 +12954,6 @@ def handle_blueprint_render(bp_id):
         return mo.group(0)
 
     rendered = _BLUEPRINT_VAR_RE.sub(_sub, bp.get('content', ''))
-    fname = re.sub(r'[^A-Za-z0-9._-]', '_', bp.get('name', 'blueprint')) or 'blueprint'
     respond(200, {'ok': True, 'rendered': rendered,
                   'missing': sorted(set(missing)), 'filename': fname})
 
@@ -13029,7 +13053,24 @@ def handle_blueprint_run(bp_id):
     if bp.get('kind') != 'terraform':
         respond(400, {'error': 'only terraform blueprints can be executed; the others are render-only'})
     supplied = body.get('vars') if isinstance(body.get('vars'), dict) else {}
-    out, rc = _terraform_run(bp, op, supplied)
+    # Per-blueprint exclusive lock: terraform's own state lock guards apply, but
+    # serialise here too so two ops on one blueprint can't race init/plan.
+    import fcntl
+    IAC_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = IAC_RUNS_DIR / (re.sub(r'[^A-Za-z0-9_-]', '_', str(bp_id))[:64] + '.lock')
+    lf = open(lock_path, 'w')   # noqa: SIM115
+    try:
+        try:
+            fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, BlockingIOError):
+            respond(409, {'error': 'a run is already in progress for this blueprint'})
+        out, rc = _terraform_run(bp, op, supplied)
+    finally:
+        try:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            lf.close()
+        except Exception:
+            pass
     data = _blueprints_load()
     for b in data['blueprints']:
         if b['id'] == bp_id:

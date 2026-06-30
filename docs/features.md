@@ -119,6 +119,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Branded email | Alert / digest / test emails send a branded HTML alternative (white-label name + accent) + plain-text fallback *(v5.5.0)* |
 | Digest endpoint | `/api/digest` for cron-driven email summaries |
 | Flap cap | Server-wide cap stops a flapping monitor flooding channels |
+| Alert mute & tuning | Per-(host, event) **mute** silences one exact alert from one asset (inbox + webhook + needs-attention) while history keeps recording; the Alerts/dashboard Ack button is an **X mute**; Monitoring → Tuning ranks the noisiest alerts/sources from the timeline. `GET/POST /api/alert-mutes`, `GET /api/alert-tuning` *(v5.6.0)* |
 
 ## Notification destinations
 
@@ -151,7 +152,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Quarantine | Per-device admin switch disabling every action, enforced at dispatch, audited *(v3.4.0)* |
 | Audit (read-only) mode | `/etc/remotepower/audit-mode` makes the agent refuse every command (exec/scripts/reboot/config/self-update); operator-owned; AUDIT badge *(v4.10.0)* |
 | Uninstall agent | Queues uninstall; agent removes unit/creds/state/binary *(v3.3.0)* |
-| Ansible playbook runner | Run playbooks against group/tag/site/fleet, server as control node *(v3.7.0)* |
+| Ansible playbook runner | Run playbooks against group/tag/site/fleet, server as control node; lives under the Provisioning page *(v3.7.0)* |
+| Provisioning blueprints | Folder-tree catalog of Terraform / cloud-init / Ansible / iPXE templates; fill variables → render (copy/download), or run Terraform **plan/apply/destroy** server-side (opt-in `iac_execute_enabled`, secrets via env, per-blueprint state + run lock). `GET/POST /api/provisioning/blueprints`, `…/{id}/render`, `…/{id}/run` *(v5.6.0)* |
 | App catalog | One-click deploy curated self-contained apps via Docker Compose; admin custom catalog entries *(v5.1.0)* |
 | Cron & timer management | View/manage crontabs + systemd timers; audited, no-shell install *(v5.1.0)* |
 | On-demand diagnostics | Network speed test + LAN discovery (ARP/nmap), flags unmanaged hosts *(v3.4.0)* |
@@ -370,6 +372,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Rates & fees | Named rate card + global default rate / currency / VAT / invoice prefix; per-customer rate / VAT / billing address / recurring license-operation-service fees. `GET/POST /api/billing/config` |
 | Finance role | Read-only role that views/exports billing without admin; issuing/voiding + rate edits stay admin-only; everyone logs their own hours |
 | Export | CSV (`?format=csv`) on ledger / worksheet / invoice, JSON API on every list, browser-print PDF for invoices |
+| Timesheet watchers | Let specific non-finance users view another user's timesheet (read-only, hours only, never rates) by user or whole team; "Watch for" omnisearch on the Timesheet page. `GET/POST /api/timesheet/watchers`, `GET /api/timesheet/watchable` *(v5.6.0)* |
 
 ## AI assistant & RAG *(v2.1.3)*
 

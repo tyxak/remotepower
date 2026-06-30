@@ -130,12 +130,13 @@ class TestTerraformExecution(unittest.TestCase):
     def test_run_wiring(self):
         self.assertIn("/api/provisioning/blueprints/') and pi.endswith('/run')", _SRC)
         seg = _SRC[_SRC.index('def handle_blueprint_run'):
-                   _SRC.index('def handle_blueprint_run') + 2000]
+                   _SRC.index('def handle_blueprint_run') + 3500]
         self.assertIn('require_admin_auth()', seg)
         self.assertIn('_provisioning_enabled()', seg)
         self.assertIn('_iac_execute_enabled()', seg)            # the second gate
         self.assertIn("audit_log(actor, 'blueprint_run'", seg)
         self.assertIn("bp.get('kind') != 'terraform'", seg)     # only terraform executes
+        self.assertIn('fcntl.flock', seg)                       # per-blueprint run lock
 
     def test_list_exposes_exec_flags(self):
         self.assertIn("'execute_enabled': _iac_execute_enabled()", _SRC)
