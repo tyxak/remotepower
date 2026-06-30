@@ -264,6 +264,14 @@ ANSIBLE_FILE        = DATA_DIR / 'ansible_playbooks.json'   # stored playbooks
 MAX_PLAYBOOKS       = 100
 MAX_PLAYBOOK_BYTES  = 256 * 1024
 
+# v5.6.0: provisioning blueprints (catalog + render). A library of parameterized
+# IaC / boot templates (Terraform, cloud-init, Ansible, iPXE) organised in a
+# folder tree. Render-only — no server-side execution.
+PROVISION_FILE      = DATA_DIR / 'blueprints.json'
+MAX_BLUEPRINTS      = 300
+MAX_BLUEPRINT_BYTES = 256 * 1024
+_BLUEPRINT_KINDS    = ('terraform', 'cloud-init', 'ansible', 'ipxe')
+
 MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
 MAX_CMDB_FUNC_LEN   = 64
 MAX_CMDB_VLAN_LEN   = 64
@@ -12528,6 +12536,224 @@ def handle_ansible_playbook_run(pb_id):
     respond(200, {'ok': rc == 0, 'rc': rc, 'output': out, 'hosts': len(ids)})
 
 
+# ── v5.6.0: Provisioning blueprints (catalog + render) ──────────────────────
+# A library of parameterized IaC / boot templates (Terraform, cloud-init,
+# Ansible, iPXE) organised in a folder tree. RENDER-ONLY: an operator fills in
+# the declared variables, the server substitutes ${var} placeholders (plus a
+# few ${rp_*} macros) and returns the rendered text to copy / download. There
+# is deliberately NO server-side execution here (unlike the Ansible runner) —
+# zero new exec attack surface. Admin-managed; the whole feature hides behind
+# the `show_provisioning` kill switch (default OFF).
+
+_BLUEPRINT_VAR_RE = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}')
+
+
+def _provisioning_enabled():
+    return bool((load(CONFIG_FILE) or {}).get('show_provisioning'))
+
+
+def _blueprints_load():
+    data = load(PROVISION_FILE)
+    if not isinstance(data, dict) or 'blueprints' not in data:
+        return {'blueprints': []}
+    return data
+
+
+def _bp_clean_folder(s):
+    """Normalise a folder path to `a/b/c` — no leading/trailing slash, no `..`,
+    each segment restricted to a safe charset. Drives the folder-tree UI."""
+    parts = []
+    for seg in str(s or '').split('/'):
+        seg = re.sub(r'[^A-Za-z0-9 ._-]', '', seg).strip()
+        if seg and seg not in ('.', '..'):
+            parts.append(seg)
+    return '/'.join(parts)[:200]
+
+
+def _bp_clean_vars(raw):
+    """Sanitise the declared-variable list: [{name,label,default,secret}]."""
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for v in raw[:50]:
+        if not isinstance(v, dict):
+            continue
+        name = re.sub(r'[^A-Za-z0-9_]', '', str(v.get('name', '')))[:64]
+        if not name:
+            continue
+        out.append({
+            'name': name,
+            'label': _sanitize_str(str(v.get('label', '')), 120),
+            'default': _sanitize_str(str(v.get('default', '')), 2048),
+            'secret': bool(v.get('secret')),
+        })
+    return out
+
+
+def _bp_public(bp):
+    """Blueprint as returned to clients. Admin-only feature, so the template
+    content + declared variables are included (defaults of `secret` vars are
+    masked — they may carry a sample credential)."""
+    variables = []
+    for v in bp.get('variables', []):
+        vv = dict(v)
+        if vv.get('secret') and vv.get('default'):
+            vv['default'] = ''
+            vv['default_set'] = True
+        variables.append(vv)
+    return {
+        'id': bp['id'], 'folder': bp.get('folder', ''), 'name': bp.get('name', ''),
+        'kind': bp.get('kind', 'terraform'), 'content': bp.get('content', ''),
+        'variables': variables,
+        'created': bp.get('created', 0), 'updated': bp.get('updated', 0),
+        'created_by': bp.get('created_by', ''),
+    }
+
+
+def _request_base_url(environ):
+    """`proto://host` for THIS request — mirrors `_render_agent_install`."""
+    host = environ.get('HTTP_HOST') or environ.get('SERVER_NAME') or 'localhost'
+    host = re.sub(r'[^A-Za-z0-9.:\[\]\-]', '', host)[:255]
+    proto = (environ.get('HTTP_X_FORWARDED_PROTO')
+             or environ.get('REQUEST_SCHEME')
+             or ('https' if environ.get('HTTPS') in ('on', '1') else 'https'))
+    if proto not in ('http', 'https'):
+        proto = 'https'
+    return f'{proto}://{host}'
+
+
+def handle_blueprints_list():
+    """GET /api/provisioning/blueprints — all blueprints (admin)."""
+    require_admin_auth()
+    if not _provisioning_enabled():
+        respond(200, {'ok': True, 'enabled': False, 'blueprints': [],
+                      'kinds': list(_BLUEPRINT_KINDS)})
+    bps = [_bp_public(b) for b in _blueprints_load()['blueprints']]
+    respond(200, {'ok': True, 'enabled': True, 'blueprints': bps,
+                  'kinds': list(_BLUEPRINT_KINDS)})
+
+
+def handle_blueprint_create():
+    """POST /api/provisioning/blueprints — store a blueprint (admin)."""
+    actor = require_admin_auth()
+    if not _provisioning_enabled():
+        respond(403, {'error': 'Provisioning is disabled'})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(body.get('name', ''), 120).strip()
+    kind = str(body.get('kind', '')).strip()
+    content = body.get('content', '')
+    if not name or kind not in _BLUEPRINT_KINDS or not isinstance(content, str) or not content.strip():
+        respond(400, {'error': 'name, a valid kind, and content are required'})
+    if len(content.encode('utf-8')) > MAX_BLUEPRINT_BYTES:
+        respond(400, {'error': f'blueprint too large (max {MAX_BLUEPRINT_BYTES} bytes)'})
+    data = _blueprints_load()
+    if len(data['blueprints']) >= MAX_BLUEPRINTS:
+        respond(400, {'error': f'blueprint limit reached (max {MAX_BLUEPRINTS})'})
+    bp = {'id': secrets.token_urlsafe(8), 'name': name, 'kind': kind,
+          'folder': _bp_clean_folder(body.get('folder', '')),
+          'content': content, 'variables': _bp_clean_vars(body.get('variables')),
+          'created': int(time.time()), 'updated': int(time.time()),
+          'created_by': actor}
+    data['blueprints'].append(bp)
+    save(PROVISION_FILE, data)
+    audit_log(actor, 'blueprint_create', detail=f'blueprint={bp["id"]} name={name} kind={kind}')
+    respond(200, {'ok': True, 'id': bp['id']})
+
+
+def handle_blueprint_update(bp_id):
+    """PUT /api/provisioning/blueprints/{id} (admin)."""
+    actor = require_admin_auth()
+    if not _provisioning_enabled():
+        respond(403, {'error': 'Provisioning is disabled'})
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    data = _blueprints_load()
+    bp = next((b for b in data['blueprints'] if b['id'] == bp_id), None)
+    if not bp:
+        respond(404, {'error': 'blueprint not found'})
+    if 'name' in body:
+        bp['name'] = _sanitize_str(body['name'], 120).strip() or bp['name']
+    if 'folder' in body:
+        bp['folder'] = _bp_clean_folder(body['folder'])
+    if 'kind' in body and body['kind'] in _BLUEPRINT_KINDS:
+        bp['kind'] = body['kind']
+    if 'content' in body:
+        c = body['content']
+        if not isinstance(c, str) or not c.strip():
+            respond(400, {'error': 'content must be non-empty'})
+        if len(c.encode('utf-8')) > MAX_BLUEPRINT_BYTES:
+            respond(400, {'error': 'blueprint too large'})
+        bp['content'] = c
+    if 'variables' in body:
+        bp['variables'] = _bp_clean_vars(body['variables'])
+    bp['updated'] = int(time.time())
+    save(PROVISION_FILE, data)
+    audit_log(actor, 'blueprint_update', detail=f'blueprint={bp_id}')
+    respond(200, {'ok': True})
+
+
+def handle_blueprint_delete(bp_id):
+    """DELETE /api/provisioning/blueprints/{id} (admin)."""
+    actor = require_admin_auth()
+    if not _provisioning_enabled():
+        respond(403, {'error': 'Provisioning is disabled'})
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    data = _blueprints_load()
+    n = len(data['blueprints'])
+    data['blueprints'] = [b for b in data['blueprints'] if b['id'] != bp_id]
+    if len(data['blueprints']) == n:
+        respond(404, {'error': 'blueprint not found'})
+    save(PROVISION_FILE, data)
+    audit_log(actor, 'blueprint_delete', detail=f'blueprint={bp_id}')
+    respond(200, {'ok': True})
+
+
+def handle_blueprint_render(bp_id):
+    """POST /api/provisioning/blueprints/{id}/render — substitute ${var}
+    placeholders with the supplied values (plus ${rp_*} macros) and return the
+    rendered text. Pure string substitution: no eval, no shell, no execution."""
+    require_admin_auth()
+    if not _provisioning_enabled():
+        respond(403, {'error': 'Provisioning is disabled'})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    bp = next((b for b in _blueprints_load()['blueprints'] if b['id'] == bp_id), None)
+    if not bp:
+        respond(404, {'error': 'blueprint not found'})
+    supplied = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+    base = _request_base_url(os.environ)
+    # Convenience macros, always available to every blueprint.
+    macros = {
+        'rp_server_url': base,
+        'rp_agent_install': f'curl -fsSL {base}/install | sudo sh -s -- --token <enrollment-token>',
+    }
+    values = dict(macros)
+    for v in bp.get('variables', []):
+        if isinstance(v, dict) and v.get('name'):
+            values[v['name']] = str(v.get('default', ''))
+    for k, val in supplied.items():
+        if isinstance(k, str) and _BLUEPRINT_VAR_RE.fullmatch('${' + k + '}'):
+            values[k] = '' if val is None else str(val)[:8192]
+    missing = []
+
+    def _sub(mo):
+        key = mo.group(1)
+        if key in values:
+            return values[key]
+        missing.append(key)
+        return mo.group(0)
+
+    rendered = _BLUEPRINT_VAR_RE.sub(_sub, bp.get('content', ''))
+    fname = re.sub(r'[^A-Za-z0-9._-]', '_', bp.get('name', 'blueprint')) or 'blueprint'
+    respond(200, {'ok': True, 'rendered': rendered,
+                  'missing': sorted(set(missing)), 'filename': fname})
+
+
 def handle_device_group(dev_id):
     require_admin_auth()
     if method() != 'PATCH':
@@ -16741,7 +16967,8 @@ def handle_integrations_list():
     respond(200, {'integrations': insts,
                   'catalog': integrations_mod.list_connectors(),
                   'interval': int(cfg.get('integrations_interval', 300) or 300),
-                  'show_homelab': cfg.get('show_homelab', True) is not False})
+                  'show_homelab': cfg.get('show_homelab', True) is not False,
+                  'show_provisioning': bool(cfg.get('show_provisioning'))})
 
 
 def handle_integrations_save():
@@ -16805,6 +17032,8 @@ def handle_integrations_save():
             cfg['integrations_interval'] = max(60, int(body.get('interval', 300) or 300))
         if 'show_homelab' in body:
             cfg['show_homelab'] = bool(body.get('show_homelab'))
+        if 'show_provisioning' in body:
+            cfg['show_provisioning'] = bool(body.get('show_provisioning'))
         # Force a re-poll on next request.
         cfg['last_integrations_run'] = 0
     audit_log(actor, 'integrations_save', f'{len(clean)} integration(s) configured')
@@ -32797,6 +33026,8 @@ def handle_home():
         # v4.7.0: instance-wide "Show Homelab software" flag → gates the homelab
         # integration widget in the dashboard.
         'show_homelab': cfg.get('show_homelab', True) is not False,
+        # v5.6.0: opt-in "Provisioning" page (blueprint catalog + render).
+        'show_provisioning': bool(cfg.get('show_provisioning')),
         'attention':    _attention_payload(),
         # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
         'upcoming':     _dashboard_upcoming(),
@@ -50974,6 +51205,9 @@ def _build_exact_routes():
         ('POST', '/api/scap/scan'): handle_scap_scan,
         ('POST', '/api/scap/report'): handle_scap_report,
         ('GET', '/api/scap'): handle_scap_overview,
+        # v5.6.0: provisioning blueprints (catalog + render)
+        ('GET', '/api/provisioning/blueprints'): handle_blueprints_list,
+        ('POST', '/api/provisioning/blueprints'): handle_blueprint_create,
         ('GET', '/api/patch-report'): handle_patch_report,
         ('GET', '/api/patch-report/csv'): handle_patch_report_csv,
         ('GET', '/api/patch-report/xml'): handle_patch_report_xml,
@@ -51255,6 +51489,13 @@ def _dispatch(pi, m):
         handle_ansible_playbook_update(pi[len('/api/ansible/playbooks/'):])
     elif pi.startswith('/api/ansible/playbooks/') and m == 'DELETE':
         handle_ansible_playbook_delete(pi[len('/api/ansible/playbooks/'):])
+    # v5.6.0: provisioning blueprints (render / update / delete by id)
+    elif pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/render') and m == 'POST':
+        handle_blueprint_render(pi[len('/api/provisioning/blueprints/'):-len('/render')])
+    elif pi.startswith('/api/provisioning/blueprints/') and m == 'PUT':
+        handle_blueprint_update(pi[len('/api/provisioning/blueprints/'):])
+    elif pi.startswith('/api/provisioning/blueprints/') and m == 'DELETE':
+        handle_blueprint_delete(pi[len('/api/provisioning/blueprints/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
         handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
     elif pi.startswith('/api/devices/') and pi.endswith('/alert-delay') and m == 'PATCH':

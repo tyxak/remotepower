@@ -444,6 +444,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
           <span>Ansible</span>
         </button>
+        <button class="nav-btn d-none" id="nav-provisioning" data-page="provisioning" title="Provisioning blueprints — Terraform / cloud-init / Ansible / iPXE templates you fill in and render">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          <span>Provisioning</span>
+        </button>
         <button class="nav-btn" data-page="apikeys" title="Named non-expiring API keys for scripts and CI pipelines">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
@@ -2202,6 +2206,7 @@
             <h3>Tickets</h3>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices) — off by default</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-billing-enabled"> Billing (time-tracking worksheet, per-customer invoices and rates &amp; fees; admin / finance) — off by default. Logging hours on tickets and the weekly timesheet stay available regardless.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-show-provisioning"> Provisioning (blueprint catalog: Terraform / cloud-init / Ansible / iPXE templates in a folder tree; fill variables → render to copy or download; render-only, nothing is executed on the server) — off by default</label></div>
             <div class="meta-sm-nm mt-4">Ticket mailbox (IMAP) — dedicated inbox for customer replies. Replies are matched to a ticket by the #RP number in the subject; auto-replies and our own mail are ignored (loop-safe). Outbound uses your existing SMTP.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-enabled"> Poll a mailbox for ticket replies</label></div>
             <div class="settings-row"><label class="form-label" for="tkimap-host">IMAP host</label><input type="text" id="tkimap-host" class="form-input ff-mono" placeholder="imap.example.com"></div>
@@ -4966,6 +4971,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card"><table><thead id="ansible-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="last_rc">Result</th><th scope="col"></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
+      <!-- ── v5.6.0: Provisioning blueprints (catalog + render) ──────────── -->
+      <div id="page-provisioning" class="page">
+        <div class="page-title">Provisioning</div>
+        <div class="page-subtitle">A catalog of infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates organised in folders. Fill in a blueprint's variables and render it to copy or download. Render-only — nothing is executed on the server.</div>
+        <div class="section-header"><div class="section-title">Blueprints</div><button class="enroll-btn" data-action="openBlueprintCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New blueprint</button></div>
+        <div class="mb-16"><input type="text" id="provisioning-filter" class="form-input input-wide-sm" placeholder="Filter blueprints…" aria-label="Filter blueprints" data-input="filterProvisioning"></div>
+        <div class="dash-card"><div id="provisioning-tree" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
+      </div>
+
       <div id="page-rollouts" class="page">
         <div class="page-title">Rollouts</div>
         <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval.</div>
@@ -6707,6 +6721,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Playbook (YAML)</label><textarea id="ansible-content" class="form-textarea ff-mono" rows="14" placeholder="- hosts: targets&#10;  become: true&#10;  tasks:&#10;    - name: install nginx&#10;      package: { name: nginx, state: present }"></textarea></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-modal">Cancel</button><button class="btn-primary" id="ansible-save-btn" data-action="saveAnsiblePlaybook">Create</button></div>
 </div></div>
+<!-- v5.6.0: Provisioning — create/edit blueprint -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="blueprint-modal-title" id="blueprint-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="blueprint-modal-title">New blueprint</div>
+  <input type="hidden" id="blueprint-edit-id">
+  <div class="hc-grid-2">
+    <div class="form-group"><label class="form-label">Name</label><input type="text" id="blueprint-name" class="form-input" placeholder="web-server.tf" maxlength="120"></div>
+    <div class="form-group"><label class="form-label">Folder</label><input type="text" id="blueprint-folder" class="form-input" placeholder="aws/dev"></div>
+  </div>
+  <div class="form-group"><label class="form-label">Kind</label><select id="blueprint-kind" class="form-input"><option value="terraform">Terraform</option><option value="cloud-init">cloud-init</option><option value="ansible">Ansible</option><option value="ipxe">iPXE</option></select></div>
+  <div class="form-group"><label class="form-label">Template</label><textarea id="blueprint-content" class="form-textarea ff-mono" rows="14" placeholder="resource &quot;example&quot; { region = &quot;${region}&quot; }&#10;# ${rp_agent_install} expands to the agent install one-liner&#10;# ${rp_server_url} expands to this server's URL"></textarea></div>
+  <div class="form-group"><label class="form-label">Variables <span class="hint">one per line: <code>name | Label | default</code> — append <code>| secret</code> to mask</span></label><textarea id="blueprint-vars" class="form-textarea ff-mono" rows="4" placeholder="region | AWS region | eu-west-1&#10;node_count | Node count | 3"></textarea></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="blueprint-modal">Cancel</button><button class="btn-primary" id="blueprint-save-btn" data-action="saveBlueprint">Create</button></div>
+</div></div>
+<!-- v5.6.0: Provisioning — render a blueprint -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="blueprint-render-modal-title" id="blueprint-render-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="blueprint-render-modal-title">Render blueprint</div>
+  <input type="hidden" id="blueprint-render-id">
+  <div class="modal-subtitle">Fill in the variables, then Render. Pure text substitution — nothing runs on the server.</div>
+  <div id="blueprint-render-vars" class="scroll-cap-sm mb-12"></div>
+  <div class="form-group"><label class="form-label">Rendered output</label><textarea id="blueprint-render-out" class="form-textarea ff-mono" rows="14" readonly placeholder="Click Render to fill the template…"></textarea></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="blueprint-render-modal">Close</button><button class="btn-icon" data-action="copyBlueprintRender">Copy</button><button class="btn-icon" data-action="downloadBlueprintRender">Download</button><button class="btn-primary" data-action="renderBlueprint">Render</button></div>
+</div></div>
 <!-- v3.7.0: Ansible run -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ansible-run-modal-title" id="ansible-run-modal"><div class="modal modal-wide">
   <div class="modal-title" id="ansible-run-modal-title">Run playbook</div>
@@ -8300,6 +8336,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <script defer src="static/js/app-firewall.js?v=5.5.0"></script>
 <script defer src="static/js/app-backups.js?v=5.5.0"></script>
 <script defer src="static/js/app-iac.js?v=5.5.0"></script>
+<script defer src="static/js/app-provisioning.js?v=5.5.0"></script>
 <script defer src="static/js/app-rollouts.js?v=5.5.0"></script>
 <script defer src="static/js/app-power.js?v=5.5.0"></script>
 <script defer src="static/js/app-gpu.js?v=5.5.0"></script>

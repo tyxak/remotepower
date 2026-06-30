@@ -4716,6 +4716,21 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .scroll-cap    { max-height: 340px; overflow-y: auto; }
 .scroll-cap-sm { max-height: 132px; overflow-y: auto; }
 
+/* v5.6.0: Provisioning blueprints folder tree */
+.bp-folder { display: flex; align-items: center; gap: 6px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  margin: 12px 0 4px; }
+.bp-folder:first-child { margin-top: 0; }
+.bp-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 22px;
+  border-bottom: 1px solid var(--border); }
+.bp-item:last-child { border-bottom: 0; }
+.bp-item-name { display: flex; align-items: center; gap: 6px; font-size: 13px;
+  font-weight: 500; flex: 1; min-width: 0; }
+.bp-item-name svg { flex: 0 0 auto; }
+.bp-kind { font-size: 11px; color: var(--muted); font-family: var(--font-mono);
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; }
+.bp-item-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+
 /* v4.10.0: Firewall / fail2ban detail panels — rules grouped by chain, banned
    IPs with an inline action. */
 .fw-rules { padding: 0 2px; }

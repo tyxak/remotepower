@@ -225,6 +225,10 @@
     'Library':     { zh: '库', hi: 'लाइब्रेरी', es: 'Biblioteca', ar: 'المكتبة' },
     'Scripts':     { zh: '脚本', hi: 'स्क्रिप्ट', es: 'Scripts', ar: 'النصوص' },
     'Ansible':     { zh: 'Ansible', hi: 'Ansible', es: 'Ansible', ar: 'Ansible' },
+    'Provisioning': { zh: '置备', hi: 'प्रावधान', es: 'Aprovisionamiento', ar: 'التزويد' },
+    'Blueprints':  { zh: '蓝图', hi: 'ब्लूप्रिंट', es: 'Plantillas', ar: 'المخططات' },
+    'New blueprint': { zh: '新建蓝图', hi: 'नया ब्लूप्रिंट', es: 'Nueva plantilla', ar: 'مخطط جديد' },
+    'Render':      { zh: '生成', hi: 'रेंडर', es: 'Generar', ar: 'إنشاء' },
     'Automation':  { zh: '自动化', hi: 'स्वचालन', es: 'Automatización', ar: 'الأتمتة' },
     'Release Signing': { zh: '发布签名', hi: 'रिलीज़ हस्ताक्षर', es: 'Firma de versiones', ar: 'توقيع الإصدارات' },
     'Confirmations': { zh: '确认', hi: 'पुष्टि', es: 'Confirmaciones', ar: 'التأكيدات' },
@@ -1715,6 +1719,8 @@
   // v4.2: page-subtitle translations keyed by normalized English innerHTML
   // (markup-preserving — values keep the same <span>/<a> tags).
   var HTMLDICT = {
+    // ── v5.6.0: Provisioning page subtitle ──
+    "A catalog of infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates organised in folders. Fill in a blueprint's variables and render it to copy or download. Render-only — nothing is executed on the server.": { "zh": "基础设施蓝图目录——Terraform、cloud-init、Ansible 和 iPXE 模板按文件夹组织。填写蓝图的变量并生成结果以复制或下载。仅生成——服务器上不执行任何内容。", "hi": "इन्फ्रास्ट्रक्चर ब्लूप्रिंट की सूची — Terraform, cloud-init, Ansible और iPXE टेम्पलेट फ़ोल्डरों में व्यवस्थित। किसी ब्लूप्रिंट के variables भरें और उसे render करके कॉपी या डाउनलोड करें। केवल render — सर्वर पर कुछ भी execute नहीं होता।", "es": "Un catálogo de plantillas de infraestructura: plantillas de Terraform, cloud-init, Ansible e iPXE organizadas en carpetas. Rellena las variables de una plantilla y genérala para copiar o descargar. Solo generación: no se ejecuta nada en el servidor.", "ar": "كتالوج لمخططات البنية التحتية — قوالب Terraform و cloud-init و Ansible و iPXE منظّمة في مجلدات. املأ متغيّرات المخطط ثم أنشئه لنسخه أو تنزيله. الإنشاء فقط — لا يُنفَّذ أي شيء على الخادم." },
     // ── v5.4.0 "RackMatters": Timesheet + Billing page subtitles ──
     "Your week — log billable (debtable) and internal hours by day. Hours you log on a ticket appear here too.": { "zh": "你的一周——按天记录可计费（应收）和内部工时。你在工单上记录的工时也会出现在这里。", "hi": "आपका सप्ताह — दिन के अनुसार billable (debtable) और आंतरिक घंटे दर्ज करें। किसी ticket पर दर्ज किए गए घंटे यहाँ भी दिखते हैं।", "es": "Tu semana: registra horas facturables (cobrables) e internas por día. Las horas que registras en un ticket también aparecen aquí.", "ar": "أسبوعك — سجّل الساعات القابلة للفوترة (المستحقة) والداخلية حسب اليوم. تظهر هنا أيضاً الساعات التي تسجّلها على تذكرة." },
     "Turn logged hours and recurring fees into invoices, per customer (site). Admins manage rates and issue invoices; the finance role can view and export.": { "zh": "将记录的工时和经常性费用按客户（站点）生成发票。管理员管理费率并开具发票；财务角色可查看和导出。", "hi": "दर्ज किए गए घंटों और आवर्ती शुल्कों को प्रति ग्राहक (site) चालान में बदलें। Admins दरें प्रबंधित करते हैं और चालान जारी करते हैं; finance भूमिका देख और निर्यात कर सकती है।", "es": "Convierte las horas registradas y las cuotas recurrentes en facturas, por cliente (sitio). Los administradores gestionan tarifas y emiten facturas; el rol de finanzas puede ver y exportar.", "ar": "حوّل الساعات المسجّلة والرسوم المتكرّرة إلى فواتير لكل عميل (موقع). يدير المسؤولون الأسعار ويُصدرون الفواتير؛ ويمكن لدور المالية العرض والتصدير." },

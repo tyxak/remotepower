@@ -1257,6 +1257,7 @@ const _SIDEBAR_KW = {
   'automation': 'automation rules triggers actions auto remediation if then',
   'auto-patch': 'auto-patch autopatch automatic updates unattended upgrades patching policy windows',
   'ansible': 'ansible playbook automation configuration management inventory adhoc',
+  'provisioning': 'provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure template catalog spin up machine deploy',
   'confirmations': 'confirmations mcp pending approval confirm two-person sign-off',
   'ai assistant': 'ai assistant insights ai insights briefing rca anomaly recommendations chat provider openai anthropic ollama rag ask analyze',
 };
@@ -1581,6 +1582,7 @@ function showPage(name, btn) {
   if (name === 'autopatch') loadAutopatch();
   if (name === 'backups')  loadBackupJobs();
   if (name === 'ansible')  loadAnsible();
+  if (name === 'provisioning') loadProvisioning();
   if (name === 'cmdqueue') loadCommandQueue();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
@@ -3028,6 +3030,9 @@ async function loadSettings() {
   const _ble = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
   if (_ble) _ble.checked = !!data.billing_enabled;
   document.getElementById('nav-billing')?.classList.toggle('d-none', !data.billing_enabled);
+  const _spe = document.getElementById('cfg-show-provisioning');   // v5.6.0: Provisioning page opt-in
+  if (_spe) _spe.checked = !!data.show_provisioning;
+  document.getElementById('nav-provisioning')?.classList.toggle('d-none', !data.show_provisioning);
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3468,6 +3473,8 @@ async function saveSettings(btn) {
   if (_tkEn) payload.tickets_enabled = _tkEn.checked;
   const _blEn = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
   if (_blEn) payload.billing_enabled = _blEn.checked;
+  const _spEn = document.getElementById('cfg-show-provisioning');   // v5.6.0: Provisioning page opt-in
+  if (_spEn) payload.show_provisioning = _spEn.checked;
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 
@@ -14603,6 +14610,7 @@ async function loadHome() {
   window._lastAttention = home.attention || null;   // for the health "why?" expander
   document.getElementById('nav-tickets')?.classList.toggle('d-none', !home.tickets_enabled);
   document.getElementById('nav-billing')?.classList.toggle('d-none', !home.billing_enabled);   // v5.4.1
+  document.getElementById('nav-provisioning')?.classList.toggle('d-none', !home.show_provisioning);   // v5.6.0
   window._ticketsOn = !!home.tickets_enabled;
   window._billingOn = !!home.billing_enabled;
   window._ticketDevices = new Set(home.ticket_devices || []);
