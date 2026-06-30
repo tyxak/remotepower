@@ -230,6 +230,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-896fd277"/></svg>
           <span>Checks</span>
         </button>
+        <button class="nav-btn" data-page="tuning" title="Alert tuning — find the noisiest alerts and silence them per host + alert type">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          <span>Tuning</span>
+        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-scripts" data-pass-btn="1" title="Results of custom scripts run as recurring health checks across the fleet">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-e311da69"/></svg>
           <span>Custom Scripts</span>
@@ -5002,6 +5006,29 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card"><div id="provisioning-tree" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
       </div>
 
+      <!-- ── v5.6.0: Alert tuning ────────────────────────────────────────── -->
+      <div id="page-tuning" class="page">
+        <div class="page-title">Tuning</div>
+        <div class="page-subtitle">Find your noisiest alerts and silence them at the source — per <strong>host + alert type</strong>. A silenced alert stops reaching the inbox, webhooks and the needs-attention card, but history keeps recording so you can always lift it. Counts are over the last 30 days.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadTuning"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+        </div>
+        <div class="hc-grid-2">
+          <div class="dash-card">
+            <div class="section-header"><div class="section-title">Noisiest alerts</div></div>
+            <div id="tuning-noisy" class="scroll-cap"><div class="empty-state">Loading…</div></div>
+          </div>
+          <div class="dash-card">
+            <div class="section-header"><div class="section-title">Noisiest sources</div></div>
+            <div id="tuning-sources" class="scroll-cap"><div class="empty-state">Loading…</div></div>
+          </div>
+        </div>
+        <div class="dash-card mt-16">
+          <div class="section-header"><div class="section-title">Active mutes</div></div>
+          <div id="tuning-mutes" class="scroll-cap"><div class="empty-state">Loading…</div></div>
+        </div>
+      </div>
+
       <div id="page-rollouts" class="page">
         <div class="page-title">Rollouts</div>
         <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval.</div>
@@ -8359,6 +8386,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <script defer src="static/js/app-backups.js?v=5.5.0"></script>
 <script defer src="static/js/app-iac.js?v=5.5.0"></script>
 <script defer src="static/js/app-provisioning.js?v=5.5.0"></script>
+<script defer src="static/js/app-tuning.js?v=5.5.0"></script>
 <script defer src="static/js/app-rollouts.js?v=5.5.0"></script>
 <script defer src="static/js/app-power.js?v=5.5.0"></script>
 <script defer src="static/js/app-gpu.js?v=5.5.0"></script>

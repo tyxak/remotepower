@@ -385,7 +385,7 @@ class TestDiskWatchdog(unittest.TestCase):
     def test_target_in_record_alert_whitelist(self):
         # 'target' must be a whitelisted key or the recover never resolves
         i = API_SRC.index("def _record_alert(")
-        self.assertIn("'target'", API_SRC[i:i + 2500])
+        self.assertIn("'target'", API_SRC[i:i + 2800])   # window widened v5.6.0 (mute check inserted)
 
     def test_low_fires_then_recovers(self):
         # Drive the watchdog by stubbing os.statvfs + bypassing the 30-min gate.

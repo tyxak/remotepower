@@ -1258,6 +1258,7 @@ const _SIDEBAR_KW = {
   'auto-patch': 'auto-patch autopatch automatic updates unattended upgrades patching policy windows',
   'ansible': 'ansible playbook automation configuration management inventory adhoc',
   'provisioning': 'provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure template catalog spin up machine deploy',
+  'tuning': 'tuning alert noise noisy mute silence ignore suppress quiet top 10 sources rkhunter per host',
   'confirmations': 'confirmations mcp pending approval confirm two-person sign-off',
   'ai assistant': 'ai assistant insights ai insights briefing rca anomaly recommendations chat provider openai anthropic ollama rag ask analyze',
 };
@@ -1570,6 +1571,7 @@ function showPage(name, btn) {
   if (name === 'board')    loadBoard();
   if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
+  if (name === 'tuning')   loadTuning();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    { loadUsers(); loadTimesheetWatchers(); }
   if (name === 'settings') { loadSettings(); loadWebhookLog(); }
@@ -10949,11 +10951,7 @@ function _alertRowHtml(a, role) {
   let actions = '';
   if (!isResolved) {
     actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
-    if (!a.acknowledged_at) {
-      actions += `<button class="btn-icon btn-xs" data-action="ackAlert" data-arg="${a.id}">Ack</button> `;
-    } else {
-      actions += `<button class="btn-icon btn-xs" data-action="unackAlert" data-arg="${a.id}">Un-ack</button> `;
-    }
+    actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button> `;
     actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
       actions += ` <button class="btn-icon btn-xs" data-action="createTicketFromAlert" data-arg="${a.id}" title="Open an incident ticket from this alert">Ticket</button>`;
@@ -11107,6 +11105,18 @@ function _escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// v5.6.0: mute = silence this exact (host, event) — replaces the per-row Ack
+// button. Creates a permanent mute (lift it under Monitoring → Tuning) and
+// clears any currently-open matching alerts.
+async function muteAlert(id) {
+  if (!await uiConfirm('Mute this exact alert from this host? No more of this alert type will fire for this asset until you lift it under Monitoring → Tuning.')) return;
+  const r = await api('POST', '/alert-mutes', { alert_id: String(id) });
+  if (r && r.ok) {
+    toast('Muted — silenced for this host' + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
+    loadAlerts();
+  } else toast((r && r.error) || 'Failed to mute', 'error');
 }
 
 async function ackAlert(id) {

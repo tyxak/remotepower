@@ -98,6 +98,11 @@ MAX_SLOW_HANDLERS  = 100
 # carries only events the operator needs to *act* on, with state attached.
 # Severity, ack_by, ack_at, resolved_by, resolved_at land here.
 ALERTS_FILE = DATA_DIR / 'alerts.json'
+# v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
+# asset (inbox + webhook + needs-attention). fleet_events keeps recording so the
+# Monitoring → Tuning page can still surface and lift noisy sources.
+ALERT_MUTES_FILE = DATA_DIR / 'alert_mutes.json'   # {mutes:[{id,device_id,device_name,event,...}]}
+MAX_ALERT_MUTES = 5000
 
 # v3.2.0 (B2): inbound webhook tokens for receiving alerts from external
 # systems (Grafana, Alertmanager, Authentik, n8n, Home Assistant). Each token
@@ -6965,6 +6970,29 @@ def handle_ticket_imap_test():
     respond(200, {'ok': True, 'detail': f'login + select "{folder}" succeeded'})
 
 
+def _alert_mutes_load():
+    data = load(ALERT_MUTES_FILE)
+    if not isinstance(data, dict) or 'mutes' not in data:
+        return {'mutes': []}
+    return data
+
+
+def _alert_mute_set():
+    """Set of (device_id, event) pairs currently muted."""
+    return {(m.get('device_id'), m.get('event'))
+            for m in _alert_mutes_load()['mutes']
+            if isinstance(m, dict) and m.get('device_id') and m.get('event')}
+
+
+def _alert_muted(event, payload):
+    """True if an operator has muted this exact (host, event). Only per-device
+    events can be muted (the X button silences 'this event from this asset')."""
+    dev_id = (payload or {}).get('device_id') if isinstance(payload, dict) else None
+    if not dev_id:
+        return False
+    return (dev_id, event) in _alert_mute_set()
+
+
 def _record_alert(event, payload):
     """Create an alert row if this event is actionable.
 
@@ -6998,6 +7026,10 @@ def _record_alert(event, payload):
                 return None
         except Exception:
             pass    # If devices.json read fails, fall through and record
+    # v5.6.0: operator-defined mute — silence this exact (host, event) from the
+    # inbox. fleet_events still records (the Tuning page needs the full history).
+    if _alert_muted(event, p):
+        return None
     summary = {}
     if isinstance(p, dict):
         for key in ('device_id', 'device_name', 'name', 'host', 'path',
@@ -7531,6 +7563,12 @@ def fire_webhook(event, payload):
                 return
         except Exception:
             pass
+
+    # v5.6.0: operator mute — suppress delivery + needs-attention for a silenced
+    # (host, event). fleet_events (recorded above) is untouched, so the Tuning
+    # page still sees the noise it's silencing.
+    if _alert_muted(event, payload):
+        return
 
     # v3.4.2: automation rules. Evaluated here — after the unmonitored guard
     # (don't auto-act on silenced hosts) but before the notification gates
@@ -39535,6 +39573,121 @@ def handle_alert_resolve(alert_id):
     respond(200, {'ok': True})
 
 
+# ── v5.6.0: alert mutes + tuning ────────────────────────────────────────────
+# A mute silences one exact (host, event): no inbox row, no webhook, no
+# needs-attention — but fleet_events keeps recording it, so the Monitoring →
+# Tuning page can still surface the noisiest sources and let you lift a mute.
+# Permanent until removed. Muting is an admin tuning action; listing is open to
+# any authenticated user (the Tuning page is read-for-all, mute-for-admins).
+
+def handle_alert_mutes():
+    """GET /api/alert-mutes — list mutes (auth). POST — add one (admin).
+    POST body: {device_id, event[, device_name]} OR {alert_id} (the X button on
+    an alert row derives device+event from the alert)."""
+    if method() == 'GET':
+        require_auth()
+        respond(200, {'ok': True, 'mutes': _alert_mutes_load()['mutes']})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    device_id = _sanitize_str(body.get('device_id', ''), 64).strip()
+    event = _sanitize_str(body.get('event', ''), 64).strip()
+    device_name = _sanitize_str(body.get('device_name', ''), 128).strip()
+    alert_id = _sanitize_str(body.get('alert_id', ''), 64).strip()
+    if alert_id and not (device_id and event):
+        a = next((x for x in (load(ALERTS_FILE) or {}).get('alerts', [])
+                  if x.get('id') == alert_id), None)
+        if not a:
+            respond(404, {'error': 'alert not found'})
+        device_id = device_id or (a.get('device_id') or '')
+        event = event or (a.get('event') or '')
+        device_name = device_name or (a.get('device_name') or '')
+    if not device_id or not event:
+        respond(400, {'error': 'device_id and event are required (or a resolvable alert_id)'})
+    data = _alert_mutes_load()
+    existing = next((m for m in data['mutes']
+                     if m.get('device_id') == device_id and m.get('event') == event), None)
+    if existing:
+        mute_id = existing['id']     # idempotent — already muted
+    else:
+        if len(data['mutes']) >= MAX_ALERT_MUTES:
+            respond(400, {'error': 'alert-mute limit reached'})
+        mute = {'id': secrets.token_urlsafe(8), 'device_id': device_id,
+                'device_name': device_name, 'event': event,
+                'created': int(time.time()), 'created_by': actor}
+        data['mutes'].append(mute)
+        save(ALERT_MUTES_FILE, data)
+        mute_id = mute['id']
+        audit_log(actor, 'alert_mute_add', detail=f'device={device_id} event={event}')
+    # Clear the noise now: resolve any currently-open alerts matching the mute.
+    resolved = 0
+    with _LockedUpdate(ALERTS_FILE) as store:
+        now = int(time.time())
+        for a in store.get('alerts', []):
+            if (a.get('device_id') == device_id and a.get('event') == event
+                    and not a.get('resolved_at')):
+                a['resolved_by'] = 'muted'
+                a['resolved_at'] = now
+                if not a.get('acknowledged_at'):
+                    a['acknowledged_by'] = actor
+                    a['acknowledged_at'] = now
+                resolved += 1
+    respond(200, {'ok': True, 'id': mute_id, 'resolved': resolved})
+
+
+def handle_alert_mute_delete(mute_id):
+    """DELETE /api/alert-mutes/{id} (admin) — lift a mute."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    data = _alert_mutes_load()
+    n = len(data['mutes'])
+    data['mutes'] = [m for m in data['mutes'] if m.get('id') != mute_id]
+    if len(data['mutes']) == n:
+        respond(404, {'error': 'mute not found'})
+    save(ALERT_MUTES_FILE, data)
+    audit_log(actor, 'alert_mute_delete', detail=f'mute={mute_id}')
+    respond(200, {'ok': True})
+
+
+def handle_alert_tuning():
+    """GET /api/alert-tuning?days=N — the noisiest (host, event) pairs and event
+    sources from fleet_events (the timeline), each flagged with its mute state.
+    Powers the Monitoring → Tuning page."""
+    require_auth()
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    try:
+        days = int((qs.get('days') or ['30'])[0])
+    except ValueError:
+        days = 30
+    days = max(1, min(days, 365))
+    cutoff = int(time.time()) - days * 86400
+    events = (load(FLEET_EVENTS_FILE) or {}).get('events') or []
+    pair_counts = {}     # (device_id, device_name, event) -> count
+    src_counts = {}      # event -> count
+    for e in events:
+        if not isinstance(e, dict) or int(e.get('ts', 0) or 0) < cutoff:
+            continue
+        ev = e.get('event') or ''
+        p = e.get('payload') or {}
+        if not ev or not _alert_severity(ev, p):   # only alert-able events are "noise"
+            continue
+        src_counts[ev] = src_counts.get(ev, 0) + 1
+        dev_id = p.get('device_id') or ''
+        if dev_id:
+            key = (dev_id, p.get('device_name') or dev_id, ev)
+            pair_counts[key] = pair_counts.get(key, 0) + 1
+    muted = _alert_mute_set()
+    pairs = [{'device_id': k[0], 'device_name': k[1], 'event': k[2], 'count': c,
+              'muted': (k[0], k[2]) in muted} for k, c in pair_counts.items()]
+    pairs.sort(key=lambda x: x['count'], reverse=True)
+    sources = sorted(({'event': ev, 'count': c} for ev, c in src_counts.items()),
+                     key=lambda x: x['count'], reverse=True)
+    respond(200, {'ok': True, 'days': days, 'noisy': pairs[:10],
+                  'sources': sources[:10], 'mutes': _alert_mutes_load()['mutes']})
+
+
 def handle_alerts_bulk_resolve():
     """POST /api/alerts/bulk-resolve — admin-only, resolves matching open/ack alerts.
 
@@ -51168,6 +51321,10 @@ def _build_exact_routes():
         ('POST', '/api/ai/test'): handle_ai_test,
         ('DELETE', '/api/alerts'): handle_alerts_clear,
         ('GET', '/api/alerts'): handle_alerts_list,
+        # v5.6.0: alert mutes + tuning
+        ('GET', '/api/alert-mutes'): handle_alert_mutes,
+        ('POST', '/api/alert-mutes'): handle_alert_mutes,
+        ('GET', '/api/alert-tuning'): handle_alert_tuning,
         ('GET', '/api/alerts/resolution-stats'): handle_alert_resolution_stats,
         ('GET', '/api/checks'): handle_fleet_checks,                  # v4.1.0 CheckMK view
         ('POST', '/api/checks/toggle'): handle_checks_toggle,         # v4.1.0
@@ -51890,6 +52047,8 @@ def _dispatch(pi, m):
         handle_scan_schedule_delete(pi[len('/api/scan-schedules/'):])
     elif pi.startswith('/api/me/sessions/') and m == 'DELETE':
         handle_me_session_revoke(pi[len('/api/me/sessions/'):])
+    elif pi.startswith('/api/alert-mutes/') and m == 'DELETE':
+        handle_alert_mute_delete(pi[len('/api/alert-mutes/'):])
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
         handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
     elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':

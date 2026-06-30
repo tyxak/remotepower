@@ -231,6 +231,10 @@
     'Render':      { zh: '生成', hi: 'रेंडर', es: 'Generar', ar: 'إنشاء' },
     'Timesheet watchers': { zh: '工时表查看者', hi: 'टाइमशीट दर्शक', es: 'Observadores de horas', ar: 'مراقبو سجل الوقت' },
     'Add watcher': { zh: '添加查看者', hi: 'दर्शक जोड़ें', es: 'Añadir observador', ar: 'إضافة مراقب' },
+    'Tuning':      { zh: '调优', hi: 'ट्यूनिंग', es: 'Ajuste', ar: 'الضبط' },
+    'Noisiest alerts': { zh: '最嘈杂的告警', hi: 'सबसे शोरगुल वाले अलर्ट', es: 'Alertas más ruidosas', ar: 'أكثر التنبيهات ضجيجاً' },
+    'Noisiest sources': { zh: '最嘈杂的来源', hi: 'सबसे शोरगुल वाले स्रोत', es: 'Fuentes más ruidosas', ar: 'أكثر المصادر ضجيجاً' },
+    'Active mutes': { zh: '生效的静音', hi: 'सक्रिय म्यूट', es: 'Silencios activos', ar: 'كتم الصوت النشط' },
     'Automation':  { zh: '自动化', hi: 'स्वचालन', es: 'Automatización', ar: 'الأتمتة' },
     'Release Signing': { zh: '发布签名', hi: 'रिलीज़ हस्ताक्षर', es: 'Firma de versiones', ar: 'توقيع الإصدارات' },
     'Confirmations': { zh: '确认', hi: 'पुष्टि', es: 'Confirmaciones', ar: 'التأكيدات' },
@@ -1721,6 +1725,8 @@
   // v4.2: page-subtitle translations keyed by normalized English innerHTML
   // (markup-preserving — values keep the same <span>/<a> tags).
   var HTMLDICT = {
+    // ── v5.6.0: Alert tuning page subtitle ──
+    "Find your noisiest alerts and silence them at the source — per <strong>host + alert type</strong>. A silenced alert stops reaching the inbox, webhooks and the needs-attention card, but history keeps recording so you can always lift it. Counts are over the last 30 days.": { "zh": "找出最嘈杂的告警并从源头将其静音——按<strong>主机 + 告警类型</strong>。被静音的告警不再进入收件箱、Webhook 和需要关注卡片，但历史记录仍会保留，因此你随时可以解除。计数基于最近 30 天。", "hi": "अपने सबसे शोरगुल वाले अलर्ट खोजें और उन्हें स्रोत पर ही म्यूट करें — <strong>host + alert type</strong> के अनुसार। म्यूट किया गया अलर्ट inbox, webhooks और needs-attention कार्ड तक नहीं पहुँचता, पर इतिहास दर्ज होता रहता है, इसलिए आप इसे कभी भी हटा सकते हैं। गणना पिछले 30 दिनों की है।", "es": "Encuentra tus alertas más ruidosas y siléncialas en el origen, por <strong>host + tipo de alerta</strong>. Una alerta silenciada deja de llegar a la bandeja, los webhooks y la tarjeta de atención, pero el historial sigue registrándose, así que siempre puedes revertirla. Los recuentos son de los últimos 30 días.", "ar": "اعثر على أكثر تنبيهاتك ضجيجاً واكتمها من المصدر — لكل <strong>مضيف + نوع تنبيه</strong>. التنبيه المكتوم يتوقّف عن الوصول إلى صندوق الوارد وwebhooks وبطاقة الانتباه، لكن السجل يستمرّ في التسجيل، فيمكنك رفعه في أي وقت. الأعداد لآخر 30 يوماً." },
     // ── v5.6.0: Provisioning page subtitle ──
     "A catalog of infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates organised in folders. Fill in a blueprint's variables and render it to copy or download. Render-only — nothing is executed on the server.": { "zh": "基础设施蓝图目录——Terraform、cloud-init、Ansible 和 iPXE 模板按文件夹组织。填写蓝图的变量并生成结果以复制或下载。仅生成——服务器上不执行任何内容。", "hi": "इन्फ्रास्ट्रक्चर ब्लूप्रिंट की सूची — Terraform, cloud-init, Ansible और iPXE टेम्पलेट फ़ोल्डरों में व्यवस्थित। किसी ब्लूप्रिंट के variables भरें और उसे render करके कॉपी या डाउनलोड करें। केवल render — सर्वर पर कुछ भी execute नहीं होता।", "es": "Un catálogo de plantillas de infraestructura: plantillas de Terraform, cloud-init, Ansible e iPXE organizadas en carpetas. Rellena las variables de una plantilla y genérala para copiar o descargar. Solo generación: no se ejecuta nada en el servidor.", "ar": "كتالوج لمخططات البنية التحتية — قوالب Terraform و cloud-init و Ansible و iPXE منظّمة في مجلدات. املأ متغيّرات المخطط ثم أنشئه لنسخه أو تنزيله. الإنشاء فقط — لا يُنفَّذ أي شيء على الخادم." },
     // ── v5.4.0 "RackMatters": Timesheet + Billing page subtitles ──

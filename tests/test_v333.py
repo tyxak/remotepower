@@ -113,19 +113,19 @@ class TestInvestigateAlertButton(unittest.TestCase):
         self.assertIn('data-action="aiInvestigateAlert"', self.appjs,
             'Alert row must wire a button to aiInvestigateAlert')
 
-    def test_button_with_ack_and_resolve(self):
-        # The button is added inside the non-resolved branch, before the
-        # existing ackAlert / resolveAlert buttons in the same actions cell.
+    def test_button_with_mute_and_resolve(self):
+        # v5.6.0: the per-row Ack button was replaced by the X-mute button.
+        # Investigate renders before mute / resolve in the same actions cell.
         inv = self.appjs.find('data-action="aiInvestigateAlert"')
-        ack = self.appjs.find('data-action="ackAlert"')
+        mute = self.appjs.find('data-action="muteAlert"')
         res = self.appjs.find('data-action="resolveAlert"')
         self.assertNotEqual(inv, -1, 'Investigate button missing')
-        self.assertNotEqual(ack, -1, 'ackAlert button missing')
+        self.assertNotEqual(mute, -1, 'muteAlert button missing')
         self.assertNotEqual(res, -1, 'resolveAlert button missing')
-        self.assertTrue(inv < ack < res,
-            'Investigate should render before Ack and Resolve in the alert row')
+        self.assertTrue(inv < mute < res,
+            'Investigate should render before Mute and Resolve in the alert row')
         self.assertLess(res - inv, 800,
-            'Investigate/Ack/Resolve should share one alert-row actions block')
+            'Investigate/Mute/Resolve should share one alert-row actions block')
 
 
 if __name__ == '__main__':
