@@ -2414,6 +2414,21 @@
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-proxmox">
           <div class="settings-section">
+            <h3>VMware / OpenShift / Cloud Director</h3>
+            <p class="hint">Connect read-only to other virtualization platforms — VMware vSphere / ESXi / vCenter, Red Hat OpenShift, and VMware Cloud Director. Their status + inventory feed Alerts and the dashboard, the same way Proxmox does. Pick a platform, fill its URL + credentials, Save, then Test.</p>
+            <div id="virt-platforms-list" class="mb-12 scroll-cap"></div>
+            <div class="settings-row isl-iadd">
+              <div class="form-group">
+                <label for="virt-add-type" class="form-label">Add platform</label>
+                <select id="virt-add-type" class="form-input mw-220" data-nofilter></select>
+              </div>
+              <button class="btn-secondary" data-action="addVirtPlatform">Add</button>
+            </div>
+            <div class="settings-row mt-12">
+              <button class="btn-primary" data-action="saveIntegrations">Save integrations</button>
+            </div>
+          </div>
+          <div class="settings-section">
             <h3>Proxmox VE connection</h3>
             <p class="hint">Connect a single Proxmox VE node. The RemotePower server calls the Proxmox API directly to list QEMU VMs (Virtualization page) and LXC containers (Containers page), and to start / shut them down. Authentication uses a Proxmox API token — create one under Datacenter → Permissions → API Tokens.</p>
             <p class="hint c-amber"><strong>Note:</strong> the API token secret is stored in the server's <code>config.json</code> (file mode 600). It is not encrypted at rest. Use an API token scoped to only the permissions it needs (VM.PowerMgmt, VM.Audit), not a full-access token.</p>

@@ -497,7 +497,7 @@ def _kubernetes(inst, c):
 @_register(
     "vcenter",
     "VMware vSphere / ESXi / vCenter",
-    "orchestration",
+    "virtualization",
     [_field("username", "Username", TEXT), _field("secret", "Password", PASSWORD)],
     notes="vCenter 7+ REST API (/api/session). Standalone ESXi exposes only SOAP — point at vCenter.",
 )
@@ -540,7 +540,7 @@ def _vcenter(inst, c):
 @_register(
     "openshift",
     "Red Hat OpenShift",
-    "orchestration",
+    "virtualization",
     [_field("secret", "API token", PASSWORD)],
     notes="OpenShift exposes the Kubernetes API. Reads nodes + projects with a read-only oc/ServiceAccount Bearer token. Self-signed API: turn off Verify TLS.",
 )
@@ -574,7 +574,7 @@ def _openshift(inst, c):
 @_register(
     "vcloud",
     "VMware Cloud Director",
-    "orchestration",
+    "virtualization",
     [_field("username", "Username (user@org)", TEXT), _field("secret", "Password", PASSWORD)],
     notes="Username as user@org (e.g. administrator@System). Reads vApp + VM counts via the /api session.",
 )

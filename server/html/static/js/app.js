@@ -2722,6 +2722,8 @@ function switchSettingsTab(tab) {
   if (tab === 'mailbox') loadMailwatchSettings();
   // v3.4.2: Install / getting-started checklist.
   if (tab === 'install') { loadSetup(); loadUpdatePanel(); }
+  // v5.6.0: surface the virtualization platforms (config + status) on this pane.
+  if (tab === 'proxmox') { try { loadIntegrations(); } catch (_) {} }
 }
 
 // v3.4.2: Settings → Install — onboarding checklist driven by live state.
@@ -11629,10 +11631,14 @@ async function loadIntegrations() {
   const iv = document.getElementById('integrations-interval');
   if (iv && data && data.interval) iv.value = data.interval;
   const sel = document.getElementById('integration-add-type');
-  if (sel) {
-    sel.innerHTML = _integrationCatalog.map(c =>
-      `<option value="${escAttr(c.type)}">${escHtml(c.label)} (${escHtml(c.category)})</option>`).join('');
-  }
+  if (sel) sel.innerHTML = _integrationCatalog
+    .filter(c => c.category !== 'virtualization')
+    .map(c => `<option value="${escAttr(c.type)}">${escHtml(c.label)} (${escHtml(c.category)})</option>`).join('');
+  // v5.6.0: virtualization platforms get their own picker on Settings → Virtualization.
+  const vsel = document.getElementById('virt-add-type');
+  if (vsel) vsel.innerHTML = _integrationCatalog
+    .filter(c => c.category === 'virtualization')
+    .map(c => `<option value="${escAttr(c.type)}">${escHtml(c.label)}</option>`).join('');
   renderIntegrations();
 }
 
@@ -11641,14 +11647,27 @@ function _integrationFields(type) {
   return (c && c.fields) || [];
 }
 
+// v5.6.0: virtualization-category connectors live on Settings → Virtualization,
+// not in the generic "Add integration" list.
+function _isVirtType(type) {
+  const c = _integrationCatalog.find(x => x.type === type);
+  return !!(c && c.category === 'virtualization');
+}
+
 function renderIntegrations() {
-  const wrap = document.getElementById('integrations-list');
-  if (!wrap) return;
-  if (!_integrations.length) {
-    wrap.innerHTML = '<div class="empty-state">No integrations yet — pick a type below and Add.</div>';
-    return;
-  }
-  wrap.innerHTML = _integrations.map((it, idx) => {
+  const gen = document.getElementById('integrations-list');
+  const virt = document.getElementById('virt-platforms-list');
+  const genCards = [], virtCards = [];
+  _integrations.forEach((it, idx) => {
+    (_isVirtType(it.type) ? virtCards : genCards).push(_integrationCardHtml(it, idx));
+  });
+  if (gen) gen.innerHTML = genCards.length ? genCards.join('')
+    : '<div class="empty-state">No integrations yet — pick a type below and Add.</div>';
+  if (virt) virt.innerHTML = virtCards.length ? virtCards.join('')
+    : '<div class="empty-state">No virtualization platforms yet — pick one below and Add.</div>';
+}
+
+function _integrationCardHtml(it, idx) {
     const cat = _integrationCatalog.find(x => x.type === it.type);
     const label = cat ? cat.label : it.type;
     const fields = _integrationFields(it.type).map(f => {
@@ -11686,12 +11705,11 @@ function renderIntegrations() {
         <span id="integration-test-${idx}" class="hint ml-8"></span>
       </div>
     </div>`;
-  }).join('');
 }
 
 // Sync the DOM inputs back into the _integrations model before save/test.
 function _readIntegrationCards() {
-  document.querySelectorAll('#integrations-list .integration-card').forEach(card => {
+  document.querySelectorAll('#integrations-list .integration-card, #virt-platforms-list .integration-card').forEach(card => {
     const idx = parseInt(card.dataset.idx, 10);
     const it = _integrations[idx];
     if (!it) return;
@@ -11710,6 +11728,18 @@ function _readIntegrationCards() {
 function addIntegration() {
   const sel = document.getElementById('integration-add-type');
   const type = sel ? sel.value : (_integrationCatalog[0] && _integrationCatalog[0].type);
+  if (!type) return;
+  const cat = _integrationCatalog.find(x => x.type === type);
+  _readIntegrationCards();
+  _integrations.push({ type, label: cat ? cat.label : type, url: '', enabled: true, verify_tls: true });
+  renderIntegrations();
+}
+
+// v5.6.0: add a virtualization platform from Settings → Virtualization (same
+// backend as integrations — the instance just has a virtualization-category type).
+function addVirtPlatform() {
+  const sel = document.getElementById('virt-add-type');
+  const type = sel && sel.value;
   if (!type) return;
   const cat = _integrationCatalog.find(x => x.type === type);
   _readIntegrationCards();
