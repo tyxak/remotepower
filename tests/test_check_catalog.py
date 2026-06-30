@@ -54,7 +54,7 @@ class TestServicesWire(unittest.TestCase):
 class TestCatalogFrontend(unittest.TestCase):
     def test_catalog_and_helpers_exist(self):
         self.assertIn('const CHECK_CATALOG', _APP_JS)
-        for fn in ('function _ccFillCatalog', 'function ccPickCatalog',
+        for fn in ('function ccCatalogSearch', 'function ccPickCatalog',
                    'function ccHostSearch', 'function pickCcHost'):
             self.assertIn(fn, _APP_JS)
 
@@ -68,7 +68,7 @@ class TestCatalogFrontend(unittest.TestCase):
         self.assertGreaterEqual(_APP_JS.count("{ c: '"), 60)
 
     def test_modal_wired(self):
-        self.assertIn('id="cc-catalog"', _HTML)
+        self.assertIn('id="cc-catalog-search"', _HTML)   # searchable catalog combobox
         self.assertIn('id="cc-host-search"', _HTML)        # device search typeahead
         self.assertIn('id="cc-watch-svc"', _HTML)          # services-watch toggle
         self.assertIn('<option value="systemd_unit">', _HTML)

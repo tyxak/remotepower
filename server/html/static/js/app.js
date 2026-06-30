@@ -10956,25 +10956,29 @@ const CHECK_CATALOG = [
   { c: 'RemotePower (self-infra)', l: 'nginx (RP web)', t: 'process', p: 'nginx', n: 'RemotePower web (nginx) running' },
   { c: 'RemotePower (self-infra)', l: 'fcgiwrap (CGI host)', t: 'process', p: 'fcgiwrap', n: 'fcgiwrap running' },
 ];
-function _ccFillCatalog() {
-  const sel = document.getElementById('cc-catalog');
-  if (!sel) return;
-  const cats = [];
-  CHECK_CATALOG.forEach(e => { if (!cats.includes(e.c)) cats.push(e.c); });
-  let html = '<option value="">— choose a ready-made check… —</option>';
-  cats.forEach(cat => {
-    html += `<optgroup label="${escAttr(cat)}">`
-      + CHECK_CATALOG.map((e, i) => e.c === cat ? `<option value="${i}">${escHtml(e.l)}</option>` : '').join('')
-      + '</optgroup>';
-  });
-  sel.innerHTML = html;
-  sel.value = '';
+// v5.6.0: searchable catalog picker. A custom dropdown (not a native <select>,
+// which can't be fully styled across browsers — its option text rendered blue on
+// click). Filters CHECK_CATALOG by label/category/name/param; picking fills the
+// form. Showing on focus is wired in openCustomChecks.
+function ccCatalogSearch() {
+  const box = document.getElementById('cc-catalog-results');
+  if (!box) return;
+  const term = (document.getElementById('cc-catalog-search')?.value || '').toLowerCase().trim();
+  const hits = CHECK_CATALOG
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => !term || (`${e.l} ${e.c} ${e.n} ${e.p}`).toLowerCase().includes(term))
+    .slice(0, 80);
+  box.innerHTML = hits.length
+    ? hits.map(({ e, i }) => `<div class="dev-combo-item" data-action="ccPickCatalog" data-arg="${i}"><strong>${escHtml(e.l)}</strong> <span class="hint">${escHtml(e.c)}</span></div>`).join('')
+    : '<div class="dev-combo-empty">No matching checks.</div>';
+  box.hidden = false;
 }
-function ccPickCatalog() {
-  const sel = document.getElementById('cc-catalog');
-  const e = CHECK_CATALOG[parseInt(sel && sel.value, 10)];
+function ccPickCatalog(i) {
+  const e = CHECK_CATALOG[typeof i === 'number' ? i : parseInt(i, 10)];
+  const box = document.getElementById('cc-catalog-results'); if (box) box.hidden = true;
   if (!e) return;
   const setv = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setv('cc-catalog-search', e.l);
   setv('cc-type', e.t);
   ccTypeChanged();   // refresh param label + sub-field visibility for the new type
   setv('cc-param', e.p);
@@ -11033,11 +11037,10 @@ let _ccEditId = null;
 let _ccDevNames = {};   // device id -> hostname, for the saved-checks list + edit
 function _ccResetForm() {
   _ccEditId = null;
-  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
+  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-catalog-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
-  const cat = document.getElementById('cc-catalog'); if (cat) cat.value = '';
   const ws = document.getElementById('cc-watch-svc'); if (ws) ws.checked = true;
-  const res = document.getElementById('cc-host-results'); if (res) res.hidden = true;
+  ['cc-host-results', 'cc-catalog-results'].forEach(id => { const r = document.getElementById(id); if (r) r.hidden = true; });
   const k = document.getElementById('cc-kind'); if (k) k.value = 'all';
   const t = document.getElementById('cc-type'); if (t) t.value = 'process';
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Add check';
@@ -11045,7 +11048,12 @@ function _ccResetForm() {
 }
 async function openCustomChecks() {
   _ccResetForm();
-  _ccFillCatalog();
+  // show the dropdown lists when the search boxes get focus (CSP-safe listeners,
+  // wired once per element)
+  [['cc-catalog-search', ccCatalogSearch], ['cc-host-search', ccHostSearch]].forEach(([id, fn]) => {
+    const el = document.getElementById(id);
+    if (el && !el._wiredFocus) { el._wiredFocus = 1; el.addEventListener('focus', fn); }
+  });
   openModal('custom-checks-modal');
   loadCustomCheckList();
 }
