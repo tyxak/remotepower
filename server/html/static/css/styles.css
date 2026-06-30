@@ -1768,7 +1768,7 @@
    * fit under the cap so they don't get a redundant inner scrollbar, and their
    * pager renders as a sibling *outside* the card so it's never hidden. This is
    * the single guard that keeps every page short instead of kilometers of rows. */
-  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 480px; contain: paint; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 480px; contain: paint; }  /* v5.6.0: match .dash-card radius */
   .table-card thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; box-shadow: inset 0 -1px 0 var(--border); }
   /* v3.13.0: discovery scan results render into a bare div (not a .table-card),
    * so cap it too — a /24 scan can return 254 hosts. */
@@ -1811,7 +1811,7 @@
   .settings-section {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 10px;   /* v5.6.0: match .dash-card / .table-card radius */
     padding: 24px;
     margin-bottom: 16px;   /* v4.1.0: align with the 16px card rhythm */
   }
@@ -5722,6 +5722,12 @@ body[data-ui="industrial"] .tile,
 body[data-ui="industrial"] .table-card,
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .home-widget,
+/* v5.6.0 UI consistency: settings cards + the generic .card now get the SAME
+   corner-tick framing as every other card, so the Settings page and any
+   .card-based panel match the dash-card gold standard instead of rendering as
+   plain bordered boxes. */
+body[data-ui="industrial"] .settings-section,
+body[data-ui="industrial"] .card,
 body[data-ui="industrial"] .login-card {
   position:relative;
   /* solid surface UNDER the tick background-image. Without this, state tiles like
