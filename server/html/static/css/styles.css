@@ -6510,14 +6510,25 @@ body[data-ui="industrial"] .rp-ddwrap::before{
   clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
 }
 body[data-ui="industrial"] .rp-ddwrap:focus-within::before{ background:var(--accent); }
-/* The select must follow the SAME chamfer as the wrapper border, or its rounded
-   corners poke into the two cut corners and the accent border reads as a broken
-   "punctured" notch (top-left + bottom-right). Square it and clip it to an inner
-   octagon ~1.5px inside the wrapper's outer octagon, so the accent shows as a
-   uniform border on all 8 edges — the clean chamfer used on buttons elsewhere. */
-body[data-ui="industrial"] .rp-ddwrap select{
-  position:relative; z-index:1; display:block; width:100%; border-radius:0;
-  clip-path:polygon(5.5px 0,100% 0,100% calc(100% - 5.5px),calc(100% - 5.5px) 100%,0 100%,0 5.5px);
+body[data-ui="industrial"] .rp-ddwrap select{ position:relative; z-index:1; display:block; width:100%; }
+
+/* v5.6.0: the SEARCHABLE DEVICE COMBOBOX replaces a <select> with a text input
+   (the "no device dropdowns" rule). It had NO chamfer, so it looked out of place
+   next to the chamfered native dropdowns, and its plain focus outline read as a
+   broken/"punctured" blue line. Give the .dev-combo span the same chamfer the
+   native selects use (the <input> can't render a ::before, the span can); clip
+   the input to the inner octagon so the accent border is uniform on all 8 edges;
+   and drop the input's own border/radius/focus-outline so nothing double-draws. */
+body[data-ui="industrial"] .dev-combo{ position:relative; display:block; padding:1.5px; }
+body[data-ui="industrial"] .dev-combo::before{
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; background:var(--accent-edge);
+  clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px);
+}
+body[data-ui="industrial"] .dev-combo:focus-within::before{ background:var(--accent); }
+body[data-ui="industrial"] .dev-combo .dev-combo-input{
+  position:relative; z-index:1; width:100%;
+  border:none !important; border-radius:0 !important; outline:none !important;
+  clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
 }
 
 /* v5.1.0 · space between sections/cards — scoped to .page:not(#page-home) so the
