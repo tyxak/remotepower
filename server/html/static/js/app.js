@@ -8545,6 +8545,8 @@ function pickCatalogDevice(id, name) {
   _renderCatalog();
 }
 
+function filterCatalog() { _renderCatalog(); }
+
 function _renderCatalog() {
   const isAdmin = !!(_meCache && _meCache.admin);
   const addBtn = document.getElementById('catalog-add-btn');
@@ -8552,7 +8554,12 @@ function _renderCatalog() {
   const box = document.getElementById('catalog-grid');
   if (!box) return;
   if (!_catalogApps.length) { box.innerHTML = '<div class="hint">No apps in the catalog.</div>'; return; }
-  box.innerHTML = _catalogApps.map(a => {
+  const q = (document.getElementById('catalog-filter')?.value || '').toLowerCase().trim();
+  const apps = q
+    ? _catalogApps.filter(a => (`${a.name || ''} ${a.category || ''} ${a.description || ''}`).toLowerCase().includes(q))
+    : _catalogApps;
+  if (!apps.length) { box.innerHTML = '<div class="empty-state">No apps match your search.</div>'; return; }
+  box.innerHTML = apps.map(a => {
     const dep = _catalogDev
       ? `<button class="btn-primary" data-action="catalogDeploy" data-arg="${escAttr(a.id)}">Deploy to ${escHtml(_catalogDev.name)}</button>`
       : `<span class="hint">Pick a target host above to deploy</span>`;

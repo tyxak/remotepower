@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-10">
+<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-11">
 
 </head>
 <body>
@@ -5503,6 +5503,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             Add app
           </button>
         </div>
+        <div class="mb-16"><input type="text" id="catalog-filter" class="form-input input-wide-sm" placeholder="Search apps by name, category or description…" data-input="filterCatalog" aria-label="Search apps"></div>
         <div id="catalog-grid" class="scroll-cap"></div>
       </div>
       <!-- ── v5.1.0: Cron + systemd timer management ─────────────────────── -->
