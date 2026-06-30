@@ -5663,6 +5663,19 @@ body[data-ui="industrial"] .btn-secondary {
 body[data-ui="industrial"] .settings-tab {
   text-transform:uppercase; letter-spacing:0.06em; font-size:12px;
 }
+/* Settings tabs: keep the active/focus underline DEAD STRAIGHT. The industrial
+   skin rounds every control by 2px (the grouped rule above), which rounds the
+   *ends* of the active tab's bottom-border underline. Force square corners so the
+   blue underline is a straight line, and give the keyboard-focus ring a bolder
+   3px square outline too. These selectors outrank/follow the border-radius:2px
+   rule, so they win in both skins. */
+.settings-tab,
+body[data-ui="industrial"] .settings-tab { border-radius: 0; }
+.settings-tab:focus-visible,
+body[data-ui="industrial"] .settings-tab:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* ── Corner ticks, drawn as background-image so they frame the box and scroll
    correctly. The old ::before/::after were position:absolute; on a card that is
