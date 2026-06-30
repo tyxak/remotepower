@@ -902,6 +902,19 @@
     -webkit-box-shadow: 0 0 0 1000px var(--well-bg, var(--bg)) inset !important;
     -webkit-text-fill-color: var(--text) !important;
   }
+  /* v5.6.0: force bright, readable text in the Check-catalog inputs/select in
+     every state + skin (some industrial/focus combos dimmed the typed text). */
+  #custom-checks-modal input,
+  #custom-checks-modal input:focus,
+  #custom-checks-modal select,
+  #custom-checks-modal textarea,
+  body[data-ui="industrial"] #custom-checks-modal input,
+  body[data-ui="industrial"] #custom-checks-modal input:focus,
+  body[data-ui="industrial"] #custom-checks-modal select {
+    color: var(--text) !important;
+    -webkit-text-fill-color: var(--text);
+    caret-color: var(--accent);
+  }
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
      Recent Activity / Alerts / Webhook stay readable no matter the scroll. */

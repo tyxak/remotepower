@@ -11030,6 +11030,7 @@ function ccTypeChanged() {
 }
 let _ccCache = [];
 let _ccEditId = null;
+let _ccDevNames = {};   // device id -> hostname, for the saved-checks list + edit
 function _ccResetForm() {
   _ccEditId = null;
   ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
@@ -11054,8 +11055,16 @@ async function loadCustomCheckList() {
   const data = await api('GET', '/checks/custom');
   const checks = (data && data.checks) || [];
   _ccCache = checks;
+  // Resolve host device ids -> hostnames for display (never show the raw id).
+  try {
+    const devs = await _scanDeviceList();
+    _ccDevNames = {};
+    (devs || []).forEach(d => { _ccDevNames[d.id] = d.name || d.id; });
+  } catch (_) { /* keep whatever we had */ }
   if (!checks.length) { el.innerHTML = '<div class="empty-state">No custom checks yet.</div>'; return; }
-  const scope = c => c.target_kind === 'all' ? 'whole fleet' : `${c.target_kind}: ${escHtml(c.target)}`;
+  const scope = c => c.target_kind === 'all' ? 'whole fleet'
+    : c.target_kind === 'host' ? `host: ${escHtml(_ccDevNames[c.target] || c.target)}`
+    : `${c.target_kind}: ${escHtml(c.target)}`;
   const editBtn = id => `<button class="btn-icon btn-xs" data-action="editCustomCheck" data-arg="${escAttr(id)}" title="Edit this check">${_icon('edit',14)}</button>`;
   el.innerHTML = `<div class="table-card"><table><thead><tr><th>Name</th><th>Type</th><th>Param</th><th>Applies to</th><th></th></tr></thead><tbody>${
     checks.map(c => `<tr><td class="fw-500">${escHtml(c.name)}</td><td><span class="patch-badge ok fs-11">${escHtml(c.type)}</span></td><td class="mono-12">${escHtml(c.param)}</td><td class="hint">${scope(c)}</td><td><div class="user-actions">${editBtn(c.id)}<button class="btn-icon btn-xs c-danger-outline" title="Delete" data-action="deleteCustomCheck" data-arg="${escAttr(c.id)}">${_icon('trash',14)}</button></div></td></tr>`).join('')
@@ -11068,8 +11077,8 @@ function editCustomCheck(id) {
   const setv = (eid, v) => { const e = document.getElementById(eid); if (e) e.value = (v === undefined || v === null) ? '' : v; };
   setv('cc-name', c.name); setv('cc-type', c.type || 'process'); setv('cc-param', c.param);
   setv('cc-kind', c.target_kind || 'all'); setv('cc-target', c.target);
-  // host targets: show the chosen device in the search field
-  if ((c.target_kind || 'all') === 'host') setv('cc-host-search', c.target);
+  // host targets: show the device's HOSTNAME (not the raw id) in the search field
+  if ((c.target_kind || 'all') === 'host') setv('cc-host-search', _ccDevNames[c.target] || c.target);
   setv('cc-window', c.window_min); setv('cc-warn', c.warn); setv('cc-crit', c.crit);
   setv('cc-unit', c.unit); setv('cc-maxage', c.max_age_hours);
   ccKindChanged(); ccTypeChanged();
