@@ -163,6 +163,12 @@ MAX_CONTACTS = 2000
 # Pure math lives in the sibling billing.py module; this file owns storage/auth.
 TIME_ENTRIES_FILE = DATA_DIR / 'time_entries.json'   # {entries:[...], seq:int}
 MAX_TIME_ENTRIES = 200000
+# v5.6.0: timesheet "watch" grants — let specific (non-finance) users view
+# specific others' timesheets. A grant targets a single user OR a whole team
+# (ui_prefs.team). Admin-managed; read-only (a watcher can view, never edit).
+TIMESHEET_WATCH_FILE = DATA_DIR / 'timesheet_watch.json'   # {grants:[...]}
+MAX_TS_WATCH_GRANTS = 5000
+_TS_WATCH_SCOPES = ('user', 'team')
 BILLING_FILE = DATA_DIR / 'billing.json'   # rate card, currency, per-site rates/VAT/recurring fees
 INVOICES_FILE = DATA_DIR / 'invoices.json'   # {invoices:[...], invoice_seq:int}
 MAX_INVOICES = 100000
@@ -10440,6 +10446,56 @@ def _caller_billing_view():
     return bool(_resolve_role(role).get('admin') or role == 'finance')
 
 
+# ── v5.6.0: timesheet "watch" grants ────────────────────────────────────────
+# Admin/finance can already view everyone (money included). A watch grant lets a
+# specific NON-finance user view a specific other user's timesheet (read-only,
+# no rates) — e.g. a team lead over their team. A grant targets one user or a
+# whole team (the `ui_prefs.team` attribute).
+
+def _ts_watch_load():
+    data = load(TIMESHEET_WATCH_FILE)
+    if not isinstance(data, dict) or 'grants' not in data:
+        return {'grants': []}
+    return data
+
+
+def _ts_watchable_users(caller):
+    """The set of usernames `caller` may view via watch grants (excludes the
+    caller themself — they always see their own). Team grants resolve against
+    the live user list so team membership changes take effect immediately."""
+    grants = [g for g in _ts_watch_load()['grants']
+              if isinstance(g, dict) and g.get('watcher') == caller]
+    if not grants:
+        return set()
+    users = load(USERS_FILE) or {}
+    targets = set()
+    team_index = None
+    for g in grants:
+        scope, value = g.get('scope'), g.get('value')
+        if scope == 'user' and value:
+            targets.add(value)
+        elif scope == 'team' and value:
+            if team_index is None:
+                team_index = {}
+                for u, d in users.items():
+                    if isinstance(d, dict):
+                        team_index.setdefault((d.get('ui_prefs') or {}).get('team', ''), []).append(u)
+            for u in team_index.get(value, []):
+                targets.add(u)
+    targets.discard(caller)
+    # only real, current users
+    return {u for u in targets if u in users}
+
+
+def _can_view_timesheet(caller, target):
+    """True if `caller` may view `target`'s timesheet/time entries."""
+    if caller == target:
+        return True
+    if _caller_billing_view():
+        return True
+    return target in _ts_watchable_users(caller)
+
+
 def _te_public(e):
     """The safe, money-free projection of a time entry (rates never leak here)."""
     return {k: e.get(k) for k in (
@@ -10535,12 +10591,24 @@ def handle_time_entries():
         f_tk = (qs.get('ticket') or [''])[0].strip()
         f_bill = (qs.get('billable') or [''])[0].strip().lower()
         fmt = (qs.get('format') or [''])[0].strip().lower()
+        # v5.6.0: a non-finance watcher may request a SPECIFIC user they are
+        # allowed to view (scoped to that user only — never the whole ledger).
+        view_user = None
+        if not see_all and f_user and f_user != actor:
+            if not _can_view_timesheet(actor, f_user):
+                respond(403, {'error': 'cannot view another user\'s entries'})
+            view_user = f_user
         entries = (load(TIME_ENTRIES_FILE) or {}).get('entries') or []
         out = []
         for e in entries:
-            if not see_all and e.get('user') != actor:
-                continue
-            if see_all and f_user and e.get('user') != f_user:
+            eu = e.get('user')
+            if see_all:
+                if f_user and eu != f_user:
+                    continue
+            elif view_user:
+                if eu != view_user:
+                    continue
+            elif eu != actor:
                 continue
             if f_site and (e.get('site_id') or '') != f_site:
                 continue
@@ -10665,7 +10733,7 @@ def handle_timesheet():
     want_user = (qs.get('user') or [''])[0].strip()
     target = actor
     if want_user and want_user != actor:
-        if not _caller_billing_view():
+        if not _can_view_timesheet(actor, want_user):
             respond(403, {'error': 'cannot view another user\'s timesheet'})
         target = want_user
     days = billing_mod.week_dates(week)
@@ -10695,6 +10763,74 @@ def handle_timesheet():
     respond(200, {'ok': True, 'week': week, 'user': target, 'days': out_days,
                   'total_hours': round(wk_total, 2), 'billable_hours': round(wk_billable, 2),
                   'can_view_all': _caller_billing_view()})
+
+
+def handle_timesheet_watchable():
+    """GET /api/timesheet/watchable — the users the caller may view (for the
+    'Watch for' picker). Admin/finance get everyone; others get their grants."""
+    actor = require_auth()
+    if _caller_billing_view():
+        users = sorted(u for u, d in (load(USERS_FILE) or {}).items()
+                       if isinstance(d, dict) and not d.get('disabled') and u != actor)
+        respond(200, {'ok': True, 'users': users, 'can_view_all': True})
+    respond(200, {'ok': True, 'users': sorted(_ts_watchable_users(actor)),
+                  'can_view_all': False})
+
+
+def handle_timesheet_watchers():
+    """GET /api/timesheet/watchers — list grants (admin). POST — add a grant."""
+    if method() == 'GET':
+        require_admin_auth()
+        users = load(USERS_FILE) or {}
+        teams = sorted({(d.get('ui_prefs') or {}).get('team', '')
+                        for d in users.values() if isinstance(d, dict)} - {''})
+        respond(200, {'ok': True, 'grants': _ts_watch_load()['grants'],
+                      'users': sorted(u for u, d in users.items() if isinstance(d, dict)),
+                      'teams': teams})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    watcher = _sanitize_str(body.get('watcher', ''), 64).strip()
+    scope = str(body.get('scope', '')).strip()
+    value = _sanitize_str(body.get('value', ''), 64).strip()
+    users = load(USERS_FILE) or {}
+    if scope not in _TS_WATCH_SCOPES or not watcher or not value:
+        respond(400, {'error': 'watcher, a valid scope (user|team), and value are required'})
+    if watcher not in users:
+        respond(400, {'error': 'unknown watcher user'})
+    if scope == 'user' and value not in users:
+        respond(400, {'error': 'unknown target user'})
+    if scope == 'user' and value == watcher:
+        respond(400, {'error': 'a user cannot watch themselves'})
+    data = _ts_watch_load()
+    if len(data['grants']) >= MAX_TS_WATCH_GRANTS:
+        respond(400, {'error': 'watch-grant limit reached'})
+    if any(g.get('watcher') == watcher and g.get('scope') == scope and g.get('value') == value
+           for g in data['grants']):
+        respond(400, {'error': 'that grant already exists'})
+    grant = {'id': secrets.token_urlsafe(8), 'watcher': watcher, 'scope': scope,
+             'value': value, 'created': int(time.time()), 'created_by': actor}
+    data['grants'].append(grant)
+    save(TIMESHEET_WATCH_FILE, data)
+    audit_log(actor, 'timesheet_watch_add',
+              detail=f'watcher={watcher} scope={scope} value={value}')
+    respond(200, {'ok': True, 'id': grant['id']})
+
+
+def handle_timesheet_watcher_delete(gid):
+    """DELETE /api/timesheet/watchers/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    data = _ts_watch_load()
+    n = len(data['grants'])
+    data['grants'] = [g for g in data['grants'] if g.get('id') != gid]
+    if len(data['grants']) == n:
+        respond(404, {'error': 'grant not found'})
+    save(TIMESHEET_WATCH_FILE, data)
+    audit_log(actor, 'timesheet_watch_delete', detail=f'grant={gid}')
+    respond(200, {'ok': True})
 
 
 def handle_billing_config():
@@ -51123,6 +51259,10 @@ def _build_exact_routes():
         ('GET', '/api/time-entries'): handle_time_entries,
         ('POST', '/api/time-entries'): handle_time_entries,
         ('GET', '/api/timesheet'): handle_timesheet,
+        # v5.6.0: timesheet watch grants
+        ('GET', '/api/timesheet/watchable'): handle_timesheet_watchable,
+        ('GET', '/api/timesheet/watchers'): handle_timesheet_watchers,
+        ('POST', '/api/timesheet/watchers'): handle_timesheet_watchers,
         ('GET', '/api/billing/config'): handle_billing_config,
         ('POST', '/api/billing/config'): handle_billing_config,
         ('GET', '/api/billing/worksheet'): handle_billing_worksheet,
@@ -52085,6 +52225,8 @@ def _dispatch(pi, m):
         handle_ticket_hours(pi[len('/api/tickets/'):-len('/hours')])
     elif pi.startswith('/api/time-entries/') and m in ('PATCH', 'POST', 'DELETE'):
         handle_time_entry_update(pi[len('/api/time-entries/'):])
+    elif pi.startswith('/api/timesheet/watchers/') and m == 'DELETE':
+        handle_timesheet_watcher_delete(pi[len('/api/timesheet/watchers/'):])
     elif pi.startswith('/api/invoices/') and m == 'GET':
         handle_invoice_get(pi[len('/api/invoices/'):])
     elif pi.startswith('/api/invoices/') and m in ('PATCH', 'POST'):

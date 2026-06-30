@@ -4731,6 +4731,10 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
   padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; }
 .bp-item-actions { display: flex; gap: 4px; flex: 0 0 auto; }
 
+/* v5.6.0: timesheet "Watch for" + watch-grant typeahead results */
+.ts-watch-results { border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; }
+.ts-watch-results > div:hover { background: var(--hover, rgba(127,127,127,.12)); }
+
 /* v4.10.0: Firewall / fail2ban detail panels — rules grouped by chain, banned
    IPs with an inline action. */
 .fw-rules { padding: 0 2px; }

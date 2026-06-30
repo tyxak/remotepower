@@ -1571,7 +1571,7 @@ function showPage(name, btn) {
   if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
-  if (name === 'users')    loadUsers();
+  if (name === 'users')    { loadUsers(); loadTimesheetWatchers(); }
   if (name === 'settings') { loadSettings(); loadWebhookLog(); }
   if (name === 'account')  loadAccount();
   if (name === 'risk')     loadRisk();

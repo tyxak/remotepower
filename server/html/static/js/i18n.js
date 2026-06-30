@@ -229,6 +229,8 @@
     'Blueprints':  { zh: '蓝图', hi: 'ब्लूप्रिंट', es: 'Plantillas', ar: 'المخططات' },
     'New blueprint': { zh: '新建蓝图', hi: 'नया ब्लूप्रिंट', es: 'Nueva plantilla', ar: 'مخطط جديد' },
     'Render':      { zh: '生成', hi: 'रेंडर', es: 'Generar', ar: 'إنشاء' },
+    'Timesheet watchers': { zh: '工时表查看者', hi: 'टाइमशीट दर्शक', es: 'Observadores de horas', ar: 'مراقبو سجل الوقت' },
+    'Add watcher': { zh: '添加查看者', hi: 'दर्शक जोड़ें', es: 'Añadir observador', ar: 'إضافة مراقب' },
     'Automation':  { zh: '自动化', hi: 'स्वचालन', es: 'Automatización', ar: 'الأتمتة' },
     'Release Signing': { zh: '发布签名', hi: 'रिलीज़ हस्ताक्षर', es: 'Firma de versiones', ar: 'توقيع الإصدارات' },
     'Confirmations': { zh: '确认', hi: 'पुष्टि', es: 'Confirmaciones', ar: 'التأكيدات' },

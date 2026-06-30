@@ -1069,6 +1069,27 @@
           <div class="page-subtitle mb-12">A custom role grants a subset of actions — <strong>exec</strong>, <strong>reboot</strong>, <strong>upgrade</strong> — limited to a <strong>scope</strong> (all devices, or only named groups/tags). Members can act on their scope and see only those devices on the Devices roster; server config, user/role management and saved scripts stay admin-only.</div>
           <div id="roles-list" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
+
+        <!-- ── v5.6.0: timesheet watch grants ──────────────────────────── -->
+        <div class="dash-card mt-24">
+          <div class="section-header"><div class="section-title">Timesheet watchers</div></div>
+          <div class="hint mb-12">Let specific users view another user's <strong>timesheet</strong> — read-only, hours only, never rates. Grant a watcher a single <strong>user</strong> or a whole <strong>team</strong>. Admins and the <strong>finance</strong> role already see everyone, so they need no grant. Watchers switch view with the <strong>"Watch for"</strong> box on the Timesheet page.</div>
+          <div class="hc-grid-2 mb-8">
+            <div class="form-group"><label class="form-label">Watcher</label>
+              <input type="text" id="tw-watcher" class="form-input" placeholder="Type a username…" autocomplete="off" data-input="_twWatcherResults">
+              <div id="tw-watcher-results" class="ts-watch-results scroll-cap-sm hidden"></div>
+            </div>
+            <div class="form-group"><label class="form-label">Can watch</label>
+              <div class="row-6">
+                <select id="tw-scope" class="form-input mw-160" data-change="_twScopeChanged"><option value="user">A user</option><option value="team">A team</option></select>
+                <input type="text" id="tw-value" class="form-input" placeholder="Type a username…" autocomplete="off" data-input="_twValueResults">
+              </div>
+              <div id="tw-value-results" class="ts-watch-results scroll-cap-sm hidden"></div>
+            </div>
+          </div>
+          <button class="btn-primary" data-action="addTimesheetWatcher">Add watcher</button>
+          <div id="tw-list" class="scroll-cap mt-12"><div class="c-muted">Loading…</div></div>
+        </div>
       </div>
 
       <!-- ── v3.12.0: My Account (reached from the top-right avatar menu) ──── -->
@@ -4668,9 +4689,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="tsThisWeek" title="Jump to this week">This week</button>
           <button class="btn-icon" data-action="tsNextWeek" title="Next week">Next ›</button>
           <span id="ts-week-label" class="hint ml-8"></span>
-          <button class="enroll-btn ml-auto" data-action="openTimesheetEntry"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Log time</button>
+          <button class="enroll-btn ml-auto" id="ts-logtime-btn" data-action="openTimesheetEntry"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Log time</button>
           <button class="btn-icon" data-action="tsExportCsv" title="Export this week to CSV">CSV</button>
         </div>
+        <div id="ts-watch-bar" class="hidden mb-8"></div>
         <div id="ts-week-wrap" class="ts-grid"><div class="empty-state">Loading…</div></div>
       </div>
 

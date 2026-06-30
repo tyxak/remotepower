@@ -271,7 +271,17 @@ async function renderTicketHours(tid) {
 }
 
 /* ── Timesheet page ────────────────────────────────────────────────────── */
-let _tsCursor = null;   // a Date inside the displayed week
+let _tsCursor = null;       // a Date inside the displayed week
+let _tsViewUser = '';       // '' = my own timesheet; else a user I'm allowed to watch
+let _tsWatchable = null;    // cached { users:[], can_view_all:bool } for the "Watch for" picker
+
+async function _tsEnsureWatchable() {
+  if (_tsWatchable) return _tsWatchable;
+  const r = await api('GET', '/timesheet/watchable');
+  _tsWatchable = (r && r.ok) ? { users: r.users || [], can_view_all: !!r.can_view_all }
+                             : { users: [], can_view_all: false };
+  return _tsWatchable;
+}
 
 function _isoWeekString(d) {
   const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -284,13 +294,21 @@ function _isoWeekString(d) {
 
 async function loadTimesheet() {
   if (!_tsCursor) _tsCursor = new Date();
+  await _tsEnsureWatchable();
+  _tsRenderWatchBar();
+  const viewing = _tsViewUser;   // snapshot for this render
+  // hide the "Log time" button when looking at someone else's week (read-only)
+  const logBtn = document.getElementById('ts-logtime-btn');
+  if (logBtn) logBtn.classList.toggle('hidden', !!viewing);
   const wk = _isoWeekString(_tsCursor);
-  const r = await api('GET', '/timesheet?week=' + encodeURIComponent(wk));
+  const r = await api('GET', '/timesheet?week=' + encodeURIComponent(wk) +
+                      (viewing ? '&user=' + encodeURIComponent(viewing) : ''));
   const wrap = document.getElementById('ts-week-wrap');
   if (!wrap) return;
   if (!r || !r.ok) { wrap.innerHTML = '<div class="empty-state-sm">Failed to load timesheet.</div>'; return; }
   const lbl = document.getElementById('ts-week-label');
-  if (lbl) lbl.textContent = r.week + '  ·  ' + _bHours(r.total_hours) + 'h total · ' + _bHours(r.billable_hours) + 'h billable';
+  if (lbl) lbl.textContent = (viewing ? viewing + '  ·  ' : '') + r.week + '  ·  ' +
+    _bHours(r.total_hours) + 'h total · ' + _bHours(r.billable_hours) + 'h billable';
   const dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   wrap.innerHTML = (r.days || []).map((d, i) => {
     const rows = (d.entries || []).map(e => {
@@ -311,7 +329,7 @@ async function loadTimesheet() {
       <div class="row-6 ts-day-head">
         <span class="fw-600">${dow[i]} <span class="meta-sm-nm">${escHtml(d.date)}</span></span>
         <span class="ml-auto meta-sm-nm">${_bHours(d.total)}h</span>
-        <button class="btn-icon cell-sm" data-action="openTimesheetEntry" data-arg="${escAttr(d.date)}" title="Add time on this day">+</button>
+        ${viewing ? '' : `<button class="btn-icon cell-sm" data-action="openTimesheetEntry" data-arg="${escAttr(d.date)}" title="Add time on this day">+</button>`}
       </div>
       <div class="scroll-cap-sm">${rows}</div>
     </div>`;
@@ -320,6 +338,47 @@ async function loadTimesheet() {
 function tsPrevWeek() { _tsCursor = new Date((_tsCursor || new Date()).getTime() - 7 * 864e5); loadTimesheet(); }
 function tsNextWeek() { _tsCursor = new Date((_tsCursor || new Date()).getTime() + 7 * 864e5); loadTimesheet(); }
 function tsThisWeek() { _tsCursor = new Date(); loadTimesheet(); }
+
+/* "Watch for" — view a timesheet you're allowed to watch (admin/finance, or a
+   watch grant). Always an omnisearch typeahead, never a dropdown. */
+function _tsRenderWatchBar() {
+  const bar = document.getElementById('ts-watch-bar');
+  if (!bar) return;
+  const w = _tsWatchable || { users: [], can_view_all: false };
+  if (!w.users.length && !w.can_view_all) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  bar.classList.remove('hidden');
+  const viewing = _tsViewUser
+    ? `<span class="patch-badge warn">${_bIcon('eye', 12)} ${escHtml(_tsViewUser)}</span> <button class="btn-icon cell-sm" data-action="tsViewMine">Back to mine</button>`
+    : '';
+  bar.innerHTML = `<div class="row-6-center">
+    <span class="meta-sm-nm">${_bIcon('eye', 13)} Watch for</span>
+    <input type="text" id="ts-watch-input" class="form-input input-wide-sm" placeholder="Type a name…" aria-label="Watch another user's timesheet" autocomplete="off" data-input="_tsWatchResults">
+    ${viewing}
+    <div id="ts-watch-results" class="ts-watch-results scroll-cap-sm hidden"></div>
+  </div>`;
+}
+
+function _tsWatchResults() {
+  const inp = document.getElementById('ts-watch-input');
+  const box = document.getElementById('ts-watch-results');
+  if (!inp || !box) return;
+  const q = inp.value.toLowerCase().trim();
+  const users = (_tsWatchable && _tsWatchable.users) || [];
+  const m = (q ? users.filter(u => u.toLowerCase().includes(q)) : users).slice(0, 20);
+  if (!m.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = m.map(u => `<div class="pointer p-6" data-action="tsPickWatch" data-arg="${escAttr(u)}">${escHtml(u)}</div>`).join('');
+}
+
+function tsPickWatch(u) {
+  _tsViewUser = String(u);
+  const box = document.getElementById('ts-watch-results');
+  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+  loadTimesheet();
+}
+
+function tsViewMine() { _tsViewUser = ''; loadTimesheet(); }
+
 function tsExportCsv() {
   const wk = _isoWeekString(_tsCursor || new Date());
   // export my entries for the visible week via the ledger CSV (from/to bounds)
@@ -327,7 +386,86 @@ function tsExportCsv() {
   const day = base.getUTCDay() || 7; const mon = new Date(base.getTime() - (day - 1) * 864e5);
   const from = mon.toISOString().slice(0, 10);
   const to = new Date(mon.getTime() + 6 * 864e5).toISOString().slice(0, 10);
-  _downloadAuthed('/api/time-entries?format=csv&from=' + from + '&to=' + to, 'timesheet-' + wk + '.csv', 'Timesheet CSV downloaded');
+  const u = _tsViewUser ? '&user=' + encodeURIComponent(_tsViewUser) : '';
+  _downloadAuthed('/api/time-entries?format=csv&from=' + from + '&to=' + to + u,
+                  'timesheet-' + (_tsViewUser || 'me') + '-' + wk + '.csv', 'Timesheet CSV downloaded');
+}
+
+/* ── Timesheet watchers (admin, on the Users page) ─────────────────────── */
+let _twData = null;   // { users:[], teams:[], grants:[] }
+
+async function loadTimesheetWatchers() {
+  const list = document.getElementById('tw-list');
+  if (!list) return;   // not on the Users page / no card
+  const r = await api('GET', '/timesheet/watchers');
+  if (!r || !r.ok) { list.innerHTML = '<div class="c-muted">Failed to load.</div>'; return; }
+  _twData = { users: r.users || [], teams: r.teams || [], grants: r.grants || [] };
+  _twRenderList();
+}
+
+function _twRenderList() {
+  const list = document.getElementById('tw-list');
+  if (!list || !_twData) return;
+  const g = _twData.grants;
+  if (!g.length) { list.innerHTML = '<div class="meta-sm-nm">No watch grants yet.</div>'; return; }
+  list.innerHTML = g.map(x => `<div class="row-6 ts-entry">
+    <span class="fw-600">${escHtml(x.watcher)}</span>
+    <span class="meta-sm-nm">watches</span>
+    <span class="patch-badge">${escHtml(x.scope)}: ${escHtml(x.value)}</span>
+    <span class="ml-auto"><button class="btn-icon cell-sm c-danger-outline" data-action="deleteTimesheetWatcher" data-arg="${escAttr(x.id)}" title="Remove">${_bIcon('trash', 12)}</button></span>
+  </div>`).join('');
+}
+
+function _twTypeahead(inpId, boxId, src) {
+  const inp = document.getElementById(inpId), box = document.getElementById(boxId);
+  if (!inp || !box) return;
+  const q = inp.value.toLowerCase().trim();
+  const items = (q ? (src || []).filter(u => u.toLowerCase().includes(q)) : (src || [])).slice(0, 20);
+  if (!items.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = items.map(u => `<div class="pointer p-6" data-action="_twPick" data-arg="${escAttr(boxId)}" data-arg2="${escAttr(u)}">${escHtml(u)}</div>`).join('');
+}
+
+function _twWatcherResults() { _twTypeahead('tw-watcher', 'tw-watcher-results', _twData && _twData.users); }
+function _twValueResults() {
+  const scope = document.getElementById('tw-scope')?.value;
+  _twTypeahead('tw-value', 'tw-value-results',
+               scope === 'team' ? (_twData && _twData.teams) : (_twData && _twData.users));
+}
+function _twPick(boxId, val) {
+  const inp = document.getElementById(String(boxId).replace('-results', ''));
+  if (inp) inp.value = String(val);
+  const box = document.getElementById(boxId);
+  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+}
+function _twScopeChanged() {
+  const scope = document.getElementById('tw-scope')?.value;
+  const val = document.getElementById('tw-value');
+  if (val) { val.value = ''; val.placeholder = scope === 'team' ? 'Type a team…' : 'Type a username…'; }
+  const box = document.getElementById('tw-value-results');
+  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+}
+
+async function addTimesheetWatcher() {
+  const watcher = document.getElementById('tw-watcher')?.value.trim();
+  const scope = document.getElementById('tw-scope')?.value;
+  const value = document.getElementById('tw-value')?.value.trim();
+  if (!watcher || !value) { toast('Watcher and target are required', 'error'); return; }
+  const r = await api('POST', '/timesheet/watchers', { watcher, scope, value });
+  if (r?.ok) {
+    toast('Watch grant added', 'success');
+    document.getElementById('tw-watcher').value = '';
+    document.getElementById('tw-value').value = '';
+    loadTimesheetWatchers();
+  } else toast(r?.error || 'Failed', 'error');
+}
+
+async function deleteTimesheetWatcher(id) {
+  id = String(id);
+  if (!await uiConfirm('Remove this watch grant?')) return;
+  const r = await api('DELETE', '/timesheet/watchers/' + encodeURIComponent(id));
+  if (r?.ok) { toast('Grant removed', 'info'); loadTimesheetWatchers(); }
+  else toast(r?.error || 'Failed', 'error');
 }
 
 /* ── Billing page (admin/finance) ──────────────────────────────────────── */
