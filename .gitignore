@@ -43,3 +43,7 @@ docs/*-internal.md
 
 # Local design scratch / mockups — never published
 design/
+
+# Stray screenshots dropped in the repo root (use docs/screenshots/ for real ones)
+/Screenshot_*.png
+/*.png
