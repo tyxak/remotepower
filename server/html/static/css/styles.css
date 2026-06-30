@@ -6567,6 +6567,11 @@ body[data-ui="industrial"] .dev-combo .dev-combo-input{
      dropdowns. A combobox here is a dropdown, not a typing well. */
   background:var(--surface2) !important;
   box-shadow:none !important;
+  /* the typed text must stay bright/readable — not the accent colour (it was
+     rendering blue-on-blue when the focus chamfer turned the area accent). */
+  color:var(--text) !important;
+  -webkit-text-fill-color:var(--text) !important;
+  caret-color:var(--accent);
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
 }
 
