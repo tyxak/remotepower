@@ -282,6 +282,9 @@ PROVISION_FILE      = DATA_DIR / 'blueprints.json'
 MAX_BLUEPRINTS      = 300
 MAX_BLUEPRINT_BYTES = 256 * 1024
 _BLUEPRINT_KINDS    = ('terraform', 'cloud-init', 'ansible', 'ipxe')
+# v5.6.0: server-side terraform execution. Persistent per-blueprint workdir so
+# state survives (destroy / re-apply work). Gated behind iac_execute_enabled.
+IAC_RUNS_DIR        = DATA_DIR / 'iac_runs'
 
 MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
 MAX_CMDB_FUNC_LEN   = 64
@@ -12804,7 +12807,10 @@ def handle_blueprints_list():
                       'kinds': list(_BLUEPRINT_KINDS)})
     bps = [_bp_public(b) for b in _blueprints_load()['blueprints']]
     respond(200, {'ok': True, 'enabled': True, 'blueprints': bps,
-                  'kinds': list(_BLUEPRINT_KINDS)})
+                  'kinds': list(_BLUEPRINT_KINDS),
+                  # v5.6.0: tells the UI whether terraform blueprints can be RUN
+                  'execute_enabled': _iac_execute_enabled(),
+                  'terraform_available': _terraform_available()})
 
 
 def handle_blueprint_create():
@@ -12926,6 +12932,114 @@ def handle_blueprint_render(bp_id):
     fname = re.sub(r'[^A-Za-z0-9._-]', '_', bp.get('name', 'blueprint')) or 'blueprint'
     respond(200, {'ok': True, 'rendered': rendered,
                   'missing': sorted(set(missing)), 'filename': fname})
+
+
+# ── v5.6.0: server-side terraform execution ─────────────────────────────────
+# Terraform blueprints can be RUN on the server (plan / apply / destroy),
+# mirroring the Ansible runner. This executes arbitrary infrastructure code with
+# cloud credentials, so it carries TWO gates: the page toggle (show_provisioning)
+# AND a separate iac_execute_enabled switch (default OFF). Admin-only, audited.
+# State persists in a per-blueprint workdir so destroy / re-apply work. Secret
+# variables are passed as ENV only (never written to disk or the command line);
+# non-secret variables become an auto-loaded tfvars file.
+
+def _terraform_available():
+    import shutil
+    return shutil.which('terraform') is not None
+
+
+def _iac_execute_enabled():
+    return bool((load(CONFIG_FILE) or {}).get('iac_execute_enabled'))
+
+
+def _terraform_run(bp, op, supplied):
+    """Run `terraform <op>` for a blueprint in its persistent workdir. Returns
+    (output, returncode). Pure subprocess orchestration — no request access."""
+    import subprocess
+    workdir = IAC_RUNS_DIR / re.sub(r'[^A-Za-z0-9_-]', '_', str(bp['id']))[:64]
+    workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(workdir, 0o700)   # may hold provider plugins + state
+    except OSError:
+        pass
+    (workdir / 'main.tf').write_text(bp.get('content', ''))
+    # declared variables: non-secret → on-disk tfvars; secret → env only.
+    tfvars, env = {}, dict(os.environ)
+    for v in bp.get('variables', []):
+        if not isinstance(v, dict) or not v.get('name'):
+            continue
+        name = v['name']
+        val = supplied.get(name, v.get('default', ''))
+        val = '' if val is None else str(val)
+        if v.get('secret'):
+            env['TF_VAR_' + name] = val
+            env[name] = val            # bare env too, for cloud creds (AWS_ACCESS_KEY_ID …)
+        else:
+            tfvars[name] = val
+    (workdir / 'rp.auto.tfvars.json').write_text(json.dumps(tfvars))
+    env['TF_IN_AUTOMATION'] = '1'
+    env['TF_INPUT'] = '0'
+    parts, rc = [], 0
+
+    def _tf(args, timeout):
+        try:
+            p = subprocess.run(['terraform', *args], capture_output=True, text=True,  # nosec B603 B607
+                               timeout=timeout, cwd=str(workdir), env=env)
+            parts.append((p.stdout or '') + (('\n' + p.stderr) if p.stderr else ''))
+            return p.returncode
+        except subprocess.TimeoutExpired:
+            parts.append(f'\n[terraform {args[0]}] timed out')
+            return 124
+        except FileNotFoundError:
+            parts.append('terraform not found')
+            return 127
+
+    if not (workdir / '.terraform').exists():
+        rc = _tf(['init', '-input=false', '-no-color'], 300)
+    if rc == 0:
+        if op == 'plan':
+            rc = _tf(['plan', '-input=false', '-no-color'], 900)
+        elif op == 'apply':
+            rc = _tf(['apply', '-input=false', '-auto-approve', '-no-color'], 1800)
+        elif op == 'destroy':
+            rc = _tf(['destroy', '-input=false', '-auto-approve', '-no-color'], 1800)
+    return '\n'.join(parts)[-65536:], rc
+
+
+def handle_blueprint_run(bp_id):
+    """POST /api/provisioning/blueprints/{id}/run — execute a TERRAFORM blueprint
+    server-side. Body: {op: plan|apply|destroy, vars:{...}}. Admin-only; gated by
+    BOTH the provisioning toggle and iac_execute_enabled."""
+    actor = require_admin_auth()
+    if not _provisioning_enabled():
+        respond(403, {'error': 'Provisioning is disabled'})
+    if not _iac_execute_enabled():
+        respond(403, {'error': 'Server-side execution is disabled — enable it under Settings → Advanced'})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _terraform_available():
+        respond(400, {'error': 'terraform is not installed on the server'})
+    body = get_json_obj()
+    op = str(body.get('op', '')).strip()
+    if op not in ('plan', 'apply', 'destroy'):
+        respond(400, {'error': 'op must be plan, apply or destroy'})
+    bp = next((b for b in _blueprints_load()['blueprints'] if b['id'] == bp_id), None)
+    if not bp:
+        respond(404, {'error': 'blueprint not found'})
+    if bp.get('kind') != 'terraform':
+        respond(400, {'error': 'only terraform blueprints can be executed; the others are render-only'})
+    supplied = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+    out, rc = _terraform_run(bp, op, supplied)
+    data = _blueprints_load()
+    for b in data['blueprints']:
+        if b['id'] == bp_id:
+            b['last_op'] = op
+            b['last_run'] = int(time.time())
+            b['last_rc'] = rc
+            break
+    save(PROVISION_FILE, data)
+    audit_log(actor, 'blueprint_run', detail=f'blueprint={bp_id} op={op} rc={rc}')
+    respond(200, {'ok': rc == 0, 'op': op, 'rc': rc, 'output': out})
 
 
 def handle_device_group(dev_id):
@@ -18712,6 +18826,8 @@ def handle_config_save():
         cfg['billing_enabled'] = bool(body['billing_enabled'])
     if 'show_provisioning' in body:   # v5.6.0: Provisioning page opt-in (Advanced)
         cfg['show_provisioning'] = bool(body['show_provisioning'])
+    if 'iac_execute_enabled' in body:   # v5.6.0: server-side terraform execution
+        cfg['iac_execute_enabled'] = bool(body['iac_execute_enabled'])
     if 'port_audit_enabled' in body:
         _was_on = bool(cfg.get('port_audit_enabled', False))
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
@@ -33204,6 +33320,8 @@ def handle_home():
         'show_homelab': cfg.get('show_homelab', True) is not False,
         # v5.6.0: opt-in "Provisioning" page (blueprint catalog + render).
         'show_provisioning': bool(cfg.get('show_provisioning')),
+        # v5.6.0: extra gate to allow server-side terraform plan/apply/destroy.
+        'iac_execute_enabled': bool(cfg.get('iac_execute_enabled')),
         'attention':    _attention_payload(),
         # v4.1.0: dashboard cards — next events + tickets (open quick-ack + acked).
         'upcoming':     _dashboard_upcoming(),
@@ -51809,6 +51927,8 @@ def _dispatch(pi, m):
     # v5.6.0: provisioning blueprints (render / update / delete by id)
     elif pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/render') and m == 'POST':
         handle_blueprint_render(pi[len('/api/provisioning/blueprints/'):-len('/render')])
+    elif pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/run') and m == 'POST':
+        handle_blueprint_run(pi[len('/api/provisioning/blueprints/'):-len('/run')])
     elif pi.startswith('/api/provisioning/blueprints/') and m == 'PUT':
         handle_blueprint_update(pi[len('/api/provisioning/blueprints/'):])
     elif pi.startswith('/api/provisioning/blueprints/') and m == 'DELETE':

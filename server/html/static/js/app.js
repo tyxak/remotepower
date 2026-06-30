@@ -1256,8 +1256,7 @@ const _SIDEBAR_KW = {
   'software policy': 'software policy allowed banned packages blocklist allowlist required forbidden',
   'automation': 'automation rules triggers actions auto remediation if then',
   'auto-patch': 'auto-patch autopatch automatic updates unattended upgrades patching policy windows',
-  'ansible': 'ansible playbook automation configuration management inventory adhoc',
-  'provisioning': 'provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure template catalog spin up machine deploy',
+  'provisioning': 'provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure template catalog spin up machine deploy ansible playbook automation configuration management run plan apply destroy',
   'tuning': 'tuning alert noise noisy mute silence ignore suppress quiet top 10 sources rkhunter per host',
   'confirmations': 'confirmations mcp pending approval confirm two-person sign-off',
   'ai assistant': 'ai assistant insights ai insights briefing rca anomaly recommendations chat provider openai anthropic ollama rag ask analyze',
@@ -1583,8 +1582,7 @@ function showPage(name, btn) {
   if (name === 'sites')    loadSites();
   if (name === 'autopatch') loadAutopatch();
   if (name === 'backups')  loadBackupJobs();
-  if (name === 'ansible')  loadAnsible();
-  if (name === 'provisioning') loadProvisioning();
+  if (name === 'provisioning') loadProvisioning();   // also loads the Ansible playbooks card
   if (name === 'cmdqueue') loadCommandQueue();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
@@ -3035,6 +3033,8 @@ async function loadSettings() {
   const _spe = document.getElementById('cfg-show-provisioning');   // v5.6.0: Provisioning page opt-in
   if (_spe) _spe.checked = !!data.show_provisioning;
   document.getElementById('nav-provisioning')?.classList.toggle('d-none', !data.show_provisioning);
+  const _iace = document.getElementById('cfg-iac-execute');   // v5.6.0: terraform exec gate
+  if (_iace) _iace.checked = !!data.iac_execute_enabled;
   const _scimEn = document.getElementById('cfg-scim-enabled');
   if (_scimEn) _scimEn.checked = !!data.scim_enabled;
   const _scimSt = document.getElementById('scim-status');
@@ -3477,6 +3477,8 @@ async function saveSettings(btn) {
   if (_blEn) payload.billing_enabled = _blEn.checked;
   const _spEn = document.getElementById('cfg-show-provisioning');   // v5.6.0: Provisioning page opt-in
   if (_spEn) payload.show_provisioning = _spEn.checked;
+  const _iacEn = document.getElementById('cfg-iac-execute');   // v5.6.0: terraform exec gate
+  if (_iacEn) payload.iac_execute_enabled = _iacEn.checked;
   const _ceaEn = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_ceaEn) payload.cert_expiry_alerts_enabled = _ceaEn.checked;
 

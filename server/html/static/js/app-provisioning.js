@@ -8,6 +8,8 @@
 
 let _provisioningCache = [];
 let _bpRenderState = null;   // { id, filename } of the blueprint open in the render modal
+let _bpRunState = null;      // { id, name } of the blueprint open in the run modal
+let _provExec = false;       // terraform plan/apply/destroy available (enabled + binary present)
 
 async function loadProvisioning() {
   const tree = document.getElementById('provisioning-tree');
@@ -19,7 +21,10 @@ async function loadProvisioning() {
     if (tree) tree.innerHTML = '<div class="empty-state">Provisioning is disabled. Enable it under Settings → Advanced.</div>';
     return;
   }
+  _provExec = !!(d.execute_enabled && d.terraform_available);
   _provisioningCache = d.blueprints || [];
+  // Also load the Ansible playbooks card (consolidated under Provisioning).
+  if (typeof loadAnsible === 'function') { try { loadAnsible(); } catch (_) {} }
   _renderProvisioningTree();
 }
 
@@ -51,10 +56,18 @@ function _renderProvisioningTree() {
 }
 
 function _bpRow(b) {
+  // terraform blueprints can be executed server-side when the gate is on.
+  const runBtn = (b.kind === 'terraform' && _provExec)
+    ? `<button class="btn-icon" data-action-btn="_blueprintRunBtn" data-id="${escAttr(b.id)}" title="Run on the server — plan / apply / destroy">${_icon('terminal', 13)} Run</button>`
+    : '';
+  const lastRc = (b.last_rc === 0) ? '<span class="patch-badge ok fs-11">ok</span>'
+    : (typeof b.last_rc === 'number') ? `<span class="patch-badge c-red fs-11">${escHtml(b.last_op || 'run')} rc=${b.last_rc}</span>` : '';
   return `<div class="bp-item">
     <span class="bp-item-name">${_icon('fileCode', 13)} ${escHtml(b.name)}</span>
     <span class="bp-kind">${escHtml(b.kind)}</span>
+    ${lastRc}
     <span class="bp-item-actions">
+      ${runBtn}
       <button class="btn-icon" data-action-btn="_blueprintRenderBtn" data-id="${escAttr(b.id)}" title="Fill variables and render">${_icon('play', 13)} Render</button>
       <button class="btn-icon" data-action-btn="_blueprintEditBtn" data-id="${escAttr(b.id)}" title="Edit">${_icon('edit', 13)} Edit</button>
       <button class="btn-icon c-danger-outline" data-action="deleteBlueprint" data-arg="${escAttr(b.id)}" title="Delete">${_icon('trash', 13)}</button>
@@ -191,4 +204,38 @@ function downloadBlueprintRender() {
   const a = document.createElement('a');
   a.href = url; a.download = name; document.body.appendChild(a); a.click();
   a.remove(); URL.revokeObjectURL(url);
+}
+
+// ── execute (terraform: plan / apply / destroy) ─────────────────────────────
+
+function _blueprintRunBtn(btn) {
+  const b = _provisioningCache.find(x => x.id === btn.dataset.id);
+  if (!b) return;
+  _bpRunState = { id: b.id, name: b.name };
+  document.getElementById('blueprint-run-id').value = b.id;
+  document.getElementById('blueprint-run-name').textContent = b.name;
+  document.getElementById('blueprint-run-out').value = '';
+  const host = document.getElementById('blueprint-run-vars');
+  const vars = b.variables || [];
+  host.innerHTML = vars.length ? vars.map(v =>
+    `<div class="form-group"><label class="form-label">${escHtml(v.label || v.name)} <span class="hint">var.${escHtml(v.name)}</span></label>
+      <input type="${v.secret ? 'password' : 'text'}" class="form-input bp-run-input" data-var="${escAttr(v.name)}" value="${escAttr(v.secret ? '' : (v.default || ''))}"${v.secret ? ' autocomplete="new-password" placeholder="(secret — passed as env, never written to disk)"' : ''}></div>`
+  ).join('') : '<div class="hint mb-8">No declared variables — the blueprint runs as-is.</div>';
+  openModal('blueprint-run-modal');
+}
+
+async function runBlueprintOp(op) {
+  if (!_bpRunState) return;
+  if ((op === 'apply' || op === 'destroy') &&
+      !await uiConfirm(`terraform ${op} will change real infrastructure for "${_bpRunState.name}". Continue?`)) return;
+  const vars = {};
+  document.querySelectorAll('#blueprint-run-vars .bp-run-input').forEach(inp => { vars[inp.dataset.var] = inp.value; });
+  const outEl = document.getElementById('blueprint-run-out');
+  outEl.value = `Running terraform ${op}…`;
+  const r = await api('POST', '/provisioning/blueprints/' + encodeURIComponent(_bpRunState.id) + '/run', { op, vars });
+  if (!r) { outEl.value = 'Request failed.'; return; }
+  if (r.error) { outEl.value = r.error; toast(r.error, 'error'); return; }
+  outEl.value = r.output || '(no output)';
+  toast(`terraform ${op} ${r.ok ? 'succeeded' : 'exited rc=' + r.rc}`, r.ok ? 'success' : 'error');
+  loadProvisioning();   // refresh the last-run badge
 }

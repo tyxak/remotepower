@@ -444,10 +444,6 @@
         <svg aria-hidden="true" class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-362ebcd7"/></svg>
       </button>
       <div class="sidebar-group-items">
-        <button class="nav-btn" data-page="ansible" title="Run Ansible playbooks against the fleet">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
-          <span>Ansible</span>
-        </button>
         <button class="nav-btn" data-page="apikeys" title="Named non-expiring API keys for scripts and CI pipelines">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
@@ -2232,7 +2228,9 @@
             <p class="hint">Opt-in modules, all off by default. Enabling one adds its page to the sidebar.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices). Configure the mailbox below once enabled.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-billing-enabled"> Billing (time-tracking worksheet, per-customer invoices and rates &amp; fees; admin / finance). Logging hours on tickets and the weekly timesheet stay available regardless.</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-show-provisioning"> Provisioning (blueprint catalog: Terraform / cloud-init / Ansible / iPXE templates in a folder tree; fill variables → render to copy or download; render-only, nothing is executed on the server).</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-show-provisioning"> Provisioning (blueprint catalog: Terraform / cloud-init / Ansible / iPXE templates in a folder tree, plus the Ansible playbook runner; fill variables → render to copy or download).</label></div>
+            <div class="settings-row ml-24"><label class="form-label"><input type="checkbox" id="cfg-iac-execute"> ↳ Allow server-side execution — run Terraform <strong>plan / apply / destroy</strong> on the server with your cloud credentials. Requires <code>terraform</code> installed. Admin-only and audited. Leave off to keep Provisioning render-only.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-file-manager" data-change="saveFileManager" data-change-checked="1"> Host file manager (browse / read / edit host files from the device drawer, under an allow-listed set of roots; gated on the <code>command</code> permission, audited; reads allowed under quarantine/audit mode, writes not).</label></div>
           </div>
 
           <div class="settings-section">
@@ -2338,14 +2336,6 @@
             </div>
             <button class="btn-secondary isl-55"
                     data-action="downloadDebugLog" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-c923885c"/></svg>Download server debug log</button>
-          </div>
-
-          <div class="settings-section">
-            <h3>File manager</h3>
-            <p class="hint">Browse, read and edit host files from the device drawer (under an allow-listed set of roots: <code>/etc, /var/log, /var/lib, /home, /opt, /srv, /tmp, /usr/local</code>). Off by default — it's a powerful capability gated on the same <code>command</code> permission as remote exec; reads stay allowed under quarantine/audit mode, writes do not.</p>
-            <div class="settings-row">
-              <label class="click-row"><input type="checkbox" id="cfg-file-manager" data-change="saveFileManager" data-change-checked="1"> <span class="form-label">Enable the host file manager</span></label>
-            </div>
           </div>
 
           <div class="settings-section">
@@ -4995,21 +4985,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- v3.7.0: Ansible playbook runner -->
-      <div id="page-ansible" class="page">
-        <div class="page-title">Ansible</div>
-        <div class="page-subtitle">Run Ansible playbooks against the fleet, with this server as the control node. Define a playbook, then run it against a group / tag / site over SSH. <span id="ansible-availability" class="hint"></span></div>
-        <div class="section-header"><div class="section-title">Playbooks</div><button class="enroll-btn" data-action="openAnsibleCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New playbook</button></div>
-        <div class="mb-16"><input type="text" id="ansible-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
-        <div class="table-card"><table><thead id="ansible-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="last_rc">Result</th><th scope="col"></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
-      </div>
-
       <!-- ── v5.6.0: Provisioning blueprints (catalog + render) ──────────── -->
       <div id="page-provisioning" class="page">
         <div class="page-title">Provisioning</div>
-        <div class="page-subtitle">A catalog of infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates organised in folders. Fill in a blueprint's variables and render it to copy or download. Render-only — nothing is executed on the server.</div>
+        <div class="page-subtitle">A catalog of infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates organised in folders. Fill in a blueprint's variables and render it to copy or download; Terraform blueprints can also be run on the server (plan / apply / destroy) when execution is enabled.</div>
         <div class="section-header"><div class="section-title">Blueprints</div><button class="enroll-btn" data-action="openBlueprintCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New blueprint</button></div>
         <div class="mb-16"><input type="text" id="provisioning-filter" class="form-input input-wide-sm" placeholder="Filter blueprints…" aria-label="Filter blueprints" data-input="filterProvisioning"></div>
         <div class="dash-card"><div id="provisioning-tree" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
+
+        <div class="section-header mt-24"><div class="section-title">Ansible playbooks</div><button class="enroll-btn" data-action="openAnsibleCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New playbook</button></div>
+        <div class="hint mb-12">Run Ansible playbooks against the fleet, with this server as the control node. Define a playbook, then run it against a group / tag / site over SSH. <span id="ansible-availability" class="hint"></span></div>
+        <div class="mb-16"><input type="text" id="ansible-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
+        <div class="table-card"><table><thead id="ansible-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="last_rc">Result</th><th scope="col"></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
       <!-- ── v5.6.0: Alert tuning ────────────────────────────────────────── -->
@@ -6797,6 +6784,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="blueprint-render-vars" class="scroll-cap-sm mb-12"></div>
   <div class="form-group"><label class="form-label">Rendered output</label><textarea id="blueprint-render-out" class="form-textarea ff-mono" rows="14" readonly placeholder="Click Render to fill the template…"></textarea></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="blueprint-render-modal">Close</button><button class="btn-icon" data-action="copyBlueprintRender">Copy</button><button class="btn-icon" data-action="downloadBlueprintRender">Download</button><button class="btn-primary" data-action="renderBlueprint">Render</button></div>
+</div></div>
+<!-- v5.6.0: Provisioning — run a terraform blueprint (plan/apply/destroy) -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="blueprint-run-modal-title" id="blueprint-run-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="blueprint-run-modal-title">Run — <span id="blueprint-run-name"></span></div>
+  <div class="modal-subtitle">Executes Terraform on the server. <strong>Apply</strong> and <strong>Destroy</strong> change real infrastructure. Admin-only and audited; secret variables are passed as environment and never written to disk.</div>
+  <input type="hidden" id="blueprint-run-id">
+  <div id="blueprint-run-vars" class="scroll-cap-sm mb-12"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="blueprint-run-modal">Close</button>
+    <button class="btn-icon" data-action="runBlueprintOp" data-arg="plan">Plan</button>
+    <button class="btn-primary" data-action="runBlueprintOp" data-arg="apply">Apply</button>
+    <button class="btn-icon c-danger-outline" data-action="runBlueprintOp" data-arg="destroy">Destroy</button>
+  </div>
+  <div class="form-group"><label class="form-label">Output</label><textarea id="blueprint-run-out" class="form-textarea ff-mono" rows="14" readonly placeholder="Run output appears here…"></textarea></div>
 </div></div>
 <!-- v3.7.0: Ansible run -->
 <div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ansible-run-modal-title" id="ansible-run-modal"><div class="modal modal-wide">

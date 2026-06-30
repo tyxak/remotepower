@@ -110,22 +110,72 @@ class TestApiWiring(unittest.TestCase):
         self.assertIn('require_admin_auth()', seg)
         self.assertIn('_provisioning_enabled()', seg)
 
-    def test_render_only_no_execution(self):
-        """The whole provisioning block must contain NO process/exec sinks —
-        this is the render-only safety guarantee."""
-        start = _SRC.index('def _provisioning_enabled')
-        end = _SRC.index('def handle_device_group')
+    def test_render_handler_no_execution(self):
+        """The RENDER handler must be pure string substitution — no process/exec
+        sinks. (Terraform execution lives in the separate run handler, gated and
+        tested below.)"""
+        start = _SRC.index('def handle_blueprint_render')
+        end = _SRC.index('def _terraform_available')   # render ends where exec begins
         block = _SRC[start:end]
         for sink in ('subprocess', 'os.system', 'os.popen', 'eval(', 'exec(',
                      'Popen', 'shell=True'):
-            self.assertNotIn(sink, block, f'render block must not use {sink}')
+            self.assertNotIn(sink, block, f'render handler must not use {sink}')
 
     def test_config_flag_emitted_and_saved(self):
         self.assertIn("'show_provisioning': bool(cfg.get('show_provisioning'))", _SRC)
         self.assertIn("cfg['show_provisioning'] = bool(body.get('show_provisioning'))", _SRC)
 
 
+class TestTerraformExecution(unittest.TestCase):
+    def test_run_wiring(self):
+        self.assertIn("/api/provisioning/blueprints/') and pi.endswith('/run')", _SRC)
+        seg = _SRC[_SRC.index('def handle_blueprint_run'):
+                   _SRC.index('def handle_blueprint_run') + 2000]
+        self.assertIn('require_admin_auth()', seg)
+        self.assertIn('_provisioning_enabled()', seg)
+        self.assertIn('_iac_execute_enabled()', seg)            # the second gate
+        self.assertIn("audit_log(actor, 'blueprint_run'", seg)
+        self.assertIn("bp.get('kind') != 'terraform'", seg)     # only terraform executes
+
+    def test_list_exposes_exec_flags(self):
+        self.assertIn("'execute_enabled': _iac_execute_enabled()", _SRC)
+        self.assertIn("'terraform_available': _terraform_available()", _SRC)
+
+    def test_config_flag_emitted_and_saved(self):
+        self.assertIn("'iac_execute_enabled': bool(cfg.get('iac_execute_enabled'))", _SRC)
+        self.assertIn("cfg['iac_execute_enabled'] = bool(body['iac_execute_enabled'])", _SRC)
+
+    def test_var_secret_split(self):
+        """Non-secret vars go to the on-disk tfvars; secrets never do (env only).
+        Uses a provider-free config so terraform init is fast if installed, and
+        falls back gracefully (rc 127) when terraform is absent."""
+        import json as _json
+        import shutil as _sh
+        bp = {'id': 'tftest_split', 'kind': 'terraform',
+              'content': 'variable "region" {}\nvariable "token" {}\n',
+              'variables': [{'name': 'region', 'secret': False},
+                            {'name': 'token', 'secret': True}]}
+        wd = api.IAC_RUNS_DIR / 'tftest_split'
+        try:
+            out, rc = api._terraform_run(bp, 'plan', {'region': 'eu-west-1', 'token': 'SEKRET'})
+            tfvars = _json.loads((wd / 'rp.auto.tfvars.json').read_text())
+            self.assertEqual(tfvars.get('region'), 'eu-west-1')
+            self.assertNotIn('token', tfvars)              # secret stays OFF disk
+            self.assertIn('variable "region"', (wd / 'main.tf').read_text())
+            self.assertNotIn('SEKRET', (wd / 'rp.auto.tfvars.json').read_text())
+            self.assertIsInstance(rc, int)
+        finally:
+            _sh.rmtree(wd, ignore_errors=True)
+
+
 class TestFrontendWiring(unittest.TestCase):
+    def test_run_button_and_modal(self):
+        index = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+        self.assertIn('id="blueprint-run-modal"', index)
+        prov = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-provisioning.js').read_text()
+        self.assertIn('function runBlueprintOp', prov)
+        self.assertIn('_blueprintRunBtn', prov)
+
     def test_page_module_and_nav_present(self):
         index = (_ROOT / 'server' / 'html' / 'index.html').read_text()
         self.assertIn('id="nav-provisioning"', index)

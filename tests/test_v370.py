@@ -162,10 +162,15 @@ class TestV370Ansible(unittest.TestCase):
         self.assertIn("require_perm('script', ids)", API)   # v3.12.0: was 'exec'
         self.assertIn('ansible-playbook', API)
     def test_frontend(self):
-        self.assertIn('data-page="ansible"', HTML)
+        # v5.6.0: Ansible consolidated UNDER the Provisioning page — the
+        # standalone nav button + #page-ansible were removed; the playbook
+        # table now renders inside the Provisioning page.
+        self.assertNotIn('data-page="ansible"', HTML)
+        self.assertNotIn('id="page-ansible"', HTML)
+        self.assertIn('id="ansible-tbody"', HTML)
+        self.assertIn('Ansible playbooks', HTML)
         self.assertIn('function loadAnsible(', self.APP)
         self.assertIn('function runAnsiblePlaybook(', self.APP)
-        self.assertIn("name === 'ansible'", self.APP)
 
 
 if __name__ == '__main__':
