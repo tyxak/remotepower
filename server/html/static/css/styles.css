@@ -6534,6 +6534,12 @@ body[data-ui="industrial"] .dev-combo:focus-within::before{ background:var(--acc
 body[data-ui="industrial"] .dev-combo .dev-combo-input{
   position:relative; z-index:1; width:100%;
   border:none !important; border-radius:0 !important; outline:none !important;
+  /* match the native chamfered <select>s: a FLAT --surface2 fill with no inset
+     well-shadow. The default input-well treatment (recessed --well-bg + inner
+     shadow) made the combobox's accent border read much stronger than the other
+     dropdowns. A combobox here is a dropdown, not a typing well. */
+  background:var(--surface2) !important;
+  box-shadow:none !important;
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
 }
 
