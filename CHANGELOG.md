@@ -59,6 +59,11 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
   **N issues** (offline + open alerts + monitors down) otherwise; click jumps to Alerts.
 - **Sidebar:** the synthetic-monitor page **Targets → Remote Checks**, re-sorted into its
   alphabetical slot.
+- **Virtualization integrations:** two new read-only connectors — **Red Hat OpenShift**
+  (nodes + projects via a ServiceAccount token) and **VMware Cloud Director** (vApp + VM
+  counts) — added to the homelab-integrations set (now 28); the vCenter connector relabelled
+  **VMware vSphere / ESXi / vCenter**. The **Settings → Proxmox** tab is renamed
+  **Virtualization**.
 - **Security pass** (5-dimension pentest + full SAST stack; CodeQL 0, bandit/gitleaks/
   njsscan/pip-audit clean — see `docs/security-review-5.6.0.md`). No Crit/High/Med. Seven
   Low fixes: two secret-bearing-URL leaks (`healthchecks_url`/`metrics_push.url` in the

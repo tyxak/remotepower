@@ -496,7 +496,7 @@ def _kubernetes(inst, c):
 
 @_register(
     "vcenter",
-    "VMware vCenter / ESXi",
+    "VMware vSphere / ESXi / vCenter",
     "orchestration",
     [_field("username", "Username", TEXT), _field("secret", "Password", PASSWORD)],
     notes="vCenter 7+ REST API (/api/session). Standalone ESXi exposes only SOAP — point at vCenter.",
@@ -534,6 +534,83 @@ def _vcenter(inst, c):
             "vms": len(vms),
             "vms_on": poweredon,
         },
+    }
+
+
+@_register(
+    "openshift",
+    "Red Hat OpenShift",
+    "orchestration",
+    [_field("secret", "API token", PASSWORD)],
+    notes="OpenShift exposes the Kubernetes API. Reads nodes + projects with a read-only oc/ServiceAccount Bearer token. Self-signed API: turn off Verify TLS.",
+)
+def _openshift(inst, c):
+    h = _hdr_token(inst, "Authorization", "Bearer ")
+    nodes = c.get_json("/api/v1/nodes", headers=h)
+    not_ready = []
+    for n in (nodes or {}).get("items", []):
+        ready = next(
+            (cd for cd in (n.get("status", {}).get("conditions") or [])
+             if cd.get("type") == "Ready"), None)
+        if not ready or ready.get("status") != "True":
+            not_ready.append(n.get("metadata", {}).get("name", "?"))
+    projects = 0
+    try:
+        projects = len((c.get_json("/apis/project.openshift.io/v1/projects", headers=h)
+                        or {}).get("items", []))
+    except IntegrationError:
+        pass
+    status = CRIT if not_ready else OK
+    n_nodes = len((nodes or {}).get("items", []))
+    detail = f"{n_nodes} nodes, {projects} projects" + (
+        f" · NotReady: {', '.join(not_ready[:3])}" if not_ready else "")
+    return {
+        "status": status,
+        "detail": detail,
+        "metrics": {"nodes": n_nodes, "nodes_notready": len(not_ready), "projects": projects},
+    }
+
+
+@_register(
+    "vcloud",
+    "VMware Cloud Director",
+    "orchestration",
+    [_field("username", "Username (user@org)", TEXT), _field("secret", "Password", PASSWORD)],
+    notes="Username as user@org (e.g. administrator@System). Reads vApp + VM counts via the /api session.",
+)
+def _vcloud(inst, c):
+    import base64
+
+    def _hget(headers, name):
+        name = name.lower()
+        for k, v in (headers or {}).items():
+            if str(k).lower() == name:
+                return v
+        return None
+
+    auth = base64.b64encode(
+        f"{inst.get('username','')}:{inst.get('secret','')}".encode()).decode()
+    accept = "application/*+json;version=37.0"
+    sess = c.request("POST", "/api/sessions",
+                     headers={"Authorization": "Basic " + auth, "Accept": accept})
+    if not sess.ok:
+        raise IntegrationError(f"session failed (HTTP {sess.status})")
+    token = _hget(sess.headers, "x-vmware-vcloud-access-token") or \
+        _hget(sess.headers, "x-vcloud-authorization")
+    if not token:
+        raise IntegrationError("no vCloud session token returned")
+    h = {"x-vcloud-authorization": token, "Accept": accept}
+    vms = c.get_json("/api/query?type=vm&format=records&pageSize=1", headers=h) or {}
+    vapps = c.get_json("/api/query?type=vApp&format=records&pageSize=1", headers=h) or {}
+    try:
+        n_vms = int(vms.get("total", 0) or 0)
+        n_vapps = int(vapps.get("total", 0) or 0)
+    except (TypeError, ValueError):
+        n_vms = n_vapps = 0
+    return {
+        "status": OK,
+        "detail": f"{n_vapps} vApps, {n_vms} VMs",
+        "metrics": {"vapps": n_vapps, "vms": n_vms},
     }
 
 
@@ -1173,6 +1250,12 @@ _STATS: dict = {
         ("vms_on", "VMs on", "num"),
         ("hosts_down", "Down", "num"),
     ],
+    "openshift": [
+        ("nodes", "Nodes", "num"),
+        ("nodes_notready", "Nodes down", "num"),
+        ("projects", "Projects", "num"),
+    ],
+    "vcloud": [("vapps", "vApps", "num"), ("vms", "VMs", "num")],
     "unraid": [("array_state", "Array", "str")],
     "traefik": [
         ("routers", "Routers", "num"),
