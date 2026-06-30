@@ -53900,6 +53900,7 @@ _AI_PROMPT_LABELS = {
     'host_profile':           'Host one-pager',
     'remote_access':          'Remote-access (VPN) review',
     'helpdesk_triage':        'Helpdesk triage',
+    'automation_suggest':     'Automation suggestions',
     # v3.0.1: Mitigation playbook prompts. One per alert category so a user
     # can tune the AI's tone independently — e.g. terse for service alerts,
     # more cautious for disk cleanup proposals.

@@ -45,6 +45,12 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
   `container_stopped` alert, per container name) and **`backup_recovered`** (a fresh
   backup clears `backup_stale`, per path). Both edge-triggered, wired through every
   registry. WEBHOOK_EVENTS now **91**.
+- **UI consistency**: the Settings cards (`.settings-section`) and the generic `.card`
+  now get the same industrial corner-tick framing as `.dash-card`/`.table-card`, and the
+  classic-skin card radii are unified (10px).
+- **New AI advisor — Automation suggestions**: reads your recurring alert / fleet-event
+  patterns and proposes concrete automation rules (trigger + scope + action: run script /
+  notify / open ticket / add tag / mute). 26th AI Insights card.
 
 ## v5.5.0 — "ScaleMatters" — 2026-06-29
 

@@ -102,6 +102,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Host-grouped alert inbox | Open alerts stacked per host (worst first), Ack-all/Resolve-all, symptoms folded under `device_offline` root cause *(v4.1.0)* |
 | Alert correlation | Tags `_root_cause` / `_symptom_of` for the grouped inbox |
 | Duplicate-alert coalescing | Repeat firings fold into the open alert (count bump) *(v5.0.1)* |
+| Recovery auto-resolve | A recover event closes the matching open alert when the condition clears — service/metric/mount/integration/resolver/IP/SNMP/disk, plus **container** (`container_recovered`) and **backup** (`backup_recovered`), matched per-identity *(container/backup v5.6.0)* |
 | Alert-resolution timeline (MTTR) | Time-to-resolve / ack mean+median 7/30/90d, per-host, close-classification *(v4.9.0)* |
 | Quiet hours | Hold non-critical delivery during a daily window; critical always pages *(v3.4.1)* |
 | Maintenance windows | Suppress alerts and/or gate command execution; per-device/group/fleet; one-shot or recurring cron+duration; audit trail *(v3.4.2)* |
@@ -383,7 +384,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Context-aware actions | Investigate device, explain output, find the problem (journal), diagnose service, triage CVE/TLS, prioritise patches, explain/generate/audit scripts, explain events |
 | AI Investigate / mitigate | Diagnose + suggested-fix on ~21 Needs-Attention kinds; requires `exec` *(v3.4.2 / v3.8.0)* |
 | On-demand AI insights | Fleet anomaly scan, cron builder, runbook + CMDB doc drafts (RAG-aware) *(v3.4.0)* |
-| AI Insights hub | One-click reports/advisors — proactive briefing, RCA, NL→config, planning, advisors (firewall/DNS/email/SBOM/host one-pager) *(v4.10.0)*; TLS/CVE/top-alert *(v5.0.1)* |
+| AI Insights hub | One-click reports/advisors — proactive briefing, RCA, NL→config, planning, advisors (firewall/DNS/email/SBOM/host one-pager) *(v4.10.0)*; TLS/CVE/top-alert *(v5.0.1)*; remote-access *(v5.2.0)*; helpdesk triage *(v5.3.0)*; **automation-rule suggestions** from recurring alert patterns *(v5.6.0)* |
 | Secret redaction | Regex pre-flight strips tokens/keys/hex; privacy toggles for hostnames/IPs/journal |
 | Rate limiting | Per-user daily cap + per-response token cap |
 | Free-form chat | Multi-turn chat page with model picker + local history |

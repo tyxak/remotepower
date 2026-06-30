@@ -905,6 +905,7 @@ const AI_INSIGHTS = [
   { key: 'host_profile',        cat: 'advisors',  label: 'Host one-pager',              desc: 'A standing profile of a single host.', input: 'Which host?', msg: "Write a one-page profile of host: %s" },
   { key: 'remote_access',       cat: 'advisors',  label: 'Remote-access review',         desc: 'WG Access VPN reach scopes, stale clients, expiring access.', msg: "Review our WG Access (WireGuard) remote-access posture — over-broad reach scopes, full-tunnel where split would do, stale or never-connected clients to revoke, and access expiring soon." },
   { key: 'helpdesk_triage',     cat: 'advisors',  label: 'Helpdesk triage',              desc: 'Open tickets: SLA breaches, unassigned high-priority, what to work next.', msg: "Triage our open helpdesk tickets — flag SLA breaches and at-risk tickets, unassigned high-priority work, tickets stuck too long, likely duplicates to link, and the order to tackle them in." },
+  { key: 'automation_suggest',  cat: 'proactive', label: 'Automation suggestions',        desc: 'Propose automation rules from recurring alert patterns (run script / ticket / tag / mute).', msg: "From our recent alert and fleet-event history, propose concrete automation rules — for each, the trigger event(s) + severity, the scope (group/tag), the action(s) (run script / notify / open ticket / add tag / mute), and why, tied to the observed pattern." },
 ];
 
 const _AI_CATS = [
