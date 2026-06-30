@@ -230,10 +230,6 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-896fd277"/></svg>
           <span>Checks</span>
         </button>
-        <button class="nav-btn" data-page="tuning" title="Alert tuning — find the noisiest alerts and silence them per host + alert type">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-          <span>Tuning</span>
-        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-scripts" data-pass-btn="1" title="Results of custom scripts run as recurring health checks across the fleet">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-e311da69"/></svg>
           <span>Custom Scripts</span>
@@ -282,6 +278,10 @@
         <button class="nav-btn" data-page="timeline" title="Chronological stream of fleet events and command runs — fleet or one device">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-9d86dfb3"/></svg>
           <span>Timeline</span>
+        </button>
+        <button class="nav-btn" data-page="tuning" title="Alert tuning — find the noisiest alerts and silence them per host + alert type">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          <span>Tuning</span>
         </button>
       </div>
     </div>
@@ -448,10 +448,6 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
           <span>Ansible</span>
         </button>
-        <button class="nav-btn d-none" id="nav-provisioning" data-page="provisioning" title="Provisioning blueprints — Terraform / cloud-init / Ansible / iPXE templates you fill in and render">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-          <span>Provisioning</span>
-        </button>
         <button class="nav-btn" data-page="apikeys" title="Named non-expiring API keys for scripts and CI pipelines">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
@@ -493,6 +489,10 @@
         <button class="nav-btn" data-page="links" title="Shared bookmark dashboard — link cards grouped by category">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           <span>Links</span>
+        </button>
+        <button class="nav-btn d-none" id="nav-provisioning" data-page="provisioning" title="Provisioning blueprints — Terraform / cloud-init / Ansible / iPXE templates you fill in and render">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          <span>Provisioning</span>
         </button>
         <button class="nav-btn" data-page="signing" title="Sign agent releases so agents reject tampered binaries">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg>
@@ -2228,10 +2228,16 @@
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-advanced">
           <div class="settings-section">
+            <h3>Optional features</h3>
+            <p class="hint">Opt-in modules, all off by default. Enabling one adds its page to the sidebar.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices). Configure the mailbox below once enabled.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-billing-enabled"> Billing (time-tracking worksheet, per-customer invoices and rates &amp; fees; admin / finance). Logging hours on tickets and the weekly timesheet stay available regardless.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-show-provisioning"> Provisioning (blueprint catalog: Terraform / cloud-init / Ansible / iPXE templates in a folder tree; fill variables → render to copy or download; render-only, nothing is executed on the server).</label></div>
+          </div>
+
+          <div class="settings-section">
             <h3>Tickets</h3>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices) — off by default</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-billing-enabled"> Billing (time-tracking worksheet, per-customer invoices and rates &amp; fees; admin / finance) — off by default. Logging hours on tickets and the weekly timesheet stay available regardless.</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-show-provisioning"> Provisioning (blueprint catalog: Terraform / cloud-init / Ansible / iPXE templates in a folder tree; fill variables → render to copy or download; render-only, nothing is executed on the server) — off by default</label></div>
+            <p class="hint">Mailbox, threading and auto-reply for the ticket system above. Only relevant when Tickets is enabled.</p>
             <div class="meta-sm-nm mt-4">Ticket mailbox (IMAP) — dedicated inbox for customer replies. Replies are matched to a ticket by the #RP number in the subject; auto-replies and our own mail are ignored (loop-safe). Outbound uses your existing SMTP.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-enabled"> Poll a mailbox for ticket replies</label></div>
             <div class="settings-row"><label class="form-label" for="tkimap-host">IMAP host</label><input type="text" id="tkimap-host" class="form-input ff-mono" placeholder="imap.example.com"></div>

@@ -18710,6 +18710,8 @@ def handle_config_save():
         cfg['tickets_enabled'] = bool(body['tickets_enabled'])
     if 'billing_enabled' in body:   # v5.4.1: Billing page opt-in (Advanced)
         cfg['billing_enabled'] = bool(body['billing_enabled'])
+    if 'show_provisioning' in body:   # v5.6.0: Provisioning page opt-in (Advanced)
+        cfg['show_provisioning'] = bool(body['show_provisioning'])
     if 'port_audit_enabled' in body:
         _was_on = bool(cfg.get('port_audit_enabled', False))
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
@@ -39679,13 +39681,31 @@ def handle_alert_tuning():
             key = (dev_id, p.get('device_name') or dev_id, ev)
             pair_counts[key] = pair_counts.get(key, 0) + 1
     muted = _alert_mute_set()
-    pairs = [{'device_id': k[0], 'device_name': k[1], 'event': k[2], 'count': c,
+
+    def _dname(dev_id, fallback=''):
+        # fleet_events rarely carry device_name → resolve the live hostname so
+        # the page shows "tviapp01", not the opaque device id.
+        try:
+            d = device_get(dev_id) or {}
+        except Exception:
+            d = {}
+        return d.get('name') or fallback or dev_id
+
+    pairs = [{'device_id': k[0], '_fallback': k[1], 'event': k[2], 'count': c,
               'muted': (k[0], k[2]) in muted} for k, c in pair_counts.items()]
     pairs.sort(key=lambda x: x['count'], reverse=True)
+    top = pairs[:10]
+    for p in top:
+        p['device_name'] = _dname(p['device_id'], p.pop('_fallback'))
     sources = sorted(({'event': ev, 'count': c} for ev, c in src_counts.items()),
                      key=lambda x: x['count'], reverse=True)
-    respond(200, {'ok': True, 'days': days, 'noisy': pairs[:10],
-                  'sources': sources[:10], 'mutes': _alert_mutes_load()['mutes']})
+    mutes = []
+    for m in _alert_mutes_load()['mutes']:
+        mm = dict(m)
+        mm['device_name'] = _dname(m.get('device_id', ''), m.get('device_name', ''))
+        mutes.append(mm)
+    respond(200, {'ok': True, 'days': days, 'noisy': top,
+                  'sources': sources[:10], 'mutes': mutes})
 
 
 def handle_alerts_bulk_resolve():

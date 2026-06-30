@@ -11115,7 +11115,9 @@ async function muteAlert(id) {
   const r = await api('POST', '/alert-mutes', { alert_id: String(id) });
   if (r && r.ok) {
     toast('Muted — silenced for this host' + (r.resolved ? ` · ${r.resolved} open cleared` : ''), 'success');
-    loadAlerts();
+    // refresh whichever view surfaced the alert (dashboard widget or inbox)
+    if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
+    else loadAlerts();
   } else toast((r && r.error) || 'Failed to mute', 'error');
 }
 
@@ -14686,7 +14688,7 @@ function _renderHomeTickets(t) {
       const dev = a.device_name ? ` <span class="hint">· ${escHtml(a.device_name)}</span>` : '';
       return `<div class="tk-row"><span class="sev-pill sev-${sev}">${sev}</span>`
         + `<span class="tk-title">${escHtml(a.title)}${dev}</span>`
-        + `<button class="btn-icon btn-xs" data-action="quickAckAlert" data-arg="${escAttr(a.id)}" title="Acknowledge now (no comment)">Ack</button></div>`;
+        + `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${escAttr(a.id)}" title="Mute this exact alert from this host">${_icon('bellOff', 13)} Mute</button></div>`;
     }).join('') : '<div class="hint">No open alerts — all clear.</div>';
   }
   const ackedEl = document.getElementById('home-tickets-acked');
@@ -15103,7 +15105,7 @@ function _renderHomeWidgets(home) {
         return `<div class="tk-row"><span class="sev-pill sev-${sev}">${sev}</span>`
           + `<span class="tk-title">${escHtml(a.title)}${dev}</span>`
           + `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${escAttr(a.id)}" title="Investigate">${_icon('sparkles', 13)}</button>`
-          + `<button class="btn-icon btn-xs" data-action="quickAckAlert" data-arg="${escAttr(a.id)}" title="Acknowledge">Ack</button>`
+          + `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${escAttr(a.id)}" title="Mute this exact alert from this host">${_icon('bellOff', 13)} Mute</button>`
           + `<button class="btn-icon btn-xs c-success" data-action="quickResolveAlert" data-arg="${escAttr(a.id)}" title="Resolve">Resolve</button></div>`;
       }).join('')
       + ((home.tickets && home.tickets.open_total > af.length)
