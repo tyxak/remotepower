@@ -168,6 +168,7 @@
           es: 'Cada señal monitorizada de cada host como OK / WARN / CRIT / UNKNOWN, con su salida. Ordena y filtra; desactiva una comprobación para silenciarla en un host.',
           ar: 'كل إشارة مراقَبة على كل مضيف بصيغة OK / WARN / CRIT / UNKNOWN مع المُخرَج. الترتيب والتصفية؛ عطِّل فحصًا لكتمه على مضيف.' },
     'Targets':     { zh: '目标', hi: 'लक्ष्य', es: 'Objetivos', ar: 'الأهداف' },
+    'Remote Checks': { zh: '远程检查', hi: 'दूरस्थ जाँच', es: 'Comprobaciones remotas', ar: 'الفحوصات البعيدة' },
     'Device Metrics': { zh: '设备指标', hi: 'डिवाइस मेट्रिक्स', es: 'Métricas del dispositivo', ar: 'مقاييس الجهاز' },
     'Forecast':    { zh: '预测', hi: 'पूर्वानुमान', es: 'Pronóstico', ar: 'التنبؤ' },
     'Timeline':    { zh: '时间线', hi: 'टाइमलाइन', es: 'Cronología', ar: 'الجدول الزمني' },
