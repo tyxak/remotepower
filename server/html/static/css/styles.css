@@ -907,12 +907,16 @@
   #custom-checks-modal input,
   #custom-checks-modal input:focus,
   #custom-checks-modal select,
+  #custom-checks-modal option,
+  #custom-checks-modal optgroup,
   #custom-checks-modal textarea,
   body[data-ui="industrial"] #custom-checks-modal input,
   body[data-ui="industrial"] #custom-checks-modal input:focus,
-  body[data-ui="industrial"] #custom-checks-modal select {
+  body[data-ui="industrial"] #custom-checks-modal select,
+  body[data-ui="industrial"] #custom-checks-modal option,
+  body[data-ui="industrial"] #custom-checks-modal optgroup {
     color: var(--text) !important;
-    -webkit-text-fill-color: var(--text);
+    -webkit-text-fill-color: var(--text) !important;
     caret-color: var(--accent);
   }
   /* Sticky-header scroll for long routing / per-event tables: the column
