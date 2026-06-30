@@ -3490,19 +3490,35 @@ async function saveSettings(btn) {
 
   const _btn = btn || document.getElementById('btn-save-settings');
   const _origText = _btn ? _btn.textContent : '';
+  // Only ever restore the ORIGINAL label — re-entrancy must not capture "Saving…".
+  if (_btn && _btn.textContent !== 'Saving…') _btn.dataset.origText = _origText;
+  const _restore = (label, ms) => {
+    if (!_btn) return;
+    _btn.textContent = label;
+    setTimeout(() => { _btn.textContent = _btn.dataset.origText || 'Save settings'; _btn.disabled = false; }, ms);
+  };
   if (_btn) { _btn.disabled = true; _btn.textContent = 'Saving…'; }
-  const data = await api('POST', '/config', payload);
+  let data;
+  try {
+    data = await api('POST', '/config', payload);
+  } catch (e) {
+    // v5.6.0: never leave the button stuck on "Saving…" — a fetch rejection
+    // (dropped/slow connection) used to hang it forever with no feedback.
+    _restore('✗ Save failed', 2500);
+    toast('Save failed: ' + ((e && e.message) || 'network error — try again'), 'error');
+    return;
+  }
   if (data?.ok) {
-    if (_btn) { _btn.textContent = '✓ Settings saved'; setTimeout(() => { _btn.textContent = _origText; _btn.disabled = false; }, 2000); }
+    _restore('✓ Settings saved', 2000);
     toast('Settings saved', 'success');
     // Clear password fields after save so they don't sit in the DOM
-    document.getElementById('cfg-smtp-password').value = '';
-    document.getElementById('cfg-ldap-bind-password').value = '';
+    const _sp = document.getElementById('cfg-smtp-password'); if (_sp) _sp.value = '';
+    const _lp = document.getElementById('cfg-ldap-bind-password'); if (_lp) _lp.value = '';
     // v2.1.3: AI settings live in their own endpoint, save in parallel
-    try { await saveAISettings(); } catch(e) {}
+    try { await saveAISettings(); } catch (e) {}
     loadSettings(); loadWebhookLog();
   } else {
-    if (_btn) { _btn.textContent = '✗ Save failed'; setTimeout(() => { _btn.textContent = _origText; _btn.disabled = false; }, 2500); }
+    _restore('✗ Save failed', 2500);
     toast(data?.error || 'Failed', 'error');
   }
 }
