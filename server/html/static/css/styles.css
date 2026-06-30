@@ -6526,7 +6526,11 @@ body[data-ui="industrial"] .dev-combo::before{
 }
 body[data-ui="industrial"] .dev-combo:focus-within::before{ background:var(--accent); }
 body[data-ui="industrial"] .dev-combo .dev-combo-input{
-  position:relative; z-index:1; width:100%;
+  /* display:block (like .rp-ddwrap select) so the input fills the wrapper box
+     EXACTLY. As an inline-block text input it sat on the baseline with a few px
+     of descender gap below it, where the accent ::before bled through — making
+     the blue border look thicker/stronger than the native dropdowns. */
+  position:relative; z-index:1; display:block; width:100%;
   border:none !important; border-radius:0 !important; outline:none !important;
   /* match the native chamfered <select>s: a FLAT --surface2 fill with no inset
      well-shadow. The default input-well treatment (recessed --well-bg + inner
