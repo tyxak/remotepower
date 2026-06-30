@@ -111,7 +111,7 @@ class TestAgentCronOps(unittest.TestCase):
         self._patch_run()
         out = self.m._handle_cron_op(self._cmd('timer_enable', 'logrotate.timer'))
         self.assertEqual(out['rc'], 0)
-        self.assertEqual(self.calls[0], ['systemctl', 'enable', 'logrotate.timer'])
+        self.assertEqual(self.calls[0], ['systemctl', 'enable', '--', 'logrotate.timer'])
 
     def test_timer_bad_unit_rejected(self):
         self._patch_run()

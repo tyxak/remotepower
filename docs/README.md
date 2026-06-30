@@ -38,7 +38,14 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.5.0.md](security-review-5.5.0.md)** — Latest review:
+- **[security-review-5.6.0.md](security-review-5.6.0.md)** — Latest review:
+ the v5.6.0 "ProvisionMatters" line (knowledge base, automation actions, check
+ catalog + `systemd_unit`, recover events) plus a 5-dimension manual pentest and
+ the full SAST stack (CodeQL 0, Bandit/gitleaks/njsscan/pip-audit clean) — no
+ Critical/High/Medium ships; seven Low fixes (two secret-URL leaks, a read-only-role
+ write gate, `systemctl`/`useradd` arg-injection guards, RouterOS/OPNsense
+ connect-time SSRF).
+- **[security-review-5.5.0.md](security-review-5.5.0.md)** — A prior review:
  the v5.5.0 "ScaleMatters" release (persistent WSGI app tier, out-of-band scheduler,
  hard multi-tenancy + Postgres RLS) plus a whole-project server + agent audit, SAST
  (CodeQL + Bandit + semgrep + gitleaks, all clean) and a live authenticated
@@ -48,11 +55,6 @@ holds long-form docs that don't fit there.
  the built-in ticket system + Contacts directory plus a whole-project audit and a
  live authenticated penetration test — a Medium strict-mode alert-permission fix
  and a Low email-header-injection hardening.
-- **[security-review-5.2.0.md](security-review-5.2.0.md)** — A prior review:
- the new WG Access (WireGuard VPN) feature plus a whole-project server + agent
- audit and a live authenticated penetration test, with CodeQL + Bandit + gitleaks
- all clean (no Critical/High/Medium ships) — the privileged-helper boundary,
- browser keygen, and two Low-severity tunnel-confinement/teardown fixes.
 
 ## Release notes
 

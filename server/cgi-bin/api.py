@@ -3749,6 +3749,23 @@ def require_admin_or_finance_auth():
     return username
 
 
+def require_write_role(what='modify this'):
+    """v5.6.0 pentest: editorial writes (CMDB metadata/docs, runbooks) that only
+    had a bare require_auth() let PURE READ-ONLY roles (viewer/mcp/auditor/finance
+    — admin=False + empty permission set) mutate state. Require admin OR a role
+    with at least one action permission (a scoped operator). Permission-based, not
+    a role-string denylist (per the recurring denylist-role bug class)."""
+    username = require_auth()
+    try:
+        role = verify_token(get_token_from_request())[1] or 'viewer'
+    except Exception:
+        role = 'viewer'
+    rr = _resolve_role(role)
+    if not rr.get('admin') and not rr.get('permissions'):
+        respond(403, {'error': f'your role cannot {what}'})
+    return username
+
+
 def require_mcp_action(action_name):
     """Gate for MCP write tools (Stage 4).
 
@@ -5014,8 +5031,12 @@ def _redact_url_to_host(url):
     where Slack/Discord/Teams etc. embed the secret token. For display only."""
     try:
         p = urllib.parse.urlsplit(str(url))
-        if p.scheme and p.netloc:
-            return f'{p.scheme}://{p.netloc}'
+        # p.hostname (NOT p.netloc) — netloc keeps `user:pass@` userinfo, which is
+        # a credential for a webhook whose secret lives in basic-auth rather than
+        # the path (v5.6.0 pentest fix).
+        if p.scheme and p.hostname:
+            host = p.hostname + (f':{p.port}' if p.port else '')
+            return f'{p.scheme}://{host}'
     except Exception:
         pass
     return ''
@@ -18043,6 +18064,12 @@ def handle_config_get():
     # round-trips it on save; viewers / MCP keys get only the url_set indicator.
     if not _cfg_is_admin:
         safe.pop('healthchecks_url', None)   # v5.5.0 (L1): secret-bearing URL
+        # v5.6.0 pentest: a Pushgateway URL may embed basic-auth userinfo — give
+        # non-admins only the indicator, like webhook URLs.
+        if isinstance(safe.get('metrics_push'), dict) and safe['metrics_push'].get('url'):
+            safe['metrics_push'] = dict(safe['metrics_push'])
+            safe['metrics_push']['url_set'] = True
+            safe['metrics_push']['url'] = ''
         if isinstance(safe.get('webhook_urls'), list):
             for _e in safe['webhook_urls']:
                 if isinstance(_e, dict) and _e.get('url'):
@@ -21397,6 +21424,9 @@ def handle_diagnostics_bundle():
     # downloadable "contains NO secrets" support bundle leaks them.
     scrubbed.pop('agentless_ssh_key', None)            # SSH private key
     scrubbed.pop('webhook_url', None)                  # legacy URL w/ token in path
+    scrubbed.pop('healthchecks_url', None)             # v5.6.0: hc.io ping UUID = credential
+    if isinstance(scrubbed.get('metrics_push'), dict):
+        scrubbed['metrics_push'].pop('url', None)      # v5.6.0: may embed basic-auth userinfo
     if isinstance(scrubbed.get('gitops'), dict):
         scrubbed['gitops'].pop('auth_header', None)    # git PAT / bearer
     for _wh in (scrubbed.get('webhook_urls') or []):
@@ -29328,7 +29358,7 @@ def handle_runbook_generate(dev_id):
 
 def handle_runbook_delete(dev_id):
     """Remove the stored runbook for a device. Idempotent."""
-    actor = require_auth()
+    actor = require_write_role('delete runbooks')
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     existed = False
@@ -49595,7 +49625,7 @@ def handle_cmdb_update(dev_id: str) -> None:
     Args:
         dev_id: The enrolled device's ID.
     """
-    actor = require_auth()
+    actor = require_write_role('edit CMDB')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -49795,7 +49825,7 @@ def handle_cmdb_doc_add(dev_id: str) -> None:
     The new doc is appended (not prepended) so existing UI ordering
     is preserved.
     """
-    actor = require_auth()
+    actor = require_write_role('edit CMDB documentation')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -49850,7 +49880,7 @@ def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
     they get a real random id assigned to make subsequent operations
     less ambiguous and to clear the legacy flag.
     """
-    actor = require_auth()
+    actor = require_write_role('edit CMDB documentation')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -49914,7 +49944,7 @@ def handle_cmdb_doc_delete(dev_id: str, doc_id: str) -> None:
     Hard delete. Audit log retains the title so you can tell after the
     fact what got removed.
     """
-    actor = require_auth()
+    actor = require_write_role('edit CMDB documentation')
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):

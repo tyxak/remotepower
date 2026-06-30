@@ -78,6 +78,10 @@ def _set_request(method='GET', body=None):
 def _stub_auth(username='admin'):
     """Make require_auth return a fixed username regardless of headers."""
     api.require_auth = lambda: username
+    # v5.6.0: the CMDB-doc handlers now gate editorial writes with
+    # require_write_role (rejects pure read-only roles); stub it too so these
+    # handler tests don't 403 on the new role lookup.
+    api.require_write_role = lambda *a, **k: username
 
 
 # ─── Setup ────────────────────────────────────────────────────────────────────

@@ -64,6 +64,46 @@ def _ctx(verify):
     return c
 
 
+
+# v5.6.0 pentest fix — SSRF: the saved host is re-resolved each call, leaving a
+# DNS-rebinding window (save a public host once → later rebind to loopback /
+# 169.254.169.254 to steal the stored creds). Guard the PEER IP at connect time
+# and refuse redirects. RFC1918/LAN stays allowed (these devices live on the LAN).
+import http.client as _httpclient
+import ipaddress as _ipaddress
+
+
+def _peer_ip_blocked(ip_str):
+    try:
+        ip = _ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback or ip.is_link_local or ip.is_unspecified)
+
+
+class _SSRFGuardHTTPSConnection(_httpclient.HTTPSConnection):
+    def connect(self):
+        super().connect()
+        try:
+            peer = self.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            return
+        if _peer_ip_blocked(peer):
+            self.close()
+            raise OSError("SSRF guard: peer %s is a blocked address" % peer)
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _ssrf_opener(ctx):
+    class _GuardHTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_SSRFGuardHTTPSConnection, req, context=ctx)
+    return urllib.request.build_opener(_NoRedirectHandler, _GuardHTTPSHandler())
+
 def _request(host, user, password, method, path, body=None,
              verify=False, timeout=DEFAULT_TIMEOUT):
     """One REST call. Returns parsed JSON (list/dict/str) or raises
@@ -80,7 +120,7 @@ def _request(host, user, password, method, path, body=None,
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_ctx(verify)) as r:
+        with _ssrf_opener(_ctx(verify)).open(req, timeout=timeout) as r:
             raw = r.read(2 * 1024 * 1024)
     except urllib.error.HTTPError as e:
         detail = ""

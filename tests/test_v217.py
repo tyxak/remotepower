@@ -72,6 +72,7 @@ def _set_request(method='POST', body=None):
 def _stub_auth(username='admin'):
     api.require_auth = lambda **kw: username
     api.require_admin_auth = lambda: username
+    api.require_write_role = lambda *a, **k: username   # v5.6.0 editorial-write gate
 
 
 class _Base(unittest.TestCase):

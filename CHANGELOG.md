@@ -59,6 +59,13 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
   **N issues** (offline + open alerts + monitors down) otherwise; click jumps to Alerts.
 - **Sidebar:** the synthetic-monitor page **Targets → Remote Checks**, re-sorted into its
   alphabetical slot.
+- **Security pass** (5-dimension pentest + full SAST stack; CodeQL 0, bandit/gitleaks/
+  njsscan/pip-audit clean — see `docs/security-review-5.6.0.md`). No Crit/High/Med. Seven
+  Low fixes: two secret-bearing-URL leaks (`healthchecks_url`/`metrics_push.url` in the
+  diagnostics bundle + non-admin config; webhook-DLQ host redaction kept basic-auth
+  userinfo), a read-only-role write gate on CMDB/runbook edits (`require_write_role`),
+  `systemctl` + `useradd`/`usermod` argument-injection `--` guards in the agent, and
+  RouterOS/OPNsense connect-time SSRF (peer-IP guard + no-redirect opener).
 
 ## v5.5.0 — "ScaleMatters" — 2026-06-29
 

@@ -1795,7 +1795,7 @@ def _resolve_unit_alias(unit):
     """
     try:
         proc = subprocess.run(
-            ['systemctl', 'show', unit, '--property=Id', '--value'],
+            ['systemctl', 'show', '--property=Id', '--value', '--', unit],
             capture_output=True, text=True, timeout=3,
         )
         resolved = (proc.stdout or '').strip()
@@ -2464,9 +2464,9 @@ def get_services(watched_units):
     # blank line — even for unknown units — so index alignment is safe.
     try:
         proc = subprocess.run(
-            ['systemctl', 'show', *units,
+            ['systemctl', 'show',
              '--property=Id,ActiveState,SubState,ActiveEnterTimestampMonotonic,ActiveEnterTimestamp',
-             '--no-pager'],
+             '--no-pager', '--', *units],
             capture_output=True, text=True, timeout=15,
         )
         blocks = proc.stdout.split('\n\n')
@@ -4658,7 +4658,7 @@ def _eval_one_agent_check(c):
         if not _which('systemctl'):
             return 'unknown', 'no systemctl'
         try:
-            r = subprocess.run(['systemctl', 'is-active', unit],
+            r = subprocess.run(['systemctl', 'is-active', '--', unit],
                                capture_output=True, text=True, timeout=8)
             state = (r.stdout or '').strip() or (r.stderr or '').strip() or 'unknown'
         except Exception:
@@ -5847,7 +5847,7 @@ def _handle_cron_op(cmd):
             unit = arg
             if not _re.fullmatch(r'[A-Za-z0-9@._\-]{1,128}\.timer', unit):
                 return {'cmd': cmd, 'rc': 1, 'output': _json.dumps({'error': 'invalid timer unit'})}
-            r = subprocess.run(['systemctl', action, unit],
+            r = subprocess.run(['systemctl', action, '--', unit],
                                capture_output=True, text=True, timeout=15)
             rc = 0 if r.returncode == 0 else 1
             res = {'unit': unit, 'action': action, 'ok': rc == 0,
@@ -5984,7 +5984,7 @@ def _run_service_action(cmd):
         return {'cmd': cmd, 'output': f'refused: bad action/unit', 'rc': 2}
     log.info(f"Service action: systemctl {action} {unit}")
     try:
-        r = subprocess.run(['systemctl', action, unit],
+        r = subprocess.run(['systemctl', action, '--', unit],
                            capture_output=True, text=True, timeout=60)
         out = (r.stdout + r.stderr).strip() or f'systemctl {action} {unit} -> rc {r.returncode}'
         return {'cmd': cmd, 'output': out[:4000], 'rc': r.returncode}
@@ -6688,7 +6688,7 @@ def apply_host_config(desired):
     if 'services' in desired:
         errs = []
         for svc in (desired['services'] or []):
-            ok, out = _run(['systemctl', 'enable', '--now', svc])
+            ok, out = _run(['systemctl', 'enable', '--now', '--', svc])
             if not ok:
                 errs.append(svc)
                 log.warning(f'apply_host_config: enable {svc} failed: {out[:100]}')
@@ -6702,19 +6702,25 @@ def apply_host_config(desired):
             name = u.get('name', '')
             if not name:
                 continue
+            # v5.6.0 pentest: validate the username (POSIX) so a name like "-Mx"
+            # can't be read by useradd/usermod as an option; also pass it after a
+            # `--` end-of-options guard. shell follows `-s` so it's never an option.
+            if not _re.fullmatch(r'[a-z_][a-z0-9_-]{0,31}', name):
+                errs.append(f'{name}: invalid username')
+                continue
             try:
                 try:
                     pw = _pwd.getpwnam(name)
                     # User exists — update shell and groups
                     _run(['usermod', '-s', u.get('shell', '/bin/bash')] +
                          (['-G', ','.join(u['groups'])] if u.get('groups') else []) +
-                         [name])
+                         ['--', name])
                 except KeyError:
                     # Create user
                     cmd = ['useradd', '-m', '-s', u.get('shell', '/bin/bash')]
                     if u.get('groups'):
                         cmd += ['-G', ','.join(u['groups'])]
-                    cmd.append(name)
+                    cmd += ['--', name]
                     ok, out = _run(cmd)
                     if not ok:
                         errs.append(f'{name}: {out[:80]}')

@@ -49,15 +49,18 @@ class TestCmdbInterfaceNat(unittest.TestCase):
         api.save(api.DEVICES_FILE, {"d1": {"name": "web01", "monitored": True}})
         api.save(api.CMDB_FILE, {})
         self._auth = api.require_auth
+        self._wr = api.require_write_role
         self._scope = api._scope_block_device
         self._method = api.method
         self._body = api.get_json_body
         api.require_auth = lambda *a, **k: "tester"
+        api.require_write_role = lambda *a, **k: "tester"   # v5.6.0 editorial-write gate
         api._scope_block_device = lambda *a, **k: None
         api.method = lambda: "PUT"
 
     def tearDown(self):
         api.require_auth = self._auth
+        api.require_write_role = self._wr
         api._scope_block_device = self._scope
         api.method = self._method
         api.get_json_body = self._body
