@@ -5676,10 +5676,21 @@ body[data-ui="industrial"] .settings-tab:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
-/* The tab strip scrolls horizontally when the tabs overflow; its scrollbar sat
-   right on top of the bottom border / the content below. Give it a little
-   breathing room under the scrollbar. */
-.settings-tabs { padding-bottom: 6px; }
+/* The tab strip scrolls horizontally when the tabs overflow. Two fixes:
+   (1) its scrollbar thumb used the global border-radius:10px → a grey ROUNDED
+   pill that read as a rounded grey underline; square it. (2) push it clear of
+   the tab underline with bottom padding so it isn't crammed against the line. */
+.settings-tabs {
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;   /* Firefox */
+}
+.settings-tabs::-webkit-scrollbar { height: 6px; }
+.settings-tabs::-webkit-scrollbar-track { background: transparent; }
+.settings-tabs::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 0;                              /* square, not the rounded pill */
+}
 
 /* ── Corner ticks, drawn as background-image so they frame the box and scroll
    correctly. The old ::before/::after were position:absolute; on a card that is
