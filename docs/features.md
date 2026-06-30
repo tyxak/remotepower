@@ -70,7 +70,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Per-host Checks | Every monitored signal as OK/WARN/CRIT/UNKNOWN — reachability, CPU/mem/swap, per-mount disk + inode, fd/conntrack, failed units, timers, drift, exposed ports, updates, CVEs, SMART/UPS/temperature, clock, gateway, OOM, mail-queue, RO filesystems, disk-fill ETA, storage/RAID. Sortable, filterable, per-check muteable |
-| Custom checks | Server-evaluated process/port-open/port-closed; host-evaluated file present/absent, job freshness, log error rate; editable *(v5.0.1)* |
+| Check catalog | Server-evaluated process/port-open/port-closed; host-evaluated **systemd unit active** *(v5.6.0)*, file present/absent, job freshness, log error rate; **~70 ready-made templates** that pre-fill the form (incl. a RemotePower self-infra set — API/WSGI/scheduler/satellite units); host target is a device-search typeahead; a unit check can also be added to the device's Services watch-list; editable *(catalog v5.6.0)* |
 | Custom monitoring scripts | Admin bash health checks, assigned per device, run every ~5 min; binary exit; fleet results page; `custom_script_fail`/`custom_script_recover`; AI generation in create modal; full guide [custom-scripts.md](custom-scripts.md) *(v2.5.0)* |
 | Monitoring profiles | Named bundles of custom scripts applied to omnisearch-selected assets in one action; `/api/monitoring-profiles` + `/apply` |
 

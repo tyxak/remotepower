@@ -10854,20 +10854,168 @@ async function toggleHostCheck(arg) {
 const _CC_PARAM_LABELS = {
   process: 'Process name', port_open: 'Port', port_closed: 'Port',
   file_present: 'File path', file_absent: 'File path', job_fresh: 'File path',
-  log_errors: 'Pattern (regex)',
+  log_errors: 'Pattern (regex)', systemd_unit: 'Unit name',
 };
 const _CC_PARAM_PH = {
   process: 'nginx', port_open: '443', port_closed: '23',
   file_present: '/etc/myapp.conf', file_absent: '/etc/nologin',
   job_fresh: '/var/backups/last-run.stamp', log_errors: 'error|fail|panic',
+  systemd_unit: 'nginx.service',
 };
+// v5.6.0: Check catalog — ready-made check templates. Picking one pre-fills the
+// form (name/type/param). {c:category, l:picker label, t:type, p:param, n:name}.
+// RemotePower's own services use systemd_unit with the real unit names.
+const CHECK_CATALOG = [
+  // Web / proxy
+  { c: 'Web / proxy', l: 'nginx', t: 'process', p: 'nginx', n: 'nginx running' },
+  { c: 'Web / proxy', l: 'Apache (httpd)', t: 'process', p: 'apache2', n: 'Apache running' },
+  { c: 'Web / proxy', l: 'Caddy', t: 'process', p: 'caddy', n: 'Caddy running' },
+  { c: 'Web / proxy', l: 'Traefik', t: 'process', p: 'traefik', n: 'Traefik running' },
+  { c: 'Web / proxy', l: 'HAProxy', t: 'process', p: 'haproxy', n: 'HAProxy running' },
+  { c: 'Web / proxy', l: 'HTTP port 80 open', t: 'port_open', p: '80', n: 'HTTP :80 open' },
+  { c: 'Web / proxy', l: 'HTTPS port 443 open', t: 'port_open', p: '443', n: 'HTTPS :443 open' },
+  // Databases
+  { c: 'Databases', l: 'PostgreSQL (process)', t: 'process', p: 'postgres', n: 'PostgreSQL running' },
+  { c: 'Databases', l: 'PostgreSQL port 5432', t: 'port_open', p: '5432', n: 'PostgreSQL :5432 open' },
+  { c: 'Databases', l: 'MySQL / MariaDB', t: 'process', p: 'mariadbd', n: 'MySQL/MariaDB running' },
+  { c: 'Databases', l: 'MySQL port 3306', t: 'port_open', p: '3306', n: 'MySQL :3306 open' },
+  { c: 'Databases', l: 'Redis', t: 'process', p: 'redis-server', n: 'Redis running' },
+  { c: 'Databases', l: 'MongoDB', t: 'process', p: 'mongod', n: 'MongoDB running' },
+  { c: 'Databases', l: 'Memcached', t: 'process', p: 'memcached', n: 'Memcached running' },
+  { c: 'Databases', l: 'InfluxDB', t: 'process', p: 'influxd', n: 'InfluxDB running' },
+  { c: 'Databases', l: 'Elasticsearch port 9200', t: 'port_open', p: '9200', n: 'Elasticsearch :9200 open' },
+  // Containers / orchestration
+  { c: 'Containers', l: 'Docker daemon', t: 'systemd_unit', p: 'docker.service', n: 'Docker active' },
+  { c: 'Containers', l: 'containerd', t: 'process', p: 'containerd', n: 'containerd running' },
+  { c: 'Containers', l: 'Podman socket', t: 'systemd_unit', p: 'podman.socket', n: 'Podman socket active' },
+  { c: 'Containers', l: 'Kubelet', t: 'process', p: 'kubelet', n: 'Kubelet running' },
+  { c: 'Containers', l: 'K3s', t: 'systemd_unit', p: 'k3s.service', n: 'K3s active' },
+  // Mail
+  { c: 'Mail', l: 'Postfix', t: 'systemd_unit', p: 'postfix.service', n: 'Postfix active' },
+  { c: 'Mail', l: 'SMTP port 25 open', t: 'port_open', p: '25', n: 'SMTP :25 open' },
+  { c: 'Mail', l: 'Dovecot', t: 'process', p: 'dovecot', n: 'Dovecot running' },
+  { c: 'Mail', l: 'IMAPS port 993 open', t: 'port_open', p: '993', n: 'IMAPS :993 open' },
+  { c: 'Mail', l: 'Rspamd', t: 'process', p: 'rspamd', n: 'Rspamd running' },
+  // DNS
+  { c: 'DNS', l: 'BIND (named)', t: 'process', p: 'named', n: 'BIND running' },
+  { c: 'DNS', l: 'DNS port 53 open', t: 'port_open', p: '53', n: 'DNS :53 open' },
+  { c: 'DNS', l: 'Unbound', t: 'process', p: 'unbound', n: 'Unbound running' },
+  { c: 'DNS', l: 'dnsmasq', t: 'process', p: 'dnsmasq', n: 'dnsmasq running' },
+  { c: 'DNS', l: 'CoreDNS', t: 'process', p: 'coredns', n: 'CoreDNS running' },
+  { c: 'DNS', l: 'Pi-hole FTL', t: 'process', p: 'pihole-FTL', n: 'Pi-hole FTL running' },
+  { c: 'DNS', l: 'AdGuard Home', t: 'process', p: 'AdGuardHome', n: 'AdGuard Home running' },
+  // SSH / VPN / remote
+  { c: 'SSH / VPN', l: 'OpenSSH (sshd)', t: 'process', p: 'sshd', n: 'sshd running' },
+  { c: 'SSH / VPN', l: 'SSH port 22 open', t: 'port_open', p: '22', n: 'SSH :22 open' },
+  { c: 'SSH / VPN', l: 'WireGuard (wg0)', t: 'systemd_unit', p: 'wg-quick@wg0.service', n: 'WireGuard wg0 active' },
+  { c: 'SSH / VPN', l: 'OpenVPN', t: 'process', p: 'openvpn', n: 'OpenVPN running' },
+  { c: 'SSH / VPN', l: 'Tailscale', t: 'process', p: 'tailscaled', n: 'Tailscale running' },
+  // Monitoring / observability
+  { c: 'Monitoring', l: 'Prometheus', t: 'process', p: 'prometheus', n: 'Prometheus running' },
+  { c: 'Monitoring', l: 'Grafana', t: 'process', p: 'grafana', n: 'Grafana running' },
+  { c: 'Monitoring', l: 'node_exporter', t: 'process', p: 'node_exporter', n: 'node_exporter running' },
+  { c: 'Monitoring', l: 'node_exporter port 9100', t: 'port_open', p: '9100', n: 'node_exporter :9100 open' },
+  { c: 'Monitoring', l: 'Telegraf', t: 'process', p: 'telegraf', n: 'Telegraf running' },
+  { c: 'Monitoring', l: 'Netdata', t: 'process', p: 'netdata', n: 'Netdata running' },
+  { c: 'Monitoring', l: 'Zabbix agent', t: 'process', p: 'zabbix_agentd', n: 'Zabbix agent running' },
+  // Storage / file
+  { c: 'Storage / file', l: 'Samba (smbd)', t: 'process', p: 'smbd', n: 'Samba running' },
+  { c: 'Storage / file', l: 'NFS server', t: 'systemd_unit', p: 'nfs-server.service', n: 'NFS server active' },
+  { c: 'Storage / file', l: 'MinIO', t: 'process', p: 'minio', n: 'MinIO running' },
+  { c: 'Storage / file', l: 'vsftpd', t: 'process', p: 'vsftpd', n: 'vsftpd running' },
+  // Self-hosted apps
+  { c: 'Self-hosted apps', l: 'PHP-FPM', t: 'process', p: 'php-fpm', n: 'PHP-FPM running' },
+  { c: 'Self-hosted apps', l: 'Jellyfin', t: 'process', p: 'jellyfin', n: 'Jellyfin running' },
+  { c: 'Self-hosted apps', l: 'Plex Media Server', t: 'process', p: 'Plex Media Server', n: 'Plex running' },
+  { c: 'Self-hosted apps', l: 'Home Assistant port 8123', t: 'port_open', p: '8123', n: 'Home Assistant :8123 open' },
+  { c: 'Self-hosted apps', l: 'Vaultwarden', t: 'process', p: 'vaultwarden', n: 'Vaultwarden running' },
+  { c: 'Self-hosted apps', l: 'Gitea', t: 'process', p: 'gitea', n: 'Gitea running' },
+  // Messaging / queues
+  { c: 'Messaging', l: 'Mosquitto (MQTT)', t: 'process', p: 'mosquitto', n: 'Mosquitto running' },
+  { c: 'Messaging', l: 'MQTT port 1883 open', t: 'port_open', p: '1883', n: 'MQTT :1883 open' },
+  { c: 'Messaging', l: 'RabbitMQ port 5672', t: 'port_open', p: '5672', n: 'RabbitMQ :5672 open' },
+  { c: 'Messaging', l: 'NATS', t: 'process', p: 'nats-server', n: 'NATS running' },
+  // System basics
+  { c: 'System', l: 'Cron', t: 'systemd_unit', p: 'cron.service', n: 'Cron active' },
+  { c: 'System', l: 'chrony (NTP)', t: 'process', p: 'chronyd', n: 'chrony running' },
+  { c: 'System', l: 'systemd-timesyncd', t: 'systemd_unit', p: 'systemd-timesyncd.service', n: 'Time sync active' },
+  { c: 'System', l: 'fail2ban', t: 'systemd_unit', p: 'fail2ban.service', n: 'fail2ban active' },
+  { c: 'System', l: 'nftables firewall', t: 'systemd_unit', p: 'nftables.service', n: 'nftables active' },
+  { c: 'System', l: 'rsyslog', t: 'process', p: 'rsyslogd', n: 'rsyslog running' },
+  { c: 'System', l: 'auditd', t: 'process', p: 'auditd', n: 'auditd running' },
+  { c: 'System', l: 'Reboot-required flag absent', t: 'file_absent', p: '/var/run/reboot-required', n: 'No pending reboot' },
+  // RemotePower (self-infra)
+  { c: 'RemotePower (self-infra)', l: 'API / SCGI worker', t: 'systemd_unit', p: 'remotepower-api.service', n: 'RemotePower API (SCGI) active' },
+  { c: 'RemotePower (self-infra)', l: 'WSGI app server', t: 'systemd_unit', p: 'remotepower-wsgi.service', n: 'RemotePower WSGI active' },
+  { c: 'RemotePower (self-infra)', l: 'Scheduler', t: 'systemd_unit', p: 'remotepower-scheduler.service', n: 'RemotePower scheduler active' },
+  { c: 'RemotePower (self-infra)', l: 'Satellite / relay', t: 'systemd_unit', p: 'remotepower-satellite.service', n: 'RemotePower satellite active' },
+  { c: 'RemotePower (self-infra)', l: 'Scanner', t: 'systemd_unit', p: 'remotepower-scanner.service', n: 'RemotePower scanner active' },
+  { c: 'RemotePower (self-infra)', l: 'Web terminal', t: 'systemd_unit', p: 'remotepower-webterm.service', n: 'RemotePower web terminal active' },
+  { c: 'RemotePower (self-infra)', l: 'Agent', t: 'systemd_unit', p: 'remotepower-agent.service', n: 'RemotePower agent active' },
+  { c: 'RemotePower (self-infra)', l: 'PostgreSQL (RP database)', t: 'process', p: 'postgres', n: 'RemotePower DB (PostgreSQL) running' },
+  { c: 'RemotePower (self-infra)', l: 'nginx (RP web)', t: 'process', p: 'nginx', n: 'RemotePower web (nginx) running' },
+  { c: 'RemotePower (self-infra)', l: 'fcgiwrap (CGI host)', t: 'process', p: 'fcgiwrap', n: 'fcgiwrap running' },
+];
+function _ccFillCatalog() {
+  const sel = document.getElementById('cc-catalog');
+  if (!sel) return;
+  const cats = [];
+  CHECK_CATALOG.forEach(e => { if (!cats.includes(e.c)) cats.push(e.c); });
+  let html = '<option value="">— choose a ready-made check… —</option>';
+  cats.forEach(cat => {
+    html += `<optgroup label="${escAttr(cat)}">`
+      + CHECK_CATALOG.map((e, i) => e.c === cat ? `<option value="${i}">${escHtml(e.l)}</option>` : '').join('')
+      + '</optgroup>';
+  });
+  sel.innerHTML = html;
+  sel.value = '';
+}
+function ccPickCatalog() {
+  const sel = document.getElementById('cc-catalog');
+  const e = CHECK_CATALOG[parseInt(sel && sel.value, 10)];
+  if (!e) return;
+  const setv = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setv('cc-type', e.t);
+  ccTypeChanged();   // refresh param label + sub-field visibility for the new type
+  setv('cc-param', e.p);
+  setv('cc-name', e.n);
+}
+// Host target is a device search typeahead (omnisearch), never a raw id field.
+async function ccHostSearch() {
+  const box = document.getElementById('cc-host-results');
+  if (!box) return;
+  const term = (document.getElementById('cc-host-search')?.value || '').toLowerCase().trim();
+  const devs = await _scanDeviceList();
+  let matches = Array.isArray(devs) ? devs : [];
+  if (term) matches = matches.filter(d =>
+    (d.name || '').toLowerCase().includes(term) || (d.ip || '').toLowerCase().includes(term) ||
+    (d.group || '').toLowerCase().includes(term) || (d.tags || []).some(t => (t || '').toLowerCase().includes(term)));
+  matches = matches.slice(0, 25);
+  box.innerHTML = matches.length
+    ? matches.map(d => `<div class="dev-combo-item" data-action="pickCcHost" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name || d.id)}">${escHtml(d.name || d.id)}${d.ip ? ` <span class="hint">${escHtml(d.ip)}</span>` : ''}</div>`).join('')
+    : '<div class="dev-combo-empty">No matching devices.</div>';
+  box.hidden = false;
+}
+function pickCcHost(id, name) {
+  const t = document.getElementById('cc-target'); if (t) t.value = id;
+  const s = document.getElementById('cc-host-search'); if (s) s.value = name;
+  const box = document.getElementById('cc-host-results'); if (box) box.hidden = true;
+}
 function ccKindChanged() {
   const kind = document.getElementById('cc-kind')?.value || 'all';
   document.getElementById('cc-target-grp')?.classList.toggle('hidden', kind === 'all');
   const lbl = document.getElementById('cc-target-label');
   const inp = document.getElementById('cc-target');
-  if (lbl) lbl.textContent = kind === 'host' ? 'Device ID' : kind === 'tag' ? 'Tag' : 'Group';
-  if (inp) inp.placeholder = kind === 'host' ? 'device id' : kind === 'tag' ? 'tag name' : 'group name';
+  const pick = document.getElementById('cc-host-pick');
+  const isHost = kind === 'host';
+  if (lbl) lbl.textContent = isHost ? 'Device' : kind === 'tag' ? 'Tag' : 'Group';
+  // A host target is ALWAYS a device search typeahead (never type a raw id);
+  // tag/group keep the plain text input.
+  if (inp) {
+    inp.classList.toggle('hidden', isHost);
+    inp.placeholder = kind === 'tag' ? 'tag name' : 'group name';
+  }
+  if (pick) pick.classList.toggle('hidden', !isHost);
 }
 function ccTypeChanged() {
   const t = document.getElementById('cc-type')?.value || 'process';
@@ -10877,13 +11025,18 @@ function ccTypeChanged() {
   if (inp) inp.placeholder = _CC_PARAM_PH[t] || '';
   document.getElementById('cc-log-grp')?.classList.toggle('hidden', t !== 'log_errors');
   document.getElementById('cc-job-grp')?.classList.toggle('hidden', t !== 'job_fresh');
+  // systemd_unit: offer to also watch the unit on the Services page.
+  document.getElementById('cc-svc-grp')?.classList.toggle('hidden', t !== 'systemd_unit');
 }
 let _ccCache = [];
 let _ccEditId = null;
 function _ccResetForm() {
   _ccEditId = null;
-  ['cc-name', 'cc-param', 'cc-target', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
+  ['cc-name', 'cc-param', 'cc-target', 'cc-host-search', 'cc-window', 'cc-warn', 'cc-crit', 'cc-unit', 'cc-maxage']
     .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  const cat = document.getElementById('cc-catalog'); if (cat) cat.value = '';
+  const ws = document.getElementById('cc-watch-svc'); if (ws) ws.checked = true;
+  const res = document.getElementById('cc-host-results'); if (res) res.hidden = true;
   const k = document.getElementById('cc-kind'); if (k) k.value = 'all';
   const t = document.getElementById('cc-type'); if (t) t.value = 'process';
   const b = document.getElementById('cc-save-btn'); if (b) b.textContent = 'Add check';
@@ -10891,6 +11044,7 @@ function _ccResetForm() {
 }
 async function openCustomChecks() {
   _ccResetForm();
+  _ccFillCatalog();
   openModal('custom-checks-modal');
   loadCustomCheckList();
 }
@@ -10914,6 +11068,8 @@ function editCustomCheck(id) {
   const setv = (eid, v) => { const e = document.getElementById(eid); if (e) e.value = (v === undefined || v === null) ? '' : v; };
   setv('cc-name', c.name); setv('cc-type', c.type || 'process'); setv('cc-param', c.param);
   setv('cc-kind', c.target_kind || 'all'); setv('cc-target', c.target);
+  // host targets: show the chosen device in the search field
+  if ((c.target_kind || 'all') === 'host') setv('cc-host-search', c.target);
   setv('cc-window', c.window_min); setv('cc-warn', c.warn); setv('cc-crit', c.crit);
   setv('cc-unit', c.unit); setv('cc-maxage', c.max_age_hours);
   ccKindChanged(); ccTypeChanged();
@@ -10938,6 +11094,9 @@ async function saveCustomCheck() {
     body.unit = document.getElementById('cc-unit')?.value.trim() || '';
   } else if (body.type === 'job_fresh') {
     body.max_age_hours = numOf('cc-maxage');
+  } else if (body.type === 'systemd_unit' && body.target_kind === 'host') {
+    // wire to the Services page: also watch this unit on the targeted host
+    body.watch_service = !!document.getElementById('cc-watch-svc')?.checked;
   }
   const r = await api('POST', '/checks/custom', body);
   if (r && r.ok) {
@@ -14520,6 +14679,32 @@ function _paintVitals(c) {
     + `<span class="vital${openAlerts ? ' bad' : ''}" title="Open alerts">${_icon('alertTriangle', 12)}<b>${openAlerts}</b> alerts</span>`
     + `<span class="vitals-sep"></span>`
     + `<span class="vital${down ? ' bad' : ''}" title="Monitors currently down">${_icon('activity', 12)}<b>${down}</b> down</span>`;
+  _paintSiteHealth(offline, openAlerts, down);
+}
+
+// v5.6.0: top-bar site-health rollup. Green "Healthy" when nothing needs
+// attention; red "N issue(s)" — the sum of offline devices, open alerts and
+// monitors down — otherwise. Same data as the vitals readout, one glance.
+function _paintSiteHealth(offline, openAlerts, down) {
+  const hp = document.getElementById('site-health');
+  if (!hp) return;
+  const issues = (offline || 0) + (openAlerts || 0) + (down || 0);
+  if (issues > 0) {
+    hp.className = 'site-health bad';
+    hp.innerHTML = `${_icon('alertTriangle', 13)}<b>${issues}</b> ${issues === 1 ? 'issue' : 'issues'}`;
+    hp.title = `Site unhealthy — ${offline || 0} offline, ${openAlerts || 0} open alert${openAlerts === 1 ? '' : 's'}, ${down || 0} monitor${down === 1 ? '' : 's'} down. Click to view.`;
+  } else {
+    hp.className = 'site-health ok';
+    hp.innerHTML = `${_icon('shield', 13)}Healthy`;
+    hp.title = 'Site healthy — no offline devices, open alerts or monitors down.';
+  }
+}
+
+// Click the site-health pill → Alerts when unhealthy, Home otherwise.
+function gotoSiteHealth() {
+  const hp = document.getElementById('site-health');
+  const page = (hp && hp.classList.contains('bad')) ? 'alerts' : 'home';
+  showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
 }
 
 // ── v5.0.0 (T6): compact-density toggle — persisted, restored on load ────────

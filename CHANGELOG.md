@@ -50,6 +50,15 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
 - **New AI advisor — Automation suggestions**: reads your recurring alert / fleet-event
   patterns and proposes concrete automation rules (trigger + scope + action: run script /
   notify / open ticket / add tag / mute). 26th AI Insights card.
+- **Check catalog** (was "Custom checks"): a library of **~70 ready-made checks** that
+  pre-fill the form, a new **`systemd_unit`** agent check (is a named unit active?) with a
+  **RemotePower self-infra** set (API / WSGI / scheduler / satellite / scanner units), a
+  **device-search typeahead** for host targets, and an option to also add a unit check to
+  the host's **Services** watch-list.
+- **Site health** pill in the top bar: green **Healthy** when nothing needs attention, red
+  **N issues** (offline + open alerts + monitors down) otherwise; click jumps to Alerts.
+- **Sidebar:** the synthetic-monitor page **Targets → Remote Checks**, re-sorted into its
+  alphabetical slot.
 
 ## v5.5.0 — "ScaleMatters" — 2026-06-29
 

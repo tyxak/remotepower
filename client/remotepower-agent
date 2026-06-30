@@ -4647,6 +4647,27 @@ def _eval_one_agent_check(c):
             return 'unknown', 'journalctl failed'
         status = 'critical' if n >= crit else 'warning' if n >= warn else 'ok'
         return status, f'{n} match(es) in {window}min'
+    if ctype == 'systemd_unit':
+        # v5.6.0: is a named systemd unit active? Read-only `systemctl is-active`
+        # (list form, no shell), unit sanitised. Catches stopped/inactive units —
+        # not just failed ones — so RemotePower's own services, satellites/relays
+        # and any user service can be checked first-class.
+        unit = re.sub(r'[^a-zA-Z0-9_.@\-]', '', param)
+        if not unit:
+            return 'unknown', 'no unit'
+        if not _which('systemctl'):
+            return 'unknown', 'no systemctl'
+        try:
+            r = subprocess.run(['systemctl', 'is-active', unit],
+                               capture_output=True, text=True, timeout=8)
+            state = (r.stdout or '').strip() or (r.stderr or '').strip() or 'unknown'
+        except Exception:
+            return 'unknown', 'systemctl failed'
+        if state == 'active':
+            return 'ok', 'active'
+        if state == 'activating':
+            return 'warning', 'activating'
+        return 'critical', state or 'inactive'
     return 'unknown', 'unknown check type'
 
 

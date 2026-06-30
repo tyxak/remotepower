@@ -31505,7 +31505,7 @@ def handle_checks_toggle():
 # reports; AGENT_CHECK_TYPES are pushed to the agent (in the heartbeat response),
 # evaluated on-host, and reported back in sysinfo['custom_check_results'].
 SERVER_CHECK_TYPES = ('process', 'port_open', 'port_closed')
-AGENT_CHECK_TYPES = ('file_present', 'file_absent', 'log_errors', 'job_fresh')
+AGENT_CHECK_TYPES = ('file_present', 'file_absent', 'log_errors', 'job_fresh', 'systemd_unit')
 CUSTOM_CHECK_TYPES = SERVER_CHECK_TYPES + AGENT_CHECK_TYPES
 
 
@@ -31635,8 +31635,23 @@ def handle_custom_checks_save():
                 break
         else:
             checks.append(entry)
+    # v5.6.0: wire a systemd_unit host check to the Services page — also add the
+    # unit to that device's watch-list so it shows there too. Done AFTER the
+    # CONFIG_FILE lock so the device lock never nests (SQLite shares one conn).
+    watched_ok = False
+    if ctype == 'systemd_unit' and tk == 'host' and body.get('watch_service') and tv:
+        try:
+            with _LockedUpdate(DEVICES_FILE) as devices:
+                d = devices.get(tv)
+                if isinstance(d, dict):
+                    watched = d.setdefault('services_watched', [])
+                    if param not in watched:
+                        watched.append(param)
+                    watched_ok = True
+        except Exception:
+            pass
     audit_log(actor, 'custom_check_save', f'id={cid} type={ctype} param={param}')
-    respond(200, {'ok': True, 'check': entry})
+    respond(200, {'ok': True, 'check': entry, 'watched': watched_ok})
 
 
 def handle_custom_checks_delete():

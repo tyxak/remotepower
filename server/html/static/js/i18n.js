@@ -295,6 +295,7 @@
     'Re-alert backlog':        { zh: '重新提醒积压', hi: 'बैकलॉग पुनः अलर्ट करें', es: 'Re-alertar pendientes', ar: 'إعادة تنبيه المتراكم' },
     'Manage integrations':     { zh: '管理集成', hi: 'इंटीग्रेशन प्रबंधित करें', es: 'Gestionar integraciones', ar: 'إدارة التكاملات' },
     'Custom checks':           { zh: '自定义检查', hi: 'कस्टम जाँच', es: 'Comprobaciones personalizadas', ar: 'فحوصات مخصصة' },
+    'Check catalog':           { zh: '检查目录', hi: 'जाँच कैटलॉग', es: 'Catálogo de comprobaciones', ar: 'كتالوج الفحوصات' },
     'Custom scripts':          { zh: '自定义脚本', hi: 'कस्टम स्क्रिप्ट', es: 'Scripts personalizados', ar: 'نصوص برمجية مخصصة' },
     'Generate certificate':    { zh: '生成证书', hi: 'प्रमाणपत्र बनाएँ', es: 'Generar certificado', ar: 'إنشاء شهادة' },
     'Generate Docker compose': { zh: '生成 Docker compose', hi: 'Docker compose बनाएँ', es: 'Generar Docker compose', ar: 'إنشاء Docker compose' },

@@ -5989,6 +5989,19 @@ body.density-compact .group-title { margin-bottom: 6px; }
 .vitals-sep { width: 1px; height: 14px; background: var(--border); }
 @media (max-width: 980px) { .vitals { display: none; } }
 
+/* v5.6.0: top-bar site-health pill. Green "Healthy" at rest; red "N issues"
+   (offline + open alerts + monitors down) when anything needs attention. */
+.site-health {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600; line-height: 1;
+  padding: 4px 11px; border-radius: 999px; cursor: pointer; border: 1px solid transparent;
+}
+.site-health b { font-weight: 700; }
+.site-health.ok  { color: var(--green); background: var(--green-dim, rgba(34,197,94,0.14)); border-color: var(--green-dim, rgba(34,197,94,0.30)); }
+.site-health.bad { color: var(--red);   background: var(--red-dim, rgba(239,68,68,0.14));   border-color: var(--red-dim, rgba(239,68,68,0.35)); }
+.site-health:hover { filter: brightness(1.15); }
+@media (max-width: 720px) { .site-health { display: none; } }
+
 /* #5 NOC status board — a glanceable control-room wall view, built for scale:
    group/site ROLLUP tiles (not 1000 raw host tiles) + a problem-host strip. */
 .board-vitals { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 16px; }
