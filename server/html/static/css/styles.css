@@ -5722,12 +5722,6 @@ body[data-ui="industrial"] .tile,
 body[data-ui="industrial"] .table-card,
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .home-widget,
-/* v5.6.0 UI consistency: settings cards + the generic .card now get the SAME
-   corner-tick framing as every other card, so the Settings page and any
-   .card-based panel match the dash-card gold standard instead of rendering as
-   plain bordered boxes. */
-body[data-ui="industrial"] .settings-section,
-body[data-ui="industrial"] .card,
 body[data-ui="industrial"] .login-card {
   position:relative;
   /* solid surface UNDER the tick background-image. Without this, state tiles like
