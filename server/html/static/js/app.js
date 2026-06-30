@@ -14379,13 +14379,13 @@ const EVENT_CLASS = {
   'drift_detected': 'warn',
   'metric_warning': 'warn', 'metric_critical': 'critical',
   'metric_recovered': 'ok',
-  'container_stopped': 'warn', 'container_restarting': 'warn',
+  'container_stopped': 'warn', 'container_recovered': 'ok', 'container_restarting': 'warn',
   'containers_stale': 'warn',
   'log_alert': 'warn',
   'mailbox_threshold': 'warn',
   'command_queued': 'info', 'command_executed': 'info',
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
-  'new_port_detected': 'warn', 'backup_stale': 'warn',
+  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'snapshot_old': 'warn',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
@@ -15785,14 +15785,14 @@ function _renderHomeActivity(fleetEvents) {
     'patch_alert', 'cve_found',
     'service_down', 'service_up',
     'log_alert',
-    'container_stopped', 'container_restarting', 'containers_stale',
+    'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale',
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
-    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
+    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
     // v5.0.0 (#R1): server self disk-space watchdog
@@ -15950,7 +15950,7 @@ function _homeActivityAttrs(event, p) {
     case 'agent_stopped': case 'agent_started':
     case 'mailbox_threshold': case 'reboot_required':
     case 'new_port_detected': case 'ssh_key_added':
-    case 'brute_force_detected': case 'backup_stale':
+    case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'drift_detected':
@@ -15967,7 +15967,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="monitor"`;
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
-    case 'container_stopped': case 'container_restarting': case 'containers_stale':
+    case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'containers_stale':
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
     case 'log_alert':      return `${base} data-home-act="logs"`;

@@ -839,6 +839,7 @@ WEBHOOK_EVENTS = (
     ('service_up',         'Watched systemd unit recovered',       True),
     ('log_alert',          'Log pattern matched threshold',        True),
     ('container_stopped',  'Container/pod disappeared or stopped', True),
+    ('container_recovered', 'Stopped container is running again',  True),
     ('container_restarting', 'Container restart count climbing',   True),
     ('containers_stale',   'No container report for >TTL',         True),
     # v3.2.x: container image update tracking (alert + its recover event)
@@ -875,6 +876,7 @@ WEBHOOK_EVENTS = (
     ('vault_break_glass',     'Break-glass credential reveal requested',     True),
     # v2.8.1: backup file age monitoring
     ('backup_stale',          'Backup file is older than threshold',         True),
+    ('backup_recovered',      'Stale backup is fresh again',                 True),
     ('backup_verify_failed',  'Backup integrity check failed',               True),
     ('backup_verified',       'Backup integrity check passed (recovered)',   True),
     ('rollout_halted',        'Rollout auto-halted (health gate / verify)',  True),
@@ -5325,6 +5327,8 @@ _ALERT_RECOVER = {
     'ip_blacklist_cleared':    'ip_blacklisted',          # v4.8.0
     'resolver_recovered':      'resolver_unhealthy',      # v4.9.0
     'vpn_client_connected':    'vpn_client_disconnected', # v5.2.0
+    'container_recovered':     'container_stopped',       # v5.6.0: stopped→running
+    'backup_recovered':        'backup_stale',            # v5.6.0: stale→fresh
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -5369,7 +5373,7 @@ CHANNEL_KINDS = [
     ('patches',     'Pending patches',          'operational',   ['patch_alert']),
     ('cve',         'CVE findings',             'operational',   ['cve_found']),
     ('service',     'Service down/up',          'operational',   ['service_down', 'service_up', 'service_recover']),
-    ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_restarting', 'containers_stale']),
+    ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_recovered', 'container_restarting', 'containers_stale']),
     ('image_update', 'Container image updates',  'operational',   ['image_update_available', 'image_updated']),
     ('script',      'Custom script',            'operational',   ['custom_script_fail', 'custom_script_recover']),
     ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
@@ -5377,7 +5381,7 @@ CHANNEL_KINDS = [
     ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
     ('break_glass', 'Break-glass cred reveals', 'operational',   ['vault_break_glass']),
     ('server_disk', 'Server disk space',        'operational',   ['server_disk_low', 'server_disk_ok']),
-    ('backup',      'Backup health',            'operational',   ['backup_stale', 'backup_verify_failed', 'backup_verified']),
+    ('backup',      'Backup health',            'operational',   ['backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified']),
     ('rollout',     'Rollout halted',           'operational',   ['rollout_halted']),
     ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
     ('acme',        'ACME certificate issuance','operational',   []),   # NA-only — surfaced from acme.sh state
@@ -7322,6 +7326,15 @@ def _auto_resolve_alerts(event, payload):
         # v5.2.0: WG Access clients aren't devices — match the open
         # vpn_client_disconnected / vpn_handshake_stale alert by client_id.
         sub_match['client_id'] = p.get('client_id')
+    elif event == 'container_recovered':
+        # v5.6.0: a container running again resolves the open container_stopped
+        # alert for THAT container (per-name, so a recovered web1 doesn't clear
+        # the open alert for db1 on the same host).
+        sub_match['container'] = p.get('container')
+    elif event == 'backup_recovered':
+        # v5.6.0: a fresh backup resolves the open backup_stale alert for THAT
+        # path (per-path, like mount_recovered).
+        sub_match['path'] = p.get('path')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -8039,6 +8052,7 @@ def _webhook_title(event):
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
         'container_stopped':    'Container Stopped',
+        'container_recovered':  'Container Recovered',
         'container_restarting': 'Container Restarting',
         'containers_stale':     'Container Data Stale',
         # v4.2.0 sweep: these fell through to the generic fallback title.
@@ -8061,6 +8075,7 @@ def _webhook_title(event):
         'ssh_key_added':         'SSH Key Added to Host',
         'brute_force_detected':  'Brute-Force Attempts Detected',
         'backup_stale':          'Backup File Stale',
+        'backup_recovered':      'Backup Recovered',
         'backup_verify_failed':  'Backup Integrity Check Failed',
         'backup_verified':       'Backup Integrity Restored',
         'rollout_halted':        'Rollout Halted',
@@ -15390,6 +15405,19 @@ def handle_heartbeat():
                             'exists':       _exists,
                             'age_hours':    _age_h,
                             'max_age_hours': _max_h,
+                        })
+                    except Exception:
+                        pass
+                elif _is_ok and not _was_ok:
+                    # v5.6.0: edge-triggered recovery — a fresh backup resolves the
+                    # open backup_stale alert for this path (matched per-path).
+                    try:
+                        fire_webhook('backup_recovered', {
+                            'device_id': dev_id,
+                            'name':      saved_dev.get('name', dev_id),
+                            'path':      _path,
+                            'label':     _label,
+                            'age_hours': _age_h,
                         })
                     except Exception:
                         pass
@@ -47734,7 +47762,18 @@ def process_container_report(dev_id, normalised, now):
             continue  # ephemeral scan containers + operator name excludes
         prev_was_running = _container_is_running(prev.get('status'))
         if not prev_was_running:
-            continue  # already-stopped containers don't generate noise
+            # v5.6.0: was stopped/exited last beat — did it come back? Fire
+            # container_recovered so the open container_stopped alert auto-resolves
+            # (matched per-container-name in _auto_resolve_alerts).
+            cur = new_by_key.get(key)
+            if cur is not None and _container_is_running(cur.get('status')):
+                _fire_container_webhook('container_recovered', dev_id, prev.get('name', '?'), {
+                    'runtime':   prev.get('runtime', 'unknown'),
+                    'namespace': prev.get('namespace', ''),
+                    'image':     cur.get('image', prev.get('image', '')),
+                    'status':    cur.get('status', ''),
+                })
+            continue  # already-stopped containers don't generate stop noise
         cur = new_by_key.get(key)
         if cur is None:
             # vanished entirely — docker rm / kubectl delete pod / crashed and

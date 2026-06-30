@@ -40,6 +40,11 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
   event; same lock-safe firing path.
 - **Settings → Install**: squared the active settings-tab underline and the tab-strip
   scrollbar (were rounded), with clearance under the scrollbar.
+- **Alert lifecycle**: two state alerts that fired but never auto-resolved now do —
+  **`container_recovered`** (a stopped container running again clears the open
+  `container_stopped` alert, per container name) and **`backup_recovered`** (a fresh
+  backup clears `backup_stale`, per path). Both edge-triggered, wired through every
+  registry. WEBHOOK_EVENTS now **91**.
 
 ## v5.5.0 — "ScaleMatters" — 2026-06-29
 
