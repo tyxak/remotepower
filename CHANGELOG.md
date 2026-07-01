@@ -64,6 +64,18 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
   counts) — added to the homelab-integrations set (now 28); the vCenter connector relabelled
   **VMware vSphere / ESXi / vCenter**. The **Settings → Proxmox** tab is renamed
   **Virtualization**.
+- **Virtualization lifecycle parity:** VMware vSphere/vCenter, VMware Cloud Director and
+  OpenShift Virtualization (KubeVirt) now get **Proxmox-level control** on the sidebar
+  **Virtualization** page — a platform picker lists guests per hypervisor and offers
+  **power** (start / shutdown / reboot / suspend / hard stop / reset, filtered to what each
+  platform supports) and **snapshots** (create / revert / delete, type-to-confirm revert).
+  A new sibling module `hypervisor.py` holds the pure per-platform drivers; every call rides
+  the same SSRF-guarded integrations client as the read-only connectors, reads are
+  `require_auth`, mutations are admin + audited. Admin-supplied VM/snapshot ids are reduced
+  to a single URL-quoted path segment (and OpenShift `namespace/name` validated as RFC-1123)
+  so a crafted id can never redirect the authenticated request to another host or API path.
+  Endpoints: `GET /api/virt/platforms`, `GET /api/virt/{id}/vms`, `POST /api/virt/{id}/power`,
+  `GET /api/virt/{id}/snapshots`, `POST /api/virt/{id}/snapshot`.
 - **Security pass** (5-dimension pentest + full SAST stack; CodeQL 0, bandit/gitleaks/
   njsscan/pip-audit clean — see `docs/security-review-5.6.0.md`). No Crit/High/Med. Seven
   Low fixes: two secret-bearing-URL leaks (`healthchecks_url`/`metrics_push.url` in the

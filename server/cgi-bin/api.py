@@ -694,6 +694,7 @@ import ip_reputation
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
+import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
 import dns_zones as dns_zones_mod
 # v4.9.0 ResolutionMatters: live resolve/dig + propagation over public +
 # authoritative resolvers (SSRF-safe — fixed resolver allowlist, no user IPs).
@@ -17695,6 +17696,117 @@ def handle_integration_test():
     ok = res.get('status') in (integrations_mod.OK, integrations_mod.WARN)
     respond(200, {'ok': ok, 'status': res.get('status'), 'detail': res.get('detail'),
                   'version': res.get('version'), 'metrics': res.get('metrics')})
+
+
+# ── v5.6.0: virtualization lifecycle (vSphere/vCenter, OpenShift, vCloud) ──────
+# Parity with the Proxmox lifecycle, but driven through the integrations layer:
+# the platform is a saved integration instance (id), the client is the same
+# SSRF-guarded HTTP client every connector uses, and the per-platform driver
+# lives in hypervisor.py. Reads are require_auth; mutations are admin + audited.
+
+def _virt_inst(integration_id):
+    """Resolve a lifecycle-capable integration instance by id (404/400 on miss)."""
+    integration_id = str(integration_id or '').strip()
+    inst = next((i for i in _get_integrations()
+                 if str(i.get('id')) == integration_id), None)
+    if not inst:
+        respond(404, {'error': 'platform not found'})
+    if not hypervisor_mod.has_lifecycle(inst.get('type')):
+        respond(400, {'error': 'this integration is not a controllable '
+                               'virtualization platform'})
+    return inst
+
+
+def _virt_dispatch(inst, op, *args):
+    """Call a hypervisor driver op, translating failures to a 502."""
+    try:
+        return hypervisor_mod.LIFECYCLE[inst['type']][op](inst, _integration_client(inst), *args)
+    except integrations_mod.IntegrationError as e:
+        respond(502, {'error': str(e)[:200]})
+    except HTTPError:
+        raise
+    except Exception as e:   # pragma: no cover - defensive
+        respond(502, {'error': f'{e.__class__.__name__}: {e}'[:200]})
+
+
+def handle_virt_platforms():
+    """GET /api/virt/platforms — lifecycle-capable platforms for the page picker.
+
+    Any authenticated user (the Virtualization page is read-visible to all); the
+    response carries NO secrets/urls — only id, label, type and the per-platform
+    power-action set, plus whether the dedicated Proxmox client is enabled."""
+    require_auth()
+    out = []
+    for i in _get_integrations():
+        if hypervisor_mod.has_lifecycle(i.get('type')):
+            out.append({'id': i.get('id'),
+                        'label': i.get('label') or i.get('type'),
+                        'type': i.get('type'),
+                        'power_actions': hypervisor_mod.power_actions(i.get('type'))})
+    respond(200, {'ok': True, 'platforms': out,
+                  'proxmox': bool(load(CONFIG_FILE).get('proxmox_enabled'))})
+
+
+def handle_virt_vms(integration_id):
+    """GET /api/virt/{id}/vms — list guests on a virtualization platform."""
+    require_auth()
+    inst = _virt_inst(integration_id)
+    vms = _virt_dispatch(inst, 'list_vms')
+    respond(200, {'ok': True, 'vms': vms,
+                  'power_actions': hypervisor_mod.power_actions(inst['type'])})
+
+
+def handle_virt_power(integration_id):
+    """POST /api/virt/{id}/power {vm_id, action} — power op (admin, audited)."""
+    actor = require_admin_auth()
+    inst = _virt_inst(integration_id)
+    body = get_json_obj()
+    vm_id = _sanitize_str(str(body.get('vm_id', '')), 256)
+    action = str(body.get('action', '')).strip().lower()
+    if not vm_id:
+        respond(400, {'error': 'vm_id is required'})
+    allowed = hypervisor_mod.power_actions(inst['type'])
+    if action not in allowed:
+        respond(400, {'error': f'action must be one of {allowed}'})
+    res = _virt_dispatch(inst, 'power', vm_id, action)
+    audit_log(actor, 'virt_power',
+              f"{inst.get('type')} {inst.get('id')} vm={vm_id} {action} "
+              f"ok={(res or {}).get('ok')}")
+    respond(200, res or {'ok': True})
+
+
+def handle_virt_snapshots(integration_id):
+    """GET /api/virt/{id}/snapshots?vm=<id> — list snapshots for one guest."""
+    require_auth()
+    inst = _virt_inst(integration_id)
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    vm_id = _sanitize_str((qs.get('vm') or [''])[0], 256)
+    if not vm_id:
+        respond(400, {'error': 'vm query parameter is required'})
+    snaps = _virt_dispatch(inst, 'list_snapshots', vm_id)
+    respond(200, {'ok': True, 'snapshots': snaps})
+
+
+def handle_virt_snapshot_action(integration_id):
+    """POST /api/virt/{id}/snapshot {vm_id, action, name, desc} — admin, audited."""
+    actor = require_admin_auth()
+    inst = _virt_inst(integration_id)
+    body = get_json_obj()
+    vm_id = _sanitize_str(str(body.get('vm_id', '')), 256)
+    action = str(body.get('action', '')).strip().lower()
+    if not vm_id:
+        respond(400, {'error': 'vm_id is required'})
+    if action not in ('create', 'revert', 'delete'):
+        respond(400, {'error': 'action must be create, revert or delete'})
+    name = _sanitize_str(str(body.get('name', '')), 200)
+    desc = _sanitize_str(str(body.get('desc', '')), 500)
+    if action in ('revert', 'delete') and not name:
+        respond(400, {'error': 'snapshot name is required'})
+    res = _virt_dispatch(inst, 'snapshot_action', vm_id, action, name, desc)
+    audit_log(actor, 'virt_snapshot',
+              f"{inst.get('type')} {inst.get('id')} vm={vm_id} {action} "
+              f"name={name} ok={(res or {}).get('ok')}")
+    respond(200, res or {'ok': True})
 
 
 def handle_integrations_status():
@@ -52860,6 +52972,20 @@ def _dispatch(pi, m):
     # v2.4.0: Proxmox snapshots — list / create / rollback / delete.
     elif pi == '/api/proxmox/snapshot' and m == 'POST':
         handle_proxmox_snapshot_action()
+
+    # ── v5.6.0: virtualization lifecycle (vSphere/vCenter, OpenShift, vCloud) ──
+    # vm ids can contain '/' (OpenShift namespace/name) → vm is carried in the
+    # body (POST) or the ?vm= query (GET), never in the path. {id} = integration id.
+    elif pi == '/api/virt/platforms' and m == 'GET':
+        handle_virt_platforms()
+    elif pi.startswith('/api/virt/') and pi.endswith('/vms') and m == 'GET':
+        handle_virt_vms(pi[len('/api/virt/'):-len('/vms')])
+    elif pi.startswith('/api/virt/') and pi.endswith('/power') and m == 'POST':
+        handle_virt_power(pi[len('/api/virt/'):-len('/power')])
+    elif pi.startswith('/api/virt/') and pi.endswith('/snapshots') and m == 'GET':
+        handle_virt_snapshots(pi[len('/api/virt/'):-len('/snapshots')])
+    elif pi.startswith('/api/virt/') and pi.endswith('/snapshot') and m == 'POST':
+        handle_virt_snapshot_action(pi[len('/api/virt/'):-len('/snapshot')])
 
     # ── v2.1.0: docker-compose dropdown ────────────────────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET':

@@ -5310,9 +5310,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v2.3.0: Virtualization (Proxmox QEMU VMs) ──────────────────── -->
       <div id="page-virtualization" class="page">
         <div class="page-title">Virtualization</div>
-        <div class="page-subtitle">QEMU virtual machines on the Proxmox node. Start / shutdown actions call the Proxmox VE API directly from the RemotePower server.</div>
+        <div class="page-subtitle">Virtual machines across your hypervisors — Proxmox VE plus any VMware or OpenShift Virtualization platform configured under Settings → Virtualization. List, power and snapshot actions call each platform's API directly from the RemotePower server.</div>
+        <div id="virt-platform-bar" class="isl-173"></div>
         <div class="isl-173">
-          <button class="btn-icon" data-action="loadVirtualization" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="loadVirtualizationPage" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="enroll-btn" id="vm-create-btn" data-action="openVmCreateWizard"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> Create VM</button>
           <input type="text" id="virt-search" class="form-input isl-49" placeholder="Search VMs by name or VMID…" data-input="filterVirtualization" aria-label="Search VMs by name or VMID">
           <span id="virtualization-node" class="isl-174"></span>
@@ -8468,6 +8469,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <script defer src="static/js/app-proxmox.js?v=5.6.0"></script>
 <script defer src="static/js/wg-access.js?v=5.6.0"></script>
 <script defer src="static/js/app-billing.js?v=5.6.0"></script>
+<script defer src="static/js/app-virt.js?v=5.6.0"></script>
 
 <script defer src="static/js/sw-register.js?v=5.6.0"></script>
 </body>

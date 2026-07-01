@@ -1599,7 +1599,7 @@ function showPage(name, btn) {
   if (name === 'tasks')    loadTasks();
   if (name === 'cmdb')     enterCMDB();
   if (name === 'containers') { enterContainers(); _showAllContainerPanels(); }
-  if (name === 'virtualization') loadVirtualization();
+  if (name === 'virtualization') loadVirtualizationPage();
   if (name === 'netmap')   { enterNetmap(); loadDiscovery(); }
   if (name === 'netmetrics') loadNetMetrics();
   if (name === 'compliance') loadCompliance();

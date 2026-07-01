@@ -133,6 +133,7 @@ class TestHtmlIdReferences(unittest.TestCase):
         'ai-modal-copy', 'ai-modal-action', 'ai-modal-elapsed',
         # v2.4.0: Created via document.createElement in openSnapshots()
         'snapshot-modal', 'snapshot-modal-title',
+        'virt-snapshot-modal', 'virt-snapshot-modal-title',   # app-virt.js builds these
         # v2.1.7: Created via document.createElement in _ensureRunbookModal()
         'runbook-modal', 'runbook-modal-body', 'runbook-modal-title',
         'runbook-modal-meta', 'runbook-modal-copy', 'runbook-modal-regen',

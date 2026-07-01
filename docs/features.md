@@ -239,6 +239,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Proxmox snapshots | Create/list/roll-back/delete per guest; type-to-confirm rollback *(v2.4.0)* |
 | Proxmox create / delete | LXC create wizard + delete *(v3.5.0)*; QEMU VM create wizard *(v3.7.0)* |
 | Proxmox backup recency | Per-guest vzdump staleness check *(v3.6.0)* |
+| VMware / OpenShift lifecycle | vSphere/vCenter, Cloud Director and OpenShift Virtualization (KubeVirt) get Proxmox-level control on the Virtualization page — list guests, power on/off/reboot/suspend, and create/revert/delete snapshots; configured under Settings → Virtualization, driven through the SSRF-guarded integrations client. `GET /api/virt/{id}/vms`, `POST /api/virt/{id}/power`, `GET|POST /api/virt/{id}/snapshot(s)` *(v5.6.0)* |
 | Helm release status | Surfaces release status where Helm + kubeconfig present (visibility only) *(v3.4.0)* |
 
 ## Networking, DNS & email posture
