@@ -36568,6 +36568,12 @@ def _longpoll_wait(dev_id, timeout):
                 lp = load(LONGPOLL_FILE); lp.pop(dev_id, None); save(LONGPOLL_FILE, lp)
                 return ('shutdown', None)
             time.sleep(1)
+            # CRITICAL: the agent's follow-up heartbeat writes `ready:True` from a
+            # DIFFERENT process, but load() memoises per request — without busting
+            # the cache each poll we'd keep re-reading our own stale `ready:False`
+            # snapshot for the whole timeout and ALWAYS report "no response". Drop
+            # the cached copy so this read actually re-hits disk / the DB row.
+            _invalidate_load_cache(LONGPOLL_FILE)
             slot = load(LONGPOLL_FILE).get(dev_id, {})
             if slot.get('ready'):
                 output = slot.get('output', {})
@@ -36656,6 +36662,10 @@ def handle_longpoll_exec():
                               'message': 'Server is restarting — the command is queued; '
                                          'poll the /output endpoint shortly.'})
             time.sleep(1)
+            # Bust the per-request load cache each poll — the agent's follow-up
+            # heartbeat writes `ready:True` from another process, which our own
+            # memoised snapshot would otherwise never reflect (see _longpoll_wait).
+            _invalidate_load_cache(LONGPOLL_FILE)
             lp   = load(LONGPOLL_FILE)
             slot = lp.get(dev_id, {})
             if slot.get('ready'):
