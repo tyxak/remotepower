@@ -5817,6 +5817,10 @@ body[data-ui="industrial"] .login-card {
    each card is ONE clean panel, not two concentric borders. */
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .settings-section { border-color:#465468; }
+/* DIAGNOSTIC: thicken the bottom edge by 1px to test whether the border renders /
+   the new CSS is reaching the browser. */
+body[data-ui="industrial"] .dash-card,
+body[data-ui="industrial"] .settings-section { border-bottom-width:2px; }
 body[data-ui="industrial"] .dash-card > .table-card,
 body[data-ui="industrial"] .dash-card > .scrollable-table-wrap,
 body[data-ui="industrial"] .dash-card .table-card > .scrollable-table-wrap,
