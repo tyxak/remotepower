@@ -24,7 +24,7 @@ class TestRagSecretExclusion(unittest.TestCase):
     def test_secret_named_fields_excluded(self):
         store = {'dev1': {
             'name': 'web01', 'os': 'Debian 12',
-            'api_key': 'sk_live_SECRET123',
+            'api_key': 'FAKEKEYVAL_should_not_leak',
             'snmp_community': 'private-community-str',
             'bearer_token': 'BEARER_LEAK',
             'db_passphrase': 'hunter2',
@@ -32,7 +32,7 @@ class TestRagSecretExclusion(unittest.TestCase):
             'bmc': {'token': 'NESTED_TOKEN', 'ip': '10.0.0.9'},
         }}
         blob = self._corpus_text(store)
-        for leak in ('sk_live_SECRET123', 'private-community-str', 'BEARER_LEAK',
+        for leak in ('FAKEKEYVAL_should_not_leak', 'private-community-str', 'BEARER_LEAK',
                      'hunter2', 'KEYLEAK', 'NESTED_TOKEN'):
             self.assertNotIn(leak, blob, f"secret leaked into RAG corpus: {leak}")
         # non-secret fields are still indexed
