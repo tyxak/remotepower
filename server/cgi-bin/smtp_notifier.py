@@ -244,7 +244,7 @@ def brand_html(cfg: dict, title: str, plain_body: str) -> str:
         f'<tr><td style="background:{accent};padding:14px 20px;color:#ffffff;'
         f'font-size:16px;font-weight:700">{p}</td></tr>'
         '<tr><td style="padding:20px;color:#16181d;font-size:14px;line-height:1.6">'
-        f'<div style="font-size:15px;font-weight:600;margin-bottom:10px">{safe_title}</div>'
+        f'<div style="font-size:16px;font-weight:600;margin-bottom:10px">{safe_title}</div>'
         f'<div>{safe_body}</div></td></tr>'
         '<tr><td style="padding:12px 20px;background:#f7f8fa;color:#8a929d;'
         'font-size:12px;border-top:1px solid #e2e5ea">'

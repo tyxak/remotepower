@@ -124,6 +124,12 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 import http.client as _httpclient
 
 
+# Cloud instance-metadata endpoints that are NOT caught by is_link_local:
+# AWS IMDSv6 ULA, Alibaba, Oracle (legacy). 169.254.169.254 is already covered
+# by is_link_local. Blocked explicitly so a rebind to metadata can't leak creds.
+_META_IPS = frozenset({'fd00:ec2::254', '100.100.100.200', '192.0.0.192'})
+
+
 def _peer_ip_blocked(ip_str, allow_loopback=False):
     import ipaddress
     try:
@@ -131,6 +137,8 @@ def _peer_ip_blocked(ip_str, allow_loopback=False):
     except ValueError:
         return False
     if ip.is_link_local or ip.is_unspecified:   # 169.254.169.254 metadata, 0.0.0.0
+        return True
+    if str(ip) in _META_IPS:
         return True
     return bool(ip.is_loopback) and not allow_loopback
 

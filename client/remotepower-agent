@@ -5954,7 +5954,13 @@ def _handle_file_op(cmd):
             content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
                        if len(bits) > 3 else '')
             tmp = fs.with_name(fs.name + '.rp-tmp')
-            tmp.write_text(content)
+            # O_EXCL|O_NOFOLLOW: never follow a pre-placed symlink at the tmp
+            # path and never clobber an existing file there (symlink-TOCTOU guard).
+            _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                os.write(_fd, content.encode('utf-8', 'replace'))
+            finally:
+                os.close(_fd)
             os.replace(str(tmp), str(fs))   # atomic same-dir replace
             res = {'path': logical, 'written': len(content)}
         elif op == 'mkdir':

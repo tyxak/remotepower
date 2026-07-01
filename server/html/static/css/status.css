@@ -78,6 +78,8 @@ body.status-page {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+  max-height: 360px;
+  overflow-y: auto;
   background: var(--surface);
 }
 .status-comp-row {
@@ -126,6 +128,8 @@ body.status-page {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+  max-height: 360px;
+  overflow-y: auto;
   background: var(--surface);
 }
 .status-mon-row {

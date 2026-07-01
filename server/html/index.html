@@ -3378,7 +3378,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Homelab software integrations</strong> — monitor the self-hosted apps you already run</summary>
             <div class="doc-body">
               <p>A read-only, server-side subsystem polls popular self-hosted software for health on a cadence and folds the result into the <strong>Alerts</strong> inbox and the dashboard. Nothing is installed on the target — each connector only reads a service's own health/status API. Set one up under <strong>Settings → Integrations</strong>: pick a type, point it at the service on your LAN, add an API token, and <strong>Test</strong>.</p>
-              <p><strong>27 connectors:</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, vCenter/ESXi, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
+              <p><strong>28 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
               <p><strong>Alerts &amp; widget:</strong> an unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</p>
               <p><strong>Read-only &amp; SSRF-guarded:</strong> every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, with no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only. A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling and hides the section + widget.</p>
             </div>
@@ -3871,7 +3871,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>AI prompt customization &amp; fine-tuning</strong> (v3.0.1) — per-feature settings</summary>
             <div class="doc-body">
               <p>Each AI feature (IaC Generator, Investigate, Diagnose Service, Runbook, etc.) uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models but may need adjusting per-model — a DeepSeek-R1 prompt doesn't necessarily fit a small local Llama.</p>
-              <p><strong>Where:</strong> Settings → AI Assistant → Prompt customization. One card per AI feature (15 cards total).</p>
+              <p><strong>Where:</strong> Settings → AI Assistant → Prompt customization. One editable card per AI feature.</p>
               <p><strong>Per card:</strong></p>
               <ul>
                 <li><strong>System prompt textarea</strong> — edit; click <em>Save prompt</em> to persist; clear and save to revert to default.</li>

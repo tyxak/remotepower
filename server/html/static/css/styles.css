@@ -4611,7 +4611,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 .isl-511 { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap }
 .isl-512 { display: flex; align-items: center; gap: 10px; color: var(--muted) }
 .isl-513 { color: var(--red); white-space: pre-wrap }
-.isl-514 { background: var(--surface2); border: 1px solid var(--border); padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 8px 0; line-height: 1.5; font-family: var(--font-mono) }
+.isl-514 { background: var(--surface2); border: 1px solid var(--border); padding: 10px 12px; border-radius: 6px; overflow-x: auto; max-height: 360px; overflow-y: auto; font-size: 12px; margin: 8px 0; line-height: 1.5; font-family: var(--font-mono) }
 .isl-515 { background: var(--surface2); padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: var(--font-mono) }
 .isl-516 { font-size: 14px; font-weight: 600; margin: 10px 0 4px }
 .isl-517 { font-size: 14px; font-weight: 600; margin: 12px 0 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px }

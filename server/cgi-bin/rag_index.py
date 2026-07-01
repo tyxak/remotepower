@@ -306,6 +306,20 @@ def build_runbooks_corpus(runbooks, resolve_device=None):
 # the prompt (and, worse, into a cloud embedding request).
 _CMDB_SECRET_KEYS = frozenset({'credentials', 'secrets', 'vault', 'password',
                                'passwords', 'fields'})
+# Substrings that mark a field as secret-bearing, matched case-insensitively
+# against the key NAME. Broader than an exact set (which missed api_key / token /
+# passphrase / private_key / community / …) so an operator-added plaintext field
+# like `api_key: sk_live_…` can never be embedded into the vector store or sent
+# to a cloud embedding provider.
+_SECRET_SUBSTR = ('secret', 'password', 'passwd', 'token', 'api_key', 'apikey',
+                  'passphrase', 'private_key', 'privatekey', 'community',
+                  'bearer', 'webhook', 'vault', 'cred')
+
+
+def _is_secret_key(name):
+    """True if a field name looks secret-bearing (case-insensitive substring)."""
+    n = str(name).lower()
+    return any(s in n for s in _SECRET_SUBSTR)
 
 
 def build_cmdb_corpus(cmdb_store, resolve_device=None):
@@ -327,7 +341,7 @@ def build_cmdb_corpus(cmdb_store, resolve_device=None):
         # list (handled separately below).
         meta_lines = []
         for k, v in rec.items():
-            if k in _CMDB_SECRET_KEYS or k == 'docs' or k == 'documentation':
+            if k in _CMDB_SECRET_KEYS or _is_secret_key(k) or k == 'docs' or k == 'documentation':
                 continue
             if v in (None, '', [], {}):
                 continue
@@ -335,7 +349,7 @@ def build_cmdb_corpus(cmdb_store, resolve_device=None):
                 v = ', '.join(str(x) for x in v)
             elif isinstance(v, dict):
                 v = ', '.join(f"{kk}={vv}" for kk, vv in v.items()
-                              if kk not in _CMDB_SECRET_KEYS)
+                              if kk not in _CMDB_SECRET_KEYS and not _is_secret_key(kk))
             meta_lines.append(f"{k}: {v}")
         if meta_lines:
             docs.append(make_doc(
@@ -376,6 +390,8 @@ def _format_facet(data, max_items=40):
     lines = []
     if isinstance(data, dict):
         for k, v in data.items():
+            if _is_secret_key(k):
+                continue   # never emit a secret-named field into the corpus
             if isinstance(v, (list, dict)):
                 v = _format_facet(v, max_items)
                 lines.append(f"{k}:\n{v}")
@@ -385,7 +401,7 @@ def _format_facet(data, max_items=40):
         for item in data[:max_items]:
             if isinstance(item, dict):
                 lines.append(', '.join(f"{k}={v}" for k, v in item.items()
-                                       if not isinstance(v, (list, dict))))
+                                       if not isinstance(v, (list, dict)) and not _is_secret_key(k)))
             else:
                 lines.append(str(item))
         if len(data) > max_items:

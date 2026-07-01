@@ -20639,9 +20639,9 @@ function _renderSlaTargetsEditor() {
       <select class="sla-tgt-scope form-input input-auto fs-12">
         <option value="group"${row.scope === 'group' ? ' selected' : ''}>Group</option>
         <option value="tag"${row.scope === 'tag' ? ' selected' : ''}>Tag</option>
-        <option value="device"${row.scope === 'device' ? ' selected' : ''}>Device id</option>
+        <option value="device"${row.scope === 'device' ? ' selected' : ''}>Device</option>
       </select>
-      <input class="sla-tgt-key form-input fs-12" placeholder="name / id" title="The device name/id, tag, or group this target applies to (leave blank for the Default scope)." value="${escAttr(row.key || '')}">
+      <input class="sla-tgt-key form-input fs-12" placeholder="hostname / tag / group" title="The device HOSTNAME, tag, or group this target applies to (leave blank for the Default scope)." value="${escAttr(row.key || '')}">
       <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" title="Target uptime %, e.g. 99.9. Devices below it over the report window are flagged as breaching their SLA / error budget." value="${escAttr(String(row.pct == null ? '' : row.pct))}">
       <button class="btn-secondary fs-12" data-action="slaTargetRemoveRow" data-arg="${i}">Remove</button>
     </div>`).join('');

@@ -8252,6 +8252,10 @@ def _ip_class_blocked(ip_str, allow_loopback=True):
             inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
         if inner is not None:
             ip = inner
+    # Cloud instance-metadata endpoints not caught by is_link_local: AWS IMDSv6
+    # ULA, Alibaba, Oracle-legacy. (169.254.169.254 is already link-local.)
+    if str(ip) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
+        return True
     # Decide loopback first: ::1 is also is_reserved, so the reserved check
     # below would otherwise block a loopback target even when allowed.
     if ip.is_loopback:
@@ -22719,8 +22723,15 @@ def _resolve_sla_target(targets, dev_id, dev):
     device → tag → group → fleet default. None if none is configured."""
     if not isinstance(targets, dict):
         return None
-    if dev_id in (targets.get('devices') or {}):
-        return _as_pct(targets['devices'][dev_id])
+    devmap = targets.get('devices') or {}
+    # v5.6.0: device-scoped overrides are keyed by HOSTNAME (device name), which is
+    # what the operator sees and types. Fall back to matching by the internal
+    # device_id so any override saved under the old id-keyed scheme still resolves.
+    dname = str(dev.get('name') or '')
+    if dname and dname in devmap:
+        return _as_pct(devmap[dname])
+    if dev_id in devmap:
+        return _as_pct(devmap[dev_id])
     tagmap = targets.get('tags') or {}
     for tag in dev.get('tags') or []:
         if tag in tagmap:

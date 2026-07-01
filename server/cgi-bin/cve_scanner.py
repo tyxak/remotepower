@@ -21,6 +21,7 @@ OSV_DETAIL_TIMEOUT = 10
 
 DETAILS_CACHE_TTL  = 7 * 86400
 MAX_PACKAGES       = 10000
+MAX_RESP_BYTES     = 32 * 1024 * 1024   # cap upstream OSV/Debian responses (memory-DoS guard)
 
 SEVERITY_ORDER = ('critical', 'high', 'medium', 'low', 'unknown')
 
@@ -96,7 +97,7 @@ def _osv_querybatch(queries: list) -> list:
         method='POST',
     )
     with urllib.request.urlopen(req, timeout=OSV_TIMEOUT) as resp:
-        return json.loads(resp.read().decode('utf-8')).get('results', [])
+        return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8')).get('results', [])
 
 
 def _osv_vuln_details(vuln_id: str) -> dict | None:
@@ -106,7 +107,7 @@ def _osv_vuln_details(vuln_id: str) -> dict | None:
             headers={'Accept': 'application/json'},
         )
         with urllib.request.urlopen(req, timeout=OSV_DETAIL_TIMEOUT) as resp:
-            return json.loads(resp.read().decode('utf-8'))
+            return json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8'))
     except Exception:
         return None
 
@@ -346,7 +347,7 @@ def _debian_severity_fallback(cve_id: str) -> str | None:
         url = f"https://security-tracker.debian.org/api/json/cve/{cve_id}"
         req = urllib.request.Request(url, headers={'User-Agent': 'RemotePower'})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+            data = json.loads(resp.read(MAX_RESP_BYTES).decode('utf-8'))
         # Debian urgency can carry a '**' suffix (postponed / end-of-life
         # — e.g. 'low**'); strip it before matching.
         urgency = data.get('urgency', '').lower().rstrip('*').strip()
