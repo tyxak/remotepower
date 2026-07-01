@@ -268,6 +268,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'mailbox_threshold',
             # v2.5.0: custom monitoring script alerts
             'custom_script_fail', 'custom_script_recover',
+            # v5.6.0: custom Check-catalog check failures
+            'custom_check_failed', 'custom_check_recovered',
             # v2.6.0: host configuration drift
             'config_drift',
             # v2.6.1: TLS expiry + pending reboot

@@ -859,6 +859,10 @@ WEBHOOK_EVENTS = (
     # v2.5.0: custom monitoring script results
     ('custom_script_fail',    'Custom monitoring script returned non-zero', True),
     ('custom_script_recover', 'Custom monitoring script recovered to OK',   True),
+    # v5.6.0: custom Check-catalog checks (process/port/file/unit/log/job) —
+    # edge-triggered on the heartbeat when a check flips to a failing state.
+    ('custom_check_failed',    'Custom check failed (process/port/file/unit/log/job)', True),
+    ('custom_check_recovered', 'Custom check recovered to OK',                         True),
     # v2.6.0: host configuration drift
     ('config_drift',          'Host configuration drift detected',          True),
     # v2.6.1: TLS/DANE certificate expiry
@@ -5238,6 +5242,9 @@ _ALERT_RULES = {
     'tls_expiry':             (None,       None),   # severity from payload.days_left
     'mailbox_threshold':      ('medium',   None),
     'custom_script_fail':     ('high',     None),
+    # v5.6.0: custom check failure — severity from payload.status (a failing
+    # process/port/unit is 'critical' → high; an agent 'warning' → medium).
+    'custom_check_failed':    (None,       None),
     'log_alert':              (None,       None),   # severity from payload.level
     'scan_finding':           (None,       None),   # v4.2.0 (B5): from payload counts
     'metric_warning':         (None,       None),   # severity from payload.level
@@ -5326,6 +5333,7 @@ _ALERT_RECOVER = {
     'service_up':              'service_down',
     'service_recover':         'service_down',
     'custom_script_recover':   'custom_script_fail',
+    'custom_check_recovered':  'custom_check_failed',
     'snmp_recover':            'snmp_unreachable',
     # v3.2.3: monitor_up auto-resolves the matching monitor_down alert
     # so the inbox stays clean when an external target recovers.
@@ -5398,6 +5406,7 @@ CHANNEL_KINDS = [
     ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_recovered', 'container_restarting', 'containers_stale']),
     ('image_update', 'Container image updates',  'operational',   ['image_update_available', 'image_updated']),
     ('script',      'Custom script',            'operational',   ['custom_script_fail', 'custom_script_recover']),
+    ('custom_check', 'Custom checks',           'operational',   ['custom_check_failed', 'custom_check_recovered']),
     ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
     ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
     ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
@@ -5661,6 +5670,10 @@ def _alert_severity(event, payload):
         if days < 14:
             return 'high'
         return 'medium'
+    if event == 'custom_check_failed':
+        # A hard failure (process down / port closed) is 'critical' → high;
+        # an agent-reported 'warning' (e.g. log_errors, slightly stale job) → medium.
+        return 'medium' if (p.get('status') == 'warning') else 'high'
     if event in ('log_alert', 'metric_warning'):
         lvl = (p.get('level') or '').lower()
         if lvl in ('critical', 'crit'):
@@ -5751,6 +5764,11 @@ def _alert_title(event, payload):
         _n = p.get('warnings') or 0
         return (f'{_tool} reported warnings on {name}'
                 + (f' — {_n} warning(s)' if _n else ''))[:200]
+    if event == 'custom_check_failed':
+        return (f'Check failed on {name}: {p.get("check_name") or "check"}'
+                + (f' — {p.get("output")}' if p.get('output') else ''))[:256]
+    if event == 'custom_check_recovered':
+        return f'Check recovered on {name}: {p.get("check_name") or "check"}'[:256]
     if event == 'ticket_sla_breached':
         return (f'Ticket #RP{int(p.get("number") or 0):06d} SLA breached: '
                 f'{(p.get("subject") or "")[:80]}')[:200]
@@ -5912,6 +5930,7 @@ _ALERT_IDENTITY_FIELDS = (
     'integration_id', 'unit', 'metric', 'target', 'path', 'image', 'tag',
     'ip', 'label', 'port', 'proto', 'script_name', 'cve_id', 'container', 'rtype',
     'client_id',   # v5.2.0: WG Access clients (no device_id) coalesce by client_id
+    'check_id',    # v5.6.0: custom checks coalesce per (host, check)
 )
 
 
@@ -7259,7 +7278,11 @@ def _record_alert(event, payload):
                     # v5.2.0: WG Access client events — client_id is the identity
                     # for coalescing + auto-resolve (clients aren't devices).
                     'client_id', 'client_name', 'tunnel_id', 'tunnel_name', 'endpoint',
-                    'integration_id', 'ip', 'rtype'):
+                    'integration_id', 'ip', 'rtype',
+                    # v5.6.0: custom checks — check_id is the identity/auto-resolve
+                    # key; check_name + output make the alert self-describing +
+                    # searchable (the failing check and the issue it reported).
+                    'check_id', 'check_name', 'output', 'status'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -7327,6 +7350,10 @@ def _auto_resolve_alerts(event, payload):
         sub_match['unit'] = p.get('unit')
     elif event == 'custom_script_recover':
         sub_match['script_name'] = p.get('script_name')
+    elif event == 'custom_check_recovered':
+        # v5.6.0: per (host, check) — a recovered check clears only its own
+        # open custom_check_failed alert (device_id + check_id).
+        sub_match['check_id'] = p.get('check_id')
     elif event == 'monitor_up':
         # Monitor events have no device_id — match by label+target instead
         sub_match['label']  = p.get('label')
@@ -8116,6 +8143,8 @@ def _webhook_title(event):
         'metric_recovered':     'Resource Recovered',
         'custom_script_fail':    'Custom Script Failed',
         'custom_script_recover': 'Custom Script Recovered',
+        'custom_check_failed':    'Custom Check Failed',
+        'custom_check_recovered': 'Custom Check Recovered',
         'config_drift':          'Host Config Drift Detected',
         'tls_expiry':            'TLS/DANE Certificate Expiring',
         'reboot_required':       'Host Requires Reboot',
@@ -8917,6 +8946,11 @@ def _webhook_message(event, payload):
         return f'{name}: {payload.get("unit", "?")} is {payload.get("active", "down")} (was {payload.get("previous", "active")})'
     elif event == 'service_up':
         return f'{name}: {payload.get("unit", "?")} is active again'
+    elif event == 'custom_check_failed':
+        return (f'{name}: check "{payload.get("check_name", "?")}" failed'
+                + (f' — {payload.get("output")}' if payload.get('output') else ''))
+    elif event == 'custom_check_recovered':
+        return f'{name}: check "{payload.get("check_name", "?")}" recovered'
     elif event == 'log_alert':
         # v2.1.1: include the first matched line in the message. Field
         # report: "pattern matched 1 times" is useless on its own — the
@@ -15598,6 +15632,14 @@ def handle_heartbeat():
                                           body['custom_script_results'])
         except Exception as e:
             sys.stderr.write(f"[remotepower] custom script ingest failed dev={dev_id}: {e}\n")
+
+    # v5.6.0: custom Check-catalog checks are evaluated from the just-stored
+    # sysinfo and edge-trigger custom_check_failed / custom_check_recovered.
+    # Runs every heartbeat (cheap no-op when no custom checks are defined).
+    try:
+        _ingest_custom_check_results(dev_id, saved_dev['name'])
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] custom check ingest failed dev={dev_id}: {e}\n")
 
     # v3.4.0: hardware health (SMART / kernel / inventory). Fires
     # smart_failure / kernel_outdated edge-triggered. Best-effort.
@@ -30940,6 +30982,72 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
 
     # Fire transitions now that the DEVICES_FILE lock has been released, so the
     # alert/fleet-event recorders can take their own locks safely.
+    for event, payload in pending_webhooks:
+        fire_webhook(event, payload)
+
+
+def _ingest_custom_check_results(dev_id, dev_name):
+    """Edge-trigger custom_check_failed / custom_check_recovered from the heartbeat.
+
+    Custom checks (Check catalog: process/port server-side, file/job/log/unit
+    agent-side) are otherwise only evaluated when the Checks page is loaded, so a
+    failure never paged anyone. Here we evaluate every applicable check against
+    the device's freshly-stored sysinfo on each heartbeat and fire on the state
+    transition — exactly like _ingest_custom_script_results. Last-known status is
+    stored on the device record (dev['custom_check_state']) so we survive a server
+    restart without re-firing, and only definitive states ('ok'/'warning'/
+    'critical') move the state — 'unknown' (no data yet) is ignored, not a failure.
+    """
+    defs = (_config_ro() or {}).get('custom_checks') or []
+    if not defs:
+        return   # zero overhead on the hot path when no custom checks exist
+
+    FAILING = ('critical', 'warning')
+    # fire_webhook opens its own alert/fleet-event locks; collect inside the
+    # DEVICES_FILE lock and fire after it exits (same nesting rule as scripts).
+    pending_webhooks = []
+    with _locked_update(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if not dev:
+            return
+        prev_state = dev.get('custom_check_state') or {}
+        now = int(time.time())
+        new_state = {}
+        for cdef in defs:
+            if not isinstance(cdef, dict) or not _custom_check_applies(cdef, dev_id, dev):
+                continue
+            cid = str(cdef.get('id') or '')
+            if not cid:
+                continue
+            status, output = _eval_custom_check(cdef, dev)
+            if status == 'unknown':
+                # No signal this beat — carry the last known state forward so an
+                # agent that briefly stops reporting doesn't look like a recovery.
+                if cid in prev_state:
+                    new_state[cid] = prev_state[cid]
+                continue
+            prev = prev_state.get(cid) or {}
+            prev_status = prev.get('status')
+            changed_at = prev.get('changed_at', now) if prev_status == status else now
+            new_state[cid] = {'status': status, 'output': str(output)[:200],
+                              'changed_at': changed_at}
+            cname = cdef.get('name') or cid
+            if prev_status is None:
+                pass   # first definitive observation — seed silently, no alert
+            elif status in FAILING and prev_status == 'ok':
+                pending_webhooks.append(('custom_check_failed', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'check_id': cid, 'check_name': cname,
+                    'status': status, 'output': str(output)[:200],
+                }))
+            elif status == 'ok' and prev_status in FAILING:
+                pending_webhooks.append(('custom_check_recovered', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'check_id': cid, 'check_name': cname,
+                }))
+        dev['custom_check_state'] = new_state   # bounded to currently-applicable checks
+        devices[dev_id] = dev
+
     for event, payload in pending_webhooks:
         fire_webhook(event, payload)
 

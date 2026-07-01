@@ -14604,6 +14604,7 @@ const EVENT_CLASS = {
   'tls_expiry': 'warn', 'snapshot_old': 'warn',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
   'custom_script_recover': 'ok', 'config_drift': 'warn',
+  'custom_check_failed': 'critical', 'custom_check_recovered': 'ok',
 };
 
 // v3.4.1: fleet health score panel — big score + grade + the lowest-scoring
@@ -16035,6 +16036,7 @@ function _renderHomeActivity(fleetEvents) {
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
+    'custom_check_failed', 'custom_check_recovered',
     'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
@@ -16209,6 +16211,9 @@ function _homeActivityAttrs(event, p) {
     case 'metric_warning': case 'metric_critical': case 'metric_recovered':
     case 'custom_script_fail': case 'custom_script_recover':
       return `${base} data-home-act="monitor"`;
+    // v5.6.0: custom Check-catalog failures → the host drawer (or Checks fleet-wide)
+    case 'custom_check_failed': case 'custom_check_recovered':
+      return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
     case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'containers_stale':
