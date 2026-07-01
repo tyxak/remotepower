@@ -7,6 +7,17 @@ All notable changes to RemotePower. Newest first.
 The IaC / automation + alert-tuning release. Everything new is opt-in,
 **default-off — no breaking changes.**
 
+- **Whole-project finalize sweep** (security + correctness + docs + UX). Parallel
+  per-dimension audits + CodeQL/bandit/gitleaks (all clean) + an authenticated
+  live review. Fixed one **Medium** (CMDB→RAG corpus could embed a plaintext
+  secret-named field — the denylist now substring-matches `api_key`/`token`/
+  `passphrase`/… ) and several defense-in-depth **Low** items (IPv6/extra
+  cloud-metadata SSRF deny, CVE-scanner response size cap, agent file-write
+  `O_EXCL|O_NOFOLLOW`). Per-device **SLA target overrides now key by hostname**
+  (not the internal id). Doc/count refreshes (91 webhook events; 28 integration
+  connectors incl. OpenShift + VMware Cloud Director), 5 Hindi i18n fixes, a few
+  more box-overflow caps, and a typography fold. See `docs/security-review-5.6.0.md`.
+
 - **Provisioning** (Admin → Provisioning, opt-in): a folder-tree catalog of
   infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates.
   Fill in a blueprint's variables and **render** to copy/download (cloud-init can

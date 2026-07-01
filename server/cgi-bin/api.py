@@ -23776,7 +23776,7 @@ def _eval_process_watches(dev_id, dev_name, top_processes, now):
     watch fires once on the breach transition and once on recovery, matching
     every other monitor in this file. Best-effort; never raises.
     """
-    watches = (load(CONFIG_FILE) or {}).get('process_watches') or []
+    watches = _config_ro().get('process_watches') or []
     if not watches:
         return
     procs = [p for p in (top_processes or []) if isinstance(p, dict)]
@@ -23910,7 +23910,7 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     """
     if not ports:
         return
-    _cfg = load(CONFIG_FILE) or {}
+    _cfg = _config_ro()
     audit_enabled = _cfg.get('port_audit_enabled', False)
     mutes = _cfg.get('exposure_mutes') or []
     baseline = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
@@ -24004,7 +24004,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         cur_pools = {}
         scrub_fired = set(prev.get('scrub_overdue') or [])
         try:
-            thresh_days = int((_config().get('scrub_overdue_days') or 35))
+            thresh_days = int((_config_ro().get('scrub_overdue_days') or 35))
         except (TypeError, ValueError):
             thresh_days = 35
         for p in pools:
@@ -24042,7 +24042,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
     fp = fw.get('fp')
     if fp:
         if (prev.get('fw_fp') and prev['fw_fp'] != fp and not first_seen
-                and _config().get('port_audit_enabled', False)):
+                and _config_ro().get('port_audit_enabled', False)):
             _fire('firewall_changed', {'backend': fw.get('backend'),
                                        'rules': fw.get('rules')})
         new['fw_fp'] = fp
@@ -48148,7 +48148,7 @@ def _container_alert_excluded(name):
     if n.startswith('rp-scan-'):
         return True
     try:
-        for pat in (load(CONFIG_FILE) or {}).get('container_alert_excludes') or []:
+        for pat in _config_ro().get('container_alert_excludes') or []:
             p = str(pat).strip()
             if p and p in n:
                 return True
@@ -48159,8 +48159,7 @@ def _container_alert_excluded(name):
 
 def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     """Wrapper that fires container_stopped / container_restarting via fire_webhook."""
-    devices = load(DEVICES_FILE)
-    dev = devices.get(dev_id, {})
+    dev = device_get(dev_id) or {}
     payload = {
         'device_id': dev_id,
         'name':      dev.get('name', dev_id),

@@ -993,11 +993,23 @@ def snapshot(dest, data_dir=None):
     conn = _connect(data_dir)
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    # Pre-create the destination 0600 (no O_NOFOLLOW-following) so the full-DB
+    # copy — which contains hashed creds, device tokens and encrypted config
+    # secrets — is never world-readable, even briefly. sqlite opens the existing
+    # empty 0600 file rather than creating its own 0644 one.
+    try:
+        os.close(os.open(str(dest), os.O_CREAT | os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, 0o600))
+    except OSError:
+        pass
     bck = sqlite3.connect(str(dest))
     try:
         conn.backup(bck)
     finally:
         bck.close()
+    try:
+        os.chmod(str(dest), 0o600)
+    except OSError:
+        pass
     return dest
 
 
@@ -1037,7 +1049,13 @@ def _write_json_atomic(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f'{path.name}.tmp.{os.getpid()}')
-    tmp.write_text(json.dumps(data, indent=2))
+    # 0600 from creation + O_NOFOLLOW: the dump can hold secrets, so never leave
+    # a world-readable window and never follow a pre-placed symlink at the tmp path.
+    _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(_fd, json.dumps(data, indent=2).encode('utf-8'))
+    finally:
+        os.close(_fd)
     os.replace(str(tmp), str(path))
     try:
         os.chmod(str(path), 0o600)

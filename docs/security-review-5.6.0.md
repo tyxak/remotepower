@@ -86,3 +86,48 @@ Low (mostly defense-in-depth) findings were fixed; the rest were confirmed safe.
 - `_avatar_path` allows `.` in the filename char class — not exploitable (`/` is
   stripped, fixed `.img` suffix) and stripping it would break dotted usernames'
   avatars.
+
+## Follow-up sweep (2026-07-01)
+
+A second, deeper pass (parallel per-dimension audits of the server core, the
+side modules, and the agent, plus CodeQL/bandit/gitleaks and an authenticated
+live review of the running site) surfaced **one Medium and a few Low** items,
+all fixed. CodeQL (python + javascript) = **0 results**; bandit 0-new; gitleaks
+clean; the live site presents a full CSP (no `unsafe-inline`), HSTS preload,
+COOP/CORP, `401` on unauthenticated/bad-token requests, and correctly scrubs
+config secrets (only `*_set`/`*_configured` indicators returned).
+
+1. **Medium — CMDB → RAG corpus secret exposure.** The denylist that keeps
+   credential-named fields out of the AI/embedding corpus was an *exact* name set
+   (`credentials/secrets/vault/password`) that missed the common secret names
+   (`api_key`, `token`, `passphrase`, `private_key`, `community`, `bearer`, …). An
+   operator-added free-form CMDB field like `api_key: …` could be embedded into
+   the vector store and, with a cloud embedding provider, sent off-box. Fixed with
+   a case-insensitive substring matcher applied to CMDB metadata **and** the
+   generic facet formatter.
+2. **Low — cloud-metadata SSRF completeness.** The SSRF peer classifiers blocked
+   IPv4 `169.254.169.254` (link-local) but not the IPv6/other metadata endpoints
+   (`fd00:ec2::254`, `100.100.100.200`, `192.0.0.192`); now explicitly denied.
+3. **Low — CVE-scanner response size cap.** Upstream OSV/Debian reads are now
+   bounded (32 MiB) against a hostile/MITM'd upstream.
+4. **Low — agent file-manager write TOCTOU.** The temp write now uses
+   `O_EXCL|O_NOFOLLOW` so a pre-placed symlink can't redirect it.
+5. **Low — storage file perms.** The SQLite `snapshot()` DB copy and the JSON
+   `_write_json_atomic()` dump (both can carry hashed creds / tokens / encrypted
+   config secrets) are now created **0600 from creation with `O_NOFOLLOW`** — no
+   world-readable window, no symlink-follow (they were briefly ~0644 before).
+
+Optional-feature hardening (Postgres RLS — opt-in `tenancy_rls`, default off, and
+layered *under* the app-layer `tenancy_enforced` filter which is the independent
+primary tenant isolation): the per-request tenant GUC now **fails closed** to a
+deny sentinel if it can't be set, so a pooled thread connection can never carry a
+prior request's tenant. Row-level-security policies currently harden the `devices`
+roster table; the other per-tenant stores rely on the app-layer filter — extending
+DB-level RLS to those tables is a tracked roadmap item, not a default-deployment
+exposure.
+
+Accepted low residuals (documented, not remotely exploitable by an unprivileged
+party): the agent file-manager *read* op follows the documented "audit mode blocks
+mutation, not reads" model (a fully-trusted server can read host files); the
+`dns_resolve`/`resolver_health` helpers rely on their callers' fixed public-resolver
+allowlist rather than an internal guard.

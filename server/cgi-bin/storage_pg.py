@@ -304,12 +304,22 @@ def set_request_tenant(value):
     request (the app-layer tenancy is the independent primary filter)."""
     if not RLS_ACTIVE:
         return
+    conn = None
     try:
         conn = _connect()
         _enable_rls(conn)          # idempotent; covers a connection opened before RLS was active
         conn.execute("SELECT set_config('app.rp_tenant', %s, false)", (str(value or '*'),))
     except Exception:
-        pass
+        # Fail CLOSED: if we couldn't set the intended tenant, never let this
+        # pooled connection keep a PRIOR request's tenant (or a '*' bypass).
+        # '__deny__' matches no tenant_id and isn't '*', so RLS hides every row
+        # until the GUC is set correctly. (The app-layer tenancy filter remains
+        # the independent primary control.)
+        if conn is not None:
+            try:
+                conn.execute("SELECT set_config('app.rp_tenant', '__deny__', false)")
+            except Exception:
+                pass
 
 
 def pg_status():
