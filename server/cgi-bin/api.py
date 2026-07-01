@@ -17232,6 +17232,12 @@ def _run_one_monitor_check(mtype, target, label, m):
             'ok': ok, 'detail': detail, 'checked': int(time.time())}
 
 
+# v5.6.x: tag/group monitors fan out to one history entry per matched device,
+# keyed '<label><sep><device>'. The prune-orphan-history matcher below relies on
+# this exact separator, so both sites share one constant (they must never drift).
+_MON_FANOUT_SEP = ' · '
+
+
 def _execute_monitor_checks(monitors):
     """Run every configured monitor and return the result list.
 
@@ -17282,7 +17288,7 @@ def _execute_monitor_checks(monitors):
                     continue
                 matched += 1
                 results.append(_run_one_monitor_check(
-                    mtype, st, f"{label} · {d.get('name', did)}", m))
+                    mtype, st, f"{label}{_MON_FANOUT_SEP}{d.get('name', did)}", m))
             if matched == 0:
                 results.append({'label': label, 'type': mtype,
                                 'target': f'{tkind}:{tval}', 'ok': True,
@@ -17360,6 +17366,59 @@ def _persist_monitor_results(results):
             save(CONFIG_FILE, cfg)
     except Exception:
         pass
+
+
+def _monitor_label_is_live(hist_label, valid_labels):
+    """True if a monitor_history / flag key belongs to a configured monitor.
+
+    History (and the monitor_notified / monitor_fail_streak flag maps) is keyed
+    by the label the check ran under: the bare monitor label for host targets,
+    or ``<label> · <device>`` for a tag/group monitor that fans out to one entry
+    per matched device (see :func:`_execute_monitor_checks`). Both shapes belong
+    to a surviving monitor, so a fanned-out monitor keeps all its sub-keys.
+    """
+    if hist_label in valid_labels:
+        return True
+    for lbl in valid_labels:
+        if hist_label.startswith(f'{lbl}{_MON_FANOUT_SEP}'):
+            return True
+    return False
+
+
+def _prune_orphan_monitor_history(valid_labels):
+    """Drop monitor_history entries whose monitor is no longer configured.
+
+    A deleted or renamed monitor used to leave its history behind. The
+    "monitors down" badge (``/api/nav-counts`` and the dashboard rollup) counts
+    the latest result of every *history key*, not the live config — so a stale
+    failing last-result kept being counted as down until it aged past the
+    1-hour recency window (or forever, if the last check within that window had
+    failed). Pruning at config-save / reset-alerts time removes the phantom
+    count immediately. Returns the number of keys removed.
+
+    Cheap pre-check (a lock-free load) so the common config save that doesn't
+    touch monitors — or removes nothing — never rewrites the history file.
+    """
+    removed = 0
+    try:
+        cur = load(MON_HIST_FILE) or {}
+        if not isinstance(cur, dict):
+            return 0
+        orphans = [k for k in cur if not _monitor_label_is_live(k, valid_labels)]
+        if not orphans:
+            return 0
+        with _locked_update(MON_HIST_FILE) as mh:
+            if isinstance(mh, dict):
+                for k in orphans:
+                    # Re-check under the lock: another process may have written
+                    # a fresh entry for a since-recreated label between the
+                    # pre-check load and here.
+                    if k in mh and not _monitor_label_is_live(k, valid_labels):
+                        del mh[k]
+                        removed += 1
+    except Exception:
+        pass
+    return removed
 
 
 def ping_healthchecks_if_due():
@@ -18778,6 +18837,19 @@ def handle_config_save():
                 entry['failures_before_alert'] = max(2, min(10, fba))
             validated.append(entry)
         cfg['monitors'] = validated
+        # v5.6.x: a deleted/renamed monitor used to strand its per-monitor state
+        # (monitor_history + the monitor_notified / monitor_fail_streak flags),
+        # so the "monitors down" badge — which counts history keys, not the live
+        # config — kept a phantom "down" for the removed monitor. Prune every
+        # per-monitor state keyed to a label that's no longer configured. The
+        # in-config flag maps are pruned here (they save with cfg below); the
+        # separate history file is pruned after the save (own lock, no nesting).
+        _mon_valid_labels = {e['label'] for e in validated}
+        for _sk in ('monitor_notified', 'monitor_fail_streak'):
+            _sv = cfg.get(_sk)
+            if isinstance(_sv, dict):
+                cfg[_sk] = {k: v for k, v in _sv.items()
+                            if _monitor_label_is_live(k, _mon_valid_labels)}
 
     if 'allow_internal_monitors' in body:
         cfg['allow_internal_monitors'] = bool(body['allow_internal_monitors'])
@@ -19634,6 +19706,12 @@ def handle_config_save():
             pass
 
     save(CONFIG_FILE, cfg)
+    # v5.6.x: prune orphaned monitor_history for monitors just deleted/renamed
+    # (see the 'monitors' block above). Done after the config save so we hold no
+    # other lock when taking the MON_HIST_FILE lock. Guarded on the monitors
+    # block having run — an unrelated settings save leaves history untouched.
+    if 'monitors' in body and '_mon_valid_labels' in locals():
+        _prune_orphan_monitor_history(_mon_valid_labels)
     # v5.4.1 (D4): audit which settings changed (key NAMES only — values are never
     # logged, so secrets can't leak into the audit trail). The most security-
     # sensitive surface (MFA policy, IP allowlist, SSO/SCIM/LDAP, session caps,
@@ -44803,6 +44881,15 @@ def handle_monitor_alerts_clear():
     cfg['offline_notified'] = {}
     cfg['offline_pending'] = {}
     save(CONFIG_FILE, cfg)
+    # v5.6.x: also sweep monitor_history entries for monitors that no longer
+    # exist, so a stale "down" from a deleted/renamed monitor stops inflating the
+    # "monitors down" badge (which counts history keys, not the live config).
+    try:
+        _valid = {_sanitize_str(m.get('label', m.get('target', '')), 128)
+                  for m in (cfg.get('monitors') or []) if isinstance(m, dict)}
+        _prune_orphan_monitor_history(_valid)
+    except Exception:
+        pass
     audit_log(actor, 'clear_monitor_alerts', 'monitor alert state reset')
     respond(200, {'ok': True})
 
