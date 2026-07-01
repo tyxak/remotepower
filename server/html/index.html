@@ -1483,6 +1483,7 @@
           <div class="settings-section">
             <h3>Per-event toggles</h3>
             <p class="hint">Enable or disable each event type. Disabled events are recorded as "disabled" in the webhook log so you can see what was suppressed.</p>
+            <input type="text" class="form-input page-filter mb-8" placeholder="Filter events…" data-input="filterRows" data-input-el="1" data-filter-target="#event-toggle-table tbody tr" aria-label="Filter events">
             <div class="sticky-head-scroll">
               <table class="event-toggle-table" id="event-toggle-table">
                 <tbody></tbody>
@@ -2873,6 +2874,7 @@
         <div class="settings-section">
           <h3>Channel routing</h3>
           <p class="hint">For every alert kind, choose which surfaces it appears on. <strong>Needs Attention</strong> = the priority cards on Home; <strong>Recent Activity</strong> = the home feed; <strong>Alerts</strong> = the alerts inbox; <strong>Webhook</strong> = external delivery (Slack, Discord, etc.). Unchecking a column for a row silences that kind on just that surface — uncheck whole rows for a kind you never want to hear about.</p>
+          <input type="text" class="form-input page-filter mb-8" placeholder="Filter kinds or events…" data-input="filterRows" data-input-el="1" data-filter-target="#dash-channel-matrix tbody tr" aria-label="Filter channel routing">
           <div id="dash-channel-matrix"><div class="isl-78">Loading…</div></div>
         </div>
 
