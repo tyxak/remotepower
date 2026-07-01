@@ -5826,7 +5826,11 @@ body[data-ui="industrial"] .settings-section > h3:first-child,
 body[data-ui="industrial"] .settings-section > .section-title:first-child,
 body[data-ui="industrial"] .settings-section > div:first-child > h3:first-child,
 body[data-ui="industrial"] .settings-section > div:first-child > .section-title:first-child {
-  position:absolute; top:-10px; left:14px; margin:0; z-index:2;
+  /* margin:0 !important — the tab is absolute, and a `.page:not(#page-home)
+     .section-title{margin-top:34px}` rule carries ID-level specificity (the
+     :not(#page-home) trap), which outranks this selector and would shove the
+     absolute tab 34px DOWN over the toolbar. !important guarantees the reset. */
+  position:absolute; top:-10px; left:14px; margin:0 !important; z-index:2;
   max-width:calc(100% - 28px);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   /* Continuous border on the chamfer: the element background IS the border
