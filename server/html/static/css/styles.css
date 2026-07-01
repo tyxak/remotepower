@@ -5793,22 +5793,34 @@ body[data-ui="industrial"] .login-card {
 }
 
 /* ── Labeled patch-panel cards (design idea 05) ─────────────────────────────
-   The card's own title becomes a chamfered mono TAB that sits over the top
-   border — like a labeled breaker / patch panel — echoing the checkbox chamfer
-   and the warm-amber accent. Scoped to a DIRECT-CHILD FIRST <h3> only: cards
-   whose header is a wrapped `<div><h3>…<button>` or a `.section-title` are left
-   alone (they keep the plain header), so nothing breaks. `:has()` gates the
-   extra top padding to exactly the cards that grew a tab. ── */
+   The card's title becomes a chamfered warm-amber mono TAB that sits over the
+   top border — a labeled breaker / patch panel — echoing the checkbox chamfer
+   and the warm accent. Uniform across every card-title shape in the app:
+     (a) a direct-child <h3>            → 172 cards
+     (b) a direct-child .section-title  →  20 cards (Tunnels, Clients, …)
+     (c) an <h3>/.section-title that is the first child of a first-child header
+         wrapper (`<div class=row-…><h3>…<badge>`, `.section-header>.section-title
+         +button`) → 19 cards
+   Title-less cards (grids/toolbars/section-label) match none of these and stay
+   plain — correct, they have no single heading to label. When the title is a
+   grandchild inside a header ROW, we lift just the title into the tab and pin
+   the row's remaining items (action button / count badge) to the right so the
+   row doesn't reflow left. ── */
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .settings-section { position:relative; }
 
-body[data-ui="industrial"] .dash-card:has(> h3:first-child),
-body[data-ui="industrial"] .settings-section:has(> h3:first-child) {
-  padding-top:26px;   /* clear the tab that dips ~12px into the card */
-}
+/* the tab itself — every title-element variant */
 body[data-ui="industrial"] .dash-card > h3:first-child,
-body[data-ui="industrial"] .settings-section > h3:first-child {
+body[data-ui="industrial"] .dash-card > .section-title:first-child,
+body[data-ui="industrial"] .dash-card > div:first-child > h3:first-child,
+body[data-ui="industrial"] .dash-card > div:first-child > .section-title:first-child,
+body[data-ui="industrial"] .settings-section > h3:first-child,
+body[data-ui="industrial"] .settings-section > .section-title:first-child,
+body[data-ui="industrial"] .settings-section > div:first-child > h3:first-child,
+body[data-ui="industrial"] .settings-section > div:first-child > .section-title:first-child {
   position:absolute; top:-10px; left:14px; margin:0; z-index:2;
+  max-width:calc(100% - 28px);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   background:var(--surface2);
   border:1px solid var(--border); border-bottom:none;
   color:var(--warm);
@@ -5818,10 +5830,36 @@ body[data-ui="industrial"] .settings-section > h3:first-child {
   /* chamfered top-left, same 6px cut language as the checkbox octagon */
   clip-path:polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px);
 }
-/* The card's top-left corner tick would poke out from under the tab — hide just
-   those two tick layers on tabbed dash-cards (push them off-box; keep the
-   bottom-right pair + the gradient). */
-body[data-ui="industrial"] .dash-card:has(> h3:first-child) {
+/* a nested inline hint/count inside a title tab shouldn't shout — mute it */
+body[data-ui="industrial"] .dash-card > .section-title:first-child .hint,
+body[data-ui="industrial"] .dash-card > div:first-child > .section-title:first-child .hint {
+  font-size:10px; color:var(--muted); font-weight:400; letter-spacing:0.04em;
+}
+/* keep the header ROW's remaining items (button / badge) pinned right once the
+   title has been lifted out into the tab */
+body[data-ui="industrial"] .dash-card > div:first-child:has(> h3:first-child),
+body[data-ui="industrial"] .dash-card > div:first-child:has(> .section-title:first-child),
+body[data-ui="industrial"] .settings-section > div:first-child:has(> h3:first-child),
+body[data-ui="industrial"] .settings-section > div:first-child:has(> .section-title:first-child) {
+  justify-content:flex-end; min-height:20px;
+}
+/* make room for the tab on any card that grew one */
+body[data-ui="industrial"] .dash-card:has(> h3:first-child),
+body[data-ui="industrial"] .dash-card:has(> .section-title:first-child),
+body[data-ui="industrial"] .dash-card:has(> div:first-child > h3:first-child),
+body[data-ui="industrial"] .dash-card:has(> div:first-child > .section-title:first-child),
+body[data-ui="industrial"] .settings-section:has(> h3:first-child),
+body[data-ui="industrial"] .settings-section:has(> .section-title:first-child),
+body[data-ui="industrial"] .settings-section:has(> div:first-child > h3:first-child),
+body[data-ui="industrial"] .settings-section:has(> div:first-child > .section-title:first-child) {
+  padding-top:26px;
+}
+/* hide the top-left corner tick on any tabbed dash-card (it would poke out from
+   under the tab); keep the bottom-right pair + the card gradient */
+body[data-ui="industrial"] .dash-card:has(> h3:first-child),
+body[data-ui="industrial"] .dash-card:has(> .section-title:first-child),
+body[data-ui="industrial"] .dash-card:has(> div:first-child > h3:first-child),
+body[data-ui="industrial"] .dash-card:has(> div:first-child > .section-title:first-child) {
   background-position:-20px -20px, -20px -20px, right 7px bottom 7px, right 7px bottom 7px, 0 0;
 }
 
