@@ -134,6 +134,19 @@ Older release notes (v5.0.1 and earlier) live in
  switches, APs, printers, IPMI cards.
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
  probes.
+- **[monitors.md](monitors.md)** — Active synthetic checks (ping/tcp/http/dns/db),
+ service + log-tail alerts, inbound syslog / SNMP-trap receivers, resolver health,
+ the healthchecks watchdog.
+- **[cve.md](cve.md)** — Vulnerability scanning: the OSV.dev scanner, KEV + EPSS
+ prioritisation, ignores/re-alert, SBOM (CycloneDX / SPDX).
+- **[dns.md](dns.md)** — The Admin → DNS dashboard: read/write records via provider
+ APIs, live resolve + propagation, the resolver-health monitor.
+- **[backups.md](backups.md)** — Backup jobs, freshness + integrity monitoring,
+ and encrypted control-plane disaster recovery.
+- **[remote-access.md](remote-access.md)** — Browser web terminal, remote file
+ manager, and host user / SSH-key / firewall management from the drawer.
+- **[storage.md](storage.md)** — Storage-RAID health (ZFS/mdadm/btrfs), SMART +
+ predictive disk health, GPUs, thermal, and power / UPS.
 - **[tls-selfsigned.md](tls-selfsigned.md)** — Built-in self-signed CA +
  fingerprint-verified agent TLS (generate a cert from the UI).
 - **[update-history.md](update-history.md)** — Captured `apt` / `dnf` /
