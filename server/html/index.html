@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Linux Fleet Manager</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-38">
+<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-39">
 
 </head>
 <body>
@@ -4865,6 +4865,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-ea455fa1"/></svg></div><div><div class="stat-value isl-137" id="scan-stat-high">0</div><div class="stat-label">High findings</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-99336aa6"/></svg></div><div><div class="stat-value" id="scan-stat-total">0</div><div class="stat-label">Scans</div></div></div>
         </div>
+        <div class="dash-card">
+        <div class="section-title">Scans</div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadScans"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <button class="btn-icon" data-action="clearScans" title="Remove all finished scans (done/failed/cancelled) and their findings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Clear finished</button>
@@ -4880,6 +4882,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="scan-device-results" class="scroll-cap hidden mb-16"></div>
         <div class="table-card mb-16"><table><thead id="scans-thead"><tr><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="critical" class="ta-center">Crit</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Med</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="scans-tbody"><tr><td colspan="8" class="empty-state">No scans yet. Select an enrolled device and queue one. </td></tr></tbody></table></div>
+        </div><!-- /scans card -->
         <div id="scan-detail" class="dash-card mb-16 hidden">
           <div class="section-title">Findings — <span id="scan-detail-target"></span></div>
           <div id="scan-detail-body" class="scroll-cap"></div>
@@ -5198,6 +5201,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
+        <div class="dash-card">
+        <div class="section-title">Assets</div>
         <div class="isl-155">
           <div class="isl-168">
             <input type="text" id="cmdb-search" class="form-input isl-169" placeholder="Search name, asset_id, IP, function, docs…" data-input="cmdbDebounceSearch" aria-label="Search name, asset_id, IP, function, docs">
@@ -5229,6 +5234,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
         <datalist id="cmdb-func-datalist"></datalist>
+        </div><!-- /cmdb assets card -->
 
         <!-- v5.0.0 (#C3): break-glass approval card (hidden until a request exists) -->
         <div class="dash-card mt-16 d-none" id="cmdb-breakglass-card">
@@ -5444,6 +5450,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-exposure" class="page">
         <div class="page-title">Exposure</div>
         <div class="page-subtitle">Every listening socket across the fleet, classified by where it can be reached from. <span class="fw-600">World</span> = bound to a public/wildcard address; <span class="fw-600">LAN</span> = private network; <span class="fw-600">Local</span> = loopback only. A service first becoming world-reachable raises an alert. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="dash-card">
+        <div class="section-title">Listening sockets</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadExposure" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <select id="exposure-scope" class="form-input isl-177">
@@ -5466,8 +5474,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
 
+        </div><!-- /listening sockets card -->
+
         <!-- v3.14.0 #35: secrets-on-disk findings (opt-in agent scan) -->
-        <div class="section-title mt-24">Exposed secrets on disk</div>
+        <div class="dash-card">
+        <div class="section-title">Exposed secrets on disk</div>
         <div class="page-subtitle">Redacted findings from the opt-in agent scan — keys, tokens and passwords found in files. Values are never collected; each row shows a masked preview and a fingerprint. Enable the scan in <a href="#" data-action-btn="_showPageBtn" data-page="settings" data-prevent-default class="c-accent">Settings → Security</a>. Mute a false positive to stop it alerting.</div>
         <div id="secrets-summary" class="hint mb-8"></div>
         <div class="toolbar-mb24">
@@ -5483,6 +5494,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="secrets-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
+        </div><!-- /exposed secrets card -->
       </div>
 
       <!-- ── v5.1.0: Web file manager (browse/view/edit, allowlisted) ────── -->
@@ -5786,6 +5798,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-disk-health" class="page">
         <div class="page-title">Predictive health</div>
         <div class="page-subtitle">Hardware predicted at risk before it fails — disks (reactive SMART verdict + trends in reallocated/pending sectors and SSD wear) and hosts restarting unusually often. Most urgent first; an ETA appears once there's enough history. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="dash-card">
+        <div class="section-title">Disks at risk</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadDiskHealth" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <input type="text" class="form-input page-filter" placeholder="Filter device / disk…" data-input="filterRows" data-input-el="1" data-filter-target="#disk-health-tbody tr" aria-label="Filter device / disk">
@@ -5801,8 +5815,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="disk-health-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
+        </div><!-- /disks at risk card -->
         <!-- v3.14.0: frequently-restarting hosts (uptime-trend prediction) -->
-        <div class="section-title mt-16">Frequently restarting hosts <span id="disk-health-unstable-sub" class="hint"></span></div>
+        <div class="dash-card">
+        <div class="section-title">Frequently restarting hosts <span id="disk-health-unstable-sub" class="hint"></span></div>
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="unstable-thead"><tr>
@@ -5812,6 +5828,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="unstable-tbody"><tr><td colspan="3" class="hint">—</td></tr></tbody>
           </table>
         </div>
+        </div><!-- /restarting hosts card -->
       </div>
 
       <!-- ── v3.11.0: Fleet Software Policy ─────────────────────────────── -->
@@ -6189,6 +6206,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-alerts" class="page">
         <div class="page-title">Alerts</div>
         <div class="page-subtitle">Operational alert inbox — acknowledge, resolve, and track every fired event. Recover events (device_online, service_recover, custom_script_recover) auto-resolve their matching open alert.</div>
+        <div class="dash-card">
+        <div class="section-title">Alert inbox</div>
         <div class="isl-186">
           <select id="alerts-filter-status" aria-label="Filter alerts by status" class="form-input isl-68" data-change="loadAlerts">
             <option value="open" selected>Open</option>
@@ -6224,8 +6243,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </table>
         </div>
 
+        </div><!-- /alert inbox card -->
+
         <!-- v4.9.0 ResolutionMatters #4: alert-resolution timeline (MTTR) -->
-        <details class="mt-16" id="alerts-mttr-details">
+        <div class="dash-card">
+        <details id="alerts-mttr-details">
           <summary class="section-title pointer" data-action="loadAlertMttr">Resolution timeline (MTTR)</summary>
           <div class="page-subtitle">Time-to-resolution (MTTR) and time-to-ack across recently-resolved alerts, with who resolved each and how — auto (a recover event), manual (an operator), or muted.</div>
           <div class="toolbar">
@@ -6247,6 +6269,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </div>
         </details>
+        </div><!-- /mttr card -->
       </div>
 
       <!-- v3.2.0 (A1): MCP Confirmations queue -->
@@ -8459,7 +8482,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
 <script defer src="static/js/i18n.js?v=5.6.0"></script>
-<script defer src="static/js/app.js?v=5.6.0-38"></script>
+<script defer src="static/js/app.js?v=5.6.0-39"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
 <script defer src="static/js/app-calendar.js?v=5.6.0"></script>
