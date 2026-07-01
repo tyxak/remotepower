@@ -1973,7 +1973,7 @@
               <input type="text" id="cfg-audit-forward-host" class="form-input mw-200" placeholder="10.0.0.5"></div>
             <div class="settings-row"><label class="form-label" for="cfg-audit-forward-port">Syslog port</label>
               <input type="number" id="cfg-audit-forward-port" class="form-input mw-160" min="1" max="65535" placeholder="514"></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-tcp"> Use TCP (default UDP)</label></div>
+            <div class="settings-row mb-8"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-tcp"> Use TCP (default UDP)</label></div>
             <div class="settings-row"><button class="btn-secondary" data-action="testAuditForward">Send test entry</button></div>
           </div>
 
@@ -2255,7 +2255,7 @@
             <div class="settings-row"><label class="form-label" for="tkimap-folder">Folder</label><input type="text" id="tkimap-folder" class="form-input" value="INBOX"></div>
             <div class="settings-row"><label class="form-label" for="tkimap-interval">Poll interval (seconds)</label><input type="number" id="tkimap-interval" class="form-input" min="120" max="3600" value="300"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-ssl" checked> Use SSL/TLS</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-verify-tls" checked> Verify TLS certificate (uncheck to ignore — self-signed / internal IMAP)</label></div>
+            <div class="settings-row mb-8"><label class="form-label"><input type="checkbox" id="tkimap-verify-tls" checked> Verify TLS certificate (uncheck to ignore — self-signed / internal IMAP)</label></div>
             <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
             <div id="tkimap-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
