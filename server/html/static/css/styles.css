@@ -5817,12 +5817,17 @@ body[data-ui="industrial"] .login-card {
    each card is ONE clean panel, not two concentric borders. */
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .settings-section { border-color:#465468; }
-/* DIAGNOSTIC (temporary): unmistakable red border to prove whether the new CSS is
-   reaching the browser. If you don't see thick red panel borders, it's cache. */
-body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .settings-section {
-  border:4px solid #ff0000 !important;
-}
+/* DIAGNOSTIC (temporary): color each candidate container differently so we can
+   identify WHICH box is "the panel". Tell me the colour of the one whose bottom
+   border you want visible:
+     RED    = .dash-card (outer card wrapper)
+     LIME   = .table-card (the box around a table)
+     CYAN   = .scrollable-table-wrap (the inner scroll container)
+     MAGENTA= #netmap-svg (the network-map canvas) */
+body[data-ui="industrial"] .dash-card       { border:4px solid #ff0000 !important; }
+body[data-ui="industrial"] .table-card      { border:4px solid #00ff00 !important; }
+body[data-ui="industrial"] .scrollable-table-wrap { border:4px solid #00ffff !important; }
+body[data-ui="industrial"] #netmap-svg      { border:4px solid #ff00ff !important; }
 body[data-ui="industrial"] .dash-card > .table-card,
 body[data-ui="industrial"] .dash-card > .scrollable-table-wrap,
 body[data-ui="industrial"] .dash-card .table-card > .scrollable-table-wrap,
