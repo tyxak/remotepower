@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Linux Fleet Manager</title>
-<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-37">
+<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-38">
 
 </head>
 <body>
@@ -869,7 +869,7 @@
       <div id="page-monitor" class="page">
         <div class="page-title">Monitoring</div>
         <div class="page-subtitle">Probes, device metrics, ports, and custom health checks</div>
-        <div id="mon-panel-targets">
+        <div id="mon-panel-targets" class="dash-card">
         <div id="section-targets" class="section-header">
           <div class="section-title">Remote Checks</div>
           <div class="row-8">
@@ -883,7 +883,7 @@
         <div class="table-card"><table><thead id="monitor-thead"><tr><th scope="col" data-col="label">Label</th><th scope="col" data-col="type">Type</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="detail">Detail</th><th scope="col" data-col="checked">Checked</th><th scope="col"></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" class="empty-state">No monitors configured.</td></tr></tbody></table></div>
 
         </div><!-- /mon-panel-targets -->
-        <div id="mon-panel-metrics">
+        <div id="mon-panel-metrics" class="dash-card">
         <!-- v1.12.0: live device metrics. The Monitor page used to only
              show external probes (ping/tcp/http). Now also surfaces the
              current sysinfo state of every enrolled device — disk, memory,
@@ -895,7 +895,7 @@
              to populate the Devices grid). No new endpoint needed; the
              metric_state field on each device tells us whether anything's
              firing right now. -->
-        <div id="section-metrics" class="section-header mt-32">
+        <div id="section-metrics" class="section-header">
           <div class="section-title">Device metrics</div>
           <div class="row-8-center">
             <span id="device-metrics-summary" class="hint"></span>
@@ -954,9 +954,9 @@
         </div>
 
         </div><!-- /mon-panel-metrics -->
-        <div id="mon-panel-ports">
+        <div id="mon-panel-ports" class="dash-card">
         <!-- v2.8.1: Listening Ports section -->
-        <div id="section-ports" class="section-header mt-32">
+        <div id="section-ports" class="section-header">
           <div class="row-8-center">
             <div class="section-title">Listening Ports</div>
             <div class="isl-14">
@@ -973,9 +973,9 @@
         </div>
 
         </div><!-- /mon-panel-ports -->
-        <div id="mon-panel-scripts">
+        <div id="mon-panel-scripts" class="dash-card">
         <!-- v2.6.0: Custom monitoring scripts section -->
-        <div id="section-scripts" class="section-header mt-32">
+        <div id="section-scripts" class="section-header">
           <div class="row-8-center">
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><use href="#ic-99336aa6"/></svg>
@@ -1031,8 +1031,8 @@
         </div>
         </div><!-- /mon-panel-scripts -->
 
-        <div id="mon-panel-processes">
-        <div id="section-processes" class="section-header mt-32">
+        <div id="mon-panel-processes" class="dash-card">
+        <div id="section-processes" class="section-header">
           <div class="row-8-center">
             <div class="section-title">Top Processes</div>
             <div class="isl-14">
@@ -8459,7 +8459,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
 <script defer src="static/js/i18n.js?v=5.6.0"></script>
-<script defer src="static/js/app.js?v=5.6.0-37"></script>
+<script defer src="static/js/app.js?v=5.6.0-38"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
 <script defer src="static/js/app-calendar.js?v=5.6.0"></script>
