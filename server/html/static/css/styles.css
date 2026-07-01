@@ -5810,6 +5810,19 @@ body[data-ui="industrial"] .login-card {
    grandchild inside a header ROW, we lift just the title into the tab and pin
    the row's remaining items (action button / count badge) to the right so the
    row doesn't reflow left. ── */
+/* Panels get a clearly-visible border so the OUTER card reads as the box — the
+   inner .table-card border was brighter than the faint outer one, so the panel's
+   own edge (esp. the bottom) looked cut. Brighten the outer edge and drop the
+   redundant inner .table-card border when it's nested inside a dash-card, so
+   each card is ONE clean panel, not two concentric borders. */
+body[data-ui="industrial"] .dash-card,
+body[data-ui="industrial"] .settings-section { border-color:#465468; }
+body[data-ui="industrial"] .dash-card > .table-card,
+body[data-ui="industrial"] .dash-card > .scrollable-table-wrap,
+body[data-ui="industrial"] .dash-card .table-card > .scrollable-table-wrap,
+body[data-ui="industrial"] .settings-section > .table-card,
+body[data-ui="industrial"] .settings-section > .scrollable-table-wrap { border-color:transparent; }
+
 body[data-ui="industrial"] .dash-card,
 body[data-ui="industrial"] .settings-section {
   position:relative;
