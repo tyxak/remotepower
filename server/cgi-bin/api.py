@@ -23913,9 +23913,9 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     _cfg = _config_ro()
     audit_enabled = _cfg.get('port_audit_enabled', False)
     mutes = _cfg.get('exposure_mutes') or []
-    baseline = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
-    prev = baseline.get(dev_id) or []
-    first_seen = dev_id not in baseline
+    raw = _entity_read_one(PORT_BASELINE_FILE, dev_id, None)
+    prev = raw or []
+    first_seen = raw is None
     known = {(p['proto'], p['port']) for p in prev}
     # v3.11.0: ports that were already world-exposed, so port_exposed_world
     # is edge-triggered — it fires only when a service first becomes bound
@@ -23959,11 +23959,11 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                 pass
 
     # Update baseline to current set (carry scope/addr for the next diff)
-    baseline[dev_id] = [{'proto': p, 'port': q, 'process': r,
-                         'scope': s, 'addr': a}
-                        for p, q, r, s, a in current]
     try:
-        save(PORT_BASELINE_FILE, baseline)
+        _entity_write_one(PORT_BASELINE_FILE, dev_id,
+                          [{'proto': p, 'port': q, 'process': r,
+                            'scope': s, 'addr': a}
+                           for p, q, r, s, a in current])
     except Exception:
         pass
 
@@ -23984,9 +23984,9 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         on this host before.
     First contact (no prior state) seeds the baselines silently.
     """
-    state = load(POSTURE_STATE_FILE) or {} if backend_exists(POSTURE_STATE_FILE) else {}
-    prev = state.get(dev_id) or {}
-    first_seen = dev_id not in state
+    raw = _entity_read_one(POSTURE_STATE_FILE, dev_id, None)
+    prev = raw or {}
+    first_seen = raw is None
     new = dict(prev)
 
     def _fire(ev, extra):
@@ -24095,9 +24095,8 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 _fire('mount_recovered', {'path': path})
         new['mount_issues'] = cur_mi
 
-    state[dev_id] = new
     try:
-        save(POSTURE_STATE_FILE, state)
+        _entity_write_one(POSTURE_STATE_FILE, dev_id, new)
     except Exception:
         pass
 
@@ -24136,8 +24135,7 @@ def _audit_ssh_keys(dev_id, dev_name, users):
     """
     if not users:
         return
-    baseline = load(SSH_KEY_BASELINE_FILE) or {} if backend_exists(SSH_KEY_BASELINE_FILE) else {}
-    dev_baseline = baseline.get(dev_id) or {}
+    dev_baseline = _entity_read_one(SSH_KEY_BASELINE_FILE, dev_id, None) or {}
 
     changed = False
     for user_entry in users:
@@ -24162,9 +24160,8 @@ def _audit_ssh_keys(dev_id, dev_name, users):
         changed = True
 
     if changed:
-        baseline[dev_id] = dev_baseline
         try:
-            save(SSH_KEY_BASELINE_FILE, baseline)
+            _entity_write_one(SSH_KEY_BASELINE_FILE, dev_id, dev_baseline)
         except Exception:
             pass
 
@@ -30084,10 +30081,8 @@ def _ingest_av(dev_id, av, now, dev_name=None):
         c = _clean_tool(av.get(tool))
         if c is not None:
             rec[tool] = c
-    store = load(AV_FILE)
-    prev = store.get(dev_id) or {}
-    store[dev_id] = rec
-    save(AV_FILE, store)
+    prev = _entity_read_one(AV_FILE, dev_id, None) or {}
+    _entity_write_one(AV_FILE, dev_id, rec)
     # Edge-trigger av_infected: fire only when a tool's infected count rises
     # above its previously-seen value (so re-reports of a known infection don't
     # re-fire, and a first sighting on a never-seen host still alerts). This is
@@ -30125,8 +30120,7 @@ def handle_av_status(dev_id):
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    store = load(AV_FILE)
-    respond(200, {'ok': True, 'av': store.get(dev_id) or {}})
+    respond(200, {'ok': True, 'av': _entity_read_one(AV_FILE, dev_id, None) or {}})
 
 
 def handle_av_scan(dev_id):

@@ -49,7 +49,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 3  # v5.0.0: containers/update_logs/cmds/uptime promoted to entity
+SCHEMA_VERSION = 4  # v5.6.0: posture_state/port_baseline/av/ssh_key_baseline -> entity
 
 
 def configure(data_dir):
@@ -91,12 +91,21 @@ ENTITY_FILES = {
     'update_logs.json',
     'cmds.json',
     'uptime.json',
+    # v5.6.0 (perf, Tier-2): flat {device_id: value} posture/baseline blobs that
+    # were read+rewritten whole on the heartbeat. Same treatment as the v5.0.0 set.
+    'posture_state.json',
+    'port_baseline.json',
+    'av_status.json',
+    'ssh_key_baseline.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY
 # files. On an existing DB their data still lives as a single kv blob — split it
 # into per-key entity rows ONCE (schema-version-gated) so nothing is orphaned.
 _COLD_TO_ENTITY_V3 = ('containers.json', 'update_logs.json', 'cmds.json', 'uptime.json')
+# v5.6.0: second wave promoted to ENTITY — split their kv blob once at db_ver < 4.
+_COLD_TO_ENTITY_V4 = ('posture_state.json', 'port_baseline.json', 'av_status.json',
+                      'ssh_key_baseline.json')
 
 # wrapped-list files: basename -> the single top-level list key.
 # NOTE: fleet_events.json is deliberately NOT here — it is polymorphic in the
@@ -342,19 +351,21 @@ def _ensure_schema(conn):
     # so it's a single pass per DB. Idempotent + defensive (a bad blob for one
     # file can't break the others or the connect).
     if db_ver is None or db_ver < 3:
-        _migrate_cold_to_entity(conn)
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V3)
+    if db_ver is None or db_ver < 4:
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V4)
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(SCHEMA_VERSION),))
 
 
-def _migrate_cold_to_entity(conn):
+def _migrate_cold_to_entity(conn, files):
     """Split each cold-blob kv row for a now-ENTITY file into per-key entity rows.
     The blobs are flat {device_id: value} dicts, so key=device_id. Each file is
     migrated under its own SAVEPOINT so a partial failure rolls back cleanly
     (the kv blob stays intact and load()'s kv-fallback still serves the data)."""
-    for n in _COLD_TO_ENTITY_V3:
+    for n in files:
         try:
             row = conn.execute('SELECT doc FROM kv WHERE path=?', (n,)).fetchone()
             if row is None:
