@@ -3922,6 +3922,10 @@ body.no-anim * { transition: none !important; }
 /* Unified with .click-row / .click-row-mb6 so every checkbox→label gap is 8px
    (checkmarks line up consistently across Settings). */
 .click-row-6 { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+/* A hint/sub-text that is a SIBLING div below a .click-row checkbox (not a child
+   of the label) starts at the container edge, ~24px left of the checkbox's label
+   text (16px box + 8px gap) — so it reads misaligned. Hang it under the text. */
+.click-row-hint { padding-left: 24px; }
 /* Consistency sweep: a checkbox/radio in a BARE <label> (no click-row/form-label
    class — e.g. day-of-week toggles, "All day", "Show Homelab…") only had the ~4px
    HTML text-space between the box and its text, so it read tighter than every
