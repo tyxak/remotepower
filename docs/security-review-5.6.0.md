@@ -131,3 +131,38 @@ party): the agent file-manager *read* op follows the documented "audit mode bloc
 mutation, not reads" model (a fully-trusted server can read host files); the
 `dns_resolve`/`resolver_health` helpers rely on their callers' fixed public-resolver
 allowlist rather than an internal guard.
+
+## Pre-production bug hunt (2026-07-01)
+
+A final exhaustive bug hunt + pentest before the v5.6.0 prod prep (two independent
+adversarial passes over the diff + a live authenticated review) surfaced three real
+issues, all fixed and regression-tested. SAST re-verified clean afterwards: CodeQL
+python **0** / javascript **0**, bandit 0-new, gitleaks clean; `make check` green on
+both backends (JSON + SQLite, 4883 tests each); lint clean.
+
+1. **Ship-blocker (correctness, Postgres-only) — cold→entity migration omitted from
+   the Postgres backend.** The v5.6.0 promotion of `posture_state`/`port_baseline`/
+   `av_status`/`ssh_key_baseline` from cold blobs to per-row entities was wired into
+   the SQLite backend but not its Postgres twin — and `make test-both` only exercises
+   JSON + SQLite, so it was invisible. **Production runs Postgres**, so it would never
+   split those four files' cold blob; once the first entity row was written, a
+   full-fleet `load()` would silently drop every un-migrated device. Fixed:
+   parametrized `_migrate_cold_to_entity_pg(conn, files)`, bumped the Postgres schema
+   counter 2→3, gated the V4 migration at `db_ver < 3` (a prod DB at v2 skips the
+   already-run V3 and runs V4). A guardrail now asserts the Postgres backend migrates
+   every `_COLD_TO_ENTITY_Vn` tuple the SQLite backend defines, so the two can't drift
+   again without a live database.
+2. **Medium — AI/embedding SSRF via IPv6-embedded IPv4 (metadata key-exfil).** The
+   AI/embedding HTTP path (which carries the Bearer API key) did a connect-time
+   peer-IP recheck but did **not** unwrap IPv6 forms embedding an IPv4, so a provider
+   `base_url` resolving to `::ffff:169.254.169.254`, `2002:a9fe:a9fe::` (6to4) or
+   `64:ff9b::a9fe:a9fe` (NAT64) rebound to the cloud metadata service and could
+   exfiltrate the key. `ai_provider._peer_ip_blocked` now unwraps v4-mapped/6to4/NAT64
+   and adds `is_multicast`/`is_reserved`, mirroring the shared `api._ip_class_blocked`.
+   (Private LAN and the opt-in loopback path stay allowed — a local LLM is a
+   legitimate provider target.)
+3. **Low — agent file-manager write could wedge (supersedes Finding 4 above).** The
+   temp write used `O_EXCL`, so a stale `.rp-tmp` left by an earlier crashed write
+   blocked every future write to that path. It now uses `O_TRUNC` (keeping
+   `O_NOFOLLOW` for the symlink-TOCTOU guard), matching the server's
+   `_write_json_atomic`.
