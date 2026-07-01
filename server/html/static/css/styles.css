@@ -5792,6 +5792,39 @@ body[data-ui="industrial"] .login-card {
   background-position:7px 7px, 7px 7px, right 7px bottom 7px, right 7px bottom 7px, 0 0;
 }
 
+/* ── Labeled patch-panel cards (design idea 05) ─────────────────────────────
+   The card's own title becomes a chamfered mono TAB that sits over the top
+   border — like a labeled breaker / patch panel — echoing the checkbox chamfer
+   and the warm-amber accent. Scoped to a DIRECT-CHILD FIRST <h3> only: cards
+   whose header is a wrapped `<div><h3>…<button>` or a `.section-title` are left
+   alone (they keep the plain header), so nothing breaks. `:has()` gates the
+   extra top padding to exactly the cards that grew a tab. ── */
+body[data-ui="industrial"] .dash-card,
+body[data-ui="industrial"] .settings-section { position:relative; }
+
+body[data-ui="industrial"] .dash-card:has(> h3:first-child),
+body[data-ui="industrial"] .settings-section:has(> h3:first-child) {
+  padding-top:26px;   /* clear the tab that dips ~12px into the card */
+}
+body[data-ui="industrial"] .dash-card > h3:first-child,
+body[data-ui="industrial"] .settings-section > h3:first-child {
+  position:absolute; top:-10px; left:14px; margin:0; z-index:2;
+  background:var(--surface2);
+  border:1px solid var(--border); border-bottom:none;
+  color:var(--warm);
+  font-family:var(--font-mono); font-weight:600;
+  font-size:11px; letter-spacing:0.10em; text-transform:uppercase; line-height:1;
+  padding:5px 12px 5px 10px;
+  /* chamfered top-left, same 6px cut language as the checkbox octagon */
+  clip-path:polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px);
+}
+/* The card's top-left corner tick would poke out from under the tab — hide just
+   those two tick layers on tabbed dash-cards (push them off-box; keep the
+   bottom-right pair + the gradient). */
+body[data-ui="industrial"] .dash-card:has(> h3:first-child) {
+  background-position:-20px -20px, -20px -20px, right 7px bottom 7px, right 7px bottom 7px, 0 0;
+}
+
 /* ── Eyebrow labels: mono, uppercase, tracked ───────────────────────────── */
 body[data-ui="industrial"] .stat-label,
 body[data-ui="industrial"] .tile-label,
