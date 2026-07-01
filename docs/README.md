@@ -109,6 +109,14 @@ Older release notes (v5.0.1 and earlier) live in
  watched, customising the list, re-baselining, the compliance angle.
 - **[firewall.md](firewall.md)** — Fleet firewall + fail2ban: view posture and
  drift, edit nftables/iptables/ufw/firewalld rules, ban/unban IPs and start/stop jails.
+- **[compliance.md](compliance.md)** — Host-security compliance: PCI/HIPAA/SOC2
+ profiles, OpenSCAP + CIS baseline scoring, remediation.
+- **[dmarc.md](dmarc.md)** — DMARC/SPF/DKIM email-posture monitor + IP reputation
+ (DNSBL) checks.
+- **[time-billing.md](time-billing.md)** — Time-tracking &amp; billing: billable
+ hours, weekly timesheet, per-customer invoices, rate card / VAT, the finance role.
+- **[wsgi.md](wsgi.md)** — The persistent WSGI app server + out-of-band scheduler
+ (the v5.5.0 keystone) — when and how to run them.
 - **[mcp.md](mcp.md)** — MCP server setup, Claude Desktop config, the
  14 read + 4 guarded write tools, security model, troubleshooting.
 - **[scripts.md](scripts.md)** — Multi-line script library, dry-run

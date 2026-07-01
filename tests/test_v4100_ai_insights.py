@@ -38,6 +38,9 @@ NEW_KEYS = [
     "helpdesk_triage",
     # v5.6.0: automation-rule suggestions from recurring alert patterns
     "automation_suggest",
+    # v5.6.0: advisors for subsystems that had data but no card
+    "virt_hygiene", "iac_review", "drift_review", "access_review",
+    "network_review", "billing_review",
 ]
 
 
@@ -77,7 +80,7 @@ class TestHub(unittest.TestCase):
     def test_every_card_categorised(self):
         block = _APP_JS[_APP_JS.index("const AI_INSIGHTS ="):_APP_JS.index("const _AI_CATS")]
         cats = re.findall(r"cat:\s*'([a-z]+)'", block)
-        self.assertEqual(len(cats), 26, "every card must carry a category")
+        self.assertEqual(len(cats), 32, "every card must carry a category")
         self.assertLessEqual(set(cats),
                              {"proactive", "incident", "planning", "nlconfig", "advisors"})
 

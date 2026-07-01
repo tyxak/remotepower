@@ -74,6 +74,9 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-vpn',          rs.vpn !== false);
   _setSrc('ai-rag-src-tickets',      rs.tickets !== false);
   _setSrc('ai-rag-src-kb',           rs.kb !== false);
+  _setSrc('ai-rag-src-provisioning', rs.provisioning !== false);
+  _setSrc('ai-rag-src-rollouts',     rs.rollouts !== false);
+  _setSrc('ai-rag-src-networkmap',   rs.network_map !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -339,6 +342,9 @@ async function saveAISettings() {
         vpn:          !!document.getElementById('ai-rag-src-vpn')?.checked,
         tickets:      !!document.getElementById('ai-rag-src-tickets')?.checked,
         kb:           !!document.getElementById('ai-rag-src-kb')?.checked,
+        provisioning: !!document.getElementById('ai-rag-src-provisioning')?.checked,
+        rollouts:     !!document.getElementById('ai-rag-src-rollouts')?.checked,
+        network_map:  !!document.getElementById('ai-rag-src-networkmap')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
@@ -908,6 +914,13 @@ const AI_INSIGHTS = [
   { key: 'remote_access',       cat: 'advisors',  label: 'Remote-access review',         desc: 'WG Access VPN reach scopes, stale clients, expiring access.', msg: "Review our WG Access (WireGuard) remote-access posture — over-broad reach scopes, full-tunnel where split would do, stale or never-connected clients to revoke, and access expiring soon." },
   { key: 'helpdesk_triage',     cat: 'advisors',  label: 'Helpdesk triage',              desc: 'Open tickets: SLA breaches, unassigned high-priority, what to work next.', msg: "Triage our open helpdesk tickets — flag SLA breaches and at-risk tickets, unassigned high-priority work, tickets stuck too long, likely duplicates to link, and the order to tackle them in." },
   { key: 'automation_suggest',  cat: 'proactive', label: 'Automation suggestions',        desc: 'Propose automation rules from recurring alert patterns (run script / ticket / tag / mute).', msg: "From our recent alert and fleet-event history, propose concrete automation rules — for each, the trigger event(s) + severity, the scope (group/tag), the action(s) (run script / notify / open ticket / add tag / mute), and why, tied to the observed pattern." },
+  // v5.6.0: advisors for subsystems that had data but no card.
+  { key: 'virt_hygiene',        cat: 'advisors',  label: 'Virtualization hygiene',        desc: 'Stale snapshots, powered-off/orphaned guests across Proxmox/VMware/OpenShift.', msg: "Review our virtualization hygiene across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — flag old or accumulating snapshots to consolidate or delete, powered-off or orphaned guests, and any host that looks over-committed, with the cleanup order." },
+  { key: 'iac_review',          cat: 'advisors',  label: 'IaC / provisioning review',     desc: 'Review provisioning blueprints and flag drift between IaC and live hosts.', msg: "Review our provisioning blueprints (Terraform / cloud-init / Ansible / iPXE) — coverage gaps, blueprints whose last apply failed, risky or unpinned variables, and where the IaC-declared state has likely drifted from the live hosts." },
+  { key: 'drift_review',        cat: 'advisors',  label: 'Drift triage',                 desc: 'Which config/file drift is benign vs. a likely compromise or misconfig.', msg: "Triage the current configuration/file drift across the fleet — for each, whether it's benign (expected change), a likely misconfiguration, or a possible compromise indicator, and whether to remediate or accept the new baseline." },
+  { key: 'access_review',       cat: 'advisors',  label: 'Access & credential review',    desc: 'Over-privileged accounts, stale API/SSH keys, credential sprawl.', msg: "Review our access and credentials — over-privileged users/roles, API keys that are stale, unused or never-expiring, SSH keys to rotate, and scoped-credential sprawl — and recommend what to tighten or revoke." },
+  { key: 'network_review',      cat: 'advisors',  label: 'Network dependency review',     desc: 'Single points of failure and dependency blast radius from the network map.', msg: "Analyse our network map and device dependencies — flag single points of failure, high blast-radius dependencies to change carefully, and unmanaged hosts seen on the LAN that we should enrol or investigate." },
+  { key: 'billing_review',      cat: 'planning',  label: 'Billing & revenue review',      desc: 'Unbilled billable hours, invoices to send, time-tracking gaps.', msg: "Review our time-tracking and billing — unbilled billable hours to invoice, draft invoices ready to send, customers with unusually low margin, and days/tickets with missing time entries." },
 ];
 
 const _AI_CATS = [

@@ -6463,6 +6463,13 @@ body[data-ui="industrial"] #page-watermark svg{
   transform:translate(20%,20%);
   fill:none; stroke:rgba(160,175,200,.035); stroke-width:1;
 }
+/* Some nav icons (e.g. the AI sparkle) have child paths with their own
+   fill="currentColor" — the svg-level fill:none never reaches them, so they
+   rendered as a solid white blob. Force EVERY descendant stroke-only + faint
+   (a CSS rule overrides the SVG presentation attribute). */
+body[data-ui="industrial"] #page-watermark svg *{
+  fill:none; stroke:rgba(160,175,200,.035); stroke-width:1;
+}
 
 
 /* v5.1.0 · CONSISTENCY SWEEP — every card/panel surface gets the same --card-grad

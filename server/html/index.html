@@ -1067,7 +1067,7 @@
       <div id="page-users" class="page">
         <div class="page-title">Users &amp; Roles</div>
         <div class="page-subtitle">Manage who can access this dashboard and what they can do. Built-in roles: <strong>admin</strong> (full control) and <strong>viewer</strong> (read-only). Define custom roles to grant specific actions on specific device groups/tags.</div>
-        <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" data-action="openUserAdd" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> Add user</button></div>
+        <div class="section-header"><div class="section-title">Accounts</div><div class="row-8-center"><button class="btn-icon" data-action="aiInsight" data-arg="access_review" title="AI: access &amp; credential review — over-privileged accounts, stale keys"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button><button class="enroll-btn" data-action="openUserAdd" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> Add user</button></div></div>
         <!-- v1.11.6: filter -->
         <div class="mb-16"><input type="text" id="users-filter" class="form-input input-wide-sm" placeholder="Filter by username or role…" aria-label="Filter by username or role"></div>
         <div class="table-card"><table><thead id="users-thead"><tr><th scope="col" data-col="username">Username</th><th scope="col" data-col="created">Created</th><th scope="col" data-col="role">Role</th><th scope="col" data-col="mfa">MFA</th><th scope="col" data-col="source">Source</th><th scope="col"></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
@@ -2597,6 +2597,9 @@
               <label class="click-row"><input type="checkbox" id="ai-rag-src-vpn" checked> WG Access VPN posture (tunnels, reach scopes, who's connected, expiring access)</label>
               <label class="click-row"><input type="checkbox" id="ai-rag-src-tickets" checked> Helpdesk tickets (open tickets, SLA, assignees, affected hosts — when the ticket system is on)</label>
               <label class="click-row"><input type="checkbox" id="ai-rag-src-kb" checked> Knowledge base (your operator-authored SOPs, how-tos and runbooks — when the knowledge base is on)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-provisioning" checked> Provisioning blueprints (IaC coverage — blueprint names, types, variables, last plan/apply status)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-rollouts" checked> Staged rollouts (in-flight and recent rollouts, ring progress, halted state)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-networkmap" checked> Network map (device dependency links + unmanaged hosts seen on the LAN)</label>
             </div>
 
             <div class="form-group isl-773">
@@ -4756,6 +4759,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="settings-tab active" data-action="billingTab" data-arg="worksheet">Worksheet</button>
           <button class="settings-tab" data-action="billingTab" data-arg="invoices">Invoices</button>
           <button class="settings-tab" data-action="billingTab" data-arg="rates">Rates &amp; Fees</button>
+          <button class="btn-icon ml-auto" data-action="aiInsight" data-arg="billing_review" title="AI: unbilled hours, invoices to send, time-tracking gaps"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>
         </div>
         <div id="billing-host"><div class="empty-state">Loading…</div></div>
       </div>
@@ -4826,6 +4830,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Package vulnerabilities per device, via <a href="https://osv.dev" target="_blank" class="c-accent">OSV.dev</a> — scan checks installed packages against known CVEs.</div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadCVEReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="aiInsight" data-arg="prioritise_cves" title="AI: prioritise which CVEs to patch first, and why"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI prioritise</button>
           <button class="btn-primary mw-200" id="btn-trigger-cve-scan" data-action-btn="triggerCVEScan"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><use href="#ic-99336aa6"/></svg> Scan all devices</button>
           <button class="btn-icon" data-action="cveRealert" title="Re-raise alerts for the current CVE backlog — cve_found is edge-triggered, so already-known CVEs don't re-alert after you clear them"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-d5d1e09c"/></svg> Re-alert backlog</button>
           <!-- v3.5.0: fleet SBOM export (ZIP of per-host CycloneDX/SPDX docs, CVE-enriched) -->
@@ -5015,7 +5020,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-backups" class="page">
         <div class="page-title">Backups</div>
         <div class="page-subtitle">Define a backup command per device (restic / borg / rsync / …), run it on demand, or schedule it with cron. Pairs with the backup-freshness monitoring in each device's drawer.</div>
-        <div class="section-header"><div class="section-title">Backup jobs</div><button class="enroll-btn" data-action="openBackupJobCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New job</button></div>
+        <div class="section-header"><div class="section-title">Backup jobs</div><div class="row-8-center"><button class="btn-icon" data-action="aiInsight" data-arg="dr_readiness" title="AI: assess backup / disaster-recovery readiness and gaps"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button><button class="enroll-btn" data-action="openBackupJobCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New job</button></div></div>
         <div class="mb-16"><input type="text" id="backups-filter" class="form-input input-wide-sm" placeholder="Filter by name or device…" aria-label="Filter by name or device"></div>
         <div class="table-card"><table><thead id="backups-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="device_name">Device</th><th scope="col" data-col="cron">Schedule</th><th scope="col" data-col="last_run">Last run</th><th scope="col" data-col="enabled">Enabled</th><th scope="col"></th></tr></thead><tbody id="backups-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
 
@@ -5041,7 +5046,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-provisioning" class="page">
         <div class="page-title">Provisioning</div>
         <div class="page-subtitle">A catalog of infrastructure blueprints — Terraform, cloud-init, Ansible and iPXE templates organised in folders. Fill in a blueprint's variables and render it to copy or download; Terraform blueprints can also be run on the server (plan / apply / destroy) when execution is enabled.</div>
-        <div class="section-header"><div class="section-title">Blueprints</div><button class="enroll-btn" data-action="openBlueprintCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New blueprint</button></div>
+        <div class="section-header"><div class="section-title">Blueprints</div><div class="row-8-center"><button class="btn-icon" data-action="aiInsight" data-arg="iac_review" title="AI: review blueprints and flag drift between IaC and live hosts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button><button class="enroll-btn" data-action="openBlueprintCreate"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New blueprint</button></div></div>
         <div class="mb-16"><input type="text" id="provisioning-filter" class="form-input input-wide-sm" placeholder="Filter blueprints…" aria-label="Filter blueprints" data-input="filterProvisioning"></div>
         <div class="dash-card"><div id="provisioning-tree" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
 
@@ -5325,6 +5330,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="virt-platform-bar" class="isl-173"></div>
         <div class="isl-173">
           <button class="btn-icon" data-action="loadVirtualizationPage" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="aiInsight" data-arg="virt_hygiene" title="AI: review virtualization hygiene — stale snapshots, orphaned guests"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>
           <button class="enroll-btn" id="vm-create-btn" data-action="openVmCreateWizard"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> Create VM</button>
           <input type="text" id="virt-search" class="form-input isl-49" placeholder="Search VMs by name or VMID…" data-input="filterVirtualization" aria-label="Search VMs by name or VMID">
           <span id="virtualization-node" class="isl-174"></span>
@@ -5338,6 +5344,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Topology view from manually-set <code>connected_to</code> links and tunnels (peer links). Drag nodes to reposition — positions persist across refresh. Add agentless devices on the Devices page.</div>
         <div class="isl-173">
           <button class="btn-icon" data-action="loadNetmap" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="aiInsight" data-arg="network_review" title="AI: network dependency review — single points of failure, unmanaged hosts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI review</button>
           <button class="btn-icon" data-action="netmapEditOpen" >Edit links</button>
           <button class="btn-icon" data-action="netmapTunnelsOpen" >Tunnels</button>
           <button class="btn-icon" data-action="netmapResetPositions" title="Clear all manual positions and revert to auto-layout">Reset positions</button>
@@ -5388,6 +5395,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Watched config files across the fleet. Agent hashes each file every few heartbeats; server alerts when a hash diverges from the stored baseline. Hash-only — no file content crosses the wire. <a href="docs/drift.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadDrift" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="aiInsight" data-arg="drift_review" title="AI: triage config/file drift — benign vs. misconfig vs. compromise"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9z"/></svg> AI triage</button>
           <button class="btn-icon" data-action="collectAllHostConfigs" title="Ask every agent to re-report its live host config now"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-c923885c"/></svg> Collect all host configs</button>
           <button class="btn-icon" data-action="exportAllHostConfigs" title="Download a JSON bundle of every device's desired + current host config"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-7599ff9d"/></svg> Export all host configs</button>
           <input type="text" id="drift-filter" class="form-input isl-177" placeholder="Filter by device name…" aria-label="Filter by device name">

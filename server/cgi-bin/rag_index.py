@@ -1314,6 +1314,118 @@ def build_kb_corpus(store, now=0):
     return docs
 
 
+def build_provisioning_corpus(store, now=0):
+    """v5.6.0: infrastructure-provisioning blueprints (IaC) for the RAG. `store`
+    is the PROVISION_FILE dict {'blueprints': [...]}. Each blueprint (Terraform /
+    cloud-init / Ansible / iPXE) becomes one doc — name, type, folder, declared
+    variables, and the last plan/apply/destroy status — so the AI can answer
+    "what's our IaC coverage?", "which blueprint deploys X?", "did the last apply
+    fail?". Blueprint BODIES and secret values are NOT included (only names). Only
+    invoke when provisioning is enabled."""
+    docs = []
+    bps = (store or {}).get('blueprints', []) if isinstance(store, dict) else []
+    if not isinstance(bps, list) or not bps:
+        return docs
+    index = []
+    _RC = {0: 'ok', None: 'not run'}
+    for b in bps:
+        if not isinstance(b, dict):
+            continue
+        bid = b.get('id') or ''
+        name = str(b.get('name') or 'Untitled')
+        typ = str(b.get('type') or '')
+        folder = str(b.get('folder') or '')
+        vars = b.get('variables') or []
+        vnames = ', '.join(
+            str(v.get('name')) + ('*' if isinstance(v, dict) and v.get('secret') else '')
+            for v in vars if isinstance(v, dict) and v.get('name')) if isinstance(vars, list) else ''
+        last_op = str(b.get('last_op') or 'none')
+        last_rc = b.get('last_rc')
+        status = _RC.get(last_rc, f'exit {last_rc}') if not isinstance(last_rc, bool) else str(last_rc)
+        head = (f"Provisioning blueprint: {name}\nType: {typ or 'unknown'}\n"
+                f"Folder: {folder or '(root)'}\nVariables: {vnames or 'none'}\n"
+                f"Last operation: {last_op} ({status})")
+        docs.append(make_doc(
+            f"prov/{bid}", 'provisioning', 'blueprint', head,
+            title=f"Blueprint: {name[:70]}", ts=int(b.get('last_run') or now)))
+        index.append(f"- {name[:70]} [{typ}] last:{last_op}/{status}")
+    docs.append(make_doc(
+        'prov/_index', 'provisioning', 'blueprint_index',
+        f"Provisioning: {len(index)} blueprint(s).\n" + '\n'.join(index[:300]),
+        title='Provisioning blueprints index', ts=now))
+    return docs
+
+
+def build_rollouts_corpus(store, now=0):
+    """v5.6.0: staged script/config rollouts for the RAG. `store` is the
+    ROLLOUTS_FILE dict {'rollouts': [{id,name,action,rings,rings_state,state,...}]}.
+    Each rollout becomes one doc — name, action, canary->pilot->broad ring progress
+    and whether it halted — so the AI can answer "what rollouts are in flight?" and
+    "did the last rollout halt and why?"."""
+    docs = []
+    rolls = (store or {}).get('rollouts', []) if isinstance(store, dict) else []
+    if not isinstance(rolls, list) or not rolls:
+        return docs
+    index = []
+    for r in rolls:
+        if not isinstance(r, dict):
+            continue
+        rid = r.get('id') or ''
+        name = str(r.get('name') or 'Untitled')
+        action = str(r.get('action') or '')
+        state = str(r.get('state') or '')
+        rings = r.get('rings') or []
+        rstate = r.get('rings_state') or []
+        nrings = len(rings) if isinstance(rings, list) else 0
+        done = sum(1 for s in rstate if isinstance(s, dict) and s.get('done')) if isinstance(rstate, list) else 0
+        head = (f"Rollout: {name}\nAction: {action or 'unknown'}\nState: {state or 'unknown'}\n"
+                f"Rings: {done}/{nrings} completed")
+        docs.append(make_doc(
+            f"rollout/{rid}", 'rollouts', 'rollout', head,
+            title=f"Rollout: {name[:70]}", ts=int(r.get('updated_at') or r.get('created_at') or now)))
+        index.append(f"- {name[:70]} [{action}] {state} {done}/{nrings}")
+    docs.append(make_doc(
+        'rollout/_index', 'rollouts', 'rollout_index',
+        f"Rollouts: {len(index)} rollout(s).\n" + '\n'.join(index[:300]),
+        title='Rollouts index', ts=now))
+    return docs
+
+
+def build_network_map_corpus(links, discovery, now=0):
+    """v5.6.0: network topology + unmanaged-host discovery for the RAG. `links` is
+    the LINKS_FILE list (records carrying `connected_to`); `discovery` is the
+    DISCOVERY_FILE (hosts agents saw on the LAN that aren't enrolled). Feeds the
+    unmonitored-visibility principle — the AI can answer "what depends on host X?"
+    and "what's on our network we aren't monitoring?"."""
+    docs = []
+    deps = []
+    if isinstance(links, list):
+        for rec in links:
+            if isinstance(rec, dict) and rec.get('connected_to'):
+                deps.append(f"- {rec.get('device_id') or rec.get('id') or '?'} -> {rec.get('connected_to')}")
+    if deps:
+        docs.append(make_doc(
+            'netmap/deps', 'network_map', 'dependencies',
+            f"Device dependency links ({len(deps)}):\n" + '\n'.join(deps[:300]),
+            title='Network dependency links', ts=now))
+    # Unmanaged hosts discovered on the LAN.
+    seen = []
+    disc = discovery if isinstance(discovery, dict) else {}
+    for host, info in list(disc.items())[:400]:
+        if not isinstance(info, dict):
+            continue
+        ip = info.get('ip') or host
+        name = info.get('hostname') or info.get('name') or ''
+        seen.append(f"- {ip}" + (f" ({name})" if name else ''))
+    if seen:
+        docs.append(make_doc(
+            'netmap/unmanaged', 'network_map', 'unmanaged_hosts',
+            f"Unmanaged hosts seen on the LAN ({len(seen)}) — not enrolled in "
+            f"RemotePower:\n" + '\n'.join(seen[:300]),
+            title='Unmanaged LAN hosts', ts=now))
+    return docs
+
+
 # ── Vector helpers ───────────────────────────────────────────────────────────
 
 def cosine(a, b):

@@ -9784,7 +9784,11 @@ def handle_openapi_spec() -> None:
     # v5.4.1 (E1): pass the registered exact-route table so the spec covers the
     # whole API surface (every literal route gets at least a stub), not only the
     # ~28 hand-documented endpoints.
-    respond(200, openapi_spec.build_spec(SERVER_VERSION, routes=list(_build_exact_routes().keys())))
+    # v5.6.0: cover the WHOLE surface — the literal exact table PLUS the prefix/
+    # templated routes parsed from the dispatcher chain (else ~280 routes,
+    # including every /{id} sub-resource, were silently undocumented).
+    _routes = list(_build_exact_routes().keys()) + _dispatcher_routes()
+    respond(200, openapi_spec.build_spec(SERVER_VERSION, routes=_routes))
 
 
 def handle_login():
@@ -27269,6 +27273,11 @@ _AI_DEFAULTS = {
             # (SOPs, how-tos, runbooks). Gated on the KB being enabled. Grounds
             # Q&A like "how do we rotate the VPN keys?" with your own docs.
             'kb':           True,
+            # v5.6.0: provisioning blueprints (IaC coverage/status), staged
+            # rollouts, and network topology + unmanaged-host discovery.
+            'provisioning': True,
+            'rollouts':     True,
+            'network_map':  True,
         },
         'embeddings_enabled': False,
         'embedding_model':    '',
@@ -27475,7 +27484,8 @@ def handle_ai_config_set():
                 for k in ('docs', 'live_state', 'cmdb', 'history',
                           'drift', 'compliance', 'metrics',
                           'firewall', 'integrations', 'backups', 'dns_email',
-                          'posture', 'vpn', 'tickets', 'kb'):
+                          'posture', 'vpn', 'tickets', 'kb',
+                          'provisioning', 'rollouts', 'network_map'):
                     if k in rb['sources']:
                         cur['rag']['sources'][k] = bool(rb['sources'][k])
             if isinstance(rb.get('history_limits'), dict):
@@ -27612,6 +27622,14 @@ def _rag_source_files(sources):
     # v5.6.0: knowledge base articles.
     if sources.get('kb'):
         files.append(KB_FILE)
+    # v5.6.0: provisioning blueprints, rollouts, network topology + discovery.
+    if sources.get('provisioning'):
+        files.append(PROVISION_FILE)
+    if sources.get('rollouts'):
+        files.append(ROLLOUTS_FILE)
+    if sources.get('network_map'):
+        files.append(LINKS_FILE)
+        files.append(DISCOVERY_FILE)
     return files
 
 
@@ -27918,6 +27936,28 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_kb_corpus(load(KB_FILE) or {}, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: kb source failed: {e}\n')
+
+    # v5.6.0: provisioning blueprints (IaC coverage/status). Gated on the feature.
+    if sources.get('provisioning') and _provisioning_enabled():
+        try:
+            docs += rag_index.build_provisioning_corpus(load(PROVISION_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: provisioning source failed: {e}\n')
+
+    # v5.6.0: staged rollouts (in-flight / halted).
+    if sources.get('rollouts'):
+        try:
+            docs += rag_index.build_rollouts_corpus(load(ROLLOUTS_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: rollouts source failed: {e}\n')
+
+    # v5.6.0: network topology (dependency links) + unmanaged-host discovery.
+    if sources.get('network_map'):
+        try:
+            docs += rag_index.build_network_map_corpus(
+                load(LINKS_FILE) or [], load(DISCOVERY_FILE) or {}, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: network_map source failed: {e}\n')
 
     return docs
 
@@ -51999,6 +52039,60 @@ def _enforce_mfa_enrollment():
 # in the file. tests/test_router_table.py proves every probe routes identically
 # to the pre-refactor inline chain.
 _EXACT_ROUTES = None
+_DISPATCHER_ROUTES_CACHE = None
+
+
+def _dispatcher_routes():
+    """Best-effort ``(METHOD, /api/path)`` tuples parsed from the request
+    dispatcher chain, so the OpenAPI spec (v5.6.0) covers the ENTIRE surface —
+    prefix (``pi.startswith``) and templated (``{id}``) routes, not just the
+    literal ``_build_exact_routes()`` table. Device sub-resources become
+    ``/api/devices/{device_id}/<x>`` and other prefixes ``/api/<x>/{id}``. Parses
+    api.py's own source; NEVER raises (a parse miss just under-documents). Cached."""
+    global _DISPATCHER_ROUTES_CACHE
+    if _DISPATCHER_ROUTES_CACHE is not None:
+        return _DISPATCHER_ROUTES_CACHE
+    out = []
+    try:
+        import re as _re
+        src = Path(__file__).read_text().splitlines()
+        try:
+            start = next(i for i, l in enumerate(src)
+                         if '_EXACT_ROUTES.get((m, pi))' in l)
+        except StopIteration:
+            start = 0
+        for l in src[start:start + 1200]:
+            if 'pi ' not in l and 'pi.' not in l:
+                continue
+            methods = _re.findall(r"m == '([A-Z]+)'", l)
+            if not methods:
+                _mi = _re.search(r"m in \(([^)]*)\)", l)
+                if _mi:
+                    methods = _re.findall(r"'([A-Z]+)'", _mi.group(1))
+            if not methods:
+                continue  # any-method branch — ambiguous, skip
+            for p in _re.findall(r"pi == '(/api/[^']+)'", l):
+                for me in methods:
+                    out.append((me, p))
+            if "startswith('/api/devices/')" in l:
+                for e in _re.findall(r"pi\.endswith\('(/[^']+)'\)", l):
+                    for me in methods:
+                        out.append((me, '/api/devices/{device_id}' + e))
+            else:
+                for pfx in _re.findall(r"pi\.startswith\('(/api/[a-z0-9/_-]+)/'\)", l):
+                    for me in methods:
+                        out.append((me, pfx + '/{id}'))
+    except Exception:
+        pass
+    # dedupe, keep order
+    _seen = set()
+    _uniq = []
+    for t in out:
+        if t not in _seen:
+            _seen.add(t)
+            _uniq.append(t)
+    _DISPATCHER_ROUTES_CACHE = _uniq
+    return _uniq
 
 
 def _build_exact_routes():
@@ -54154,6 +54248,12 @@ _AI_PROMPT_LABELS = {
     'remote_access':          'Remote-access (VPN) review',
     'helpdesk_triage':        'Helpdesk triage',
     'automation_suggest':     'Automation suggestions',
+    'virt_hygiene':           'Virtualization hygiene',
+    'iac_review':             'IaC / provisioning review',
+    'drift_review':           'Drift triage',
+    'access_review':          'Access & credential review',
+    'network_review':         'Network dependency review',
+    'billing_review':         'Billing & revenue review',
     # v3.0.1: Mitigation playbook prompts. One per alert category so a user
     # can tune the AI's tone independently — e.g. terse for service alerts,
     # more cautious for disk cleanup proposals.

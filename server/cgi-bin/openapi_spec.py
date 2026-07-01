@@ -992,11 +992,19 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
         if m not in ("get", "post", "put", "patch", "delete"):
             continue
         rel = full[4:] if full.startswith("/api") else full
-        if not rel or "{" in rel:
+        if not rel:
             continue
         op = paths.setdefault(rel, {})
         if m in op:
             continue  # already richly documented — never overwrite
+        # v5.6.0: templated paths (`/x/{id}`) used to be skipped, leaving the
+        # whole `{id}` surface undocumented. Now they get a stub too, with each
+        # `{name}` segment declared as a required string path parameter.
+        params = [
+            {"name": seg[1:-1], "in": "path", "required": True, "schema": {"type": "string"}}
+            for seg in rel.split("/")
+            if seg.startswith("{") and seg.endswith("}")
+        ]
         op[m] = {
             "summary": f"{method.upper()} {rel}",
             "tags": ["Other"],
@@ -1009,6 +1017,126 @@ def _stub_operations(paths: dict[str, Any], routes: list[tuple[str, str]] | None
                 "401": {"$ref": "#/components/responses/Unauthorized"},
             },
         }
+        if params:
+            op[m]["parameters"] = params
+
+
+def _path_virt() -> dict[str, Any]:
+    """v5.6.0: virtualization lifecycle across Proxmox/vSphere/OpenShift/vCloud."""
+    _id = {
+        "name": "id",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Integration instance id from GET /api/virt/platforms.",
+    }
+    _ok = {"200": {"description": "OK"}, "401": {"$ref": "#/components/responses/Unauthorized"}}
+    _admin = {
+        "200": {"description": "OK"},
+        "401": {"$ref": "#/components/responses/Unauthorized"},
+        "403": {"description": "Admin role required."},
+        "404": {"description": "Platform not found."},
+    }
+    return {
+        "/virt/platforms": {
+            "get": {
+                "tags": ["Virtualization"],
+                "summary": "List lifecycle-capable virtualization platforms",
+                "description": (
+                    "Returns the configured virtualization integrations "
+                    "(vCenter/vSphere, VMware Cloud Director, OpenShift) with their "
+                    "id, label, type and supported power actions. No secrets."
+                ),
+                "operationId": "listVirtPlatforms",
+                "responses": _ok,
+            }
+        },
+        "/virt/{id}/vms": {
+            "get": {
+                "tags": ["Virtualization"],
+                "summary": "List guests on a platform",
+                "operationId": "listVirtVms",
+                "parameters": [_id],
+                "responses": _ok,
+            }
+        },
+        "/virt/{id}/power": {
+            "post": {
+                "tags": ["Virtualization"],
+                "summary": "Power action on a guest (admin, audited)",
+                "operationId": "virtPower",
+                "parameters": [_id],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["vm_id", "action"],
+                                "properties": {
+                                    "vm_id": {"type": "string"},
+                                    "action": {
+                                        "type": "string",
+                                        "enum": [
+                                            "start",
+                                            "stop",
+                                            "shutdown",
+                                            "reboot",
+                                            "reset",
+                                            "suspend",
+                                            "restart",
+                                        ],
+                                    },
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": _admin,
+            }
+        },
+        "/virt/{id}/snapshots": {
+            "get": {
+                "tags": ["Virtualization"],
+                "summary": "List snapshots for one guest",
+                "operationId": "listVirtSnapshots",
+                "parameters": [
+                    _id,
+                    {"name": "vm", "in": "query", "required": True, "schema": {"type": "string"}},
+                ],
+                "responses": _ok,
+            }
+        },
+        "/virt/{id}/snapshot": {
+            "post": {
+                "tags": ["Virtualization"],
+                "summary": "Create / revert / delete a snapshot (admin, audited)",
+                "operationId": "virtSnapshotAction",
+                "parameters": [_id],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["vm_id", "action"],
+                                "properties": {
+                                    "vm_id": {"type": "string"},
+                                    "action": {
+                                        "type": "string",
+                                        "enum": ["create", "revert", "delete"],
+                                    },
+                                    "name": {"type": "string"},
+                                    "desc": {"type": "string"},
+                                },
+                            }
+                        }
+                    },
+                },
+                "responses": _admin,
+            }
+        },
+    }
 
 
 def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None) -> dict[str, Any]:
@@ -1031,6 +1159,7 @@ def build_spec(server_version: str, routes: list[tuple[str, str]] | None = None)
     paths.update(_path_cmdb())
     paths.update(_path_vault())
     paths.update(_path_auth_misc())
+    paths.update(_path_virt())
     _stub_operations(paths, routes)
 
     return {

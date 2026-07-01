@@ -385,12 +385,13 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Context-aware actions | Investigate device, explain output, find the problem (journal), diagnose service, triage CVE/TLS, prioritise patches, explain/generate/audit scripts, explain events |
 | AI Investigate / mitigate | Diagnose + suggested-fix on ~21 Needs-Attention kinds; requires `exec` *(v3.4.2 / v3.8.0)* |
 | On-demand AI insights | Fleet anomaly scan, cron builder, runbook + CMDB doc drafts (RAG-aware) *(v3.4.0)* |
-| AI Insights hub | One-click reports/advisors — proactive briefing, RCA, NL→config, planning, advisors (firewall/DNS/email/SBOM/host one-pager) *(v4.10.0)*; TLS/CVE/top-alert *(v5.0.1)*; remote-access *(v5.2.0)*; helpdesk triage *(v5.3.0)*; **automation-rule suggestions** from recurring alert patterns *(v5.6.0)* |
+| AI Insights hub | One-click reports/advisors — proactive briefing, RCA, NL→config, planning, advisors (firewall/DNS/email/SBOM/host one-pager) *(v4.10.0)*; TLS/CVE/top-alert *(v5.0.1)*; remote-access *(v5.2.0)*; helpdesk triage *(v5.3.0)*; **automation-rule suggestions**, plus **virtualization-hygiene, IaC/provisioning review, drift triage, access &amp; credential review, network-dependency review and billing review** advisors *(v5.6.0)* |
+| Inline AI buttons | Context "AI review" buttons on the Virtualization, Provisioning, Drift, Network-map, CVE, Backups, Users and Billing pages that launch the matching advisor in place *(v5.6.0)* |
 | Secret redaction | Regex pre-flight strips tokens/keys/hex; privacy toggles for hostnames/IPs/journal |
 | Rate limiting | Per-user daily cap + per-response token cap |
 | Free-form chat | Multi-turn chat page with model picker + local history |
 | Local-model support | Ollama/LocalAI — no egress, no API key; shows loaded models + VRAM |
-| RAG over your fleet | Cited `<retrieved_context>` from device state, services, CVEs, containers, firewall/fail2ban, integrations, backups, DNS/email, security posture, CMDB, runbooks, commands, alerts, product docs; BM25 lexical + optional semantic (RRF); vault never indexed *(v3.4.0)* |
+| RAG over your fleet | Cited `<retrieved_context>` from device state, services, CVEs, containers, firewall/fail2ban, integrations, backups, DNS/email, security posture, CMDB, runbooks, commands, alerts, tickets, knowledge base, **provisioning blueprints, rollouts and network topology** *(v5.6.0)*, product docs; BM25 lexical + optional semantic (RRF); vault never indexed *(v3.4.0)* |
 
 ## MCP server *(v2.2.1)*
 

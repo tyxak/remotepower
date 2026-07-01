@@ -505,7 +505,10 @@ class TestE1OpenApiCoverage(unittest.TestCase):
                     self.assertIn("responses", op, f"{verb} {p} has no responses")
 
     def test_handler_passes_routes(self):
-        self.assertIn("routes=list(_build_exact_routes().keys())", (_CGI / "api.py").read_text())
+        # v5.6.0: the handler now feeds the exact table PLUS the dispatcher-parsed
+        # prefix/templated routes so the spec covers the whole surface.
+        src = (_CGI / "api.py").read_text()
+        self.assertIn("list(_build_exact_routes().keys()) + _dispatcher_routes()", src)
 
 
 class TestG1OffsiteBackup(unittest.TestCase):

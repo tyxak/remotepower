@@ -64,6 +64,17 @@ The IaC / automation + alert-tuning release. Everything new is opt-in,
   counts) — added to the homelab-integrations set (now 28); the vCenter connector relabelled
   **VMware vSphere / ESXi / vCenter**. The **Settings → Proxmox** tab is renamed
   **Virtualization**.
+- **API, Swagger, AI &amp; RAG gap-fill:** the OpenAPI/Swagger spec now covers the
+  **whole** API surface — a dispatcher-route extractor (`_dispatcher_routes()`) feeds
+  the ~280 prefix/templated routes (every `/{id}` sub-resource + the new subsystems)
+  to the stubber, which now emits templated-path stubs; virtualization gets a rich
+  hand-written spec. Guardrail `tests/test_v560_openapi.py`. **Six new AI advisors** —
+  virtualization hygiene, IaC/provisioning review, drift triage, access &amp; credential
+  review, network-dependency review, billing review — plus **inline "AI review"
+  buttons** on the matching pages (Virtualization, Provisioning, Drift, Network map,
+  CVE, Backups, Users, Billing). **Three new RAG sources** — provisioning blueprints,
+  staged rollouts, and network topology + unmanaged-host discovery. Fixed the AI-page
+  watermark rendering as a solid white blob (child-path fills now forced stroke-only).
 - **Virtualization lifecycle parity:** VMware vSphere/vCenter, VMware Cloud Director and
   OpenShift Virtualization (KubeVirt) now get **Proxmox-level control** on the sidebar
   **Virtualization** page — a platform picker lists guests per hypervisor and offers
