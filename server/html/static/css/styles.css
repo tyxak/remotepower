@@ -5608,11 +5608,11 @@ body[data-ui="industrial"] {
   --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.55);
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
   --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
-  /* Card fill gradient. The bottom stop must stay LIGHTER than --bg (#0f1217) —
-     it used to fade to #0c0f14 (darker than the page), so the card sank into the
-     background at the bottom and its 1px border was swallowed (the "missing
-     bottom border" — the brighter inner .table-card edge read as the card edge). */
-  --card-grad:linear-gradient(180deg,#1c222c 0%,#151b27 100%);  /* visible card gradient */
+  /* Card fill gradient — deliberately dramatic (light graphite → near-black). The
+     bottom border stays visible NOT by flattening this gradient, but via the
+     brightened panel border (#465468) + dropping the redundant inner table
+     border (see the patch-panel block). Keep the full depth. */
+  --card-grad:linear-gradient(180deg,#1c222c 0%,#0c0f14 100%);  /* visible card gradient */
   --well-bg:#0b0e12;  /* recessed text well */
   --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
   --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
