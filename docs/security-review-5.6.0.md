@@ -5,8 +5,11 @@
 This cycle ran a broad pentest of the product: the full committed SAST stack plus
 a 5-dimension manual review (auth/RBAC, injection/SSRF, XSS/CSP, secrets/crypto,
 the agent root channel + this release's new code). Every reported finding was
-hand-verified before fixing. **No Critical / High / Medium issues.** A handful of
-Low (mostly defense-in-depth) findings were fixed; the rest were confirmed safe.
+hand-verified before fixing. The main sweep found no Critical/High/Medium issues;
+a later pre-production bug hunt (see the final section) found **one Medium** (an
+AI-path SSRF) and a ship-blocking Postgres data-correctness bug, both fixed before
+promotion. **Nothing Critical/High/Medium ships.** The remaining findings were Low
+(mostly defense-in-depth) and fixed; the rest were confirmed safe.
 
 ## Tooling
 
