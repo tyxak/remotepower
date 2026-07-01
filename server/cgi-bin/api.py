@@ -28621,6 +28621,7 @@ def handle_ai_chat():
     # context toggle AND the rag.enabled flag; never allowed to break chat.
     include_rag = bool(ctx_opts.get('include_rag', True))
     retrieved = None
+    rag_query = None   # defined here so the debug branch can report it even when RAG is skipped
     # v3.13.0 RBAC: the RAG corpus spans the whole fleet and isn't scope-tagged
     # per-device, so only full-access (admin) callers get RAG retrieval —
     # scoped roles would otherwise see out-of-scope infra in the answer.
@@ -28642,6 +28643,51 @@ def handle_ai_chat():
             now=int(time.time()),
             ttl=get_online_ttl(),
         )
+
+    # v5.6.0: debug mode — return EXACTLY what would be sent to the model (the
+    # assembled system prompt + what RAG retrieved) WITHOUT calling the provider,
+    # so an operator can verify their fleet data actually reached the AI (and see
+    # WHY it didn't). No model call → no rate-limit spend, no cost. Same auth as
+    # a normal chat, and the data shown is the caller's own (scope-filtered).
+    if body.get('debug'):
+        _rag_on = bool((cfg.get('rag') or {}).get('enabled'))
+        _srcs = []
+        for _d in (retrieved or []):
+            if isinstance(_d, dict):
+                _srcs.append(f"{_d.get('source', '?')}: {(_d.get('title') or _d.get('id') or '')}"[:120])
+        if not include_rag:
+            _note = 'RAG retrieval is turned off for this request (include_rag).'
+        elif _ai_scope is not None:
+            _note = ('RAG is skipped for scoped (non-admin) roles — the corpus is '
+                     'not per-scope tagged, so only full-access users get it.')
+        elif not _rag_on:
+            _note = ('RAG is DISABLED. Turn it on under Settings → AI → Knowledge '
+                     '(RAG) and pick the sources you want the AI grounded in.')
+        elif not rag_query:
+            _note = 'No usable retrieval query could be built from the message.'
+        elif not retrieved:
+            _note = ('RAG is on but nothing matched this query — the index may be '
+                     'empty or stale. Reindex under Settings → AI → RAG, and make '
+                     'sure the relevant source (e.g. drift) is enabled.')
+        else:
+            _note = f'{len(retrieved)} context chunk(s) retrieved and attached.'
+        respond(200, {
+            'ok': True,
+            'debug': True,
+            'note': _note,
+            'rag_enabled': _rag_on,
+            'include_rag': include_rag,
+            'include_fleet_context': include_fleet,
+            'include_project_context': include_project,
+            'caller_full_access': _ai_scope is None,
+            'fleet_devices_sent': len(fleet_devices) if fleet_devices else 0,
+            'rag_query': rag_query,
+            'retrieved_count': len(retrieved) if retrieved else 0,
+            'retrieved_sources': _srcs,
+            'system_prompt': system_prompt,
+            'system_prompt_chars': len(system_prompt),
+            'user_message': (messages[-1].get('content') if messages else '')[:4000],
+        })
 
     context = ai_provider.redact(str(body.get('context', '') or '')[:128],
                                  cfg.get('privacy') or {})

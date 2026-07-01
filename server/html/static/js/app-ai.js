@@ -404,6 +404,7 @@ function _ensureAIModal() {
       <div class="isl-511">
         <button class="btn-icon" id="ai-modal-copy" data-action="aiModalCopy" disabled>Copy response</button>
         <button class="btn-icon d-none" id="ai-modal-action"></button>
+        <button class="btn-icon d-none" id="ai-modal-debug" data-action="aiModalDebug" title="Show exactly what data and context was sent to the AI for this request (no model call)">What was sent?</button>
         <div class="flex-1"></div>
         <button class="btn-icon" data-action="closeAIModal" >Close</button>
       </div>
@@ -423,6 +424,15 @@ function aiModalCopy() {
   toast('Copied to clipboard', 'success');
 }
 
+// "What was sent?" — replay the last modal request in debug mode so you can see
+// the exact context/prompt (and whether RAG attached) for ANY AI button.
+function aiModalDebug() {
+  const last = window._aiModalLast;
+  if (!last) { toast('Nothing to inspect yet', 'info'); return; }
+  _aiRunDebug({ title: `${last.title || 'AI'} — what gets sent`,
+                system: last.system, userMsg: last.userMsg, context: last.context });
+}
+
 async function openAIModal({title, system, userMsg, context, onResult, actionLabel, maxTokens}) {
   _ensureAIModal();
   _aiModalEl.classList.add('active');
@@ -435,6 +445,10 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
   document.getElementById('ai-modal-copy').disabled = true;
   const actionBtn = document.getElementById('ai-modal-action');
   actionBtn.style.display = 'none';
+  // Remember this exact request so the "What was sent?" debug button can replay
+  // it in debug mode (no model call) — covers every AI button, not just insights.
+  window._aiModalLast = { title, system, userMsg, context };
+  { const _db = document.getElementById('ai-modal-debug'); if (_db) _db.classList.add('d-none'); }
 
   // Live "Xs elapsed" ticker so it doesn't look frozen during long
   // local-model thinks (smallthinker / qwq / deepseek-r1 etc.)
@@ -469,6 +483,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
   body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.text || '(empty response)')}</div>`;
   body.dataset.rawText = resp.text || '';
   document.getElementById('ai-modal-copy').disabled = false;
+  { const _db = document.getElementById('ai-modal-debug'); if (_db) _db.classList.remove('d-none'); }
   document.getElementById('ai-modal-meta').textContent =
     `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${resp.elapsed_ms}ms` +
     (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
@@ -940,10 +955,13 @@ function _renderAIInsights() {
     if (!items.length) continue;
     html += `<div class="section-title ai-insight-cat">${escHtml(label)}</div>`;
     html += '<div class="ai-insights-grid">' + items.map(it =>
-      `<button class="ai-insight-card" data-action="aiInsight" data-arg="${escAttr(it.key)}" title="${escAttr(it.desc)}">
-         <div class="ai-insight-top">${_aiIcon(cat)}<span class="ai-insight-label">${escHtml(it.label)}</span></div>
-         <div class="ai-insight-desc">${escHtml(it.desc)}</div>
-       </button>`).join('') + '</div>';
+      `<div class="ai-insight-wrap">
+         <button class="ai-insight-card" data-action="aiInsight" data-arg="${escAttr(it.key)}" title="${escAttr(it.desc)}">
+           <div class="ai-insight-top">${_aiIcon(cat)}<span class="ai-insight-label">${escHtml(it.label)}</span></div>
+           <div class="ai-insight-desc">${escHtml(it.desc)}</div>
+         </button>
+         <button class="ai-insight-dbg" data-action="aiInsightDebug" data-arg="${escAttr(it.key)}" title="Debug — show exactly what data and context is sent to the AI for this insight (no model call)">debug</button>
+       </div>`).join('') + '</div>';
   }
   grid.innerHTML = html;
 }
@@ -958,6 +976,63 @@ async function aiInsight(key) {
     msg = it.msg.replace('%s', v.trim());
   }
   openAIModal({ title: it.label, system: it.key, userMsg: msg, context: 'fleet', maxTokens: 1800 });
+}
+
+// v5.6.0: per-insight debug — show EXACTLY what data/context reaches the model
+// (and why RAG did or didn't attach), without calling the provider. This is the
+// answer to "did my fleet data actually get sent, or is the AI just guessing?".
+async function aiInsightDebug(key) {
+  const it = AI_INSIGHTS.find(x => x.key === key);
+  if (!it) return;
+  let msg = it.msg;
+  if (it.input) {
+    const v = await uiPrompt({ title: it.label, message: it.input, confirmText: 'Inspect' });
+    if (!v || !v.trim()) return;
+    msg = it.msg.replace('%s', v.trim());
+  }
+  _aiRunDebug({ title: `${it.label} — what gets sent`, system: it.key, userMsg: msg, context: 'fleet' });
+}
+
+// Shared by the per-card debug buttons AND the result-modal "What was sent?"
+// button, so EVERY AI action can be inspected — not just the insight cards.
+async function _aiRunDebug({ title, system, userMsg, context }) {
+  _ensureAIModal();
+  _aiModalEl.classList.add('active');
+  document.getElementById('ai-modal-title').textContent = title || 'AI — debug';
+  document.getElementById('ai-modal-meta').textContent = 'debug — no model call, no cost';
+  const body = document.getElementById('ai-modal-body');
+  body.innerHTML = `<div class="isl-512">${aiThinkingHtml()} <span>Assembling the exact request…</span></div>`;
+  document.getElementById('ai-modal-copy').disabled = true;
+  const actBtn = document.getElementById('ai-modal-action');
+  if (actBtn) actBtn.style.display = 'none';
+  const resp = await aiApi('POST', '/ai/chat',
+    { messages: [{ role: 'user', content: userMsg }], system, context: context || '', debug: true });
+  if (!resp || !resp.ok) {
+    body.innerHTML = `<div class="isl-513">${escHtml((resp && resp.error) || 'debug request failed')}</div>`;
+    return;
+  }
+  const yn = b => b ? 'yes' : '<span class="c-danger-outline">no</span>';
+  const srcs = (resp.retrieved_sources || []).map(s => `<li>${escHtml(s)}</li>`).join('');
+  const ok = resp.retrieved_count > 0 || resp.fleet_devices_sent > 0;
+  body.innerHTML =
+    `<div class="ai-content">
+       <div class="ai-dbg-note ${ok ? 'ai-dbg-ok' : 'ai-dbg-warn'}">${escHtml(resp.note || '')}</div>
+       <table class="ai-dbg-tbl">
+         <tr><td>RAG enabled (Settings → AI)</td><td>${yn(resp.rag_enabled)}</td></tr>
+         <tr><td>RAG requested this call</td><td>${yn(resp.include_rag)}</td></tr>
+         <tr><td>Full-access caller (RAG allowed)</td><td>${yn(resp.caller_full_access)}</td></tr>
+         <tr><td>Fleet devices in context</td><td>${resp.fleet_devices_sent}</td></tr>
+         <tr><td>Retrieval query</td><td>${escHtml(resp.rag_query || '—')}</td></tr>
+         <tr><td><strong>Context chunks retrieved</strong></td><td><strong>${resp.retrieved_count}</strong></td></tr>
+       </table>
+       ${srcs ? `<div class="ai-dbg-h">Retrieved sources</div><ul class="scroll-cap">${srcs}</ul>` : ''}
+       <div class="ai-dbg-h">Assembled system prompt (${resp.system_prompt_chars} chars) — verbatim, this is what the model receives</div>
+       <pre class="ai-dbg-pre scroll-cap-lg">${escHtml(resp.system_prompt || '')}</pre>
+       <div class="ai-dbg-h">Your message</div>
+       <pre class="ai-dbg-pre scroll-cap">${escHtml(resp.user_message || '')}</pre>
+     </div>`;
+  body.dataset.rawText = resp.system_prompt || '';
+  document.getElementById('ai-modal-copy').disabled = false;
 }
 
 async function loadAIPage() {

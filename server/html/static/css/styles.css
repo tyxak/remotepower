@@ -2527,7 +2527,7 @@ input.form-input[type="text"][data-token],
 .isl-756 { flex: 1; min-width: 0; }
 .isl-757 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .isl-758 { margin-bottom: 10px; }
-.isl-759 { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 16px; cursor: pointer; }
+.isl-759 { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 16px; cursor: pointer; }
 /* isl-760: danger-toned clear button */
 .isl-760 { color: var(--red) !important; border-color: rgba(239,68,68,0.35) !important; }
 .isl-760:hover { background: rgba(239,68,68,0.08) !important; }
@@ -3922,6 +3922,17 @@ body.no-anim * { transition: none !important; }
 /* Unified with .click-row / .click-row-mb6 so every checkbox→label gap is 8px
    (checkmarks line up consistently across Settings). */
 .click-row-6 { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+/* Consistency sweep: a checkbox/radio in a BARE <label> (no click-row/form-label
+   class — e.g. day-of-week toggles, "All day", "Show Homelab…") only had the ~4px
+   HTML text-space between the box and its text, so it read tighter than every
+   .click-row (8px). Give the box the same 8px trailing gap so EVERY checkbox→label
+   spacing matches. Classed/flex-gap labels are unaffected (they own their gap). */
+label:not([class]) > input[type="checkbox"],
+label:not([class]) > input[type="radio"] { margin-right: 8px; }
+/* `label.form-row` (3 DMARC IMAP toggles) had no rule at all → the checkbox and
+   its text collapsed to the ~4px text-space. Make it the same 8px flex row as
+   .click-row. Only labels — the `div.form-row` uses are untouched. */
+label.form-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 /* A `.form-label` is a 12px uppercase eyebrow caption meant to sit ABOVE an
    input. Several Settings toggles reused it as the label NEXT TO a checkbox,
    which rendered them as tiny uppercase block text (and broke the inline
@@ -4134,7 +4145,7 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
   .isl-134, .isl-136, .isl-139, .isl-142 { grid-template-columns: 1fr; }
 }
 .isl-143 { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
-.isl-144 { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px }
+.isl-144 { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:8px }
 .isl-145 { max-height:500px; min-height:300px; font-size:12px; overflow-y:auto; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px }
 .isl-146 { padding:18px }
 .isl-147 { margin:24px 0 12px; display:flex; justify-content:space-between; align-items:center }
@@ -4794,8 +4805,25 @@ tr.row-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 /* v4.10.0: AI Insights hub — one-click report/advisor cards. */
 .ai-insight-cat { margin: 14px 0 6px; }
 .ai-insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 0 0 10px; }
-.ai-insight-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; color: inherit; }
+.ai-insight-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; color: inherit; width: 100%; }
 .ai-insight-card:hover { border-color: var(--accent); }
+/* v5.6.0: each card + its small "debug" companion button (top-right corner). */
+.ai-insight-wrap { position: relative; display: flex; }
+.ai-insight-dbg { position: absolute; top: 5px; right: 5px; font-size: 10px; line-height: 1;
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg);
+  color: var(--muted); cursor: pointer; opacity: .5; }
+.ai-insight-wrap:hover .ai-insight-dbg { opacity: 1; }
+.ai-insight-dbg:hover { border-color: var(--accent); color: var(--accent); }
+/* Debug panel (what-was-sent) */
+.ai-dbg-note { padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
+.ai-dbg-ok { background: rgba(60,180,90,.10); border: 1px solid rgba(60,180,90,.35); }
+.ai-dbg-warn { background: rgba(210,150,40,.10); border: 1px solid rgba(210,150,40,.40); }
+.ai-dbg-tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }
+.ai-dbg-tbl td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.ai-dbg-tbl td:first-child { color: var(--muted); width: 55%; }
+.ai-dbg-h { font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
+.ai-dbg-pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
 .ai-insight-top { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
 .ai-insight-icon { color: var(--accent); flex-shrink: 0; }
 .ai-insight-label { font-size: 14px; font-weight: 600; }
