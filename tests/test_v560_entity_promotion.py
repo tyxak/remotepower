@@ -86,5 +86,41 @@ class TestColdToEntityMigrationV4(unittest.TestCase):
         self.assertEqual(storage.entity_get(avp, 'h2').get('rkhunter'), {'warnings': 2})
 
 
+class TestBackendsStayInLockstep(unittest.TestCase):
+    """storage_pg (Postgres) is the ONE backend `make test-both` never exercises
+    (it only runs JSON + SQLite). A cold->entity promotion that bumps SQLite's
+    SCHEMA_VERSION + adds a `_COLD_TO_ENTITY_Vn` tuple MUST also be applied to the
+    Postgres twin, or prod (Postgres) never splits the promoted files' cold blob —
+    load() then silently drops un-migrated devices once the first entity row is
+    written. This structural check fails the moment the two backends drift, with no
+    live database required. (v5.6.0: caught storage_pg missing the V4 migration.)"""
+
+    def test_pg_migrates_every_cold_tuple_sqlite_does(self):
+        import storage_pg  # noqa: E402
+        src = (storage.Path(__file__).resolve().parent.parent /
+               'server' / 'cgi-bin' / 'storage_pg.py').read_text()
+        # Every _COLD_TO_ENTITY_Vn tuple storage defines must be referenced by the
+        # Postgres init's migration gate (storage_pg imports them from storage).
+        tuples = [n for n in dir(storage) if n.startswith('_COLD_TO_ENTITY_V')]
+        self.assertTrue(tuples, "expected at least one _COLD_TO_ENTITY_Vn tuple")
+        for name in tuples:
+            self.assertIn(name, src,
+                          f"storage_pg does not migrate {name} — Postgres will not "
+                          f"split those files' cold blob (prod is Postgres!)")
+        # storage_pg keeps its OWN SCHEMA_VERSION numbering (offset from SQLite's),
+        # so we don't assert equality — only that every migration tuple is wired.
+        self.assertIsInstance(storage_pg.SCHEMA_VERSION, int)
+
+    def test_promoted_files_are_registered_entities(self):
+        # Every file named in any migration tuple must be in ENTITY_FILES, or the
+        # per-row read/write helpers won't route to the entity table.
+        for name in dir(storage):
+            if not name.startswith('_COLD_TO_ENTITY_V'):
+                continue
+            for f in getattr(storage, name):
+                self.assertIn(f, storage.ENTITY_FILES,
+                              f"{f} is migrated but not in ENTITY_FILES")
+
+
 if __name__ == '__main__':
     unittest.main()

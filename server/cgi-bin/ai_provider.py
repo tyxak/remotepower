@@ -136,9 +136,20 @@ def _peer_ip_blocked(ip_str, allow_loopback=False):
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
         return False
-    if ip.is_link_local or ip.is_unspecified:   # 169.254.169.254 metadata, 0.0.0.0
-        return True
+    # Unwrap IPv6 forms embedding an IPv4 and re-classify the inner v4 — else a
+    # v4 metadata/loopback target is smuggled past the v6 checks: v4-mapped
+    # (::ffff:a.b.c.d), 6to4 (2002::/16), NAT64 (64:ff9b::/96). Mirrors the
+    # shared api._ip_class_blocked (can't import api here — circular).
+    if isinstance(ip, ipaddress.IPv6Address):
+        inner = ip.ipv4_mapped or ip.sixtofour
+        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
+            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
+        if inner is not None:
+            ip = inner
     if str(ip) in _META_IPS:
+        return True
+    if (ip.is_link_local or ip.is_unspecified   # 169.254.169.254 metadata, 0.0.0.0
+            or ip.is_multicast or ip.is_reserved):
         return True
     return bool(ip.is_loopback) and not allow_loopback
 

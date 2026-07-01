@@ -5954,9 +5954,11 @@ def _handle_file_op(cmd):
             content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
                        if len(bits) > 3 else '')
             tmp = fs.with_name(fs.name + '.rp-tmp')
-            # O_EXCL|O_NOFOLLOW: never follow a pre-placed symlink at the tmp
-            # path and never clobber an existing file there (symlink-TOCTOU guard).
-            _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            # O_NOFOLLOW: never follow a pre-placed symlink at the tmp path
+            # (symlink-TOCTOU guard). O_TRUNC (not O_EXCL) so a stale .rp-tmp left
+            # by an earlier crashed write is overwritten rather than wedging every
+            # future write — matches the server's _write_json_atomic.
+            _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
             try:
                 os.write(_fd, content.encode('utf-8', 'replace'))
             finally:
