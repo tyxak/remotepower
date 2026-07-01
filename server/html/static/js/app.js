@@ -484,7 +484,10 @@ function tblPage(name, delta) { tableCtl.goPage(name, delta); }
 // ══════════════════════════════════════════════════════════════════════════════
 const densityCtl = (() => {
   function getDensity(name) {
-    return getTablePrefs(name).density || 'comfortable';
+    // v5.6.0: default the Devices grid to 'minimal' (dense one-row-per-device
+    // table) — the fastest read of a large fleet. Users can switch via the
+    // top-right density toggle; the choice persists per-user in ui_prefs.
+    return getTablePrefs(name).density || 'minimal';
   }
   function setDensity(name, value, onChange) {
     // v1.11.6: 'minimal' added as a 4th mode for the Devices grid (one
@@ -506,9 +509,9 @@ const densityCtl = (() => {
     // can find it. Slightly hacky, but avoids needing a UUID per control.
     window['__densityCb_' + name] = onChange;
     return `<div class="isl-308">
-      ${btn('minimal', '≡', 'Minimal — one device per line')}
+      ${btn('minimal', '≡', 'Minimal — one device per line (default)')}
       ${btn('compact', '▤', 'Compact — denser cards')}
-      ${btn('comfortable', '⊞', 'Comfortable — default')}
+      ${btn('comfortable', '⊞', 'Comfortable — larger cards')}
       ${btn('spacious', '⊟', 'Spacious — larger, roomier')}
     </div>`;
   }

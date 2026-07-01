@@ -243,6 +243,17 @@ def build_users() -> dict:
             'password_hash': demo_hash,
             'totp_secret':   '',
             'created_at':    now() - 86400 * 90,
+            'ui_prefs':      {'team': 'Infrastructure'},
+        },
+        # v5.4.0 — the Billing / invoices / worksheet pages are admin/finance
+        # only by design (viewers get a 403). So the demo ships a dedicated
+        # read-only 'finance' login (password 'demo') that CAN see billing —
+        # otherwise the newly-seeded billing data would be invisible to visitors.
+        'finance': {
+            'role': 'finance',
+            'password_hash': demo_hash,
+            'totp_secret':   '',
+            'created_at':    now() - 86400 * 60,
         },
     }
 
@@ -1316,8 +1327,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '4.7.0',
-        'agent_version':     '4.7.0',
+        'server_version':    '5.6.0',
+        'agent_version':     '5.6.0',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -1437,6 +1448,54 @@ def build_config() -> dict:
         'integrations':          _DEMO_INTEGRATIONS,
         'integration_notified':  {i['id']: True for i in _DEMO_INTEGRATIONS
                                   if _DEMO_INTEG_RESULTS[i['id']][0] != 'ok'},
+
+        # ── v5.1–v5.6 opt-in features — enabled so the demo shows them
+        # populated. The demo runs read-only (RP_READ_ONLY=1) so no mutation /
+        # execution actually happens regardless of these being on.
+
+        # v5.3.0 — built-in helpdesk. Mailbox ingest is OFF (no real IMAP in the
+        # demo) but the SLA policy + auto-reply are configured so the page is
+        # fully populated.
+        'tickets_enabled':       True,
+        'ticket_sla':            {'1': 1.0, '2': 4.0, '3': 24.0, '4': 72.0},
+        'ticket_imap': {
+            'enabled':    False,
+            'host':       'mail.acme-hosting.example',
+            'port':       993,
+            'username':   'support@acme-hosting.example',
+            'folder':     'INBOX',
+            'use_ssl':    True,
+            'verify_tls': True,
+            'interval':   300,
+        },
+        'ticket_autoreply': {
+            'enabled': True,
+            'subject': 'We received your request — [#{{number}}]',
+            'body':    'Thanks for contacting support. Your ticket #{{number}} is '
+                       'logged and a technician will follow up shortly.',
+        },
+
+        # v5.4.0 — Billing / time-tracking. The Billing page is admin/finance
+        # only by design; the demo ships a read-only 'finance' login so visitors
+        # can see it (see build_users). Time-logging on tickets + the weekly
+        # timesheet stay available to everyone regardless.
+        'billing_enabled':       True,
+
+        # v5.6.0 — Provisioning blueprint catalog. iac_execute shows the
+        # server-side Terraform plan/apply UI; harmless in the read-only demo
+        # (no terraform binary, no real cloud creds).
+        'show_provisioning':     True,
+        'iac_execute_enabled':   True,
+
+        # v5.6.0 — Knowledge base (also a RAG source).
+        'kb_enabled':            True,
+
+        # Host file manager — browse/read/edit host files from the device drawer
+        # under an allow-listed set of roots (command-perm gated, audited).
+        'file_manager': {
+            'enabled': True,
+            'roots':   ['/etc', '/var/log', '/opt', '/srv', '/home', '/usr/local'],
+        },
     }
 
 
@@ -3208,6 +3267,647 @@ def build_resolver_health_results() -> dict:
     return out
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# v5.1–v5.6 subsystems — seeded so the demo shows the newer opt-in features
+# populated instead of an empty "not configured" page: helpdesk tickets +
+# contacts, Knowledge Base, provisioning blueprints, billing / time-tracking,
+# WG Access, schedule, calendar, DMARC reports, alert tuning, custom app
+# catalog, scan schedules, SCAP. All reference the existing demo devices /
+# sites / users. Every enable flag lives in build_config().
+# ════════════════════════════════════════════════════════════════════════════
+
+def _demo_dev_names() -> dict:
+    """{device_id: display name} for the seeded fleet (denormalised into records)."""
+    return {did: d.get('name', did) for did, d in build_devices().items()}
+
+
+# ─── v5.3.0: Helpdesk tickets + contacts ─────────────────────────────────────
+
+def build_tickets() -> dict:
+    """Helpdesk tickets (viewer-visible). A realistic spread of incident/
+    request/change across priorities + lifecycle states, some linked to
+    devices, one parent with a sub-ticket, threaded messages."""
+    names = _demo_dev_names()
+
+    def _msg(author, body, direction='note', channel='web', hours_ago=0):
+        return {'ts': now() - 3600 * hours_ago, 'author': author, 'body': body,
+                'channel': channel, 'direction': direction}
+
+    def _tk(seq, subject, typ, status, prio, dev, group, assignee,
+            created_days, updated_hours, messages, **extra):
+        did = dev or ''
+        return {
+            'id': _stable_id('ticket', seq),
+            'number': 900000 + seq,
+            'subject': subject,
+            'type': typ,
+            'status': status,
+            'priority': prio,
+            'device_id': did,
+            'device_name': names.get(did, ''),
+            'alert_id': extra.get('alert_id', ''),
+            'alertid': extra.get('alertid', ''),
+            'to_email': extra.get('to_email', ''),
+            'affected_devices': ([did] if did else []) + extra.get('also', []),
+            'parent': extra.get('parent', ''),
+            'group': group,
+            'assignee': assignee,
+            'created_by': extra.get('created_by', 'alice'),
+            'created_at': now() - 86400 * created_days,
+            'updated_at': now() - 3600 * updated_hours,
+            'new_reply': extra.get('new_reply', False),
+            'messages': messages,
+        }
+
+    tickets = [
+        _tk(1, 'Nextcloud slow for external users', 'incident', 'ongoing', 2,
+            'nc01', 'Infrastructure', 'alice', 3, 5, [
+                _msg('email', 'Uploads to the shared folder time out from home.',
+                     'in', 'email', 72),
+                _msg('alice', 'Confirmed high php-fpm latency; checking the reverse proxy.',
+                     'note', 'web', 30),
+                _msg('alice', "We've raised the php-fpm worker count — please retry and let us know.",
+                     'out', 'email', 5),
+            ], to_email='ops@acme-hosting.example', created_by='email'),
+        _tk(2, 'Add a read-only VPN account for the auditor', 'request',
+            'pending_customer', 3, None, 'Sales', 'bob', 6, 20, [
+                _msg('bob', 'Auditor needs read-only reach to the Frankfurt DC subnet only.',
+                     'note'),
+                _msg('bob', 'Sent the WireGuard config + QR to the auditor; awaiting confirmation.',
+                     'out', 'email', 20),
+            ], to_email='auditor@client.example'),
+        _tk(3, 'Quarterly kernel + package maintenance window', 'change',
+            'pending_internal', 3, 'pmx01', 'Infrastructure', 'alice', 2, 8, [
+                _msg('alice', 'Change request: patch + reboot the Proxmox host during the '
+                     'Sun 02:00–04:00 window. Guests live-migrate first.', 'note'),
+                _msg('bob', 'Approved. Snapshot the critical guests before the reboot.',
+                     'note', 'web', 8),
+            ], also=['tnas']),
+        _tk(4, 'TrueNAS SMART warning on da3', 'incident', 'ongoing', 1,
+            'tnas', 'Infrastructure', 'alice', 1, 2, [
+                _msg('alice', 'da3 reporting reallocated sectors climbing. RMA the disk; '
+                     'pool is still redundant (raidz2).', 'note'),
+            ], new_reply=False),
+        _tk(5, 'Jellyfin transcoding stutters on 4K', 'incident', 'resolved', 3,
+            'jf01', 'Support', 'bob', 9, 96, [
+                _msg('email', '4K films buffer every few minutes on the living-room TV.',
+                     'in', 'email', 216),
+                _msg('bob', 'Enabled NVENC hardware transcoding + bumped the cache.',
+                     'out', 'email', 100),
+                _msg('email', 'Perfect now, thanks!', 'in', 'email', 96),
+            ], to_email='family@home.example', created_by='email'),
+        _tk(6, 'Onboard new marketing laptop', 'request', 'closed', 4, None,
+            'Sales', 'bob', 20, 300, [
+                _msg('bob', 'Imaged, enrolled the agent, joined the office Wi-Fi VLAN.',
+                     'note'),
+            ]),
+        # Parent change with a sub-ticket (child references parent id).
+        _tk(7, 'Migrate web tier to the London edge', 'change', 'ongoing', 2,
+            'ng01', 'Infrastructure', 'alice', 5, 12, [
+                _msg('alice', 'Umbrella change for the edge cutover. Sub-tasks track '
+                     'DNS, TLS and the reverse-proxy config.', 'note'),
+            ], also=['jf01', 'nc01']),
+        _tk(8, 'Cut over DNS + propagate for the edge move', 'change',
+            'pending_internal', 2, 'pi1', 'Infrastructure', 'alice', 4, 12, [
+                _msg('alice', 'Lower the TTLs 24h ahead, then flip the A/AAAA records.',
+                     'note'),
+            ], parent=_stable_id('ticket', 7)),
+    ]
+    return {'tickets': tickets, 'ticket_seq': len(tickets),
+            'imap_last_uid': 0, 'imap_last_fetch': 0}
+
+
+def build_contacts() -> dict:
+    """Internal contacts directory (viewer-visible; admin-mutate)."""
+    def _ct(seq, name, role, company, email, phone, notes, created_days):
+        return {'id': _stable_id('contact', seq), 'name': name, 'role': role,
+                'company': company, 'email': email, 'phone': phone, 'notes': notes,
+                'created_at': now() - 86400 * created_days,
+                'updated_at': now() - 86400 * max(0, created_days - 2)}
+    contacts = [
+        _ct(1, 'Mette Sørensen', 'Account manager', 'Acme Hosting ApS',
+            'mette@acme-hosting.example', '+45 20 12 34 56',
+            'Primary contact for the HQ-Copenhagen site. Escalate P1s here first.', 60),
+        _ct(2, 'Priya Nair', 'DC operations lead', 'FrankfurtColo GmbH',
+            'priya@fra-colo.example', '+49 69 1234 5678',
+            'Frankfurt remote-hands + smart-hands. 24/7 NOC line.', 45),
+        _ct(3, 'Tom Fletcher', 'ISP escalation', 'NorthLink Telecom',
+            'noc@northlink.example', '+44 20 7946 0000',
+            'Transit + BGP peering issues for the London edge.', 30),
+        _ct(4, 'Datera RMA desk', 'Hardware RMA', 'Datera Storage',
+            'rma@datera.example', '+31 20 555 0100',
+            'Disk / controller RMAs for the TrueNAS array.', 20),
+    ]
+    return {'contacts': contacts}
+
+
+# ─── v5.6.0: Knowledge base ──────────────────────────────────────────────────
+
+def build_kb() -> dict:
+    """Operator-authored KB articles (viewer-read; also a RAG source)."""
+    def _kb(seq, title, category, tags, body, pinned=False, linked=None,
+            author='alice', created_days=40):
+        return {'id': 'kb_' + _stable_hex('kb', seq, nbytes=3)[:5],
+                'title': title, 'category': category, 'tags': tags, 'body': body,
+                'pinned': pinned, 'linked_devices': linked or [], 'author': author,
+                'created_at': now() - 86400 * created_days,
+                'updated_at': now() - 86400 * max(0, created_days - 3)}
+    articles = [
+        _kb(1, 'Fleet onboarding checklist', 'SOPs/Onboarding',
+            ['onboarding', 'agent', 'checklist'],
+            '## New host onboarding\n\n1. Install the agent: run the one-liner from '
+            '**Settings → Install**.\n2. Approve the enrolment PIN.\n3. Assign a '
+            '**group** and **tags** (site, role).\n4. Set metric thresholds if it '
+            'differs from the group default.\n5. Add it to the right **drift profile**.\n',
+            pinned=True, created_days=50),
+        _kb(2, 'Proxmox host patch + reboot runbook', 'Runbooks/Virtualization',
+            ['proxmox', 'patching', 'maintenance'],
+            '## Patch window\n\n1. Snapshot critical guests.\n2. `qm migrate` HA guests '
+            'to another node (or shut them down cleanly).\n3. `apt update && apt '
+            'full-upgrade`.\n4. Reboot; confirm all guests auto-start.\n5. Verify the '
+            'Ceph/ZFS pool is healthy before clearing the maintenance window.\n',
+            linked=['pmx01'], created_days=35),
+        _kb(3, 'TrueNAS disk RMA procedure', 'Runbooks/Storage',
+            ['truenas', 'zfs', 'disk', 'rma'],
+            '## Replacing a failed disk\n\n1. Identify the disk: **Storage → Disks** '
+            '(match the serial from the SMART alert).\n2. Offline it: `zpool offline '
+            'tank <disk>`.\n3. Physically swap, then `zpool replace tank <old> <new>`.\n'
+            '4. Watch resilver to 100%.\n5. File the RMA with the Datera RMA desk.\n',
+            linked=['tnas'], created_days=25),
+        _kb(4, 'Incident severity + SLA matrix', 'SOPs/Support',
+            ['sla', 'incident', 'priority'],
+            '## Priorities\n\n| Priority | Example | First response |\n|---|---|---|\n'
+            '| P1 | Site/service down | 1 hour |\n| P2 | Degraded, workaround exists | '
+            '4 hours |\n| P3 | Minor / single user | 1 business day |\n| P4 | Request / '
+            'cosmetic | 3 business days |\n', pinned=True, created_days=48),
+        _kb(5, 'Restoring from an encrypted backup', 'Runbooks/Backup',
+            ['backup', 'restore', 'dr'],
+            '## Disaster recovery\n\n1. Fetch the latest `remotepower_data_*.tar.gz.enc` '
+            'from off-host storage.\n2. Decrypt with the passphrase from the vault '
+            '(`RP_BACKUP_PASSPHRASE`).\n3. Stop the server, restore the data dir, '
+            '`systemctl start`.\n4. Run **restore-verify** and confirm device count + '
+            'last-seen look right.\n', author='bob', created_days=18),
+    ]
+    return {'articles': articles}
+
+
+# ─── v5.6.0: Provisioning blueprints ─────────────────────────────────────────
+
+def build_blueprints() -> dict:
+    """Provisioning blueprint catalog (terraform / cloud-init / ansible / ipxe)."""
+    def _bp(seq, name, folder, kind, content, variables, created_days=30,
+            author='alice'):
+        return {'id': _stable_id('blueprint', seq), 'name': name, 'folder': folder,
+                'kind': kind, 'content': content, 'variables': variables,
+                'created': now() - 86400 * created_days,
+                'updated': now() - 86400 * max(0, created_days - 4),
+                'created_by': author}
+    blueprints = [
+        _bp(1, 'Proxmox LXC — Debian base', 'Infra/Proxmox', 'terraform',
+            'variable "hostname" { default = "ct-new" }\n'
+            'variable "cores"    { default = 2 }\n'
+            'resource "proxmox_lxc" "ct" {\n'
+            '  hostname    = var.hostname\n'
+            '  ostemplate  = "local:vztmpl/debian-12-standard_amd64.tar.zst"\n'
+            '  cores       = var.cores\n'
+            '  memory      = 2048\n'
+            '  rootfs { storage = "local-lvm"  size = "16G" }\n'
+            '  network { name = "eth0"  bridge = "vmbr0"  ip = "dhcp" }\n}\n',
+            [{'name': 'hostname', 'label': 'Container hostname', 'default': 'ct-new',
+              'secret': False},
+             {'name': 'cores', 'label': 'vCPU cores', 'default': '2', 'secret': False}],
+            created_days=40),
+        _bp(2, 'Cloud-init — enrol RemotePower agent', 'Onboarding', 'cloud-init',
+            '#cloud-config\n'
+            'package_update: true\n'
+            'packages: [curl, ca-certificates]\n'
+            'runcmd:\n'
+            '  - curl -fsSL ${rp_server_url}/install | sh -s -- agent \\\n'
+            '      --server ${rp_server_url} --name ${rp_device_name}\n',
+            [{'name': 'rp_device_name', 'label': 'Device name', 'default': '',
+              'secret': False}], created_days=32),
+        _bp(3, 'Ansible — baseline hardening', 'Config/Ansible', 'ansible',
+            '---\n- hosts: all\n  become: true\n  vars:\n'
+            '    ssh_port: ${ssh_port}\n  tasks:\n'
+            '    - name: Install fail2ban + unattended-upgrades\n'
+            '      apt: { name: [fail2ban, unattended-upgrades], state: present }\n'
+            '    - name: Harden sshd (no root, key-only)\n'
+            '      lineinfile:\n        path: /etc/ssh/sshd_config\n'
+            '        regexp: "^#?PermitRootLogin"\n        line: "PermitRootLogin no"\n',
+            [{'name': 'ssh_port', 'label': 'SSH port', 'default': '22',
+              'secret': False}], created_days=28),
+        _bp(4, 'iPXE — netboot Debian installer', 'Infra/Netboot', 'ipxe',
+            '#!ipxe\n'
+            'set base http://${rp_server_host}/netboot/debian\n'
+            'kernel ${base}/linux\n'
+            'initrd ${base}/initrd.gz\n'
+            'imgargs linux auto=true priority=critical\n'
+            'boot\n',
+            [], created_days=22),
+        _bp(5, 'Terraform — Cloudflare DNS record', 'Infra/DNS', 'terraform',
+            'variable "record"  { default = "app" }\n'
+            'variable "cf_token" { default = "" }\n'
+            'provider "cloudflare" { api_token = var.cf_token }\n'
+            'resource "cloudflare_record" "r" {\n'
+            '  zone_id = data.cloudflare_zone.z.id\n'
+            '  name    = var.record\n  type = "A"\n  value = "203.0.113.10"\n'
+            '  proxied = true\n}\n',
+            [{'name': 'record', 'label': 'Record name', 'default': 'app',
+              'secret': False},
+             {'name': 'cf_token', 'label': 'Cloudflare API token', 'default': '',
+              'secret': True}], created_days=15),
+    ]
+    return {'blueprints': blueprints}
+
+
+# ─── v5.4.0: Billing / time-tracking ─────────────────────────────────────────
+
+def build_time_entries() -> dict:
+    """Time ledger — billable (customer) + internal hours across the team."""
+    names = _demo_dev_names()
+    inv1 = _stable_id('invoice', 1)     # entries locked into the 'paid' invoice
+
+    def _te(seq, days_ago, user, hours, billable, site, dev='', ticket_seq=None,
+            category='', rate_name='', note='', locked=False, invoice_id=''):
+        return {
+            'id': _stable_id('timeentry', seq),
+            'number': seq,
+            'date': _iso_in_days(-days_ago),
+            'user': user,
+            'hours': hours,
+            'billable': billable,
+            'site_id': site if billable else '',
+            'device_id': dev,
+            'device_name': names.get(dev, ''),
+            'tag': '',
+            'ticket_id': _stable_id('ticket', ticket_seq) if ticket_seq else '',
+            'ticket_number': str(900000 + ticket_seq) if ticket_seq else '',
+            'category': category if not billable else '',
+            'rate_name': rate_name,
+            'note': note,
+            'invoice_id': invoice_id,
+            'locked': locked,
+            'created_at': now() - 86400 * days_ago,
+            'updated_at': now() - 86400 * days_ago,
+        }
+    entries = [
+        # Locked into the paid invoice (last month, HQ).
+        _te(1, 34, 'alice', 3.0, True, SITE_HQ, 'nc01', 1, rate_name='Standard',
+            note='Investigated + fixed Nextcloud reverse-proxy latency', locked=True,
+            invoice_id=inv1),
+        _te(2, 33, 'bob', 2.5, True, SITE_HQ, 'pi1', rate_name='Standard',
+            note='DNS TTL lowering ahead of the edge cutover', locked=True,
+            invoice_id=inv1),
+        _te(3, 32, 'alice', 4.0, True, SITE_HQ, 'pmx01', 3, rate_name='After-hours',
+            note='Out-of-hours patch window on the Proxmox host', locked=True,
+            invoice_id=inv1),
+        # This month — open, billable.
+        _te(4, 9, 'alice', 2.0, True, SITE_DC, 'tnas', 4, rate_name='Standard',
+            note='TrueNAS SMART triage + RMA paperwork'),
+        _te(5, 7, 'bob', 5.0, True, SITE_EDGE, 'ng01', 7, rate_name='Project',
+            note='Edge migration — reverse-proxy + TLS config'),
+        _te(6, 5, 'bob', 3.0, True, SITE_EDGE, 'jf01', 5, rate_name='Standard',
+            note='Jellyfin NVENC transcoding fix'),
+        _te(7, 3, 'alice', 1.5, True, SITE_DC, 'pmx01', rate_name='Standard',
+            note='Guest live-migration + snapshot verification'),
+        _te(8, 2, 'bob', 4.0, True, SITE_EDGE, 'nc01', 7, rate_name='Project',
+            note='Edge cutover rehearsal'),
+        # Internal / non-billable.
+        _te(9, 8, 'alice', 2.0, False, '', category='meeting',
+            note='Weekly ops sync + capacity planning'),
+        _te(10, 6, 'bob', 1.0, False, '', category='education',
+            note='WireGuard hardening reading'),
+        _te(11, 4, 'alice', 1.5, False, '', category='internal',
+            note='Demo environment upkeep'),
+        _te(12, 1, 'bob', 0.5, False, '', category='admin',
+            note='Timesheet + invoice review'),
+    ]
+    return {'entries': entries, 'seq': len(entries)}
+
+
+def build_billing() -> dict:
+    """Rate card + per-site billing config (currency, VAT, recurring fees)."""
+    return {
+        'currency': 'EUR',
+        'default_rate': 110.0,
+        'default_vat': 25.0,                    # Danish VAT
+        'invoice_prefix': 'INV-',
+        'rate_card': [
+            {'name': 'Standard',    'rate': 110.0},
+            {'name': 'After-hours', 'rate': 165.0},
+            {'name': 'Project',     'rate': 130.0},
+        ],
+        'sites': {
+            SITE_HQ: {
+                'default_rate': 110.0, 'vat': 25.0,
+                'billing_contact': 'mette@acme-hosting.example',
+                'billing_address': 'Acme Hosting ApS\nRådhuspladsen 1\n1550 København',
+                'recurring': [
+                    {'id': _stable_id('fee', 1), 'label': 'Managed-fleet retainer',
+                     'kind': 'service', 'amount': 750.0, 'qty': 1.0,
+                     'cadence': 'monthly', 'active': True},
+                    {'id': _stable_id('fee', 2), 'label': 'Backup storage (per TB)',
+                     'kind': 'operation', 'amount': 12.0, 'qty': 8.0,
+                     'cadence': 'monthly', 'active': True},
+                ],
+            },
+            SITE_DC: {
+                'default_rate': 120.0, 'vat': 19.0,     # German VAT
+                'billing_contact': 'priya@fra-colo.example',
+                'billing_address': 'FrankfurtColo GmbH\nKleyerstraße 90\n60326 Frankfurt',
+                'recurring': [
+                    {'id': _stable_id('fee', 3), 'label': 'Rack + power (½ rack)',
+                     'kind': 'service', 'amount': 480.0, 'qty': 1.0,
+                     'cadence': 'monthly', 'active': True},
+                ],
+            },
+            SITE_EDGE: {
+                'default_rate': 130.0, 'vat': 20.0,     # UK VAT
+                'billing_contact': 'noc@northlink.example',
+                'billing_address': 'Edge - London\n10 Techspace\nEC2A 4NE London',
+                'recurring': [
+                    {'id': _stable_id('fee', 4), 'label': 'Managed transit',
+                     'kind': 'license', 'amount': 220.0, 'qty': 1.0,
+                     'cadence': 'monthly', 'active': True},
+                ],
+            },
+        },
+    }
+
+
+def build_invoices() -> dict:
+    """Issued invoices across the draft → sent → paid lifecycle."""
+    def _li(kind, label, qty, unit):
+        return {'kind': kind, 'label': label, 'qty': qty, 'unit': unit,
+                'amount': round(qty * unit, 2)}
+
+    def _inv(seq, site, status, vat, line_items, from_days, to_days,
+             issued_days, snapshot_ids=None, notes=''):
+        subtotal = round(sum(li['amount'] for li in line_items), 2)
+        vat_amount = round(subtotal * vat / 100, 2)
+        return {
+            'id': _stable_id('invoice', seq),
+            'number': f'INV-{seq:05d}',
+            'site_id': site,
+            'period': {'from': _iso_in_days(-from_days), 'to': _iso_in_days(-to_days)},
+            'status': status,
+            'currency': 'EUR',
+            'vat_rate': vat,
+            'line_items': line_items,
+            'snapshot_entry_ids': snapshot_ids or [],
+            'subtotal': subtotal,
+            'vat_amount': vat_amount,
+            'total': round(subtotal + vat_amount, 2),
+            'issued_at': now() - 86400 * issued_days,
+            'created_by': 'alice',
+            'notes': notes,
+        }
+    invoices = [
+        # Paid — last month's HQ work (the three locked time entries + retainer).
+        _inv(1, SITE_HQ, 'paid', 25.0, [
+            _li('hours', 'Billable hours — Standard', 5.5, 110.0),
+            _li('hours', 'Billable hours — After-hours', 4.0, 165.0),
+            _li('service', 'Managed-fleet retainer', 1.0, 750.0),
+            _li('operation', 'Backup storage (per TB)', 8.0, 12.0),
+        ], from_days=61, to_days=32, issued_days=30, notes='Paid via bank transfer.',
+            snapshot_ids=[_stable_id('timeentry', 1), _stable_id('timeentry', 2),
+                          _stable_id('timeentry', 3)]),
+        # Sent — Frankfurt DC, awaiting payment.
+        _inv(2, SITE_DC, 'sent', 19.0, [
+            _li('hours', 'Billable hours — Standard', 3.5, 120.0),
+            _li('service', 'Rack + power (½ rack)', 1.0, 480.0),
+        ], from_days=30, to_days=1, issued_days=3),
+        # Draft — London edge migration in progress.
+        _inv(3, SITE_EDGE, 'draft', 20.0, [
+            _li('hours', 'Billable hours — Project', 9.0, 130.0),
+            _li('hours', 'Billable hours — Standard', 3.0, 130.0),
+            _li('license', 'Managed transit', 1.0, 220.0),
+        ], from_days=14, to_days=0, issued_days=0, notes='Draft — edge cutover ongoing.'),
+    ]
+    return {'invoices': invoices, 'invoice_seq': len(invoices)}
+
+
+def build_timesheet_watch() -> dict:
+    """Timesheet visibility grants (a lead who can view a teammate's hours)."""
+    return {'grants': [
+        {'id': _stable_id('tswatch', 1), 'watcher': 'bob', 'scope': 'user',
+         'value': 'alice', 'created': now() - 86400 * 40, 'created_by': 'alice'},
+    ]}
+
+
+# ─── v5.2.0: WG Access (WireGuard road-warrior VPN) ──────────────────────────
+
+def build_vpn() -> dict:
+    """WG Access tunnels + clients (Admin → WG Access)."""
+    hub = 'demoremote.tvipper.com'
+    t1 = {
+        'id': _stable_id('wgtunnel', 1), 'name': 'Staff — full tunnel',
+        'iface': 'rpwg0', 'listen_port': 51820, 'pool': '10.7.0.0/24',
+        'endpoint': f'{hub}:51820', 'dns': '10.0.0.2',
+        'hub_pubkey': _stable_id('wgpub', 'hub1', length=43) + '=',
+        'allow_internet': True, 'reach_scope_type': 'all', 'reach_scope_value': '',
+        'enabled': True, 'expires_at': None, 'created_by': 'alice',
+        'created_at': now() - 86400 * 40,
+        'clients': [
+            {'id': _stable_id('wgclient', 1), 'name': 'alice-laptop',
+             'pubkey': _stable_id('wgpub', 'c1', length=43) + '=',
+             'address': '10.7.0.2/32', 'enabled': True, 'expires_at': None,
+             'created_by': 'alice', 'created_at': now() - 86400 * 38,
+             'last_handshake': now() - 340, 'rx_bytes': 184_320_512,
+             'tx_bytes': 42_115_003, 'endpoint': '203.0.113.44:51012'},
+            {'id': _stable_id('wgclient', 2), 'name': 'bob-phone',
+             'pubkey': _stable_id('wgpub', 'c2', length=43) + '=',
+             'address': '10.7.0.3/32', 'enabled': True, 'expires_at': None,
+             'created_by': 'bob', 'created_at': now() - 86400 * 30,
+             'last_handshake': now() - 7200, 'rx_bytes': 9_115_002,
+             'tx_bytes': 3_004_881, 'endpoint': '198.51.100.7:44210'},
+        ],
+    }
+    t2 = {
+        'id': _stable_id('wgtunnel', 2), 'name': 'Auditor — Frankfurt DC only',
+        'iface': 'rpwg1', 'listen_port': 51821, 'pool': '10.7.1.0/24',
+        'endpoint': f'{hub}:51821', 'dns': '',
+        'hub_pubkey': _stable_id('wgpub', 'hub2', length=43) + '=',
+        'allow_internet': False, 'reach_scope_type': 'site',
+        'reach_scope_value': SITE_DC, 'enabled': True,
+        'expires_at': now() + 86400 * 14, 'created_by': 'bob',
+        'created_at': now() - 86400 * 6,
+        'clients': [
+            {'id': _stable_id('wgclient', 3), 'name': 'auditor-laptop',
+             'pubkey': _stable_id('wgpub', 'c3', length=43) + '=',
+             'address': '10.7.1.2/32', 'enabled': True,
+             'expires_at': now() + 86400 * 14, 'created_by': 'bob',
+             'created_at': now() - 86400 * 6, 'last_handshake': 0,
+             'rx_bytes': 0, 'tx_bytes': 0, 'endpoint': ''},
+        ],
+    }
+    return {'tunnels': [t1, t2]}
+
+
+# ─── Scheduled jobs / maintenance calendar ───────────────────────────────────
+
+def build_schedule() -> dict:
+    """Scheduled power/patch actions (Schedule page)."""
+    names = _demo_dev_names()
+
+    def _job(seq, dev, command, run_at=None, cron=None, actor='alice'):
+        return {'id': _stable_hex('schedjob', seq), 'device_id': dev,
+                'device_name': names.get(dev, ''), 'command': command,
+                'run_at': run_at, 'cron': cron, 'actor': actor,
+                'created': now() - 86400 * 12, 'recurring': cron is not None}
+    jobs = [
+        _job(1, 'pmx01', 'upgrade_packages', cron='0 3 * * 0'),      # Sun 03:00
+        _job(2, 'tnas', 'reboot', run_at=now() + 86400 * 3 + 3600),  # one-shot
+        _job(3, 'ng01', 'upgrade_packages', cron='30 2 * * 1'),      # Mon 02:30
+        _job(4, 'jf01', 'reboot', cron='0 5 1 * *', actor='bob'),    # 1st of month
+    ]
+    return {'jobs': jobs}
+
+
+def build_calendar() -> dict:
+    """Maintenance / events calendar."""
+    def _ev(seq, title, desc, start_days, dur_hours, color, recur='none',
+            all_day=False, author='alice'):
+        start = datetime.datetime.now() + datetime.timedelta(days=start_days)
+        end = start + datetime.timedelta(hours=dur_hours)
+        return {'id': _stable_hex('calevt', seq), 'title': title,
+                'description': desc, 'start': start.replace(microsecond=0).isoformat(),
+                'end': end.replace(microsecond=0).isoformat(), 'all_day': all_day,
+                'color': color, 'recur': recur, 'created_by': author,
+                'created_at': now() - 86400 * 10}
+    events = [
+        _ev(1, 'Proxmox patch window', 'Patch + reboot pmx01; guests migrate first.',
+            3, 2, 'red'),
+        _ev(2, 'Edge cutover — London', 'DNS flip + reverse-proxy move to ng01.',
+            5, 4, 'blue', author='bob'),
+        _ev(3, 'Quarterly DR restore test', 'Restore-verify from the latest encrypted backup.',
+            14, 3, 'green'),
+        _ev(4, 'Certificate renewals due', 'ACME renew sweep for public endpoints.',
+            21, 0, 'orange', all_day=True),
+        _ev(5, 'Monthly maintenance', 'Rolling reboots + firmware review.',
+            30, 6, 'purple', recur='monthly'),
+    ]
+    return {'events': events}
+
+
+# ─── DMARC aggregate reports (targets/results already seeded) ────────────────
+
+def build_dmarc_reports() -> dict:
+    """Ingested DMARC RUA aggregate reports + per-source pass/fail rollup."""
+    reports = [
+        {'org_name': 'google.com', 'domain': 'acme-hosting.example',
+         'report_id': _stable_hex('dmarc', 'g1'), 'policy': 'quarantine',
+         'date_begin': now() - 86400 * 2, 'date_end': now() - 86400,
+         'summary': {'pass': 1284, 'fail': 12}, 'received_at': now() - 86400},
+        {'org_name': 'Microsoft Corporation', 'domain': 'acme-hosting.example',
+         'report_id': _stable_hex('dmarc', 'm1'), 'policy': 'quarantine',
+         'date_begin': now() - 86400 * 3, 'date_end': now() - 86400 * 2,
+         'summary': {'pass': 642, 'fail': 3}, 'received_at': now() - 86400 * 2},
+        {'org_name': 'Yahoo', 'domain': 'acme-hosting.example',
+         'report_id': _stable_hex('dmarc', 'y1'), 'policy': 'none',
+         'date_begin': now() - 86400 * 4, 'date_end': now() - 86400 * 3,
+         'summary': {'pass': 96, 'fail': 1}, 'received_at': now() - 86400 * 3},
+    ]
+    sources = {
+        '203.0.113.10': {'pass': 1980, 'fail': 0,
+                         'domains': ['acme-hosting.example'], 'last_seen': now() - 86400},
+        '198.51.100.25': {'pass': 42, 'fail': 15,
+                          'domains': ['acme-hosting.example'], 'last_seen': now() - 86400 * 2},
+    }
+    return {'reports': reports, 'sources': sources,
+            'mailbox': {'checked_at': now() - 3600, 'error': '', 'messages': 3,
+                        'unseen': 0},
+            'last_uid': 128, 'last_fetch': now() - 3600, 'updated': now() - 3600}
+
+
+# ─── v5.6.0: Alert mutes (Monitoring → Tuning) ───────────────────────────────
+
+def build_alert_mutes() -> dict:
+    """Per-(device,event) alert mutes shown on the Tuning page."""
+    names = _demo_dev_names()
+
+    def _mute(seq, dev, event, days_ago, actor='alice'):
+        return {'id': _stable_id('mute', seq), 'device_id': dev,
+                'device_name': names.get(dev, ''), 'event': event,
+                'created': now() - 86400 * days_ago, 'created_by': actor}
+    return {'mutes': [
+        _mute(1, 'jf01', 'container_stopped', 6),      # known-noisy transcoder restarts
+        _mute(2, 'ap02', 'device_offline', 3, 'bob'),  # AP on a switched-off timer
+    ]}
+
+
+# ─── v5.1.0: Custom app-catalog templates ────────────────────────────────────
+
+def build_app_catalog_custom() -> dict:
+    """Operator-added compose templates alongside the built-in catalog."""
+    def _app(slug, name, category, desc, port, yaml):
+        return {'id': slug, 'name': name, 'category': category,
+                'description': desc, 'port': port, 'yaml': yaml}
+    return {
+        'uptime-kuma': _app('uptime-kuma', 'Uptime Kuma', 'Custom',
+            'Self-hosted status/uptime monitor.', 3001,
+            'services:\n  uptime-kuma:\n    image: louislam/uptime-kuma:1\n'
+            '    volumes: [uptime-kuma:/app/data]\n    ports: ["3001:3001"]\n'
+            '    restart: unless-stopped\nvolumes:\n  uptime-kuma:\n'),
+        'linkding': _app('linkding', 'Linkding', 'Custom',
+            'Minimal self-hosted bookmark manager.', 9090,
+            'services:\n  linkding:\n    image: sissbruecker/linkding:latest\n'
+            '    ports: ["9090:9090"]\n    volumes: [linkding:/etc/linkding/data]\n'
+            '    restart: unless-stopped\nvolumes:\n  linkding:\n'),
+    }
+
+
+# ─── Scheduled security scans ────────────────────────────────────────────────
+
+def build_scan_schedules() -> dict:
+    """Recurring security-scan schedules (Scans view)."""
+    names = _demo_dev_names()
+
+    def _sch(seq, name, dev, tool, profile, intensity, cron, last_days, next_days):
+        return {'id': _stable_hex('scansched', seq), 'name': name, 'device_id': dev,
+                'device_name': names.get(dev, ''),
+                'scan_target_id': _stable_id('scantarget', dev),
+                'tool': tool, 'profile': profile, 'intensity': intensity,
+                'satellite_id': '', 'cron': cron, 'enabled': True,
+                'created': now() - 86400 * 30, 'actor': 'alice',
+                'last_run': now() - 86400 * last_days, 'next_run': now() + 86400 * next_days}
+    return {
+        _stable_hex('scansched', 1): _sch(1, 'Weekly edge web scan', 'ng01',
+            'nuclei', 'active', 'balanced', '0 4 * * 1', 3, 4),
+        _stable_hex('scansched', 2): _sch(2, 'Monthly perimeter nmap', 'fw01',
+            'nmap', 'host', 'thorough', '0 2 1 * *', 12, 18),
+    }
+
+
+# ─── OpenSCAP compliance (per-host detail; history already seeded) ───────────
+
+def build_scap() -> dict:
+    """Per-device OpenSCAP results backing the Compliance page detail cards."""
+    def _rec(dev, profile, score, npass, nfail, failed, days_ago=2):
+        return {'ts': now() - 86400 * days_ago, 'profile': profile, 'available': True,
+                'reason': '', 'datastream': 'ssg-debian12-ds.xml',
+                'available_profiles': ['cis', 'standard', 'pci-dss'],
+                'score': score, 'counts': {'pass': npass, 'fail': nfail},
+                'pass': npass, 'fail': nfail, 'failed_rules': failed,
+                'has_report': True, 'report_ts': now() - 86400 * days_ago,
+                'report_bytes': 148_221}
+    return {
+        'ng01': _rec('ng01', 'cis', 82.4, 176, 38, [
+            {'id': 'xccdf_org.ssgproject.content_rule_sshd_disable_root_login',
+             'severity': 'high'},
+            {'id': 'xccdf_org.ssgproject.content_rule_package_aide_installed',
+             'severity': 'medium'}]),
+        'pmx01': _rec('pmx01', 'standard', 91.0, 203, 20, [
+            {'id': 'xccdf_org.ssgproject.content_rule_audit_rules_time_adjtimex',
+             'severity': 'low'}], days_ago=5),
+        'nc01': _rec('nc01', 'cis', 76.9, 165, 49, [
+            {'id': 'xccdf_org.ssgproject.content_rule_mount_option_tmp_nodev',
+             'severity': 'medium'},
+            {'id': 'xccdf_org.ssgproject.content_rule_firewalld_sshd_port_enabled',
+             'severity': 'high'}], days_ago=1),
+    }
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -3298,6 +3998,24 @@ BUILDERS = {
     'cmd_library.json':            build_cmd_library,
     'ai_usage.json':               build_ai_usage,
     'rollouts.json':               build_rollouts,
+    # v5.1–v5.6 opt-in subsystems (enabled in build_config so the demo shows
+    # them populated instead of an empty "not configured" page).
+    'tickets.json':                build_tickets,
+    'contacts.json':               build_contacts,
+    'kb.json':                     build_kb,
+    'blueprints.json':             build_blueprints,
+    'time_entries.json':           build_time_entries,
+    'billing.json':                build_billing,
+    'invoices.json':               build_invoices,
+    'timesheet_watch.json':        build_timesheet_watch,
+    'vpn.json':                    build_vpn,
+    'schedule.json':               build_schedule,
+    'calendar.json':               build_calendar,
+    'dmarc_reports.json':          build_dmarc_reports,
+    'alert_mutes.json':            build_alert_mutes,
+    'app_catalog_custom.json':     build_app_catalog_custom,
+    'scan_schedules.json':         build_scan_schedules,
+    'scap.json':                   build_scap,
 }
 
 
