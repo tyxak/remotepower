@@ -93,7 +93,7 @@ the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-di
 PIN, like pairing a console controller.
 
 Deliberately small and **readable**: nginx + Python CGI + flat JSON files — around
-**~67,000 lines** of server Python, one HTML file, one CSS file and a handful of
+**~77,000 lines** of server Python, one HTML file, one CSS file and a handful of
 vanilla JS files. No external database, no Node.js, no Redis, no Kubernetes,
 **no build step, no bundler, no framework** — you can read every line. The whole
 `/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs
@@ -155,16 +155,16 @@ One tool instead of six — the ten things it does best:
 
 | | |
 |---|---|
-| **Monitor everything** | Live 60-second metrics, a CheckMK-style per-host **Checks** page, active monitors (HTTP / DNS / ICMP / TCP + credential-less DB liveness), and a composable dashboard. Every fired event lands in an **Alerts inbox** with acknowledge / auto-resolve. |
+| **Monitor everything** | Live 60-second metrics, a CheckMK-style per-host **Checks** page, active monitors (HTTP / DNS / ICMP / TCP + credential-less DB liveness), and a composable dashboard. Every fired event lands in an **Alerts inbox** with acknowledge / auto-resolve / **per-alert mute** and a **Tuning** page that surfaces the noisiest alerts. |
 | **See every signal** | SMART & hardware health, **GPU** (NVIDIA + AMD, trend sparklines + thermal alerts), power / UPS, disk-fill **forecasting**, a per-host **timeline**, and logs with regex search — telemetry the agent already reports, surfaced as first-class views. |
-| **Manage remotely** | Shell, multi-line scripts with dry-run lint, batch & scheduled runs, a real **browser SSH terminal** and **VNC** over the same tunnel, an opt-in **agent file manager** (browse / view / edit host files, no SSH), **cron & systemd-timer** management, **Proxmox** VM / LXC create, and host user / key / firewall edits — all with **zero inbound ports**. |
+| **Manage remotely** | Shell, multi-line scripts with dry-run lint, batch & scheduled runs, a real **browser SSH terminal** and **VNC** over the same tunnel, an opt-in **agent file manager** (browse / view / edit host files, no SSH), **cron & systemd-timer** management, **Proxmox** VM / LXC create plus **VMware & OpenShift** guest lifecycle (power / snapshots), and host user / key / firewall edits — all with **zero inbound ports**. |
 | **Lock it down** | Passkeys / WebAuthn, SAML / OIDC / LDAP, TOTP + recovery codes, per-role **MFA enforcement**, a **tamper-evident** (hash-chained) audit log, strict CSP, and SSRF-guarded outbound calls. |
 | **Scan for CVEs** | OSV.dev-backed, CVSS-scored, prioritized by CISA **KEV** + **EPSS** (exploited-in-the-wild first), with **SBOM** export (CycloneDX / SPDX, VEX-style vulnerabilities embedded). |
 | **Pentest what you own** | Authorized vulnerability scanning of your own hosts & domains — nuclei / nikto / nmap / **OWASP ZAP** / wapiti / lynis — on a hardened scanner satellite, authorization-gated and schedulable. |
-| **CMDB + RAG search** | Asset DB, **encrypted credentials vault**, Markdown docs per asset, network map — and an AI assistant whose **RAG** answers from *your* fleet and docs and cites the source (local or cloud model; off by default). |
+| **CMDB + RAG search** | Asset DB, **encrypted credentials vault**, Markdown docs per asset, a **Knowledge Base** of runbooks / SOPs, network map — and an AI assistant whose **RAG** answers from *your* fleet and docs and cites the source (local or cloud model; off by default). |
 | **Stay compliant** | **OpenSCAP** CIS / STIG / PCI scans with downloadable HTML reports, plus PCI / HIPAA / SOC 2 control mapping and scheduled posture reports. |
-| **Integrate** | 26 **homelab-app** health connectors (Pi-hole, TrueNAS, the *arr suite, …) plus a code-free **custom HTTP-probe** plugin to turn any endpoint into a signal, Prometheus / Grafana / Uptime-Kuma endpoints, inbound webhooks & syslog, and an **MCP server** so an AI client can query your fleet. |
-| **Deploy & automate** | An **app catalog** — one-click Docker Compose deploy of curated (or your own custom) self-contained apps to a host — auto-patch policies (cron, per group / tag / site, maintenance-aware), config-**drift** detection, ACME / Let's Encrypt, backup orchestration, and an **IaC generator** (Terraform / Ansible / Pulumi / …). |
+| **Integrate** | 28 **homelab-app** health connectors (Pi-hole, TrueNAS, the *arr suite, …) plus a code-free **custom HTTP-probe** plugin to turn any endpoint into a signal, Prometheus / Grafana / Uptime-Kuma endpoints, inbound webhooks & syslog, and an **MCP server** so an AI client can query your fleet. |
+| **Deploy & automate** | An **app catalog** — one-click Docker Compose deploy of curated (or your own custom) self-contained apps to a host — auto-patch policies (cron, per group / tag / site, maintenance-aware), config-**drift** detection, ACME / Let's Encrypt, backup orchestration, an **IaC generator** (Terraform / Ansible / Pulumi / …), and a **Provisioning** blueprint catalog that renders — or runs Terraform (Plan / Apply / Destroy) — server-side. |
 
 **Full feature inventory → [docs/features.md](docs/features.md).**
 
