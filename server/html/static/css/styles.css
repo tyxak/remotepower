@@ -4750,6 +4750,9 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
  * instead of growing unbounded. `-sm` for chip rows / short lists. */
 .scroll-cap    { max-height: 340px; overflow-y: auto; }
 .scroll-cap-sm { max-height: 132px; overflow-y: auto; }
+/* Taller cap for prose reading panels (KB article view, long doc bodies) — still
+   bounded so a huge article never grows the page unbounded, but readable. */
+.scroll-cap-lg { max-height: 62vh; overflow-y: auto; }
 
 /* v5.6.0: Provisioning blueprints folder tree */
 .bp-folder { display: flex; align-items: center; gap: 6px; font-size: 11px;

@@ -849,7 +849,7 @@ class TestT5Polish(unittest.TestCase):
     def test_u4_pending_commands_badge(self):
         # backend exposes commands_pending in nav-counts (admin only)
         i = API_SRC.index("def handle_nav_counts(")
-        block = API_SRC[i:i + 6000]
+        block = API_SRC[i:i + 8000]
         self.assertIn("out['commands_pending']", block)
         # CMDS_FILE added to the cache-invalidation sources so the badge is fresh
         self.assertIn("ALERTS_FILE, CONFIRMATIONS_FILE, CMDS_FILE", API_SRC)

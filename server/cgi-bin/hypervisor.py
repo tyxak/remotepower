@@ -59,10 +59,12 @@ POWER_ACTIONS = {
 # VMware vSphere / ESXi / vCenter  (vmware-api-session-id auth)
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def _vsphere_session(inst, c):
     """Authenticate to vCenter and return the session-id header dict."""
     basic = base64.b64encode(
-        f"{inst.get('username') or ''}:{inst.get('secret') or ''}".encode()).decode()
+        f"{inst.get('username') or ''}:{inst.get('secret') or ''}".encode()
+    ).decode()
     resp = c.request("POST", "/api/session", headers={"Authorization": "Basic " + basic})
     if not getattr(resp, "ok", False):
         raise IntegrationError(f"vCenter auth failed: HTTP {getattr(resp, 'status', '?')}")
@@ -83,14 +85,16 @@ def vsphere_list_vms(inst, c):
         if not isinstance(r, dict):
             continue
         try:
-            out.append({
-                "id": str(r.get("vm") or ""),
-                "name": str(r.get("name") or ""),
-                "status": _PS.get(str(r.get("power_state") or "").upper(), "unknown"),
-                "cpu": int(r.get("cpu_count") or 0),
-                "mem_mb": int(r.get("memory_size_MiB") or 0),
-                "host": str(r.get("host") or ""),
-            })
+            out.append(
+                {
+                    "id": str(r.get("vm") or ""),
+                    "name": str(r.get("name") or ""),
+                    "status": _PS.get(str(r.get("power_state") or "").upper(), "unknown"),
+                    "cpu": int(r.get("cpu_count") or 0),
+                    "mem_mb": int(r.get("memory_size_MiB") or 0),
+                    "host": str(r.get("host") or ""),
+                }
+            )
         except (TypeError, ValueError):
             continue
     return out
@@ -130,16 +134,20 @@ def vsphere_list_snapshots(inst, c, vm_id):
         data = c.get_json(f"/api/vcenter/vm/{vm}/snapshots", headers=hdr)
     except IntegrationError:
         return []
-    rows = data.get("value") or data.get("snapshots") or [] if isinstance(data, dict) else (data or [])
+    rows = (
+        data.get("value") or data.get("snapshots") or [] if isinstance(data, dict) else (data or [])
+    )
     out = []
     for r in rows:
         if isinstance(r, dict):
-            out.append({
-                "id": str(r.get("snapshot") or r.get("id") or ""),
-                "name": str(r.get("name") or ""),
-                "description": str(r.get("description") or r.get("desc") or ""),
-                "created": str(r.get("created_time") or r.get("created") or ""),
-            })
+            out.append(
+                {
+                    "id": str(r.get("snapshot") or r.get("id") or ""),
+                    "name": str(r.get("name") or ""),
+                    "description": str(r.get("description") or r.get("desc") or ""),
+                    "created": str(r.get("created_time") or r.get("created") or ""),
+                }
+            )
     return out
 
 
@@ -158,7 +166,9 @@ def vsphere_snapshot_action(inst, c, vm_id, action, name="", desc=""):
         elif action == "revert":
             if not snap:
                 return {"ok": False, "detail": "revert needs a snapshot id in name"}
-            resp = c.request("POST", f"/api/vcenter/vm/{vm}/snapshots/{snap}?action=revert", headers=hdr)
+            resp = c.request(
+                "POST", f"/api/vcenter/vm/{vm}/snapshots/{snap}?action=revert", headers=hdr
+            )
         elif action == "delete":
             if not snap:
                 return {"ok": False, "detail": "delete needs a snapshot id in name"}
@@ -172,8 +182,11 @@ def vsphere_snapshot_action(inst, c, vm_id, action, name="", desc=""):
     if getattr(resp, "ok", False):
         return {"ok": True, "detail": f"snapshot {action} issued for {vm}"}
     body = (getattr(resp, "text", "") or "").strip()
-    return {"ok": False, "detail": f"snapshot {action} failed: HTTP {getattr(resp, 'status', '?')}"
-            + (f" - {body[:200]}" if body else "")}
+    return {
+        "ok": False,
+        "detail": f"snapshot {action} failed: HTTP {getattr(resp, 'status', '?')}"
+        + (f" - {body[:200]}" if body else ""),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -195,13 +208,18 @@ def _vcloud_hget(headers, name):
 def _vcloud_session(inst, c):
     """POST /api/sessions (Basic) -> token from response header."""
     basic = base64.b64encode(
-        f"{inst.get('username') or ''}:{inst.get('secret') or ''}".encode()).decode()
-    resp = c.request("POST", "/api/sessions",
-                     headers={"Authorization": "Basic " + basic, "Accept": _VCLOUD_ACCEPT})
+        f"{inst.get('username') or ''}:{inst.get('secret') or ''}".encode()
+    ).decode()
+    resp = c.request(
+        "POST",
+        "/api/sessions",
+        headers={"Authorization": "Basic " + basic, "Accept": _VCLOUD_ACCEPT},
+    )
     if not getattr(resp, "ok", False):
         raise IntegrationError(f"vCloud auth failed: HTTP {getattr(resp, 'status', '?')}")
-    token = (_vcloud_hget(resp.headers, "X-VMWARE-VCLOUD-ACCESS-TOKEN")
-             or _vcloud_hget(resp.headers, "x-vcloud-authorization"))
+    token = _vcloud_hget(resp.headers, "X-VMWARE-VCLOUD-ACCESS-TOKEN") or _vcloud_hget(
+        resp.headers, "x-vcloud-authorization"
+    )
     if not token:
         raise IntegrationError("vCloud auth: no session token in response headers")
     return {"x-vcloud-authorization": token, "Accept": _VCLOUD_ACCEPT}
@@ -235,26 +253,37 @@ def vcloud_list_vms(inst, c):
             mem = int(r.get("memoryMB") or 0)
         except (TypeError, ValueError):
             mem = 0
-        out.append({
-            "id": vid or href,
-            "name": r.get("name") or "",
-            "status": _PS.get(str(r.get("status") or "").upper(), "unknown"),
-            "cpu": cpu, "mem_mb": mem,
-            "host": r.get("containerName") or "",
-        })
+        out.append(
+            {
+                "id": vid or href,
+                "name": r.get("name") or "",
+                "status": _PS.get(str(r.get("status") or "").upper(), "unknown"),
+                "cpu": cpu,
+                "mem_mb": mem,
+                "host": r.get("containerName") or "",
+            }
+        )
     return out
 
 
 def vcloud_power(inst, c, vm_id, action):
     """POST /api/vApp/{id}/power/action/{op}."""
     auth = _vcloud_session(inst, c)
-    op = {"start": "powerOn", "stop": "powerOff", "shutdown": "shutdown",
-          "reboot": "reboot", "reset": "reset", "suspend": "suspend"}.get(action)
+    op = {
+        "start": "powerOn",
+        "stop": "powerOff",
+        "shutdown": "shutdown",
+        "reboot": "reboot",
+        "reset": "reset",
+        "suspend": "suspend",
+    }.get(action)
     if not op:
         return {"ok": False, "detail": f"unknown power action: {action}"}
     resp = c.request("POST", _vcloud_base(vm_id) + "/power/action/" + op, headers=auth)
-    return {"ok": bool(getattr(resp, "ok", False)),
-            "detail": f"{op} -> HTTP {getattr(resp, 'status', '?')}"}
+    return {
+        "ok": bool(getattr(resp, "ok", False)),
+        "detail": f"{op} -> HTTP {getattr(resp, 'status', '?')}",
+    }
 
 
 def vcloud_list_snapshots(inst, c, vm_id):
@@ -271,9 +300,14 @@ def vcloud_list_snapshots(inst, c, vm_id):
         snap = snap[0] if snap else None
     if not isinstance(snap, dict):
         return []
-    return [{"id": str(vm_id), "name": snap.get("name") or "snapshot",
-             "description": snap.get("description") or data.get("description") or "",
-             "created": snap.get("created") or ""}]
+    return [
+        {
+            "id": str(vm_id),
+            "name": snap.get("name") or "snapshot",
+            "description": snap.get("description") or data.get("description") or "",
+            "created": snap.get("created") or "",
+        }
+    ]
 
 
 def vcloud_snapshot_action(inst, c, vm_id, action, name="", desc=""):
@@ -283,8 +317,14 @@ def vcloud_snapshot_action(inst, c, vm_id, action, name="", desc=""):
     body = None
     if action == "create":
         path = base + "/action/createSnapshot"
-        body = json.dumps({"name": name or "snapshot", "description": desc or "",
-                           "memory": False, "quiesce": False}).encode()
+        body = json.dumps(
+            {
+                "name": name or "snapshot",
+                "description": desc or "",
+                "memory": False,
+                "quiesce": False,
+            }
+        ).encode()
     elif action == "revert":
         path = base + "/action/revertToCurrentSnapshot"
     elif action == "delete":
@@ -295,13 +335,16 @@ def vcloud_snapshot_action(inst, c, vm_id, action, name="", desc=""):
     if body is not None:
         headers["Content-Type"] = _VCLOUD_ACCEPT
     resp = c.request("POST", path, headers=headers, body=body)
-    return {"ok": bool(getattr(resp, "ok", False)),
-            "detail": f"snapshot {action} -> HTTP {getattr(resp, 'status', '?')}"}
+    return {
+        "ok": bool(getattr(resp, "ok", False)),
+        "detail": f"snapshot {action} -> HTTP {getattr(resp, 'status', '?')}",
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OpenShift Virtualization / KubeVirt  (Bearer token)
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def _os_hdr(inst):
     return {"Authorization": "Bearer " + str(inst.get("secret") or "")}
@@ -314,14 +357,18 @@ def _os_mem_to_mb(val):
         if not s:
             return 0
         bin_u = {"Ki": 1.0 / 1024, "Mi": 1.0, "Gi": 1024.0, "Ti": 1024.0 * 1024}
-        dec_u = {"K": 1000.0 / (1024 * 1024), "M": 1000.0 ** 2 / (1024 * 1024),
-                 "G": 1000.0 ** 3 / (1024 * 1024), "T": 1000.0 ** 4 / (1024 * 1024)}
+        dec_u = {
+            "K": 1000.0 / (1024 * 1024),
+            "M": 1000.0**2 / (1024 * 1024),
+            "G": 1000.0**3 / (1024 * 1024),
+            "T": 1000.0**4 / (1024 * 1024),
+        }
         for suf, mul in bin_u.items():
             if s.endswith(suf):
-                return int(float(s[:-len(suf)]) * mul)
+                return int(float(s[: -len(suf)]) * mul)
         for suf, mul in dec_u.items():
             if s.endswith(suf):
-                return int(float(s[:-len(suf)]) * mul)
+                return int(float(s[: -len(suf)]) * mul)
         return int(float(s) / (1024 * 1024))
     except (ValueError, TypeError):
         return 0
@@ -365,9 +412,19 @@ def openshift_list_vms(inst, c):
                 cpu = int((domain.get("cpu") or {}).get("cores") or 1)
             except (ValueError, TypeError):
                 cpu = 1
-            mem_mb = _os_mem_to_mb(((domain.get("resources") or {}).get("requests") or {}).get("memory"))
-            out.append({"id": ns + "/" + nm, "name": nm, "status": status,
-                        "cpu": cpu, "mem_mb": mem_mb, "host": ns})
+            mem_mb = _os_mem_to_mb(
+                ((domain.get("resources") or {}).get("requests") or {}).get("memory")
+            )
+            out.append(
+                {
+                    "id": ns + "/" + nm,
+                    "name": nm,
+                    "status": status,
+                    "cpu": cpu,
+                    "mem_mb": mem_mb,
+                    "host": ns,
+                }
+            )
         except (AttributeError, TypeError):
             continue
     return out
@@ -393,17 +450,28 @@ def openshift_power(inst, c, vm_id, action):
     sub_path = f"/apis/subresources.kubevirt.io/v1/namespaces/{ns}/virtualmachines/{name}/{sub}"
     resp = c.request("PUT", sub_path, headers=hdr, body=b"{}")
     if resp is not None and getattr(resp, "status", None) != 404:
-        return {"ok": bool(getattr(resp, "ok", False)),
-                "detail": f"{sub} {vm_id} -> HTTP {getattr(resp, 'status', '?')}{note}"}
+        return {
+            "ok": bool(getattr(resp, "ok", False)),
+            "detail": f"{sub} {vm_id} -> HTTP {getattr(resp, 'status', '?')}{note}",
+        }
     if sub == "restart":
-        return {"ok": False, "detail": "restart subresource 404 and no merge-patch equivalent" + note}
+        return {
+            "ok": False,
+            "detail": "restart subresource 404 and no merge-patch equivalent" + note,
+        }
     phdr = dict(_os_hdr(inst))
     phdr["Content-Type"] = "application/merge-patch+json"
     body = json.dumps({"spec": {"running": sub == "start"}}).encode()
-    presp = c.request("PATCH", f"/apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{name}",
-                      headers=phdr, body=body)
-    return {"ok": bool(getattr(presp, "ok", False)),
-            "detail": f"merge-patch spec.running={sub == 'start'} -> HTTP {getattr(presp, 'status', '?')}{note}"}
+    presp = c.request(
+        "PATCH",
+        f"/apis/kubevirt.io/v1/namespaces/{ns}/virtualmachines/{name}",
+        headers=phdr,
+        body=body,
+    )
+    return {
+        "ok": bool(getattr(presp, "ok", False)),
+        "detail": f"merge-patch spec.running={sub == 'start'} -> HTTP {getattr(presp, 'status', '?')}{note}",
+    }
 
 
 def openshift_list_snapshots(inst, c, vm_id):
@@ -412,7 +480,8 @@ def openshift_list_snapshots(inst, c, vm_id):
     try:
         data = c.get_json(
             f"/apis/snapshot.kubevirt.io/v1beta1/namespaces/{ns}/virtualmachinesnapshots",
-            headers=_os_hdr(inst))
+            headers=_os_hdr(inst),
+        )
     except IntegrationError:
         return []
     out = []
@@ -421,10 +490,16 @@ def openshift_list_snapshots(inst, c, vm_id):
             meta, spec = item.get("metadata") or {}, item.get("spec") or {}
             if (spec.get("source") or {}).get("name") != name:
                 continue
-            out.append({"id": meta.get("name") or "", "name": meta.get("name") or "",
-                        "description": ((item.get("status") or {}).get("phase")
-                                        or spec.get("description") or ""),
-                        "created": meta.get("creationTimestamp") or ""})
+            out.append(
+                {
+                    "id": meta.get("name") or "",
+                    "name": meta.get("name") or "",
+                    "description": (
+                        (item.get("status") or {}).get("phase") or spec.get("description") or ""
+                    ),
+                    "created": meta.get("creationTimestamp") or "",
+                }
+            )
         except (AttributeError, TypeError):
             continue
     return out
@@ -440,39 +515,71 @@ def openshift_snapshot_action(inst, c, vm_id, action, name="", desc=""):
     snap = str(name or "").strip()
     if act == "create":
         snap = snap or f"{vm_name}-snap"
-        obj = {"apiVersion": "snapshot.kubevirt.io/v1beta1", "kind": "VirtualMachineSnapshot",
-               "metadata": {"name": snap, "namespace": ns},
-               "spec": {"source": {"apiGroup": "kubevirt.io", "kind": "VirtualMachine", "name": vm_name}}}
-        resp = c.request("POST", base + "/virtualmachinesnapshots", headers=hdr, body=json.dumps(obj).encode())
-        return {"ok": bool(getattr(resp, "ok", False)),
-                "detail": f"create snapshot {snap} -> HTTP {getattr(resp, 'status', '?')}"}
+        obj = {
+            "apiVersion": "snapshot.kubevirt.io/v1beta1",
+            "kind": "VirtualMachineSnapshot",
+            "metadata": {"name": snap, "namespace": ns},
+            "spec": {
+                "source": {"apiGroup": "kubevirt.io", "kind": "VirtualMachine", "name": vm_name}
+            },
+        }
+        resp = c.request(
+            "POST", base + "/virtualmachinesnapshots", headers=hdr, body=json.dumps(obj).encode()
+        )
+        return {
+            "ok": bool(getattr(resp, "ok", False)),
+            "detail": f"create snapshot {snap} -> HTTP {getattr(resp, 'status', '?')}",
+        }
     if act == "revert":
         if not snap:
             return {"ok": False, "detail": "revert requires snapshot name"}
-        obj = {"apiVersion": "snapshot.kubevirt.io/v1beta1", "kind": "VirtualMachineRestore",
-               "metadata": {"name": f"{vm_name}-restore-{snap}", "namespace": ns},
-               "spec": {"target": {"apiGroup": "kubevirt.io", "kind": "VirtualMachine", "name": vm_name},
-                        "virtualMachineSnapshotName": snap}}
-        resp = c.request("POST", base + "/virtualmachinerestores", headers=hdr, body=json.dumps(obj).encode())
-        return {"ok": bool(getattr(resp, "ok", False)),
-                "detail": f"revert to {snap} -> HTTP {getattr(resp, 'status', '?')}"}
+        obj = {
+            "apiVersion": "snapshot.kubevirt.io/v1beta1",
+            "kind": "VirtualMachineRestore",
+            "metadata": {"name": f"{vm_name}-restore-{snap}", "namespace": ns},
+            "spec": {
+                "target": {"apiGroup": "kubevirt.io", "kind": "VirtualMachine", "name": vm_name},
+                "virtualMachineSnapshotName": snap,
+            },
+        }
+        resp = c.request(
+            "POST", base + "/virtualmachinerestores", headers=hdr, body=json.dumps(obj).encode()
+        )
+        return {
+            "ok": bool(getattr(resp, "ok", False)),
+            "detail": f"revert to {snap} -> HTTP {getattr(resp, 'status', '?')}",
+        }
     if act == "delete":
         if not snap:
             return {"ok": False, "detail": "delete requires snapshot name"}
         resp = c.request("DELETE", base + "/virtualmachinesnapshots/" + _seg(snap), headers=hdr)
-        return {"ok": bool(getattr(resp, "ok", False)),
-                "detail": f"delete snapshot {snap} -> HTTP {getattr(resp, 'status', '?')}"}
+        return {
+            "ok": bool(getattr(resp, "ok", False)),
+            "detail": f"delete snapshot {snap} -> HTTP {getattr(resp, 'status', '?')}",
+        }
     return {"ok": False, "detail": "unknown snapshot action: " + act}
 
 
 # ── lifecycle registry: connector type -> driver functions ───────────────────
 LIFECYCLE = {
-    "vcenter": {"list_vms": vsphere_list_vms, "power": vsphere_power,
-                "list_snapshots": vsphere_list_snapshots, "snapshot_action": vsphere_snapshot_action},
-    "vcloud": {"list_vms": vcloud_list_vms, "power": vcloud_power,
-               "list_snapshots": vcloud_list_snapshots, "snapshot_action": vcloud_snapshot_action},
-    "openshift": {"list_vms": openshift_list_vms, "power": openshift_power,
-                  "list_snapshots": openshift_list_snapshots, "snapshot_action": openshift_snapshot_action},
+    "vcenter": {
+        "list_vms": vsphere_list_vms,
+        "power": vsphere_power,
+        "list_snapshots": vsphere_list_snapshots,
+        "snapshot_action": vsphere_snapshot_action,
+    },
+    "vcloud": {
+        "list_vms": vcloud_list_vms,
+        "power": vcloud_power,
+        "list_snapshots": vcloud_list_snapshots,
+        "snapshot_action": vcloud_snapshot_action,
+    },
+    "openshift": {
+        "list_vms": openshift_list_vms,
+        "power": openshift_power,
+        "list_snapshots": openshift_list_snapshots,
+        "snapshot_action": openshift_snapshot_action,
+    },
 }
 
 

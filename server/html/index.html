@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
-<title>RemotePower — Device Control</title>
+<title>RemotePower — Linux Fleet Manager</title>
 <link rel="stylesheet" href="static/css/styles.css?v=5.6.0-20">
 
 </head>
@@ -101,10 +101,11 @@
           <div class="status-dot"></div>
           <span id="last-refresh-label">Live</span>
         </div>
-        <!-- v5.6.0: site-health rollup — green "Healthy" when nothing's wrong,
-             red "N issues" (offline + open alerts + monitors down) otherwise.
-             Click jumps to Alerts. Painted from /nav-counts in _paintVitals. -->
-        <button class="site-health ok" id="site-health" data-action="gotoSiteHealth" title="Site health" aria-label="Site health"></button>
+        <!-- v5.6.0: RemotePower OWN control-plane health — green "Healthy" unless
+             the SERVER itself has a failing self-check (storage / config / disk
+             headroom), NOT fleet device/alert state. Click jumps to the Self page.
+             Painted from c.site_health (/nav-counts) in _paintSiteHealth. -->
+        <button class="site-health ok" id="site-health" data-action="gotoSiteHealth" title="RemotePower health" aria-label="RemotePower control-plane health"></button>
         <!-- v5.0.0 (T6): fleet vitals readout — populated from /nav-counts -->
         <div class="vitals" id="header-vitals" aria-label="Fleet vitals"></div>
         <!-- v5.0.0 (T6): compact-density toggle (more rows per screen for big fleets) -->
@@ -215,7 +216,7 @@
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
           <span>Query</span>
         </button>
-        <button class="nav-btn" id="nav-virtualization" data-page="virtualization" title="QEMU virtual machines on the Proxmox node — start and shutdown via the Proxmox API">
+        <button class="nav-btn" id="nav-virtualization" data-page="virtualization" title="Virtual machines across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift — power and snapshots">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           <span>Virtualization</span>
         </button>
@@ -2595,6 +2596,7 @@
               <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-posture" checked> Security-control posture (mutual-TLS coverage, backup encryption, audit-mode, break-glass)</label>
               <label class="click-row"><input type="checkbox" id="ai-rag-src-vpn" checked> WG Access VPN posture (tunnels, reach scopes, who's connected, expiring access)</label>
               <label class="click-row"><input type="checkbox" id="ai-rag-src-tickets" checked> Helpdesk tickets (open tickets, SLA, assignees, affected hosts — when the ticket system is on)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-kb" checked> Knowledge base (your operator-authored SOPs, how-tos and runbooks — when the knowledge base is on)</label>
             </div>
 
             <div class="form-group isl-773">
@@ -3037,10 +3039,10 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.6.0 provisionmatters provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure as code render apply plan destroy run execute server-side ansible playbook catalog folder spin up machine deploy enroll alert tuning noise noisy mute silence ignore suppress quiet ack acknowledge timesheet watcher watch team finance read-only optional features settings save hanging file manager">
-            <summary><strong>What's new — v5.6.0 "ProvisionMatters"</strong> — the IaC / automation + alert-tuning release: a <strong>Provisioning</strong> blueprint catalog (Terraform / cloud-init / Ansible / iPXE) that renders or runs Terraform server-side, an <strong>alert Tuning</strong> page with per-host mute, and <strong>timesheet watchers</strong> (all opt-in, no breaking changes)</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v5.6.0 heapmatters provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure as code render apply plan destroy run execute server-side ansible playbook catalog folder spin up machine deploy enroll alert tuning noise noisy mute silence ignore suppress quiet ack acknowledge timesheet watcher watch team finance read-only optional features settings save hanging file manager virtualization vmware vsphere vcenter esxi cloud director vcloud openshift kubevirt hypervisor vm power snapshot knowledge base kb sop runbook howto article rag automation action open ticket add tag mute">
+            <summary><strong>What's new — v5.6.0 "HeapMatters"</strong> — the IaC / automation + alert-tuning release: a <strong>Provisioning</strong> blueprint catalog (Terraform / cloud-init / Ansible / iPXE) that renders or runs Terraform server-side, an <strong>alert Tuning</strong> page with per-host mute, and <strong>timesheet watchers</strong> (all opt-in, no breaking changes)</summary>
             <div class="doc-body">
-              <p>v5.6.0 "ProvisionMatters" is the IaC / automation + alert-tuning release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.6.0</code>).</p>
+              <p>v5.6.0 "HeapMatters" is the IaC / automation + alert-tuning release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.6.0</code>).</p>
               <p><strong>Provisioning</strong> (Admin → Provisioning; enable under Settings → Advanced → Optional features)</p>
               <ul>
                 <li>A folder-tree <strong>catalog of infrastructure blueprints</strong> — Terraform, cloud-init, Ansible and iPXE. <strong>Render</strong> any blueprint (fill variables → copy/download; cloud-init can bake the agent install one-liner via <code>${rp_agent_install}</code>), or <strong>run Terraform</strong> server-side — <strong>Plan / Apply / Destroy</strong> — when the separate <code>iac_execute_enabled</code> gate is on.</li>
@@ -3054,6 +3056,15 @@
               <ul>
                 <li>Let specific non-finance users view another user's <strong>timesheet</strong> (read-only, hours only, never rates) — by user or whole team; a "Watch for" omnisearch on the Timesheet page switches whose week you view.</li>
                 <li>The opt-in modules (Tickets, Billing, Provisioning, File manager) are consolidated into an <strong>"Optional features"</strong> settings section; fixed the Settings <strong>Save</strong> button hanging on "Saving…".</li>
+              </ul>
+              <p><strong>Virtualization beyond Proxmox</strong> (Settings → Virtualization; sidebar → Virtualization)</p>
+              <ul>
+                <li><strong>VMware</strong> (vSphere / vCenter, Cloud Director) and <strong>OpenShift Virtualization</strong> now get Proxmox-level control: a platform picker lists guests and offers <strong>power</strong> (start / shutdown / reboot / suspend, filtered per platform) and <strong>snapshots</strong> (create / revert / delete). Reads are available to any signed-in user; power and snapshot actions are admin-only and audited.</li>
+              </ul>
+              <p><strong>Knowledge base &amp; automation</strong></p>
+              <ul>
+                <li>An opt-in <strong>Knowledge Base</strong> (Admin → Knowledge base) — operator-authored Markdown SOPs / how-tos / runbooks in a category tree, searchable and fed to the AI assistant as a RAG source.</li>
+                <li>The automation rules engine gains three actions beyond run-script / notify: <strong>open a ticket</strong>, <strong>add a tag</strong>, and <strong>mute the alert</strong>.</li>
               </ul>
               <p class="hint">See <code>docs/v5.6.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
@@ -4608,7 +4619,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">About</div><div class="page-subtitle">RemotePower — self-hosted device management</div>
         <div class="settings-section isl-124"><div class="isl-125"><img src="static/img/logo-square.png" alt="RemotePower" class="isl-126"><div><div class="isl-127">RemotePower</div><div class="isl-100">Server version: <span id="about-server-version">—</span></div></div></div>
         <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr><tr><td class="isl-130">Report a bug</td><td><button class="btn-icon" data-action="reportIssue" title="Open a prefilled GitHub issue — auto-fills app version, browser and recent errors. No credentials, no fleet data."><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><use href="#ic-a89f0a79"/></svg> Report an issue</button></td></tr></table>
-        <p class="isl-131">A self-hosted fleet manager for Linux, Windows and macOS — far more than remote control. Real-time monitoring, metrics and forecasting; security posture (CVE/KEV scanning, patch management, config-drift, CIS/compliance, firewall &amp; fail2ban, AV/rootkit, IP-reputation/DMARC); an AI assistant grounded in your own fleet (RAG) with per-subject advisors; a built-in helpdesk (tickets, SLAs, email threading) plus time-tracking &amp; billing; DNS management, homelab integrations and a WireGuard access VPN; staged rollouts, alerting with escalation, audit &amp; governance, optional hard multi-tenancy — and of course full remote control: shutdown, reboot, Wake-on-LAN, scheduled commands, custom scripts and agent self-update.<br><br>No inbound firewall rules on clients — agents poll the server over HTTPS. Runs on Nginx + Python (classic CGI, the optional persistent SCGI worker, or the gunicorn WSGI tier); storage is flat JSON by default or an optional SQLite / PostgreSQL backend. Deploy from source or the official multi-arch Docker image. No Node.js, no build step.</p></div>
+        <p class="isl-131">A self-hosted fleet manager for Linux, Windows and macOS — far more than remote control. Real-time monitoring, metrics and forecasting; security posture (CVE/KEV scanning, patch management, config-drift, CIS/compliance, firewall &amp; fail2ban, AV/rootkit, IP-reputation/DMARC); an AI assistant grounded in your own fleet (RAG) with per-subject advisors and a searchable knowledge base; a built-in helpdesk (tickets, SLAs, email threading) plus time-tracking &amp; billing; DNS management, homelab integrations and a WireGuard access VPN; virtualization control across Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift; infrastructure provisioning with server-side Terraform, Ansible and cloud-init; staged rollouts, alerting with escalation and per-host tuning, audit &amp; governance, optional hard multi-tenancy — and of course full remote control: shutdown, reboot, Wake-on-LAN, scheduled commands, custom scripts and agent self-update.<br><br>No inbound firewall rules on clients — agents poll the server over HTTPS. Runs on Nginx + Python (classic CGI, the optional persistent SCGI worker, or the gunicorn WSGI tier); storage is flat JSON by default or an optional SQLite / PostgreSQL backend. Deploy from source or the official multi-arch Docker image. No Node.js, no build step.</p></div>
         <div class="settings-section dyk-card" id="about-tip-card">
           <div class="dyk-header">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>
@@ -5048,7 +5059,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="mb-16"><input type="text" id="kb-filter" class="form-input input-wide-sm" placeholder="Search articles…" aria-label="Search articles" data-input="filterKb"></div>
         <div class="hc-grid-2">
           <div class="dash-card"><div id="kb-list" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
-          <div class="dash-card"><div id="kb-view"><div class="empty-state"><div class="empty-title">No article selected</div><div class="empty-text">Pick an article on the left to read it, or click <b>New article</b>.</div></div></div></div>
+          <div class="dash-card"><div id="kb-view" class="scroll-cap-lg"><div class="empty-state"><div class="empty-title">No article selected</div><div class="empty-text">Pick an article on the left to read it, or click <b>New article</b>.</div></div></div></div>
         </div>
       </div>
 

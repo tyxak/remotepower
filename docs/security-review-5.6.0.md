@@ -1,4 +1,4 @@
-# Security review — v5.6.0 "ProvisionMatters"
+# Security review — v5.6.0 "HeapMatters"
 
 *Date: 2026-07-01. Authorized review of the maintainer's own codebase.*
 

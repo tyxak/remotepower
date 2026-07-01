@@ -39,7 +39,7 @@ holds long-form docs that don't fit there.
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
 - **[security-review-5.6.0.md](security-review-5.6.0.md)** — Latest review:
- the v5.6.0 "ProvisionMatters" line (knowledge base, automation actions, check
+ the v5.6.0 "HeapMatters" line (knowledge base, automation actions, check
  catalog + `systemd_unit`, recover events) plus a 5-dimension manual pentest and
  the full SAST stack (CodeQL 0, Bandit/gitleaks/njsscan/pip-audit clean) — no
  Critical/High/Medium ships; seven Low fixes (two secret-URL leaks, a read-only-role
@@ -63,7 +63,7 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
-- **[v5.6.0.md](v5.6.0.md)** — "ProvisionMatters": the IaC / automation +
+- **[v5.6.0.md](v5.6.0.md)** — "HeapMatters": the IaC / automation +
  alert-tuning release. An opt-in **Provisioning** blueprint catalog (Terraform /
  cloud-init / Ansible / iPXE) that renders to copy/download or **runs Terraform
  server-side** (Plan / Apply / Destroy, behind a separate execute gate); an
@@ -146,6 +146,14 @@ Older release notes (v5.0.1 and earlier) live in
 - **[automations.md](automations.md)** — The event-driven automation rules
  engine: when an event fires, run a script / notify / open a ticket / add a
  tag / mute the alert.
+- **[provisioning.md](provisioning.md)** — The Provisioning page: a catalog of
+ infrastructure blueprints (Terraform, cloud-init, Ansible, iPXE) you render or
+ run server-side (Terraform Plan/Apply/Destroy behind the execute gate).
+- **[alert-tuning.md](alert-tuning.md)** — The Tuning page: surface the noisiest
+ alerts and sources, and per-(host, event) mute to silence exactly one alert.
+- **[virtualization.md](virtualization.md)** — Virtualization lifecycle across
+ Proxmox, VMware (vSphere/vCenter, Cloud Director) and OpenShift: list guests,
+ power actions and snapshots.
 - **[security-scans.md](security-scans.md)** — Authorized vulnerability
  scanning (the Pentest page): tools, profiles, target ownership
  verification, scheduling, the scanner satellite.

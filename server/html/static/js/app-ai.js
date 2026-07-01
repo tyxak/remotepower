@@ -73,6 +73,7 @@ async function loadAISettings() {
   _setSrc('ai-rag-src-posture',      rs.posture !== false);
   _setSrc('ai-rag-src-vpn',          rs.vpn !== false);
   _setSrc('ai-rag-src-tickets',      rs.tickets !== false);
+  _setSrc('ai-rag-src-kb',           rs.kb !== false);
   document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
   document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
   // #11: optional separate embedding service. The key follows the same
@@ -337,6 +338,7 @@ async function saveAISettings() {
         posture:      !!document.getElementById('ai-rag-src-posture')?.checked,
         vpn:          !!document.getElementById('ai-rag-src-vpn')?.checked,
         tickets:      !!document.getElementById('ai-rag-src-tickets')?.checked,
+        kb:           !!document.getElementById('ai-rag-src-kb')?.checked,
       },
       history_limits: {
         max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,

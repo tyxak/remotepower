@@ -84,7 +84,7 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"What's new — v{api.SERVER_VERSION}", html)
 
     def test_doc_set_keeps_five_versions(self):
-        vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v*.md"))
+        vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))
         self.assertEqual(len(vdocs), 5, f"expected exactly 5 version docs, got {vdocs}")
 
 

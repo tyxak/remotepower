@@ -179,11 +179,19 @@ recorded in the fleet event log and the per-device command history.
 - **Mailbox monitor** — Settings → Mailbox monitor.
 - **Alerts** — state changes fire webhooks (Settings → Notifications).
 
-### 5.4 Proxmox
+### 5.4 Virtualization
 
-Settings → Proxmox connects one Proxmox VE node. The Virtualization
-and Containers pages then manage QEMU VMs and LXC containers,
-including snapshots. Use a scoped Proxmox API token.
+Settings → Virtualization connects your hypervisors. **Proxmox VE** uses a
+scoped API token (one node); the Virtualization and Containers pages then manage
+QEMU VMs and LXC containers, including snapshots, clone and migrate.
+
+**VMware vSphere / ESXi / vCenter, VMware Cloud Director and OpenShift
+Virtualization** are added as integration instances on the same tab. On the
+Virtualization page a platform picker lets you list guests and run **power**
+(start / shutdown / reboot / suspend, filtered to each platform) and
+**snapshot** (create / revert / delete) actions. Reads are available to any
+signed-in user; power and snapshot actions are admin-only and audited. See
+[virtualization.md](virtualization.md).
 
 ### 5.5 Settings &amp; controls (v5.0.0)
 

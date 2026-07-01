@@ -1,7 +1,7 @@
 {
   "name": "RemotePower",
   "short_name": "RemotePower",
-  "description": "Self-hosted Linux fleet management — dashboard, commands, alerts, SSH",
+  "description": "Self-hosted fleet manager for Linux, Windows and macOS — monitoring, alerting, CVE scanning and patching, remote commands and SSH, provisioning, virtualization, tickets and an AI assistant. No inbound ports.",
   "start_url": "/",
   "scope": "/",
   "display": "minimal-ui",

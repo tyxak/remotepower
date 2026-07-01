@@ -4923,7 +4923,7 @@ def handle_push_subscribe():
     user = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     sub = body.get('subscription') or {}
     endpoint = str(sub.get('endpoint') or '').strip()
     keys = sub.get('keys') or {}
@@ -4947,7 +4947,7 @@ def handle_push_unsubscribe():
     user = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    endpoint = str((get_json_body() or {}).get('endpoint') or '').strip()
+    endpoint = str((get_json_obj()).get('endpoint') or '').strip()
     with _LockedUpdate(PUSH_SUBS_FILE) as store:
         store[user] = [s for s in (store.get(user) or []) if s.get('endpoint') != endpoint]
         if not store[user]:
@@ -7015,7 +7015,7 @@ def handle_ticket_imap_save():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     host = _no_ctrl(_sanitize_str(body.get('host', ''), 255)).strip()
     try:
         port = int(body.get('port') or 993)
@@ -7116,7 +7116,7 @@ def handle_ticket_imap_test():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     saved = _ticket_imap_cfg()
     host = (_sanitize_str(str(body.get('host', saved.get('host', ''))), 255) or '').strip()
     if not host:
@@ -7160,11 +7160,30 @@ def _alert_mutes_load():
     return data
 
 
+_ALERT_MUTE_SET_CACHE = {'mtime': None, 'set': frozenset()}
+
+
 def _alert_mute_set():
-    """Set of (device_id, event) pairs currently muted."""
-    return {(m.get('device_id'), m.get('event'))
-            for m in _alert_mutes_load()['mutes']
-            if isinstance(m, dict) and m.get('device_id') and m.get('event')}
+    """Set of (device_id, event) pairs currently muted.
+
+    Memoized by the store's mtime (backend-aware, works on JSON/SQLite/Postgres):
+    the hot fire_webhook path consults it via _record_alert AND again at the
+    delivery gate, so without the cache every fleet event re-read
+    alert_mutes.json twice. The cache invalidates the instant a mute is
+    added/removed (the store's write-time changes)."""
+    try:
+        mt = backend_mtime(ALERT_MUTES_FILE)
+    except Exception:
+        mt = None
+    c = _ALERT_MUTE_SET_CACHE
+    if mt is not None and c['mtime'] == mt:
+        return c['set']
+    s = frozenset((m.get('device_id'), m.get('event'))
+                  for m in _alert_mutes_load()['mutes']
+                  if isinstance(m, dict) and m.get('device_id') and m.get('event'))
+    c['mtime'] = mt
+    c['set'] = s
+    return s
 
 
 def _alert_muted(event, payload):
@@ -7709,7 +7728,7 @@ def handle_automation_rule_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    rule, err = _validate_rule(get_json_body() or {})
+    rule, err = _validate_rule(get_json_obj())
     if err:
         respond(400, {'error': err})
     rule.update({'id': 'r-' + secrets.token_hex(6), 'created': int(time.time()),
@@ -7729,7 +7748,7 @@ def handle_automation_rule_update(rule_id):
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    rule, err = _validate_rule(get_json_body() or {})
+    rule, err = _validate_rule(get_json_obj())
     if err:
         respond(400, {'error': err})
     found = False
@@ -7803,6 +7822,10 @@ def fire_webhook(event, payload):
 
     cfg = load(CONFIG_FILE)
 
+    # v5.6.0: is this exact (host, event) operator-muted? Computed ONCE here and
+    # reused for every delivery channel below (memoized set, so this is cheap).
+    _muted = _alert_muted(event, payload)
+
     # v3.14.0 #34: stream every event to the configured SIEM (Splunk/Elastic/
     # Loki/raw). Runs before the unmonitored-device pager-suppression below — a
     # SIEM is a log archive, so it should receive the full event stream. Fully
@@ -7813,11 +7836,15 @@ def fire_webhook(event, payload):
         sys.stderr.write(f'[remotepower] SIEM forward failed: {_siem_err}\n')
 
     # v3.14.0 #42: browser push for high/critical alerts. Isolated like the SIEM
-    # hook — a push outage must never break the firing path.
-    try:
-        _maybe_webpush(event, payload)
-    except Exception as _wp_err:
-        sys.stderr.write(f'[remotepower] web push failed: {_wp_err}\n')
+    # hook — a push outage must never break the firing path. v5.6.0: a muted
+    # (host, event) must NOT surface a browser push either — push is a paging
+    # channel, so it obeys the mute exactly like the inbox/webhook/needs-attention
+    # (the SIEM archive above still receives the full stream).
+    if not _muted:
+        try:
+            _maybe_webpush(event, payload)
+        except Exception as _wp_err:
+            sys.stderr.write(f'[remotepower] web push failed: {_wp_err}\n')
 
     # v3.0.2: per-device suppression for unmonitored devices.
     # Same principle as the offline-detector at line ~2256 — if the
@@ -7851,8 +7878,8 @@ def fire_webhook(event, payload):
 
     # v5.6.0: operator mute — suppress delivery + needs-attention for a silenced
     # (host, event). fleet_events (recorded above) is untouched, so the Tuning
-    # page still sees the noise it's silencing.
-    if _alert_muted(event, payload):
+    # page still sees the noise it's silencing. (Computed once, above.)
+    if _muted:
         return
 
     # v3.4.2: automation rules. Evaluated here — after the unmonitored guard
@@ -10619,7 +10646,7 @@ def handle_device_metric_thresholds(dev_id):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body() or {}
+    body = get_json_obj()
     overrides = dev.get('metric_thresholds') or {}
 
     # Percentage thresholds (1-99 — 0 and 100 don't make sense as alerts)
@@ -11700,7 +11727,7 @@ def handle_tenant_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    name = _sanitize_str((get_json_body() or {}).get('name', ''), 64).strip()
+    name = _sanitize_str((get_json_obj()).get('name', ''), 64).strip()
     if not name:
         respond(400, {'error': 'name required'})
     with _LockedUpdate(TENANTS_FILE) as tenants:
@@ -11723,7 +11750,7 @@ def handle_tenant_update(tid):
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     with _LockedUpdate(TENANTS_FILE) as tenants:
         if tid not in tenants or tid == DEFAULT_TENANT:
             respond(404, {'error': 'tenant not found'} if tid != DEFAULT_TENANT
@@ -11766,7 +11793,7 @@ def handle_tenant_assign_user(tid):
         respond(405, {'error': 'Method not allowed'})
     if tid not in _load_tenants():
         respond(404, {'error': 'tenant not found'})
-    username = _sanitize_str((get_json_body() or {}).get('username', ''), 64)
+    username = _sanitize_str((get_json_obj()).get('username', ''), 64)
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users:
             respond(404, {'error': 'user not found'})
@@ -11823,7 +11850,7 @@ def handle_device_user_action(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('ssh', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     action = str(body.get('action', '')).strip()
     username = str(body.get('username', '')).strip()
     if not _SAFE_UNIX_USER.match(username):
@@ -11874,7 +11901,7 @@ def handle_device_firewall_action(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     backend = str(body.get('backend', 'ufw')).strip().lower()
     action = str(body.get('action', '')).strip().lower()
     proto = str(body.get('proto', 'tcp')).strip().lower()
@@ -12010,7 +12037,7 @@ def handle_device_firewall_rule(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     backend = str(body.get('backend', '')).strip().lower()
     op = str(body.get('op', '')).strip().lower()
     if backend not in ('nftables', 'iptables', 'ufw', 'firewalld'):
@@ -12312,7 +12339,7 @@ def handle_device_storage_action(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     kind = str(body.get('kind', '')).strip().lower()
     action = str(body.get('action', '')).strip().lower()
     target = str(body.get('target', '')).strip()
@@ -12355,7 +12382,7 @@ def handle_device_fail2ban_action(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     action = str(body.get('action', '')).strip().lower()
     jail = str(body.get('jail', '')).strip()
     if action not in ('ban', 'unban', 'enable', 'disable'):
@@ -12407,7 +12434,7 @@ def handle_backup_job_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 80).strip()
     dev_id = str(body.get('device_id', '')).strip()
     command = str(body.get('command', '')).strip()
@@ -12441,7 +12468,7 @@ def handle_backup_job_update(job_id):
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     data = _backup_jobs_load()
     job = next((j for j in data['jobs'] if j['id'] == job_id), None)
     if not job:
@@ -12654,7 +12681,7 @@ def handle_autopatch_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 80).strip()
     cron = _sanitize_str(body.get('cron', ''), 64).strip()
     target = body.get('target') or {}
@@ -12688,7 +12715,7 @@ def handle_autopatch_update(pol_id):
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     data = _autopatch_load()
     pol = next((p for p in data['policies'] if p['id'] == pol_id), None)
     if not pol:
@@ -12819,7 +12846,7 @@ def handle_ansible_playbook_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 80).strip()
     content = body.get('content', '')
     if not name or not isinstance(content, str) or not content.strip():
@@ -12843,7 +12870,7 @@ def handle_ansible_playbook_update(pb_id):
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     data = _ansible_load()
     pb = next((p for p in data['playbooks'] if p['id'] == pb_id), None)
     if not pb:
@@ -12892,7 +12919,7 @@ def handle_ansible_playbook_run(pb_id):
     pb = next((p for p in data['playbooks'] if p['id'] == pb_id), None)
     if not pb:
         respond(404, {'error': 'playbook not found'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     target = body.get('target') or {}
     ids = _resolve_targets({'device_ids': body.get('device_ids')} if body.get('device_ids')
                            else ({target.get('type', 'all'): target.get('value', '')}
@@ -13181,8 +13208,12 @@ def handle_blueprint_delete(bp_id):
                                        'Run → Destroy first, then delete.'})
         except (ValueError, OSError):
             pass
-    data['blueprints'] = [b for b in data['blueprints'] if b['id'] != bp_id]
-    save(PROVISION_FILE, data)
+    # Remove under the store lock (concurrent status writes from another
+    # blueprint's run must not be clobbered — see handle_blueprint_run).
+    with _LockedUpdate(PROVISION_FILE) as d:
+        if isinstance(d, dict):
+            d['blueprints'] = [b for b in d.get('blueprints', [])
+                               if not (isinstance(b, dict) and b.get('id') == bp_id)]
     # clean up the (now state-free) workdir + lockfile
     import shutil
     shutil.rmtree(wd, ignore_errors=True)
@@ -13260,6 +13291,16 @@ def _iac_execute_enabled():
     return bool((load(CONFIG_FILE) or {}).get('iac_execute_enabled'))
 
 
+# Process env vars a blueprint secret variable must never overwrite as a bare
+# name (it would break or subvert the terraform subprocess). TF_VAR_<name> still
+# delivers the value; only the convenience bare alias is withheld for these.
+_TF_ENV_PROTECTED = frozenset({
+    'PATH', 'HOME', 'IFS', 'SHELL', 'USER', 'LOGNAME', 'PWD', 'OLDPWD',
+    'TMPDIR', 'TMP', 'TEMP', 'TERM', 'LANG', 'LC_ALL', 'PYTHONPATH',
+    'BASH_ENV', 'ENV', 'HOSTNAME', 'PS1', 'PS4',
+})
+
+
 def _terraform_run(bp, op, supplied):
     """Run `terraform <op>` for a blueprint in its persistent workdir. Returns
     (output, returncode). Pure subprocess orchestration — no request access."""
@@ -13281,7 +13322,13 @@ def _terraform_run(bp, op, supplied):
         val = '' if val is None else str(val)
         if v.get('secret'):
             env['TF_VAR_' + name] = val
-            env[name] = val            # bare env too, for cloud creds (AWS_ACCESS_KEY_ID …)
+            # Bare env too, for cloud-provider creds (AWS_ACCESS_KEY_ID …). Guard
+            # against a variable name that would clobber a critical process env
+            # var (PATH/HOME/LD_*/…) and break or subvert the terraform
+            # subprocess — TF_VAR_<name> still carries the value regardless.
+            if name.upper() not in _TF_ENV_PROTECTED and \
+               not name.upper().startswith(('LD_', 'DYLD_')):
+                env[name] = val
         else:
             tfvars[name] = val
     (workdir / 'rp.auto.tfvars.json').write_text(json.dumps(tfvars))
@@ -13355,14 +13402,17 @@ def handle_blueprint_run(bp_id):
             lf.close()
         except Exception:
             pass
-    data = _blueprints_load()
-    for b in data['blueprints']:
-        if b['id'] == bp_id:
-            b['last_op'] = op
-            b['last_run'] = int(time.time())
-            b['last_rc'] = rc
-            break
-    save(PROVISION_FILE, data)
+    # Status write under the store lock — two runs on DIFFERENT blueprints each
+    # hold only their own per-blueprint flock, so a bare load/mutate/save here
+    # could lose the other's status badge. (audit_log is self-locking → after.)
+    with _LockedUpdate(PROVISION_FILE) as data:
+        if isinstance(data, dict):
+            for b in data.setdefault('blueprints', []):
+                if isinstance(b, dict) and b.get('id') == bp_id:
+                    b['last_op'] = op
+                    b['last_run'] = int(time.time())
+                    b['last_rc'] = rc
+                    break
     audit_log(actor, 'blueprint_run', detail=f'blueprint={bp_id} op={op} rc={rc}')
     respond(200, {'ok': rc == 0, 'op': op, 'rc': rc, 'output': out})
 
@@ -13418,7 +13468,7 @@ def handle_device_alert_delay(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     try:
-        mins = int((get_json_body() or {}).get('offline_alert_delay_min', 0))
+        mins = int((get_json_obj()).get('offline_alert_delay_min', 0))
     except (TypeError, ValueError):
         respond(400, {'error': 'offline_alert_delay_min must be an integer'})
     mins = max(0, min(1440, mins))   # 0 .. 24h
@@ -13619,7 +13669,7 @@ def handle_enroll_token_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
 
     # Validate expires_in
     try:
@@ -13787,7 +13837,7 @@ def handle_webterm_auth():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     dev_id = str(body.get('device_id', '')).strip()
     admin_password = str(body.get('admin_password', ''))
 
@@ -13869,7 +13919,7 @@ def handle_webterm_session_audit():
     """
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
 
     # Daemon authenticates with a shared secret rather than session
     # tokens — the daemon doesn't have a session token, it's a system
@@ -15894,7 +15944,7 @@ def handle_drift_policies_set():
 
 def _resolve_targets(body):
     """Resolve device_ids, tag, group, or single device_id — with length limits."""
-    # A top-level JSON array body is truthy and slips past `get_json_body() or {}`;
+    # A top-level JSON array body is truthy and slips past `get_json_obj()`;
     # without this guard `body.get(...)` below AttributeErrors → 500 before auth
     # (shutdown/reboot/update/upgrade callers). Coerce non-dict → no targets.
     if not isinstance(body, dict):
@@ -17604,7 +17654,7 @@ def handle_integrations_save():
     instance (matched by id) keeps the stored secret, so the UI never has to
     re-enter it."""
     actor = require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()   # coerce non-dict body → {} (a top-level JSON array must not 500)
     new_list = body.get('integrations')
     if not isinstance(new_list, list):
         respond(400, {'error': 'integrations must be a list'})
@@ -17672,7 +17722,7 @@ def handle_integration_test():
     Body: a single instance dict (may include a blank secret → falls back to the
     stored secret matched by id). Returns {ok, status, detail, version?}."""
     require_admin_auth()
-    raw = get_json_body() or {}
+    raw = get_json_obj()
     typ = str(raw.get('type', '')).strip()
     if typ not in integrations_mod.CONNECTORS:
         respond(400, {'error': f'unknown integration type: {typ}'})
@@ -18220,7 +18270,7 @@ def handle_config_get():
 def handle_config_save():
     _cfg_actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body(); cfg = load(CONFIG_FILE)
+    body = get_json_obj(); cfg = load(CONFIG_FILE)   # coerce non-dict body → {} (a top-level JSON array must not 500)
     _cfg_before = dict(cfg or {})   # v5.4.1 (D4): snapshot for the change-audit diff
 
     if 'webhook_url' in body:
@@ -19733,7 +19783,7 @@ def handle_scim_users_collection():
                             'totalResults': len(items), 'startIndex': 1,
                             'itemsPerPage': len(items), 'Resources': items})
     if m == 'POST':
-        body = get_json_body() or {}
+        body = get_json_obj()
         username = _sanitize_str(str(body.get('userName', '')), 32).strip()
         if not username or not re.match(r'^[a-zA-Z0-9_.\-@]{2,64}$', username):
             _scim_error(400, 'invalid userName')
@@ -19779,7 +19829,7 @@ def handle_scim_user(username):
         audit_log('scim', 'scim_user_deactivate', username)
         respond(204, None)
     if m in ('PUT', 'PATCH'):
-        body = get_json_body() or {}
+        body = get_json_obj()
         desired_active = None
         if m == 'PUT':
             desired_active = bool(body.get('active', True))
@@ -19858,7 +19908,7 @@ def handle_user_update(username):
     if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
     if not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(404, {'error': 'User not found'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     new_role = (body.get('role') or '').strip().lower()
     if not _assignable_role(new_role):
         respond(400, {'error': 'role must be admin, viewer, or a defined custom role'})
@@ -19927,7 +19977,7 @@ def handle_role_create():
     """POST /api/roles — create a custom role."""
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    clean, err = _clean_role_body(get_json_body() or {})
+    clean, err = _clean_role_body(get_json_obj())
     if err: respond(400, {'error': err})
     with _LockedUpdate(ROLES_FILE) as store:
         roles = store.setdefault('roles', [])
@@ -19944,7 +19994,7 @@ def handle_role_update(name):
     """PUT /api/roles/<name> — replace a custom role's permissions/scope."""
     actor = require_admin_auth()
     if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     body['name'] = name   # name comes from the path; not renamable
     clean, err = _clean_role_body(body)
     if err: respond(400, {'error': err})
@@ -20391,7 +20441,7 @@ def handle_totp_regenerate_codes():
     Invalidates any previous codes."""
     username = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
     if not users[username].get('totp_secret'):
@@ -20709,7 +20759,7 @@ def handle_signing_generate():
     if not gpg:
         respond(400, {'error': 'gpg is not installed on the server'})
     fpr, _ = _signing_key_info()
-    if fpr and not (get_json_body() or {}).get('force'):
+    if fpr and not (get_json_obj()).get('force'):
         respond(400, {'error': 'a signing key already exists; pass force=true to replace it'})
     if fpr:
         shutil.rmtree(_SIGNING_GNUPGHOME, ignore_errors=True)
@@ -20742,7 +20792,7 @@ def handle_signing_sign():
     # v3.4.2: signing the release is security-sensitive (it's what agents trust)
     # — re-verify the admin password, mirroring handle_signing_toggle. Externally
     # authenticated admins (OIDC/LDAP, no local hash) are exempt but audited.
-    _body = get_json_body() or {}
+    _body = get_json_obj()
     _stored = ((load(USERS_FILE) or {}).get(actor) or {}).get('password_hash') or ''
     if _stored and not verify_password(str(_body.get('password') or ''), _stored):
         respond(403, {'error': 'password required to sign the agent release'})
@@ -20785,7 +20835,7 @@ def handle_signing_toggle():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     enabled = bool(body.get('enabled'))
     if not enabled:
         urec = (load(USERS_FILE) or {}).get(actor) or {}
@@ -21748,7 +21798,7 @@ def handle_tls_gen_self_signed():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     raw = body.get('hosts')
     if isinstance(raw, str):
         raw = re.split(r'[,\s]+', raw)
@@ -21778,7 +21828,7 @@ def handle_tls_import_p12():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
     import base64
-    body = get_json_body() or {}
+    body = get_json_obj()
     b64 = body.get('p12') or body.get('p12_b64') or ''
     password = body.get('password') or ''
     try:
@@ -22033,7 +22083,7 @@ def handle_storage_backend_migrate():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     target = body.get('target')
     if target not in STORAGE_BACKENDS:
         respond(400, {'error': "target must be 'json', 'sqlite' or 'postgres'"}); return
@@ -22734,7 +22784,7 @@ def handle_sla_targets_put():
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     clean = {}
     d = _as_pct(body.get('default'))
     if d is not None:
@@ -23406,7 +23456,7 @@ def handle_proxmox_test() -> None:
     require_admin_auth()
     cfg = load(CONFIG_FILE)
     pc = proxmox_client.config_from(cfg)
-    body = get_json_body() or {}
+    body = get_json_obj()
     # Allow testing un-saved values straight from the form.
     for k in ('proxmox_host', 'proxmox_node', 'proxmox_token_id'):
         if body.get(k):
@@ -23444,7 +23494,7 @@ def handle_proxmox_lifecycle() -> None:
     if not cfg.get('proxmox_lifecycle_enabled'):
         respond(403, {'error': 'Proxmox VM lifecycle actions are disabled. '
                                'Enable them in Settings → Proxmox first.'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     guest_type = str(body.get('guest_type', '')).strip()
     action = str(body.get('action', '')).strip()
     vmid = body.get('vmid')
@@ -23486,7 +23536,7 @@ def handle_cloud_import():
         respond(405, {'error': 'Method not allowed'})
     cfg = load(CONFIG_FILE) or {}
     accounts = cfg.get('cloud_accounts') or []
-    body = get_json_body() or {}
+    body = get_json_obj()
     want_p = str(body.get('provider', '')).strip().lower()
     want_r = str(body.get('region', '')).strip()
     targets = [a for a in accounts if isinstance(a, dict)
@@ -23559,7 +23609,7 @@ def handle_device_ssh_exec(dev_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     cfg, dev, host, user, port, key = _ssh_preflight(dev_id)
-    command = _sanitize_str(str((get_json_body() or {}).get('command') or ''), 2000)
+    command = _sanitize_str(str((get_json_obj()).get('command') or ''), 2000)
     if not command:
         respond(400, {'error': 'command required'})
     ok, reason = _check_exec_allowlist(dev_id, command, load(DEVICES_FILE) or {})
@@ -24468,7 +24518,7 @@ def handle_proxmox_lxc_create() -> None:
     All fields are validated in proxmox_client.create_lxc. The root password,
     if supplied, is passed straight to Proxmox and never logged or stored."""
     actor = require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     cfg = load(CONFIG_FILE)
     pc = proxmox_client.config_from(cfg)
     if not (pc['enabled'] and proxmox_client.is_configured(pc)):
@@ -24520,7 +24570,7 @@ def handle_proxmox_qemu_create_options() -> None:
 def handle_proxmox_qemu_create() -> None:
     """POST /api/proxmox/qemu/create — create a QEMU VM. Admin-only, audited."""
     actor = require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     cfg = load(CONFIG_FILE)
     pc = proxmox_client.config_from(cfg)
     if not (pc['enabled'] and proxmox_client.is_configured(pc)):
@@ -24641,7 +24691,7 @@ def handle_proxmox_backup_threshold() -> None:
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     try:
-        days = int((get_json_body() or {}).get('days'))
+        days = int((get_json_obj()).get('days'))
     except (TypeError, ValueError):
         respond(400, {'error': 'days must be an integer'})
     if not (1 <= days <= 365):
@@ -24664,7 +24714,7 @@ def handle_proxmox_snapshot_action() -> None:
     The action set is validated here regardless.
     """
     require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     guest_type = body.get('type')
     action = body.get('action')
     name = (body.get('name') or '').strip()
@@ -25104,7 +25154,7 @@ def handle_tls_internal_webhook() -> None:
     hdr    = _env('HTTP_X_REMOTEPOWER_INTERNAL', '')
     if remote not in ('127.0.0.1', '::1') or not hdr:
         respond(403, {'error': 'forbidden'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     host     = _sanitize_str(body.get('host', ''), 253)
     port     = int(body.get('port', 443)) if str(body.get('port', 443)).isdigit() else 443
     days_left= body.get('days_left', 0)
@@ -25479,7 +25529,7 @@ def handle_dmarc_imap_save() -> None:
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     host = _no_ctrl(_sanitize_str(body.get('host', ''), 255)).strip()
     try:
         port = int(body.get('port') or 993)
@@ -28329,7 +28379,7 @@ def handle_ai_rag_index_migrate():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     target = str(body.get('target', '')).strip()
     if target not in ('json', 'postgres'):
         respond(400, {'error': "target must be 'json' or 'postgres'"})
@@ -28702,7 +28752,7 @@ def handle_device_netscan(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     subnet = str(body.get('subnet', '')).strip()
     cmd = 'netscan'
     if subnet:
@@ -28815,7 +28865,7 @@ def handle_device_quarantine(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     on = bool(body.get('quarantined', False))
     with _LockedUpdate(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -28884,7 +28934,7 @@ def handle_device_runbook(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     trigger = str(body.get('trigger', '')).strip()
     if not trigger:
         respond(400, {'error': 'trigger is required'})
@@ -28942,7 +28992,7 @@ def handle_ai_cron():
     actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     desc = str(body.get('description', '')).strip()
     if not desc:
         respond(400, {'error': 'description is required'})
@@ -29732,7 +29782,7 @@ def handle_mailwatch_set(dev_id):
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'})
         return
-    body = get_json_body() or {}
+    body = get_json_obj()
     raw_paths = body.get('paths')
     if not isinstance(raw_paths, list):
         respond(400, {'error': 'paths must be a list'})
@@ -29949,7 +29999,7 @@ def handle_av_scan(dev_id):
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
     actor = require_perm('command', [dev_id])
-    tool = str((get_json_body() or {}).get('tool', 'clamav')).strip().lower()
+    tool = str((get_json_obj()).get('tool', 'clamav')).strip().lower()
     if tool == 'clamav':
         cmd = ('which freshclam >/dev/null 2>&1 && freshclam >/dev/null 2>&1; '
                'clamscan -r -i /home /etc /usr/local /tmp 2>&1 | tail -n 60')
@@ -31620,7 +31670,7 @@ def handle_checks_toggle():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
     chk = _sanitize_str(str(body.get('check', '')), 128).strip()
     enabled = bool(body.get('enabled'))
@@ -31728,7 +31778,7 @@ def handle_custom_checks_save():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     ctype = body.get('type')
     if ctype not in CUSTOM_CHECK_TYPES:
         respond(400, {'error': f'type must be one of {", ".join(CUSTOM_CHECK_TYPES)}'})
@@ -31801,7 +31851,7 @@ def handle_custom_checks_delete():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    cid = _sanitize_str(str((get_json_body() or {}).get('id', '')), 64).strip()
+    cid = _sanitize_str(str((get_json_obj()).get('id', '')), 64).strip()
     if not cid:
         respond(400, {'error': 'id is required'})
     with _LockedUpdate(CONFIG_FILE) as cfg:
@@ -33871,7 +33921,7 @@ def handle_dashboard_kinds_set():
     their existing value (read-modify-write semantics, but a single POST
     can replace a whole row by sending all 4 channels)."""
     require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     incoming = body.get('channel_routing') or body
     if not isinstance(incoming, dict):
         respond(400, {'error': 'channel_routing must be a dict'})
@@ -34206,7 +34256,7 @@ def handle_status_token():
     """POST /api/status-token — generate (or rotate) the status token.
     Body {"enabled": false} clears it, disabling the status endpoint."""
     require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     with _LockedUpdate(CONFIG_FILE) as cfg:
         if body.get('enabled') is False:
             cfg.pop('status_token', None)
@@ -34506,8 +34556,8 @@ def handle_drift_profiles():
                       'assignments': drift_cfg.get('assignments') or []})
     if m == 'POST':
         actor = require_admin_auth()
-        body = get_json_body()
-        name = _sanitize_str((body or {}).get('name', ''), 80).strip()
+        body = get_json_obj()   # coerce non-dict body → {} (a JSON array must not 500)
+        name = _sanitize_str(body.get('name', ''), 80).strip()
         if not name:
             respond(400, {'error': 'name is required'})
         files = _validate_drift_files((body or {}).get('files'))
@@ -34534,7 +34584,7 @@ def handle_drift_profile_edit(pid):
     actor = require_admin_auth()
     m = method()
     if m == 'PUT':
-        body = get_json_body() or {}
+        body = get_json_obj()
         with _LockedUpdate(CONFIG_FILE) as cfg:
             dr = cfg.setdefault('drift', {})
             profs = dr.setdefault('profiles', [])
@@ -34576,7 +34626,7 @@ def handle_drift_assign():
     Body: {scope_type: device|tag|group, scope_value, profile_id|null}. A null
     profile_id clears the assignment for that scope."""
     actor = require_admin_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     st = _sanitize_str(body.get('scope_type', ''), 16)
     sv = _sanitize_str(body.get('scope_value', ''), 128).strip()
     pid = body.get('profile_id')
@@ -34815,7 +34865,7 @@ def handle_drift_ignore(dev_id):
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'})
         return
-    body = get_json_body() or {}
+    body = get_json_obj()
     path = (body.get('path') or '').strip()
     if not path:
         respond(400, {'error': 'path is required'})
@@ -34866,7 +34916,7 @@ def handle_device_drift_baseline(dev_id):
     actor = require_perm('mitigate', [dev_id])
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     target_paths = body.get('paths')
     target_all = bool(body.get('all'))
 
@@ -34996,7 +35046,7 @@ def handle_drift_fetch_content(dev_id):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     paths = body.get('paths') or []
     if not isinstance(paths, list):
         respond(400, {'error': 'paths must be a list'})
@@ -35227,7 +35277,7 @@ def handle_satellites_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     name = _sanitize_str(body.get('name', ''), 64)
     if not name:
         respond(400, {'error': 'name required'})
@@ -35254,7 +35304,7 @@ def handle_satellites_update(sid):
     if method() != 'PATCH':
         respond(405, {'error': 'Method not allowed'})
     sid = _sanitize_str(sid, 32)
-    scanner = bool((get_json_body() or {}).get('scanner'))
+    scanner = bool((get_json_obj()).get('scanner'))
     found = False
     with _LockedUpdate(SATELLITES_FILE) as sats:
         if sid in sats and isinstance(sats[sid], dict):
@@ -35427,7 +35477,7 @@ def handle_scans_create():
     The target string is never taken from raw client input."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
     st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
     # Profile + tool first — the allowed tool set is profile-dependent.
@@ -35754,7 +35804,7 @@ def handle_scan_results(scan_id):
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     sid_sat = require_satellite_scanner()
-    body = get_json_body() or {}
+    body = get_json_obj()
     raw = body.get('findings')
     if raw is not None and not isinstance(raw, list):
         respond(400, {'error': 'findings must be a list'})
@@ -35862,7 +35912,7 @@ def handle_scan_targets_create():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    raw = _sanitize_str(str((get_json_body() or {}).get('target', '')), 253)
+    raw = _sanitize_str(str((get_json_obj()).get('target', '')), 253)
     kind, target = _classify_scan_target(raw)
     if not kind:
         respond(400, {'error': 'target must be a valid domain or IP address'})
@@ -36111,7 +36161,7 @@ def handle_scan_schedules_create():
     tool/profile/intensity options as a one-off scan; active needs attestation."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
     st_id  = _sanitize_str(str(body.get('scan_target_id', '')), 64)
     tool = _sanitize_str(str(body.get('tool', 'nuclei')), 32) or 'nuclei'
@@ -37668,7 +37718,7 @@ def handle_compliance_remediate():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     dev_id = _sanitize_str(str(body.get('device_id', '')), 64)
     check_id = _sanitize_str(str(body.get('check_id', '')), 40)
     devices = load(DEVICES_FILE) or {}
@@ -39245,7 +39295,7 @@ def handle_webauthn_register_complete():
     wa = _webauthn_guard()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     name = _sanitize_str(str(body.get('name', 'passkey')), 64) or 'passkey'
     challenge = _webauthn_take_challenge(user, 'reg')
     if not challenge:
@@ -39303,7 +39353,7 @@ def handle_webauthn_login_begin():
     if not _ip_ratelimit('login', _get_client_ip(), 20, window=60):
         time.sleep(0.5)
         respond(429, {'error': 'Too many attempts — wait a minute'})
-    username = _sanitize_str(str((get_json_body() or {}).get('username', '')), 64)
+    username = _sanitize_str(str((get_json_obj()).get('username', '')), 64)
     creds = ((load(USERS_FILE) or {}).get(username) or {}).get('webauthn_credentials') or []
     rp_id, _ = _webauthn_rp()
     # Anti-enumeration: unknown users / users without passkeys get a normal-
@@ -39324,7 +39374,7 @@ def handle_webauthn_login_complete():
     if not _ip_ratelimit('login', _get_client_ip(), 20, window=60):
         time.sleep(0.5)
         respond(429, {'error': 'Too many attempts — wait a minute'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     username = _sanitize_str(str(body.get('username', '')), 64)
     cred = body.get('credential') or {}
     challenge = _webauthn_take_challenge(username, 'auth')
@@ -39566,7 +39616,7 @@ def handle_audit_log_clear():
     if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
     # v4.2.0 (A2): gate the wipe behind an admin-password re-prompt, and write an
     # immutable pre-wipe archive so a clear can never silently destroy evidence.
-    pw = str((get_json_body() or {}).get('password', ''))
+    pw = str((get_json_obj()).get('password', ''))
     u = (load(USERS_FILE) or {}).get(actor) or {}
     stored = u.get('password_hash', '') or ''
     # v4.8.0: report the precise reason instead of a single ambiguous
@@ -40018,7 +40068,7 @@ def handle_alert_ack(alert_id):
     default. When viewers_can_ack_alerts is False this requires admin."""
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     acked_alert = None
@@ -40154,7 +40204,7 @@ def handle_alert_resolve(alert_id):
     """POST /api/alerts/<id>/resolve — manual close (auto-resolve runs via recover events)."""
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     try:
@@ -40323,7 +40373,7 @@ def handle_alerts_bulk_resolve():
     """
     user = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     ids = body.get('ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'ids list required'})
@@ -40358,7 +40408,7 @@ def handle_alerts_bulk_ack():
     the #56 note flow through identically to a single ack)."""
     user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     ids = body.get('ids') or []
     if not isinstance(ids, list) or not ids:
         respond(400, {'error': 'ids list required'})
@@ -40631,6 +40681,38 @@ def handle_nav_counts():
     except Exception:
         pass
     out = {'fleet': offline, 'monitoring': down, 'security': crit}
+    # v5.6.0: RemotePower's OWN control-plane health for the top-bar pill —
+    # storage reachable + config loads + disk headroom on the data dir. This is
+    # deliberately distinct from the fleet vitals above: the pill is green unless
+    # the SERVER itself is unhealthy, not when a monitored device has an alert.
+    # Cheap (one statvfs); returns only check names, no fleet or sensitive data.
+    try:
+        _sh_fail = []
+        try:
+            _sh_cfg = load(CONFIG_FILE)
+            if not isinstance(_sh_cfg, dict):
+                _sh_fail.append('Config')
+                _sh_cfg = {}
+        except Exception:
+            _sh_fail.append('Storage')
+            _sh_cfg = {}
+        try:
+            _st = os.statvfs(str(DATA_DIR))
+            _tot = _st.f_blocks * _st.f_frsize
+            _free = _st.f_bavail * _st.f_frsize
+            _used = (1 - _free / _tot) * 100 if _tot else 0
+            try:
+                _thr = int(_sh_cfg.get('disk_watchdog_pct', 85))
+            except (TypeError, ValueError):
+                _thr = 85
+            if _thr > 0 and _used >= _thr:
+                _sh_fail.append('Disk space')
+        except Exception:
+            _sh_fail.append('Disk space')
+        out['site_health'] = {'healthy': not _sh_fail,
+                              'issues': len(_sh_fail), 'failing': _sh_fail}
+    except Exception:
+        pass
     try:
         out['alerts'] = _alerts_summary((load(ALERTS_FILE) or {}).get('alerts', []))
     except Exception:
@@ -40954,7 +41036,7 @@ def handle_inbound_webhook(token_str):
                      '400', f'wrong url for {match.get("kind")} token')
         respond(400, {'error': f'this token is a {match.get("kind")} token — use the corresponding URL'})
 
-    body = get_json_body() or {}
+    body = get_json_obj()
     if not isinstance(body, dict):
         _log_inbound('alert', match.get('id'), match.get('label'),
                      '400', 'body must be JSON object')
@@ -41083,7 +41165,7 @@ def handle_inbound_webhooks_create():
     """
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     label = _sanitize_str(body.get('label', ''), 64)
     if not label:
         respond(400, {'error': 'label required'})
@@ -41148,7 +41230,7 @@ def handle_inbound_webhook_toggle(token_id):
     """
     actor = require_admin_auth()
     if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     found = False
     changes = []
     try:
@@ -41333,7 +41415,7 @@ def handle_syslog_in(token_str):
     raw_lines = []
     content_type = (_env('CONTENT_TYPE', '') or '').lower()
     if 'json' in content_type:
-        body = get_json_body() or {}
+        body = get_json_body()   # accepts EITHER {lines:[...]} OR a bare JSON array of lines
         if isinstance(body, dict) and isinstance(body.get('lines'), list):
             raw_lines = [str(x) for x in body['lines'][:_SYSLOG_MAX_LINES_PER_POST]]
         elif isinstance(body, list):
@@ -41444,7 +41526,7 @@ def handle_snmp_trap_in(token_str):
         _log_inbound('snmp_trap', match.get('id'), match.get('label'), '404', 'target device deleted')
         respond(404, {'error': 'token target device no longer exists'})
 
-    body = get_json_body() or {}
+    body = get_json_body()   # accepts {traps:[...]}, a single trap dict, OR a bare JSON array
     raw = []
     if isinstance(body, dict) and isinstance(body.get('traps'), list):
         raw = body['traps'][:50]
@@ -41739,7 +41821,7 @@ def _mcp_handle(action, destructive):
     """
     user = require_mcp_action(action)
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     device_id = (body.get('device_id') or '').strip()
     if not device_id or not _validate_id(device_id):
         respond(400, {'error': 'valid device_id required'})
@@ -41883,7 +41965,7 @@ def handle_confirmation_reject(conf_id):
     """POST /api/confirmations/<id>/reject — admin declines the action."""
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
     with _LockedUpdate(CONFIRMATIONS_FILE) as store:
@@ -43317,7 +43399,7 @@ def handle_device_routeros(dev_id):
         respond(200, resp)
     elif m == 'PATCH':
         actor = require_admin_auth()
-        body = get_json_body() or {}
+        body = get_json_obj()
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             rc = dict(dev.get('routeros') or {})
@@ -43419,7 +43501,7 @@ def handle_device_routeros_action(dev_id):
     tgt = _routeros_target(dev)
     if not tgt:
         respond(403, {'error': 'RouterOS not enabled/configured on this device'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     act = _sanitize_str(body.get('action', ''), 32)
     arg = _sanitize_str(str(body.get('arg', '')), 128) or None
     host, user, password, verify = tgt
@@ -43544,7 +43626,7 @@ def handle_device_opnsense(dev_id):
         respond(200, resp)
     elif m == 'PATCH':
         actor = require_admin_auth()
-        body = get_json_body() or {}
+        body = get_json_obj()
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             oc = dict(dev.get('opnsense') or {})
@@ -43609,7 +43691,7 @@ def handle_device_opnsense_action(dev_id):
     tgt = _opnsense_target(dev)
     if not tgt:
         respond(403, {'error': 'OPNsense not enabled/configured on this device'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     act = _sanitize_str(body.get('action', ''), 32)
     arg = _sanitize_str(str(body.get('arg', '')), 64) or None
     host, key, secret, verify = tgt
@@ -43681,7 +43763,7 @@ def handle_device_ssh(dev_id):
         respond(200, {'config': _ssh_redacted(devs[dev_id])})
     elif m == 'PATCH':
         actor = require_admin_auth()
-        body = get_json_body() or {}
+        body = get_json_obj()
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             sc = dict(dev.get('ssh') or {})
@@ -43773,7 +43855,7 @@ def handle_device_snmp(dev_id):
         respond(200, {'config': redacted_cfg, 'data': data, 'traps': traps[-50:][::-1]})
     elif m == 'PATCH':
         actor = require_admin_auth()
-        body = get_json_body() or {}
+        body = get_json_obj()
         if 'community' in body:
             c = str(body['community'])
             if any(ws in c for ws in (' ', '\t', '\n', '\r')):
@@ -43941,7 +44023,7 @@ def handle_webhook_test():
     """
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     target_id = (body.get('id') or '').strip() or None
     cfg = load(CONFIG_FILE)
     legacy_url = cfg.get('webhook_url', '').strip()
@@ -44317,7 +44399,7 @@ def handle_webhook_dlq_retry():
     their attempt count bumped."""
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     want_all = bool(body.get('all'))
     one_id = str(body.get('id', '')).strip()
     if not want_all and not one_id:
@@ -44368,7 +44450,7 @@ def handle_webhook_replay():
     it routes exactly as a fresh event would)."""
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     ev = str(body.get('event', '')).strip()
     try:
         ts = int(body.get('ts', 0))
@@ -44399,7 +44481,7 @@ def handle_smtp_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body() if _env('CONTENT_LENGTH', '0') != '0' else {}
+    body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE)
     override_recipient = _sanitize_str(body.get('recipient', ''), 320)
 
@@ -44450,7 +44532,7 @@ def handle_ldap_test():
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
 
-    body = get_json_body() if _env('CONTENT_LENGTH', '0') != '0' else {}
+    body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     cfg = load(CONFIG_FILE)
 
     # Allow body to override config for "try before save" UX
@@ -44827,7 +44909,7 @@ def handle_exposure_mute():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     action = body.get('action', 'add')
     if action not in ('add', 'remove'):
         respond(400, {'error': "action must be 'add' or 'remove'"}); return
@@ -45183,7 +45265,7 @@ def handle_secrets_mute():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     fp = _sanitize_str(str(body.get('fingerprint', '')), 32).strip()
     if not fp:
         respond(400, {'error': 'fingerprint required'})
@@ -45208,7 +45290,7 @@ def handle_secrets_host_mute():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     did = _sanitize_str(str(body.get('device_id', '')), 64).strip()
     if not did:
         respond(400, {'error': 'device_id required'})
@@ -45641,7 +45723,7 @@ def handle_cve_scan():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() if _env('CONTENT_LENGTH', '0') != '0' else {}
+    body = get_json_obj() if _env('CONTENT_LENGTH', '0') != '0' else {}
     target = body.get('device_id')
     if target is not None:
         target = str(target).strip()
@@ -46470,7 +46552,7 @@ def handle_metrics_push_set():
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     enabled = bool(body.get('enabled'))
     url = _sanitize_str(str(body.get('url', '')).strip(), 512)
     if enabled and not url:
@@ -46702,7 +46784,7 @@ def handle_gitops_set():
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     enabled = bool(body.get('enabled'))
     url = _sanitize_str(str(body.get('url', '')).strip(), 512)
     if enabled and not url:
@@ -50678,12 +50760,12 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
     # be revealed once a SECOND admin has approved a pending request. The first
     # reveal opens the request (and notifies via webhook); the reveal that
     # carries an approved, fresh, non-self request_id returns the plaintext.
-    bg_body = get_json_body() if method() == 'POST' else {}  # stdin reads once
-    bg_req_id = str((bg_body or {}).get('request_id', '')).strip()
+    bg_body = get_json_obj() if method() == 'POST' else {}  # coerce non-dict → {} (stdin reads once)
+    bg_req_id = str(bg_body.get('request_id', '')).strip()
     if cred.get('break_glass'):
         if not bg_req_id:
             new_req = _breakglass_open(actor, dev_id, cred_id, cred.get('label', ''),
-                                       str((bg_body or {}).get('reason', ''))[:200])
+                                       str(bg_body.get('reason', ''))[:200])
             respond(202, {'break_glass': True, 'pending': True,
                           'request_id': new_req,
                           'message': 'Break-glass credential — a second admin must '
@@ -53498,7 +53580,7 @@ def handle_host_config_collect_all():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     target = body.get('target') or {'type': 'all', 'value': ''}
     targets = _autopatch_target_devices(target)   # resolves type/value, skips quarantined
     devices = load(DEVICES_FILE) or {}
@@ -53585,7 +53667,7 @@ def handle_debug_log_post():
     and append them to the server debug.log so we have a single timeline
     of UI events + server activity for diagnosing issues like this one."""
     require_auth()
-    body = get_json_body() or {}
+    body = get_json_obj()
     entries = body.get('entries') or []
     if not isinstance(entries, list):
         respond(400, {'error': 'entries must be a list'})
@@ -53657,7 +53739,7 @@ def handle_iac_request():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
         return
-    body = get_json_body() or {}
+    body = get_json_obj()
     dev_id     = str(body.get('device_id', '')).strip()
     categories = body.get('categories') or []
 
@@ -53848,7 +53930,7 @@ def handle_iac_generate():
     require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(body.get('request_id', '')))[:64]
     fmt = str(body.get('output_format', '')).strip()
     user_instructions = _sanitize_str(str(body.get('user_instructions', '') or ''), 2000)
@@ -54124,7 +54206,7 @@ def handle_ai_prompts_save():
     require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     key  = str(body.get('key', '')).strip()
     text = body.get('text', '')
     if key not in ai_provider.SYSTEM_PROMPTS:
@@ -54215,7 +54297,7 @@ def handle_ignored_add():
     require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     cat  = str(body.get('category', '')).strip()
     if cat not in ('needs_attention', 'stale_containers', 'devices'):
         respond(400, {'error': 'invalid category'}); return
@@ -54295,7 +54377,7 @@ def handle_ignored_remove():
     require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     cat  = str(body.get('category', '')).strip()
     if cat not in ('needs_attention', 'stale_containers', 'devices'):
         respond(400, {'error': 'invalid category'}); return
@@ -54412,7 +54494,7 @@ def handle_ai_params_save():
     require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     key  = str(body.get('key', '')).strip()
     if key not in _AI_PROMPT_LABELS:
         respond(400, {'error': f'unknown prompt key: {key}'}); return
@@ -54755,7 +54837,7 @@ def handle_acme_dns_credentials_set():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body() or {}
+    body = get_json_obj()
     provider = str(body.get('provider', '')).strip()
     if provider not in ACME_DNS_CREDENTIAL_FIELDS:
         respond(400, {'error': f'unknown provider {provider!r}'})
@@ -55549,7 +55631,7 @@ def handle_acme_issue(dev_id):
         respond(405, {'error': 'Method not allowed'}); return
     if not _validate_id(dev_id):
         respond(400, {'error': 'invalid device id'}); return
-    body = get_json_body() or {}
+    body = get_json_obj()
     domain = (body.get('domain') or '').strip().lower()
     if not _acme_validate_domain(domain):
         respond(400, {'error': 'invalid primary domain'}); return
@@ -56179,7 +56261,7 @@ def handle_mitigate_investigate(dev_id):
     # handle_custom_cmd. Blocks read-only roles (viewer/mcp lack 'exec') and
     # any custom role whose scope doesn't include this device.
     require_perm('mitigate', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)
     diag, _fix, _prompt, _dest = _mitigate_build_command(kind, target)
@@ -56203,7 +56285,7 @@ def handle_mitigate_fix(dev_id):
     # handle_custom_cmd. Blocks read-only roles (viewer/mcp lack 'exec') and
     # any custom role whose scope doesn't include this device.
     require_perm('mitigate', [dev_id])
-    body = get_json_body() or {}
+    body = get_json_obj()
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)
     cmd = str(body.get('command', '')).strip()

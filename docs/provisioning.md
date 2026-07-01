@@ -1,6 +1,6 @@
 # Provisioning — infrastructure blueprints
 
-*(v5.6.0 "ProvisionMatters")*
+*(v5.6.0 "HeapMatters")*
 
 **Provisioning** (Admin → Provisioning) is an opt-in catalog of infrastructure
 **blueprints** organised in a folder tree: Terraform, cloud-init, Ansible and

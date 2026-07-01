@@ -1,6 +1,6 @@
 # Alert tuning & per-host mute
 
-*(v5.6.0 "ProvisionMatters")*
+*(v5.6.0 "HeapMatters")*
 
 Noisy, expected alerts drown the real signal. Two features address that:
 

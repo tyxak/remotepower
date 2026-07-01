@@ -2,7 +2,7 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v5.6.0 — "ProvisionMatters" — unreleased (test)
+## v5.6.0 — "HeapMatters" — unreleased (test)
 
 The IaC / automation + alert-tuning release. Everything new is opt-in,
 **default-off — no breaking changes.**

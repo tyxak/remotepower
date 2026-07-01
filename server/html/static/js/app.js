@@ -1205,7 +1205,7 @@ const _SIDEBAR_KW = {
   'cmdb': 'configuration management database vault secrets assets documentation notes',
   'agent containers': 'docker containers compose images podman',
   'proxmox lxc': 'proxmox lxc virtualization containers',
-  'virtualization': 'vm virtual machines proxmox qemu kvm',
+  'virtualization': 'vm virtual machines proxmox qemu kvm vsphere vcenter esxi vmware openshift kubevirt vcloud cloud director hypervisor snapshot power',
   'network': 'network map topology dependency lan discovery',
   'query': 'fleet query filter search devices ad-hoc',
   'targets': 'monitor probes http ping healthcheck synthetic agentless reachability snmp',
@@ -12155,6 +12155,7 @@ async function refreshNavCounts() {
     _paintConfirmationsBadge(
       typeof c.confirmations_pending === 'number' ? c.confirmations_pending : null);
     _paintVitals(c);
+    _paintSiteHealth(c.site_health);   // v5.6.0: RP's own control-plane health
     // v5.0.0 (T6): Status Board nav badge = offline-host count (red when > 0).
     { const bb = document.getElementById('board-badge');
       if (bb) {
@@ -14726,32 +14727,36 @@ function _paintVitals(c) {
     + `<span class="vital${openAlerts ? ' bad' : ''}" title="Open alerts">${_icon('alertTriangle', 12)}<b>${openAlerts}</b> alerts</span>`
     + `<span class="vitals-sep"></span>`
     + `<span class="vital${down ? ' bad' : ''}" title="Monitors currently down">${_icon('activity', 12)}<b>${down}</b> down</span>`;
-  _paintSiteHealth(offline, openAlerts, down);
+  // The site-health pill is RemotePower's OWN control-plane health (c.site_health),
+  // painted from refreshNavCounts — NOT the fleet vitals above.
 }
 
-// v5.6.0: top-bar site-health rollup. Green "Healthy" when nothing needs
-// attention; red "N issue(s)" — the sum of offline devices, open alerts and
-// monitors down — otherwise. Same data as the vitals readout, one glance.
-function _paintSiteHealth(offline, openAlerts, down) {
+// v5.6.0: top-bar pill = RemotePower's OWN control-plane health (its own
+// self-checks: storage reachable, config loads, disk headroom), NOT the fleet.
+// Green "Healthy" unless the SERVER itself has a failing self-check. Fed by
+// c.site_health from /nav-counts.
+function _paintSiteHealth(sh) {
   const hp = document.getElementById('site-health');
   if (!hp) return;
-  const issues = (offline || 0) + (openAlerts || 0) + (down || 0);
-  if (issues > 0) {
+  const failing = (sh && Array.isArray(sh.failing)) ? sh.failing : [];
+  const healthy = sh ? (sh.healthy !== false && failing.length === 0) : true;
+  if (!healthy) {
+    const n = failing.length || 1;
     hp.className = 'site-health bad';
-    hp.innerHTML = `${_icon('alertTriangle', 13)}<b>${issues}</b> ${issues === 1 ? 'issue' : 'issues'}`;
-    hp.title = `Site unhealthy — ${offline || 0} offline, ${openAlerts || 0} open alert${openAlerts === 1 ? '' : 's'}, ${down || 0} monitor${down === 1 ? '' : 's'} down. Click to view.`;
+    hp.innerHTML = `${_icon('alertTriangle', 13)}<b>${n}</b> ${n === 1 ? 'issue' : 'issues'}`;
+    hp.title = `RemotePower control plane unhealthy — ${failing.join(', ') || 'self-check failing'}. Click for the self-test.`;
   } else {
     hp.className = 'site-health ok';
     hp.innerHTML = `${_icon('shield', 13)}Healthy`;
-    hp.title = 'Site healthy — no offline devices, open alerts or monitors down.';
+    hp.title = 'RemotePower control plane healthy — storage, config and disk headroom all OK.';
   }
 }
 
-// Click the site-health pill → Alerts when unhealthy, Home otherwise.
+// Click the site-health pill → the "Self" page (RemotePower watching itself:
+// self-test / disk / audit / backups), falling back to Home.
 function gotoSiteHealth() {
-  const hp = document.getElementById('site-health');
-  const page = (hp && hp.classList.contains('bad')) ? 'alerts' : 'home';
-  showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
+  const target = document.querySelector('.nav-btn[data-page="self"]') ? 'self' : 'home';
+  showPage(target, document.querySelector('.nav-btn[data-page="' + target + '"]') || undefined);
 }
 
 // ── v5.0.0 (T6): compact-density toggle — persisted, restored on load ────────

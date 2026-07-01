@@ -550,20 +550,27 @@ def _openshift(inst, c):
     not_ready = []
     for n in (nodes or {}).get("items", []):
         ready = next(
-            (cd for cd in (n.get("status", {}).get("conditions") or [])
-             if cd.get("type") == "Ready"), None)
+            (
+                cd
+                for cd in (n.get("status", {}).get("conditions") or [])
+                if cd.get("type") == "Ready"
+            ),
+            None,
+        )
         if not ready or ready.get("status") != "True":
             not_ready.append(n.get("metadata", {}).get("name", "?"))
     projects = 0
     try:
-        projects = len((c.get_json("/apis/project.openshift.io/v1/projects", headers=h)
-                        or {}).get("items", []))
+        projects = len(
+            (c.get_json("/apis/project.openshift.io/v1/projects", headers=h) or {}).get("items", [])
+        )
     except IntegrationError:
         pass
     status = CRIT if not_ready else OK
     n_nodes = len((nodes or {}).get("items", []))
     detail = f"{n_nodes} nodes, {projects} projects" + (
-        f" · NotReady: {', '.join(not_ready[:3])}" if not_ready else "")
+        f" · NotReady: {', '.join(not_ready[:3])}" if not_ready else ""
+    )
     return {
         "status": status,
         "detail": detail,
@@ -588,15 +595,16 @@ def _vcloud(inst, c):
                 return v
         return None
 
-    auth = base64.b64encode(
-        f"{inst.get('username','')}:{inst.get('secret','')}".encode()).decode()
+    auth = base64.b64encode(f"{inst.get('username','')}:{inst.get('secret','')}".encode()).decode()
     accept = "application/*+json;version=37.0"
-    sess = c.request("POST", "/api/sessions",
-                     headers={"Authorization": "Basic " + auth, "Accept": accept})
+    sess = c.request(
+        "POST", "/api/sessions", headers={"Authorization": "Basic " + auth, "Accept": accept}
+    )
     if not sess.ok:
         raise IntegrationError(f"session failed (HTTP {sess.status})")
-    token = _hget(sess.headers, "x-vmware-vcloud-access-token") or \
-        _hget(sess.headers, "x-vcloud-authorization")
+    token = _hget(sess.headers, "x-vmware-vcloud-access-token") or _hget(
+        sess.headers, "x-vcloud-authorization"
+    )
     if not token:
         raise IntegrationError("no vCloud session token returned")
     h = {"x-vcloud-authorization": token, "Accept": accept}

@@ -1,6 +1,6 @@
 # Knowledge base — IT documentation
 
-*(v5.6.0 "ProvisionMatters")*
+*(v5.6.0 "HeapMatters")*
 
 The **Knowledge base** (Admin → Knowledge base) is an opt-in store of
 operator-authored documentation: standard operating procedures, how-tos and

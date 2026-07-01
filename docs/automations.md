@@ -1,6 +1,6 @@
 # Automation rules
 
-*(engine v3.4.2; actions extended in v5.6.0 "ProvisionMatters")*
+*(engine v3.4.2; actions extended in v5.6.0 "HeapMatters")*
 
 The **Automation** page (Settings → Automation) runs **event-driven rules**:
 *when an event fires on a matching device, run one or more actions.* Rules are

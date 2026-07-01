@@ -76,8 +76,10 @@ class TestFleetEventsNotSuppressed(unittest.TestCase):
         body = _SRC[_SRC.index('def fire_webhook'):
                     _SRC.index('def fire_webhook') + 6000]
         self.assertIn('_record_fleet_event(event, payload)', body)
+        # v5.6.0: the mute is computed once into `_muted` and the delivery gate is
+        # `if _muted: return`; fleet_events must still be recorded before it.
         self.assertLess(body.index('_record_fleet_event(event, payload)'),
-                        body.index('if _alert_muted(event, payload)'),
+                        body.index('if _muted:'),
                         'fleet_events must be recorded before delivery is muted')
 
 

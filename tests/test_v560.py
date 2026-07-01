@@ -1,4 +1,4 @@
-"""Strict version-surface pins for v5.6.0 "ProvisionMatters" — the IaC /
+"""Strict version-surface pins for v5.6.0 "HeapMatters" — the IaC /
 automation + alert-tuning release (Provisioning blueprint catalog + server-side
 Terraform exec, Monitoring → Tuning with per-host alert mute, timesheet watchers).
 
@@ -57,17 +57,17 @@ class TestVersionBumps(unittest.TestCase):
         self.assertTrue((_ROOT / f"docs/v{self.V}.md").exists())
 
     def test_doc_set_keeps_five_versions(self):
-        vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v*.md"))
+        vdocs = sorted(p.name for p in (_ROOT / "docs").glob("v[0-9]*.md"))
         self.assertEqual(len(vdocs), 5, f"expected exactly 5 version docs, got {vdocs}")
 
     def test_whats_new_card_present(self):
         self.assertIn(f"What's new — v{self.V}", _html())
 
     def test_changelog_codename(self):
-        self.assertIn('## v5.6.0 — "ProvisionMatters"', (_ROOT / "CHANGELOG.md").read_text())
+        self.assertIn('## v5.6.0 — "HeapMatters"', (_ROOT / "CHANGELOG.md").read_text())
 
 
-class TestProvisionMattersWiring(unittest.TestCase):
+class TestHeapMattersWiring(unittest.TestCase):
     """The opt-in surfaces that ship with this version."""
 
     def test_provisioning_handlers(self):
