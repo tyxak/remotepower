@@ -5807,7 +5807,15 @@ body[data-ui="industrial"] .login-card {
    the row's remaining items (action button / count badge) to the right so the
    row doesn't reflow left. ── */
 body[data-ui="industrial"] .dash-card,
-body[data-ui="industrial"] .settings-section { position:relative; }
+body[data-ui="industrial"] .settings-section {
+  position:relative;
+  /* Room for the tab that dips ~12px into the card. Applied UNCONDITIONALLY (not
+     via :has) so the layout is robust in every browser: an engine that lacks
+     :has() support would previously render the tab (a plain child selector) but
+     DROP the :has padding rule → the tab sat over the toolbar. A little extra
+     top space on the few title-less cards is harmless. */
+  padding-top:26px;
+}
 
 /* the tab itself — every title-element variant */
 body[data-ui="industrial"] .dash-card > h3:first-child,
@@ -5862,17 +5870,8 @@ body[data-ui="industrial"] .settings-section > div:first-child:has(> h3:first-ch
 body[data-ui="industrial"] .settings-section > div:first-child:has(> .section-title:first-child) {
   justify-content:flex-end; min-height:20px;
 }
-/* make room for the tab on any card that grew one */
-body[data-ui="industrial"] .dash-card:has(> h3:first-child),
-body[data-ui="industrial"] .dash-card:has(> .section-title:first-child),
-body[data-ui="industrial"] .dash-card:has(> div:first-child > h3:first-child),
-body[data-ui="industrial"] .dash-card:has(> div:first-child > .section-title:first-child),
-body[data-ui="industrial"] .settings-section:has(> h3:first-child),
-body[data-ui="industrial"] .settings-section:has(> .section-title:first-child),
-body[data-ui="industrial"] .settings-section:has(> div:first-child > h3:first-child),
-body[data-ui="industrial"] .settings-section:has(> div:first-child > .section-title:first-child) {
-  padding-top:26px;
-}
+/* (room for the tab is reserved unconditionally at the top of this block, so no
+   :has() padding rule is needed here — that was the fragile part.) */
 /* hide the top-left corner tick on any tabbed dash-card (it would poke out from
    under the tab); keep the bottom-right pair + the card gradient */
 body[data-ui="industrial"] .dash-card:has(> h3:first-child),
