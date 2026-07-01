@@ -82,13 +82,14 @@ class TestColdToEntityMigration(unittest.TestCase):
         self.assertEqual(storage.load(d / "cmds.json"),
                          {"d1": ["reboot"], "d2": ["update"]})
         self.assertEqual(storage.entity_get(d / "uptime.json", "d1")["name"], "d1")
-        # kv blobs consumed, version stamped 3
+        # kv blobs consumed, version stamped to the current schema (v5.6.0: 4)
         c = sqlite3.connect(str(storage.db_path(d)))
         self.assertEqual(c.execute(
             "SELECT count(*) FROM kv WHERE path IN ('containers.json','cmds.json','uptime.json')"
         ).fetchone()[0], 0)
         self.assertEqual(c.execute(
-            "SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0], "3")
+            "SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0],
+            str(storage.SCHEMA_VERSION))
         c.close()
         storage.close_connection()
 
