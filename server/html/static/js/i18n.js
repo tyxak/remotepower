@@ -270,6 +270,11 @@
     // ── section titles (.section-title) — coverage gate: test_v430_i18n_gate ──
     'Security posture':            { zh: '安全态势', hi: 'सुरक्षा स्थिति', es: 'Estado de seguridad', ar: 'وضع الأمان' },
     'Verified web targets':        { zh: '已验证的 Web 目标', hi: 'सत्यापित वेब लक्ष्य', es: 'Objetivos web verificados', ar: 'أهداف الويب المُتحقَّق منها' },
+    'Alert inbox':                 { zh: '告警收件箱', hi: 'अलर्ट इनबॉक्स', es: 'Bandeja de alertas', ar: 'صندوق التنبيهات' },
+    'Assets':                      { zh: '资产', hi: 'एसेट', es: 'Activos', ar: 'الأصول' },
+    'Disks at risk':               { zh: '有风险的磁盘', hi: 'जोखिम वाले डिस्क', es: 'Discos en riesgo', ar: 'الأقراص المعرّضة للخطر' },
+    'Listening sockets':           { zh: '监听套接字', hi: 'लिसनिंग सॉकेट', es: 'Sockets a la escucha', ar: 'المقابس المستمعة' },
+    'Scans':                       { zh: '扫描', hi: 'स्कैन', es: 'Escaneos', ar: 'الفحوصات' },
     'Scheduled scans':             { zh: '计划扫描', hi: 'अनुसूचित स्कैन', es: 'Análisis programados', ar: 'الفحوصات المجدولة' },
     'Recent installs & jobs':      { zh: '最近安装与任务', hi: 'हालिया इंस्टॉल और जॉब्स', es: 'Instalaciones y trabajos recientes', ar: 'عمليات التثبيت والمهام الأخيرة' },
     'Frequently restarting hosts': { zh: '频繁重启的主机', hi: 'बार-बार रीस्टार्ट होने वाले होस्ट', es: 'Hosts que se reinician con frecuencia', ar: 'المضيفون كثيرو إعادة التشغيل' },
