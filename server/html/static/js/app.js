@@ -12599,6 +12599,13 @@ function closeBatchJobModal() {
   closeModal('batch-job-modal');
 }
 async function refreshBatchJob() {
+  // v5.6.x perf: self-terminate if the modal was closed via Escape/backdrop
+  // (closeModal directly, bypassing closeBatchJobModal) — otherwise this 10s
+  // poll leaks and keeps hitting /exec/batch for the rest of the session.
+  // Mirrors the _ctrLogsPoll / _storagePollTimer self-guards.
+  if (!document.getElementById('batch-job-modal')?.classList.contains('active')) {
+    clearInterval(_batchJobTimer); _batchJobTimer = null; return;
+  }
   const jobId = document.getElementById('batch-job-id').value;
   if (!jobId) return;
   const data = await api('GET', '/exec/batch/' + encodeURIComponent(jobId));
