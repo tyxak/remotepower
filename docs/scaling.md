@@ -54,6 +54,31 @@ Each heartbeat is a short read-modify-write. The work is small; the limit is
 
 ---
 
+## How do I know what's actually serving? (verify, don't guess)
+
+Open **Server status** in the app (the sidebar item that watches RemotePower
+itself) → the **“Serving & runtime”** panel at the top. It shows, live from the
+process handling your request:
+
+| Row | What it tells you |
+|-----|-------------------|
+| **Storage backend** | `PostgreSQL` / `SQLite` / `JSON files` — the active `RP_STORAGE_BACKEND`. |
+| **Request tier** | `WSGI · gunicorn` / `SCGI · prefork` / `CGI · fcgiwrap` — how requests are executed. |
+| **Out-of-band scheduler** | `Running` (with a live heartbeat age), `Configured — no heartbeat` (flag set but the process is dead — fix it), or `Off`. |
+| **Per-request maintenance** | Whether the ~33 sweeps run *inside each request* or are *offloaded to the scheduler*. |
+
+A green check means the lever below is engaged. This is the fastest way to
+confirm a change actually took effect after you edit `api.env` and restart.
+
+> **Gotcha when verifying from the shell:** `systemctl show -p Environment <unit>`
+> only prints *inline* `Environment=` lines — it does **not** show variables loaded
+> from `EnvironmentFile=/etc/remotepower/api.env`. To see what a running worker
+> actually has, read its process environment:
+> `sudo cat /proc/$(pgrep -f 'gunicorn.*wsgi:application'|tail -1)/environ | tr '\0' '\n' | grep RP_`.
+> The Serving panel reads the same live process state, so it's the reliable check.
+
+---
+
 ## Step 1 — Move the storage backend to PostgreSQL  ⭐ do this first
 
 JSON file locks serialize writes; at 1000 agents the heartbeat writes start
@@ -208,6 +233,15 @@ sweeps, so it is HA-safe across the load-balanced topology in Step 4. Measured
 no longer makes the per-request due-checks). Roll back by disabling the unit,
 removing `RP_EXTERNAL_SCHEDULER` from `api.env`, and restarting the worker — the
 request path resumes the cadence.
+
+**Verify it took:** the flag must be set on the **app-server tier** (worker), not
+just the scheduler — that's what makes the request path *skip* the cadence. After
+restarting, open **Server status → Serving & runtime**: the scheduler row should
+read *Running* with a recent heartbeat, and *Per-request maintenance* should read
+*Offloaded to scheduler*. If the scheduler row says *Configured — no heartbeat*,
+the `remotepower-scheduler` process isn't running; if *Per-request maintenance*
+still says *Runs in each request*, the flag didn't reach the worker (check
+`api.env` and that you restarted `remotepower-wsgi`/`remotepower-api`).
 
 ---
 

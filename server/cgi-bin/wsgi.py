@@ -32,6 +32,9 @@ import sys
 
 import api  # imported ONCE per worker and reused — the whole point of the persistent tier
 
+# v5.6.x: mark the request tier so /api/self/status can report what's serving.
+api._SERVER_TIER = 'wsgi'
+
 # CGI meta-variables (RFC 3875) copied straight from the WSGI environ.
 _CGI_META = (
     'REQUEST_METHOD', 'PATH_INFO', 'QUERY_STRING', 'CONTENT_TYPE', 'CONTENT_LENGTH',

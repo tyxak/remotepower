@@ -359,6 +359,10 @@ HEALTH_ALERT_STATE_FILE = DATA_DIR / 'health_alert_state.json'
 # server served at least one request. Honest "observed availability" (see
 # _control_uptime); ~92 days of buckets retained.
 CONTROL_UPTIME_FILE = DATA_DIR / 'control_uptime.json'
+# v5.6.x: heartbeat written by the out-of-band scheduler (scheduler.py) once per
+# cadence loop, so the request path / self-status can report whether it is
+# actually alive (vs merely configured). {ts, pid, interval, host_leader}.
+SCHEDULER_STATE_FILE = DATA_DIR / 'scheduler_state.json'
 # v3.4.2: automation rules (when event matches → run script / notify).
 RULES_FILE       = DATA_DIR / 'automation_rules.json'
 # v3.4.2: rolling log of selected events that fired outside business hours.
@@ -2147,6 +2151,52 @@ def _external_scheduler_active():
         return bool(_config_ro().get('external_scheduler'))
     except Exception:
         return False
+
+
+# v5.6.x: which request tier is executing this process. Default 'cgi' (a fresh
+# fcgiwrap-forked api.py per request). The persistent entry points OVERWRITE this
+# at import: wsgi.py sets 'wsgi' (gunicorn), api_worker.py sets 'scgi' (SCGI
+# prefork). Surfaced read-only on the Server-status page so an operator can see
+# what is ACTUALLY serving (this is what would have made the recent
+# "am I really on WSGI?" question answerable at a glance).
+_SERVER_TIER = 'cgi'
+
+
+def _runtime_serving_info():
+    """A compact, read-only snapshot of HOW the server is being served right now:
+    the storage backend, the request tier, and whether the out-of-band scheduler
+    is configured AND alive. No secrets, no fleet data — cheap enough for the
+    Server-status page. Never raises."""
+    now = int(time.time())
+    info = {
+        'storage_backend': 'json',   # json | sqlite | postgres
+        'server_tier':     _SERVER_TIER,   # cgi | scgi | wsgi
+        'scheduler_configured': False,
+        'scheduler_running':    False,
+        'cadence_in_request':   True,
+    }
+    try:
+        info['storage_backend'] = _storage_backend()
+    except Exception:
+        pass
+    try:
+        info['scheduler_configured'] = _external_scheduler_active()
+        # When the scheduler owns the cadence, the request path SKIPS the sweeps.
+        info['cadence_in_request'] = not info['scheduler_configured']
+    except Exception:
+        pass
+    try:
+        st = load(SCHEDULER_STATE_FILE) if backend_exists(SCHEDULER_STATE_FILE) else None
+        if isinstance(st, dict) and st.get('ts'):
+            interval = int(st.get('interval') or 60)
+            age = now - int(st['ts'])
+            # Alive if a heartbeat landed within ~3 cadence intervals (min 180s).
+            info['scheduler_running'] = age < max(180, interval * 3)
+            info['scheduler_last_beat_s'] = max(0, age)
+            info['scheduler_interval_s'] = interval
+    except Exception:
+        pass
+    return info
 
 
 def _invalidate_load_cache(path):
@@ -21182,6 +21232,9 @@ def handle_self_status():
     require_auth()
     now = int(time.time())
     out = {'now': now, 'server_version': SERVER_VERSION}
+    # v5.6.x: how the server is actually being served (storage backend, request
+    # tier, scheduler) — rendered as the "Serving / Runtime" table on the page.
+    out['runtime'] = _runtime_serving_info()
     # DATA_DIR disk usage
     try:
         total_bytes = 0
@@ -21232,7 +21285,10 @@ def handle_self_status():
                 'last_checkpoint':   _m.get('last_checkpoint'),
             }
         else:
-            out['storage_backend'] = {'backend': 'json'}
+            # v5.6.x: report the real backend (was hard-coded 'json', so Postgres
+            # showed as json here). The sqlite-maintenance detail above only
+            # applies to sqlite; json/postgres just carry the name.
+            out['storage_backend'] = {'backend': _storage_backend()}
         # Free-space (statvfs)
         try:
             st = os.statvfs(str(DATA_DIR))

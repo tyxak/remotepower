@@ -177,6 +177,15 @@ def main():                             # pragma: no cover - the long-running lo
         except Exception as exc:        # the loop must never die
             sys.stderr.write(f"[remotepower-scheduler] cadence error: {exc}\n")
             traceback.print_exc(file=sys.stderr)
+        # v5.6.x: heartbeat so /api/self/status can show the scheduler is actually
+        # ALIVE (not merely configured) on the Server-status "Serving" panel.
+        try:
+            api.save(api.SCHEDULER_STATE_FILE, {
+                'ts': int(time.time()), 'pid': os.getpid(),
+                'interval': interval, 'host_leader': True,
+            })
+        except Exception as exc:
+            sys.stderr.write(f"[remotepower-scheduler] heartbeat write failed: {exc}\n")
         time.sleep(interval)
 
 

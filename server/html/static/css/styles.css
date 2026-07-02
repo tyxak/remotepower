@@ -4782,6 +4782,9 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
    bounded so a huge article never grows the page unbounded, but readable. */
 .scroll-cap-lg { max-height: 62vh; overflow-y: auto; }
 
+/* v5.6.x: inline status icon for the Server-status "Serving & runtime" table. */
+.rt-ico { display: inline-flex; vertical-align: -2px; margin-right: 2px; }
+
 /* v5.6.x perf: a capped scroll container still LAYS OUT every child even though
    only ~one viewport is visible. A host with thousands of firewall rules, or the
    full App Catalog, ballooned the render tree to 17–20k layout objects and cost

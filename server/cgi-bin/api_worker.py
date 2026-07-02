@@ -227,6 +227,9 @@ def serve():
 
     import api as api_mod  # noqa: E402 — deliberate late import
 
+    # v5.6.x: mark the request tier so /api/self/status can report what's serving.
+    api_mod._SERVER_TIER = "scgi"
+
     # Fork hygiene (see module docstring): no inherited SQLite connections,
     # no import-time load() snapshots surviving into children.
     storage.close_connection()

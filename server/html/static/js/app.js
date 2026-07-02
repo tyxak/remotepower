@@ -23099,7 +23099,48 @@ async function loadSelfStatus() {
   const flagsHtml = (perf.health_flags || []).length
     ? `<details class="mt-8"><summary class="c-muted">View ${perf.health_flags.length} reason(s)</summary><ul class="mt-4">${perf.health_flags.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul></details>`
     : '';
-  body.innerHTML = `
+  // v5.6.x: "Serving & runtime" — what is ACTUALLY serving this instance (storage
+  // backend, request tier, out-of-band scheduler). Answers "am I really on WSGI /
+  // Postgres / the scheduler?" at a glance. See docs/scaling.md.
+  const rt = s.runtime || {};
+  const _rtIco = (state) => {
+    const p = state === 'ok'
+      ? '<path d="M20 6 9 17l-5-5"/>'
+      : state === 'bad'
+      ? '<path d="M18 6 6 18M6 6l12 12"/>'
+      : '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
+    const cls = state === 'ok' ? 'c-green' : state === 'bad' ? 'c-red' : 'c-amber';
+    return `<span class="${cls} rt-ico"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">${p}</svg></span>`;
+  };
+  const _rtRow = (label, value, note, state) =>
+    `<tr><td class="c-muted-padded">${label}</td><td>${_rtIco(state)} <strong>${escHtml(value)}</strong>${note ? ` <span class="hint">— ${escHtml(note)}</span>` : ''}</td></tr>`;
+  const _beMap = { postgres: ['PostgreSQL', 'shared DB — scales across app nodes', 'ok'], sqlite: ['SQLite', 'single-box embedded DB', 'ok'], json: ['JSON files', 'dev / very small fleets only', 'warn'] };
+  const _tierMap = { wsgi: ['WSGI · gunicorn', 'persistent worker pool', 'ok'], scgi: ['SCGI · prefork', 'persistent prefork worker', 'ok'], cgi: ['CGI · fcgiwrap', 'fork-per-request (fine for small fleets)', 'warn'] };
+  const be = _beMap[rt.storage_backend] || [rt.storage_backend || 'unknown', '', 'warn'];
+  const tier = _tierMap[rt.server_tier] || [rt.server_tier || 'unknown', '', 'warn'];
+  let schedVal, schedNote, schedState;
+  if (rt.scheduler_configured && rt.scheduler_running) {
+    schedVal = 'Running'; schedState = 'ok';
+    schedNote = rt.scheduler_last_beat_s != null ? `heartbeat ${rt.scheduler_last_beat_s}s ago; request path skips the cadence` : 'out-of-band process owns the maintenance cadence';
+  } else if (rt.scheduler_configured && !rt.scheduler_running) {
+    schedVal = 'Configured — no heartbeat'; schedState = 'bad';
+    schedNote = 'flag is set but no scheduler process is reporting — start/enable remotepower-scheduler';
+  } else {
+    schedVal = 'Off'; schedState = 'warn';
+    schedNote = 'the maintenance cadence runs inside each request';
+  }
+  const runtimeCard = `
+    <div class="dash-card">
+      <div class="fw-600-mb10">Serving &amp; runtime</div>
+      <table class="fs-13">
+        ${_rtRow('Storage backend', be[0], be[1], be[2])}
+        ${_rtRow('Request tier', tier[0], tier[1], tier[2])}
+        ${_rtRow('Out-of-band scheduler', schedVal, schedNote, schedState)}
+        ${_rtRow('Per-request maintenance', rt.cadence_in_request ? 'Runs in each request' : 'Offloaded to scheduler', '', rt.cadence_in_request ? 'warn' : 'ok')}
+      </table>
+      <div class="hint mt-8">This is what's actually serving right now. To change it (persistent WSGI/SCGI app tier, PostgreSQL, out-of-band scheduler) see <a href="docs/scaling.md" class="c-accent">scaling.md</a> — env vars go in <code>/etc/remotepower/api.env</code>.</div>
+    </div>`;
+  body.innerHTML = runtimeCard + `
     <div class="dash-card">
       <div class="fw-600-mb10">Site health ${healthPill}</div>
       <table class="fs-13">
