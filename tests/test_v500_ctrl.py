@@ -479,8 +479,10 @@ class TestWebhookDlq(unittest.TestCase):
 
     def test_failure_path_records_dlq(self):
         # the three except branches in _dispatch_one_webhook must call _dlq_record
-        i = API_SRC.index("def _dispatch_one_webhook(")
-        block = API_SRC[i:API_SRC.index("def _build_discord_body(")]
+        # (the _build_* payload builders moved to notify.py — anchor on the
+        # function itself, not its old neighbour)
+        from srcpin import py_function
+        block = py_function(API_SRC, '_dispatch_one_webhook')
         self.assertEqual(block.count("_dlq_record("), 3)
 
     def test_routes(self):

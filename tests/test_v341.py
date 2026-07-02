@@ -403,13 +403,16 @@ class TestV341MediumTier(unittest.TestCase):
         self.assertIn('status_token', self.API[idx:idx + 800])
 
     def test_ticketing_adapters(self):
+        # Builders live in notify.py (notification-builder carve); dispatch
+        # stays in api.py.
+        notify_src = (REPO_ROOT / 'server' / 'cgi-bin' / 'notify.py').read_text()
         for fn in ('def _build_pagerduty_body(', 'def _build_opsgenie_body('):
-            self.assertIn(fn, self.API)
+            self.assertIn(fn, notify_src)
         # registered + dispatched + auto-detected
         self.assertIn("'pagerduty'", self.API)
         self.assertIn("'opsgenie'", self.API)
         self.assertIn("fmt == 'pagerduty'", self.API)
-        self.assertIn("events.pagerduty.com", self.API)
+        self.assertIn("events.pagerduty.com", self.API + notify_src)
         # frontend format options
         self.assertIn("['pagerduty', 'PagerDuty'", self.APP)
         self.assertIn("['opsgenie',  'Opsgenie'", self.APP)

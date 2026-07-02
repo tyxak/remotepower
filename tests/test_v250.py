@@ -90,17 +90,10 @@ class TestWebhookEvents(unittest.TestCase):
         self.assertIn("test_tube", self.api)
 
     def test_webhook_message_handles_fail(self):
-        # v3.0.2: anchor on `def _webhook_message` and scan until the next
-        # top-level def/class. My v3.0.2 refactor moved the `titles` dict
-        # out of `_send_webhook_to_url` AND made `_webhook_message` longer
-        # than the original 2500-byte window. Brittle on both counts;
-        # AST-style anchor is more robust.
-        import re as _re
-        m = _re.search(r'^def _webhook_message\b', self.api, _re.MULTILINE)
-        self.assertIsNotNone(m, '_webhook_message function not found')
-        nxt = _re.search(r'^(def [a-zA-Z]|class )', self.api[m.end():], _re.MULTILINE)
-        end = m.end() + nxt.start() if nxt else len(self.api)
-        block = self.api[m.start(): end]
+        # _webhook_message lives in notify.py now (the notification-builder
+        # carve); extract the whole def by indentation.
+        notify_src = (_ROOT / 'server/cgi-bin/notify.py').read_text()
+        block = py_function(notify_src, '_webhook_message')
         self.assertIn('custom_script_fail', block)
         self.assertIn('custom_script_recover', block)
 

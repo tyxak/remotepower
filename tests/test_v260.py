@@ -110,8 +110,11 @@ class TestWebhookEvent(unittest.TestCase):
         self.assertIn('Config Drift', self.api)
 
     def test_config_drift_message_includes_sections(self):
-        idx = self.api.find("elif event == 'config_drift':")
-        block = self.api[idx: idx + 300]
+        # _webhook_message moved to notify.py (notification-builder carve).
+        notify_src = (_ROOT / 'server/cgi-bin/notify.py').read_text()
+        idx = notify_src.find("elif event == 'config_drift':")
+        self.assertGreater(idx, 0)
+        block = notify_src[idx: idx + 300]
         self.assertIn('sections', block)
 
 
