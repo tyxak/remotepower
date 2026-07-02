@@ -30669,14 +30669,19 @@ def _maybe_sample_metrics(dev_id, sysinfo, now):
         },
     }
 
-    with _locked_update(METRICS_HIST_FILE) as store:
-        rec = store.setdefault(dev_id, {'samples': []})
-        samples = rec.setdefault('samples', [])
-        if samples and samples[-1].get('date') == day:
-            samples[-1] = sample          # refresh today's point
-        else:
-            samples.append(sample)
-        rec['samples'] = samples[-MAX_METRIC_SAMPLES:]
+    # v5.6.x perf: O(1) single-row read/write (metrics_history is an ENTITY file)
+    # instead of a whole-fleet _locked_update that reconstructed EVERY device's
+    # sample window per heartbeat just to touch one. Mirrors _record_metrics; the
+    # per-device point is refreshed every beat, so a rare lost update under the
+    # unlocked RMW self-heals on the next heartbeat.
+    rec = _entity_read_one(METRICS_HIST_FILE, dev_id, None) or {'samples': []}
+    samples = rec.setdefault('samples', [])
+    if samples and samples[-1].get('date') == day:
+        samples[-1] = sample          # refresh today's point
+    else:
+        samples.append(sample)
+    rec['samples'] = samples[-MAX_METRIC_SAMPLES:]
+    _entity_write_one(METRICS_HIST_FILE, dev_id, rec)
 
 
 # ─── v3.14.0: predictive disk maintenance (SMART trend) ──────────────────────
@@ -30999,7 +31004,10 @@ def _ingest_custom_script_results(dev_id, dev_name, results):
     # Collect transitions inside the lock; fire after it exits.
     pending_webhooks = []
 
-    with _locked_update(DEVICES_FILE) as devices:
+    # v5.6.x perf: single-row _DeviceUpdate — mutates only devices[dev_id], so the
+    # whole-fleet DEVICES_FILE lock (O(fleet) read + reconcile-save on Postgres)
+    # was pure overhead on every heartbeat carrying script results.
+    with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not dev:
             return  # device vanished between heartbeat auth and here
@@ -31089,7 +31097,11 @@ def _ingest_custom_check_results(dev_id, dev_name):
     # fire_webhook opens its own alert/fleet-event locks; collect inside the
     # DEVICES_FILE lock and fire after it exits (same nesting rule as scripts).
     pending_webhooks = []
-    with _locked_update(DEVICES_FILE) as devices:
+    # v5.6.x perf: single-row _DeviceUpdate, not _locked_update(DEVICES_FILE).
+    # This only ever mutates devices[dev_id]; the whole-fleet lock forced an
+    # O(fleet) read + reconcile-save on the Postgres backend every heartbeat that
+    # has any custom check defined. _DeviceUpdate is a single-row upsert.
+    with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not dev:
             return
@@ -34752,8 +34764,9 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
 
     # Fire webhooks outside the lock
     if fired_events:
-        devices = load(DEVICES_FILE)
-        dev = devices.get(dev_id, {})
+        # v5.6.x perf: single-device read (only the name is needed) instead of
+        # load(DEVICES_FILE) reconstructing the whole fleet on the DB backend.
+        dev = device_get(dev_id) or {}
         for ev in fired_events:
             try:
                 fire_webhook('drift_detected', {
