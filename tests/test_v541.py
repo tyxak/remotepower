@@ -24,7 +24,10 @@ _spec.loader.exec_module(api)
 
 
 def _appjs():
-    return (_ROOT / "server/html/static/js/app.js").read_text()
+    # Ticket-page JS moved to app-tickets.js in the app.js split — read the
+    # full concatenated client JS so assertions don't care which file.
+    from clientjs import client_js
+    return client_js()
 
 
 def _html():

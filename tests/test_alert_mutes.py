@@ -115,7 +115,8 @@ class TestApiWiring(unittest.TestCase):
 
 class TestFrontendWiring(unittest.TestCase):
     def test_ack_button_replaced_with_mute(self):
-        appjs = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        from clientjs import client_js
+        appjs = client_js()   # alerts-inbox JS moved to app-alerts.js in the app.js split
         self.assertIn("data-action=\"muteAlert\"", appjs)
         self.assertIn('function muteAlert', appjs)
         # the per-row Ack button is gone (bulk ack stays)

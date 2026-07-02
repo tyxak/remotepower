@@ -21,7 +21,8 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 _API_SRC = (_CGI / 'api.py').read_text()
 _AGENT_SRC = (_ROOT / 'client' / 'remotepower-agent.py').read_text()
-_APP_JS = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+from clientjs import client_js
+_APP_JS = client_js()   # checks-page JS moved to app-checks.js in the app.js split
 _HTML = (_ROOT / 'server' / 'html' / 'index.html').read_text()
 
 

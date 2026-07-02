@@ -30,7 +30,8 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 CSS = (_HTML / "static" / "css" / "styles.css").read_text()
-APPJS = (_HTML / "static" / "js" / "app.js").read_text()
+from clientjs import client_js
+APPJS = client_js()   # logs-page JS (appendLogLines) moved to app-logs.js in the app.js split
 I18NJS = (_HTML / "static" / "js" / "i18n.js").read_text()
 INDEX = (_HTML / "index.html").read_text()
 

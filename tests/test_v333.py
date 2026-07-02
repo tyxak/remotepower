@@ -116,9 +116,14 @@ class TestInvestigateAlertButton(unittest.TestCase):
     def test_button_with_mute_and_resolve(self):
         # v5.6.0: the per-row Ack button was replaced by the X-mute button.
         # Investigate renders before mute / resolve in the same actions cell.
-        inv = self.appjs.find('data-action="aiInvestigateAlert"')
-        mute = self.appjs.find('data-action="muteAlert"')
-        res = self.appjs.find('data-action="resolveAlert"')
+        # Anchor to the alert row builder (now in app-alerts.js) — home-page
+        # widgets in app.js carry the same data-actions earlier in the concat.
+        start = self.appjs.find('function _alertRowHtml')
+        self.assertNotEqual(start, -1, '_alertRowHtml missing')
+        row = self.appjs[start:]
+        inv = row.find('data-action="aiInvestigateAlert"')
+        mute = row.find('data-action="muteAlert"')
+        res = row.find('data-action="resolveAlert"')
         self.assertNotEqual(inv, -1, 'Investigate button missing')
         self.assertNotEqual(mute, -1, 'muteAlert button missing')
         self.assertNotEqual(res, -1, 'resolveAlert button missing')
