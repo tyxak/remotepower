@@ -1003,7 +1003,7 @@
 
         <div class="dash-card mb-16">
           <div class="row-8-center flex-between">
-            <h3 class="mt-0 mb-0">Monitoring profiles</h3>
+            <div class="section-title">Monitoring profiles</div>
             <button class="btn-icon" data-action="openProfileCreate">New profile</button>
           </div>
           <div class="meta-sm-nm mb-8">A named bundle of scripts you can apply to many assets at once.</div>
@@ -4326,7 +4326,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">One fleet posture report — health score, patches, CVEs, and compliance in a single export, on demand or emailed on a schedule. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
 
         <div class="dash-card mb-16">
-          <h3>Fleet posture report</h3>
+          <div class="section-title">Fleet posture report</div>
           <div id="reports-preview" class="mb-16"><div class="c-muted">Loading summary…</div></div>
           <div class="row-8-center">
             <button class="btn-secondary fs-12" data-action="downloadFleetReport" data-arg="json"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><use href="#ic-c923885c"/></svg> Download JSON</button>
@@ -4339,27 +4339,27 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.1: capacity rollup -->
         <div class="dash-card mb-16">
-          <h3>Capacity</h3>
+          <div class="section-title">Capacity</div>
           <div id="reports-capacity"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- v3.4.2: agent integrity attestation -->
         <div class="dash-card mb-16">
-          <h3>Agent integrity</h3>
+          <div class="section-title">Agent integrity</div>
           <div class="page-subtitle mb-12">Each agent reports its own binary hash; the server attests it matches the canonical published build. A mismatch on the current version flags tampering, corruption, or a partial update.</div>
           <div id="reports-integrity"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- v3.4.2: statistical resource anomalies -->
         <div class="dash-card mb-16">
-          <h3>Resource anomalies</h3>
+          <div class="section-title">Resource anomalies</div>
           <div class="page-subtitle mb-12">Hosts whose latest memory / swap / disk reading deviates sharply from their own recent baseline (statistical, model-free).</div>
           <div id="reports-anomalies"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- v3.4.2: software metering / license compliance -->
         <div class="dash-card mb-16">
-          <h3>Software metering</h3>
+          <div class="section-title">Software metering</div>
           <div class="page-subtitle mb-12">Track install counts of named software across the fleet against an allowance. One per line as <span class="ff-mono">name = limit</span> (limit 0 = just count). Matches package names in the collected inventory.</div>
           <div class="mb-12"><textarea id="metering-config" class="form-input ff-mono fs-12" rows="3" placeholder="nginx = 10&#10;teamviewer = 0&#10;openssl = 0 | libssl3, openssl-libs"></textarea></div>
           <div class="row-8-center mb-12"><button class="btn-primary fs-12" data-action="saveMetering">Save &amp; scan</button><span id="metering-status" class="fs-12 c-muted"></span></div>
@@ -4368,7 +4368,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.1: SLA / uptime -->
         <div class="dash-card mb-16">
-          <div class="row-8-center mb-12"><h3 class="m-0">Uptime (SLA)</h3>
+          <div class="row-8-center mb-12"><div class="section-title">Uptime (SLA)</div>
             <select id="sla-days" class="form-input input-auto" data-change="loadReportsSla">
               <option value="7">7 days</option>
               <option value="30" selected>30 days</option>
@@ -4383,7 +4383,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <div class="dash-card mb-16">
-          <h3>Scheduled email delivery</h3>
+          <div class="section-title">Scheduled email delivery</div>
           <div class="page-subtitle mb-16">Email the posture report on a cron schedule. Leave recipients empty to use the configured notification recipients. Admin only.</div>
           <div class="mb-12">
             <label class="form-label"><input type="checkbox" id="report-sched-enabled"> Enabled</label>
@@ -4405,7 +4405,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.14.0: custom report builder — saved, section-picked, scheduled -->
         <div class="dash-card mb-16">
-          <h3>Custom reports</h3>
+          <div class="section-title">Custom reports</div>
           <p class="hint">Build a report from the sections you care about, download it, or schedule it to a specific audience. Saved per server.</p>
           <div id="report-defs-list" class="mb-12 scroll-cap-sm">—</div>
           <div class="report-builder">
@@ -4435,16 +4435,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Trends</div>
         <div class="page-subtitle">Time-series charts from the daily samples RemotePower already keeps — fleet health, compliance, and per-device resource history. Zero-dependency SVG.</div>
         <div class="dash-card mb-16">
-          <h3>Fleet health score</h3>
+          <div class="section-title">Fleet health score</div>
           <div id="trend-health" class="trend-chart"><div class="c-muted">Loading…</div></div>
         </div>
         <div class="dash-card mb-16">
-          <h3>Fleet compliance %</h3>
+          <div class="section-title">Fleet compliance %</div>
           <div id="trend-compliance" class="trend-chart"><div class="c-muted">Loading…</div></div>
         </div>
         <div class="dash-card mb-16">
           <div class="row-8-center mb-8">
-            <h3 class="m-0">Device resources</h3>
+            <div class="section-title">Device resources</div>
             <select id="trend-device" aria-label="Select device for trends" class="form-input input-auto device-combo" data-change="loadTrendDevice"><option value="">Pick a device…</option></select>
           </div>
           <div id="trend-resources" class="trend-chart"><div class="c-muted">Pick a device to see its memory / swap / disk history.</div></div>
@@ -4776,7 +4776,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.1: software inventory search -->
         <div class="dash-card mt-16">
-          <h3>Software inventory search</h3>
+          <div class="section-title">Software inventory search</div>
           <div class="page-subtitle mb-12">Find which hosts have a package — e.g. <span class="ff-mono">openssl</span> older than a version. Searches the collected package inventory.</div>
           <div class="row-8-center mb-12">
             <input type="text" id="inv-q" class="form-input input-wide-sm" placeholder="package name (e.g. openssl)" autocomplete="off">
@@ -4797,7 +4797,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.2: fleet-wide patch catalog (by package) -->
         <div class="dash-card mt-16">
-          <div class="row-8-center mb-6"><h3 class="m-0">Patch catalog</h3>
+          <div class="row-8-center mb-6"><div class="section-title">Patch catalog</div>
             <button class="btn-icon fs-12" data-action="loadPatchCatalog"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><use href="#ic-ce8e1447"/></svg> Refresh</button>
             <span id="patch-catalog-summary" class="fs-12 c-muted"></span>
           </div>
@@ -4807,7 +4807,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v3.4.2: install software from repos, targeted at a host or tag/group -->
         <div class="dash-card mt-16" id="install-card">
-          <h3 class="m-0 mb-6">Install software</h3>
+          <div class="section-title">Install software</div>
           <div class="page-subtitle mb-12">Install one or more packages from the host's own repositories — on a single device, or across a whole group or tag. Detects the package manager (apt / dnf / yum / zypper / pacman / apk). Requires the <code>exec</code> permission; honours quarantine and change-windows.</div>
           <div class="row-8-center mb-8">
             <select id="install-target-type" class="form-input input-auto" data-change="onInstallTargetChange">
@@ -5238,14 +5238,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <!-- v5.0.0 (#C3): break-glass approval card (hidden until a request exists) -->
         <div class="dash-card mt-16 d-none" id="cmdb-breakglass-card">
-          <div class="row-8-center mb-8"><h3 class="m-0">Break-glass requests</h3></div>
+          <div class="row-8-center mb-8"><div class="section-title">Break-glass requests</div></div>
           <div class="page-subtitle mb-12">Pending requests to reveal a break-glass credential. A <strong>second</strong> admin (not the requester) must approve before the secret is shown — every request, approval and reveal is immutably audit-logged.</div>
           <div id="cmdb-breakglass-body" class="scroll-cap"></div>
         </div>
 
         <!-- v4.10.0: site / group / tag-scoped credentials -->
         <div class="dash-card mt-16" id="cmdb-scoped-card">
-          <div class="row-8-center mb-8"><h3 class="m-0">Scoped credentials</h3></div>
+          <div class="row-8-center mb-8"><div class="section-title">Scoped credentials</div></div>
           <div class="page-subtitle mb-12">Shared logins defined once per <strong>site</strong>, <strong>group</strong> or <strong>tag</strong> and inherited by every member device — a customer's domain admin, a site's switch password. Encrypted with the same vault; unlock it above to add or reveal.</div>
           <div class="row-8-center mb-12">
             <select id="scoped-cred-scope-type" class="form-input input-auto" aria-label="Scope type">
@@ -5788,7 +5788,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <!-- v3.14.0 (#41): cost allocation / chargeback -->
         <div class="dash-card mt-16">
-          <h3>Cost allocation (chargeback)</h3>
+          <div class="section-title">Cost allocation (chargeback)</div>
           <p class="hint">Estimated monthly energy cost per group and per tag, from each host's measured draw × your price/kWh above. A rough allocation for showback/chargeback — instantaneous watts projected to a 30-day month.</p>
           <div id="chargeback-body" class="row-16-wrap"><div class="c-muted fs-13">Loading…</div></div>
         </div>
@@ -6161,28 +6161,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="enroll-btn" data-action="openTicketCreate">New ticket</button>
         </div>
         <div class="dash-card mb-16">
-          <h3 class="m-0 mb-8">New tickets <span class="fs-12 c-muted" id="tk-count-new"></span></h3>
+          <div class="section-title">New tickets <span class="fs-12 c-muted" id="tk-count-new"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-new"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-new"><tr><td colspan="9" class="empty-state-sm">Loading…</td></tr></tbody>
           </table></div>
         </div>
         <div class="dash-card mb-16">
-          <h3 class="m-0 mb-8">My open tickets <span class="fs-12 c-muted" id="tk-count-mine"></span></h3>
+          <div class="section-title">My open tickets <span class="fs-12 c-muted" id="tk-count-mine"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-mine"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-mine"><tr><td colspan="9" class="empty-state-sm">Loading…</td></tr></tbody>
           </table></div>
         </div>
         <div class="dash-card mb-16">
-          <h3 class="m-0 mb-8">My team's open tickets <span class="fs-12 c-muted" id="tk-count-team"></span></h3>
+          <div class="section-title">My team's open tickets <span class="fs-12 c-muted" id="tk-count-team"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-team"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-team"><tr><td colspan="9" class="empty-state-sm">Set your team under Profile to use this view.</td></tr></tbody>
           </table></div>
         </div>
         <div class="dash-card mb-16">
-          <h3 class="m-0 mb-8">Other tickets (open &amp; closed) <span class="fs-12 c-muted" id="tk-count-other"></span></h3>
+          <div class="section-title">Other tickets (open &amp; closed) <span class="fs-12 c-muted" id="tk-count-other"></span></div>
           <div class="table-card"><table>
             <thead id="tk-thead-other"><tr><th data-col="number">#</th><th data-col="subject">Subject</th><th data-col="type">Type</th><th data-col="priority">Priority</th><th data-col="status">Status</th><th data-col="sla">SLA</th><th data-col="assignee">Assignee</th><th data-col="device">Device</th><th data-col="updated">Updated</th></tr></thead>
             <tbody id="tk-tbody-other"><tr><td colspan="9" class="empty-state-sm">Loading…</td></tr></tbody>
@@ -8481,7 +8481,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.6.0"></script>
+<script defer src="static/js/i18n.js?v=5.6.0-1"></script>
 <script defer src="static/js/app.js?v=5.6.0-46"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->

@@ -169,6 +169,15 @@
           ar: 'كل إشارة مراقَبة على كل مضيف بصيغة OK / WARN / CRIT / UNKNOWN مع المُخرَج. الترتيب والتصفية؛ عطِّل فحصًا لكتمه على مضيف.' },
     'Targets':     { zh: '目标', hi: 'लक्ष्य', es: 'Objetivos', ar: 'الأهداف' },
     'Remote Checks': { zh: '远程检查', hi: 'दूरस्थ जाँच', es: 'Comprobaciones remotas', ar: 'الفحوصات البعيدة' },
+    // v5.6.x: card headers migrated from <h3> onto the canonical .section-title
+    // (Monitoring/Reports/Patches/CMDB/Tickets pages) — now chrome-scanned.
+    'Monitoring profiles': { zh: '监控配置集', hi: 'निगरानी प्रोफ़ाइल', es: 'Perfiles de monitorización', ar: 'ملفات المراقبة' },
+    'Break-glass requests': { zh: '紧急访问请求', hi: 'आपातकालीन पहुँच अनुरोध', es: 'Solicitudes de acceso de emergencia', ar: 'طلبات الوصول الطارئ' },
+    'Scoped credentials': { zh: '范围凭据', hi: 'स्कोप्ड क्रेडेंशियल', es: 'Credenciales por ámbito', ar: 'بيانات اعتماد محددة النطاق' },
+    'New tickets': { zh: '新工单', hi: 'नए टिकट', es: 'Tickets nuevos', ar: 'تذاكر جديدة' },
+    'My open tickets': { zh: '我的未结工单', hi: 'मेरे खुले टिकट', es: 'Mis tickets abiertos', ar: 'تذاكري المفتوحة' },
+    "My team's open tickets": { zh: '我团队的未结工单', hi: 'मेरी टीम के खुले टिकट', es: 'Tickets abiertos de mi equipo', ar: 'تذاكر فريقي المفتوحة' },
+    'Other tickets (open & closed)': { zh: '其他工单（未结和已结）', hi: 'अन्य टिकट (खुले और बंद)', es: 'Otros tickets (abiertos y cerrados)', ar: 'تذاكر أخرى (مفتوحة ومغلقة)' },
     'Device Metrics': { zh: '设备指标', hi: 'डिवाइस मेट्रिक्स', es: 'Métricas del dispositivo', ar: 'مقاييس الجهاز' },
     'Forecast':    { zh: '预测', hi: 'पूर्वानुमान', es: 'Pronóstico', ar: 'التنبؤ' },
     'Timeline':    { zh: '时间线', hi: 'टाइमलाइन', es: 'Cronología', ar: 'الجدول الزمني' },
