@@ -68,7 +68,10 @@ class TestSanitizerPersistsEveryCheckField(unittest.TestCase):
         return keys
 
     def _read_keys(self, defname):
-        body = _func_body(_SRC, defname)
+        # The checks engine lives in checks.py (carved out of api.py); the
+        # heartbeat sanitizer this invariant guards stays in api.py.
+        checks_src = (_CGI / "checks.py").read_text()
+        body = _func_body(checks_src, defname)
         return set(re.findall(r"si\.get\('([a-z_0-9]+)'\)", body)) \
             | set(re.findall(r"si\['([a-z_0-9]+)'\]", body))
 
