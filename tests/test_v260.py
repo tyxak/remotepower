@@ -96,14 +96,14 @@ class TestWebhookEvent(unittest.TestCase):
         self.assertIn("'config_drift'", self.api)
 
     def test_config_drift_in_priority(self):
-        idx = self.api.find('def _webhook_priority(')
-        block = self.api[idx: idx + 1500]
-        self.assertIn('config_drift', block)
+        # priority/tags now live on the event's EVENT_REGISTRY row.
+        idx = self.api.find("'config_drift': dict(")
+        block = self.api[idx: idx + 300]
+        self.assertIn('priority=4', block)
 
     def test_config_drift_in_tags(self):
-        idx = self.api.find('def _webhook_tags(')
-        block = self.api[idx: idx + 2500]
-        self.assertIn('config_drift', block)
+        idx = self.api.find("'config_drift': dict(")
+        block = self.api[idx: idx + 300]
         self.assertIn('wrench', block)
 
     def test_config_drift_discord_title(self):

@@ -134,9 +134,9 @@ class TestWebhookEventRegistryCoverage(unittest.TestCase):
 
     def test_every_event_has_a_friendly_title(self):
         # _webhook_title has a generic fallback, but a missing entry means the
-        # event shows as "RemotePower: raw_event_name" — flag them.
-        title_block = _func_body(_SRC, '_webhook_title')
-        titled = set(re.findall(r"'([a-z_0-9]+)':", title_block))
+        # event shows as "RemotePower: raw_event_name" — flag them. Titles now
+        # derive from EVENT_REGISTRY `title` fields into _WEBHOOK_TITLES.
+        titled = set(api._WEBHOOK_TITLES)
         # Events that legitimately have no dedicated title (recover/up reuse the
         # base event's framing); only require titles for alertable firing events.
         need = (self.events - self.non_alerting)

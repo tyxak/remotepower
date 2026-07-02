@@ -831,176 +831,375 @@ MCP_ACTION_ALLOWLIST = frozenset({
 # against the previous one. ``containers_stale`` is fired by the periodic
 # offline-check sweep when no fresh report has arrived within the configured
 # TTL.
-WEBHOOK_EVENTS = (
-    ('device_offline',     'Device went offline',                  True),
-    ('device_online',      'Device came back online',              True),
-    ('agent_stopped',      'Agent stopped (host was still up)',     True),
-    ('agent_started',      'Agent restarted / resumed',            True),
-    ('monitor_down',       'Monitor target went down',             True),
-    ('monitor_up',         'Monitor target recovered',             True),
-    ('patch_alert',        'Pending updates exceed threshold',     True),
-    ('cve_found',          'New CVEs detected on a device',        True),
-    ('service_down',       'Watched systemd unit went down',       True),
-    ('service_up',         'Watched systemd unit recovered',       True),
-    ('log_alert',          'Log pattern matched threshold',        True),
-    ('container_stopped',  'Container/pod disappeared or stopped', True),
-    ('container_recovered', 'Stopped container is running again',  True),
-    ('container_restarting', 'Container restart count climbing',   True),
-    ('containers_stale',   'No container report for >TTL',         True),
-    ('containers_current', 'Container reports resumed (recovered)', True),
-    # v3.2.x: container image update tracking (alert + its recover event)
-    ('image_update_available', 'Container image has a newer version', True),
-    ('image_updated',      'Container image updated to current',    True),
-    # v1.11.10: metric thresholds (disk, memory, swap, cpu loadavg)
-    ('metric_warning',     'Resource crossed warning threshold',   True),
-    ('metric_critical',    'Resource crossed critical threshold',  True),
-    ('metric_recovered',   'Resource dropped back below threshold', True),
-    ('command_queued',     'Command queued for a device',          False),
-    ('command_executed',   'Command executed on a device',         False),
-    # v2.2.0: configuration drift detection
-    ('drift_detected',     'Watched config file diverged from baseline', True),
-    # v2.4.7: mailbox count crossed its alert threshold
-    ('mailbox_threshold',  'Mailbox count crossed its alert threshold', True),
-    # v2.5.0: custom monitoring script results
-    ('custom_script_fail',    'Custom monitoring script returned non-zero', True),
-    ('custom_script_recover', 'Custom monitoring script recovered to OK',   True),
-    # v5.6.0: custom Check-catalog checks (process/port/file/unit/log/job) —
-    # edge-triggered on the heartbeat when a check flips to a failing state.
-    ('custom_check_failed',    'Custom check failed (process/port/file/unit/log/job)', True),
-    ('custom_check_recovered', 'Custom check recovered to OK',                         True),
-    # v2.6.0: host configuration drift
-    ('config_drift',          'Host configuration drift detected',          True),
-    # v2.6.1: TLS/DANE certificate expiry
-    ('tls_expiry',            'TLS/DANE certificate expiring soon',         True),
-    # v2.6.1: host pending reboot
-    ('reboot_required',       'Host requires a reboot',                     True),
-    ('reboot_cleared',        'Host reboot no longer required (recovered)', True),
-    # v2.7.0: Proxmox snapshot older than configured threshold
-    ('snapshot_old',          'Proxmox snapshot older than threshold',      True),
-    # v2.8.0: security & audit events
-    ('new_port_detected',     'New listening port appeared on host',         True),
-    ('ssh_key_added',         'SSH authorized key added to host',            True),
-    ('brute_force_detected',  'Brute-force login attempts detected',         True),
-    # v5.0.0 (#C3): a break-glass vault reveal was requested — a SECOND admin
-    # must approve before the root/IPMI secret is shown. High-signal: someone
-    # is asking to see a privileged credential right now.
-    ('vault_break_glass',     'Break-glass credential reveal requested',     True),
-    # v2.8.1: backup file age monitoring
-    ('backup_stale',          'Backup file is older than threshold',         True),
-    ('backup_recovered',      'Stale backup is fresh again',                 True),
-    ('backup_verify_failed',  'Backup integrity check failed',               True),
-    ('backup_verified',       'Backup integrity check passed (recovered)',   True),
-    ('rollout_halted',        'Rollout auto-halted (health gate / verify)',  True),
-    # v5.0.0 (#R1): the RemotePower server's OWN data-dir filesystem is filling
-    # up — alert before flock writes start failing. _ok is the recover event.
-    ('server_disk_low',       'Server data-dir disk space is low',           True),
-    ('server_disk_ok',        'Server disk space recovered',                 True),
-    # v3.2.0 (B5): SNMP polling state changes for agentless devices
-    ('snmp_unreachable',      'SNMP poll failing for 2+ cycles',             True),
-    # v3.2.0 follow-up: severity escalation after sustained failure
-    ('snmp_dead',             'SNMP poll failing for 6+ hours (genuinely dead)', True),
-    ('snmp_recover',          'SNMP polling recovered',                      True),
-    ('snmp_trap_received',    'Inbound SNMP trap received from a host',      True),
-    # v3.2.0 (A1 follow-up): MCP confirmation aged out without an admin
-    # decision. Surfaces the silent-timeout case to the operator.
-    ('mcp_confirmation_expired', 'MCP confirmation expired without operator decision', True),
-    # v3.4.0: hardware / health
-    ('smart_failure',         'A disk reported SMART failure or pre-fail',   True),
-    ('smart_recovered',       'All disks healthy again (SMART recovered)',   True),
-    ('kernel_outdated',       'Running kernel is older than newest installed', True),
-    ('kernel_current',        'Running kernel is current again (recovered)', True),
-    # v3.4.1: fleet health score dropped below the configured threshold
-    ('health_degraded',       'Device health score dropped below threshold', True),
-    ('health_recovered',      'Device health score recovered above threshold', True),
-    # v3.11.0: attack-surface exposure — a listening socket bound to a
-    # world-reachable address (not loopback/RFC1918). Distinct from
-    # new_port_detected, which fires on *any* new port regardless of scope.
-    ('port_exposed_world',    'Service exposed to a world-reachable address', True),
-    ('port_unexposed',        'World-exposed service no longer exposed (recovered)', True),
-    # v3.11.0: fleet software policy — an installed package matched a
-    # banned rule, a required package is missing, or a version is below
-    # the configured minimum.
-    ('software_policy_violation', 'Installed software violates fleet policy', True),
-    # v3.11.0: redundant-storage health (ZFS / btrfs / mdadm). degraded is
-    # a faulted/degraded array; scrub_overdue is a freshness nudge;
-    # storage_recovered is the recover event.
-    ('storage_degraded',      'Storage pool/array is degraded or faulted',   True),
-    ('scrub_overdue',         'Storage pool scrub is overdue',               True),
-    ('storage_recovered',     'Storage pool/array returned to healthy',      True),
-    # v3.11.0: access watch — a successful login from a source IP never
-    # seen on this host before. (Brute-force bursts use brute_force_detected.)
-    ('login_new_source',      'Login from a new source address',             True),
-    # v3.11.0: host firewall (ufw/nftables) ruleset changed vs baseline.
-    ('firewall_changed',      'Host firewall ruleset changed from baseline', True),
-    # v3.11.0: a systemd timer (scheduled job) entered a failed state.
-    ('timer_failed',          'Scheduled job (systemd timer) failed',        True),
-    # v3.12.0: the SQLite storage backend's weekly integrity_check failed
-    # (possible corruption). Server-level, no device.
-    ('db_integrity_failed',   'Database integrity check failed (possible corruption)', True),
-    # v3.12.0: an fstab mount is missing, or a mounted network share is stalled.
-    ('mount_issue',           'Mount point missing or a network share is stalled', True),
-    ('mount_recovered',       'Mount point recovered',                       True),
-    # v3.14.0: surface the predictive/posture signals as alerts.
-    ('disk_predict_fail',     'A disk is predicted to fail (SMART trend)',   True),
-    ('ups_on_battery',        'UPS switched to battery power',               True),
-    ('ups_on_line',           'UPS returned to line power',                  True),
-    # v4.1.0: hardware temperature crossed its threshold (temp_normal recovers).
-    ('temp_high',             'A hardware sensor exceeded its temperature threshold', True),
-    ('temp_normal',           'Hardware temperature returned to normal',     True),
-    # v4.1.0: NTP / clock skew (clock_synced recovers).
-    ('clock_skew',            'Host clock is unsynchronised or drifted past threshold', True),
-    ('clock_synced',          'Host clock is back in sync',                  True),
-    # v4.1.0: default-gateway reachability (gateway_reachable recovers).
-    ('gateway_unreachable',   'Default gateway is not responding to ping',   True),
-    ('gateway_reachable',     'Default gateway is reachable again',          True),
-    # v4.1.0: kernel OOM-killer fired (point event, no recover).
-    ('oom_detected',          'The kernel OOM-killer terminated a process',  True),
-    ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
-    ('cert_file_renewed',     'Local certificate no longer expiring (recovered)', True),
-    ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
-    ('rogue_uid0_cleared',    'No unexpected UID 0 accounts remain (recovered)', True),
-    # v3.14.0 #36: a watched process crossed its CPU/memory threshold.
-    # Edge-triggered; process_recovered is the matching recover event.
-    ('process_alert',         'A watched process exceeded its CPU/memory threshold', True),
-    ('process_recovered',     'A watched process dropped back below its threshold',  True),
-    # v3.14.0 #35: the agent's opt-in secrets scan found a new exposed secret.
-    ('secret_exposed',        'A secret was found exposed on a host filesystem',     True),
-    # v4.2.0 (B5): an authorized security scan completed with high/critical findings.
-    ('scan_finding',          'An authorized security scan found a high/critical issue', True),
-    # v4.7.0: homelab software integrations — a configured integration target
-    # went unhealthy/unreachable (integration_recovered is the recover event).
-    ('integration_down',      'An integration target is unhealthy or unreachable', True),
-    ('integration_recovered', 'An integration target recovered',                   True),
-    # v4.8.0: IP reputation — a monitored IP appeared on / left a DNS blocklist.
-    ('ip_blacklisted',        'A monitored IP is listed on a DNS blocklist (DNSBL)', True),
-    ('ip_blacklist_cleared',  'A monitored IP is no longer blocklisted',             True),
-    # v4.9.0: resolver health — a monitored name stopped resolving / recovered.
-    ('resolver_unhealthy',    'A monitored DNS name stopped resolving',              True),
-    ('resolver_recovered',    'A monitored DNS name resolves again',                 True),
-    # v5.1.0: fail2ban banned a NEW IP on a host — a first-class security event
-    # (previously audit-only). No recover event: a ban expiry isn't actionable.
-    ('fail2ban_ban',          'fail2ban banned a new IP address on a host',          True),
-    ('failed_unit',           'a systemd unit entered the failed state on a host',   True),
-    # v5.1.0: endpoint AV/malware — ClamAV/rkhunter reported an ACTIVE infection
-    # (rising edge; previously a posture card only, so a detected infection never
-    # alerted). av_clean is the recover event (v5.6.x): a later scan that reports
-    # zero infected AND zero warnings auto-resolves the open av alert.
-    ('av_infected',           'Antivirus / rootkit scan found an active infection',  True),
-    # v5.4.1: AV/rootkit posture WARNINGS (rkhunter [Warning] lines, stale ClamAV
-    # signature DB) now also alert — previously a "Needs attention" card only, so a
-    # host's rkhunter warnings never landed in the Alerts inbox. Rising-edge +
-    # coalesced per host (same model as av_infected); av_clean recovers it.
-    ('av_warning',            'Antivirus / rootkit scan reported warnings',          True),
-    ('av_clean',              'Antivirus / rootkit scan clean again (recovered)',    True),
-    # v5.2.0 (AccessMatters): WG Access road-warrior VPN — a client connected /
-    # disconnected / went handshake-stale. connected is the recover event for the
-    # other two; clients aren't devices (coalesced + auto-resolved by client_id).
-    ('vpn_client_connected',    'A WG Access VPN client connected',                  True),
-    ('vpn_client_disconnected', 'A WG Access VPN client disconnected',               True),
-    ('vpn_handshake_stale',     'A WG Access VPN client handshake went stale',        True),
-    ('ticket_sla_breached',     'A helpdesk ticket passed its SLA response target',   True),
+# ── EVENT REGISTRY — single source of truth for every fleet/webhook event ──
+# One entry per event. Everything event-shaped on the server is DERIVED from
+# this dict (directly below or at the legacy definition sites, which keep
+# their names so ~200 call sites and the guardrail-test pins stay untouched):
+#   WEBHOOK_EVENTS / WEBHOOK_EVENT_NAMES        (Settings list + validation)
+#   _ALERT_RULES / _ALERT_RECOVER(_EXTRA)       (inbox severity + auto-resolve)
+#   CHANNEL_KINDS event lists / EVENT_KIND_MAP  (channel-routing matrix)
+#   ALERT_SYMPTOM_EVENTS                        (root-cause correlation)
+#   _webhook_title / _webhook_priority / _webhook_tags  (delivery adapters)
+# Fields (label+kind required; everything else optional):
+#   label    Settings-page description -> WEBHOOK_EVENTS row
+#   kind     channel-routing kind — MUST match a CHANNEL_KIND_DEFS row
+#   title    webhook adapter title; omitted -> 'RemotePower: <event>'
+#   default  webhook default-enabled flag (default True)
+#   severity Alerts-inbox severity ('critical'|'high'|'medium'|'low');
+#            an explicit None means severity is derived from the payload at
+#            fire time (_alert_severity); key ABSENT means the event never
+#            lands in the Alerts inbox at all
+#   resolves tuple of firing events this recover event auto-resolves.
+#            REMEMBER: the sub_match key must be in _record_alert's payload
+#            whitelist or resolution silently never happens (CLAUDE.md,
+#            "Adding a webhook/alert event" §7)
+#   priority push priority for ntfy/gotify-style services (default 3,
+#            4=high, 5=urgent)
+#   tags     ntfy emoji tags (default 'bell')
+#   symptom  True -> foldable under a device_offline root cause in the
+#            grouped Alerts inbox (_annotate_alert_correlation)
+#   phantom  accepted-from-outside alias (no label); NOT listed in
+#            WEBHOOK_EVENTS / Settings — e.g. service_recover
+# Adding an event HERE wires it everywhere server-side. The frontend still
+# needs its FLEET_EVENTS entry + _homeActivityAttrs case in app.js —
+# guardrail tests test_v223 / test_v225 enforce both.
+EVENT_REGISTRY = {
+    'device_offline': dict(
+        label='Device went offline', kind='offline', title='Device Offline',
+        severity='critical', priority=4, tags='red_circle,computer'),
+    'device_online': dict(
+        label='Device came back online', kind='online', title='Device Online',
+        resolves=('device_offline',), tags='green_circle,computer'),
+    'agent_stopped': dict(
+        label='Agent stopped (host was still up)', kind='agentlifecycle',
+        title='Agent Stopped', severity='high'),
+    'agent_started': dict(
+        label='Agent restarted / resumed', kind='agentlifecycle', title='Agent Started',
+        resolves=('agent_stopped',)),
+    'monitor_down': dict(
+        label='Monitor target went down', kind='monitor', title='Monitor Down',
+        severity='high', priority=4, tags='red_circle,satellite', symptom=True),
+    'monitor_up': dict(
+        label='Monitor target recovered', kind='monitor', title='Monitor Recovered',
+        resolves=('monitor_down',), tags='green_circle,satellite'),
+    'patch_alert': dict(
+        label='Pending updates exceed threshold', kind='patches', title='Patch Alert',
+        severity='medium', priority=4, tags='warning,package'),
+    'cve_found': dict(
+        label='New CVEs detected on a device', kind='cve', title='New CVEs Detected',
+        severity=None, priority=5, tags='rotating_light,shield'),
+    'service_down': dict(
+        label='Watched systemd unit went down', kind='service', title='Service Down',
+        severity='high', priority=4, tags='red_circle,gear', symptom=True),
+    'service_up': dict(
+        label='Watched systemd unit recovered', kind='service', title='Service Recovered',
+        resolves=('service_down',), tags='green_circle,gear'),
+    'service_recover': dict(phantom=True, kind='service', resolves=('service_down',)),
+    'log_alert': dict(
+        label='Log pattern matched threshold', kind='log_alert', title='Log Pattern Matched',
+        severity=None, priority=4, tags='warning,scroll', symptom=True),
+    'container_stopped': dict(
+        label='Container/pod disappeared or stopped', kind='container',
+        title='Container Stopped', severity='high', priority=4, tags='red_circle,whale',
+        symptom=True),
+    'container_recovered': dict(
+        label='Stopped container is running again', kind='container',
+        title='Container Recovered', resolves=('container_stopped',)),
+    'container_restarting': dict(
+        label='Container restart count climbing', kind='container',
+        title='Container Restarting', severity='medium', tags='warning,whale', symptom=True),
+    'containers_stale': dict(
+        label='No container report for >TTL', kind='container', title='Container Data Stale',
+        severity='medium', priority=4, tags='warning,hourglass', symptom=True),
+    'containers_current': dict(
+        label='Container reports resumed (recovered)', kind='container',
+        resolves=('containers_stale',)),
+    'image_update_available': dict(
+        label='Container image has a newer version', kind='image_update',
+        title='Container Image Update Available', severity='low'),
+    'image_updated': dict(
+        label='Container image updated to current', kind='image_update',
+        title='Container Image Updated', resolves=('image_update_available',)),
+    'metric_warning': dict(
+        label='Resource crossed warning threshold', kind='metric', title='Resource Warning',
+        severity=None, priority=4, tags='warning,bar_chart', symptom=True),
+    'metric_critical': dict(
+        label='Resource crossed critical threshold', kind='metric', title='Resource Critical',
+        severity='critical', priority=5, tags='rotating_light,bar_chart', symptom=True),
+    'metric_recovered': dict(
+        label='Resource dropped back below threshold', kind='metric',
+        title='Resource Recovered', resolves=('metric_warning', 'metric_critical'),
+        tags='green_circle,bar_chart'),
+    'command_queued': dict(
+        label='Command queued for a device', default=False, kind='command',
+        title='Command Queued', tags='arrow_forward'),
+    'command_executed': dict(
+        label='Command executed on a device', default=False, kind='command',
+        title='Command Executed', tags='white_check_mark'),
+    'drift_detected': dict(
+        label='Watched config file diverged from baseline', kind='drift',
+        title='Configuration Drift', severity='medium'),
+    'mailbox_threshold': dict(
+        label='Mailbox count crossed its alert threshold', kind='mailbox',
+        title='Mailbox Threshold Reached', severity='medium'),
+    'custom_script_fail': dict(
+        label='Custom monitoring script returned non-zero', kind='script',
+        title='Custom Script Failed', severity='high', priority=4, tags='red_circle,test_tube'),
+    'custom_script_recover': dict(
+        label='Custom monitoring script recovered to OK', kind='script',
+        title='Custom Script Recovered', resolves=('custom_script_fail',),
+        tags='green_circle,test_tube'),
+    'custom_check_failed': dict(
+        label='Custom check failed (process/port/file/unit/log/job)', kind='custom_check',
+        title='Custom Check Failed', severity=None),
+    'custom_check_recovered': dict(
+        label='Custom check recovered to OK', kind='custom_check',
+        title='Custom Check Recovered', resolves=('custom_check_failed',)),
+    'config_drift': dict(
+        label='Host configuration drift detected', kind='drift',
+        title='Host Config Drift Detected', severity='medium', priority=4, tags='warning,wrench'),
+    'tls_expiry': dict(
+        label='TLS/DANE certificate expiring soon', kind='tls',
+        title='TLS/DANE Certificate Expiring', severity=None, priority=4, tags='warning,lock'),
+    'reboot_required': dict(
+        label='Host requires a reboot', kind='reboot', title='Host Requires Reboot',
+        severity='medium', priority=4, tags='warning,arrows_counterclockwise'),
+    'reboot_cleared': dict(
+        label='Host reboot no longer required (recovered)', kind='reboot',
+        resolves=('reboot_required',)),
+    'snapshot_old': dict(
+        label='Proxmox snapshot older than threshold', kind='snapshot',
+        title='Old Proxmox Snapshot', severity='medium', priority=4, tags='warning,floppy_disk'),
+    'new_port_detected': dict(
+        label='New listening port appeared on host', kind='new_port',
+        title='New Listening Port Detected', severity='medium', priority=4, tags='warning,door'),
+    'ssh_key_added': dict(
+        label='SSH authorized key added to host', kind='ssh_key',
+        title='SSH Key Added to Host', severity='high', priority=4, tags='warning,key'),
+    'brute_force_detected': dict(
+        label='Brute-force login attempts detected', kind='brute_force',
+        title='Brute-Force Attempts Detected', severity='high', priority=4,
+        tags='rotating_light,skull'),
+    'vault_break_glass': dict(
+        label='Break-glass credential reveal requested', kind='break_glass',
+        title='Break-Glass Reveal Requested', severity='high'),
+    'backup_stale': dict(
+        label='Backup file is older than threshold', kind='backup', title='Backup File Stale',
+        severity='medium', priority=4, tags='warning,floppy_disk'),
+    'backup_recovered': dict(
+        label='Stale backup is fresh again', kind='backup', title='Backup Recovered',
+        resolves=('backup_stale',)),
+    'backup_verify_failed': dict(
+        label='Backup integrity check failed', kind='backup',
+        title='Backup Integrity Check Failed', severity='high'),
+    'backup_verified': dict(
+        label='Backup integrity check passed (recovered)', kind='backup',
+        title='Backup Integrity Restored', resolves=('backup_verify_failed',)),
+    'rollout_halted': dict(
+        label='Rollout auto-halted (health gate / verify)', kind='rollout',
+        title='Rollout Halted', severity='high'),
+    'server_disk_low': dict(
+        label='Server data-dir disk space is low', kind='server_disk',
+        title='Server Disk Space Low', severity='high'),
+    'server_disk_ok': dict(
+        label='Server disk space recovered', kind='server_disk',
+        title='Server Disk Space Recovered', resolves=('server_disk_low',)),
+    'snmp_unreachable': dict(
+        label='SNMP poll failing for 2+ cycles', kind='snmp', title='SNMP Device Unreachable',
+        severity='high', symptom=True),
+    'snmp_dead': dict(
+        label='SNMP poll failing for 6+ hours (genuinely dead)', kind='snmp',
+        title='SNMP Device Dead', severity='critical', symptom=True),
+    'snmp_recover': dict(
+        label='SNMP polling recovered', kind='snmp', title='SNMP Device Recovered',
+        resolves=('snmp_unreachable', 'snmp_dead')),
+    'snmp_trap_received': dict(
+        label='Inbound SNMP trap received from a host', kind='snmp', title='SNMP Trap',
+        severity='medium'),
+    'mcp_confirmation_expired': dict(
+        label='MCP confirmation expired without operator decision', kind='mcp',
+        title='MCP Confirmation Expired', severity='medium'),
+    'smart_failure': dict(
+        label='A disk reported SMART failure or pre-fail', kind='hardware',
+        title='Disk SMART Failure', severity='high'),
+    'smart_recovered': dict(
+        label='All disks healthy again (SMART recovered)', kind='hardware',
+        resolves=('smart_failure',)),
+    'kernel_outdated': dict(
+        label='Running kernel is older than newest installed', kind='hardware',
+        title='Kernel Reboot Required', severity='medium'),
+    'kernel_current': dict(
+        label='Running kernel is current again (recovered)', kind='hardware',
+        resolves=('kernel_outdated',)),
+    'health_degraded': dict(
+        label='Device health score dropped below threshold', kind='health',
+        title='Device Health Degraded', severity=None, symptom=True),
+    'health_recovered': dict(
+        label='Device health score recovered above threshold', kind='health',
+        title='Device Health Recovered', resolves=('health_degraded',)),
+    'port_exposed_world': dict(
+        label='Service exposed to a world-reachable address', kind='exposure',
+        title='Service Exposed to the World', severity='high', priority=4,
+        tags='rotating_light,globe_with_meridians'),
+    'port_unexposed': dict(
+        label='World-exposed service no longer exposed (recovered)', kind='exposure',
+        resolves=('port_exposed_world',)),
+    'software_policy_violation': dict(
+        label='Installed software violates fleet policy', kind='software_policy',
+        title='Software Policy Violation', severity='medium', tags='warning,clipboard'),
+    'storage_degraded': dict(
+        label='Storage pool/array is degraded or faulted', kind='storage',
+        title='Storage Pool Degraded', severity='high', priority=4,
+        tags='rotating_light,floppy_disk'),
+    'scrub_overdue': dict(
+        label='Storage pool scrub is overdue', kind='storage', title='Storage Scrub Overdue',
+        severity='medium', tags='warning,broom'),
+    'storage_recovered': dict(
+        label='Storage pool/array returned to healthy', kind='storage',
+        title='Storage Pool Healthy', resolves=('storage_degraded', 'scrub_overdue'),
+        tags='green_circle,floppy_disk'),
+    'login_new_source': dict(
+        label='Login from a new source address', kind='access', title='Login From New Source',
+        severity='medium', tags='warning,bust_in_silhouette'),
+    'firewall_changed': dict(
+        label='Host firewall ruleset changed from baseline', kind='firewall',
+        title='Host Firewall Changed', severity='medium', tags='warning,fire'),
+    'timer_failed': dict(
+        label='Scheduled job (systemd timer) failed', kind='timer',
+        title='Scheduled Job Failed', severity='medium', tags='warning,alarm_clock'),
+    'db_integrity_failed': dict(
+        label='Database integrity check failed (possible corruption)', kind='database',
+        title='Database Integrity Check Failed', severity='critical',
+        tags='rotating_light,floppy_disk'),
+    'mount_issue': dict(
+        label='Mount point missing or a network share is stalled', kind='mount',
+        title='Mount Point Problem', severity='high', tags='warning,floppy_disk', symptom=True),
+    'mount_recovered': dict(
+        label='Mount point recovered', kind='mount', title='Mount Point Recovered',
+        resolves=('mount_issue',)),
+    'disk_predict_fail': dict(
+        label='A disk is predicted to fail (SMART trend)', kind='disk_predict',
+        title='Disk Predicted To Fail', severity='high', tags='warning,floppy_disk'),
+    'ups_on_battery': dict(
+        label='UPS switched to battery power', kind='ups', title='UPS On Battery',
+        severity='critical', tags='rotating_light,battery'),
+    'ups_on_line': dict(
+        label='UPS returned to line power', kind='ups', title='UPS Back On Line Power',
+        resolves=('ups_on_battery',), tags='green_circle,electric_plug'),
+    'temp_high': dict(
+        label='A hardware sensor exceeded its temperature threshold', kind='thermal',
+        title='High Temperature', severity='high', tags='fire,thermometer'),
+    'temp_normal': dict(
+        label='Hardware temperature returned to normal', kind='thermal',
+        title='Temperature Normal', resolves=('temp_high',), tags='white_check_mark,thermometer'),
+    'clock_skew': dict(
+        label='Host clock is unsynchronised or drifted past threshold', kind='clock',
+        title='Clock Skew', severity='medium', tags='alarm_clock,warning'),
+    'clock_synced': dict(
+        label='Host clock is back in sync', kind='clock', title='Clock Synced',
+        resolves=('clock_skew',), tags='white_check_mark,alarm_clock'),
+    'gateway_unreachable': dict(
+        label='Default gateway is not responding to ping', kind='network',
+        title='Gateway Unreachable', severity='high',
+        tags='rotating_light,globe_with_meridians', symptom=True),
+    'gateway_reachable': dict(
+        label='Default gateway is reachable again', kind='network', title='Gateway Reachable',
+        resolves=('gateway_unreachable',), tags='white_check_mark,globe_with_meridians'),
+    'oom_detected': dict(
+        label='The kernel OOM-killer terminated a process', kind='oom',
+        title='Out Of Memory Kill', severity='high', tags='skull,brain'),
+    'cert_file_expiring': dict(
+        label='A local certificate file is expiring soon', kind='cert_files',
+        title='Certificate File Expiring', severity='medium', tags='warning,lock'),
+    'cert_file_renewed': dict(
+        label='Local certificate no longer expiring (recovered)', kind='cert_files',
+        resolves=('cert_file_expiring',)),
+    'rogue_uid0': dict(
+        label='An unexpected UID 0 (root-equivalent) account appeared', kind='accounts',
+        title='Unexpected Root-Equivalent Account', severity='high',
+        tags='rotating_light,bust_in_silhouette'),
+    'rogue_uid0_cleared': dict(
+        label='No unexpected UID 0 accounts remain (recovered)', kind='accounts',
+        resolves=('rogue_uid0',)),
+    'process_alert': dict(
+        label='A watched process exceeded its CPU/memory threshold', kind='process',
+        title='Watched Process Threshold', severity='medium'),
+    'process_recovered': dict(
+        label='A watched process dropped back below its threshold', kind='process',
+        title='Watched Process Recovered', resolves=('process_alert',)),
+    'secret_exposed': dict(
+        label='A secret was found exposed on a host filesystem', kind='secrets',
+        title='Exposed Secret Found', severity='high'),
+    'scan_finding': dict(
+        label='An authorized security scan found a high/critical issue', kind='scan',
+        title='Security Scan Findings', severity=None),
+    'integration_down': dict(
+        label='An integration target is unhealthy or unreachable', kind='integration',
+        title='Integration Unhealthy', severity=None),
+    'integration_recovered': dict(
+        label='An integration target recovered', kind='integration',
+        title='Integration Recovered', resolves=('integration_down',)),
+    'ip_blacklisted': dict(
+        label='A monitored IP is listed on a DNS blocklist (DNSBL)', kind='reputation',
+        title='IP Blocklisted', severity='high'),
+    'ip_blacklist_cleared': dict(
+        label='A monitored IP is no longer blocklisted', kind='reputation',
+        title='IP Reputation Cleared', resolves=('ip_blacklisted',)),
+    'resolver_unhealthy': dict(
+        label='A monitored DNS name stopped resolving', kind='resolver',
+        title='DNS Resolution Failing', severity='high'),
+    'resolver_recovered': dict(
+        label='A monitored DNS name resolves again', kind='resolver',
+        title='DNS Resolution Recovered', resolves=('resolver_unhealthy',)),
+    'fail2ban_ban': dict(
+        label='fail2ban banned a new IP address on a host', kind='fail2ban',
+        title='fail2ban Ban', severity='medium'),
+    'failed_unit': dict(
+        label='a systemd unit entered the failed state on a host', kind='failed_units',
+        title='Failed systemd Unit', severity='medium'),
+    'av_infected': dict(
+        label='Antivirus / rootkit scan found an active infection', kind='av_posture',
+        title='Malware Detected', severity='high'),
+    'av_warning': dict(
+        label='Antivirus / rootkit scan reported warnings', kind='av_posture',
+        title='AV / Rootkit Warning', severity='medium'),
+    'av_clean': dict(
+        label='Antivirus / rootkit scan clean again (recovered)', kind='av_posture',
+        resolves=('av_infected', 'av_warning')),
+    'vpn_client_connected': dict(
+        label='A WG Access VPN client connected', kind='vpn',
+        title='WG Access Client Connected',
+        resolves=('vpn_client_disconnected', 'vpn_handshake_stale')),
+    'vpn_client_disconnected': dict(
+        label='A WG Access VPN client disconnected', kind='vpn',
+        title='WG Access Client Disconnected', severity='medium'),
+    'vpn_handshake_stale': dict(
+        label='A WG Access VPN client handshake went stale', kind='vpn',
+        title='WG Access Handshake Stale', severity='medium'),
+    'ticket_sla_breached': dict(
+        label='A helpdesk ticket passed its SLA response target', kind='tickets',
+        title='Ticket SLA Breached', severity=None),
+}
+
+# Derived: the Settings-page event list — (event, description, default-on).
+WEBHOOK_EVENTS = tuple(
+    (ev, spec['label'], spec.get('default', True))
+    for ev, spec in EVENT_REGISTRY.items() if not spec.get('phantom')
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
+
+# Derived: per-event delivery-adapter decoration (title / push priority /
+# ntfy tags). The 'test' event is the Settings "send a test" button — it is
+# deliberately not a registry row (not routable, not alertable).
+_WEBHOOK_TITLES = {ev: spec['title']
+                   for ev, spec in EVENT_REGISTRY.items() if 'title' in spec}
+_WEBHOOK_TITLES['test'] = 'Webhook Test'
+_WEBHOOK_PRIORITIES = {ev: spec['priority']
+                       for ev, spec in EVENT_REGISTRY.items() if 'priority' in spec}
+_WEBHOOK_TAGS = {ev: spec['tags']
+                 for ev, spec in EVENT_REGISTRY.items() if 'tags' in spec}
+_WEBHOOK_TAGS['test'] = 'white_check_mark,bell'
+
 
 # CVE severity levels available for cve_found webhook filtering
 CVE_SEVERITIES_ALL  = ('critical', 'high', 'medium', 'low', 'unknown')
@@ -5283,176 +5482,23 @@ def _record_fleet_event(event, payload):
 # auto-resolves the matching open alert.
 
 # Map firing event → (severity, auto_resolves_event). None severity = skip.
-_ALERT_RULES = {
-    'device_offline':         ('critical', None),
-    'agent_stopped':          ('high', None),
-    'vault_break_glass':      ('high',     None),   # v5.0.0 #C3
-    'server_disk_low':        ('high',     None),   # v5.0.0 #R1
-    'service_down':           ('high',     None),
-    'container_stopped':      ('high',     None),
-    'container_restarting':   ('medium',   None),
-    'containers_stale':       ('medium',   None),
-    'patch_alert':            ('medium',   None),
-    'cve_found':              (None,       None),   # severity from payload
-    'drift_detected':         ('medium',   None),
-    'config_drift':           ('medium',   None),
-    'tls_expiry':             (None,       None),   # severity from payload.days_left
-    'mailbox_threshold':      ('medium',   None),
-    'custom_script_fail':     ('high',     None),
-    # v5.6.0: custom check failure — severity from payload.status (a failing
-    # process/port/unit is 'critical' → high; an agent 'warning' → medium).
-    'custom_check_failed':    (None,       None),
-    'log_alert':              (None,       None),   # severity from payload.level
-    'scan_finding':           (None,       None),   # v4.2.0 (B5): from payload counts
-    'metric_warning':         (None,       None),   # severity from payload.level
-    # v3.2.0 follow-up: metric_critical was previously absent — a CRITICAL
-    # threshold breach (CPU > 90%, memory > 95%, disk > 90%) fired the
-    # webhook but never landed in the alerts inbox. Adding it here closes
-    # the gap; severity is hard-coded to 'critical' (no payload lookup).
-    'metric_critical':        ('critical', None),
-    # v3.2.0 (B5): SNMP polling for agentless devices
-    'snmp_unreachable':       ('high',     None),
-    'snmp_dead':              ('critical', None),
-    'snmp_trap_received':     ('medium',   None),
-    # v3.2.0 (A1 follow-up): silent confirmation timeout
-    'mcp_confirmation_expired': ('medium', None),
-    # v3.2.3: these events fire webhooks + land in fleet_events.json
-    # already, but were never routed to the Alerts inbox. Wiring them
-    # in makes the channel-routing matrix's `alerts` toggle meaningful
-    # for the corresponding kinds. Severities follow the existing
-    # convention (security signals → high; threshold/state → medium).
-    'monitor_down':           ('high',     None),
-    'brute_force_detected':   ('high',     None),
-    'ssh_key_added':          ('high',     None),
-    'backup_stale':           ('medium',   None),
-    'backup_verify_failed':   ('high',     None),
-    'rollout_halted':         ('high',     None),
-    'snapshot_old':           ('medium',   None),
-    'reboot_required':        ('medium',   None),
-    'new_port_detected':      ('medium',   None),
-    # v3.3.4: container image-update detection. Low severity — it's a
-    # freshness nudge, not an outage. image_updated is the recover event
-    # (no severity; handled by _auto_resolve_alerts).
-    'image_update_available': ('low',      None),
-    # v3.4.0: hardware health. A failing disk is serious; an outdated kernel
-    # is a reboot nudge (matches reboot_required's medium).
-    'smart_failure':          ('high',     None),
-    'kernel_outdated':        ('medium',   None),
-    # v3.4.1: health score crossed the alert threshold. Severity is derived
-    # from the score in _alert_severity (lower score → more severe).
-    'health_degraded':        (None,       None),
-    # v3.11.0: security/posture signals. A world-exposed service and a
-    # degraded array are serious (high); policy/scrub/firewall/timer/login
-    # are state-or-posture nudges (medium).
-    'port_exposed_world':         ('high',   None),
-    'software_policy_violation':  ('medium', None),
-    'storage_degraded':           ('high',   None),
-    'scrub_overdue':              ('medium', None),
-    'login_new_source':           ('medium', None),
-    'firewall_changed':           ('medium', None),
-    'timer_failed':               ('medium', None),
-    'db_integrity_failed':        ('critical', None),
-    'mount_issue':                ('high', None),
-    'disk_predict_fail':          ('high', None),       # v3.14.0
-    'ups_on_battery':             ('critical', None),   # v3.14.0
-    'temp_high':                  ('high', None),       # v4.1.0
-    'clock_skew':                 ('medium', None),     # v4.1.0
-    'gateway_unreachable':        ('high', None),       # v4.1.0
-    'oom_detected':               ('high', None),       # v4.1.0
-    'cert_file_expiring':         ('medium', None),     # v3.14.0
-    'rogue_uid0':                 ('high', None),        # v3.14.0
-    'process_alert':              ('medium', None),      # v3.14.0 #36
-    'secret_exposed':             ('high', None),        # v3.14.0 #35
-    'integration_down':           (None, None),          # v4.7.0: severity from payload.severity
-    'ip_blacklisted':             ('high', None),        # v4.8.0
-    'resolver_unhealthy':         ('high', None),        # v4.9.0
-    'fail2ban_ban':               ('medium', None),      # v5.1.0
-    'failed_unit':                ('medium', None),      # v5.5.0
-    'av_infected':                ('high', None),        # v5.1.0: active malware/rootkit
-    'av_warning':                 ('medium', None),      # v5.4.1: rkhunter warnings / stale AV DB
-    'vpn_client_disconnected':    ('medium', None),      # v5.2.0
-    'vpn_handshake_stale':        ('medium', None),      # v5.2.0
-    'ticket_sla_breached':        (None, None),          # v5.3.0: severity from ticket priority
-}
+# Alerts-inbox severity per event — DERIVED from EVENT_REGISTRY (`severity`
+# key). An explicit None means _alert_severity computes it from the payload
+# (cve counts, tls days_left, log level, ...). Kept as (severity, None)
+# tuples for the legacy consumers that unpack a pair.
+_ALERT_RULES = {ev: (spec.get('severity'), None)
+                for ev, spec in EVENT_REGISTRY.items() if 'severity' in spec}
 
-# Map recover event → firing event it resolves
-_ALERT_RECOVER = {
-    'device_online':           'device_offline',
-    'agent_started':           'agent_stopped',
-    'backup_verified':         'backup_verify_failed',
-    'server_disk_ok':          'server_disk_low',     # v5.0.0 #R1
-
-    # v4.2.0 sweep: the service processor fires `service_up` (and always has);
-    # `service_recover` was a phantom key nothing ever fired, so service_down
-    # alerts sat open forever after the unit recovered. Keep both spellings —
-    # service_recover for anything external that posts it, service_up for the
-    # real internal event.
-    'service_up':              'service_down',
-    'service_recover':         'service_down',
-    'custom_script_recover':   'custom_script_fail',
-    'custom_check_recovered':  'custom_check_failed',
-    'snmp_recover':            'snmp_unreachable',
-    # v3.2.3: monitor_up auto-resolves the matching monitor_down alert
-    # so the inbox stays clean when an external target recovers.
-    'monitor_up':              'monitor_down',
-    # v3.3.4: once every host running an image has pulled the registry's
-    # current digest, image_updated clears the open image_update_available.
-    'image_updated':           'image_update_available',
-    # v3.4.1: a device climbing back above the alert threshold resolves its
-    # open health_degraded alert.
-    'health_recovered':        'health_degraded',
-    # v3.11.0: an array returning to healthy resolves its storage_degraded
-    # alert (and scrub_overdue via _ALERT_RECOVER_EXTRA).
-    'storage_recovered':       'storage_degraded',
-    'ups_on_line':             'ups_on_battery',          # v3.14.0
-    'temp_normal':             'temp_high',               # v4.1.0
-    'clock_synced':            'clock_skew',              # v4.1.0
-    'gateway_reachable':       'gateway_unreachable',     # v4.1.0
-    'process_recovered':       'process_alert',           # v3.14.0 #36
-    'mount_recovered':         'mount_issue',             # v3.14.0 fix: clear stuck mount alerts
-    'integration_recovered':   'integration_down',        # v4.7.0
-    'ip_blacklist_cleared':    'ip_blacklisted',          # v4.8.0
-    'resolver_recovered':      'resolver_unhealthy',      # v4.9.0
-    'vpn_client_connected':    'vpn_client_disconnected', # v5.2.0
-    'container_recovered':     'container_stopped',       # v5.6.0: stopped→running
-    'containers_current':      'containers_stale',        # v5.6.x: reports resumed
-    'backup_recovered':        'backup_stale',            # v5.6.0: stale→fresh
-    # v5.6.x: host-condition alerts that are re-evaluated every heartbeat now
-    # self-clear when the condition goes away (previously they sat open forever
-    # after the operator fixed the underlying issue — e.g. patched+rebooted the
-    # kernel, replaced the failing disk, renewed the cert, closed the port).
-    'kernel_current':          'kernel_outdated',
-    'smart_recovered':         'smart_failure',
-    'cert_file_renewed':       'cert_file_expiring',
-    'rogue_uid0_cleared':      'rogue_uid0',
-    'reboot_cleared':          'reboot_required',
-    'port_unexposed':          'port_exposed_world',
-    'av_clean':                'av_infected',             # (+ av_warning via EXTRA)
-    # v3.4.2: a resource dropping back below its warning threshold resolves
-    # the open metric_warning alert for that exact metric+target (and the
-    # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
-    # CPU/mem/disk alerts piled up in the inbox forever.
-    'metric_recovered':        'metric_warning',
-    # snmp_recover also resolves any snmp_dead alert (same device).
-    # _auto_resolve_alerts walks once per recovered event, so we register
-    # both here. The trick: dict keys must be unique, so the second
-    # mapping is folded into the resolver function below as a special case.
-}
-# Compound recoveries: snmp_recover resolves BOTH snmp_unreachable AND
-# snmp_dead. Listed separately so the table stays a 1:1 dict.
-_ALERT_RECOVER_EXTRA = {
-    'snmp_recover':            ('snmp_dead',),
-    # metric_recovered clears BOTH the warning and the critical alert for the
-    # recovered metric+target (matched in _auto_resolve_alerts).
-    'metric_recovered':        ('metric_critical',),
-    # v3.11.0: a healthy pool also clears an open scrub_overdue alert.
-    'storage_recovered':       ('scrub_overdue',),
-    # v5.2.0: a reconnect also clears an open handshake-stale alert.
-    'vpn_client_connected':    ('vpn_handshake_stale',),
-    # v5.6.x: a clean AV scan clears BOTH the infection and the warning alert
-    # (av_infected is the primary above; av_warning is the extra target).
-    'av_clean':                ('av_warning',),
-}
+# Recover event -> firing event it auto-resolves — DERIVED from the
+# registry's `resolves` tuples. The first target keeps the legacy 1:1 map;
+# additional targets land in _ALERT_RECOVER_EXTRA (compound recoveries,
+# e.g. snmp_recover resolves BOTH snmp_unreachable AND snmp_dead;
+# metric_recovered clears the warning AND the critical alert).
+_ALERT_RECOVER = {ev: spec['resolves'][0]
+                  for ev, spec in EVENT_REGISTRY.items() if spec.get('resolves')}
+_ALERT_RECOVER_EXTRA = {ev: tuple(spec['resolves'][1:])
+                        for ev, spec in EVENT_REGISTRY.items()
+                        if len(spec.get('resolves', ())) > 1}
 
 
 # v3.2.3: Channel routing matrix — single source of truth for "which
@@ -5464,96 +5510,104 @@ _ALERT_RECOVER_EXTRA = {
 # delivery). Operators see one matrix in Settings instead of two scattered
 # kind lists and an implicit per-event-webhook toggle.
 #
-# Adding a new event? Map it here and the matrix UI picks up a row
-# automatically (frontend reads /api/dashboard/kinds).
-CHANNEL_KINDS = [
-    # (kind, label, group, [event types])
-    ('offline',     'Device offline',           'operational',   ['device_offline']),
-    ('agentlifecycle', 'Agent stopped / started', 'operational', ['agent_stopped', 'agent_started']),
-    ('online',      'Device came online',       'operational',   ['device_online']),
-    ('monitor',     'Monitor target up/down',   'operational',   ['monitor_down', 'monitor_up']),
-    ('patches',     'Pending patches',          'operational',   ['patch_alert']),
-    ('cve',         'CVE findings',             'operational',   ['cve_found']),
-    ('service',     'Service down/up',          'operational',   ['service_down', 'service_up', 'service_recover']),
-    ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current']),
-    ('image_update', 'Container image updates',  'operational',   ['image_update_available', 'image_updated']),
-    ('script',      'Custom script',            'operational',   ['custom_script_fail', 'custom_script_recover']),
-    ('custom_check', 'Custom checks',           'operational',   ['custom_check_failed', 'custom_check_recovered']),
-    ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
-    ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
-    ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
-    ('break_glass', 'Break-glass cred reveals', 'operational',   ['vault_break_glass']),
-    ('server_disk', 'Server disk space',        'operational',   ['server_disk_low', 'server_disk_ok']),
-    ('backup',      'Backup health',            'operational',   ['backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified']),
-    ('rollout',     'Rollout halted',           'operational',   ['rollout_halted']),
-    ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
-    ('acme',        'ACME certificate issuance','operational',   []),   # NA-only — surfaced from acme.sh state
+# Adding a new event? Give it a `kind` in EVENT_REGISTRY and the matrix UI
+# picks up its row automatically (frontend reads /api/dashboard/kinds).
+# Adding a new KIND? Add the (kind, label, group) row below.
+CHANNEL_KIND_DEFS = (
+    # (kind, label, group)
+    ('offline', 'Device offline', 'operational'),
+    ('agentlifecycle', 'Agent stopped / started', 'operational'),
+    ('online', 'Device came online', 'operational'),
+    ('monitor', 'Monitor target up/down', 'operational'),
+    ('patches', 'Pending patches', 'operational'),
+    ('cve', 'CVE findings', 'operational'),
+    ('service', 'Service down/up', 'operational'),
+    ('container', 'Container alerts', 'operational'),
+    ('image_update', 'Container image updates', 'operational'),
+    ('script', 'Custom script', 'operational'),
+    ('custom_check', 'Custom checks', 'operational'),
+    ('log_alert', 'Log alerts', 'operational'),
+    ('drift', 'Config drift', 'operational'),
+    ('brute_force', 'Brute-force attacks', 'operational'),
+    ('break_glass', 'Break-glass cred reveals', 'operational'),
+    ('server_disk', 'Server disk space', 'operational'),
+    ('backup', 'Backup health', 'operational'),
+    ('rollout', 'Rollout halted', 'operational'),
+    ('tls', 'TLS/cert expiry', 'operational'),
+    ('acme', 'ACME certificate issuance', 'operational'),   # NA-only — surfaced from acme.sh state
     # v4.2.0 sweep: NA-only kind (like acme) — _compute_attention emits
     # failed_units cards but they had no matrix row, so the Needs-Attention
     # filter fell back to always-on with no operator toggle.
-    ('failed_units', 'Failed systemd units',    'operational',   ['failed_unit']),
-    ('snapshot',    'Old snapshots',            'operational',   ['snapshot_old']),
-    ('reboot',      'Pending reboot',           'operational',   ['reboot_required', 'reboot_cleared']),
-    ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
-    ('ssh_key',     'SSH key changes',          'operational',   ['ssh_key_added']),
-    ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received']),
-    ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
-    ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'smart_recovered', 'kernel_outdated', 'kernel_current']),
-    ('health',      'Device health score',      'operational',   ['health_degraded', 'health_recovered']),
+    ('failed_units', 'Failed systemd units', 'operational'),
+    ('snapshot', 'Old snapshots', 'operational'),
+    ('reboot', 'Pending reboot', 'operational'),
+    ('new_port', 'New listening ports', 'operational'),
+    ('ssh_key', 'SSH key changes', 'operational'),
+    ('snmp', 'SNMP polling', 'operational'),
+    ('mcp', 'MCP confirmation expired', 'operational'),
+    ('hardware', 'Hardware health (SMART/kernel)', 'operational'),
+    ('health', 'Device health score', 'operational'),
     # v3.11.0: attack-surface / posture / storage kinds
-    ('exposure',    'World-exposed services',   'operational',   ['port_exposed_world', 'port_unexposed']),
-    ('software_policy', 'Software policy',      'operational',   ['software_policy_violation']),
-    ('storage',     'Storage / RAID health',    'operational',   ['storage_degraded', 'scrub_overdue', 'storage_recovered']),
-    ('access',      'New-source logins',        'operational',   ['login_new_source']),
-    ('firewall',    'Host firewall changes',    'operational',   ['firewall_changed']),
-    ('timer',       'Scheduled-job failures',   'operational',   ['timer_failed']),
-    ('database',    'Database integrity',       'operational',   ['db_integrity_failed']),
-    ('mount',       'Mount-point health',       'operational',   ['mount_issue', 'mount_recovered']),
+    ('exposure', 'World-exposed services', 'operational'),
+    ('software_policy', 'Software policy', 'operational'),
+    ('storage', 'Storage / RAID health', 'operational'),
+    ('access', 'New-source logins', 'operational'),
+    ('firewall', 'Host firewall changes', 'operational'),
+    ('timer', 'Scheduled-job failures', 'operational'),
+    ('database', 'Database integrity', 'operational'),
+    ('mount', 'Mount-point health', 'operational'),
     # v3.14.0: predictive / posture alerts
-    ('disk_predict', 'Disk failure prediction', 'operational',   ['disk_predict_fail']),
-    ('ups',          'UPS / power state',       'operational',   ['ups_on_battery', 'ups_on_line']),
-    ('thermal',      'Hardware temperature',    'operational',   ['temp_high', 'temp_normal']),
-    ('clock',        'Clock / time sync',       'operational',   ['clock_skew', 'clock_synced']),
-    ('network',      'Network reachability',    'operational',   ['gateway_unreachable', 'gateway_reachable']),
-    ('oom',          'Out-of-memory kills',     'operational',   ['oom_detected']),
-    ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring', 'cert_file_renewed']),
-    ('accounts',     'Local account audit',     'operational',   ['rogue_uid0', 'rogue_uid0_cleared']),
-    ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
-    ('secrets',      'Exposed secrets on disk',  'operational',   ['secret_exposed']),
-    ('scan',         'Security scan findings',   'operational',   ['scan_finding']),
+    ('disk_predict', 'Disk failure prediction', 'operational'),
+    ('ups', 'UPS / power state', 'operational'),
+    ('thermal', 'Hardware temperature', 'operational'),
+    ('clock', 'Clock / time sync', 'operational'),
+    ('network', 'Network reachability', 'operational'),
+    ('oom', 'Out-of-memory kills', 'operational'),
+    ('cert_files', 'Local certificate expiry', 'operational'),
+    ('accounts', 'Local account audit', 'operational'),
+    ('process', 'Watched process thresholds', 'operational'),
+    ('secrets', 'Exposed secrets on disk', 'operational'),
+    ('scan', 'Security scan findings', 'operational'),
     # v4.7.0: homelab software integration health
-    ('integration',  'Integration health',       'operational',   ['integration_down', 'integration_recovered']),
-    ('reputation',   'IP reputation (DNSBL)',    'operational',   ['ip_blacklisted', 'ip_blacklist_cleared']),
-    ('resolver',     'DNS resolver health',      'operational',   ['resolver_unhealthy', 'resolver_recovered']),
-    ('fail2ban',     'fail2ban intrusion bans',  'operational',   ['fail2ban_ban']),  # v5.1.0
-    ('vpn',          'WG Access road-warrior',   'operational',   ['vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale']),  # v5.2.0
+    ('integration', 'Integration health', 'operational'),
+    ('reputation', 'IP reputation (DNSBL)', 'operational'),
+    ('resolver', 'DNS resolver health', 'operational'),
+    ('fail2ban', 'fail2ban intrusion bans', 'operational'),  # v5.1.0
+    ('vpn', 'WG Access road-warrior', 'operational'),  # v5.2.0
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
     # who want "no swap warnings" check the row they care about.
-    ('metric',      'Metric event firings',     'informational', ['metric_warning', 'metric_critical', 'metric_recovered']),
-    ('disk',        'Disk space (NA)',          'informational', []),
-    ('memory',      'Memory pressure (NA)',     'informational', []),
-    ('swap',        'Swap pressure (NA)',       'informational', []),
-    ('cpu',         'CPU loadavg (NA)',         'informational', []),
-    ('agent_version', 'Stale agent version (NA)', 'informational', []),
-    ('os_eol',      'End-of-life OS (NA)',      'informational', []),
+    ('metric', 'Metric event firings', 'informational'),
+    ('disk', 'Disk space (NA)', 'informational'),
+    ('memory', 'Memory pressure (NA)', 'informational'),
+    ('swap', 'Swap pressure (NA)', 'informational'),
+    ('cpu', 'CPU loadavg (NA)', 'informational'),
+    ('agent_version', 'Stale agent version (NA)', 'informational'),
+    ('os_eol', 'End-of-life OS (NA)', 'informational'),
     # v3.5.0: lifecycle contract expiry (NA — same shape as os_eol)
-    ('warranty_expiry', 'Warranty expiry (NA)',  'informational', []),
-    ('license_expiry',  'License expiry (NA)',   'informational', []),
-    ('support_expiry',  'Support expiry (NA)',   'informational', []),
+    ('warranty_expiry', 'Warranty expiry (NA)', 'informational'),
+    ('license_expiry', 'License expiry (NA)', 'informational'),
+    ('support_expiry', 'Support expiry (NA)', 'informational'),
     # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA).
     # v5.1.0: av_posture now also carries the av_infected alert event.
     # v5.4.1: ...and av_warning (rkhunter warnings / stale AV DB).
-    ('av_posture',      'Malware / AV posture',        'operational', ['av_infected', 'av_warning', 'av_clean']),
-    ('tickets',         'Helpdesk tickets',            'operational', ['ticket_sla_breached']),  # v5.3.0
-    ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
+    ('av_posture', 'Malware / AV posture', 'operational'),
+    ('tickets', 'Helpdesk tickets', 'operational'),  # v5.3.0
+    ('proxmox_backup', 'Stale Proxmox backups (NA)', 'operational'),
     # v3.7.0: CMDB credential rotation due (NA)
-    ('cred_rotation',   'Credential rotation due (NA)', 'operational', []),
-    ('agent_integrity', 'Agent integrity (NA)', 'informational', []),
-    ('after_hours',  'After-hours activity (NA)', 'informational', []),
-    ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
-    ('command',     'Command queued/executed',  'informational', ['command_queued', 'command_executed']),
+    ('cred_rotation', 'Credential rotation due (NA)', 'operational'),
+    ('agent_integrity', 'Agent integrity (NA)', 'informational'),
+    ('after_hours', 'After-hours activity (NA)', 'informational'),
+    ('mailbox', 'Mailbox threshold', 'informational'),
+    ('command', 'Command queued/executed', 'informational'),
+)
+# Per-kind event lists are DERIVED from EVENT_REGISTRY `kind` fields; a
+# kind with no events is NA-only (surfaced from state, not fired events).
+CHANNEL_KINDS = [
+    (kind, label, group,
+     [ev for ev, spec in EVENT_REGISTRY.items() if spec.get('kind') == kind])
+    for kind, label, group in CHANNEL_KIND_DEFS
 ]
 
 EVENT_KIND_MAP = {
@@ -8179,105 +8233,9 @@ def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
 
 
 def _webhook_title(event):
-    """Human-readable title for the event (used by every adapter)."""
-    titles = {
-        'device_offline': 'Device Offline',
-        'agent_stopped': 'Agent Stopped',
-        'agent_started': 'Agent Started',
-        'vault_break_glass': 'Break-Glass Reveal Requested',
-        'server_disk_low': 'Server Disk Space Low',
-        'server_disk_ok': 'Server Disk Space Recovered',
-        'device_online':  'Device Online',
-        'command_queued':  'Command Queued',
-        'command_executed': 'Command Executed',
-        'patch_alert':     'Patch Alert',
-        'monitor_down':    'Monitor Down',
-        'monitor_up':      'Monitor Recovered',
-        'cve_found':       'New CVEs Detected',
-        'scan_finding':    'Security Scan Findings',
-        'integration_down':      'Integration Unhealthy',
-        'integration_recovered': 'Integration Recovered',
-        'ip_blacklisted':        'IP Blocklisted',
-        'ip_blacklist_cleared':  'IP Reputation Cleared',
-        'resolver_unhealthy':    'DNS Resolution Failing',
-        'resolver_recovered':    'DNS Resolution Recovered',
-        'fail2ban_ban':          'fail2ban Ban',
-        'failed_unit':           'Failed systemd Unit',
-        'av_infected':           'Malware Detected',
-        'av_warning':            'AV / Rootkit Warning',
-        'ticket_sla_breached':   'Ticket SLA Breached',
-        'snmp_trap_received':    'SNMP Trap',
-        'service_down':    'Service Down',
-        'service_up':      'Service Recovered',
-        'log_alert':       'Log Pattern Matched',
-        'container_stopped':    'Container Stopped',
-        'container_recovered':  'Container Recovered',
-        'container_restarting': 'Container Restarting',
-        'containers_stale':     'Container Data Stale',
-        # v4.2.0 sweep: these fell through to the generic fallback title.
-        'image_update_available': 'Container Image Update Available',
-        'image_updated':          'Container Image Updated',
-        'snmp_unreachable':       'SNMP Device Unreachable',
-        'snmp_dead':              'SNMP Device Dead',
-        'snmp_recover':           'SNMP Device Recovered',
-        'mcp_confirmation_expired': 'MCP Confirmation Expired',
-        'metric_warning':       'Resource Warning',
-        'metric_critical':      'Resource Critical',
-        'metric_recovered':     'Resource Recovered',
-        'custom_script_fail':    'Custom Script Failed',
-        'custom_script_recover': 'Custom Script Recovered',
-        'custom_check_failed':    'Custom Check Failed',
-        'custom_check_recovered': 'Custom Check Recovered',
-        'config_drift':          'Host Config Drift Detected',
-        'tls_expiry':            'TLS/DANE Certificate Expiring',
-        'reboot_required':       'Host Requires Reboot',
-        'snapshot_old':          'Old Proxmox Snapshot',
-        'new_port_detected':     'New Listening Port Detected',
-        'ssh_key_added':         'SSH Key Added to Host',
-        'brute_force_detected':  'Brute-Force Attempts Detected',
-        'backup_stale':          'Backup File Stale',
-        'backup_recovered':      'Backup Recovered',
-        'backup_verify_failed':  'Backup Integrity Check Failed',
-        'backup_verified':       'Backup Integrity Restored',
-        'rollout_halted':        'Rollout Halted',
-        'mailbox_threshold':     'Mailbox Threshold Reached',
-        'drift_detected':        'Configuration Drift',
-        'smart_failure':         'Disk SMART Failure',
-        'kernel_outdated':       'Kernel Reboot Required',
-        'health_degraded':       'Device Health Degraded',
-        'health_recovered':      'Device Health Recovered',
-        'port_exposed_world':        'Service Exposed to the World',
-        'software_policy_violation': 'Software Policy Violation',
-        'storage_degraded':          'Storage Pool Degraded',
-        'scrub_overdue':             'Storage Scrub Overdue',
-        'storage_recovered':         'Storage Pool Healthy',
-        'login_new_source':          'Login From New Source',
-        'firewall_changed':          'Host Firewall Changed',
-        'timer_failed':              'Scheduled Job Failed',
-        'db_integrity_failed':       'Database Integrity Check Failed',
-        'mount_issue':               'Mount Point Problem',
-        'mount_recovered':           'Mount Point Recovered',
-        'disk_predict_fail':         'Disk Predicted To Fail',
-        'ups_on_battery':            'UPS On Battery',
-        'temp_high':                 'High Temperature',
-        'temp_normal':               'Temperature Normal',
-        'clock_skew':                'Clock Skew',
-        'clock_synced':              'Clock Synced',
-        'gateway_unreachable':       'Gateway Unreachable',
-        'gateway_reachable':         'Gateway Reachable',
-        'oom_detected':              'Out Of Memory Kill',
-        'ups_on_line':               'UPS Back On Line Power',
-        'cert_file_expiring':        'Certificate File Expiring',
-        'rogue_uid0':                'Unexpected Root-Equivalent Account',
-        'process_alert':             'Watched Process Threshold',
-        'process_recovered':         'Watched Process Recovered',
-        'secret_exposed':            'Exposed Secret Found',
-        'vpn_client_connected':      'WG Access Client Connected',
-        'vpn_client_disconnected':   'WG Access Client Disconnected',
-        'vpn_handshake_stale':       'WG Access Handshake Stale',
-        'test':            'Webhook Test',
-    }
-    return titles.get(event, f'RemotePower: {event}')
+    """Human-readable title for the event (used by every adapter) — from
+    EVENT_REGISTRY's `title` fields."""
+    return _WEBHOOK_TITLES.get(event, f'RemotePower: {event}')
 
 
 def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
@@ -9242,84 +9200,15 @@ def _webhook_message(event, payload):
 
 
 def _webhook_priority(event):
-    """Return numeric priority (1-5) for push services. 3=default, 4=high, 5=urgent."""
-    if event == 'cve_found' or event == 'metric_critical':
-        return 5
-    if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down',
-                 'log_alert', 'container_stopped', 'containers_stale',
-                 'metric_warning', 'custom_script_fail', 'config_drift',
-                 'tls_expiry', 'reboot_required', 'snapshot_old',
-                 'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale',
-                 # v3.11.0: world-exposure and a degraded array are page-worthy
-                 'port_exposed_world', 'storage_degraded'):
-        return 4
-    if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered',
-                 'custom_script_recover', 'storage_recovered'):
-        return 3
-    return 3
+    """Numeric priority (1-5) for push services — from EVENT_REGISTRY's
+    `priority` fields. 3=default, 4=high, 5=urgent."""
+    return _WEBHOOK_PRIORITIES.get(event, 3)
 
 
 def _webhook_tags(event):
-    """Return emoji tags for Ntfy-style push services."""
-    tags = {
-        'device_offline': 'red_circle,computer',
-        'device_online':  'green_circle,computer',
-        'command_queued':  'arrow_forward',
-        'command_executed': 'white_check_mark',
-        'patch_alert':     'warning,package',
-        'cve_found':       'rotating_light,shield',
-        'monitor_down':    'red_circle,satellite',
-        'monitor_up':      'green_circle,satellite',
-        'service_down':    'red_circle,gear',
-        'service_up':      'green_circle,gear',
-        'log_alert':       'warning,scroll',
-        # v1.11.4
-        'container_stopped':    'red_circle,whale',
-        'container_restarting': 'warning,whale',
-        'containers_stale':     'warning,hourglass',
-        # v1.11.10
-        'metric_warning':       'warning,bar_chart',
-        'metric_critical':      'rotating_light,bar_chart',
-        'metric_recovered':     'green_circle,bar_chart',
-        # v2.5.0: custom monitoring scripts
-        'custom_script_fail':    'red_circle,test_tube',
-        'custom_script_recover': 'green_circle,test_tube',
-        # v2.6.0: host configuration drift
-        'config_drift':          'warning,wrench',
-        # v2.6.1
-        'tls_expiry':            'warning,lock',
-        'reboot_required':       'warning,arrows_counterclockwise',
-        'snapshot_old':          'warning,floppy_disk',
-        'new_port_detected':     'warning,door',
-        'ssh_key_added':         'warning,key',
-        'brute_force_detected':  'rotating_light,skull',
-        'backup_stale':          'warning,floppy_disk',
-        # v3.11.0
-        'port_exposed_world':        'rotating_light,globe_with_meridians',
-        'software_policy_violation': 'warning,clipboard',
-        'storage_degraded':          'rotating_light,floppy_disk',
-        'scrub_overdue':             'warning,broom',
-        'storage_recovered':         'green_circle,floppy_disk',
-        'login_new_source':          'warning,bust_in_silhouette',
-        'firewall_changed':          'warning,fire',
-        'timer_failed':              'warning,alarm_clock',
-        'db_integrity_failed':       'rotating_light,floppy_disk',
-        'mount_issue':               'warning,floppy_disk',
-        'disk_predict_fail':         'warning,floppy_disk',
-        'ups_on_battery':            'rotating_light,battery',
-        'temp_high':                 'fire,thermometer',
-        'temp_normal':               'white_check_mark,thermometer',
-        'clock_skew':                'alarm_clock,warning',
-        'clock_synced':              'white_check_mark,alarm_clock',
-        'gateway_unreachable':       'rotating_light,globe_with_meridians',
-        'gateway_reachable':         'white_check_mark,globe_with_meridians',
-        'oom_detected':              'skull,brain',
-        'ups_on_line':               'green_circle,electric_plug',
-        'cert_file_expiring':        'warning,lock',
-        'rogue_uid0':                'rotating_light,bust_in_silhouette',
-        'test':            'white_check_mark,bell',
-    }
-    return tags.get(event, 'bell')
+    """Emoji tags for Ntfy-style push services — from EVENT_REGISTRY's
+    `tags` fields."""
+    return _WEBHOOK_TAGS.get(event, 'bell')
 
 
 def _ts_fmt(ts):
@@ -40236,12 +40125,10 @@ def _alerts_summary(alerts):
 # v4.1.0: events that are plausibly downstream of a host being offline /
 # unreachable — when a device_offline alert is open for a host, these fold
 # under it as symptoms in the grouped inbox instead of reading as a storm.
-ALERT_SYMPTOM_EVENTS = frozenset({
-    'service_down', 'monitor_down', 'metric_warning', 'metric_critical',
-    'container_stopped', 'container_restarting', 'containers_stale',
-    'snmp_unreachable', 'snmp_dead', 'health_degraded', 'log_alert',
-    'gateway_unreachable', 'mount_issue',
-})
+# DERIVED from EVENT_REGISTRY's `symptom` flags: events foldable under a
+# device_offline root cause in the grouped inbox.
+ALERT_SYMPTOM_EVENTS = frozenset(
+    ev for ev, spec in EVENT_REGISTRY.items() if spec.get('symptom'))
 
 
 def _annotate_alert_correlation(alerts):

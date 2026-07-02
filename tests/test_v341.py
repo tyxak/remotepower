@@ -114,16 +114,22 @@ class TestV341HealthHistoryAndAlerts(unittest.TestCase):
         self.assertIn("_safe(_check_health_webhooks", self.API)
 
     def test_health_degraded_in_all_server_registries(self):
-        # WEBHOOK_EVENTS
-        self.assertIn("'health_degraded'", self.API)
+        # All the formerly-scattered registries (_ALERT_RULES, CHANNEL_KINDS,
+        # _webhook_title, _ALERT_RECOVER) now derive from the one
+        # EVENT_REGISTRY row — pin that row's fields.
+        idx = self.API.find("'health_degraded': dict(")
+        self.assertGreater(idx, 0, 'health_degraded missing from EVENT_REGISTRY')
+        row = self.API[idx: idx + 300]
         # _ALERT_RULES (silent if missed → never lands in Alerts inbox)
-        self.assertRegex(self.API, r"'health_degraded':\s*\(None,\s*None\)")
-        # CHANNEL_KINDS (silent if missed → no routing row)
-        self.assertRegex(self.API, r"'health',.*\['health_degraded',\s*'health_recovered'\]")
+        self.assertIn('severity=None', row)
+        # CHANNEL_KINDS routing (silent if missed → no routing row)
+        self.assertIn("kind='health'", row)
         # _webhook_title (silent-ish if missed → falls back to raw event)
-        self.assertIn("'health_degraded':       'Device Health Degraded'", self.API)
+        self.assertIn("title='Device Health Degraded'", row)
         # recover mapping
-        self.assertRegex(self.API, r"'health_recovered':\s*'health_degraded'")
+        ridx = self.API.find("'health_recovered': dict(")
+        self.assertGreater(ridx, 0, 'health_recovered missing from EVENT_REGISTRY')
+        self.assertIn("resolves=('health_degraded',)", self.API[ridx: ridx + 300])
 
     def test_health_degraded_severity_from_score(self):
         # _alert_severity must derive severity from the score, not return None
