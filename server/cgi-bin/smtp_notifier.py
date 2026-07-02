@@ -112,7 +112,13 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     if tls_mode not in ('starttls', 'tls', 'plain'):
         raise SmtpError(f'unsupported smtp_tls: {tls_mode!r}')
 
-    sender = (cfg.get('smtp_from') or '').strip()
+    # CR/LF-strip every value that becomes a mail header or SMTP-command
+    # argument (sender/helo/extra_headers) — Message.__setitem__ does not
+    # sanitize, so an embedded newline would inject headers/commands. Recipients
+    # and subject are already stripped by callers; this closes the rest.
+    def _hdr_safe(v):
+        return str(v or '').replace('\r', '').replace('\n', '')
+    sender = _hdr_safe(cfg.get('smtp_from')).strip()
     if not sender or '@' not in sender:
         raise SmtpError('smtp_from must be a valid email address')
 
@@ -121,7 +127,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     # returns ('', False) if nothing is set — the SMTP server may still
     # accept the connection anonymously (helpful for localhost relays).
     password, _from_env = resolve_smtp_password(cfg)
-    helo     = (cfg.get('smtp_helo_name') or '').strip() or socket.gethostname()
+    helo     = _hdr_safe(cfg.get('smtp_helo_name')).strip() or socket.gethostname()
     # Opt-out of TLS certificate verification — for a localhost / internal relay
     # whose cert isn't valid for the connect hostname (mirrors the ticket IMAP
     # verify_tls toggle). Default ON; only disable for trusted internal relays.
@@ -174,7 +180,7 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str, extra_heade
     # threading for the ticket system). Skip any that overwrite the core set.
     for _hk, _hv in (extra_headers or {}).items():
         if _hk and _hk not in msg and _hv is not None:
-            msg[_hk] = str(_hv)
+            msg[_hdr_safe(_hk)] = _hdr_safe(_hv)
 
     try:
         if tls_mode == 'tls':

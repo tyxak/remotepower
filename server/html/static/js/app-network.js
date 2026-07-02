@@ -671,7 +671,7 @@ function tlsDetailOpen(id) {
     const text   = daneStatusText[status]   || status;
     let recordsHtml = '';
     if ((t.dane_records || []).length) {
-      recordsHtml = `<table class="isl-480">
+      recordsHtml = `<div class="scrollable-table-wrap audit-scroll"><table class="isl-480">
         <thead><tr class="isl-481">
           <th class="isl-44">Usage</th>
           <th class="isl-44">Selector</th>
@@ -684,7 +684,7 @@ function tlsDetailOpen(id) {
           <td class="isl-44">${r.matching_type}</td>
           <td class="isl-482">${escHtml(String(r.data || '').slice(0, 64))}${(r.data || '').length > 64 ? '…' : ''}</td>
         </tr>`).join('')}
-        </tbody></table>`;
+        </tbody></table></div>`;
     }
     daneHtml = `<div class="isl-483">
       <div class="isl-421">DANE / TLSA</div>

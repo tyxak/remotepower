@@ -475,9 +475,23 @@ def _lock_key(name):
     return name
 
 
-def _acquire(conn, name, non_blocking):
+def _acquire(conn, name, non_blocking, shared=False):
     """Take the per-file advisory lock inside the current transaction. In
-    non_blocking mode, raise LockBusyError instead of waiting."""
+    non_blocking mode, raise LockBusyError instead of waiting.
+
+    shared=True takes a SHARED advisory lock: many shared holders coexist, but
+    they mutually exclude with the EXCLUSIVE lock on the same key. Used so a
+    per-device heartbeat write (DeviceTxn) can serialize against a whole-store
+    DEVICES_FILE reconcile-save without blocking other heartbeats."""
+    if shared:
+        if non_blocking:
+            got = conn.execute(
+                'SELECT pg_try_advisory_xact_lock_shared(hashtext(%s))', (name,)).fetchone()
+            if not list(got.values())[0]:
+                raise LockBusyError(name)
+        else:
+            conn.execute('SELECT pg_advisory_xact_lock_shared(hashtext(%s))', (name,))
+        return
     if non_blocking:
         got = conn.execute(
             'SELECT pg_try_advisory_xact_lock(hashtext(%s))', (name,)).fetchone()
@@ -711,6 +725,13 @@ class DeviceTxn:
         conn = self.conn = _connect(_dir(self.path))
         conn.execute('BEGIN')
         try:
+            # Shared lock on the whole-store key first: heartbeats coexist with
+            # each other (many shared holders) but serialize against a
+            # whole-store _LockedUpdate(DEVICES_FILE) reconcile-save, which takes
+            # the EXCLUSIVE lock on the same key. Without this the two paths used
+            # different advisory keys and a concurrent whole-store save could
+            # revert this device's freshly-written row (lost update).
+            _acquire(conn, DEVICES_FILE_NAME, self.non_blocking, shared=True)
             _acquire(conn, DEVICES_FILE_NAME + '#' + self.dev_id, self.non_blocking)
         except LockBusyError:
             try:
@@ -760,6 +781,9 @@ class DeviceTxn:
 def upsert_device(devices_path, dev_id, mutate):
     conn = _connect(_dir(devices_path))
     with _Tx(conn) as c:
+        # See DeviceTxn: shared whole-store lock serializes this single-row
+        # write against whole-store DEVICES_FILE reconcile-saves.
+        _acquire(c, DEVICES_FILE_NAME, False, shared=True)
         _acquire(c, DEVICES_FILE_NAME + '#' + dev_id, False)
         row = c.execute('SELECT doc, last_seen FROM devices WHERE id=%s',
                        (dev_id,)).fetchone()

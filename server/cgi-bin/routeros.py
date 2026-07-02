@@ -78,7 +78,19 @@ def _peer_ip_blocked(ip_str):
         ip = _ipaddress.ip_address(ip_str)
     except ValueError:
         return False
-    return bool(ip.is_loopback or ip.is_link_local or ip.is_unspecified)
+    # v5.7.0 SSRF: unwrap v4-mapped/6to4/NAT64 v6 forms and re-classify the
+    # inner v4, then block cloud-metadata IPs is_link_local misses — mirrors
+    # the canonical api._ip_class_blocked (this hand-rolled copy had drifted).
+    if isinstance(ip, _ipaddress.IPv6Address):
+        inner = ip.ipv4_mapped or ip.sixtofour
+        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
+            inner = _ipaddress.IPv4Address(int(ip) & 0xffffffff)
+        if inner is not None:
+            ip = inner
+    if str(ip) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
+        return True
+    return bool(ip.is_loopback or ip.is_link_local or ip.is_unspecified
+                or ip.is_multicast or ip.is_reserved)
 
 
 class _SSRFGuardHTTPSConnection(_httpclient.HTTPSConnection):

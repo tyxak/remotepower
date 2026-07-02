@@ -5921,13 +5921,21 @@ def _handle_file_op(cmd):
         fs = Path(host_path(logical))       # where it is actually readable
         # Symlink-resolved re-check: realpath the mapped path, un-map it back to
         # the host namespace, and confirm it is STILL inside an allowed root.
-        logical_real = unhost_path(os.path.realpath(fs))
+        real = os.path.realpath(fs)
+        logical_real = unhost_path(real)
         if not _file_mgr_allowed(logical_real):
             return {'cmd': cmd, 'rc': 1,
                     'output': _json.dumps({'error': 'resolved path escapes the allowlisted roots'})}
+        # v5.7.0 (SECURITY): read/list operate on the REALPATH-resolved target,
+        # not the original `fs`. Re-opening `fs` re-followed the symlink, so a
+        # local TOCTOU (swap an allowed symlink to /root/.ssh/id_rsa between the
+        # check above and the read) bypassed the allowlist. `real` has no symlink
+        # components at check time; the read additionally opens O_NOFOLLOW so the
+        # leaf can't be swapped to a symlink after resolution (matches write).
+        real_fs = Path(real)
         if op == 'list':
             entries = []
-            for ent in sorted(fs.iterdir(), key=lambda e: e.name)[:2000]:
+            for ent in sorted(real_fs.iterdir(), key=lambda e: e.name)[:2000]:
                 try:
                     st = ent.lstat()
                     entries.append({
@@ -5941,7 +5949,12 @@ def _handle_file_op(cmd):
                     continue
             res = {'path': logical, 'entries': entries}
         elif op == 'read':
-            data = fs.read_bytes()[:FILE_MGR_MAX_READ + 1]
+            # O_NOFOLLOW on the resolved leaf (see the TOCTOU note above); read +
+            # stat come from the SAME fd so the reported size matches the bytes.
+            _rfd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(_rfd, 'rb') as _fh:
+                data = _fh.read(FILE_MGR_MAX_READ + 1)
+                _rsize = os.fstat(_fh.fileno()).st_size
             truncated = len(data) > FILE_MGR_MAX_READ
             data = data[:FILE_MGR_MAX_READ]
             try:
@@ -5949,7 +5962,7 @@ def _handle_file_op(cmd):
             except UnicodeDecodeError:
                 text, binary = '', True
             res = {'path': logical, 'binary': binary, 'truncated': truncated,
-                   'size': fs.stat().st_size, 'content': text}
+                   'size': _rsize, 'content': text}
         elif op == 'write':
             content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
                        if len(bits) > 3 else '')
@@ -6554,35 +6567,81 @@ def collect_host_config():
     ]
 
     # ── users (UID >= 1000, not nobody) ──────────────────────────────────────
+    # In a container, _pwd/_grp resolve the CONTAINER's NSS, not the Docker
+    # host — so the drift view would report the slim image's accounts. Parse the
+    # host's /etc/passwd + /etc/group text (host_path'd via _safe_read) instead.
+    # Natively, keep getpwall/getgrall so NSS/LDAP/SSSD users (which never appear
+    # in a flat /etc/passwd) are still captured.
     users = []
     try:
-        for pw in _pwd.getpwall():
-            if pw.pw_uid < 1000 or pw.pw_name == 'nobody':
-                continue
-            groups = [g.gr_name for g in _grp.getgrall() if pw.pw_name in g.gr_mem]
-            ak_path = Path(host_path(os.path.join(pw.pw_dir, '.ssh', 'authorized_keys')))
-            ak = ''
-            try:
-                ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
-            except OSError:
-                pass
-            users.append({
-                'name':            pw.pw_name,
-                'shell':           pw.pw_shell,
-                'groups':          groups,
-                'authorized_keys': ak,
-            })
+        if IN_CONTAINER:
+            memb = {}   # user -> [supplementary group names]
+            for ln in (_safe_read('/etc/group', 200_000) or '').splitlines():
+                gf = ln.split(':')
+                if len(gf) >= 4:
+                    for m in gf[3].split(','):
+                        if m:
+                            memb.setdefault(m, []).append(gf[0])
+            for ln in (_safe_read('/etc/passwd', 200_000) or '').splitlines():
+                pf = ln.split(':')
+                if len(pf) < 7:
+                    continue
+                try:
+                    uid = int(pf[2])
+                except ValueError:
+                    continue
+                name, home, shell = pf[0], pf[5], pf[6]
+                if uid < 1000 or name == 'nobody':
+                    continue
+                ak_path = Path(host_path(os.path.join(home, '.ssh', 'authorized_keys')))
+                ak = ''
+                try:
+                    ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
+                except OSError:
+                    pass
+                users.append({'name': name, 'shell': shell,
+                              'groups': memb.get(name, []), 'authorized_keys': ak})
+        else:
+            for pw in _pwd.getpwall():
+                if pw.pw_uid < 1000 or pw.pw_name == 'nobody':
+                    continue
+                groups = [g.gr_name for g in _grp.getgrall() if pw.pw_name in g.gr_mem]
+                ak_path = Path(host_path(os.path.join(pw.pw_dir, '.ssh', 'authorized_keys')))
+                ak = ''
+                try:
+                    ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
+                except OSError:
+                    pass
+                users.append({
+                    'name':            pw.pw_name,
+                    'shell':           pw.pw_shell,
+                    'groups':          groups,
+                    'authorized_keys': ak,
+                })
     except Exception as e:
         log.debug(f'collect_host_config users error: {e}')
     current['users'] = users
 
     # ── groups ───────────────────────────────────────────────────────────────
     try:
-        current['groups'] = [
-            {'name': g.gr_name, 'gid': g.gr_gid}
-            for g in _grp.getgrall()
-            if g.gr_gid >= 1000
-        ]
+        if IN_CONTAINER:
+            groups = []
+            for ln in (_safe_read('/etc/group', 200_000) or '').splitlines():
+                gf = ln.split(':')
+                if len(gf) >= 3:
+                    try:
+                        gid = int(gf[2])
+                    except ValueError:
+                        continue
+                    if gid >= 1000:
+                        groups.append({'name': gf[0], 'gid': gid})
+            current['groups'] = groups
+        else:
+            current['groups'] = [
+                {'name': g.gr_name, 'gid': g.gr_gid}
+                for g in _grp.getgrall()
+                if g.gr_gid >= 1000
+            ]
     except Exception:
         current['groups'] = []
 

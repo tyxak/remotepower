@@ -71,6 +71,10 @@ def _addr_blocked(ip: str) -> bool:
             mapped = ipaddress.IPv4Address(a.packed[12:16])
         if mapped is not None:
             a = mapped
+    # Cloud instance-metadata endpoints not caught by is_link_local (AWS IMDSv6
+    # ULA, Alibaba, Oracle-legacy) — 169.254.169.254 is already link-local.
+    if str(a) in ('fd00:ec2::254', '100.100.100.200', '192.0.0.192'):
+        return True
     return a.is_link_local or a.is_unspecified or a.is_multicast
 
 # Probe knobs. 5+5s is generous — Cloudflare-fronted hosts respond in
@@ -460,7 +464,7 @@ def _probe_tls(host: str, port: int, connect_address: str = "",
     # TOCTOU window that create_connection((host, port)) would reopen.
     safe_addrs = [a for a in addrs if not _addr_blocked(a)]
     if not safe_addrs:
-        result["tls_error"] = "refused: target resolves only to loopback/link-local/metadata"
+        result["tls_error"] = "refused: target resolves only to link-local/metadata/multicast addresses"
         return result
     connect_ip = safe_addrs[0]
 

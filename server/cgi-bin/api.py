@@ -6707,7 +6707,12 @@ def handle_ticket_send_email(tid):
         respond(404, {'error': 'ticket system is disabled'})
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    actor = require_auth()
+    # v5.7.0 (SECURITY): outbound SMTP relay must not be reachable by pure
+    # read-only roles (viewer/mcp/auditor/finance). Bare require_auth() let any
+    # token send arbitrary-body/attachment mail from the org mail server to any
+    # address (phishing/exfil) and mutate the ticket. Gate on a write-capable
+    # role, like every other state-mutating handler.
+    actor = require_write_role('email a ticket contact')
     body = get_json_obj()
     text = _sanitize_str(str(body.get('body', '')), 8000).strip()
     if not text:
@@ -11803,6 +11808,21 @@ def _caller_is_superadmin():
     return role == 'admin' and _user_tenant(user) == DEFAULT_TENANT
 
 
+def require_superadmin_auth(what='manage tenants'):
+    """v5.7.0 (SECURITY): platform-operator gate for /api/tenants*. A tenant-
+    scoped admin (role=='admin' but tenant_id != default) passes the plain
+    require_admin_auth() role check, so without this it could
+    `POST /api/tenants/default/users {self}` to move itself into the default
+    tenant and become a superadmin (full cross-tenant control — the very
+    isolation boundary tenancy is meant to enforce). When tenancy is off every
+    admin resolves to the default tenant, so this is a no-op for the common
+    single-tenant deployment."""
+    actor = require_admin_auth()
+    if not _caller_is_superadmin():
+        respond(403, {'error': f'only a platform superadmin can {what}'})
+    return actor
+
+
 def _tenant_gate():
     """The caller's tenant id when isolation should apply to them, else None
     (isolation off, or caller is a superadmin). Computed once per request path
@@ -11826,8 +11846,8 @@ def _tenant_filter_devices(devices):
 
 
 def handle_tenants_list():
-    """GET /api/tenants — registry + per-tenant user counts. Admin only."""
-    require_admin_auth()
+    """GET /api/tenants — registry + per-tenant user counts. Superadmin only."""
+    require_superadmin_auth('view all tenants')
     tenants = _load_tenants()
     users = load(USERS_FILE) or {}
     counts = {}
@@ -11843,8 +11863,8 @@ def handle_tenants_list():
 
 
 def handle_tenant_create():
-    """POST /api/tenants — create a tenant {name}. Admin only."""
-    actor = require_admin_auth()
+    """POST /api/tenants — create a tenant {name}. Superadmin only."""
+    actor = require_superadmin_auth('create tenants')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     name = _sanitize_str((get_json_obj()).get('name', ''), 64).strip()
@@ -11866,8 +11886,8 @@ def handle_tenant_create():
 
 
 def handle_tenant_update(tid):
-    """PUT /api/tenants/{id} — rename / set status (active|suspended). Admin."""
-    actor = require_admin_auth()
+    """PUT /api/tenants/{id} — rename / set status (active|suspended). Superadmin."""
+    actor = require_superadmin_auth('modify tenants')
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_obj()
@@ -11888,8 +11908,8 @@ def handle_tenant_update(tid):
 
 def handle_tenant_delete(tid):
     """DELETE /api/tenants/{id}. Refuses the default tenant and any tenant that
-    still has users assigned (reassign them first). Admin only."""
-    actor = require_admin_auth()
+    still has users assigned (reassign them first). Superadmin only."""
+    actor = require_superadmin_auth('delete tenants')
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     if tid == DEFAULT_TENANT:
@@ -11907,8 +11927,8 @@ def handle_tenant_delete(tid):
 
 
 def handle_tenant_assign_user(tid):
-    """POST /api/tenants/{id}/users {username} — assign a user to a tenant. Admin."""
-    actor = require_admin_auth()
+    """POST /api/tenants/{id}/users {username} — assign a user to a tenant. Superadmin."""
+    actor = require_superadmin_auth('assign users to tenants')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if tid not in _load_tenants():
@@ -12069,7 +12089,10 @@ def _valid_fw_token(s, maxlen=400):
     the agent runs through a shell, so it must hold ONLY safe characters — no
     ;, |, &, $, backtick, quotes, redirects, globs or braces — so a rule field
     can never inject a second command."""
-    return isinstance(s, str) and 0 < len(s) <= maxlen and bool(_FW_TOKEN_RE.match(s))
+    # fullmatch (not match): `re.match(...$)` still accepts a single trailing
+    # newline, and while _FW_TOKEN_RE's charset excludes \n today, fullmatch is
+    # the correct anchor for a strict allowlist and removes the latent gap.
+    return isinstance(s, str) and 0 < len(s) <= maxlen and bool(_FW_TOKEN_RE.fullmatch(s))
 
 
 def handle_firewall_overview():
@@ -18183,6 +18206,23 @@ def _scrub_config_secrets(obj, stripped=None):
             _scrub_config_secrets(item, stripped)
 
 
+def _redact_config_secrets_inplace(obj):
+    """Like _scrub_config_secrets but REPLACES each secret-named value with the
+    '(redacted)' marker instead of dropping the key — used by the backup export
+    so a restored backup stays structurally intact and the operator can see at a
+    glance which secrets need re-entering. Matches the same secret-name regex."""
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            if isinstance(k, str) and _SECRET_KEY_RE.search(k):
+                if obj[k]:
+                    obj[k] = '(redacted)'
+            else:
+                _redact_config_secrets_inplace(obj[k])
+    elif isinstance(obj, list):
+        for item in obj:
+            _redact_config_secrets_inplace(item)
+
+
 def handle_config_get():
     require_auth()
     _cfg_user, _cfg_role = verify_token(get_token_from_request())
@@ -21289,24 +21329,30 @@ def handle_self_status():
     try:
         total_bytes = 0
         files_info = []
-        if _storage_backend() == 'sqlite':
+        _sb_diag = _storage_backend()
+        if _sb_diag in ('sqlite', 'postgres'):
             # No per-file .json artifacts — report logical document sizes from
-            # the decomposed store, plus the actual .db file on disk.
-            for name in storage.iter_files(DATA_DIR):
+            # the decomposed store (plus the actual .db file, SQLite only).
+            # v5.7.0: the Postgres backend used to fall through to the DATA_DIR
+            # filesystem walk below, where no .json files exist → the Server-
+            # Status page reported total_bytes=0 and an empty big-files list.
+            _smod = storage if _sb_diag == 'sqlite' else storage_pg
+            for name in _smod.iter_files(DATA_DIR):
                 try:
-                    sz = storage.doc_size(DATA_DIR / name)
+                    sz = _smod.doc_size(DATA_DIR / name)
                 except Exception:
                     sz = 0
                 total_bytes += sz
                 if sz >= 100 * 1024:
                     files_info.append({'name': name, 'bytes': sz})
-            try:
-                dbp = storage.db_path(DATA_DIR)
-                if dbp.exists():
-                    files_info.append({'name': dbp.name,
-                                       'bytes': dbp.stat().st_size})
-            except OSError:
-                pass
+            if _sb_diag == 'sqlite':
+                try:
+                    dbp = storage.db_path(DATA_DIR)
+                    if dbp.exists():
+                        files_info.append({'name': dbp.name,
+                                           'bytes': dbp.stat().st_size})
+                except OSError:
+                    pass
         else:
             for p in DATA_DIR.iterdir():
                 if not p.is_file():
@@ -24159,14 +24205,18 @@ def _audit_listening_ports(dev_id, dev_name, ports):
             except Exception:
                 pass
 
-    # Update baseline to current set (carry scope/addr for the next diff)
-    try:
-        _entity_write_one(PORT_BASELINE_FILE, dev_id,
-                          [{'proto': p, 'port': q, 'process': r,
-                            'scope': s, 'addr': a}
-                           for p, q, r, s, a in current])
-    except Exception:
-        pass
+    # Update baseline to current set (carry scope/addr for the next diff).
+    # Only write when the port set actually changed — on a steady-state host
+    # the baseline is identical every heartbeat, and re-writing it churned the
+    # entity store (a full row rewrite + mtime bump) on every beat, per device.
+    new_baseline = [{'proto': p, 'port': q, 'process': r,
+                     'scope': s, 'addr': a}
+                    for p, q, r, s, a in current]
+    if first_seen or new_baseline != prev:
+        try:
+            _entity_write_one(PORT_BASELINE_FILE, dev_id, new_baseline)
+        except Exception:
+            pass
 
 
 def _ingest_posture_v3110(dev_id, dev_name, si):
@@ -24296,10 +24346,16 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                 _fire('mount_recovered', {'path': path})
         new['mount_issues'] = cur_mi
 
-    try:
-        _entity_write_one(POSTURE_STATE_FILE, dev_id, new)
-    except Exception:
-        pass
+    # Only persist when the state actually moved. `new` starts as dict(prev)
+    # and is mutated in place; on a steady-state heartbeat it equals `prev`, so
+    # skipping the write here avoids a per-heartbeat, per-device entity rewrite
+    # (and, on Postgres, its own txn + mtime bump that busts watching caches).
+    # First contact always seeds.
+    if first_seen or new != prev:
+        try:
+            _entity_write_one(POSTURE_STATE_FILE, dev_id, new)
+        except Exception:
+            pass
 
 
 def _scrub_age_days(scrub_str):
@@ -27414,7 +27470,10 @@ def handle_batch_jobs_list():
 def handle_batch_jobs_clear():
     """DELETE /api/exec/batch — clear the recent batch/install job tracker. Only
     clears the records; anything already queued on a device still runs."""
-    actor = require_auth()
+    # v5.7.0 (SECURITY): bare require_auth() let a pure read-only role
+    # (viewer/mcp/auditor/finance) wipe the whole fleet's batch/install job
+    # tracker. This is a state mutation — gate on a write-capable role.
+    actor = require_write_role('clear the batch job tracker')
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
     save(BATCH_JOBS_FILE, {'jobs': {}})
@@ -30064,9 +30123,14 @@ def _ingest_mailbox_counts(dev_id, counts):
         }
     # Crossings to fire are collected inside the lock, then the
     # webhooks are fired AFTER the lock is released — fire_webhook does
-    # its own file I/O and must never run while we hold DEVICES_FILE.
+    # its own file I/O and must never run while we hold the device lock.
+    # v5.7.0 perf: single-row _DeviceUpdate, not a whole-store
+    # _LockedUpdate(DEVICES_FILE) — this only mutates devices[dev_id], and the
+    # whole-store form did an O(fleet) read + full reconcile-save every beat from
+    # an MTA host (the sibling ingests were moved off it in b69fb5e; this was
+    # missed).
     to_fire = []
-    with _LockedUpdate(DEVICES_FILE) as devices:
+    with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if dev is None:
             return
@@ -30767,6 +30831,11 @@ def _ingest_netscan(dev_id, dev_name, result, now):
 # Keep ~6 months of daily samples per device — enough for a year-over-year
 # feel without unbounded growth (a 50-device fleet ≈ a few MB).
 MAX_METRIC_SAMPLES = 185
+# Refresh today's already-recorded metrics point at most this often. The
+# forecaster fits over one-point-per-UTC-day, so intra-day precision finer than
+# this buys nothing — and refreshing on every heartbeat was a full per-device
+# entity-row rewrite each beat (write amplification, worst on Postgres).
+_METRIC_SAMPLE_REFRESH_SEC = 1800   # 30 min
 
 
 def _maybe_sample_metrics(dev_id, sysinfo, now):
@@ -30833,6 +30902,15 @@ def _maybe_sample_metrics(dev_id, sysinfo, now):
     rec = _entity_read_one(METRICS_HIST_FILE, dev_id, None) or {'samples': []}
     samples = rec.setdefault('samples', [])
     if samples and samples[-1].get('date') == day:
+        # Today's point exists — refresh it at most every ~30 min, not every
+        # heartbeat (see _METRIC_SAMPLE_REFRESH_SEC). Skipping avoids a full
+        # per-device entity-row rewrite on each beat with no forecast benefit.
+        try:
+            last_ts = float(samples[-1].get('ts') or 0)
+        except (TypeError, ValueError):
+            last_ts = 0
+        if (now - last_ts) < _METRIC_SAMPLE_REFRESH_SEC:
+            return
         samples[-1] = sample          # refresh today's point
     else:
         samples.append(sample)
@@ -35602,13 +35680,6 @@ def handle_export():
     import zipfile, io
     buf = io.BytesIO()
     exclude = {'tokens.json', 'longpoll.json', 'ratelimit.json'}
-    # config.json keys whose values are secrets and must be redacted
-    # out of the backup. Keeping the key (with a marker value) rather
-    # than dropping it means a restored backup is structurally intact
-    # and the operator can see at a glance that a secret needs
-    # re-entering.
-    config_secret_keys = ('proxmox_token_secret', 'smtp_password',
-                          'ldap_bind_password')
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         # v3.12.0: iterate logical files via the backend seam (not glob), so the
         # ZIP is complete under SQLite too. Every entry is written as
@@ -35625,20 +35696,45 @@ def handle_export():
                             for kid, v in raw.items()}
                 zf.writestr('apikeys.json', json.dumps(redacted, indent=2))
             elif name == 'config.json':
-                # Redact secret fields — see config_secret_keys above.
+                # v5.7.0 (SECURITY): the previous 3-key redaction
+                # (proxmox_token_secret / smtp_password / ldap_bind_password)
+                # leaked nearly every OTHER config secret into the "shareable"
+                # backup ZIP — SSH private key, ai.api_key, oidc_client_secret,
+                # vapid_private_key, status/SIEM/OTLP/audit-forward/SCIM tokens,
+                # webhook URLs with tokens-in-path, cloud secret keys, registry
+                # passwords. Apply the SAME recursive secret-named scrub as
+                # /api/config (handles the *_password/_secret/_token/api_key/
+                # private_key/credentials families, incl. nested registry creds),
+                # then explicitly redact the credential-bearing keys whose NAMES
+                # are not secret-shaped so the regex misses them.
                 raw = load(f)
                 if isinstance(raw, dict):
-                    for k in config_secret_keys:
+                    _redact_config_secrets_inplace(raw)
+                    for k in ('agentless_ssh_key', 'webhook_url',
+                              'healthchecks_url'):
                         if raw.get(k):
                             raw[k] = '(redacted)'
-                    # v3.0.2: redact pushover creds inside webhook_urls entries
+                    # webhook_urls[].url embeds Slack/Discord/Teams tokens in the
+                    # path; pushover creds live here too.
                     if isinstance(raw.get('webhook_urls'), list):
                         for e in raw['webhook_urls']:
-                            if not isinstance(e, dict): continue
-                            if e.get('pushover_token'):
-                                e['pushover_token'] = '(redacted)'
-                            if e.get('pushover_user'):
-                                e['pushover_user']  = '(redacted)'
+                            if not isinstance(e, dict):
+                                continue
+                            for ek in ('url', 'pushover_token', 'pushover_user'):
+                                if e.get(ek):
+                                    e[ek] = '(redacted)'
+                    mp = raw.get('metrics_push')
+                    if isinstance(mp, dict) and mp.get('url'):
+                        mp['url'] = '(redacted)'
+                    gi = raw.get('gitops')
+                    if isinstance(gi, dict) and gi.get('auth_header'):
+                        gi['auth_header'] = '(redacted)'
+                    # cloud_accounts[].secret_key ends '_key' but isn't matched by
+                    # the secret-name regex (only api_key/private_key are).
+                    if isinstance(raw.get('cloud_accounts'), list):
+                        for a in raw['cloud_accounts']:
+                            if isinstance(a, dict) and a.get('secret_key'):
+                                a['secret_key'] = '(redacted)'
                 zf.writestr('config.json', json.dumps(raw, indent=2))
             else:
                 zf.writestr(name, json.dumps(load(f), indent=2))
@@ -38954,7 +39050,20 @@ def _build_fleet_report(site_id=None):
     if site_id is not None:
         devices = {k: v for k, v in devices.items()
                    if isinstance(v, dict) and (v.get('site') or '') == site_id}
-    site_ids = set(devices) if site_id is not None else None
+    # v5.7.0 (SECURITY): confine the report to the caller's role scope + tenant.
+    # Reached from handle_fleet_report / handle_evidence_pack after require_auth;
+    # without this a group/tag/site-scoped operator (or, under multi-tenancy, a
+    # tenant user) got fleet-wide device names, worst-10 health, and CVE/patch/
+    # SLA aggregates. Mirrors handle_fleet_health's re-filter.
+    _pre_scope_n = len(devices)
+    devices = _scope_filter_devices(devices)
+    # `site_ids` restricts the CVE + health rosters below. Use the visible id set
+    # whenever a site filter is active OR the caller's scope/tenant actually
+    # trimmed the fleet; None (all findings) only for a fully-unscoped admin, so
+    # the admin path is byte-for-byte unchanged.
+    _caller_restricted = len(devices) != _pre_scope_n
+    site_ids = (set(devices) if (site_id is not None or _caller_restricted)
+                else None)
     now = int(time.time())
     ttl = get_online_ttl()
     online = sum(1 for d in devices.values()
