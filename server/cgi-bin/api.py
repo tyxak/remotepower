@@ -2774,6 +2774,67 @@ def save(path, data, non_blocking=False, clamp_last_seen=True):
 # is still held. SystemExit (raised by respond()) is treated as "abort,
 # don't save" — the lock is still released.
 
+# ── v5.6.x: lock-deferred side-effects ──────────────────────────────────────
+# fire_webhook() / audit_log() / log_command() are SELF-LOCKING (they take
+# their own _LockedUpdate). Historically, calling one while another storage
+# lock was held nested BEGIN IMMEDIATE under the SQL backends →
+# OperationalError, swallowed by the recorders → the alert/event/audit row
+# silently vanished. That bug class recurred at least five times
+# (mcp_confirmation, custom scripts, escalation DLQ, _ingest_hardware,
+# metric webhooks) despite the "collect-then-fire" rule in CLAUDE.md.
+#
+# Instead of relying on every call site remembering the pattern, the lock
+# context managers track a per-thread scope stack and the recorders
+# AUTO-DEFER: called while any lock is held, they queue themselves and run
+# right after the OUTERMOST lock releases. A scope that aborts (exception,
+# respond()'s SystemExit) discards what it queued — its save was aborted,
+# so its events must not fire. Explicit collect-then-fire call sites keep
+# working unchanged (no lock held at fire time → immediate execution).
+_LOCK_SCOPES = threading.local()
+
+
+def _locks_held():
+    """True while the current thread is inside any _LockedUpdate /
+    _DeviceUpdate scope."""
+    return getattr(_LOCK_SCOPES, 'depth', 0) > 0
+
+
+def _defer_after_locks(fn, *args, **kwargs):
+    """Queue fn(*args, **kwargs) to run after the outermost lock releases.
+    Only valid while _locks_held() — the recorders check first."""
+    _LOCK_SCOPES.pending.append((fn, args, kwargs))
+
+
+def _lock_scope_enter():
+    """Register entry into a lock scope; returns this scope's rollback mark
+    (the pending-queue length at entry)."""
+    st = _LOCK_SCOPES
+    if not hasattr(st, 'depth'):
+        st.depth = 0
+        st.pending = []
+    st.depth += 1
+    return len(st.pending)
+
+
+def _lock_scope_exit(mark, failed):
+    """Register exit from a lock scope. A failed scope (aborted save)
+    discards the side-effects it queued; when the outermost scope exits,
+    everything still queued runs — in call order, each isolated, with the
+    lock already released so a recorder can take its own lock freely."""
+    st = _LOCK_SCOPES
+    st.depth = max(0, getattr(st, 'depth', 1) - 1)
+    if failed and len(st.pending) > mark:
+        del st.pending[mark:]
+    if st.depth == 0 and st.pending:
+        pending, st.pending = st.pending, []
+        for fn, args, kwargs in pending:
+            try:
+                fn(*args, **kwargs)
+            except Exception as e:
+                sys.stderr.write(f'[remotepower] deferred side-effect failed: '
+                                 f'{type(e).__name__}: {e}\n')
+
+
 class _JsonLockedUpdate:
     """Context manager: acquire flock → load → yield data → save → release.
 
@@ -2814,15 +2875,21 @@ class _JsonLockedUpdate:
                 pass
             self._lock_fd = None
             raise
+        self._scope_mark = _lock_scope_enter()
         return self._data
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        failed = exc_type is not None
         try:
             # Only save on clean exit. SystemExit (from respond()) and
             # any other exception aborts the write — the partial dict
             # is not safe to publish if the handler bailed out mid-way.
             if exc_type is None and self._data is not None:
-                _save_held(self.path, self._data)
+                try:
+                    _save_held(self.path, self._data)
+                except BaseException:
+                    failed = True
+                    raise
             else:
                 # v3.0.2: aborted save — invalidate the load cache so the
                 # caller doesn't see the in-flight mutations on the next
@@ -2839,6 +2906,9 @@ class _JsonLockedUpdate:
                 except OSError:
                     pass
                 self._lock_fd = None
+            # After the lock is released — a flushed recorder can then take
+            # its own lock without nesting.
+            _lock_scope_exit(self._scope_mark, failed=failed)
         return False  # don't swallow exceptions
 
 
@@ -2855,18 +2925,26 @@ class _DbLockedUpdate:
 
     def __enter__(self):
         try:
-            return self._inner.__enter__()
+            data = self._inner.__enter__()
         except self._mod.LockBusyError:
             raise LockBusy(self.path, 0)
+        self._scope_mark = _lock_scope_enter()
+        return data
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        failed = exc_type is not None
         try:
-            return self._inner.__exit__(exc_type, exc_val, exc_tb)
+            try:
+                return self._inner.__exit__(exc_type, exc_val, exc_tb)
+            except BaseException:
+                failed = True
+                raise
         finally:
             # The backend wrote (or rolled back) through its own helpers, which
             # can't touch this process's load cache. Invalidate here so a
             # load()-after-update in the same request re-reads.
             _invalidate_load_cache(self.path)
+            _lock_scope_exit(self._scope_mark, failed=failed)
 
 
 def _LockedUpdate(path, non_blocking=False):
@@ -2893,15 +2971,23 @@ class _DbDeviceUpdate:
 
     def __enter__(self):
         try:
-            return self._inner.__enter__()
+            data = self._inner.__enter__()
         except self._mod.LockBusyError:
             raise LockBusy(DEVICES_FILE, 0)
+        self._scope_mark = _lock_scope_enter()
+        return data
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        failed = exc_type is not None
         try:
-            return self._inner.__exit__(exc_type, exc_val, exc_tb)
+            try:
+                return self._inner.__exit__(exc_type, exc_val, exc_tb)
+            except BaseException:
+                failed = True
+                raise
         finally:
             _invalidate_load_cache(DEVICES_FILE)
+            _lock_scope_exit(self._scope_mark, failed=failed)
 
 
 def _DeviceUpdate(dev_id, non_blocking=False):
@@ -4487,6 +4573,11 @@ def _sanitize_monitor_target(mtype, target):
 
 # ── Command history ────────────────────────────────────────────────────────────
 def log_command(actor, device_id, device_name, command):
+    # SELF-LOCKING recorder — auto-defer when called inside a lock scope
+    # (see the lock-deferred side-effects block above _JsonLockedUpdate).
+    if _locks_held():
+        _defer_after_locks(log_command, actor, device_id, device_name, command)
+        return
     entry = {
         'ts':          int(time.time()),
         'actor':       _sanitize_str(actor, 64),
@@ -4627,7 +4718,17 @@ def audit_log(actor, action, detail='', source_ip=None,
     when something goes sideways. Calls without these args (every
     existing call site) record neither field — the audit-log shape stays
     backward-compatible.
+
+    v5.6.x: SELF-LOCKING (takes _LockedUpdate(AUDIT_LOG_FILE) for the hash
+    chain) — called while another lock is held it now auto-defers to run
+    after the outermost lock releases instead of nesting (see the
+    lock-deferred side-effects block above _JsonLockedUpdate).
     """
+    if _locks_held():
+        _defer_after_locks(audit_log, actor, action, detail,
+                           source_ip or _get_client_ip(),
+                           ai_host, ai_prompt)
+        return
     entry = {
         'ts':        int(time.time()),
         'actor':     _sanitize_str(actor, 64),
@@ -7952,6 +8053,12 @@ def fire_webhook(event, payload):
     (per-event toggle, CVE severity filter, maintenance suppression) once,
     then fans out to whichever channels are configured.
 
+    v5.6.x: SELF-LOCKING (fleet-event + alert-ledger recorders take their own
+    locks) — called while another lock is held it auto-defers to run after
+    the outermost lock releases instead of nesting (see the lock-deferred
+    side-effects block above _JsonLockedUpdate). The payload is shallow-copied
+    at defer time so caller mutations after the call don't leak in.
+
     v2.2.4: now also records the event itself in fleet_events.json,
     BEFORE the gates. The fleet event log captures what HAPPENED on
     the fleet, regardless of whether anything was delivered downstream.
@@ -7961,6 +8068,10 @@ def fire_webhook(event, payload):
     window, etc.) still apply to deliveries — they don't filter out
     "what happened" from the log.
     """
+    if _locks_held():
+        _defer_after_locks(fire_webhook, event,
+                           dict(payload) if isinstance(payload, dict) else payload)
+        return
     # v2.2.4: always record the event itself, regardless of any
     # downstream gating. Wrapped — a bug here must never break the
     # event firing path.
