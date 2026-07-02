@@ -77,9 +77,15 @@ class TestRuntimeHelper(unittest.TestCase):
 
 
 class TestWiring(unittest.TestCase):
+    def _sets_tier(self, path, tier):
+        # quote-agnostic: api_worker.py is black-checked (double quotes), wsgi.py
+        # is not — accept either.
+        t = (_CGI / path).read_text()
+        return f"_SERVER_TIER = '{tier}'" in t or f'_SERVER_TIER = "{tier}"' in t
+
     def test_entry_points_set_tier(self):
-        self.assertIn("_SERVER_TIER = 'wsgi'", (_CGI / "wsgi.py").read_text())
-        self.assertIn("_SERVER_TIER = 'scgi'", (_CGI / "api_worker.py").read_text())
+        self.assertTrue(self._sets_tier("wsgi.py", "wsgi"))
+        self.assertTrue(self._sets_tier("api_worker.py", "scgi"))
 
     def test_scheduler_writes_heartbeat(self):
         self.assertIn("SCHEDULER_STATE_FILE", (_CGI / "scheduler.py").read_text())

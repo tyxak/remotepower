@@ -23131,7 +23131,7 @@ async function loadSelfStatus() {
   }
   const runtimeCard = `
     <div class="dash-card">
-      <div class="fw-600-mb10">Serving &amp; runtime</div>
+      <div class="section-title">Serving &amp; runtime</div>
       <table class="fs-13">
         ${_rtRow('Storage backend', be[0], be[1], be[2])}
         ${_rtRow('Request tier', tier[0], tier[1], tier[2])}
@@ -23142,7 +23142,7 @@ async function loadSelfStatus() {
     </div>`;
   body.innerHTML = runtimeCard + `
     <div class="dash-card">
-      <div class="fw-600-mb10">Site health ${healthPill}</div>
+      <div class="section-title">Site health ${healthPill}</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
         ${la['1m'] != null ? `<tr><td class="c-muted-padded">Load average</td><td>${la['1m'].toFixed(2)} · ${la['5m'].toFixed(2)} · ${la['15m'].toFixed(2)} <span class="c-muted">(1m · 5m · 15m)</span></td></tr>` : ''}
@@ -23156,7 +23156,7 @@ async function loadSelfStatus() {
     </div>
 
     <div class="dash-card">
-      <div class="fw-600-mb10">Devices</div>
+      <div class="section-title">Devices</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
         <tr><td class="c-muted-padded">Currently offline</td><td><span class="isl-713" data-color="${offlineSev}">${dev.offline ?? '—'}</span></td></tr>
@@ -23167,7 +23167,7 @@ async function loadSelfStatus() {
     </div>
 
     <div class="dash-card">
-      <div class="fw-600-mb10">Webhook delivery — outbound</div>
+      <div class="section-title">Webhook delivery — outbound</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Last 24h</td><td>${_whHtml(w24)}</td></tr>
         <tr><td class="c-muted-padded">Last 7 days</td><td>${_whHtml(w7d)}</td></tr>
@@ -23189,7 +23189,7 @@ async function loadSelfStatus() {
                (kindsTxt ? ` <span class="hint">[${kindsTxt}]</span>` : '');
       };
       return `<div class="dash-card">
-        <div class="fw-600-mb10">Inbound webhooks &amp; syslog</div>
+        <div class="section-title">Inbound webhooks &amp; syslog</div>
         <table class="fs-13">
           <tr><td class="c-muted-padded">Last 24h</td><td>${_iwHtml(i24)}</td></tr>
           <tr><td class="c-muted-padded">Last 7 days</td><td>${_iwHtml(i7d)}</td></tr>
@@ -23199,7 +23199,7 @@ async function loadSelfStatus() {
     })()}
 
     <div class="dash-card">
-      <div class="fw-600-mb10">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
+      <div class="section-title">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
       <table class="isl-714">
         <tr><td class="c-muted-padded">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
         ${diskPct != null ? `<tr><td class="c-muted-padded">Filesystem used</td><td>${diskPct}% (${_selfFmtBytes(dd.fs_total_bytes - dd.fs_free_bytes)} of ${_selfFmtBytes(dd.fs_total_bytes)})</td></tr>` : ''}
@@ -23208,7 +23208,7 @@ async function loadSelfStatus() {
     </div>
 
     <div class="dash-card">
-      <div class="fw-600-mb10">Audit log</div>
+      <div class="section-title">Audit log</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
         <tr><td class="c-muted-padded">Retention</td><td>${(s.audit_log || {}).retention_days ?? '—'} days</td></tr>
@@ -23217,7 +23217,7 @@ async function loadSelfStatus() {
     </div>
 
     <div class="dash-card">
-      <div class="fw-600-mb10">Backup</div>
+      <div class="section-title">Backup</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Encryption</td><td>${bk.encryption_armed
           ? '<span class="patch-badge ok">AES-256-GCM at rest</span>'
@@ -23264,7 +23264,7 @@ sudo systemctl restart remotepower-api</pre>
     ${_slowHandlersCard(s.slow_handlers)}
 
     <div class="dash-card">
-      <div class="fw-600-mb10">Fleet events</div>
+      <div class="section-title">Fleet events</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
         ${(s.fleet_events || {}).archive_bytes ? `<tr><td class="c-muted-padded">Archive (gzip)</td><td>${_selfFmtBytes(s.fleet_events.archive_bytes)}</td></tr>` : ''}
@@ -23283,7 +23283,7 @@ function _slowHandlersCard(sh) {
       + `<td class="${cls}">${r.ms} ms</td><td class="hint">${_selfFmtAgo(r.ts)}</td></tr>`;
   }).join('');
   return `<div class="dash-card">
-      <div class="fw-600-mb10">Slow requests <span class="hint">(> ${sh.threshold_ms} ms; last ${sh.count})</span></div>
+      <div class="section-title">Slow requests <span class="hint">(> ${sh.threshold_ms} ms; last ${sh.count})</span></div>
       <table class="fs-13">${rows}</table>
     </div>`;
 }
@@ -23309,7 +23309,7 @@ function _cadenceJobsCard(jobs) {
   }).join('');
   if (!rows) return '';
   return `<div class="dash-card">
-      <div class="fw-600-mb10">Recurring jobs</div>
+      <div class="section-title">Recurring jobs</div>
       <table class="fs-13">${rows}</table>
     </div>`;
 }
@@ -23323,7 +23323,7 @@ async function runSelfTest() {
   const rows = data.checks.map(c =>
     `<tr><td>${c.ok ? '<span class="c-green">●</span>' : '<span class="c-red">●</span>'}</td>`
     + `<td class="fw-600">${escHtml(c.name)}</td><td class="hint">${escHtml(c.detail || '')}</td></tr>`).join('');
-  box.innerHTML = `<div class="dash-card"><div class="fw-600-mb10">${data.ok
+  box.innerHTML = `<div class="dash-card"><div class="section-title">${data.ok
     ? '<span class="c-green">● All checks passed</span>'
     : '<span class="c-red">● Some checks failed</span>'}</div>`
     + `<table class="fs-13">${rows}</table></div>`;
