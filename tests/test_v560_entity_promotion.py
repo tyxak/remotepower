@@ -86,6 +86,61 @@ class TestColdToEntityMigrationV4(unittest.TestCase):
         self.assertEqual(storage.entity_get(avp, 'h2').get('rkhunter'), {'warnings': 2})
 
 
+class TestEntityPromotionWave3(unittest.TestCase):
+    """v5.6.x third wave: hardware/drift_state/drift_contents/helm/discovery/
+    secret_findings/speedtest/acme_state — the remaining heartbeat/report-path
+    flat {device_id: doc} stores. Round-trip through the real locked-update
+    path under whichever backend this leg runs."""
+
+    def test_wave3_files_registered(self):
+        for f in storage._COLD_TO_ENTITY_V5:
+            self.assertIn(f, storage.ENTITY_FILES)
+
+    def test_hardware_roundtrips_per_device(self):
+        with api._LockedUpdate(api.HARDWARE_FILE) as st:
+            st['w3-h1'] = {'smart': [{'dev': '/dev/sda', 'healthy': True}]}
+        api._invalidate_load_cache(api.HARDWARE_FILE)
+        self.assertIn('w3-h1', api.load(api.HARDWARE_FILE) or {})
+
+    def test_list_valued_docs_roundtrip(self):
+        # speedtest.json stores a LIST per device — entity docs are arbitrary
+        # JSON values, not just dicts.
+        with api._LockedUpdate(api.SPEEDTEST_FILE) as st:
+            st.setdefault('w3-h2', []).append({'down_mbps': 940.0, 'ts': 1})
+        api._invalidate_load_cache(api.SPEEDTEST_FILE)
+        got = (api.load(api.SPEEDTEST_FILE) or {}).get('w3-h2')
+        self.assertEqual(got, [{'down_mbps': 940.0, 'ts': 1}])
+
+    def test_row_deletion_reconciles(self):
+        with api._LockedUpdate(api.DRIFT_STATE_FILE) as st:
+            st['w3-a'] = {'files': {}}
+            st['w3-b'] = {'files': {}}
+        with api._LockedUpdate(api.DRIFT_STATE_FILE) as st:
+            st.pop('w3-b', None)
+        api._invalidate_load_cache(api.DRIFT_STATE_FILE)
+        store = api.load(api.DRIFT_STATE_FILE) or {}
+        self.assertIn('w3-a', store)
+        self.assertNotIn('w3-b', store)
+
+    def test_migration_splits_wave3_blob(self):
+        if os.environ.get('RP_STORAGE_BACKEND') != 'sqlite':
+            self.skipTest("migration is a SQLite-backend concern")
+        import json
+        conn = storage._connect()
+        blob = {'m1': {'gpu': []}, 'm2': {'smart': []}}
+        conn.execute("INSERT INTO kv(path, doc) VALUES('hardware.json', ?) "
+                     "ON CONFLICT(path) DO UPDATE SET doc=excluded.doc",
+                     (json.dumps(blob),))
+        conn.commit()
+        storage._migrate_cold_to_entity(conn, ('hardware.json',))
+        conn.commit()
+        hwp = storage.DATA_DIR / 'hardware.json'
+        kv = conn.execute("SELECT doc FROM kv WHERE path='hardware.json'").fetchone()
+        self.assertIsNone(kv)
+        self.assertEqual(storage.entity_get(hwp, 'm1'), {'gpu': []})
+        self.assertEqual(storage.entity_get(hwp, 'm2'), {'smart': []})
+
+
 class TestBackendsStayInLockstep(unittest.TestCase):
     """storage_pg (Postgres) is the ONE backend `make test-both` never exercises
     (it only runs JSON + SQLite). A cold->entity promotion that bumps SQLite's

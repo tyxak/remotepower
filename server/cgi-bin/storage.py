@@ -49,7 +49,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 4  # v5.6.0: posture_state/port_baseline/av/ssh_key_baseline -> entity
+SCHEMA_VERSION = 5  # v5.6.x: hardware/drift/helm/discovery/secrets/speedtest/acme -> entity
 
 
 def configure(data_dir):
@@ -97,6 +97,19 @@ ENTITY_FILES = {
     'port_baseline.json',
     'av_status.json',
     'ssh_key_baseline.json',
+    # v5.6.x (perf, Tier-2 wave 3): the remaining flat {device_id: doc} stores
+    # written on the heartbeat/report path — previously whole-fleet cold-blob
+    # rewrites on every agent report. hardware.json is the hottest (SMART/GPU/
+    # temps ride most heartbeats); the rest are per-report but still rewrote
+    # the whole fleet's blob for one device's row.
+    'hardware.json',
+    'drift_state.json',
+    'drift_contents.json',
+    'helm.json',
+    'discovery.json',
+    'secret_findings.json',
+    'speedtest.json',
+    'acme_state.json',
 }
 
 # v5.0.0: files that were 'cold' blobs before this version and are now ENTITY
@@ -106,6 +119,10 @@ _COLD_TO_ENTITY_V3 = ('containers.json', 'update_logs.json', 'cmds.json', 'uptim
 # v5.6.0: second wave promoted to ENTITY — split their kv blob once at db_ver < 4.
 _COLD_TO_ENTITY_V4 = ('posture_state.json', 'port_baseline.json', 'av_status.json',
                       'ssh_key_baseline.json')
+# v5.6.x: third wave promoted to ENTITY — split their kv blob once at db_ver < 5.
+_COLD_TO_ENTITY_V5 = ('hardware.json', 'drift_state.json', 'drift_contents.json',
+                      'helm.json', 'discovery.json', 'secret_findings.json',
+                      'speedtest.json', 'acme_state.json')
 
 # wrapped-list files: basename -> the single top-level list key.
 # NOTE: fleet_events.json is deliberately NOT here — it is polymorphic in the
@@ -354,6 +371,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V3)
     if db_ver is None or db_ver < 4:
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V4)
+    if db_ver is None or db_ver < 5:
+        _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V5)
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
