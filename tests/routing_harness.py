@@ -41,6 +41,10 @@ def resolve_route(method, path):
             setattr(api, name, mk(name))
     saved_table = api._EXACT_ROUTES
     api._EXACT_ROUTES = None     # rebuild capturing the recorders
+    # v5.6.x: the pattern chain is a lazily-built table too — reset it the
+    # same way or a cached build holds stale handler objects across the swap.
+    saved_patterns = api._PATTERN_ROUTES
+    api._PATTERN_ROUTES = None
     os.environ['REQUEST_METHOD'] = method
     os.environ['PATH_INFO'] = path
     try:
@@ -54,6 +58,7 @@ def resolve_route(method, path):
         for name, fn in saved.items():
             setattr(api, name, fn)
         api._EXACT_ROUTES = saved_table
+        api._PATTERN_ROUTES = saved_patterns
 
 
 def routes_to(method, path):

@@ -110,11 +110,16 @@ class TestRouteResolution(unittest.TestCase):
         # or the real app may have built it with the live handlers).
         self._orig_table = api._EXACT_ROUTES
         api._EXACT_ROUTES = None
+        # Same for the pattern table (v5.6.x: the elif chain is data now) —
+        # a cached build would hold stale handler objects across the swap.
+        self._orig_patterns = api._PATTERN_ROUTES
+        api._PATTERN_ROUTES = None
 
     def tearDown(self):
         for name, fn in self._orig.items():
             setattr(api, name, fn)
         api._EXACT_ROUTES = self._orig_table
+        api._PATTERN_ROUTES = self._orig_patterns
 
     def _resolve(self, method, path):
         os.environ['REQUEST_METHOD'] = method

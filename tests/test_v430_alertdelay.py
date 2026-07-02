@@ -111,11 +111,12 @@ class TestAlertDelayEndpoint(_HandlerBase):
         self.assertEqual(self.cap['s'], 404)
 
     def test_route_registered(self):
-        # dynamic route — exercised through _dispatch, so check the source wiring
-        import inspect
-        src = inspect.getsource(api._dispatch)
-        self.assertIn("/alert-delay", src)
-        self.assertIn('handle_device_alert_delay', src)
+        # dynamic route — assert BEHAVIOUR through the dispatcher (the chain
+        # is the _PATTERN_ROUTE_DEFS table now, not inline source).
+        from routing_harness import resolve_route
+        name, args = resolve_route('PATCH', '/api/devices/d9/alert-delay')
+        self.assertEqual(name, 'handle_device_alert_delay')
+        self.assertEqual(args, ['d9'])
 
 
 class TestSaveBulkAcceptsField(_HandlerBase):

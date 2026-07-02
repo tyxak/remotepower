@@ -51721,13 +51721,13 @@ def _dispatcher_routes():
     out = []
     try:
         import re as _re
-        src = Path(__file__).read_text().splitlines()
-        try:
-            start = next(i for i, l in enumerate(src)
-                         if '_EXACT_ROUTES.get((m, pi))' in l)
-        except StopIteration:
-            start = 0
-        for l in src[start:start + 1200]:
+        # The dispatch chain is data now (_PATTERN_ROUTE_DEFS); each row
+        # carries its original condition text, so the line-parser below is
+        # unchanged — it just reads the rows instead of this file's source.
+        _cond_lines = []
+        for _row in _PATTERN_ROUTE_DEFS:
+            _cond_lines.extend(str(_row[5]).splitlines())
+        for l in _cond_lines:
             if 'pi ' not in l and 'pi.' not in l:
                 continue
             methods = _re.findall(r"m == '([A-Z]+)'", l)
@@ -52157,29 +52157,343 @@ def _build_exact_routes():
         (None, '/api/wol'): handle_wol,
     }
 
-def _dispatch(pi, m):
-    """Route (method, path) to its handler. Extracted verbatim from main()
-    so the dispatch logic can be exercised in isolation by the router tests
-    (tests/test_router_table.py) — behaviour is identical to the old inline
-    chain."""
-    global _EXACT_ROUTES
-    if _EXACT_ROUTES is None:
-        _EXACT_ROUTES = _build_exact_routes()
-    _h = _EXACT_ROUTES.get((m, pi)) or _EXACT_ROUTES.get((None, pi))
-    if _h is not None:
-        _h(); return
-    if pi == '/api/login': handle_login()
-    # v3.2.0 (B3): OIDC SSO endpoints — must come before public-info
-    elif pi == '/api/devices' and m == 'GET': handle_devices_list()
-    # v1.11.0: agentless device creation. Must precede the prefix-DELETE
-    # check so a POST to /api/devices/agentless doesn't get misrouted.
-    elif pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE':
-        handle_command_queue_clear(pi[len('/api/devices/'):-len('/command-queue')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/checks') and m == 'GET':
-        handle_device_checks(pi[len('/api/devices/'):-len('/checks')])
-    elif pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET':
-        handle_scap_report_download(pi[len('/api/scap/'):-len('/report')])
-    elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
+# ── v5.6.x: declarative pattern-route table ─────────────────────────────────
+# The old ~300-branch elif chain in _dispatch, as ordered data. Row shapes:
+#   ('eq',   methods, path, handler_name, src)          — pi == path
+#   ('pat',  methods, prefix, suffix, handler_name, src)
+#            — handler(pi[len(prefix):-len(suffix)]), suffix '' = to the end
+#   ('code', None, None, None, fn_name, src)            — bespoke branch,
+#            verbatim in its _route_code_N function below (returns True when
+#            it handled the request)
+# `methods` None = any method. Rows match IN ORDER — earlier rows win, exactly
+# like the old chain (all the "must precede" relationships are positional).
+# `src` is the branch's ORIGINAL condition text: _dispatcher_routes() feeds it
+# to the same line-parser that used to read this file's raw source, so the
+# OpenAPI route reconstruction is unchanged by construction.
+# Handler names are strings resolved lazily in _build_pattern_routes().
+_PATTERN_ROUTE_DEFS = (
+    ('eq', None, '/api/login', '', 'handle_login', "pi == '/api/login'"),
+    ('eq', ('GET',), '/api/devices', '', 'handle_devices_list', "pi == '/api/devices' and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/devices/', '/command-queue', 'handle_command_queue_clear', "pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/devices/', '/checks', 'handle_device_checks', "pi.startswith('/api/devices/') and pi.endswith('/checks') and m == 'GET'"),
+    ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
+    ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep',\n                                     '/decommissioned'))"),
+    ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),
+    ('pat', ('PATCH',), '/api/devices/', '/tags', 'handle_device_tags', "pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/notes', 'handle_device_notes', "pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH'"),
+    ('pat', ('GET', 'PATCH', 'DELETE'), '/api/devices/', '/metric-thresholds', 'handle_device_metric_thresholds', "pi.startswith('/api/devices/') and pi.endswith('/metric-thresholds') \\\n            and m in ('GET', 'PATCH', 'DELETE')"),
+    ('pat', ('PATCH',), '/api/devices/', '/group', 'handle_device_group', "pi.startswith('/api/devices/') and pi.endswith('/group') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/site', 'handle_device_site', "pi.startswith('/api/devices/') and pi.endswith('/site') and m == 'PATCH'"),
+    ('pat', ('POST',), '/api/devices/', '/user-action', 'handle_device_user_action', "pi.startswith('/api/devices/') and pi.endswith('/user-action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/firewall-action', 'handle_device_firewall_action', "pi.startswith('/api/devices/') and pi.endswith('/firewall-action') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/tickets', 'handle_device_tickets', "pi.startswith('/api/devices/') and pi.endswith('/tickets') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/firewall-rule', 'handle_device_firewall_rule', "pi.startswith('/api/devices/') and pi.endswith('/firewall-rule') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/service-action', 'handle_service_action', "pi.startswith('/api/devices/') and pi.endswith('/service-action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/power-control', 'handle_device_power_control', "pi.startswith('/api/devices/') and pi.endswith('/power-control') and m == 'POST'"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/pdu', 'handle_device_pdu', "pi.startswith('/api/devices/') and pi.endswith('/pdu') and m in ('GET', 'PATCH')"),
+    ('pat', ('POST',), '/api/devices/', '/kill', 'handle_process_kill', "pi.startswith('/api/devices/') and pi.endswith('/kill') and m == 'POST'"),
+    ('pat', ('GET', 'POST'), '/api/devices/', '/files', 'handle_device_files', "pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST')"),
+    ('pat', ('POST',), '/api/devices/', '/cron-action', 'handle_device_cron_action', "pi.startswith('/api/devices/') and pi.endswith('/cron-action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/storage-action', 'handle_device_storage_action', "pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/fail2ban-action', 'handle_device_fail2ban_action', "pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/av-scan', 'handle_av_scan', "pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/av', 'handle_av_status', "pi.startswith('/api/devices/') and pi.endswith('/av') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/sites/', '', 'handle_site_update', "pi.startswith('/api/sites/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/sites/', '', 'handle_site_delete', "pi.startswith('/api/sites/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/backup-jobs/', '/run', 'handle_backup_job_run', "pi.startswith('/api/backup-jobs/') and pi.endswith('/run') and m == 'POST'"),
+    ('pat', ('PUT',), '/api/backup-jobs/', '', 'handle_backup_job_update', "pi.startswith('/api/backup-jobs/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/backup-jobs/', '', 'handle_backup_job_delete', "pi.startswith('/api/backup-jobs/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/autopatch/', '/run', 'handle_autopatch_run', "pi.startswith('/api/autopatch/') and pi.endswith('/run') and m == 'POST'"),
+    ('pat', ('PUT',), '/api/autopatch/', '', 'handle_autopatch_update', "pi.startswith('/api/autopatch/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/autopatch/', '', 'handle_autopatch_delete', "pi.startswith('/api/autopatch/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/ansible/playbooks/', '/run', 'handle_ansible_playbook_run', "pi.startswith('/api/ansible/playbooks/') and pi.endswith('/run') and m == 'POST'"),
+    ('pat', ('PUT',), '/api/ansible/playbooks/', '', 'handle_ansible_playbook_update', "pi.startswith('/api/ansible/playbooks/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/ansible/playbooks/', '', 'handle_ansible_playbook_delete', "pi.startswith('/api/ansible/playbooks/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/provisioning/blueprints/', '/render', 'handle_blueprint_render', "pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/render') and m == 'POST'"),
+    ('pat', ('POST',), '/api/provisioning/blueprints/', '/run', 'handle_blueprint_run', "pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/run') and m == 'POST'"),
+    ('pat', ('PUT',), '/api/provisioning/blueprints/', '', 'handle_blueprint_update', "pi.startswith('/api/provisioning/blueprints/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/provisioning/blueprints/', '', 'handle_blueprint_delete', "pi.startswith('/api/provisioning/blueprints/') and m == 'DELETE'"),
+    ('pat', ('PATCH',), '/api/devices/', '/poll_interval', 'handle_device_poll_interval', "pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/alert-delay', 'handle_device_alert_delay', "pi.startswith('/api/devices/') and pi.endswith('/alert-delay') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/icon', 'handle_device_icon', "pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/monitored', 'handle_device_monitored', "pi.startswith('/api/devices/') and pi.endswith('/monitored') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/decommissioned', 'handle_device_decommission', "pi.startswith('/api/devices/') and pi.endswith('/decommissioned') and m == 'PATCH'"),
+    ('code', None, None, None, '_route_code_46', "pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH'"),
+    ('pat', ('PATCH',), '/api/devices/', '/compose_enabled', 'handle_device_compose_enabled', "pi.startswith('/api/devices/') and pi.endswith('/compose_enabled') and m == 'PATCH'"),
+    ('pat', ('POST',), '/api/devices/', '/snmp/poll', 'handle_device_snmp_poll', "pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/snmp/deep', 'handle_device_snmp_deep', "pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/routeros/action', 'handle_device_routeros_action', "pi.startswith('/api/devices/') and pi.endswith('/routeros/action') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/routeros/firewall', 'handle_device_routeros_firewall', "pi.startswith('/api/devices/') and pi.endswith('/routeros/firewall') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/routeros/qos', 'handle_device_routeros_qos', "pi.startswith('/api/devices/') and pi.endswith('/routeros/qos') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/routeros/traffic', 'handle_device_routeros_traffic', "pi.startswith('/api/devices/') and pi.endswith('/routeros/traffic') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/opnsense/action', 'handle_device_opnsense_action', "pi.startswith('/api/devices/') and pi.endswith('/opnsense/action') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/opnsense/firewall', 'handle_device_opnsense_firewall', "pi.startswith('/api/devices/') and pi.endswith('/opnsense/firewall') and m == 'GET'"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/opnsense', 'handle_device_opnsense', "pi.startswith('/api/devices/') and pi.endswith('/opnsense') and m in ('GET', 'PATCH')"),
+    ('pat', ('POST',), '/api/devices/', '/synology/upgrade', 'handle_device_synology_upgrade', "pi.startswith('/api/devices/') and pi.endswith('/synology/upgrade') and m == 'POST'"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/ssh', 'handle_device_ssh', "pi.startswith('/api/devices/') and pi.endswith('/ssh') and m in ('GET', 'PATCH')"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/routeros', 'handle_device_routeros', "pi.startswith('/api/devices/') and pi.endswith('/routeros') and m in ('GET', 'PATCH')"),
+    ('pat', ('GET', 'PATCH'), '/api/devices/', '/snmp', 'handle_device_snmp', "pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH')"),
+    ('pat', ('GET',), '/api/devices/', '/hardware', 'handle_device_hardware', "pi.startswith('/api/devices/') and pi.endswith('/hardware') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/speedtest', 'handle_device_speedtest', "pi.startswith('/api/devices/') and pi.endswith('/speedtest') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/netscan', 'handle_device_netscan', "pi.startswith('/api/devices/') and pi.endswith('/netscan') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/forecast', 'handle_device_forecast', "pi.startswith('/api/devices/') and pi.endswith('/forecast') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/changes', 'handle_device_changes', "pi.startswith('/api/devices/') and pi.endswith('/changes') and m == 'GET'"),
+    ('pat', ('PATCH',), '/api/devices/', '/quarantine', 'handle_device_quarantine', "pi.startswith('/api/devices/') and pi.endswith('/quarantine') and m == 'PATCH'"),
+    ('pat', ('GET',), '/api/devices/', '/helm', 'handle_device_helm', "pi.startswith('/api/devices/') and pi.endswith('/helm') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/backups', 'handle_device_backups', "pi.startswith('/api/devices/') and pi.endswith('/backups') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/runbook', 'handle_device_runbook', "pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/doc-draft', 'handle_device_doc_draft', "pi.startswith('/api/devices/') and pi.endswith('/doc-draft') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/sysinfo', 'handle_sysinfo', "pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/uninstall-agent', 'handle_uninstall_agent', "pi.startswith('/api/devices/') and pi.endswith('/uninstall-agent') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/metrics', 'handle_metrics', "pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET'"),
+    ('code', None, None, None, '_route_code_74', "pi.startswith('/api/devices/') and pi.endswith('/allowlist')"),
+    ('eq', None, '/api/enroll/register', '', 'handle_enroll_register', "pi == '/api/enroll/register'"),
+    ('pat', ('DELETE',), '/api/enrollment-tokens/', '', 'handle_enroll_token_revoke', "pi.startswith('/api/enrollment-tokens/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/iac/status/', '', 'handle_iac_status', "pi.startswith('/api/iac/status/') and m == 'GET'"),
+    ('pat', ('GET',), '/api/iac/payload/', '', 'handle_iac_payload', "pi.startswith('/api/iac/payload/') and m == 'GET'"),
+    ('pat', ('POST',), '/api/acme/', '/issue', 'handle_acme_issue', "pi.startswith('/api/acme/') and pi.endswith('/issue') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_80', "pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET'"),
+    ('code', None, None, None, '_route_code_81', "pi.startswith('/api/acme/') and pi.endswith('/renew') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_82', "pi.startswith('/api/acme/') and pi.endswith('/revoke') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_83', "pi.startswith('/api/acme/') and '/cancel/' in pi and m == 'POST'"),
+    ('code', None, None, None, '_route_code_84', "pi.startswith('/api/acme/') and '/ignore/' in pi and m == 'POST'"),
+    ('code', None, None, None, '_route_code_85', "pi.startswith('/api/acme/') and m == 'GET'"),
+    ('pat', ('POST',), '/api/mitigate/', '/investigate', 'handle_mitigate_investigate', "pi.startswith('/api/mitigate/') and pi.endswith('/investigate') and m == 'POST'"),
+    ('pat', ('POST',), '/api/mitigate/', '/fix', 'handle_mitigate_fix', "pi.startswith('/api/mitigate/') and pi.endswith('/fix') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_88', "pi.startswith('/api/mitigate/') and '/status/' in pi and m == 'GET'"),
+    ('code', None, None, None, '_route_code_89', "pi.startswith('/api/mitigate/') and '/ai/' in pi and m == 'POST'"),
+    ('code', None, None, None, '_route_code_90', "pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'DELETE'"),
+    ('code', None, None, None, '_route_code_91', "pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'PATCH'"),
+    ('eq', ('POST',), '/api/users/passwd', '', 'handle_user_passwd', "pi == '/api/users/passwd' and m == 'POST'"),
+    ('pat', ('PUT',), '/api/roles/', '', 'handle_role_update', "pi.startswith('/api/roles/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/roles/', '', 'handle_role_delete', "pi.startswith('/api/roles/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/devices/', '/agent/force-upgrade', 'handle_force_agent_upgrade', "pi.startswith('/api/devices/') and pi.endswith('/agent/force-upgrade') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/acme/force-rescan', 'handle_force_acme_rescan', "pi.startswith('/api/devices/') and pi.endswith('/acme/force-rescan') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/schedule.ics', 'handle_schedule_ics', "pi.startswith('/api/devices/') and pi.endswith('/schedule.ics') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/schedule/', '', 'handle_schedule_update', "pi.startswith('/api/schedule/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/schedule/', '', 'handle_schedule_delete', "pi.startswith('/api/schedule/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/devices/', '/output', 'handle_cmd_output', "pi.startswith('/api/devices/') and pi.endswith('/output') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/update-logs', 'handle_device_update_logs', "pi.startswith('/api/devices/') and pi.endswith('/update-logs') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/uptime', 'handle_uptime', "pi.startswith('/api/devices/') and pi.endswith('/uptime') and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/uptime7d', '', 'handle_fleet_uptime7d', "pi == '/api/fleet/uptime7d' and m == 'GET'"),
+    ('code', None, None, None, '_route_code_104', "pi == '/api/monitor/history' and m == 'GET'"),
+    ('pat', ('PUT',), '/api/cmd-library/', '', 'handle_cmd_library_update', "pi.startswith('/api/cmd-library/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/cmd-library/', '', 'handle_cmd_library_delete', "pi.startswith('/api/cmd-library/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/scripts/', '/dry-run', 'handle_scripts_dry_run', "pi.startswith('/api/scripts/') and pi.endswith('/dry-run') and m == 'POST'"),
+    ('pat', ('GET',), '/api/scripts/', '', 'handle_scripts_get', "pi.startswith('/api/scripts/') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/scripts/', '', 'handle_scripts_update', "pi.startswith('/api/scripts/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/scripts/', '', 'handle_scripts_delete', "pi.startswith('/api/scripts/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/exec/batch/', '', 'handle_exec_batch_status', "pi.startswith('/api/exec/batch/') and m == 'GET'"),
+    ('eq', ('GET',), '/api/ai/stats', '', 'handle_ai_stats', "pi == '/api/ai/stats'  and m == 'GET'"),
+    ('eq', ('POST',), '/api/ai/rag/search', '', 'handle_ai_rag_search', "pi == '/api/ai/rag/search'  and m == 'POST'"),
+    ('eq', ('POST',), '/api/ai/anomaly', '', 'handle_ai_anomaly', "pi == '/api/ai/anomaly' and m == 'POST'"),
+    ('eq', ('GET',), '/api/compliance', '', 'handle_compliance', "pi == '/api/compliance' and m == 'GET'"),
+    ('eq', ('POST',), '/api/compliance/remediate', '', 'handle_compliance_remediate', "pi == '/api/compliance/remediate' and m == 'POST'"),
+    ('code', None, None, None, '_route_code_117', "pi.startswith('/api/devices/') and pi.endswith('/ssh-exec') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_118', "pi.startswith('/api/devices/') and pi.endswith('/ssh-poll') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/runbook', 'handle_runbook_get', "pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/runbook/generate', 'handle_runbook_generate', "pi.startswith('/api/devices/') and pi.endswith('/runbook/generate') and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/devices/', '/runbook', 'handle_runbook_delete', "pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/devices/', '/drift', 'handle_device_drift_get', "pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/drift/baseline', 'handle_device_drift_baseline', "pi.startswith('/api/devices/') and pi.endswith('/drift/baseline') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/drift/fetch_content', 'handle_drift_fetch_content', "pi.startswith('/api/devices/') and pi.endswith('/drift/fetch_content') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/drift/content', 'handle_drift_get_content', "pi.startswith('/api/devices/') and pi.endswith('/drift/content') and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/devices/', '/drift', 'handle_device_drift_reset', "pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/devices/', '/drift/ignore', 'handle_drift_ignore', "pi.startswith('/api/devices/') and pi.endswith('/drift/ignore') and m == 'POST'"),
+    ('pat', ('PUT', 'DELETE'), '/api/drift/profiles/', '', 'handle_drift_profile_edit', "pi.startswith('/api/drift/profiles/') and m in ('PUT', 'DELETE')"),
+    ('pat', ('POST',), '/api/devices/', '/mailwatch', 'handle_mailwatch_set', "pi.startswith('/api/devices/') and pi.endswith('/mailwatch') and m == 'POST'"),
+    ('eq', ('GET',), '/api/mailwatch', '', 'handle_mailwatch_overview', "pi == '/api/mailwatch' and m == 'GET'"),
+    ('eq', ('POST',), '/api/status-token', '', 'handle_status_token', "pi == '/api/status-token' and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/scan-packages', 'handle_force_package_scan', "pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/apikeys/', '', 'handle_apikeys_delete', "pi.startswith('/api/apikeys/') and m == 'DELETE'"),
+    ('pat', ('PATCH', 'POST'), '/api/apikeys/', '', 'handle_apikeys_update', "pi.startswith('/api/apikeys/') and m in ('PATCH', 'POST')"),
+    ('pat', ('GET',), '/api/patch-report/device/', '', 'handle_patch_report_device', "pi.startswith('/api/patch-report/device/') and m == 'GET'"),
+    ('eq', ('DELETE',), '/api/audit-log', '', 'handle_audit_log_clear', "pi == '/api/audit-log' and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/users/', '/avatar', 'handle_user_avatar', "pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/satellites/', '', 'handle_satellites_delete', "pi.startswith('/api/satellites/') and m == 'DELETE'"),
+    ('pat', ('PATCH',), '/api/satellites/', '', 'handle_satellites_update', "pi.startswith('/api/satellites/') and m == 'PATCH'"),
+    ('pat', ('DELETE',), '/api/webauthn/credentials/', '', 'handle_webauthn_credential_delete', "pi.startswith('/api/webauthn/credentials/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/scans/', '/results', 'handle_scan_results', "pi.startswith('/api/scans/') and pi.endswith('/results') and m == 'POST'"),
+    ('pat', ('GET',), '/api/scans/', '', 'handle_scan_detail', "pi.startswith('/api/scans/') and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/scan-targets/', '/verify', 'handle_scan_target_verify', "pi.startswith('/api/scan-targets/') and pi.endswith('/verify') and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/scan-targets/', '', 'handle_scan_target_delete', "pi.startswith('/api/scan-targets/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/scan-schedules/', '/run', 'handle_scan_schedule_run', "pi.startswith('/api/scan-schedules/') and pi.endswith('/run') and m == 'POST'"),
+    ('pat', ('POST',), '/api/scan-schedules/', '/toggle', 'handle_scan_schedule_toggle', "pi.startswith('/api/scan-schedules/') and pi.endswith('/toggle') and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/scan-schedules/', '', 'handle_scan_schedule_delete', "pi.startswith('/api/scan-schedules/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/me/sessions/', '', 'handle_me_session_revoke', "pi.startswith('/api/me/sessions/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/alert-mutes/', '', 'handle_alert_mute_delete', "pi.startswith('/api/alert-mutes/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/alerts/', '/ack', 'handle_alert_ack', "pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST'"),
+    ('pat', ('POST',), '/api/alerts/', '/unack', 'handle_alert_unack', "pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST'"),
+    ('pat', ('POST',), '/api/alerts/', '/resolve', 'handle_alert_resolve', "pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST'"),
+    ('pat', None, '/api/webhook/in/', '', 'handle_inbound_webhook', "pi.startswith('/api/webhook/in/')"),
+    ('pat', None, '/api/syslog/in/', '', 'handle_syslog_in', "pi.startswith('/api/syslog/in/')"),
+    ('pat', None, '/api/snmp/trap/', '', 'handle_snmp_trap_in', "pi.startswith('/api/snmp/trap/')"),
+    ('pat', ('DELETE',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_revoke', "pi.startswith('/api/inbound-webhooks/') and m == 'DELETE'"),
+    ('pat', ('PATCH',), '/api/inbound-webhooks/', '', 'handle_inbound_webhook_toggle', "pi.startswith('/api/inbound-webhooks/') and m == 'PATCH'"),
+    ('pat', ('POST',), '/api/confirmations/', '/approve', 'handle_confirmation_approve', "pi.startswith('/api/confirmations/') and pi.endswith('/approve') and m == 'POST'"),
+    ('pat', ('POST',), '/api/confirmations/', '/reject', 'handle_confirmation_reject', "pi.startswith('/api/confirmations/') and pi.endswith('/reject') and m == 'POST'"),
+    ('eq', ('DELETE',), '/api/webhook/log', '', 'handle_webhook_log_clear', "pi == '/api/webhook/log' and m == 'DELETE'"),
+    ('eq', ('GET',), '/api/fleet/events', '', 'handle_fleet_events', "pi == '/api/fleet/events' and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/timeline', 'handle_device_timeline', "pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/metrics-history', 'handle_device_metrics_history', "pi.startswith('/api/devices/') and pi.endswith('/metrics-history') and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/timeline', '', 'handle_fleet_timeline', "pi == '/api/fleet/timeline' and m == 'GET'"),
+    ('eq', ('GET',), '/api/inventory/search', '', 'handle_inventory_search', "pi == '/api/inventory/search' and m == 'GET'"),
+    ('eq', ('GET',), '/api/inventory/catalog', '', 'handle_inventory_catalog', "pi == '/api/inventory/catalog' and m == 'GET'"),
+    ('eq', ('GET',), '/api/patch-catalog', '', 'handle_patch_catalog', "pi == '/api/patch-catalog' and m == 'GET'"),
+    ('eq', ('GET',), '/api/inventory/metering', '', 'handle_inventory_metering', "pi == '/api/inventory/metering' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/query', '', 'handle_fleet_query', "pi == '/api/fleet/query' and m == 'GET'"),
+    ('eq', ('GET',), '/api/rollouts', '', 'handle_rollouts_list', "pi == '/api/rollouts' and m == 'GET'"),
+    ('eq', ('POST',), '/api/rollouts', '', 'handle_rollouts_create', "pi == '/api/rollouts' and m == 'POST'"),
+    ('code', None, None, None, '_route_code_173', "pi.startswith('/api/rollouts/') and pi.count('/') == 4 and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/rollouts/', '', 'handle_rollout_delete', "pi.startswith('/api/rollouts/') and m == 'DELETE'"),
+    ('eq', ('GET',), '/api/compliance/baseline', '', 'handle_compliance_baseline', "pi == '/api/compliance/baseline' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/health/history', '', 'handle_fleet_health_history', "pi == '/api/fleet/health/history' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/health', '', 'handle_fleet_health', "pi == '/api/fleet/health' and m == 'GET'"),
+    ('eq', ('GET',), '/api/risk', '', 'handle_risk_overview', "pi == '/api/risk' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/sla', '', 'handle_fleet_sla', "pi == '/api/fleet/sla' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/sla-targets', '', 'handle_sla_targets_get', "pi == '/api/fleet/sla-targets' and m == 'GET'"),
+    ('eq', ('PUT',), '/api/fleet/sla-targets', '', 'handle_sla_targets_put', "pi == '/api/fleet/sla-targets' and m == 'PUT'"),
+    ('eq', ('GET',), '/api/public/status', '', 'handle_public_status', "pi == '/api/public/status' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/capacity', '', 'handle_fleet_capacity', "pi == '/api/fleet/capacity' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/anomalies', '', 'handle_fleet_anomalies', "pi == '/api/fleet/anomalies' and m == 'GET'"),
+    ('eq', ('GET',), '/api/fleet/agent-integrity', '', 'handle_agent_integrity', "pi == '/api/fleet/agent-integrity' and m == 'GET'"),
+    ('eq', ('GET',), '/api/automation/rules', '', 'handle_automation_rules_list', "pi == '/api/automation/rules' and m == 'GET'"),
+    ('eq', ('POST',), '/api/automation/rules', '', 'handle_automation_rule_create', "pi == '/api/automation/rules' and m == 'POST'"),
+    ('pat', ('PUT',), '/api/automation/rules/', '', 'handle_automation_rule_update', "pi.startswith('/api/automation/rules/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/automation/rules/', '', 'handle_automation_rule_delete', "pi.startswith('/api/automation/rules/') and m == 'DELETE'"),
+    ('eq', ('GET',), '/api/report/fleet', '', 'handle_fleet_report', "pi == '/api/report/fleet' and m == 'GET'"),
+    ('pat', ('GET',), '/api/report/site/', '', 'handle_site_report', "pi.startswith('/api/report/site/') and m == 'GET'"),
+    ('eq', ('GET',), '/api/report/evidence', '', 'handle_evidence_pack', "pi == '/api/report/evidence' and m == 'GET'"),
+    ('eq', ('GET',), '/api/report/schedule', '', 'handle_report_schedule_get', "pi == '/api/report/schedule' and m == 'GET'"),
+    ('eq', ('PUT',), '/api/report/schedule', '', 'handle_report_schedule_set', "pi == '/api/report/schedule' and m == 'PUT'"),
+    ('eq', ('GET',), '/api/drift-policies', '', 'handle_drift_policies_get', "pi == '/api/drift-policies' and m == 'GET'"),
+    ('eq', ('PUT',), '/api/drift-policies', '', 'handle_drift_policies_set', "pi == '/api/drift-policies' and m == 'PUT'"),
+    ('eq', ('GET',), '/api/report/definitions', '', 'handle_report_defs_list', "pi == '/api/report/definitions' and m == 'GET'"),
+    ('eq', ('POST',), '/api/report/definitions', '', 'handle_report_defs_save', "pi == '/api/report/definitions' and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/report/definitions/', '', 'handle_report_def_delete', "pi.startswith('/api/report/definitions/') and m == 'DELETE'"),
+    ('eq', ('POST',), '/api/sessions/revoke', '', 'handle_revoke_sessions', "pi == '/api/sessions/revoke' and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/cve/ignore/', '', 'handle_cve_ignore_delete', "pi.startswith('/api/cve/ignore/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/devices/', '/cve', 'handle_cve_device', "pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/sbom/baseline', 'handle_sbom_baseline', "pi.startswith('/api/devices/') and pi.endswith('/sbom/baseline') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/sbom/diff', 'handle_sbom_diff', "pi.startswith('/api/devices/') and pi.endswith('/sbom/diff') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/sbom', 'handle_sbom_device', "pi.startswith('/api/devices/') and pi.endswith('/sbom') and m == 'GET'"),
+    ('eq', ('DELETE',), '/api/image-updates/ignore', '', 'handle_image_ignore_remove', "pi == '/api/image-updates/ignore' and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/compose/stacks/', '/action', 'handle_compose_stack_action', "pi.startswith('/api/compose/stacks/') and pi.endswith('/action') and m == 'POST'"),
+    ('pat', ('GET',), '/api/compose/stacks/', '', 'handle_compose_stack_get', "pi.startswith('/api/compose/stacks/') and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/compose/stacks/', '', 'handle_compose_stack_delete', "pi.startswith('/api/compose/stacks/') and m == 'DELETE'"),
+    ('eq', ('GET',), '/api/metrics', '', 'handle_prometheus_metrics', "pi == '/api/metrics' and m == 'GET'"),
+    ('eq', ('GET',), '/api/metrics/push/config', '', 'handle_metrics_push_get', "pi == '/api/metrics/push/config' and m == 'GET'"),
+    ('eq', ('PUT',), '/api/metrics/push/config', '', 'handle_metrics_push_set', "pi == '/api/metrics/push/config' and m == 'PUT'"),
+    ('eq', ('GET',), '/api/gitops', '', 'handle_gitops_get', "pi == '/api/gitops' and m == 'GET'"),
+    ('eq', ('PUT',), '/api/gitops', '', 'handle_gitops_set', "pi == '/api/gitops' and m == 'PUT'"),
+    ('eq', ('POST',), '/api/gitops/sync', '', 'handle_gitops_sync', "pi == '/api/gitops/sync' and m == 'POST'"),
+    ('pat', ('POST',), '/api/tenants/', '/users', 'handle_tenant_assign_user', "pi.startswith('/api/tenants/') and pi.endswith('/users') and m == 'POST'"),
+    ('pat', ('PUT',), '/api/tenants/', '', 'handle_tenant_update', "pi.startswith('/api/tenants/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/tenants/', '', 'handle_tenant_delete', "pi.startswith('/api/tenants/') and m == 'DELETE'"),
+    ('eq', None, '/api/scim/v2/Users', '', 'handle_scim_users_collection', "pi == '/api/scim/v2/Users'"),
+    ('code', None, None, None, '_route_code_220', "pi.startswith('/api/scim/v2/Users/')"),
+    ('eq', ('GET',), '/api/schedule.ics', '', 'handle_schedule_ics', "pi == '/api/schedule.ics' and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/services', 'handle_services_device', "pi.startswith('/api/devices/') and pi.endswith('/services') and m == 'GET'"),
+    ('code', None, None, None, '_route_code_223', "pi.startswith('/api/devices/') and pi.endswith('/services/config')"),
+    ('eq', ('GET',), '/api/logs/search', '', 'handle_log_search', "pi == '/api/logs/search' and m == 'GET'"),
+    ('eq', ('GET',), '/api/logs/rules', '', 'handle_log_rules', "pi == '/api/logs/rules' and m == 'GET'"),
+    ('pat', ('PUT',), '/api/logs/rules/global/', '', 'handle_log_rules_global_update', "pi.startswith('/api/logs/rules/global/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/logs/rules/global/', '', 'handle_log_rules_global_delete', "pi.startswith('/api/logs/rules/global/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/devices/', '/logs', 'handle_log_device', "pi.startswith('/api/devices/') and pi.endswith('/logs') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/maintenance/', '', 'handle_maintenance_update', "pi.startswith('/api/maintenance/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/maintenance/', '', 'handle_maintenance_delete', "pi.startswith('/api/maintenance/') and m == 'DELETE'"),
+    ('pat', ('PUT',), '/api/calendar/', '', 'handle_calendar_update', "pi.startswith('/api/calendar/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/calendar/', '', 'handle_calendar_delete', "pi.startswith('/api/calendar/') and m == 'DELETE'"),
+    ('pat', ('PUT',), '/api/tasks/', '', 'handle_tasks_update', "pi.startswith('/api/tasks/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/tasks/', '', 'handle_tasks_delete', "pi.startswith('/api/tasks/') and m == 'DELETE'"),
+    ('eq', ('POST',), '/api/cmdb/vault/change', '', 'handle_cmdb_vault_change', "pi == '/api/cmdb/vault/change'  and m == 'POST'"),
+    ('eq', ('GET',), '/api/cmdb/server-functions', '', 'handle_cmdb_server_functions', "pi == '/api/cmdb/server-functions' and m == 'GET'"),
+    ('eq', ('GET',), '/api/cmdb/break-glass', '', 'handle_breakglass_list', "pi == '/api/cmdb/break-glass' and m == 'GET'"),
+    ('pat', ('POST',), '/api/cmdb/break-glass/', '/approve', 'handle_breakglass_approve', "pi.startswith('/api/cmdb/break-glass/') and pi.endswith('/approve') and m == 'POST'"),
+    ('eq', ('GET',), '/api/scoped-credentials', '', 'handle_scoped_credentials_list', "pi == '/api/scoped-credentials' and m == 'GET'"),
+    ('eq', ('POST',), '/api/scoped-credentials', '', 'handle_scoped_credentials_add', "pi == '/api/scoped-credentials' and m == 'POST'"),
+    ('pat', ('POST',), '/api/scoped-credentials/', '/reveal', 'handle_scoped_credentials_reveal', "pi.startswith('/api/scoped-credentials/') and pi.endswith('/reveal') and m == 'POST'"),
+    ('pat', ('DELETE',), '/api/scoped-credentials/', '', 'handle_scoped_credentials_delete', "pi.startswith('/api/scoped-credentials/') and m == 'DELETE'"),
+    ('eq', ('GET',), '/api/vpn-tunnels', '', 'handle_vpn_tunnels_list', "pi == '/api/vpn-tunnels' and m == 'GET'"),
+    ('eq', ('POST',), '/api/vpn-tunnels', '', 'handle_vpn_tunnel_create', "pi == '/api/vpn-tunnels' and m == 'POST'"),
+    ('code', None, None, None, '_route_code_245', "pi.startswith('/api/vpn-tunnels/')"),
+    ('pat', ('GET',), '/api/cmdb/', '/inherited-credentials', 'handle_device_inherited_credentials', "pi.startswith('/api/cmdb/') and pi.endswith('/inherited-credentials') and m == 'GET'"),
+    ('pat', ('GET',), '/api/cmdb/', '/credentials', 'handle_cmdb_credentials_list', "pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'GET'"),
+    ('pat', ('POST',), '/api/cmdb/', '/credentials', 'handle_cmdb_credentials_add', "pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_249', "pi.startswith('/api/cmdb/') and '/credentials/' in pi and pi.endswith('/reveal') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_250', "pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'PUT'"),
+    ('code', None, None, None, '_route_code_251', "pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/cmdb/', '/docs', 'handle_cmdb_doc_add', "pi.startswith('/api/cmdb/') and pi.endswith('/docs') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_253', "pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'PUT'"),
+    ('code', None, None, None, '_route_code_254', "pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/cmdb/', '', 'handle_cmdb_get', "pi.startswith('/api/cmdb/') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/cmdb/', '', 'handle_cmdb_update', "pi.startswith('/api/cmdb/') and m == 'PUT'"),
+    ('pat', ('GET',), '/api/devices/', '/containers', 'handle_device_containers', "pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/devices/', '/containers', 'handle_device_containers_clear', "pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'DELETE'"),
+    ('code', None, None, None, '_route_code_259', "pi == '/api/proxmox/qemu' and m == 'GET'"),
+    ('code', None, None, None, '_route_code_260', "pi == '/api/proxmox/lxc' and m == 'GET'"),
+    ('pat', ('DELETE',), '/api/proxmox/lxc/', '', 'handle_proxmox_lxc_delete', "pi.startswith('/api/proxmox/lxc/') and m == 'DELETE'"),
+    ('code', None, None, None, '_route_code_262', "pi.startswith('/api/proxmox/qemu/') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_263', "pi.startswith('/api/proxmox/lxc/') and m == 'POST'"),
+    ('eq', ('POST',), '/api/proxmox/snapshot', '', 'handle_proxmox_snapshot_action', "pi == '/api/proxmox/snapshot' and m == 'POST'"),
+    ('eq', ('GET',), '/api/virt/platforms', '', 'handle_virt_platforms', "pi == '/api/virt/platforms' and m == 'GET'"),
+    ('pat', ('GET',), '/api/virt/', '/vms', 'handle_virt_vms', "pi.startswith('/api/virt/') and pi.endswith('/vms') and m == 'GET'"),
+    ('pat', ('POST',), '/api/virt/', '/power', 'handle_virt_power', "pi.startswith('/api/virt/') and pi.endswith('/power') and m == 'POST'"),
+    ('pat', ('GET',), '/api/virt/', '/snapshots', 'handle_virt_snapshots', "pi.startswith('/api/virt/') and pi.endswith('/snapshots') and m == 'GET'"),
+    ('pat', ('POST',), '/api/virt/', '/snapshot', 'handle_virt_snapshot_action', "pi.startswith('/api/virt/') and pi.endswith('/snapshot') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/compose', 'handle_device_compose_list', "pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/compose/action', 'handle_device_compose_action', "pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/containers/action', 'handle_device_container_action', "pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST'"),
+    ('pat', ('PUT',), '/api/tls/targets/', '', 'handle_tls_update', "pi.startswith('/api/tls/targets/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/tls/targets/', '', 'handle_tls_delete', "pi.startswith('/api/tls/targets/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/dmarc/targets/', '', 'handle_dmarc_delete', "pi.startswith('/api/dmarc/targets/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/reputation/targets/', '', 'handle_reputation_delete', "pi.startswith('/api/reputation/targets/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/resolver-health/targets/', '', 'handle_resolver_health_delete', "pi.startswith('/api/resolver-health/targets/') and m == 'DELETE'"),
+    ('eq', ('POST',), '/api/tls/scan', '', 'handle_tls_scan', "pi == '/api/tls/scan' and m == 'POST'"),
+    ('pat', ('PUT',), '/api/devices/', '/connected-to', 'handle_device_connected_to', "pi.startswith('/api/devices/') and pi.endswith('/connected-to') and m == 'PUT'"),
+    ('pat', ('PUT',), '/api/devices/', '/depends-on', 'handle_device_depends_on', "pi.startswith('/api/devices/') and pi.endswith('/depends-on') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/network-map/tunnels/', '', 'handle_tunnel_delete', "pi.startswith('/api/network-map/tunnels/') and m == 'DELETE'"),
+    ('pat', ('PUT',), '/api/links/', '', 'handle_link_update', "pi.startswith('/api/links/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/links/', '', 'handle_link_delete', "pi.startswith('/api/links/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/custom-scripts/', '', 'handle_custom_script_get', "pi.startswith('/api/custom-scripts/') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/custom-scripts/', '', 'handle_custom_script_update', "pi.startswith('/api/custom-scripts/') and m == 'PUT'"),
+    ('pat', ('DELETE',), '/api/custom-scripts/', '', 'handle_custom_script_delete', "pi.startswith('/api/custom-scripts/') and m == 'DELETE'"),
+    ('pat', ('DELETE',), '/api/monitoring-profiles/', '', 'handle_monitoring_profile_delete', "pi.startswith('/api/monitoring-profiles/') and m == 'DELETE'"),
+    ('pat', ('GET', 'POST'), '/api/tickets/', '/hours', 'handle_ticket_hours', "pi.startswith('/api/tickets/') and pi.endswith('/hours') and m in ('GET', 'POST')"),
+    ('pat', ('PATCH', 'POST', 'DELETE'), '/api/time-entries/', '', 'handle_time_entry_update', "pi.startswith('/api/time-entries/') and m in ('PATCH', 'POST', 'DELETE')"),
+    ('pat', ('DELETE',), '/api/timesheet/watchers/', '', 'handle_timesheet_watcher_delete', "pi.startswith('/api/timesheet/watchers/') and m == 'DELETE'"),
+    ('pat', ('GET',), '/api/invoices/', '', 'handle_invoice_get', "pi.startswith('/api/invoices/') and m == 'GET'"),
+    ('pat', ('PATCH', 'POST'), '/api/invoices/', '', 'handle_invoice_update', "pi.startswith('/api/invoices/') and m in ('PATCH', 'POST')"),
+    ('pat', ('POST',), '/api/tickets/', '/email', 'handle_ticket_send_email', "pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST'"),
+    ('code', None, None, None, '_route_code_294', "pi.startswith('/api/tickets/') and '/attachments/' in pi and m == 'GET'"),
+    ('pat', ('GET',), '/api/tickets/', '', 'handle_ticket_get', "pi.startswith('/api/tickets/') and m == 'GET'"),
+    ('pat', ('PATCH', 'POST'), '/api/tickets/', '', 'handle_ticket_update', "pi.startswith('/api/tickets/') and m in ('PATCH', 'POST')"),
+    ('pat', ('DELETE',), '/api/tickets/', '', 'handle_ticket_delete', "pi.startswith('/api/tickets/') and m == 'DELETE'"),
+    ('pat', ('PATCH', 'POST', 'DELETE'), '/api/contacts/', '', 'handle_contact_update', "pi.startswith('/api/contacts/') and m in ('PATCH', 'POST', 'DELETE')"),
+    ('pat', ('GET', 'PATCH', 'POST', 'DELETE'), '/api/kb/', '', 'handle_kb_article', "pi.startswith('/api/kb/') and m in ('GET', 'PATCH', 'POST', 'DELETE')"),
+    ('pat', ('GET',), '/api/devices/', '/host-config', 'handle_device_host_config_get', "pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'GET'"),
+    ('pat', ('PUT',), '/api/devices/', '/host-config', 'handle_device_host_config_put', "pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'PUT'"),
+    ('pat', ('GET',), '/api/devices/', '/host-config/current', 'handle_device_host_config_current', "pi.startswith('/api/devices/') and pi.endswith('/host-config/current') and m == 'GET'"),
+)
+
+
+_PATTERN_ROUTES = None
+
+
+def _build_pattern_routes():
+    """Resolve _PATTERN_ROUTE_DEFS handler-name strings to callables (lazily,
+    on first dispatch — mirrors _build_exact_routes)."""
+    g = globals()
+    return [(kind, methods, a, b, g[name])
+            for kind, methods, a, b, name, _src in _PATTERN_ROUTE_DEFS]
+
+
+
+# ── bespoke dispatch branches (verbatim from the old chain; each returns
+# True when it handled the request) ─────────────────────────────────────────
+def _route_code_5(pi, m):
+    if (pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
                                      '/icon','/monitored','/cve','/services',
@@ -52189,551 +52503,161 @@ def _dispatch(pi, m):
                                      '/metric-thresholds',
                                      # v3.2.0 (B5)
                                      '/snmp', '/snmp/poll', '/snmp/deep',
-                                     '/decommissioned')):   # v5.0.0
+                                     '/decommissioned'))):
         handle_device_delete(pi[len('/api/devices/'):])
-    # v3.0.4: bulk device settings save from the device drawer.
-    # Matches POST /api/devices/<id> exactly — no further slashes.
-    # Specifically NOT `pi.endswith('<something>') ... not in ...` because
-    # that's the brittle pattern; this check works against any future
-    # sub-routes added below it without needing maintenance.
-    elif (pi.startswith('/api/devices/') and m == 'POST'
+        return True
+    return False
+
+
+def _route_code_6(pi, m):
+    if (pi.startswith('/api/devices/') and m == 'POST'
             and '/' not in pi[len('/api/devices/'):]
             and pi != '/api/devices/agentless'):
         handle_device_save_bulk(pi[len('/api/devices/'):])
-    elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
-        handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH':
-        handle_device_notes(pi[len('/api/devices/'):-len('/notes')])
-    # v1.11.10: per-device metric threshold overrides (GET/PATCH/DELETE)
-    elif pi.startswith('/api/devices/') and pi.endswith('/metric-thresholds') \
-            and m in ('GET', 'PATCH', 'DELETE'):
-        handle_device_metric_thresholds(pi[len('/api/devices/'):-len('/metric-thresholds')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/group') and m == 'PATCH':
-        handle_device_group(pi[len('/api/devices/'):-len('/group')])
-    # v3.5.0: sites/teams — per-device assignment + registry mutation
-    elif pi.startswith('/api/devices/') and pi.endswith('/site') and m == 'PATCH':
-        handle_device_site(pi[len('/api/devices/'):-len('/site')])
-    # v3.6.0: host user / SSH-key + firewall management (exec-gated)
-    elif pi.startswith('/api/devices/') and pi.endswith('/user-action') and m == 'POST':
-        handle_device_user_action(pi[len('/api/devices/'):-len('/user-action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/firewall-action') and m == 'POST':
-        handle_device_firewall_action(pi[len('/api/devices/'):-len('/firewall-action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/tickets') and m == 'GET':
-        handle_device_tickets(pi[len('/api/devices/'):-len('/tickets')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/firewall-rule') and m == 'POST':
-        handle_device_firewall_rule(pi[len('/api/devices/'):-len('/firewall-rule')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/service-action') and m == 'POST':
-        handle_service_action(pi[len('/api/devices/'):-len('/service-action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/power-control') and m == 'POST':
-        handle_device_power_control(pi[len('/api/devices/'):-len('/power-control')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/pdu') and m in ('GET', 'PATCH'):
-        handle_device_pdu(pi[len('/api/devices/'):-len('/pdu')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/kill') and m == 'POST':
-        handle_process_kill(pi[len('/api/devices/'):-len('/kill')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/files') and m in ('GET', 'POST'):
-        handle_device_files(pi[len('/api/devices/'):-len('/files')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/cron-action') and m == 'POST':
-        handle_device_cron_action(pi[len('/api/devices/'):-len('/cron-action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/storage-action') and m == 'POST':
-        handle_device_storage_action(pi[len('/api/devices/'):-len('/storage-action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/fail2ban-action') and m == 'POST':
-        handle_device_fail2ban_action(pi[len('/api/devices/'):-len('/fail2ban-action')])
-    # v3.6.0: endpoint AV/malware posture
-    elif pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST':
-        handle_av_scan(pi[len('/api/devices/'):-len('/av-scan')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/av') and m == 'GET':
-        handle_av_status(pi[len('/api/devices/'):-len('/av')])
-    elif pi.startswith('/api/sites/') and m == 'PUT':
-        handle_site_update(pi[len('/api/sites/'):])
-    elif pi.startswith('/api/sites/') and m == 'DELETE':
-        handle_site_delete(pi[len('/api/sites/'):])
-    # v3.6.0: backup jobs
-    elif pi.startswith('/api/backup-jobs/') and pi.endswith('/run') and m == 'POST':
-        handle_backup_job_run(pi[len('/api/backup-jobs/'):-len('/run')])
-    elif pi.startswith('/api/backup-jobs/') and m == 'PUT':
-        handle_backup_job_update(pi[len('/api/backup-jobs/'):])
-    elif pi.startswith('/api/backup-jobs/') and m == 'DELETE':
-        handle_backup_job_delete(pi[len('/api/backup-jobs/'):])
-    # v3.6.0: auto-patch policies
-    elif pi.startswith('/api/autopatch/') and pi.endswith('/run') and m == 'POST':
-        handle_autopatch_run(pi[len('/api/autopatch/'):-len('/run')])
-    elif pi.startswith('/api/autopatch/') and m == 'PUT':
-        handle_autopatch_update(pi[len('/api/autopatch/'):])
-    elif pi.startswith('/api/autopatch/') and m == 'DELETE':
-        handle_autopatch_delete(pi[len('/api/autopatch/'):])
-    # v3.7.0: Ansible playbooks
-    elif pi.startswith('/api/ansible/playbooks/') and pi.endswith('/run') and m == 'POST':
-        handle_ansible_playbook_run(pi[len('/api/ansible/playbooks/'):-len('/run')])
-    elif pi.startswith('/api/ansible/playbooks/') and m == 'PUT':
-        handle_ansible_playbook_update(pi[len('/api/ansible/playbooks/'):])
-    elif pi.startswith('/api/ansible/playbooks/') and m == 'DELETE':
-        handle_ansible_playbook_delete(pi[len('/api/ansible/playbooks/'):])
-    # v5.6.0: provisioning blueprints (render / update / delete by id)
-    elif pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/render') and m == 'POST':
-        handle_blueprint_render(pi[len('/api/provisioning/blueprints/'):-len('/render')])
-    elif pi.startswith('/api/provisioning/blueprints/') and pi.endswith('/run') and m == 'POST':
-        handle_blueprint_run(pi[len('/api/provisioning/blueprints/'):-len('/run')])
-    elif pi.startswith('/api/provisioning/blueprints/') and m == 'PUT':
-        handle_blueprint_update(pi[len('/api/provisioning/blueprints/'):])
-    elif pi.startswith('/api/provisioning/blueprints/') and m == 'DELETE':
-        handle_blueprint_delete(pi[len('/api/provisioning/blueprints/'):])
-    elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
-        handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/alert-delay') and m == 'PATCH':
-        handle_device_alert_delay(pi[len('/api/devices/'):-len('/alert-delay')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH':
-        handle_device_icon(pi[len('/api/devices/'):-len('/icon')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/monitored') and m == 'PATCH':
-        handle_device_monitored(pi[len('/api/devices/'):-len('/monitored')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/decommissioned') and m == 'PATCH':
-        handle_device_decommission(pi[len('/api/devices/'):-len('/decommissioned')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH':
+        return True
+    return False
+
+
+def _route_code_46(pi, m):
+    if (pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH'):
         handle_device_require_confirmation(
             pi[len('/api/devices/'):-len('/require_confirmation')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/compose_enabled') and m == 'PATCH':
-        handle_device_compose_enabled(pi[len('/api/devices/'):-len('/compose_enabled')])
-    # v3.2.0 (B5): SNMP per-device config + on-demand poll
-    elif pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST':
-        handle_device_snmp_poll(pi[len('/api/devices/'):-len('/snmp/poll')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET':
-        handle_device_snmp_deep(pi[len('/api/devices/'):-len('/snmp/deep')])
-    # v3.3.4: RouterOS (MikroTik) REST — visibility + management
-    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/action') and m == 'POST':
-        handle_device_routeros_action(pi[len('/api/devices/'):-len('/routeros/action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/firewall') and m == 'GET':
-        handle_device_routeros_firewall(pi[len('/api/devices/'):-len('/routeros/firewall')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/qos') and m == 'GET':
-        handle_device_routeros_qos(pi[len('/api/devices/'):-len('/routeros/qos')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/traffic') and m == 'GET':
-        handle_device_routeros_traffic(pi[len('/api/devices/'):-len('/routeros/traffic')])
-    # v3.4.0: OPNsense firewall management
-    elif pi.startswith('/api/devices/') and pi.endswith('/opnsense/action') and m == 'POST':
-        handle_device_opnsense_action(pi[len('/api/devices/'):-len('/opnsense/action')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/opnsense/firewall') and m == 'GET':
-        handle_device_opnsense_firewall(pi[len('/api/devices/'):-len('/opnsense/firewall')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/opnsense') and m in ('GET', 'PATCH'):
-        handle_device_opnsense(pi[len('/api/devices/'):-len('/opnsense')])
-    # v3.4.0: SSH exec (agentless) + Synology DSM upgrade
-    elif pi.startswith('/api/devices/') and pi.endswith('/synology/upgrade') and m == 'POST':
-        handle_device_synology_upgrade(pi[len('/api/devices/'):-len('/synology/upgrade')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/ssh') and m in ('GET', 'PATCH'):
-        handle_device_ssh(pi[len('/api/devices/'):-len('/ssh')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/routeros') and m in ('GET', 'PATCH'):
-        handle_device_routeros(pi[len('/api/devices/'):-len('/routeros')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):
-        handle_device_snmp(pi[len('/api/devices/'):-len('/snmp')])
-    # v3.4.0: hardware health, on-demand diagnostics, forecasting, quarantine,
-    # helm, and per-device AI insights.
-    elif pi.startswith('/api/devices/') and pi.endswith('/hardware') and m == 'GET':
-        handle_device_hardware(pi[len('/api/devices/'):-len('/hardware')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/speedtest') and m == 'POST':
-        handle_device_speedtest(pi[len('/api/devices/'):-len('/speedtest')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/netscan') and m == 'POST':
-        handle_device_netscan(pi[len('/api/devices/'):-len('/netscan')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/forecast') and m == 'GET':
-        handle_device_forecast(pi[len('/api/devices/'):-len('/forecast')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/changes') and m == 'GET':
-        handle_device_changes(pi[len('/api/devices/'):-len('/changes')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/quarantine') and m == 'PATCH':
-        handle_device_quarantine(pi[len('/api/devices/'):-len('/quarantine')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/helm') and m == 'GET':
-        handle_device_helm(pi[len('/api/devices/'):-len('/helm')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/backups') and m == 'GET':
-        handle_device_backups(pi[len('/api/devices/'):-len('/backups')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'POST':
-        handle_device_runbook(pi[len('/api/devices/'):-len('/runbook')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/doc-draft') and m == 'POST':
-        handle_device_doc_draft(pi[len('/api/devices/'):-len('/doc-draft')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
-        handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/uninstall-agent') and m == 'POST':
-        handle_uninstall_agent(pi[len('/api/devices/'):-len('/uninstall-agent')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET':
-        handle_metrics(pi[len('/api/devices/'):-len('/metrics')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/allowlist'):
+        return True
+    return False
+
+
+def _route_code_74(pi, m):
+    if (pi.startswith('/api/devices/') and pi.endswith('/allowlist')):
         handle_device_allowlist(pi[len('/api/devices/'):-len('/allowlist')])
-    elif pi == '/api/enroll/register': handle_enroll_register()
-    # v1.11.10: pre-shared one-time-use enrollment tokens for non-interactive
-    # enrollment. Same final destination as /enroll/register, but via a
-    # different credential path.
-    elif pi.startswith('/api/enrollment-tokens/') and m == 'DELETE':
-        handle_enroll_token_revoke(pi[len('/api/enrollment-tokens/'):])
-    # v1.11.11: web terminal — only the auth + audit endpoints live in CGI.
-    # The actual websocket /api/webterm/connect is proxied by nginx to the
-    # remotepower-webterm daemon (see packaging/nginx-webterm.conf).
-    elif pi.startswith('/api/iac/status/') and m == 'GET': handle_iac_status(pi[len('/api/iac/status/'):])
-    elif pi.startswith('/api/iac/payload/') and m == 'GET': handle_iac_payload(pi[len('/api/iac/payload/'):])
-    elif pi.startswith('/api/acme/') and pi.endswith('/issue') and m == 'POST':
-        handle_acme_issue(pi[len('/api/acme/'):-len('/issue')])
-    elif pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET':
+        return True
+    return False
+
+
+def _route_code_80(pi, m):
+    if (pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET'):
         _rest = pi[len('/api/acme/'):]; _did, _aid = _rest.split('/log/', 1)
         handle_acme_log(_did, _aid)
-    elif pi.startswith('/api/acme/') and pi.endswith('/renew') and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_81(pi, m):
+    if (pi.startswith('/api/acme/') and pi.endswith('/renew') and m == 'POST'):
         _rest = pi[len('/api/acme/'):-len('/renew')]; _did, _dom = _rest.split('/', 1)
         handle_acme_force_renew(_did, _dom)
-    elif pi.startswith('/api/acme/') and pi.endswith('/revoke') and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_82(pi, m):
+    if (pi.startswith('/api/acme/') and pi.endswith('/revoke') and m == 'POST'):
         _rest = pi[len('/api/acme/'):-len('/revoke')]; _did, _dom = _rest.split('/', 1)
         handle_acme_revoke(_did, _dom)
-    elif pi.startswith('/api/acme/') and '/cancel/' in pi and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_83(pi, m):
+    if (pi.startswith('/api/acme/') and '/cancel/' in pi and m == 'POST'):
         _rest = pi[len('/api/acme/'):]; _did, _aid = _rest.split('/cancel/', 1)
         handle_acme_cancel(_did, _aid)
-    elif pi.startswith('/api/acme/') and '/ignore/' in pi and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_84(pi, m):
+    if (pi.startswith('/api/acme/') and '/ignore/' in pi and m == 'POST'):
         _rest = pi[len('/api/acme/'):]; _did, _aid = _rest.split('/ignore/', 1)
         handle_acme_ignore(_did, _aid)
-    elif pi.startswith('/api/acme/') and m == 'GET':
+        return True
+    return False
+
+
+def _route_code_85(pi, m):
+    if (pi.startswith('/api/acme/') and m == 'GET'):
         _rest = pi[len('/api/acme/'):]; _did, _dom = _rest.split('/', 1) if '/' in _rest else (_rest, '')
         handle_acme_detail(_did, _dom)
-    # ── v3.0.1: Mitigation runners ────────────────────────────────────────
-    elif pi.startswith('/api/mitigate/') and pi.endswith('/investigate') and m == 'POST':
-        handle_mitigate_investigate(pi[len('/api/mitigate/'):-len('/investigate')])
-    elif pi.startswith('/api/mitigate/') and pi.endswith('/fix') and m == 'POST':
-        handle_mitigate_fix(pi[len('/api/mitigate/'):-len('/fix')])
-    elif pi.startswith('/api/mitigate/') and '/status/' in pi and m == 'GET':
+        return True
+    return False
+
+
+def _route_code_88(pi, m):
+    if (pi.startswith('/api/mitigate/') and '/status/' in pi and m == 'GET'):
         _rest = pi[len('/api/mitigate/'):]; _did, _aid = _rest.split('/status/', 1)
         handle_mitigate_status(_did, _aid)
-    elif pi.startswith('/api/mitigate/') and '/ai/' in pi and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_89(pi, m):
+    if (pi.startswith('/api/mitigate/') and '/ai/' in pi and m == 'POST'):
         _rest = pi[len('/api/mitigate/'):]; _did, _aid = _rest.split('/ai/', 1)
         handle_mitigate_ai(_did, _aid)
-    elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'DELETE':
+        return True
+    return False
+
+
+def _route_code_90(pi, m):
+    if (pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'DELETE'):
         handle_user_delete(pi[len('/api/users/'):])
-    elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'PATCH':
+        return True
+    return False
+
+
+def _route_code_91(pi, m):
+    if (pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'PATCH'):
         handle_user_update(pi[len('/api/users/'):])
-    elif pi == '/api/users/passwd' and m == 'POST': handle_user_passwd()
-    # v3.4.2: custom RBAC role management
-    elif pi.startswith('/api/roles/') and m == 'PUT':
-        handle_role_update(pi[len('/api/roles/'):])
-    elif pi.startswith('/api/roles/') and m == 'DELETE':
-        handle_role_delete(pi[len('/api/roles/'):])
-    # v1.11.5: per-user UI preferences (density / filter / sort persistence)
-    elif pi.startswith('/api/devices/') and pi.endswith('/agent/force-upgrade') and m == 'POST':
-        handle_force_agent_upgrade(pi[len('/api/devices/'):-len('/agent/force-upgrade')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/acme/force-rescan') and m == 'POST':
-        handle_force_acme_rescan(pi[len('/api/devices/'):-len('/acme/force-rescan')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/schedule.ics') and m == 'GET':
-        handle_schedule_ics(pi[len('/api/devices/'):-len('/schedule.ics')])
-    elif pi.startswith('/api/schedule/') and m == 'PUT':
-        handle_schedule_update(pi[len('/api/schedule/'):])
-    elif pi.startswith('/api/schedule/') and m == 'DELETE':
-        handle_schedule_delete(pi[len('/api/schedule/'):])
-    elif pi.startswith('/api/devices/') and pi.endswith('/output') and m == 'GET':
-        handle_cmd_output(pi[len('/api/devices/'):-len('/output')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/update-logs') and m == 'GET':
-        handle_device_update_logs(pi[len('/api/devices/'):-len('/update-logs')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/uptime') and m == 'GET':
-        handle_uptime(pi[len('/api/devices/'):-len('/uptime')])
-    elif pi == '/api/fleet/uptime7d' and m == 'GET':
-        handle_fleet_uptime7d()
-    elif pi == '/api/monitor/history' and m == 'GET':
+        return True
+    return False
+
+
+def _route_code_104(pi, m):
+    if (pi == '/api/monitor/history' and m == 'GET'):
         from urllib.parse import parse_qs
         label = parse_qs(_env('QUERY_STRING', '')).get('label', [''])[0]
         handle_monitor_history(label)
-    elif pi.startswith('/api/cmd-library/') and m == 'PUT':
-        handle_cmd_library_update(pi[len('/api/cmd-library/'):])
-    elif pi.startswith('/api/cmd-library/') and m == 'DELETE':
-        handle_cmd_library_delete(pi[len('/api/cmd-library/'):])
-    # ── v2.1.0: multi-line script library + batch exec ─────────────────────
-    elif pi.startswith('/api/scripts/') and pi.endswith('/dry-run') and m == 'POST':
-        handle_scripts_dry_run(pi[len('/api/scripts/'):-len('/dry-run')])
-    elif pi.startswith('/api/scripts/') and m == 'GET':
-        handle_scripts_get(pi[len('/api/scripts/'):])
-    elif pi.startswith('/api/scripts/') and m == 'PUT':
-        handle_scripts_update(pi[len('/api/scripts/'):])
-    elif pi.startswith('/api/scripts/') and m == 'DELETE':
-        handle_scripts_delete(pi[len('/api/scripts/'):])
-    elif pi.startswith('/api/exec/batch/') and m == 'GET':
-        handle_exec_batch_status(pi[len('/api/exec/batch/'):])
-    # v2.1.3: AI assistant
-    elif pi == '/api/ai/stats'  and m == 'GET':  handle_ai_stats()
-    # v3.4.0: RAG over your infrastructure
-    elif pi == '/api/ai/rag/search'  and m == 'POST': handle_ai_rag_search()
-    # v3.4.0: on-demand AI insights (cron builder, fleet anomaly scan)
-    elif pi == '/api/ai/anomaly' and m == 'POST': handle_ai_anomaly()
-    # v3.4.0: network discovery + compliance reports
-    elif pi == '/api/compliance' and m == 'GET':  handle_compliance()
-    elif pi == '/api/compliance/remediate' and m == 'POST':  handle_compliance_remediate()  # v3.14.0 #31
-    # v2.1.7: per-device AI-generated runbooks
-    elif pi.startswith('/api/devices/') and pi.endswith('/ssh-exec') and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_117(pi, m):
+    if (pi.startswith('/api/devices/') and pi.endswith('/ssh-exec') and m == 'POST'):
         handle_device_ssh_exec(pi[len('/api/devices/'):-len('/ssh-exec')])   # v3.14.0 #48
-    elif pi.startswith('/api/devices/') and pi.endswith('/ssh-poll') and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_118(pi, m):
+    if (pi.startswith('/api/devices/') and pi.endswith('/ssh-poll') and m == 'POST'):
         handle_device_ssh_poll(pi[len('/api/devices/'):-len('/ssh-poll')])   # v3.14.0 #48
-    elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
-        handle_runbook_get(pi[len('/api/devices/'):-len('/runbook')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/runbook/generate') and m == 'POST':
-        handle_runbook_generate(pi[len('/api/devices/'):-len('/runbook/generate')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'DELETE':
-        handle_runbook_delete(pi[len('/api/devices/'):-len('/runbook')])
-    # v2.2.0: configuration drift detection
-    elif pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'GET':
-        handle_device_drift_get(pi[len('/api/devices/'):-len('/drift')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/drift/baseline') and m == 'POST':
-        handle_device_drift_baseline(pi[len('/api/devices/'):-len('/drift/baseline')])
-    # v2.2.1: drift content fetch (diff visualisation)
-    elif pi.startswith('/api/devices/') and pi.endswith('/drift/fetch_content') and m == 'POST':
-        handle_drift_fetch_content(pi[len('/api/devices/'):-len('/drift/fetch_content')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/drift/content') and m == 'GET':
-        handle_drift_get_content(pi[len('/api/devices/'):-len('/drift/content')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'DELETE':
-        handle_device_drift_reset(pi[len('/api/devices/'):-len('/drift')])
-    # v2.3.4: per-file drift ignore toggle
-    elif pi.startswith('/api/devices/') and pi.endswith('/drift/ignore') and m == 'POST':
-        handle_drift_ignore(pi[len('/api/devices/'):-len('/drift/ignore')])
-    # v3.13.0: named drift profiles (edit / delete)
-    elif pi.startswith('/api/drift/profiles/') and m in ('PUT', 'DELETE'):
-        handle_drift_profile_edit(pi[len('/api/drift/profiles/'):])
-    # v2.4.3: mailbox-count monitor config (paths + dashboard promotion)
-    elif pi.startswith('/api/devices/') and pi.endswith('/mailwatch') and m == 'POST':
-        handle_mailwatch_set(pi[len('/api/devices/'):-len('/mailwatch')])
-    elif pi == '/api/mailwatch' and m == 'GET':
-        handle_mailwatch_overview()
-    # v2.4.6: update-available check is handled by /api/version above
-    # v2.4.7: needs-attention digest + machine-readable status endpoint
-    elif pi == '/api/status-token' and m == 'POST':
-        handle_status_token()
-    # v2.4.5: force a package scan on the device's next heartbeat
-    elif pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST':
-        handle_force_package_scan(pi[len('/api/devices/'):-len('/scan-packages')])
-    elif pi.startswith('/api/apikeys/') and m == 'DELETE':
-        handle_apikeys_delete(pi[len('/api/apikeys/'):])
-    elif pi.startswith('/api/apikeys/') and m in ('PATCH', 'POST'):
-        handle_apikeys_update(pi[len('/api/apikeys/'):])
-    elif pi.startswith('/api/patch-report/device/') and m == 'GET':
-        handle_patch_report_device(pi[len('/api/patch-report/device/'):])
-    elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
-    # v3.2.0 (B1): alerts inbox
-    elif pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET':
-        handle_user_avatar(pi[len('/api/users/'):-len('/avatar')])
-    elif pi.startswith('/api/satellites/') and m == 'DELETE':
-        handle_satellites_delete(pi[len('/api/satellites/'):])
-    elif pi.startswith('/api/satellites/') and m == 'PATCH':
-        handle_satellites_update(pi[len('/api/satellites/'):])
-    # v4.2.0 (A1): delete a registered passkey (exact webauthn routes above)
-    elif pi.startswith('/api/webauthn/credentials/') and m == 'DELETE':
-        handle_webauthn_credential_delete(pi[len('/api/webauthn/credentials/'):])
-    # v4.2.0 (B5): scan detail / cancel / results-ingest (prefix-matched;
-    # exact GET|POST /api/scans + POST /api/scans/claim handled above).
-    elif pi.startswith('/api/scans/') and pi.endswith('/results') and m == 'POST':
-        handle_scan_results(pi[len('/api/scans/'):-len('/results')])
-    elif pi.startswith('/api/scans/') and m == 'GET':
-        handle_scan_detail(pi[len('/api/scans/'):])
-    elif pi.startswith('/api/scans/') and m == 'DELETE':
-        handle_scan_delete(pi[len('/api/scans/'):])
-    # v4.2.0 (B5 P2): scan-target ownership verification (exact GET|POST above).
-    elif pi.startswith('/api/scan-targets/') and pi.endswith('/verify') and m == 'POST':
-        handle_scan_target_verify(pi[len('/api/scan-targets/'):-len('/verify')])
-    elif pi.startswith('/api/scan-targets/') and m == 'DELETE':
-        handle_scan_target_delete(pi[len('/api/scan-targets/'):])
-    # v4.2.0 (#4): scheduled scans (exact GET|POST above).
-    elif pi.startswith('/api/scan-schedules/') and pi.endswith('/run') and m == 'POST':
-        handle_scan_schedule_run(pi[len('/api/scan-schedules/'):-len('/run')])
-    elif pi.startswith('/api/scan-schedules/') and pi.endswith('/toggle') and m == 'POST':
-        handle_scan_schedule_toggle(pi[len('/api/scan-schedules/'):-len('/toggle')])
-    elif pi.startswith('/api/scan-schedules/') and m == 'DELETE':
-        handle_scan_schedule_delete(pi[len('/api/scan-schedules/'):])
-    elif pi.startswith('/api/me/sessions/') and m == 'DELETE':
-        handle_me_session_revoke(pi[len('/api/me/sessions/'):])
-    elif pi.startswith('/api/alert-mutes/') and m == 'DELETE':
-        handle_alert_mute_delete(pi[len('/api/alert-mutes/'):])
-    elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
-        handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
-    elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':
-        handle_alert_unack(pi[len('/api/alerts/'):-len('/unack')])
-    elif pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST':
-        handle_alert_resolve(pi[len('/api/alerts/'):-len('/resolve')])
-    # v3.2.0 (B2): inbound webhooks
-    elif pi.startswith('/api/webhook/in/'):
-        handle_inbound_webhook(pi[len('/api/webhook/in/'):])
-    # v3.2.0 (B6): syslog HTTP ingestion
-    elif pi.startswith('/api/syslog/in/'):
-        handle_syslog_in(pi[len('/api/syslog/in/'):])
-    elif pi.startswith('/api/snmp/trap/'):
-        handle_snmp_trap_in(pi[len('/api/snmp/trap/'):])
-    elif pi.startswith('/api/inbound-webhooks/') and m == 'DELETE':
-        handle_inbound_webhook_revoke(pi[len('/api/inbound-webhooks/'):])
-    elif pi.startswith('/api/inbound-webhooks/') and m == 'PATCH':
-        handle_inbound_webhook_toggle(pi[len('/api/inbound-webhooks/'):])
-    # v3.2.0 (A1): MCP Stage 4 — write tools + confirmation queue
-    elif pi.startswith('/api/confirmations/') and pi.endswith('/approve') and m == 'POST':
-        handle_confirmation_approve(pi[len('/api/confirmations/'):-len('/approve')])
-    elif pi.startswith('/api/confirmations/') and pi.endswith('/reject') and m == 'POST':
-        handle_confirmation_reject(pi[len('/api/confirmations/'):-len('/reject')])
-    elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
-    # v2.2.4: fleet event log (every fired event, regardless of destinations)
-    elif pi == '/api/fleet/events' and m == 'GET': handle_fleet_events()
-    # v3.4.1: per-device unified timeline (fleet events + command runs)
-    elif pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET':
-        handle_device_timeline(pi[len('/api/devices/'):-len('/timeline')])
-    # v3.4.2: per-device metrics time-series for the Trends charts
-    elif pi.startswith('/api/devices/') and pi.endswith('/metrics-history') and m == 'GET':
-        handle_device_metrics_history(pi[len('/api/devices/'):-len('/metrics-history')])
-    # v3.4.1: fleet-wide timeline (same merge core, all monitored hosts)
-    elif pi == '/api/fleet/timeline' and m == 'GET': handle_fleet_timeline()
-    # v3.4.1: software inventory search across the fleet's package lists
-    elif pi == '/api/inventory/search' and m == 'GET': handle_inventory_search()
-    elif pi == '/api/inventory/catalog' and m == 'GET': handle_inventory_catalog()
-    # v3.4.2: fleet-wide patch catalog (pending updates by package)
-    elif pi == '/api/patch-catalog' and m == 'GET': handle_patch_catalog()
-    # v3.4.2: software metering / license compliance
-    elif pi == '/api/inventory/metering' and m == 'GET': handle_inventory_metering()
-    # v3.4.2: ad-hoc fleet query
-    elif pi == '/api/fleet/query' and m == 'GET': handle_fleet_query()
-    # v3.4.2: staged / ring rollouts (canary → pilot → broad)
-    elif pi == '/api/rollouts' and m == 'GET': handle_rollouts_list()
-    elif pi == '/api/rollouts' and m == 'POST': handle_rollouts_create()
-    elif pi.startswith('/api/rollouts/') and pi.count('/') == 4 and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_173(pi, m):
+    if (pi.startswith('/api/rollouts/') and pi.count('/') == 4 and m == 'POST'):
         _seg = pi[len('/api/rollouts/'):].split('/')
         handle_rollout_action(_seg[0], _seg[1])
-    elif pi.startswith('/api/rollouts/') and m == 'DELETE':
-        handle_rollout_delete(pi[len('/api/rollouts/'):])
-    # v3.4.2: CIS-style compliance baseline
-    elif pi == '/api/compliance/baseline' and m == 'GET': handle_compliance_baseline()
-    # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
-    elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
-    elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
-    elif pi == '/api/risk' and m == 'GET': handle_risk_overview()
-    # v3.4.1: SLA / uptime reporting + fleet capacity rollup
-    elif pi == '/api/fleet/sla' and m == 'GET': handle_fleet_sla()
-    elif pi == '/api/fleet/sla-targets' and m == 'GET': handle_sla_targets_get()
-    elif pi == '/api/fleet/sla-targets' and m == 'PUT': handle_sla_targets_put()
-    elif pi == '/api/public/status' and m == 'GET': handle_public_status()
-    elif pi == '/api/fleet/capacity' and m == 'GET': handle_fleet_capacity()
-    # v3.4.2: statistical resource anomalies (per-host metric baselines)
-    elif pi == '/api/fleet/anomalies' and m == 'GET': handle_fleet_anomalies()
-    # v3.4.2: agent integrity attestation (running hash vs canonical)
-    elif pi == '/api/fleet/agent-integrity' and m == 'GET': handle_agent_integrity()
-    # v3.4.2: automation rules engine (when event → run script / notify)
-    elif pi == '/api/automation/rules' and m == 'GET': handle_automation_rules_list()
-    elif pi == '/api/automation/rules' and m == 'POST': handle_automation_rule_create()
-    elif pi.startswith('/api/automation/rules/') and m == 'PUT':
-        handle_automation_rule_update(pi[len('/api/automation/rules/'):])
-    elif pi.startswith('/api/automation/rules/') and m == 'DELETE':
-        handle_automation_rule_delete(pi[len('/api/automation/rules/'):])
-    # v3.4.1: fleet posture report (patches + CVE + health + compliance)
-    elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
-    elif pi.startswith('/api/report/site/') and m == 'GET':                    # v4.10.0
-        handle_site_report(pi[len('/api/report/site/'):])
-    elif pi == '/api/report/evidence' and m == 'GET': handle_evidence_pack()   # v3.14.0 (#44)
-    elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()
-    elif pi == '/api/report/schedule' and m == 'PUT': handle_report_schedule_set()
-    # v3.14.0: custom report builder — saved definitions
-    elif pi == '/api/drift-policies' and m == 'GET': handle_drift_policies_get()
-    elif pi == '/api/drift-policies' and m == 'PUT': handle_drift_policies_set()
-    elif pi == '/api/report/definitions' and m == 'GET': handle_report_defs_list()
-    elif pi == '/api/report/definitions' and m == 'POST': handle_report_defs_save()
-    elif pi.startswith('/api/report/definitions/') and m == 'DELETE':
-        handle_report_def_delete(pi[len('/api/report/definitions/'):])
-    # ── v1.8.6: SMTP + LDAP test endpoints ─────────────────────────────────────
-    elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
+        return True
+    return False
 
-    # ── v1.7.0: Package inventory + CVE scanner ────────────────────────────────
-    elif pi.startswith('/api/cve/ignore/') and m == 'DELETE':
-        handle_cve_ignore_delete(pi[len('/api/cve/ignore/'):])
-    elif pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET':
-        handle_cve_device(pi[len('/api/devices/'):-len('/cve')])
-    # v3.5.0: per-host SBOM (CycloneDX / SPDX) download
-    elif pi.startswith('/api/devices/') and pi.endswith('/sbom/baseline') and m == 'POST':
-        handle_sbom_baseline(pi[len('/api/devices/'):-len('/sbom/baseline')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/sbom/diff') and m == 'GET':
-        handle_sbom_diff(pi[len('/api/devices/'):-len('/sbom/diff')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/sbom') and m == 'GET':
-        handle_sbom_device(pi[len('/api/devices/'):-len('/sbom')])
 
-    # ── v3.3.4: container image-update detection ───────────────────────────────
-    elif pi == '/api/image-updates/ignore' and m == 'DELETE': handle_image_ignore_remove()
-
-    # ── v3.3.4: docker-compose stacks (upload + deploy) ────────────────────────
-    elif pi.startswith('/api/compose/stacks/') and pi.endswith('/action') and m == 'POST':
-        handle_compose_stack_action(pi[len('/api/compose/stacks/'):-len('/action')])
-    elif pi.startswith('/api/compose/stacks/') and m == 'GET':
-        handle_compose_stack_get(pi[len('/api/compose/stacks/'):])
-    elif pi.startswith('/api/compose/stacks/') and m == 'DELETE':
-        handle_compose_stack_delete(pi[len('/api/compose/stacks/'):])
-
-    # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
-    elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
-    elif pi == '/api/metrics/push/config' and m == 'GET': handle_metrics_push_get()
-    elif pi == '/api/metrics/push/config' and m == 'PUT': handle_metrics_push_set()
-    # v3.14.0 (#27): GitOps — desired-state config from a Git repo
-    elif pi == '/api/gitops' and m == 'GET':  handle_gitops_get()
-    elif pi == '/api/gitops' and m == 'PUT':  handle_gitops_set()
-    elif pi == '/api/gitops/sync' and m == 'POST': handle_gitops_sync()
-    # v3.14.0 (#24): tenant control plane (id-path ops)
-    elif pi.startswith('/api/tenants/') and pi.endswith('/users') and m == 'POST':
-        handle_tenant_assign_user(pi[len('/api/tenants/'):-len('/users')])
-    elif pi.startswith('/api/tenants/') and m == 'PUT':
-        handle_tenant_update(pi[len('/api/tenants/'):])
-    elif pi.startswith('/api/tenants/') and m == 'DELETE':
-        handle_tenant_delete(pi[len('/api/tenants/'):])
-    # v3.14.0 (#30): SCIM 2.0 user provisioning (IdP-driven create/deactivate)
-    elif pi == '/api/scim/v2/Users': handle_scim_users_collection()
-    elif pi.startswith('/api/scim/v2/Users/'):
+def _route_code_220(pi, m):
+    if (pi.startswith('/api/scim/v2/Users/')):
         handle_scim_user(urllib.parse.unquote(pi[len('/api/scim/v2/Users/'):]))
-    # v3.4.1: iCal feed of scheduled jobs + maintenance windows
-    elif pi == '/api/schedule.ics' and m == 'GET': handle_schedule_ics()
+        return True
+    return False
 
-    # ── v1.8.0: Service monitoring ─────────────────────────────────────────────
-    elif pi.startswith('/api/devices/') and pi.endswith('/services') and m == 'GET':
-        handle_services_device(pi[len('/api/devices/'):-len('/services')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/services/config'):
+
+def _route_code_223(pi, m):
+    if (pi.startswith('/api/devices/') and pi.endswith('/services/config')):
         handle_services_config(pi[len('/api/devices/'):-len('/services/config')])
+        return True
+    return False
 
-    # ── v1.8.0: Log tail + pattern alerts ──────────────────────────────────────
-    elif pi == '/api/logs/search' and m == 'GET': handle_log_search()
-    # ── v1.8.1: live tail + rules aggregate ────────────────────────────────────
-    elif pi == '/api/logs/rules' and m == 'GET': handle_log_rules()
-    # ── v1.8.2: fleet-wide log alert rules ─────────────────────────────────────
-    elif pi.startswith('/api/logs/rules/global/') and m == 'PUT':
-        handle_log_rules_global_update(pi[len('/api/logs/rules/global/'):])
-    elif pi.startswith('/api/logs/rules/global/') and m == 'DELETE':
-        handle_log_rules_global_delete(pi[len('/api/logs/rules/global/'):])
-    elif pi.startswith('/api/devices/') and pi.endswith('/logs') and m == 'GET':
-        handle_log_device(pi[len('/api/devices/'):-len('/logs')])
 
-    # ── v1.8.0: Maintenance windows ────────────────────────────────────────────
-    elif pi.startswith('/api/maintenance/') and m == 'PUT':
-        handle_maintenance_update(pi[len('/api/maintenance/'):])
-    elif pi.startswith('/api/maintenance/') and m == 'DELETE':
-        handle_maintenance_delete(pi[len('/api/maintenance/'):])
-
-    # ── v1.8.3: Shared calendar events ─────────────────────────────────────────
-    elif pi.startswith('/api/calendar/') and m == 'PUT':
-        handle_calendar_update(pi[len('/api/calendar/'):])
-    elif pi.startswith('/api/calendar/') and m == 'DELETE':
-        handle_calendar_delete(pi[len('/api/calendar/'):])
-
-    # ── v1.8.3: Shared tasks board ─────────────────────────────────────────────
-    elif pi.startswith('/api/tasks/') and m == 'PUT':
-        handle_tasks_update(pi[len('/api/tasks/'):])
-    elif pi.startswith('/api/tasks/') and m == 'DELETE':
-        handle_tasks_delete(pi[len('/api/tasks/'):])
-
-    # ── v1.9.0: CMDB ───────────────────────────────────────────────────────────
-    # Vault management — order matters, more specific paths first
-    elif pi == '/api/cmdb/vault/change'  and m == 'POST': handle_cmdb_vault_change()
-    # Server-function autocomplete list
-    elif pi == '/api/cmdb/server-functions' and m == 'GET': handle_cmdb_server_functions()
-    # v5.0.0 (#C3): break-glass requests — match the literal paths before the
-    # generic /api/cmdb/{id} routes so "break-glass" isn't read as a device id.
-    elif pi == '/api/cmdb/break-glass' and m == 'GET':
-        handle_breakglass_list()
-    elif pi.startswith('/api/cmdb/break-glass/') and pi.endswith('/approve') and m == 'POST':
-        handle_breakglass_approve(pi[len('/api/cmdb/break-glass/'):-len('/approve')])
-    # Per-device credential CRUD — match before the generic /api/cmdb/{id} route
-    # v4.10.0: site/group/tag-scoped credentials (must precede the generic
-    # /api/cmdb/ credential routes; /inherited-credentials is device-scoped).
-    elif pi == '/api/scoped-credentials' and m == 'GET':
-        handle_scoped_credentials_list()
-    elif pi == '/api/scoped-credentials' and m == 'POST':
-        handle_scoped_credentials_add()
-    elif pi.startswith('/api/scoped-credentials/') and pi.endswith('/reveal') and m == 'POST':
-        handle_scoped_credentials_reveal(pi[len('/api/scoped-credentials/'):-len('/reveal')])
-    elif pi.startswith('/api/scoped-credentials/') and m == 'DELETE':
-        handle_scoped_credentials_delete(pi[len('/api/scoped-credentials/'):])
-    # v5.2.0: WG Access (road-warrior WireGuard) — tunnels and their clients.
-    elif pi == '/api/vpn-tunnels' and m == 'GET':
-        handle_vpn_tunnels_list()
-    elif pi == '/api/vpn-tunnels' and m == 'POST':
-        handle_vpn_tunnel_create()
-    elif pi.startswith('/api/vpn-tunnels/'):
+def _route_code_245(pi, m):
+    if (pi.startswith('/api/vpn-tunnels/')):
         _wg_parts = pi[len('/api/vpn-tunnels/'):].split('/')
         if len(_wg_parts) == 1 and m == 'PATCH':
             handle_vpn_tunnel_update(_wg_parts[0])
@@ -52753,171 +52677,117 @@ def _dispatch(pi, m):
             handle_vpn_client_delete(_wg_parts[0], _wg_parts[2])
         else:
             respond(404, {'error': 'not found'})
-    elif pi.startswith('/api/cmdb/') and pi.endswith('/inherited-credentials') and m == 'GET':
-        handle_device_inherited_credentials(pi[len('/api/cmdb/'):-len('/inherited-credentials')])
-    elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'GET':
-        handle_cmdb_credentials_list(pi[len('/api/cmdb/'):-len('/credentials')])
-    elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'POST':
-        handle_cmdb_credentials_add(pi[len('/api/cmdb/'):-len('/credentials')])
-    elif pi.startswith('/api/cmdb/') and '/credentials/' in pi and pi.endswith('/reveal') and m == 'POST':
-        # /api/cmdb/{dev}/credentials/{cred}/reveal
+        return True
+    return False
+
+
+def _route_code_249(pi, m):
+    if (pi.startswith('/api/cmdb/') and '/credentials/' in pi and pi.endswith('/reveal') and m == 'POST'):
         rest = pi[len('/api/cmdb/'):-len('/reveal')]
         dev_id, _, cred_id = rest.partition('/credentials/')
         handle_cmdb_credentials_reveal(dev_id, cred_id)
-    elif pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'PUT':
+        return True
+    return False
+
+
+def _route_code_250(pi, m):
+    if (pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'PUT'):
         rest = pi[len('/api/cmdb/'):]
         dev_id, _, cred_id = rest.partition('/credentials/')
         handle_cmdb_credentials_update(dev_id, cred_id)
-    elif pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'DELETE':
+        return True
+    return False
+
+
+def _route_code_251(pi, m):
+    if (pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'DELETE'):
         rest = pi[len('/api/cmdb/'):]
         dev_id, _, cred_id = rest.partition('/credentials/')
         handle_cmdb_credentials_delete(dev_id, cred_id)
-    # v2.0: multi-doc per asset. Match before generic /api/cmdb/{id} route.
-    elif pi.startswith('/api/cmdb/') and pi.endswith('/docs') and m == 'POST':
-        handle_cmdb_doc_add(pi[len('/api/cmdb/'):-len('/docs')])
-    elif pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'PUT':
+        return True
+    return False
+
+
+def _route_code_253(pi, m):
+    if (pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'PUT'):
         rest = pi[len('/api/cmdb/'):]
         dev_id, _, doc_id = rest.partition('/docs/')
         handle_cmdb_doc_update(dev_id, doc_id)
-    elif pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'DELETE':
+        return True
+    return False
+
+
+def _route_code_254(pi, m):
+    if (pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'DELETE'):
         rest = pi[len('/api/cmdb/'):]
         dev_id, _, doc_id = rest.partition('/docs/')
         handle_cmdb_doc_delete(dev_id, doc_id)
-    # Asset list + per-asset metadata
-    elif pi.startswith('/api/cmdb/') and m == 'GET':
-        handle_cmdb_get(pi[len('/api/cmdb/'):])
-    elif pi.startswith('/api/cmdb/') and m == 'PUT':
-        handle_cmdb_update(pi[len('/api/cmdb/'):])
+        return True
+    return False
 
-    # ── v1.11.0: containers ────────────────────────────────────────────────
-    elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'GET':
-        handle_device_containers(pi[len('/api/devices/'):-len('/containers')])
-    # v1.11.4: manual clear of a device's container snapshot. Useful for
-    # decommissioning, or for forcing a redraw without waiting for the next
-    # heartbeat after deliberate `docker rm`.
-    elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'DELETE':
-        handle_device_containers_clear(pi[len('/api/devices/'):-len('/containers')])
 
-    # ── v2.3.0: Proxmox virtualization ─────────────────────────────────────
-    elif pi == '/api/proxmox/qemu' and m == 'GET':
+def _route_code_259(pi, m):
+    if (pi == '/api/proxmox/qemu' and m == 'GET'):
         handle_proxmox_list('qemu')
-    elif pi == '/api/proxmox/lxc' and m == 'GET':
+        return True
+    return False
+
+
+def _route_code_260(pi, m):
+    if (pi == '/api/proxmox/lxc' and m == 'GET'):
         handle_proxmox_list('lxc')
-    # v3.4.0: LXC create wizard — MUST precede the generic /lxc/<vmid>/<action>
-    # POST route below, or "create" would be parsed as a vmid.
-    elif pi.startswith('/api/proxmox/lxc/') and m == 'DELETE':
-        handle_proxmox_lxc_delete(pi[len('/api/proxmox/lxc/'):])
-    elif pi.startswith('/api/proxmox/qemu/') and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_262(pi, m):
+    if (pi.startswith('/api/proxmox/qemu/') and m == 'POST'):
         handle_proxmox_action('qemu', pi[len('/api/proxmox/qemu/'):])
-    elif pi.startswith('/api/proxmox/lxc/') and m == 'POST':
+        return True
+    return False
+
+
+def _route_code_263(pi, m):
+    if (pi.startswith('/api/proxmox/lxc/') and m == 'POST'):
         handle_proxmox_action('lxc', pi[len('/api/proxmox/lxc/'):])
-    # v2.4.0: Proxmox snapshots — list / create / rollback / delete.
-    elif pi == '/api/proxmox/snapshot' and m == 'POST':
-        handle_proxmox_snapshot_action()
+        return True
+    return False
 
-    # ── v5.6.0: virtualization lifecycle (vSphere/vCenter, OpenShift, vCloud) ──
-    # vm ids can contain '/' (OpenShift namespace/name) → vm is carried in the
-    # body (POST) or the ?vm= query (GET), never in the path. {id} = integration id.
-    elif pi == '/api/virt/platforms' and m == 'GET':
-        handle_virt_platforms()
-    elif pi.startswith('/api/virt/') and pi.endswith('/vms') and m == 'GET':
-        handle_virt_vms(pi[len('/api/virt/'):-len('/vms')])
-    elif pi.startswith('/api/virt/') and pi.endswith('/power') and m == 'POST':
-        handle_virt_power(pi[len('/api/virt/'):-len('/power')])
-    elif pi.startswith('/api/virt/') and pi.endswith('/snapshots') and m == 'GET':
-        handle_virt_snapshots(pi[len('/api/virt/'):-len('/snapshots')])
-    elif pi.startswith('/api/virt/') and pi.endswith('/snapshot') and m == 'POST':
-        handle_virt_snapshot_action(pi[len('/api/virt/'):-len('/snapshot')])
 
-    # ── v2.1.0: docker-compose dropdown ────────────────────────────────────
-    elif pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET':
-        handle_device_compose_list(pi[len('/api/devices/'):-len('/compose')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST':
-        handle_device_compose_action(pi[len('/api/devices/'):-len('/compose/action')])
-    # v2.1.1: per-container start/stop/restart from the Containers page
-    elif pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST':
-        handle_device_container_action(pi[len('/api/devices/'):-len('/containers/action')])
-
-    # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
-    elif pi.startswith('/api/tls/targets/') and m == 'PUT':
-        handle_tls_update(pi[len('/api/tls/targets/'):])
-    elif pi.startswith('/api/tls/targets/') and m == 'DELETE':
-        handle_tls_delete(pi[len('/api/tls/targets/'):])
-    elif pi.startswith('/api/dmarc/targets/') and m == 'DELETE':
-        handle_dmarc_delete(pi[len('/api/dmarc/targets/'):])
-    elif pi.startswith('/api/reputation/targets/') and m == 'DELETE':
-        handle_reputation_delete(pi[len('/api/reputation/targets/'):])
-    elif pi.startswith('/api/resolver-health/targets/') and m == 'DELETE':
-        handle_resolver_health_delete(pi[len('/api/resolver-health/targets/'):])
-    elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
-
-    # ── v1.11.0: network map + agentless device link ──────────────────────
-    elif pi.startswith('/api/devices/') and pi.endswith('/connected-to') and m == 'PUT':
-        handle_device_connected_to(pi[len('/api/devices/'):-len('/connected-to')])
-    # v3.4.2: logical service dependencies (upstreams) for alert suppression
-    elif pi.startswith('/api/devices/') and pi.endswith('/depends-on') and m == 'PUT':
-        handle_device_depends_on(pi[len('/api/devices/'):-len('/depends-on')])
-
-    # ── v1.11.1: positions + tunnels ───────────────────────────────────────
-    elif pi.startswith('/api/network-map/tunnels/') and m == 'DELETE':
-        handle_tunnel_delete(pi[len('/api/network-map/tunnels/'):])
-
-    # ── v1.11.2: shared link dashboard ────────────────────────────────────
-    elif pi.startswith('/api/links/') and m == 'PUT':
-        handle_link_update(pi[len('/api/links/'):])
-    elif pi.startswith('/api/links/') and m == 'DELETE':
-        handle_link_delete(pi[len('/api/links/'):])
-
-    # ── v2.5.0: custom monitoring scripts ──────────────────────────────────
-    elif pi.startswith('/api/custom-scripts/') and m == 'GET':
-        handle_custom_script_get(pi[len('/api/custom-scripts/'):])
-    elif pi.startswith('/api/custom-scripts/') and m == 'PUT':
-        handle_custom_script_update(pi[len('/api/custom-scripts/'):])
-    elif pi.startswith('/api/custom-scripts/') and m == 'DELETE':
-        handle_custom_script_delete(pi[len('/api/custom-scripts/'):])
-    elif pi.startswith('/api/monitoring-profiles/') and m == 'DELETE':
-        handle_monitoring_profile_delete(pi[len('/api/monitoring-profiles/'):])
-    # v5.4.0: ticket hours must precede the generic /api/tickets/{id} matchers
-    elif pi.startswith('/api/tickets/') and pi.endswith('/hours') and m in ('GET', 'POST'):
-        handle_ticket_hours(pi[len('/api/tickets/'):-len('/hours')])
-    elif pi.startswith('/api/time-entries/') and m in ('PATCH', 'POST', 'DELETE'):
-        handle_time_entry_update(pi[len('/api/time-entries/'):])
-    elif pi.startswith('/api/timesheet/watchers/') and m == 'DELETE':
-        handle_timesheet_watcher_delete(pi[len('/api/timesheet/watchers/'):])
-    elif pi.startswith('/api/invoices/') and m == 'GET':
-        handle_invoice_get(pi[len('/api/invoices/'):])
-    elif pi.startswith('/api/invoices/') and m in ('PATCH', 'POST'):
-        handle_invoice_update(pi[len('/api/invoices/'):])
-    elif pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST':
-        handle_ticket_send_email(pi[len('/api/tickets/'):-len('/email')])
-    elif pi.startswith('/api/tickets/') and '/attachments/' in pi and m == 'GET':
-        # v5.4.1: GET /api/tickets/{id}/attachments/{aid} — must precede the
-        # generic /api/tickets/{id} GET matcher below.
+def _route_code_294(pi, m):
+    if (pi.startswith('/api/tickets/') and '/attachments/' in pi and m == 'GET'):
         _arest = pi[len('/api/tickets/'):]
         _atid, _asep, _aaid = _arest.partition('/attachments/')
         handle_ticket_attachment(_atid, _aaid)
-    elif pi.startswith('/api/tickets/') and m == 'GET':
-        handle_ticket_get(pi[len('/api/tickets/'):])
-    elif pi.startswith('/api/tickets/') and m in ('PATCH', 'POST'):
-        handle_ticket_update(pi[len('/api/tickets/'):])
-    elif pi.startswith('/api/tickets/') and m == 'DELETE':
-        handle_ticket_delete(pi[len('/api/tickets/'):])
-    elif pi.startswith('/api/contacts/') and m in ('PATCH', 'POST', 'DELETE'):
-        handle_contact_update(pi[len('/api/contacts/'):])
-    elif pi.startswith('/api/kb/') and m in ('GET', 'PATCH', 'POST', 'DELETE'):
-        handle_kb_article(pi[len('/api/kb/'):])
-
-    # ── v2.6.0: host configuration management ──────────────────────────────
-    elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'GET':
-        handle_device_host_config_get(pi[len('/api/devices/'):-len('/host-config')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'PUT':
-        handle_device_host_config_put(pi[len('/api/devices/'):-len('/host-config')])
-    elif pi.startswith('/api/devices/') and pi.endswith('/host-config/current') and m == 'GET':
-        handle_device_host_config_current(pi[len('/api/devices/'):-len('/host-config/current')])
-
-    else: respond(404, {'error': 'Not found'})
+        return True
+    return False
 
 
+def _dispatch(pi, m):
+    """Route (method, path) to its handler: the _EXACT_ROUTES table first,
+    then the ordered _PATTERN_ROUTE_DEFS pattern table (data rows + bespoke
+    code rows) — behaviour-identical to the ~300-branch elif chain it
+    replaced (differential-proven over a 13k-probe corpus; guardrails in
+    tests/test_router_table.py + tests/test_route_pattern_table.py)."""
+    global _EXACT_ROUTES, _PATTERN_ROUTES
+    if _EXACT_ROUTES is None:
+        _EXACT_ROUTES = _build_exact_routes()
+    _h = _EXACT_ROUTES.get((m, pi)) or _EXACT_ROUTES.get((None, pi))
+    if _h is not None:
+        _h(); return
+    if _PATTERN_ROUTES is None:
+        _PATTERN_ROUTES = _build_pattern_routes()
+    for kind, methods, a, b, fn in _PATTERN_ROUTES:
+        if kind == 'eq':
+            if pi == a and (methods is None or m in methods):
+                fn(); return
+        elif kind == 'pat':
+            if (methods is None or m in methods) and pi.startswith(a) \
+                    and (not b or pi.endswith(b)):
+                fn(pi[len(a):-len(b)] if b else pi[len(a):]); return
+        elif fn(pi, m):    # 'code'
+            return
+    respond(404, {'error': 'Not found'})
 def main():
     # v5.4.1 (keystone Stage A): reset per-request process-local state at the very
     # start. No-op under CGI (fresh process); the boundary a persistent app server
