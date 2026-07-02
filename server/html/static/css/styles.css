@@ -8,8 +8,10 @@
  * JetBrains Mono: monospaced font for technical identifiers (device IDs,
  *        hashes, paths, command output, code).
  */
-@import url('../vendor/fonts/inter-jetbrains.css');
-@import url('../vendor/fonts/industrial.css');  /* v4.6.0: Space Grotesk + IBM Plex Mono for the Industrial UI */
+/* v5.6.x perf: the font sheets (inter-jetbrains.css + industrial.css) are now
+   parallel <link>s in index.html — an @import here serialized them behind
+   styles.css' own download+parse, delaying first text paint. Keep them OUT
+   of this file. */
 
 /* CMDB active tab — moved out of inline <style> injection (CSP L1). */
 .cmdb-tab-btn.active {
@@ -4772,6 +4774,31 @@ label.form-label:has(> input[type="radio"]) > .hint { display: block; margin: 3p
 /* v3.13.0: drawer/page table cap — ~15 rows then scroll internally. Pairs
  * with .scrollable-table-wrap (sticky header + styled scrollbar); declared
  * after it so this tighter max-height wins for in-drawer tables. */
+/* ── v5.6.x responsiveness/smoothness sweep ─────────────────────────────────
+   (a) Page-entrance micro-transition: a 140ms compositor-only fade+rise on
+       the page becoming .active. Opacity/transform only (no layout work),
+       and overlays/modals live at body level so the transient transform's
+       containing-block effect can't touch them. Motion-sensitive users get
+       an instant swap.
+   (b) Overscroll containment on every internal scroller: reaching the end of
+       a capped table/list/drawer/modal no longer chain-scrolls the page
+       behind it — the single biggest "scrolling feels janky" cause here.
+   (c) Stable scrollbar gutter on the document: switching between a short
+       page and a long one no longer shifts the whole layout by the
+       scrollbar's width (classic-scrollbar platforms). */
+@media (prefers-reduced-motion: no-preference) {
+  .page.active { animation: rp-page-in 140ms ease-out; }
+  @keyframes rp-page-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: none; }
+  }
+}
+.scrollable-table-wrap, .audit-scroll, .scroll-cap, .scroll-cap-sm,
+.scroll-cap-lg, .device-drawer .drawer-panel, .modal-overlay, .sidebar {
+  overscroll-behavior: contain;
+}
+html { scrollbar-gutter: stable; }
+
 .audit-scroll { max-height: 360px; overflow: auto }
 /* v3.13.0: shared content cap — any non-table list/box that renders a
  * variable number of rows caps at ~15 lines and scrolls internally

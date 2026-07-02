@@ -20,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v5.6.0-47';   // bump on every asset change
+const CACHE_NAME = 'remotepower-shell-v5.6.0-48';   // bump on every asset change
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.
@@ -77,7 +77,12 @@ self.addEventListener('activate', (event) => {
             return caches.delete(key);
           })
       )
-    ).then(() => self.clients.claim())
+    // v5.6.x perf: navigation preload — navigations are network-first below,
+    // so without this the browser waits for SW startup before the request
+    // even leaves. Preload starts it in parallel; the fetch handler consumes
+    // event.preloadResponse. Optional-chained: not every engine supports it.
+    ).then(() => self.registration.navigationPreload?.enable())
+     .then(() => self.clients.claim())
   );
 });
 
@@ -100,9 +105,12 @@ self.addEventListener('fetch', (event) => {
   //    flash on mobile refresh), cache-first for static assets (JS/CSS/images).
   if (request.mode === 'navigate') {
     // HTML pages: try network first so a refresh always gets the latest markup.
-    // Fall back to cache only when offline.
+    // Fall back to cache only when offline. v5.6.x: consume the navigation-
+    // preload response when present — that request was already in flight
+    // before this handler even ran (see the activate hook).
     event.respondWith(
-      fetch(request)
+      Promise.resolve(event.preloadResponse)
+        .then((preloaded) => preloaded || fetch(request))
         .then((response) => {
           if (response && response.status === 200) {
             const toCache = response.clone();
