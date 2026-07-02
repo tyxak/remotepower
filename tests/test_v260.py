@@ -111,10 +111,12 @@ class TestWebhookEvent(unittest.TestCase):
 
     def test_config_drift_message_includes_sections(self):
         # _webhook_message moved to notify.py (notification-builder carve).
+        # Quote-agnostic: notify.py is black-checked (double quotes).
+        import re as _re
         notify_src = (_ROOT / 'server/cgi-bin/notify.py').read_text()
-        idx = notify_src.find("elif event == 'config_drift':")
-        self.assertGreater(idx, 0)
-        block = notify_src[idx: idx + 300]
+        m = _re.search(r'elif event == .config_drift.:', notify_src)
+        self.assertIsNotNone(m, 'config_drift branch missing from _webhook_message')
+        block = notify_src[m.start(): m.start() + 300]
         self.assertIn('sections', block)
 
 
