@@ -317,6 +317,16 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'clock_skew', 'clock_synced',            # v4.1.0 NTP / clock skew
             'gateway_unreachable', 'gateway_reachable',  # v4.1.0 gateway
             'oom_detected',                          # v4.1.0 OOM-killer
+            # v5.6.x: host-condition alerts now self-clear — each of these is the
+            # recover event that auto-resolves its paired trigger alert.
+            'kernel_current',                        # ← kernel_outdated
+            'smart_recovered',                       # ← smart_failure
+            'cert_file_renewed',                     # ← cert_file_expiring
+            'rogue_uid0_cleared',                    # ← rogue_uid0
+            'av_clean',                              # ← av_infected (+ av_warning)
+            'reboot_cleared',                        # ← reboot_required
+            'containers_current',                    # ← containers_stale
+            'port_unexposed',                        # ← port_exposed_world
         }
         self.assertEqual(names, expected)
 

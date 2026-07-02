@@ -847,6 +847,7 @@ WEBHOOK_EVENTS = (
     ('container_recovered', 'Stopped container is running again',  True),
     ('container_restarting', 'Container restart count climbing',   True),
     ('containers_stale',   'No container report for >TTL',         True),
+    ('containers_current', 'Container reports resumed (recovered)', True),
     # v3.2.x: container image update tracking (alert + its recover event)
     ('image_update_available', 'Container image has a newer version', True),
     ('image_updated',      'Container image updated to current',    True),
@@ -873,6 +874,7 @@ WEBHOOK_EVENTS = (
     ('tls_expiry',            'TLS/DANE certificate expiring soon',         True),
     # v2.6.1: host pending reboot
     ('reboot_required',       'Host requires a reboot',                     True),
+    ('reboot_cleared',        'Host reboot no longer required (recovered)', True),
     # v2.7.0: Proxmox snapshot older than configured threshold
     ('snapshot_old',          'Proxmox snapshot older than threshold',      True),
     # v2.8.0: security & audit events
@@ -904,7 +906,9 @@ WEBHOOK_EVENTS = (
     ('mcp_confirmation_expired', 'MCP confirmation expired without operator decision', True),
     # v3.4.0: hardware / health
     ('smart_failure',         'A disk reported SMART failure or pre-fail',   True),
+    ('smart_recovered',       'All disks healthy again (SMART recovered)',   True),
     ('kernel_outdated',       'Running kernel is older than newest installed', True),
+    ('kernel_current',        'Running kernel is current again (recovered)', True),
     # v3.4.1: fleet health score dropped below the configured threshold
     ('health_degraded',       'Device health score dropped below threshold', True),
     ('health_recovered',      'Device health score recovered above threshold', True),
@@ -912,6 +916,7 @@ WEBHOOK_EVENTS = (
     # world-reachable address (not loopback/RFC1918). Distinct from
     # new_port_detected, which fires on *any* new port regardless of scope.
     ('port_exposed_world',    'Service exposed to a world-reachable address', True),
+    ('port_unexposed',        'World-exposed service no longer exposed (recovered)', True),
     # v3.11.0: fleet software policy — an installed package matched a
     # banned rule, a required package is missing, or a version is below
     # the configured minimum.
@@ -951,7 +956,9 @@ WEBHOOK_EVENTS = (
     # v4.1.0: kernel OOM-killer fired (point event, no recover).
     ('oom_detected',          'The kernel OOM-killer terminated a process',  True),
     ('cert_file_expiring',    'A local certificate file is expiring soon',   True),
+    ('cert_file_renewed',     'Local certificate no longer expiring (recovered)', True),
     ('rogue_uid0',            'An unexpected UID 0 (root-equivalent) account appeared', True),
+    ('rogue_uid0_cleared',    'No unexpected UID 0 accounts remain (recovered)', True),
     # v3.14.0 #36: a watched process crossed its CPU/memory threshold.
     # Edge-triggered; process_recovered is the matching recover event.
     ('process_alert',         'A watched process exceeded its CPU/memory threshold', True),
@@ -976,15 +983,15 @@ WEBHOOK_EVENTS = (
     ('failed_unit',           'a systemd unit entered the failed state on a host',   True),
     # v5.1.0: endpoint AV/malware — ClamAV/rkhunter reported an ACTIVE infection
     # (rising edge; previously a posture card only, so a detected infection never
-    # alerted). No recover event — a malware finding stays actionable until an
-    # operator clears it; coalescing keeps repeat reports to one open alert.
+    # alerted). av_clean is the recover event (v5.6.x): a later scan that reports
+    # zero infected AND zero warnings auto-resolves the open av alert.
     ('av_infected',           'Antivirus / rootkit scan found an active infection',  True),
     # v5.4.1: AV/rootkit posture WARNINGS (rkhunter [Warning] lines, stale ClamAV
     # signature DB) now also alert — previously a "Needs attention" card only, so a
     # host's rkhunter warnings never landed in the Alerts inbox. Rising-edge +
-    # coalesced per host (same model as av_infected); no recover event (sticky until
-    # an operator reviews the scan and the warning count drops on a fresh report).
+    # coalesced per host (same model as av_infected); av_clean recovers it.
     ('av_warning',            'Antivirus / rootkit scan reported warnings',          True),
+    ('av_clean',              'Antivirus / rootkit scan clean again (recovered)',    True),
     # v5.2.0 (AccessMatters): WG Access road-warrior VPN — a client connected /
     # disconnected / went handshake-stale. connected is the recover event for the
     # other two; clients aren't devices (coalesced + auto-resolved by client_id).
@@ -5408,7 +5415,19 @@ _ALERT_RECOVER = {
     'resolver_recovered':      'resolver_unhealthy',      # v4.9.0
     'vpn_client_connected':    'vpn_client_disconnected', # v5.2.0
     'container_recovered':     'container_stopped',       # v5.6.0: stopped→running
+    'containers_current':      'containers_stale',        # v5.6.x: reports resumed
     'backup_recovered':        'backup_stale',            # v5.6.0: stale→fresh
+    # v5.6.x: host-condition alerts that are re-evaluated every heartbeat now
+    # self-clear when the condition goes away (previously they sat open forever
+    # after the operator fixed the underlying issue — e.g. patched+rebooted the
+    # kernel, replaced the failing disk, renewed the cert, closed the port).
+    'kernel_current':          'kernel_outdated',
+    'smart_recovered':         'smart_failure',
+    'cert_file_renewed':       'cert_file_expiring',
+    'rogue_uid0_cleared':      'rogue_uid0',
+    'reboot_cleared':          'reboot_required',
+    'port_unexposed':          'port_exposed_world',
+    'av_clean':                'av_infected',             # (+ av_warning via EXTRA)
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -5430,6 +5449,9 @@ _ALERT_RECOVER_EXTRA = {
     'storage_recovered':       ('scrub_overdue',),
     # v5.2.0: a reconnect also clears an open handshake-stale alert.
     'vpn_client_connected':    ('vpn_handshake_stale',),
+    # v5.6.x: a clean AV scan clears BOTH the infection and the warning alert
+    # (av_infected is the primary above; av_warning is the extra target).
+    'av_clean':                ('av_warning',),
 }
 
 
@@ -5453,7 +5475,7 @@ CHANNEL_KINDS = [
     ('patches',     'Pending patches',          'operational',   ['patch_alert']),
     ('cve',         'CVE findings',             'operational',   ['cve_found']),
     ('service',     'Service down/up',          'operational',   ['service_down', 'service_up', 'service_recover']),
-    ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_recovered', 'container_restarting', 'containers_stale']),
+    ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current']),
     ('image_update', 'Container image updates',  'operational',   ['image_update_available', 'image_updated']),
     ('script',      'Custom script',            'operational',   ['custom_script_fail', 'custom_script_recover']),
     ('custom_check', 'Custom checks',           'operational',   ['custom_check_failed', 'custom_check_recovered']),
@@ -5471,15 +5493,15 @@ CHANNEL_KINDS = [
     # filter fell back to always-on with no operator toggle.
     ('failed_units', 'Failed systemd units',    'operational',   ['failed_unit']),
     ('snapshot',    'Old snapshots',            'operational',   ['snapshot_old']),
-    ('reboot',      'Pending reboot',           'operational',   ['reboot_required']),
+    ('reboot',      'Pending reboot',           'operational',   ['reboot_required', 'reboot_cleared']),
     ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
     ('ssh_key',     'SSH key changes',          'operational',   ['ssh_key_added']),
     ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover', 'snmp_trap_received']),
     ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
-    ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'kernel_outdated']),
+    ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'smart_recovered', 'kernel_outdated', 'kernel_current']),
     ('health',      'Device health score',      'operational',   ['health_degraded', 'health_recovered']),
     # v3.11.0: attack-surface / posture / storage kinds
-    ('exposure',    'World-exposed services',   'operational',   ['port_exposed_world']),
+    ('exposure',    'World-exposed services',   'operational',   ['port_exposed_world', 'port_unexposed']),
     ('software_policy', 'Software policy',      'operational',   ['software_policy_violation']),
     ('storage',     'Storage / RAID health',    'operational',   ['storage_degraded', 'scrub_overdue', 'storage_recovered']),
     ('access',      'New-source logins',        'operational',   ['login_new_source']),
@@ -5494,8 +5516,8 @@ CHANNEL_KINDS = [
     ('clock',        'Clock / time sync',       'operational',   ['clock_skew', 'clock_synced']),
     ('network',      'Network reachability',    'operational',   ['gateway_unreachable', 'gateway_reachable']),
     ('oom',          'Out-of-memory kills',     'operational',   ['oom_detected']),
-    ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring']),
-    ('accounts',     'Local account audit',     'operational',   ['rogue_uid0']),
+    ('cert_files',   'Local certificate expiry', 'operational',  ['cert_file_expiring', 'cert_file_renewed']),
+    ('accounts',     'Local account audit',     'operational',   ['rogue_uid0', 'rogue_uid0_cleared']),
     ('process',      'Watched process thresholds', 'operational', ['process_alert', 'process_recovered']),
     ('secrets',      'Exposed secrets on disk',  'operational',   ['secret_exposed']),
     ('scan',         'Security scan findings',   'operational',   ['scan_finding']),
@@ -5523,7 +5545,7 @@ CHANNEL_KINDS = [
     # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA).
     # v5.1.0: av_posture now also carries the av_infected alert event.
     # v5.4.1: ...and av_warning (rkhunter warnings / stale AV DB).
-    ('av_posture',      'Malware / AV posture',        'operational', ['av_infected', 'av_warning']),
+    ('av_posture',      'Malware / AV posture',        'operational', ['av_infected', 'av_warning', 'av_clean']),
     ('tickets',         'Helpdesk tickets',            'operational', ['ticket_sla_breached']),  # v5.3.0
     ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
     # v3.7.0: CMDB credential rotation due (NA)
@@ -7453,6 +7475,12 @@ def _auto_resolve_alerts(event, payload):
         # v5.6.0: a fresh backup resolves the open backup_stale alert for THAT
         # path (per-path, like mount_recovered).
         sub_match['path'] = p.get('path')
+    elif event == 'port_unexposed':
+        # v5.6.x: a socket that stopped being world-reachable clears only the
+        # open port_exposed_world alert for THAT exact proto+port on the host
+        # (a closed :5696 must not clear the open alert for :443).
+        sub_match['proto'] = p.get('proto')
+        sub_match['port'] = p.get('port')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -14374,6 +14402,7 @@ def handle_heartbeat():
 
     saved_dev = {}
     _reboot_webhook_pending = False  # set True inside lock if reboot state changes
+    _reboot_cleared_pending = False  # v5.6.x: reboot no longer required (recover)
     _clock_event_pending = None      # v4.1.0: ('clock_skew'|'clock_synced', payload)
     _gw_event_pending = None         # v4.1.0: ('gateway_unreachable'|'gateway_reachable', payload)
     _oom_event_pending = None        # v4.1.0: ('oom_detected', payload) on new OOM kill
@@ -14640,6 +14669,9 @@ def handle_heartbeat():
                     safe_si['reboot_reason'] = _sanitize_str(si['reboot_reason'], 256)
                 # v2.6.1: fire webhook edge-triggered (false → true only)
                 _reboot_webhook_pending = new_reboot and not old_reboot
+                # v5.6.x: symmetric recover — the host stopped needing a reboot
+                # (true → false), so auto-resolve the open reboot_required alert.
+                _reboot_cleared_pending = old_reboot and not new_reboot
             else:
                 _reboot_webhook_pending = False
             # v4.11.0: audit (read-only) agent flag — persist so the UI can badge
@@ -15429,6 +15461,15 @@ def handle_heartbeat():
                 stale_notified[dev_id] = False
                 cfg_now['containers_stale_notified'] = stale_notified
                 _save_nb(CONFIG_FILE, cfg_now)
+                # v5.6.x: fresh container data resumed → auto-resolve the open
+                # containers_stale alert (idempotent; post-lock, safe to fire).
+                try:
+                    fire_webhook('containers_current', {
+                        'device_id': dev_id,
+                        'name':      (device_get(dev_id) or {}).get('name', dev_id),
+                    })
+                except Exception:
+                    pass
 
     # v2.1.0 compose_projects update was previously here as a separate
     # save. v2.1.2 moved it inside the _locked_update block above so it
@@ -15491,6 +15532,15 @@ def handle_heartbeat():
     if _reboot_webhook_pending:
         try:
             fire_webhook('reboot_required', {
+                'device_id': dev_id,
+                'name':      saved_dev.get('name', dev_id),
+            })
+        except Exception:
+            pass
+    # v5.6.x: reboot no longer required → auto-resolve the open reboot_required alert
+    if _reboot_cleared_pending:
+        try:
+            fire_webhook('reboot_cleared', {
                 'device_id': dev_id,
                 'name':      saved_dev.get('name', dev_id),
             })
@@ -24092,6 +24142,23 @@ def _audit_listening_ports(dev_id, dev_name, ports):
             except Exception:
                 pass
 
+    # v5.6.x: symmetric recover — any (proto, port) that WAS world-exposed in the
+    # baseline but is no longer world-reachable this scan auto-resolves its open
+    # port_exposed_world alert (matched per exact proto+port). Skipped on first
+    # contact (baseline is only being seeded now).
+    if audit_enabled and not first_seen:
+        world_now = {(pr, po) for pr, po, _pc, sc, _ad in current if sc == 'world'}
+        for _pr, _po in (world_known - world_now):
+            try:
+                fire_webhook('port_unexposed', {
+                    'device_id': dev_id,
+                    'name':      dev_name,
+                    'proto':     _pr,
+                    'port':      _po,
+                })
+            except Exception:
+                pass
+
     # Update baseline to current set (carry scope/addr for the next diff)
     try:
         _entity_write_one(PORT_BASELINE_FILE, dev_id,
@@ -30245,6 +30312,17 @@ def _ingest_av(dev_id, av, now, dev_name=None):
                     'device_id': dev_id, 'name': nm,
                     'tool': tool, 'warnings': new_w,
                 })
+        # v5.6.x: a scan reporting zero infections AND zero warnings across both
+        # tools, after a prior scan that had some, auto-resolves the open av
+        # alert (av_clean clears av_infected + av_warning via _ALERT_RECOVER_EXTRA).
+        new_bad = sum(int((rec.get(t) or {}).get('infected') or 0)
+                      + int((rec.get(t) or {}).get('warnings') or 0)
+                      for t in ('clamav', 'rkhunter'))
+        old_bad = sum(int((prev.get(t) or {}).get('infected') or 0)
+                      + int((prev.get(t) or {}).get('warnings') or 0)
+                      for t in ('clamav', 'rkhunter'))
+        if old_bad > 0 and new_bad == 0:
+            fire_webhook('av_clean', {'device_id': dev_id, 'name': nm})
     except Exception as e:
         sys.stderr.write(f"[remotepower] av_infected fire failed dev={dev_id}: {e}\n")
 
@@ -30349,6 +30427,12 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     'device_id': dev_id, 'name': dev_name,
                     'disks': ', '.join(cur_failed) or 'unknown',
                 }))
+            elif prev_failed and not cur_failed:
+                # v5.6.x: every previously-failing disk is healthy again (or was
+                # replaced) — auto-resolve the open smart_failure alert.
+                events.append(('smart_recovered', {
+                    'device_id': dev_id, 'name': dev_name,
+                }))
             rec['_smart_failed_devs'] = cur_failed
             rec['_smart_failed'] = bool(cur_failed)   # kept for back-compat
 
@@ -30374,6 +30458,13 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     'device_id': dev_id, 'name': dev_name,
                     'running': kern['running'],
                     'latest':  kern['latest_installed'],
+                }))
+            elif prev_old and not kern['reboot_for_kernel']:
+                # v5.6.x: rebooted into the current kernel — auto-resolve the
+                # open kernel_outdated alert (falling edge, symmetric to above).
+                events.append(('kernel_current', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'running': kern['running'],
                 }))
             rec['_kernel_old'] = kern['reboot_for_kernel']
 
@@ -30506,6 +30597,11 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                         'device_id': dev_id, 'name': dev_name, 'path': s['path'],
                         'days': max(0, int((s['not_after'] - now) / 86400)),
                         'count': len(expiring)}))
+                elif prev_cert and not paths:
+                    # v5.6.x: no host cert is expiring any more (renewed) —
+                    # auto-resolve the open cert_file_expiring alert.
+                    events.append(('cert_file_renewed', {
+                        'device_id': dev_id, 'name': dev_name}))
                 rec['_cert_alerted'] = paths
 
         # ── v3.14.0: local account posture ───────────────────────────
@@ -30535,6 +30631,10 @@ def _ingest_hardware(dev_id, dev_name, body, now):
             prev_uid0 = set(rec.get('_uid0_alerted') or [])
             for u in (rogue - prev_uid0):
                 events.append(('rogue_uid0', {'device_id': dev_id, 'name': dev_name, 'user': u}))
+            if prev_uid0 and not rogue:
+                # v5.6.x: every unexpected UID-0 account is gone — auto-resolve
+                # the open rogue_uid0 alert(s) for this host.
+                events.append(('rogue_uid0_cleared', {'device_id': dev_id, 'name': dev_name}))
             rec['_uid0_alerted'] = sorted(rogue)
 
         # ── v3.14.0: UPS / power ─────────────────────────────────────
@@ -48503,7 +48603,16 @@ def check_container_webhooks():
         elif not stale and already:
             # Already cleared on heartbeat ingest, but keep this branch for
             # safety in case the heartbeat path missed it (e.g. config rewrite
-            # race). No webhook on the recovery — same convention as patch_alert.
+            # race). v5.6.x: fire containers_current here too so the open
+            # containers_stale alert auto-resolves (idempotent with the
+            # heartbeat-path fire above).
+            try:
+                fire_webhook('containers_current', {
+                    'device_id': dev_id,
+                    'name':      dev.get('name', dev_id),
+                })
+            except Exception:
+                pass
             notified[dev_id] = False
             changed = True
 

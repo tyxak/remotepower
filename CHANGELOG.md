@@ -2,6 +2,23 @@
 
 All notable changes to RemotePower. Newest first.
 
+## Unreleased (test)
+
+- **Alerts now self-clear for eight more host conditions.** Several
+  edge-triggered alerts fired once but had no recover event, so they sat OPEN
+  forever after the operator fixed the underlying issue (e.g. an outdated-kernel
+  alert never closed after a reboot). Each now emits a paired recover event that
+  auto-resolves the open alert when the condition clears:
+  `kernel_outdated`→`kernel_current`, `smart_failure`→`smart_recovered`,
+  `cert_file_expiring`→`cert_file_renewed`, `rogue_uid0`→`rogue_uid0_cleared`,
+  `av_infected`/`av_warning`→`av_clean`, `reboot_required`→`reboot_cleared`,
+  `containers_stale`→`containers_current`, and `port_exposed_world`→
+  `port_unexposed` (matched per exact proto+port). All are edge-triggered off
+  existing per-host state (no new polling); recover events create no inbox row.
+  Point/security/ack events (brute-force, ssh-key-added, new-source login, OOM,
+  fail2ban ban, …) deliberately stay non-resolving. `WEBHOOK_EVENTS` 91→99.
+  Guardrail: `tests/test_v560_recover.py`.
+
 ## v5.6.0 — "HeapMatters" — 2026-07-01
 
 The IaC / automation + alert-tuning release. Everything new is opt-in,

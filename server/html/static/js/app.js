@@ -14615,6 +14615,10 @@ const EVENT_CLASS = {
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
   'custom_script_recover': 'ok', 'config_drift': 'warn',
   'custom_check_failed': 'critical', 'custom_check_recovered': 'ok',
+  // v5.6.x: host-condition recover events (auto-resolve) → green "ok" dots.
+  'kernel_current': 'ok', 'smart_recovered': 'ok', 'cert_file_renewed': 'ok',
+  'rogue_uid0_cleared': 'ok', 'av_clean': 'ok', 'reboot_cleared': 'ok',
+  'containers_current': 'ok', 'port_unexposed': 'ok',
 };
 
 // v3.4.1: fleet health score panel — big score + grade + the lowest-scoring
@@ -16040,14 +16044,14 @@ function _renderHomeActivity(fleetEvents) {
     'patch_alert', 'cve_found',
     'service_down', 'service_up',
     'log_alert',
-    'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale',
+    'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current',
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
-    'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
+    'config_drift', 'tls_expiry', 'reboot_required', 'reboot_cleared', 'snapshot_old',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
@@ -16058,18 +16062,18 @@ function _renderHomeActivity(fleetEvents) {
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
     'mcp_confirmation_expired',
     // v3.4.0: hardware health
-    'smart_failure', 'kernel_outdated',
+    'smart_failure', 'smart_recovered', 'kernel_outdated', 'kernel_current',
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
     // v3.11.0: exposure / software-policy / storage / access / firewall / timer
-    'port_exposed_world', 'software_policy_violation',
+    'port_exposed_world', 'port_unexposed', 'software_policy_violation',
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
     'login_new_source', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'temp_high', 'temp_normal',
     'clock_skew', 'clock_synced', 'gateway_unreachable', 'gateway_reachable',
-    'oom_detected', 'cert_file_expiring', 'rogue_uid0',
+    'oom_detected', 'cert_file_expiring', 'cert_file_renewed', 'rogue_uid0', 'rogue_uid0_cleared',
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
@@ -16089,6 +16093,8 @@ function _renderHomeActivity(fleetEvents) {
     'av_infected',
     // v5.4.1: AV/rootkit scan warnings (rkhunter [Warning] / stale AV DB)
     'av_warning',
+    // v5.6.x: clean AV scan recovers av_infected + av_warning
+    'av_clean',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
     // v5.3.0: helpdesk ticket SLA breach
@@ -16204,7 +16210,7 @@ function _homeActivityAttrs(event, p) {
   switch (event) {
     case 'device_offline': case 'device_online':
     case 'agent_stopped': case 'agent_started':
-    case 'mailbox_threshold': case 'reboot_required':
+    case 'mailbox_threshold': case 'reboot_required': case 'reboot_cleared':
     case 'new_port_detected': case 'ssh_key_added':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':
@@ -16226,7 +16232,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
-    case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'containers_stale':
+    case 'container_stopped': case 'container_recovered': case 'container_restarting': case 'containers_stale': case 'containers_current':
     case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
     case 'log_alert':      return `${base} data-home-act="logs"`;
@@ -16243,7 +16249,7 @@ function _homeActivityAttrs(event, p) {
       // Click → MCP Confirmations admin page so the operator can see
       // what timed out
       return `${base} data-home-act="confirmations"`;
-    case 'smart_failure': case 'kernel_outdated':
+    case 'smart_failure': case 'smart_recovered': case 'kernel_outdated': case 'kernel_current':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'health_degraded': case 'health_recovered':
@@ -16251,7 +16257,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'timeline' : 'home'}"`;
     // v3.11.0: posture/security events route to the relevant device drawer
     // (all are device-scoped) or the matching fleet page when no device id.
-    case 'port_exposed_world':
+    case 'port_exposed_world': case 'port_unexposed':
       return `${base} data-home-act="${devId ? 'detail' : 'exposure'}"`;
     case 'software_policy_violation':
       return `${base} data-home-act="${devId ? 'detail' : 'software-policy'}"`;
@@ -16269,7 +16275,7 @@ function _homeActivityAttrs(event, p) {
     case 'disk_predict_fail': case 'ups_on_battery': case 'ups_on_line':
     case 'temp_high': case 'temp_normal': case 'clock_skew': case 'clock_synced':
     case 'gateway_unreachable': case 'gateway_reachable': case 'oom_detected':
-    case 'cert_file_expiring': case 'rogue_uid0':
+    case 'cert_file_expiring': case 'cert_file_renewed': case 'rogue_uid0': case 'rogue_uid0_cleared':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #36: a watched process crossed its threshold → open the host.
     case 'process_alert': case 'process_recovered':
@@ -16296,7 +16302,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'checks'}"`;
     // v5.1.0: malware/rootkit detection → the affected host's drawer
     // v5.4.1: av_warning (rkhunter warnings / stale AV DB) routes the same way
-    case 'av_infected': case 'av_warning':
+    case 'av_infected': case 'av_warning': case 'av_clean':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v5.2.0: WG Access client connectivity → the WG Access admin page
     case 'vpn_client_connected': case 'vpn_client_disconnected': case 'vpn_handshake_stale':
