@@ -368,10 +368,6 @@ class TestPolishAssets(unittest.TestCase):
         self.assertIn("var(--amber)", self.js)
         self.assertIn("var(--green)", self.js)
 
-    def test_js_skeleton_helpers(self):
-        self.assertIn('renderSkeletonRows', self.js)
-        self.assertIn('renderSkeletonCards', self.js)
-
     def test_js_status_stripe(self):
         self.assertIn('renderStatusStripe', self.js)
 

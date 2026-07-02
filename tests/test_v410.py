@@ -1898,8 +1898,9 @@ class TestDashboardCardsUI(unittest.TestCase):
         self.assertGreater(html.index('home-ai-q'), fi)
         self.assertIn('dash-customize-btn', html)
         self.assertLess(html.index('data-action="toggleDashEdit"'), fi)
-        for fn in ('function _renderHomeUpcoming', 'function _renderHomeTickets',
-                   'async function quickAckAlert'):
+        # (quickAckAlert was removed in the 2026-07 housekeeping — dead since
+        # the inbox moved to _alertRowHtml's ack actions.)
+        for fn in ('function _renderHomeUpcoming', 'function _renderHomeTickets'):
             self.assertIn(fn, js)
         self.assertIn('home.appendChild(footer)', js)   # footer pinned last
         self.assertIn('out.unshift(', js)               # new widgets surface on top

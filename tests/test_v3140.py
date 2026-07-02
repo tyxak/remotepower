@@ -1224,7 +1224,7 @@ class TestThemesWiring(unittest.TestCase):
         # v4.1: theme picker is now a full-theme grid (setThemeUI/_buildThemeGrid)
         # rather than a 3-option select; accent + auto-follow-system still exist.
         for fn in ('applyAccent', 'setAccent', 'setThemeUI', '_buildAppearancePicker',
-                   '_buildThemeGrid', '_effectiveLight'):
+                   '_buildThemeGrid'):
             self.assertIn(fn, self.JS)
         self.assertIn("'auto'", self.JS)   # the follow-system theme option
 
@@ -3044,12 +3044,12 @@ class TestMetricChartsWiring(unittest.TestCase):
     CSS = (_ROOT / "server/html/static/css/styles.css").read_text()
 
     def test_chart_helpers_present(self):
-        for fn in ('_metricSeriesChart', '_metricsOverlayChart', '_mcGrid', '_fmtClock'):
+        for fn in ('_metricSeriesChart', '_metricsOverlayChart', '_mcGrid', '_fmtTs'):
             self.assertIn(fn, self.JS, f'{fn} missing')
 
     def test_timestamped_axis(self):
         # the grid builder must place clock labels on the x-axis
-        self.assertIn('_fmtClock(ts)', self.JS)
+        self.assertIn('_fmtTs(ts, span)', self.JS)
         self.assertIn('text-anchor="middle"', self.JS)
 
     def test_overlay_and_stats(self):

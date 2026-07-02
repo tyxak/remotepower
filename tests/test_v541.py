@@ -257,7 +257,7 @@ class TestEnterpriseHardening(unittest.TestCase):
     # H2 — Intl helpers
     def test_intl_helpers_present(self):
         js = _appjs()
-        for fn in ('function fmtMoney', 'function _localeTag', 'function fmtDateTime'):
+        for fn in ('function fmtMoney', 'function _localeTag'):
             self.assertIn(fn, js, fn)
         self.assertIn('fmtMoney', (_ROOT / "server/html/static/js/app-billing.js").read_text())
 

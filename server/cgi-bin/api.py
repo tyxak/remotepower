@@ -6215,13 +6215,6 @@ def _assign_alertid(store, alert):
     return alert['alertid']
 
 
-def _rp_ticket_no(alertid):
-    """Operator-facing 6-digit ticket/alert number, e.g.
-    'alertid_00042' -> '#RP000042'. Used in ticket subjects + the alerts inbox."""
-    m = re.search(r'(\d+)', str(alertid or ''))
-    return f'#RP{int(m.group(1)):06d}' if m else str(alertid or '')
-
-
 def _tickets_enabled():
     return bool((load(CONFIG_FILE) or {}).get('tickets_enabled'))
 
@@ -15927,8 +15920,15 @@ def handle_command_queue():
             'last_seen': last,
             'quarantined': bool(dev.get('quarantined')),
             'count': len(queue),
-            'commands': [dict(_humanize_queued_command(c), index=i, raw=str(c)[:512])
-                         for i, c in enumerate(queue)],
+            # v5.6.x: queued acme.sh commands embed DNS-provider secrets in
+            # their `export X='…'` prefix — scrub BOTH the humanized summary
+            # (first line of the exec body) and the raw echo. Display-only:
+            # the agent still receives the queue verbatim. Same never-echo-
+            # secrets rule as GET /api/config (admins included).
+            'commands': [dict(_humanize_queued_command(safe), index=i,
+                              raw=safe[:512])
+                         for i, safe in enumerate(
+                             _scrub_acme_credentials(str(c)) for c in queue)],
         })
     out.sort(key=lambda r: (-r['count'], r['name']))
     # v3.8.0: the live queue drains the instant an online agent fetches it
@@ -39449,11 +39449,6 @@ def handle_alerts_list():
     })
 
 
-def _find_alert(alert_id):
-    """Used by ack/resolve/unack handlers under a single _LockedUpdate."""
-    return alert_id
-
-
 def _check_alert_mutation_perm():
     """v3.3.0 C4: gate alert ack/unack/resolve on a config flag.
 
@@ -41750,13 +41745,6 @@ def _oidc_redirect_uri():
     if fwd_scheme in ('http', 'https'):
         scheme = fwd_scheme
     return f'{scheme}://{host}/api/auth/oidc/callback'
-
-
-def _prune_oidc_states(store):
-    now = int(time.time())
-    keep = {k: v for k, v in store.items()
-            if isinstance(v, dict) and v.get('expires_at', 0) > now}
-    return keep
 
 
 def handle_oidc_test():

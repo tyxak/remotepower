@@ -537,30 +537,6 @@ const _OS_ICONS = {
   unknown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Unknown OS"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 4 2c-.7.5-1.5 1-1.5 2v.5"/><circle cx="12" cy="17" r=".7" fill="currentColor"/></svg>',
 };
 
-function osIconKey(osStr) {
-  // Returns 'linux', 'windows', or 'unknown' for the given OS string.
-  // Linux detection is broad: distro names, kernel hints, and "GNU"
-  // all count. macOS, BSD, and unknowns fall through to 'unknown' —
-  // we only ship the two icons the user asked for.
-  if (!osStr) return 'unknown';
-  const s = String(osStr).toLowerCase();
-  if (s.includes('windows') || s.includes('microsoft')
-      || s.includes('win10') || s.includes('win11')
-      || s.includes('win 10') || s.includes('win 11')) {
-    return 'windows';
-  }
-  // Linux and friends — distro names included so e.g. a misconfigured
-  // agent that reports "Ubuntu 22.04" without the word "Linux" still
-  // gets the right icon.
-  const linuxHints = [
-    'linux', 'gnu', 'ubuntu', 'debian', 'fedora', 'rhel', 'red hat',
-    'redhat', 'rocky', 'alma', 'centos', 'arch', 'cachyos', 'manjaro',
-    'alpine', 'suse', 'opensuse', 'mint', 'pop!_os', 'pop_os',
-    'gentoo', 'slackware', 'nixos',
-  ];
-  if (linuxHints.some(h => s.includes(h))) return 'linux';
-  return 'unknown';
-}
 
 function osIcon(osStr, sizePx) {
   // v2.2.1: now returns the branded distro logo from getDistroIcon().
@@ -797,9 +773,7 @@ function _systemPrefersLight() {
   try { return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches; }
   catch (_) { return false; }
 }
-function _effectiveLight(theme) {
-  return theme === 'light' || (theme === 'auto' && _systemPrefersLight());
-}
+
 function applyAccent() {
   let a = '';
   try { a = localStorage.getItem('rp_accent') || ''; } catch (_) {}
@@ -2236,12 +2210,11 @@ function toggleDropdown(id) {
     if (_dropdownCloseHandler) document.addEventListener('click', _dropdownCloseHandler);
   }, 10);
 }
-function requestShutdown(id, name) { shutdownTarget = id; document.getElementById('shutdown-name').textContent = name; openModal('shutdown-modal'); }
+
 async function confirmShutdown() { closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget}); if (data?.ok) { toast('Shutdown queued', 'success'); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
-function requestReboot(id, name) { rebootTarget = id; document.getElementById('reboot-name').textContent = name; openModal('reboot-modal'); }
+
 async function confirmReboot() { closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget}); if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
-async function sendWol(id, name) { const data = await api('POST', '/wol', {device_id: id}); if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success'); else toast(data?.error || 'WoL failed', 'error'); }
-async function removeDevice(id) { if (!await uiConfirm('Remove this device from RemotePower?')) return; const data = await api('DELETE', '/devices/' + id); if (data?.ok) { toast('Device removed', 'info'); loadDevices(); } else toast(data?.error || 'Error', 'error'); }
+
 // v3.3.0: device-icon palette is now Lucide SVG names from _ICONS.
 // Legacy emoji values stored on devices still render — _renderDeviceIcon
 // returns the raw value when it's not a known icon name.
@@ -2251,17 +2224,8 @@ function _renderDeviceIcon(val) {
   if (_ICONS[val]) return _icon(val, 16);
   return escHtml(val);
 }
-function openIconModal(id, current) {
-  document.getElementById('icon-device-id').value = id;
-  document.getElementById('icon-custom').value = current || '';
-  const picker = document.getElementById('icon-picker');
-  picker.innerHTML = deviceIcons.map(name =>
-    `<button data-set-icon-val="${name}" class="isl-326" title="${escAttr(name)}">${_icon(name, 18)}</button>`
-  ).join('');
-  openModal('icon-modal');
-}
+
 async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
-async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 
 // v3.3.4: agentless reachability mode — reveal the manual Up/Down checkmark
 // only when "Manual" is picked.
@@ -4645,7 +4609,7 @@ function _renderAboutTip() {
 function nextAboutTip() { _renderAboutTip(); }
 
 async function loadAbout() { _renderAboutTip(); try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
-function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
+
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!await uiConfirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
 
@@ -5575,11 +5539,11 @@ async function batchAction(command) { if (!selectedDevices.size) return; const v
   if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
 async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
-function openGroupModal(id, current) { document.getElementById('group-device-id').value = id; document.getElementById('group-input').value = current || ''; openModal('group-modal'); }
+
 async function saveGroup() { const id = document.getElementById('group-device-id').value; const group = document.getElementById('group-input').value.trim(); const r = await api('PATCH', '/devices/' + id + '/group', {group}); if (r?.ok) { toast('Group saved', 'success'); closeModal('group-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
-function openPollModal(id, current) { document.getElementById('poll-device-id').value = id; document.getElementById('poll-input').value = current || 60; openModal('poll-modal'); }
+
 async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
-async function openAllowlistModal(id) { document.getElementById('allowlist-device-id').value = id; document.getElementById('allowlist-input').value = ''; openModal('allowlist-modal'); const r = await api('GET', '/devices/' + id + '/allowlist'); if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n'); }
+
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
 // ─── v3.14.0: richer per-device metric charts ──────────────────────────────
 // Time-series area-line charts (CPU / memory / swap / disk) with a timestamped
@@ -5593,9 +5557,7 @@ const _METRIC_SERIES = [
 ];
 const _MC = { W: 560, H: 150, padL: 28, padR: 10, padT: 14, padB: 24 };
 
-function _fmtClock(ts) {
-  return new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+
 // Span-aware axis/label format: clock for short windows, date (+clock) for long.
 function _fmtTs(ts, spanSecs) {
   const d = new Date(ts * 1000);
@@ -5768,8 +5730,7 @@ function fmtMoney(amount, currency) {
   return n.toLocaleString(_localeTag(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     + (cur ? ' ' + cur : '');
 }
-function fmtNum(n, opts) { try { return Number(n || 0).toLocaleString(_localeTag(), opts || {}); } catch (_) { return String(n); } }
-function fmtDateTime(ts, opts) { try { return new Date((ts || 0) * 1000).toLocaleString(_localeTag(), opts || {}); } catch (_) { return ''; } }
+
 function fmtDate(ts, opts) { try { return new Date((ts || 0) * 1000).toLocaleDateString(_localeTag(), opts || {}); } catch (_) { return ''; } }
 
 async function loadStorageBackendStatus() {
@@ -9716,14 +9677,6 @@ if (document.readyState === 'loading') {
 // agent. Each run is collapsed by default; the most recent is auto-expanded.
 let _updateLogsCurrent = null;     // {id, name}
 
-async function openUpdateLogs(deviceId, name) {
-  _updateLogsCurrent = {id: deviceId, name: name};
-  document.getElementById('update-logs-title').textContent = `Update history — ${name}`;
-  document.getElementById('update-logs-body').innerHTML =
-    '<div class="empty-state">Loading…</div>';
-  openModal('update-logs-modal');
-  await reloadUpdateLogs();
-}
 
 async function reloadUpdateLogs() {
   if (!_updateLogsCurrent) return;
@@ -11903,29 +11856,6 @@ function renderSparkline(values, opts) {
 // Three kinds of skeleton: row (for tables), card (for device tiles),
 // and lines (for blocks of text content).
 
-function renderSkeletonRows(colspan, n) {
-  n = n || 5;
-  let html = '';
-  for (let i = 0; i < n; i++) {
-    html += `<tr class="skeleton-row"><td colspan="${colspan}">
-      <div class="skeleton skeleton-line ${i % 2 ? 'med' : 'long'}"></div>
-    </td></tr>`;
-  }
-  return html;
-}
-
-function renderSkeletonCards(n) {
-  n = n || 4;
-  let html = '';
-  for (let i = 0; i < n; i++) {
-    html += `<div class="skeleton-card">
-      <div class="skeleton skeleton-line short"></div>
-      <div class="skeleton skeleton-line long"></div>
-      <div class="skeleton skeleton-line med"></div>
-    </div>`;
-  }
-  return html;
-}
 
 // ─── 7-day status stripe ─────────────────────────────────────────────────
 // Renders the GitHub-contribution-graph-style horizontal cells. Each cell
@@ -12448,12 +12378,6 @@ function _renderHomeTickets(t) {
         + `<span class="hint nowrap">${who}${when}</span></div>`;
     }).join('') : '<div class="hint">Nothing acknowledged recently.</div>';
   }
-}
-async function quickAckAlert(id) {
-  // "Quick" = one click, no comment prompt (unlike the inbox's ackAlert).
-  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ack`, {});
-  if (r && r.ok) { toast('Acknowledged', 'success'); loadHome(); refreshAlertsBadge(); }
-  else toast((r && r.error) || 'Failed', 'error');
 }
 
 // ── v4.1.0: add-on dashboard widgets (rendered from the /api/home payload) ───
