@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from routing_harness import routes_to
+from srcpin import py_function
 
 _ROOT = Path(__file__).parent.parent
 
@@ -137,33 +138,28 @@ class TestAPIHandlers(unittest.TestCase):
         self.assertIn('def _get_custom_scripts_for_device(', self.api)
 
     def test_create_handler_validates_nul_bytes(self):
-        idx = self.api.find('def handle_custom_script_create(')
-        block = self.api[idx: idx + 3000]
+        block = py_function(self.api, 'handle_custom_script_create')
         self.assertIn('\\x00', block,
                       'create handler must reject NUL bytes in script body')
 
     def test_create_handler_validates_body_length(self):
-        idx = self.api.find('def handle_custom_script_create(')
-        block = self.api[idx: idx + 3000]
+        block = py_function(self.api, 'handle_custom_script_create')
         self.assertIn('MAX_CUSTOM_SCRIPT_BODY', block)
 
     def test_ingest_validates_device_ownership(self):
         """Results for scripts not assigned to a device must be rejected."""
-        idx = self.api.find('def _ingest_custom_script_results(')
-        block = self.api[idx: idx + 2000]
+        block = py_function(self.api, '_ingest_custom_script_results')
         self.assertIn('assigned_devices', block,
                       'ingest must check script is assigned to this device')
 
     def test_ingest_edge_triggered_alerts(self):
-        idx = self.api.find('def _ingest_custom_script_results(')
-        block = self.api[idx: idx + 6000]
+        block = py_function(self.api, '_ingest_custom_script_results')
         self.assertIn('fire_webhook', block)
         self.assertIn('custom_script_fail', block)
         self.assertIn('custom_script_recover', block)
 
     def test_ingest_no_alert_on_first_result(self):
-        idx = self.api.find('def _ingest_custom_script_results(')
-        block = self.api[idx: idx + 3400]
+        block = py_function(self.api, '_ingest_custom_script_results')
         # prev_ok is None on first run → no alert
         self.assertIn('prev_ok is None', block,
                       'first-run case must be handled to suppress initial alerts')

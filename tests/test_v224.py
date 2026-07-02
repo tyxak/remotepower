@@ -18,6 +18,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import js_function, py_function
 import importlib.util
 import io
 import json
@@ -274,9 +275,7 @@ class TestFrontendChanges(unittest.TestCase):
         # — that endpoint bundles fleet_events (the activity feed source)
         # inside its response. Either the legacy direct call or the
         # consolidated endpoint is acceptable.
-        load_home_start = self.js.find('async function loadHome')
-        self.assertGreater(load_home_start, 0)
-        chunk = self.js[load_home_start:load_home_start + 2000]
+        chunk = js_function(self.js, 'loadHome')
         uses_direct  = "'/fleet/events?limit=50'" in chunk
         uses_bundled = "'/home'" in chunk and 'fleet_events' in chunk
         self.assertTrue(uses_direct or uses_bundled,
@@ -291,9 +290,7 @@ class TestFrontendChanges(unittest.TestCase):
         # /api/attention endpoint (one source of truth, and it now
         # includes CVE + mailbox signals). The client renderer just
         # fetches and displays it.
-        func_start = self.js.find('function _renderHomeAttention')
-        self.assertGreater(func_start, 0)
-        chunk = self.js[func_start:func_start + 2000]
+        chunk = js_function(self.js, '_renderHomeAttention')
         self.assertIn("api('GET', '/attention')", chunk,
                       "Attention panel must consume the /attention endpoint")
 
@@ -302,9 +299,7 @@ class TestFrontendChanges(unittest.TestCase):
         # the server. Same intent as the old client-side test: an
         # unmonitored device must not surface in the digest.
         api = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        cstart = api.find('def _compute_attention')
-        self.assertGreater(cstart, 0)
-        cchunk = api[cstart:cstart + 3500]
+        cchunk = py_function(api, '_compute_attention')
         self.assertIn("monitored", cchunk,
                       "_compute_attention must gate on the monitored flag")
         self.assertIn("get('monitored', True)", cchunk)
@@ -312,8 +307,7 @@ class TestFrontendChanges(unittest.TestCase):
     def test_render_activity_handles_fleet_event_shape(self):
         # 2.2.4 entries are {ts, event, payload}. Renderer reads from
         # `p.path / p.unit / p.metric` etc — not a top-level `detail`.
-        func_start = self.js.find('function _renderHomeActivity')
-        chunk = self.js[func_start:func_start + 6000]   # widened as FLEET_EVENTS grew (v4.1.0; v4.10.0 agent/backup/rollout events; v5.5.0)
+        chunk = js_function(self.js, '_renderHomeActivity')
         # Filter & slice ordering (regression: filter before slice)
         filter_pos = chunk.find('.filter(')
         slice_pos  = chunk.find('.slice(', filter_pos)

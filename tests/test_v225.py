@@ -18,6 +18,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import js_function
 import importlib.util
 import sys
 import unittest
@@ -111,8 +112,7 @@ class TestActivityClickable(_AssetTests):
         # data-action-btn="_homeNavAction" event delegation; the
         # per-event routing helper was renamed _homeActivityAction →
         # _homeActivityAttrs (returns the data-* attribute string).
-        idx = self.js.find('function _renderHomeActivity')
-        chunk = self.js[idx:idx + 12000]
+        chunk = js_function(self.js, '_renderHomeActivity')
         self.assertIn('data-action-btn="_homeNavAction"', chunk)
         self.assertIn('_homeActivityAttrs', chunk,
                       "Activity should call routing-attrs helper")
@@ -120,9 +120,9 @@ class TestActivityClickable(_AssetTests):
     def test_action_helper_covers_all_fleet_events(self):
         # The router switch in _homeActivityAttrs must have a case for
         # every event in the server's WEBHOOK_EVENTS tuple.
-        idx = self.js.find('function _homeActivityAttrs')
-        self.assertGreater(idx, 0, "_homeActivityAttrs missing")
-        chunk = self.js[idx:idx + 6800]   # widened as event cases grew (v4.1.0; v5.1.0 +fail2ban/av; v5.4.1 +av_warning; v5.5.0 +failed_unit; v5.6.0 +custom_check)
+        # Whole brace-balanced function — the fixed window was widened on
+        # five separate releases as event cases grew.
+        chunk = js_function(self.js, '_homeActivityAttrs')
         for ev in api.WEBHOOK_EVENT_NAMES:
             if ev == 'test':
                 continue
@@ -132,8 +132,7 @@ class TestActivityClickable(_AssetTests):
     def test_activity_item_cursor_pointer(self):
         # CSP L1: cursor:pointer is no longer inline; the class
         # `pointer` (defined in styles.css) is applied instead.
-        idx = self.js.find('function _renderHomeActivity')
-        chunk = self.js[idx:idx + 12000]
+        chunk = js_function(self.js, '_renderHomeActivity')
         self.assertIn('"dash-feed-item pointer"', chunk,
                       'activity items should carry the .pointer utility class')
 

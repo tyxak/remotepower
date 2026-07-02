@@ -15,6 +15,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import js_function
 import re
 import unittest
 from pathlib import Path
@@ -27,18 +28,9 @@ class TestActivityDedup(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.js = client_js()
-        start = cls.js.find('function _renderHomeActivity')
-        assert start > 0, '_renderHomeActivity not found'
-        # v3.4.2: widened 3200→3600 — added image/health events to FLEET_EVENTS
-        # lengthened the literal before the .slice() this test checks for.
-        # v3.12.0: widened 3600→3800 — added db_integrity_failed to FLEET_EVENTS.
-        # v3.14.0: widened 3800→4000 — added process_alert/process_recovered.
-        # v3.14.0: widened 4000→4100 — added secret_exposed.
-        # v4.7.0: widened 4200→4600 — added integration_down/integration_recovered.
-        # v5.0.0: widened 4600→4800 — added vault_break_glass to FLEET_EVENTS.
-        # v5.1.0: widened 4800→5200→5600 — added fail2ban_ban + av_infected.
-        # v5.4.1: widened 5600→5800 — added av_warning to FLEET_EVENTS.
-        cls.chunk = cls.js[start:start + 5800]
+        # Whole brace-balanced function — no fixed window to widen every
+        # time FLEET_EVENTS grows (this slice was bumped 9+ times).
+        cls.chunk = js_function(cls.js, '_renderHomeActivity')
 
     def test_dedup_runs_before_slice(self):
         # The de-dup filter must come before .slice(0, 8) — otherwise

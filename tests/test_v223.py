@@ -19,6 +19,7 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+from srcpin import js_function
 import importlib.util
 import sys
 import unittest
@@ -80,19 +81,9 @@ class TestActivityFilter(unittest.TestCase):
         Otherwise a wall of test entries shoves real events off the
         first-8 window. Verify the code reads filter().slice(), not
         slice().filter()."""
-        # Find the activity function
-        func_start = self.js.find('function _renderHomeActivity')
-        self.assertGreater(func_start, 0)
-        # Look for the filter + slice ordering in the next chunk.
-        # v2.4.8: widened — the de-dup block lengthened the function.
-        # v3.4.2: widened again — added image/health events to FLEET_EVENTS.
-        # v3.12.0: widened again — added db_integrity_failed to FLEET_EVENTS.
-        # v3.14.0: widened again — added process_alert/process_recovered + secret_exposed.
-        # v4.7.0: widened again — added integration_down/integration_recovered.
-        # v5.0.0: widened 4600→4800 — added vault_break_glass.
-        # v5.1.0: widened 4800→5200 — added fail2ban_ban + av_infected.
-        # v5.5.0: widened 5200→5600 — added failed_unit.
-        chunk = self.js[func_start:func_start + 5600]
+        # Whole brace-balanced function — no fixed window to widen every
+        # time FLEET_EVENTS grows (this slice was bumped 8+ times).
+        chunk = js_function(self.js, '_renderHomeActivity')
         self.assertIn('.filter(', chunk)
         self.assertIn('.slice(', chunk)
         filter_pos = chunk.find('.filter(')
