@@ -16961,6 +16961,95 @@ def _redact_config_secrets_inplace(obj):
             _redact_config_secrets_inplace(item)
 
 
+# ── v5.8.0 (B3.5): declarative config export ─────────────────────────────────
+# A single, versioned, secret-redacted document of the OPERATOR-AUTHORED
+# resources (monitors, checks, rules, integrations, windows, targets, …) — for
+# review, diffing, version control and off-box backup. Read-only in this cut;
+# import/apply is a separate, review-gated follow-up. Secrets are replaced with
+# the '(redacted)' marker via the same helper the config-backup export uses, so
+# the document is safe to commit to git.
+DECLARATIVE_SCHEMA = 'remotepower.config/v1'
+
+
+def _declarative_collections():
+    """name → raw data (list or dict) for each exported collection. Config-key
+    collections read from the cached config; the rest from their own stores."""
+    cfg = load(CONFIG_FILE) or {}
+
+    def cfg_list(key):
+        v = cfg.get(key)
+        return v if isinstance(v, list) else []
+
+    def file_list(path, key):
+        return (load(path) or {}).get(key) or []
+
+    def file_raw(path):
+        v = load(path)
+        return v if isinstance(v, (list, dict)) else {}
+
+    return {
+        # config-key collections
+        'monitors':              cfg_list('monitors'),
+        'custom_checks':         cfg_list('custom_checks'),
+        'integrations':          cfg_list('integrations'),
+        'webhook_destinations':  cfg_list('webhook_urls'),
+        'service_baselines':     cfg_list('service_baselines'),
+        'process_watches':       cfg_list('process_watches'),
+        'backup_monitors':       cfg_list('backup_monitors'),
+        'log_alert_rules':       cfg_list('log_alert_rules'),
+        'sla_targets':           cfg.get('sla_targets') if isinstance(cfg.get('sla_targets'), dict) else {},
+        # own-file collections
+        'automation_rules':      file_list(RULES_FILE, 'rules'),
+        'maintenance_windows':   file_list(MAINT_FILE, 'windows'),
+        'autopatch_policies':    file_list(AUTOPATCH_FILE, 'policies'),
+        'scripts':               file_list(SCRIPTS_FILE, 'scripts'),
+        'tls_targets':           file_raw(TLS_TARGETS_FILE),
+        'dmarc_targets':         file_raw(DMARC_TARGETS_FILE),
+        'resolver_targets':      file_raw(RESOLVER_HEALTH_TARGETS_FILE),
+        'ip_reputation_targets': file_raw(IP_REP_TARGETS_FILE),
+        'inbound_webhooks':      file_raw(INBOUND_WEBHOOKS_FILE),
+    }
+
+
+def _build_declarative_config():
+    """Assemble the declarative-config document with all secrets redacted."""
+    import copy as _copy
+    resources = {}
+    for name, data in _declarative_collections().items():
+        red = _copy.deepcopy(data)
+        _redact_config_secrets_inplace(red)
+        # A webhook/inbound URL embeds its token in the PATH, so the secret-NAME
+        # redactor misses it — collapse those URLs to host-only (same posture as
+        # the webhook-DLQ view) so the exported doc is truly git-safe.
+        if name in ('webhook_destinations', 'inbound_webhooks') and isinstance(red, list):
+            for item in red:
+                if isinstance(item, dict) and item.get('url'):
+                    item['url'] = _redact_url_to_host(item['url'])
+        resources[name] = red
+    return {
+        'schema':         DECLARATIVE_SCHEMA,
+        'server_version': SERVER_VERSION,
+        'exported_at':    int(time.time()),
+        'server_name':    get_server_name(),
+        'note':           'Secrets shown as "(redacted)" must be re-entered on '
+                          'import. This document is safe to commit to version control.',
+        'resources':      resources,
+    }
+
+
+def handle_config_declarative():
+    """GET /api/config/declarative — the operator-authored config as one
+    versioned, secret-redacted document (admin-only, audited)."""
+    actor = require_admin_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    doc = _build_declarative_config()
+    n = sum(len(v) for v in doc['resources'].values() if isinstance(v, (list, dict)))
+    audit_log(actor, 'config_declarative_export',
+              detail=f'collections={len(doc["resources"])} items~{n}')
+    respond(200, doc)
+
+
 def handle_config_get():
     require_auth()
     _cfg_user, _cfg_role = verify_token(get_token_from_request())
@@ -49342,6 +49431,7 @@ def _build_exact_routes():
         ('POST', '/api/app-catalog/custom/delete'): handle_app_catalog_custom_delete,
         ('POST', '/api/compose/stacks'): handle_compose_stack_create,
         ('GET', '/api/config'): handle_config_get,
+        ('GET', '/api/config/declarative'): handle_config_declarative,   # v5.8.0 (B3.5)
         ('POST', '/api/config'): handle_config_save,
         ('DELETE', '/api/confirmations'): handle_confirmations_clear,
         ('GET', '/api/confirmations'): handle_confirmations_list,

@@ -1751,6 +1751,7 @@
     "← Back": { "zh": "← 返回", "hi": "← वापस", "es": "← Atrás", "ar": "← رجوع" },
     "← Back to AI": { "zh": "← 返回 AI", "hi": "← AI पर वापस", "es": "← Volver a IA", "ar": "← العودة إلى الذكاء الاصطناعي" },
     // ── v5.8.0 additions ──
+    'Download config-as-code (JSON)': { zh: '下载配置即代码 (JSON)', hi: 'कॉन्फ़िग-ऐज़-कोड डाउनलोड करें (JSON)', es: 'Descargar configuración como código (JSON)', ar: 'تنزيل الإعداد ككود (JSON)' },
     'Add your first device':  { zh: '添加您的第一台设备', hi: 'अपना पहला डिवाइस जोड़ें', es: 'Agrega tu primer dispositivo', ar: 'أضف جهازك الأول' },
     'No devices match your filters': { zh: '没有设备符合您的筛选条件', hi: 'आपके फ़िल्टर से कोई डिवाइस मेल नहीं खाता', es: 'Ningún dispositivo coincide con tus filtros', ar: 'لا توجد أجهزة مطابقة لعوامل التصفية' },
     'Clear filters':          { zh: '清除筛选', hi: 'फ़िल्टर साफ़ करें', es: 'Limpiar filtros', ar: 'مسح عوامل التصفية' },

@@ -18820,6 +18820,13 @@ async function testRestore() {
 
 // v5.4.1 (C9): rotate the export-signing key used for the evidence pack +
 // audit-archive signatures.
+// v5.8.0 (B3.5): download the declarative config-as-code document.
+function exportDeclarativeConfig() {
+  _downloadAuthed('/api/config/declarative',
+    `remotepower-config-${new Date().toISOString().slice(0,10)}.json`,
+    'Config-as-code downloaded (secrets redacted)');
+}
+
 async function rotateExportKey() {
   if (!await uiConfirm('Rotate the export-signing key? New exports will use the new key; exports already issued keep their original signature.')) return;
   const r = await api('POST', '/security/rotate-export-key');

@@ -67,6 +67,15 @@ All notable changes to RemotePower. Newest first.
 
 ### Added
 
+- **Config as code (declarative export).** `GET /api/config/declarative`
+  (admin, Settings → Security → *Download config-as-code*) returns a single
+  versioned JSON document of every operator-authored resource — monitors,
+  custom checks, alert/automation rules, integrations, webhook destinations,
+  service baselines, backup monitors, maintenance windows, autopatch policies,
+  scripts, and TLS/DMARC/resolver/IP-reputation targets. Secrets are shown as
+  `(redacted)` and webhook URLs collapsed to host-only, so the file is safe to
+  commit to version control for review, diffing and off-box backup. (A
+  matching import/apply is a planned follow-up.)
 - **Connector plugins.** Drop a `*.py` file into `server/cgi-bin/connectors.d/`
   to add your own homelab integration connector via the same `@_register`
   decorator the built-ins use — no source patch. Root-owned and filesystem-only
