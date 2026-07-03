@@ -69,16 +69,29 @@ class TestIndustrialTheme(unittest.TestCase):
 
     def test_industrial_palette_block_exists(self):
         self.assertIn('body[data-ui="industrial"]', _CSS)
-        # graphite + the existing logo blue accent
+        css = _CSS.replace(' ', '')
+        # v5.6.x: the base body[data-ui="industrial"] block holds the STRUCTURE
+        # (fonts + palette-derived card gradient); the graphite dark PALETTE moved
+        # to the :not([data-theme]):not(.light) default block so a chosen theme
+        # can repaint the New UI. Assert both, plus the kept blue + Inter/mono.
         m = re.search(r'body\[data-ui="industrial"\]\s*\{(.*?)\}', _CSS, re.S)
         self.assertIsNotNone(m)
-        block = m.group(1)
-        self.assertIn('--accent:#3b7eff', block.replace(' ', ''))
-        self.assertIn('--bg:#0f1217', block.replace(' ', ''))
-        # body reverted to the old Inter font; the SIDEBAR keeps IBM Plex Mono
-        self.assertIn("--font:'Inter'", block.replace(' ', ''))
-        self.assertIn("--font-mono:'IBMPlexMono'", block.replace(' ', ''))
-        self.assertIn('.sidebar*{font-family:var(--font-mono)', _CSS.replace(' ', ''))
+        base = m.group(1).replace(' ', '')
+        self.assertIn("--font:'Inter'", base)
+        self.assertIn("--font-mono:'IBMPlexMono'", base)
+        # card gradient now derives from the live palette (theme-following)
+        self.assertIn('--card-grad:linear-gradient(180deg,var(--surface)', base)
+        # graphite default + logo blue accent live in the scoped default block
+        self.assertIn(
+            'body[data-ui="industrial"]:not([data-theme]):not(.light){', css)
+        dm = re.search(
+            r'body\[data-ui="industrial"\]:not\(\[data-theme\]\):not\(\.light\)\s*\{(.*?)\}',
+            _CSS, re.S)
+        self.assertIsNotNone(dm)
+        default_pal = dm.group(1).replace(' ', '')
+        self.assertIn('--accent:#3b7eff', default_pal)
+        self.assertIn('--bg:#0f1217', default_pal)
+        self.assertIn('.sidebar*{font-family:var(--font-mono)', css)
 
     def test_fonts_are_self_hosted_not_external(self):
         # Space Grotesk + IBM Plex Mono ship as same-origin @font-face (the strict
