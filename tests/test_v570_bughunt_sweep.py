@@ -109,9 +109,12 @@ class TestSourcePins(unittest.TestCase):
         self.assertIn('require_write_role', m.group(1))
 
     def test_ticket_email_requires_write_role(self):
-        m = re.search(r'def handle_ticket_send_email\(.*?\n(.*?)save\(',
-                      self.api_src, re.S)
-        self.assertIn('require_write_role', m.group(1))
+        # the tickets subsystem lives in tickets_handlers.py (bound-module
+        # pilot); the gate is A.require_write_role through the bound namespace.
+        from srcpin import py_function
+        tk_src = (CGI / 'tickets_handlers.py').read_text()
+        body = py_function(tk_src, 'handle_ticket_send_email')
+        self.assertIn('require_write_role', body)
 
     def test_pg_device_fast_paths_take_shared_whole_store_lock(self):
         # DeviceTxn + upsert_device must take the SHARED whole-store advisory
