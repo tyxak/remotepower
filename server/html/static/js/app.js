@@ -1502,6 +1502,13 @@ function _stopPagePollers() {
 }
 
 function showPage(name, btn) {
+  // v5.6.x lazy pages: heavy, boot-safe pages ship as inert <template>s and
+  // are cloned in place on first visit (i18n's MutationObserver localises
+  // the clone; loaders run after, so eager sort wire-up etc. is unchanged).
+  if (!document.getElementById('page-' + name)) {
+    const _tpl = document.querySelector('template[data-page-tpl="' + name + '"]');
+    if (_tpl) _tpl.parentNode.insertBefore(_tpl.content.cloneNode(true), _tpl);
+  }
   _markNavSeen(name);
   _stopPagePollers();   // v5.0.1 perf: stop the leaving page's continuous pollers
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));

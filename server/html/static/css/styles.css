@@ -6966,9 +6966,15 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rota
 .settings-tab-group { display: flex; align-items: center; gap: 0; }
 .settings-tab-group + .settings-tab-group { margin-left: 14px; padding-left: 14px;
   border-left: 1px solid var(--border); }
-.settings-tab-group-label { font-size: 11px; text-transform: uppercase;
-  letter-spacing: .06em; color: var(--muted); margin-right: 8px;
-  white-space: nowrap; user-select: none; }
+/* Hierarchy flip (user request): the GROUP label is the bold uppercase
+   anchor; the tab buttons inside a group drop the sidebar-nav uppercase and
+   sit non-bold under it. Scoped to .settings-tab-group so the other
+   .settings-tabs bars (billing) keep the original tab styling. */
+.settings-tab-group-label { font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--text);
+  margin-right: 8px; white-space: nowrap; user-select: none; }
+.settings-tab-group .settings-tab { text-transform: none; font-weight: 400;
+  letter-spacing: 0; }
 @media (max-width: 900px) {
   .settings-tabs { flex-wrap: wrap; row-gap: 4px; }
   .settings-tab-group { flex-wrap: wrap; }
