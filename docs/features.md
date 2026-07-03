@@ -281,7 +281,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.5.0)* |
 | Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.5.0)* |
 | Backup export | One-click redacted ZIP of all data JSON |
-| Config as code | One versioned, secret-redacted JSON document of all operator-authored config (monitors, checks, rules, integrations, webhooks, windows, targets, …) — git-safe, for review / diffing / off-box backup; `GET /api/config/declarative` *(v5.8.0)* |
+| Config as code | One versioned, secret-redacted JSON document of all operator-authored config (monitors, checks, rules, integrations, webhooks, windows, targets, …) — git-safe, for review / diffing / off-box backup; `GET/POST /api/config/declarative` (import is dry-run-first, secret-rehydrating) *(v5.8.0)* |
 
 ## CMDB, credentials & documentation
 
@@ -482,7 +482,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Box-overflow caps | Every variable panel caps ~15 rows and scrolls internally *(v3.13.0)* |
 | Branding | Favicon + header logo, full-size logo on login *(v2.0)* |
 | Interface language | 5 languages (en/zh/hi/es/ar); Arabic right-to-left layout *(v4.0.0 / v5.1.0)* |
-| Accessibility | Modal accessible names, styled accessible confirm/prompt *(v4.8.0)*; `scope="col"` headers, icon-button `aria-label` *(v5.0.0)* |
+| Accessibility | Modal accessible names, styled accessible confirm/prompt *(v4.8.0)*; `scope="col"` headers, icon-button `aria-label` *(v5.0.0)*; **every form control has an accessible name** (label / wrapping label / `aria-label`), ratchet-tested *(v5.8.0)* |
 | Mobile UX | ≤720/≤480px touch targets, full-viewport modals, scrollable tables |
 
 ---

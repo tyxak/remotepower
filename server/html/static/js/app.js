@@ -18827,6 +18827,43 @@ function exportDeclarativeConfig() {
     'Config-as-code downloaded (secrets redacted)');
 }
 
+// v5.8.0 (B3.5 import): read the picked JSON, dry-run it, and show the diff with
+// an Apply button. Nothing is written until Apply is clicked.
+let _declarativeImportDoc = null;
+async function previewDeclarativeImport() {
+  const el = document.getElementById('declarative-import-result');
+  const f = document.getElementById('declarative-import-file')?.files?.[0];
+  if (!f) { if (el) el.textContent = 'Pick a config-as-code JSON file first.'; return; }
+  let doc;
+  try { doc = JSON.parse(await f.text()); }
+  catch (e) { if (el) el.textContent = 'Not valid JSON: ' + e.message; return; }
+  _declarativeImportDoc = doc;
+  const r = await api('POST', '/config/declarative', doc);   // dry-run (no ?apply)
+  if (!r || !r.ok) { if (el) el.textContent = (r && r.error) || 'Preview failed'; return; }
+  const rows = Object.entries(r.report || {}).map(([name, d]) => {
+    if (d.skipped) return `<div class="hint">• ${escHtml(name)}: skipped (${escHtml(d.skipped)})</div>`;
+    const parts = [];
+    if (d.added) parts.push(`+${d.added}`);
+    if (d.changed) parts.push(`~${d.changed}`);
+    if (d.removed) parts.push(`−${d.removed}`);
+    if (d.replace) parts.push('replace');
+    return `<div>• <strong>${escHtml(name)}</strong>: ${parts.length ? parts.join(' ') : 'no change'}</div>`;
+  }).join('');
+  if (el) el.innerHTML = `<div class="mb-6">Preview (nothing applied yet):</div>${rows}`
+    + `<div class="row-6 mt-8"><button class="btn-primary btn-xs" data-action="applyDeclarativeImport">Apply these changes</button></div>`;
+}
+async function applyDeclarativeImport() {
+  if (!_declarativeImportDoc) { toast('Preview first', 'info'); return; }
+  if (!await uiConfirm('Apply the previewed configuration changes? This overwrites the affected config collections.')) return;
+  const r = await api('POST', '/config/declarative?apply=1', _declarativeImportDoc);
+  const el = document.getElementById('declarative-import-result');
+  if (r && r.ok) {
+    toast('Config-as-code applied', 'success');
+    if (el) el.textContent = 'Applied. Reload settings to see the imported config.';
+    _declarativeImportDoc = null;
+  } else { toast((r && r.error) || 'Apply failed', 'error'); }
+}
+
 async function rotateExportKey() {
   if (!await uiConfirm('Rotate the export-signing key? New exports will use the new key; exports already issued keep their original signature.')) return;
   const r = await api('POST', '/security/rotate-export-key');

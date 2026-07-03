@@ -10,6 +10,10 @@ const _TK_STATUS_CLS = { ongoing: 'sev-medium', pending_customer: 'sev-low', pen
 const _TK_PRIO = { 1: 'Major', 2: 'Critical', 3: 'Warning', 4: 'Low' };
 const _TK_PRIO_CLS = { 1: 'sev-critical', 2: 'sev-critical', 3: 'sev-medium', 4: 'sev-info' };
 function _coercePrio(p) { const n = parseInt(p); return (n >= 1 && n <= 4) ? n : 4; }
+// v5.8.0 (B4.3): render cap for the unbounded "Other" tickets list.
+const _TK_OTHER_STEP = 50;
+let _tkOtherLimit = _TK_OTHER_STEP;
+function _tkShowMoreOther() { _tkOtherLimit += _TK_OTHER_STEP; loadTickets(); }
 
 const _TK_OPEN_ST = { ongoing: 1, pending_customer: 1, pending_internal: 1 };
 function _tkIsOpen(t) { return !!_TK_OPEN_ST[t.status]; }
@@ -111,7 +115,7 @@ async function loadTickets() {
     sla: t._slaBreached ? 0 : (t._slaDue || 9e15), assignee: (t.assignee || '').toLowerCase(),
     device: (t.device_name || '').toLowerCase(), updated: t.updated_at || 0,
   });
-  const render = (rows, prefs, tbodyId, countId, emptyMsg) => {
+  const render = (rows, prefs, tbodyId, countId, emptyMsg, cap) => {
     const tb = document.getElementById(tbodyId);
     const cnt = document.getElementById(countId);
     if (cnt) cnt.textContent = rows.length ? `(${rows.length})` : '';
@@ -119,14 +123,23 @@ async function loadTickets() {
     if (!rows.length) { tb.innerHTML = `<tr><td colspan="9" class="empty-state-sm">${emptyMsg || 'None.'}</td></tr>`; return; }
     // sort by column (default: priority then newest), then nest children under parents
     rows.sort((a, b) => _coercePrio(a.priority) - _coercePrio(b.priority) || (b.updated_at || 0) - (a.updated_at || 0));
-    const sorted = _tkArrange(tableCtl.sortRows(prefs, rows, getCols));
-    tb.innerHTML = sorted.map(t => _tkRowHtml(t, byId, childrenOf)).join('');
+    let sorted = _tkArrange(tableCtl.sortRows(prefs, rows, getCols));
+    // v5.8.0 (B4.3): the "Other" list (open + closed) is unbounded — cap the
+    // rendered rows so a fleet with thousands of resolved tickets doesn't build
+    // a giant DOM on every load. A "show more" row raises the cap in place.
+    let moreRow = '';
+    if (cap && sorted.length > cap) {
+      const hidden = sorted.length - cap;
+      sorted = sorted.slice(0, cap);
+      moreRow = `<tr><td colspan="9" class="ta-center"><button class="btn-icon btn-xs" data-action="_tkShowMoreOther">Show ${Math.min(hidden, _TK_OTHER_STEP)} more (${hidden} hidden)</button></td></tr>`;
+    }
+    tb.innerHTML = sorted.map(t => _tkRowHtml(t, byId, childrenOf)).join('') + moreRow;
   };
   render(bNew, 'tickets_new', 'tk-tbody-new', 'tk-count-new', 'No new (unassigned) tickets.');
   render(bMine, 'tickets_mine', 'tk-tbody-mine', 'tk-count-mine', 'None assigned to you.');
   render(bTeam, 'tickets_team', 'tk-tbody-team', 'tk-count-team',
     myTeam ? `No open tickets for team "${escHtml(myTeam)}".` : 'Set your team under Profile to use this view.');
-  render(bOther, 'tickets_other', 'tk-tbody-other', 'tk-count-other');
+  render(bOther, 'tickets_other', 'tk-tbody-other', 'tk-count-other', undefined, _tkOtherLimit);
   // v5.5.0: reconcile the sidebar Tickets badge immediately after any ticket
   // mutation (loadTickets() is the common tail of create/assign/resolve/delete)
   // instead of waiting for the next 60s nav-counts poll.

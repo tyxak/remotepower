@@ -17037,17 +17037,177 @@ def _build_declarative_config():
     }
 
 
+# Per-collection metadata for the import/apply side. `kind`:
+#   cfg_list  — a list under a CONFIG_FILE key
+#   cfg_dict  — a dict under a CONFIG_FILE key (e.g. sla_targets)
+#   file_list — a list under `inner` key of its own file
+#   file_raw  — the whole file (dict keyed by id)
+# `importable` False = round-trip-lossy (its export redacts data that can't be
+# restored, e.g. webhook URLs collapsed to host) → skipped on import so a good
+# config isn't clobbered with partial data.
+def _declarative_meta():
+    return {
+        'monitors':              {'kind': 'cfg_list', 'key': 'monitors', 'id': 'id'},
+        'custom_checks':         {'kind': 'cfg_list', 'key': 'custom_checks', 'id': 'id'},
+        'integrations':          {'kind': 'cfg_list', 'key': 'integrations', 'id': 'id'},
+        'service_baselines':     {'kind': 'cfg_list', 'key': 'service_baselines', 'id': None},
+        'process_watches':       {'kind': 'cfg_list', 'key': 'process_watches', 'id': None},
+        'backup_monitors':       {'kind': 'cfg_list', 'key': 'backup_monitors', 'id': 'path'},
+        'log_alert_rules':       {'kind': 'cfg_list', 'key': 'log_alert_rules', 'id': None},
+        'sla_targets':           {'kind': 'cfg_dict', 'key': 'sla_targets'},
+        'automation_rules':      {'kind': 'file_list', 'file': RULES_FILE, 'inner': 'rules', 'id': 'id'},
+        'maintenance_windows':   {'kind': 'file_list', 'file': MAINT_FILE, 'inner': 'windows', 'id': 'id'},
+        'autopatch_policies':    {'kind': 'file_list', 'file': AUTOPATCH_FILE, 'inner': 'policies', 'id': 'id'},
+        'scripts':               {'kind': 'file_list', 'file': SCRIPTS_FILE, 'inner': 'scripts', 'id': 'id'},
+        'tls_targets':           {'kind': 'file_raw', 'file': TLS_TARGETS_FILE},
+        'dmarc_targets':         {'kind': 'file_raw', 'file': DMARC_TARGETS_FILE},
+        'resolver_targets':      {'kind': 'file_raw', 'file': RESOLVER_HEALTH_TARGETS_FILE},
+        'ip_reputation_targets': {'kind': 'file_raw', 'file': IP_REP_TARGETS_FILE},
+        # lossy exports — not importable (URL redacted to host / token stripped)
+        'webhook_destinations':  {'kind': 'cfg_list', 'key': 'webhook_urls', 'importable': False},
+        'inbound_webhooks':      {'kind': 'file_raw', 'file': INBOUND_WEBHOOKS_FILE, 'importable': False},
+    }
+
+
+def _rehydrate_secrets(incoming, current, id_field):
+    """Replace every '(redacted)' secret value in `incoming` with the matching
+    stored value from `current` (matched by `id_field`). So an exported doc
+    round-trips without the operator re-typing secrets they didn't change. Works
+    on a list of dicts (keyed by id) or a bare dict; unmatched '(redacted)'
+    values are left as-is (the operator must fix them)."""
+    def _by_id(items):
+        if id_field and isinstance(items, list):
+            return {it.get(id_field): it for it in items if isinstance(it, dict)}
+        return {}
+
+    def _fix(dst, ref):
+        if isinstance(dst, dict):
+            for k, v in list(dst.items()):
+                if isinstance(k, str) and _SECRET_KEY_RE.search(k) and v == '(redacted)':
+                    if isinstance(ref, dict) and ref.get(k) not in (None, '(redacted)'):
+                        dst[k] = ref[k]
+                else:
+                    _fix(v, ref.get(k) if isinstance(ref, dict) else None)
+        elif isinstance(dst, list):
+            for item in dst:
+                _fix(item, ref if not isinstance(ref, dict) else ref)
+
+    if isinstance(incoming, list) and id_field:
+        cur = _by_id(current)
+        for it in incoming:
+            if isinstance(it, dict):
+                _fix(it, cur.get(it.get(id_field), {}))
+    else:
+        _fix(incoming, current if isinstance(current, dict) else {})
+    return incoming
+
+
+def _declarative_diff(current, incoming, id_field):
+    """A coarse (added, changed, removed) count between two collections."""
+    if isinstance(current, dict) and isinstance(incoming, dict) and not id_field:
+        # file_raw / cfg_dict: compare by top-level key
+        cur_k, inc_k = set(current), set(incoming)
+        changed = sum(1 for k in cur_k & inc_k if current.get(k) != incoming.get(k))
+        return {'added': len(inc_k - cur_k), 'changed': changed,
+                'removed': len(cur_k - inc_k)}
+    if isinstance(current, list) and isinstance(incoming, list) and id_field:
+        cur = {c.get(id_field): c for c in current if isinstance(c, dict)}
+        inc = {i.get(id_field): i for i in incoming if isinstance(i, dict)}
+        changed = sum(1 for k in set(cur) & set(inc) if cur[k] != inc[k])
+        return {'added': len(set(inc) - set(cur)), 'changed': changed,
+                'removed': len(set(cur) - set(inc))}
+    # id-less list or shape mismatch: whole-collection replace
+    same = current == incoming
+    return {'added': 0 if same else len(incoming) if isinstance(incoming, list) else 1,
+            'changed': 0, 'removed': 0, 'replace': not same}
+
+
+def _declarative_apply(doc, actor, dry_run=True):
+    """Reconcile a declarative-config document into the live stores. Returns a
+    per-collection report. When dry_run, computes the diff without writing.
+
+    Reconciliation is WHOLE-COLLECTION replace (GitOps-style): each collection
+    PRESENT in the doc replaces its stored counterpart (absent collections are
+    left untouched); '(redacted)' secrets are rehydrated from the current store
+    by id first, so unchanged secrets survive. Lossy collections (webhook URLs)
+    are skipped. Writes go through the normal locked save paths + one audit
+    entry."""
+    if not isinstance(doc, dict) or doc.get('schema') != DECLARATIVE_SCHEMA:
+        return {'ok': False, 'error': f'expected schema {DECLARATIVE_SCHEMA}'}
+    resources = doc.get('resources')
+    if not isinstance(resources, dict):
+        return {'ok': False, 'error': 'missing resources'}
+    meta = _declarative_meta()
+    current = _declarative_collections()
+    report = {}
+    cfg_writes = {}       # key -> value to set under CONFIG_FILE
+    file_writes = []      # (path, inner_or_None, value)
+
+    for name, incoming in resources.items():
+        m = meta.get(name)
+        if not m:
+            report[name] = {'skipped': 'unknown collection'}
+            continue
+        if m.get('importable') is False:
+            report[name] = {'skipped': 'not importable (export is lossy — '
+                                       're-enter these in the UI)'}
+            continue
+        # type sanity
+        want_list = m['kind'] in ('cfg_list', 'file_list')
+        if want_list and not isinstance(incoming, list):
+            report[name] = {'skipped': 'expected a list'}
+            continue
+        if not want_list and not isinstance(incoming, dict):
+            report[name] = {'skipped': 'expected an object'}
+            continue
+        import copy as _copy
+        inc = _copy.deepcopy(incoming)
+        _rehydrate_secrets(inc, current.get(name), m.get('id'))
+        report[name] = _declarative_diff(current.get(name), inc, m.get('id'))
+        if not dry_run:
+            if m['kind'] in ('cfg_list', 'cfg_dict'):
+                cfg_writes[m['key']] = inc
+            elif m['kind'] == 'file_list':
+                file_writes.append((m['file'], m['inner'], inc))
+            elif m['kind'] == 'file_raw':
+                file_writes.append((m['file'], None, inc))
+
+    if not dry_run and (cfg_writes or file_writes):
+        if cfg_writes:
+            with _LockedUpdate(CONFIG_FILE) as cfg:
+                for k, v in cfg_writes.items():
+                    cfg[k] = v
+        for path, inner, value in file_writes:
+            if inner is None:
+                save(path, value)
+            else:
+                with _LockedUpdate(path) as store:
+                    store[inner] = value
+        audit_log(actor, 'config_declarative_import',
+                  detail=f'applied collections={list(cfg_writes) + [str(p[0].name) for p in file_writes]}')
+    return {'ok': True, 'dry_run': dry_run, 'report': report}
+
+
 def handle_config_declarative():
     """GET /api/config/declarative — the operator-authored config as one
-    versioned, secret-redacted document (admin-only, audited)."""
+    versioned, secret-redacted document (admin-only, audited).
+    POST /api/config/declarative — import a document. Dry-run by default (returns
+    a per-collection diff); pass ``?apply=1`` to actually reconcile."""
     actor = require_admin_auth()
-    if method() != 'GET':
-        respond(405, {'error': 'Method not allowed'})
-    doc = _build_declarative_config()
-    n = sum(len(v) for v in doc['resources'].values() if isinstance(v, (list, dict)))
-    audit_log(actor, 'config_declarative_export',
-              detail=f'collections={len(doc["resources"])} items~{n}')
-    respond(200, doc)
+    m = method()
+    if m == 'GET':
+        doc = _build_declarative_config()
+        n = sum(len(v) for v in doc['resources'].values() if isinstance(v, (list, dict)))
+        audit_log(actor, 'config_declarative_export',
+                  detail=f'collections={len(doc["resources"])} items~{n}')
+        respond(200, doc)
+    if m == 'POST':
+        body = get_json_obj()
+        qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
+        apply = (qs.get('apply', ['0'])[0] or '0').lower() in ('1', 'true', 'yes')
+        result = _declarative_apply(body, actor, dry_run=not apply)
+        respond(200 if result.get('ok') else 400, result)
+    respond(405, {'error': 'Method not allowed'})
 
 
 def handle_config_get():
@@ -49432,6 +49592,7 @@ def _build_exact_routes():
         ('POST', '/api/compose/stacks'): handle_compose_stack_create,
         ('GET', '/api/config'): handle_config_get,
         ('GET', '/api/config/declarative'): handle_config_declarative,   # v5.8.0 (B3.5)
+        ('POST', '/api/config/declarative'): handle_config_declarative,  # v5.8.0 (B3.5 import)
         ('POST', '/api/config'): handle_config_save,
         ('DELETE', '/api/confirmations'): handle_confirmations_clear,
         ('GET', '/api/confirmations'): handle_confirmations_list,

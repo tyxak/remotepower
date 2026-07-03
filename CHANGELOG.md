@@ -74,8 +74,14 @@ All notable changes to RemotePower. Newest first.
   service baselines, backup monitors, maintenance windows, autopatch policies,
   scripts, and TLS/DMARC/resolver/IP-reputation targets. Secrets are shown as
   `(redacted)` and webhook URLs collapsed to host-only, so the file is safe to
-  commit to version control for review, diffing and off-box backup. (A
-  matching import/apply is a planned follow-up.)
+  commit to version control for review, diffing and off-box backup.
+- **Config-as-code import.** `POST /api/config/declarative` reconciles a
+  declarative document back into the live config — **dry-run by default**
+  (returns a per-collection add/change/remove diff), applied only with
+  `?apply=1`. Redacted secrets are rehydrated from the current config by id, so
+  a round-trip doesn't wipe unchanged secrets; collections absent from the
+  document are left untouched; lossy collections (webhook destinations) are
+  skipped. Settings → Security has a picker that previews then applies.
 - **Connector plugins.** Drop a `*.py` file into `server/cgi-bin/connectors.d/`
   to add your own homelab integration connector via the same `@_register`
   decorator the built-ins use — no source patch. Root-owned and filesystem-only

@@ -70,10 +70,89 @@ class TestExport(unittest.TestCase):
         self.assertEqual(again['resources']['monitors'][0]['target'], '1.1.1.1')
 
 
+class TestImport(unittest.TestCase):
+    def setUp(self):
+        api.save(api.CONFIG_FILE, {
+            'monitors': [{'id': 'm1', 'type': 'ping', 'target': '1.1.1.1'}],
+            'integrations': [{'id': 'i1', 'type': 'pihole',
+                              'secret': 'REALSECRET', 'url': 'http://p'}],
+            'webhook_urls': [{'label': 'slack', 'url': 'https://hooks.slack.com/services/T/B/XYZ'}],
+        })
+        api.save(api.RULES_FILE, {'rules': [{'id': 'r1', 'event': 'device_offline'}]})
+        api.save(api.TLS_TARGETS_FILE, {'tls_a': {'host': 'example.com', 'port': 443}})
+
+    def test_round_trip_is_lossless(self):
+        import copy
+        doc = api._build_declarative_config()
+        res = api._declarative_apply(copy.deepcopy(doc), 'tester', dry_run=True)
+        self.assertTrue(res['ok'])
+        for name in ('monitors', 'integrations', 'automation_rules', 'tls_targets'):
+            d = res['report'][name]
+            self.assertEqual((d.get('added', 0), d.get('changed', 0), d.get('removed', 0)),
+                             (0, 0, 0), f'{name} should be a no-op round-trip: {d}')
+
+    def test_dry_run_does_not_write(self):
+        doc = api._build_declarative_config()
+        doc['resources']['monitors'] = [{'id': 'm1', 'type': 'ping', 'target': 'CHANGED'}]
+        api._declarative_apply(doc, 'tester', dry_run=True)
+        self.assertEqual(api.load(api.CONFIG_FILE)['monitors'][0]['target'], '1.1.1.1')
+
+    def test_apply_writes_and_rehydrates_secret(self):
+        import copy
+        doc = api._build_declarative_config()   # integration secret == '(redacted)'
+        self.assertEqual(doc['resources']['integrations'][0]['secret'], '(redacted)')
+        api._declarative_apply(copy.deepcopy(doc), 'tester', dry_run=False)
+        cfg = api.load(api.CONFIG_FILE)
+        # secret rehydrated from the store, NOT written as '(redacted)'
+        self.assertEqual(cfg['integrations'][0]['secret'], 'REALSECRET')
+
+    def test_apply_add_change_remove(self):
+        doc = {'schema': api.DECLARATIVE_SCHEMA, 'resources': {
+            'monitors': [
+                {'id': 'm1', 'type': 'ping', 'target': 'NEWTARGET'},   # changed
+                {'id': 'm2', 'type': 'tcp', 'target': 'host:22'},      # added
+            ]}}
+        res = api._declarative_apply(doc, 'tester', dry_run=True)
+        d = res['report']['monitors']
+        self.assertEqual((d['added'], d['changed'], d['removed']), (1, 1, 0))
+        api._declarative_apply(doc, 'tester', dry_run=False)
+        mons = api.load(api.CONFIG_FILE)['monitors']
+        self.assertEqual(len(mons), 2)
+        self.assertEqual(next(m for m in mons if m['id'] == 'm1')['target'], 'NEWTARGET')
+
+    def test_lossy_collection_skipped(self):
+        doc = {'schema': api.DECLARATIVE_SCHEMA, 'resources': {
+            'webhook_destinations': [{'label': 'x', 'url': 'https://host'}]}}
+        res = api._declarative_apply(doc, 'tester', dry_run=False)
+        self.assertIn('skipped', res['report']['webhook_destinations'])
+        # the real webhook_urls store is untouched
+        self.assertEqual(api.load(api.CONFIG_FILE)['webhook_urls'][0]['url'],
+                         'https://hooks.slack.com/services/T/B/XYZ')
+
+    def test_bad_schema_rejected(self):
+        res = api._declarative_apply({'schema': 'wrong', 'resources': {}}, 'tester')
+        self.assertFalse(res['ok'])
+
+    def test_absent_collection_untouched(self):
+        # a doc with only monitors must not wipe automation_rules
+        doc = {'schema': api.DECLARATIVE_SCHEMA, 'resources': {'monitors': []}}
+        api._declarative_apply(doc, 'tester', dry_run=False)
+        self.assertEqual((api.load(api.RULES_FILE) or {}).get('rules'),
+                         [{'id': 'r1', 'event': 'device_offline'}])
+
+    def test_file_list_collection_applies(self):
+        doc = {'schema': api.DECLARATIVE_SCHEMA, 'resources': {
+            'automation_rules': [{'id': 'r1', 'event': 'device_offline'},
+                                 {'id': 'r2', 'event': 'cve_found'}]}}
+        api._declarative_apply(doc, 'tester', dry_run=False)
+        self.assertEqual(len((api.load(api.RULES_FILE) or {}).get('rules')), 2)
+
+
 class TestWiring(unittest.TestCase):
     def test_route_registered(self):
         routes = api._build_exact_routes()
         self.assertIn(('GET', '/api/config/declarative'), routes)
+        self.assertIn(('POST', '/api/config/declarative'), routes)
 
     def test_handler_is_admin_only(self):
         src = (_CGI / 'api.py').read_text()
