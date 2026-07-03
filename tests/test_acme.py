@@ -567,14 +567,14 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
     def test_recent_log_alert_appears_in_attention(self):
         did, name = self._seed_device()
         now = int(time.time())
-        self.api.save(self.api.FLEET_EVENTS_FILE, [
+        self.api.save(self.api.FLEET_EVENTS_FILE, {'events': [
             {'ts': now - 60, 'event': 'log_alert', 'payload': {
                 'device_id': did, 'name': name,
                 'unit': 'postfix.service',
                 'pattern': 'warning|error|critical|FATAL',
                 'count': 3, 'severity': 'WARN',
             }},
-        ])
+        ]})
         items = self.api._compute_attention()
         la = [i for i in items if i.get('kind') == 'log_alert']
         self.assertEqual(len(la), 1, f'Expected exactly one log_alert NA item, got: {la}')
@@ -584,12 +584,12 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
     def test_crit_severity_promotes_to_critical(self):
         did, _ = self._seed_device()
         now = int(time.time())
-        self.api.save(self.api.FLEET_EVENTS_FILE, [
+        self.api.save(self.api.FLEET_EVENTS_FILE, {'events': [
             {'ts': now - 60, 'event': 'log_alert', 'payload': {
                 'device_id': did, 'unit': 'sshd.service',
                 'pattern': 'BREACH', 'count': 1, 'severity': 'CRIT',
             }},
-        ])
+        ]})
         items = self.api._compute_attention()
         la = next(i for i in items if i.get('kind') == 'log_alert')
         self.assertEqual(la['severity'], 'critical')
@@ -598,12 +598,12 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
         # Events older than 24h must not surface
         did, _ = self._seed_device()
         now = int(time.time())
-        self.api.save(self.api.FLEET_EVENTS_FILE, [
+        self.api.save(self.api.FLEET_EVENTS_FILE, {'events': [
             {'ts': now - 25 * 3600, 'event': 'log_alert', 'payload': {
                 'device_id': did, 'unit': 'old.service',
                 'pattern': 'x', 'count': 1, 'severity': 'WARN',
             }},
-        ])
+        ]})
         items = self.api._compute_attention()
         self.assertFalse(any(i.get('kind') == 'log_alert' for i in items))
 
@@ -615,7 +615,7 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
             'device_id': did, 'unit': 'noisy.service',
             'pattern': 'warning', 'count': i, 'severity': 'WARN',
         }} for i in range(50)]
-        self.api.save(self.api.FLEET_EVENTS_FILE, evs)
+        self.api.save(self.api.FLEET_EVENTS_FILE, {'events': evs})
         items = self.api._compute_attention()
         la = [i for i in items if i.get('kind') == 'log_alert']
         self.assertEqual(len(la), 1, f'Dedup should produce one item, got {len(la)}')
@@ -623,12 +623,12 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
     def test_new_port_event_surfaces(self):
         did, name = self._seed_device()
         now = int(time.time())
-        self.api.save(self.api.FLEET_EVENTS_FILE, [
+        self.api.save(self.api.FLEET_EVENTS_FILE, {'events': [
             {'ts': now - 60, 'event': 'new_port_detected', 'payload': {
                 'device_id': did, 'name': name,
                 'proto': 'tcp', 'port': 4444, 'process': 'suspicious',
             }},
-        ])
+        ]})
         # v3.4.0: new_port is informational by default — no Needs-Attention card.
         items = self.api._compute_attention()
         self.assertEqual([i for i in items if i.get('kind') == 'new_port'], [])
@@ -645,12 +645,12 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
     def test_ssh_key_event_surfaces_as_critical(self):
         did, _ = self._seed_device()
         now = int(time.time())
-        self.api.save(self.api.FLEET_EVENTS_FILE, [
+        self.api.save(self.api.FLEET_EVENTS_FILE, {'events': [
             {'ts': now - 60, 'event': 'ssh_key_added', 'payload': {
                 'device_id': did, 'user': 'root',
                 'fingerprint': 'SHA256:abc123', 'comment': 'attacker@evil',
             }},
-        ])
+        ]})
         items = self.api._compute_attention()
         sk = [i for i in items if i.get('kind') == 'ssh_key']
         self.assertEqual(len(sk), 1)

@@ -90,6 +90,22 @@ All notable changes to RemotePower. Newest first.
 
 ### Changed
 
+- **Fleet-event log is faster on the SQLite/Postgres backends.**
+  `fleet_events.json` is now stored as decomposed rows (a wrapped-list file), so
+  each fired event does an O(1) row insert instead of rewriting the whole capped
+  event ring — a real saving on busy fleets where events fire constantly. A
+  one-time migration decomposes the existing blob on upgrade (SQLite schema v6,
+  Postgres v5). The JSON backend is unchanged.
+- **Fixed: log-alert / SSH-key Needs-Attention cards were silently missing.**
+  The Needs-Attention builder read the fleet-event log as a bare list when it's
+  actually stored `{events: […]}`, so it iterated the wrapper's keys and
+  processed **zero** events — dropping the NA cards derived from fleet events
+  (log alerts, added SSH keys, etc.). It now reads the list correctly, so those
+  cards appear again. (Kinds that default to off, like *new listening port*,
+  stay suppressed as before.)
+
+### Changed
+
 - **Four-eyes approval is now configurable.** The set of command kinds that
   require a second admin's approval is no longer fixed — Settings → Security lets
   you pick from reboot, shutdown, agent update/upgrade/uninstall, container

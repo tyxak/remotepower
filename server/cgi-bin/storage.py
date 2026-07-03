@@ -49,7 +49,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 5  # v5.6.x: hardware/drift/helm/discovery/secrets/speedtest/acme -> entity
+SCHEMA_VERSION = 6  # v5.8.0: fleet_events.json cold-blob -> wrapped-list rows
 
 
 def configure(data_dir):
@@ -125,15 +125,18 @@ _COLD_TO_ENTITY_V5 = ('hardware.json', 'drift_state.json', 'drift_contents.json'
                       'speedtest.json', 'acme_state.json')
 
 # wrapped-list files: basename -> the single top-level list key.
-# NOTE: fleet_events.json is deliberately NOT here — it is polymorphic in the
-# codebase (written dict-wrapped by _record_fleet_event, but read as a bare list
-# by _compute_attention), so it's kept a COLD blob that round-trips whatever
-# shape it's given, exactly like the JSON backend.
+# v5.8.0: fleet_events.json joined this set. It was previously kept COLD because
+# one reader (_compute_attention) read it as a bare list while every writer wrote
+# the dict-wrapped {events:[...]} shape — that reader bug is fixed, so all access
+# is now the wrapped shape and the append hot path uses list_append (O(1) row
+# insert) instead of rewriting the whole capped ring on every fired event.
 WRAPPED_LIST_FILES = {
     'history.json': 'entries',
     'alerts.json': 'alerts',
     # v4.3.0: capped slow-handler ring, written via list_append (O(1)).
     'slow_handlers.json': 'entries',
+    # v5.8.0: fleet event log — capped ring, appended on every event.
+    'fleet_events.json': 'events',
 }
 
 DEVICES_FILE_NAME = 'devices.json'
@@ -373,10 +376,41 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V4)
     if db_ver is None or db_ver < 5:
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V5)
+    if db_ver is None or db_ver < 6:
+        _migrate_cold_to_wrapped(conn, _COLD_TO_WRAPPED_V6)   # v5.8.0
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(SCHEMA_VERSION),))
+
+
+_COLD_TO_WRAPPED_V6 = ('fleet_events.json',)   # v5.8.0
+
+
+def _migrate_cold_to_wrapped(conn, files):
+    """v5.8.0: decompose each cold-blob kv row for a now-WRAPPED file into the
+    listrow + #meta rows _load_wrapped expects. The blob is {wrapkey: [...],
+    ...meta}. Per-file SAVEPOINT so a partial failure leaves the kv blob intact
+    (load()'s kv-fallback keeps serving it). Idempotent — _save_wrapped replaces
+    the listrow set."""
+    for n in files:
+        try:
+            row = conn.execute('SELECT doc FROM kv WHERE path=?', (n,)).fetchone()
+            if row is None:
+                continue
+            blob = json.loads(row['doc'])
+            if not isinstance(blob, dict):
+                continue   # unexpected shape — leave the kv row intact
+            conn.execute('SAVEPOINT rp_migw')
+            try:
+                _save_wrapped(conn, n, blob)
+                conn.execute('DELETE FROM kv WHERE path=?', (n,))
+                conn.execute('RELEASE rp_migw')
+            except Exception:
+                conn.execute('ROLLBACK TO rp_migw')
+                conn.execute('RELEASE rp_migw')
+        except Exception:
+            pass
 
 
 def _migrate_cold_to_entity(conn, files):

@@ -5883,16 +5883,21 @@ def _record_fleet_event(event, payload):
     }
     overflow = []
     try:
-        # fleet_events is a cold blob on both backends (polymorphic shape — see
-        # storage.WRAPPED_LIST_FILES note), so the whole-doc locked RMW is used
-        # regardless. The log is capped at MAX_FLEET_EVENTS so the rewrite is
-        # bounded.
-        with _LockedUpdate(FLEET_EVENTS_FILE) as store:
-            events = store.setdefault('events', [])
-            events.append(entry)
-            if len(events) > MAX_FLEET_EVENTS:
-                overflow = events[:-MAX_FLEET_EVENTS]
-                del events[:-MAX_FLEET_EVENTS]
+        # v5.8.0: fleet_events is a WRAPPED_LIST_FILE now, so the DB backend does
+        # an O(1) row insert (+ O(overflow) prune) via list_append instead of
+        # rewriting the whole capped ring every fired event. JSON backend keeps
+        # the bounded whole-doc RMW (there is no cheaper primitive on a flat file).
+        _m = _dbmod()
+        if _m is not None:
+            overflow = _m.list_append(FLEET_EVENTS_FILE, entry, cap=MAX_FLEET_EVENTS)
+            _invalidate_load_cache(FLEET_EVENTS_FILE)
+        else:
+            with _LockedUpdate(FLEET_EVENTS_FILE) as store:
+                events = store.setdefault('events', [])
+                events.append(entry)
+                if len(events) > MAX_FLEET_EVENTS:
+                    overflow = events[:-MAX_FLEET_EVENTS]
+                    del events[:-MAX_FLEET_EVENTS]
     except Exception:
         # Caller wraps us too, but be defensive
         return
@@ -31628,7 +31633,11 @@ def _compute_attention():
     # exactly one NA card the user can dismiss with one click.
     seen_event_keys = set()
     try:
-        events = load(FLEET_EVENTS_FILE) or []
+        # v5.8.0 FIX: fleet_events is written {events:[...]}; this reader used to
+        # do `load() or []`, which returns the DICT and then iterates its KEYS —
+        # so it silently processed zero events, and log-alert / new-port / ssh-key
+        # NA cards were dropped. Read the wrapped list correctly.
+        events = (load(FLEET_EVENTS_FILE) or {}).get('events') or []
     except Exception:
         events = []
     for ev in events:

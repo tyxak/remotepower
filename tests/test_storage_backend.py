@@ -71,13 +71,14 @@ class TestRoundTrip(_Base):
         storage.save(self.p('alerts.json'), al)
         self.assertEqual(storage.load(self.p('alerts.json')), al)
 
-    def test_fleet_events_polymorphic_blob(self):
-        # fleet_events is a cold blob (polymorphic) — round-trips both shapes.
-        storage.save(self.p('fleet_events.json'), {'events': [{'e': 1}]})
+    def test_fleet_events_wrapped_list(self):
+        # v5.8.0: fleet_events was promoted from a cold polymorphic blob to a
+        # wrapped-list file. It round-trips the {events:[...]} shape (the DB
+        # decomposes the list into rows); the legacy bare-list shape is gone —
+        # every writer uses the dict-wrapped shape.
+        storage.save(self.p('fleet_events.json'), {'events': [{'e': 1}, {'e': 2}]})
         self.assertEqual(storage.load(self.p('fleet_events.json')),
-                         {'events': [{'e': 1}]})
-        storage.save(self.p('fleet_events.json'), [{'e': 2}])  # bare list
-        self.assertEqual(storage.load(self.p('fleet_events.json')), [{'e': 2}])
+                         {'events': [{'e': 1}, {'e': 2}]})
 
 
 class TestDiffWrite(_Base):

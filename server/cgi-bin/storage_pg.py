@@ -44,7 +44,7 @@ from storage import (
     json_inventory, read_marker, write_marker, _read_json, _write_json_atomic, _norm,
 )
 
-SCHEMA_VERSION = 4  # v5.6.x: wave-3 entity promotion (hardware/drift/...);
+SCHEMA_VERSION = 5  # v5.8.0: fleet_events cold-blob -> wrapped-list rows;
 #                      v5.6.0: posture_state/port_baseline/av_status/ssh_key_baseline -> entity
 # NB: this is Postgres's OWN schema counter (starts at 1); the SQLite backend
 # (storage.SCHEMA_VERSION) counts separately. What matters is that BOTH split the
@@ -471,6 +471,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V4)
     if _dbv is None or _dbv < 4:
         _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V5)
+    if _dbv is None or _dbv < 5:
+        _migrate_cold_to_wrapped_pg(conn, storage._COLD_TO_WRAPPED_V6)   # v5.8.0
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', %s) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -498,6 +500,33 @@ def _migrate_cold_to_entity_pg(conn, files):
                         'INSERT INTO entity(file, k, doc) VALUES(%s,%s,%s) '
                         'ON CONFLICT(file, k) DO UPDATE SET doc=excluded.doc',
                         (n, str(k), json.dumps(v, separators=(',', ':'), default=str)))
+                conn.execute('DELETE FROM kv WHERE path=%s', (n,))
+                conn.execute('COMMIT')
+            except Exception:
+                try:
+                    conn.execute('ROLLBACK')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+def _migrate_cold_to_wrapped_pg(conn, files):
+    """v5.8.0 Postgres twin of storage._migrate_cold_to_wrapped: decompose a
+    cold-blob kv row for a now-WRAPPED file into listrow + #meta rows. Own
+    BEGIN/COMMIT per file (autocommit connection); a failure rolls back wholly
+    and the kv blob stays intact for load()'s fallback."""
+    for n in files:
+        try:
+            row = conn.execute('SELECT doc FROM kv WHERE path=%s', (n,)).fetchone()
+            if row is None:
+                continue
+            blob = json.loads(row['doc'])
+            if not isinstance(blob, dict):
+                continue
+            conn.execute('BEGIN')
+            try:
+                _save_wrapped(conn, n, blob)
                 conn.execute('DELETE FROM kv WHERE path=%s', (n,))
                 conn.execute('COMMIT')
             except Exception:
