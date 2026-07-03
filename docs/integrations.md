@@ -46,7 +46,7 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 | Virtualization / orchestration | **Kubernetes / k3s**, **VMware vCenter/ESXi**, **Proxmox Backup Server** |
 | Network | **UniFi Network** |
 | Reverse proxy / certs | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
-| Observability | **Netdata**, **Grafana**, **Uptime Kuma** |
+| Observability | **Netdata**, **Grafana**, **Uptime Kuma**, **RemotePower (peer instance)** |
 | Media | **Jellyfin**, **Plex**, **Immich**, **Frigate** |
 | Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
 | Download clients | **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet** |
@@ -74,6 +74,17 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
   must be reachable from the RemotePower server for this to work.
 - **Uptime Kuma** has no official API, so this reads a **published status page**;
   set the page slug rather than a token.
+- **RemotePower (peer instance)** turns another, off-site RemotePower into a tile
+  beside your homelab integrations ("federation-lite"). Point URL at the peer's
+  base (`https://peer.example.com`) and paste a **viewer-role API key** generated
+  on that instance (Settings → API keys) as the secret. It reads only the peer's
+  **public health** — `GET /api/nav-counts` (device count, offline hosts, open
+  alerts, control-plane health) plus the no-auth `/api/public-info` for the
+  version — and shows the tile OK when the peer is reachable and healthy,
+  WARNING when the peer reports offline devices / open alerts / a degraded
+  control-plane, and CRITICAL only when it's unreachable or the key is rejected.
+  This is **read-only off-site visibility, not federation**: there is no shared
+  identity and no cross-instance control.
 - **Servarr** is a single connector for any *arr app — it **auto-detects the API
   version** (`/api/v3` for Sonarr/Radarr, `/api/v1` for Prowlarr/Lidarr/Readarr)
   and surfaces the app's own health-check warnings/errors. **Bazarr** uses a

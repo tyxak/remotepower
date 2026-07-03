@@ -234,7 +234,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Container detail | Per-device list — health badge, live CPU%/mem, published ports, stale pill *(v3.4.2)* |
 | Container alerts | `container_stopped`, `container_restarting`, `containers_stale` *(v1.11.4)* |
-| Image updates | Pulled-digest vs registry digest → stale flag on Image Updates page; one-click compose pull + up -d *(v3.3.4 / v3.9.0)* |
+| Image updates | Pulled-digest vs registry digest → stale flag on Image Updates page; one-click compose pull + up -d *(v3.3.4 / v3.9.0)*; **standalone-container Update** (pull image + recreate with the same config; compose-managed refused) *(v5.8.0)* |
 | Proxmox VE | Connect one node (scoped API token); QEMU VM + LXC start/shutdown, server-to-API *(v2.3.0)* |
 | Proxmox snapshots | Create/list/roll-back/delete per guest; type-to-confirm rollback *(v2.4.0)* |
 | Proxmox create / delete | LXC create wizard + delete *(v3.5.0)*; QEMU VM create wizard *(v3.7.0)* |
@@ -305,7 +305,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Passkeys / WebAuthn | Phishing-resistant passwordless sign-in; refuses cloned authenticator; satisfies MFA policy *(v4.2.0)* |
 | OIDC SSO | External IdP; group→role mapping; first-login provisioning |
 | SAML 2.0 SSO | Okta/Entra/OneLogin/Ping/ADFS; signed assertions + replay protection; attribute→role *(v4.2.0)* |
-| LDAP / AD + SCIM 2.0 | Bind-mode auth; IdP-driven create/deactivate so offboarding revokes access + sessions |
+| LDAP / AD + SCIM 2.0 | Bind-mode auth; IdP-driven create/deactivate so offboarding revokes access + sessions; **SCIM Groups** map to roles (IdP group membership → role) + discovery endpoints (ServiceProviderConfig / ResourceTypes / Schemas) *(v5.8.0)* |
 | MFA enforcement | Require MFA (TOTP or passkey) per role; forced before any other action *(v4.2.0)* |
 | Password policy | Opt-in min length + 3-of-4 character classes + HaveIBeenPwned breach check (k-anonymity, fails open); enforced on new users + changes *(v5.5.0)* |
 | SSO-only | Refuse local-password logins when an IdP is configured; per-account `local_login` break-glass *(v5.5.0)* |
@@ -405,7 +405,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Integration subsystem | Read-only server-side polling, folded into Alerts + dashboard; `integration_down` (auto-resolved); SSRF-guarded; admin-only URLs; **Show Homelab software** kill switch |
-| 38 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues, Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge *(all v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
+| 39 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues, Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, RemotePower (peer instance) *(all v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
 | Custom HTTP probe plugin | Declarative — turn an endpoint's status/body/JSON field into a health signal; SSRF-guarded *(v5.1.0)* |
 | GitHub issue monitor | Watch repos (`owner/repo`, multiple per instance) for newly opened issues → `github_new_issue` alert in the Alerts inbox (PRs ignored, first poll baselines; webhook/paging off by default) *(v5.8.0)* |
 

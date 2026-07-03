@@ -2975,6 +2975,92 @@ class TestScim(_HandlerBase):
         self.assertFalse(api.load(api.USERS_FILE)['erin']['disabled'])
 
 
+class TestScimGroupsAndDiscovery(_HandlerBase):
+    """v5.8.0 (B3.2) — SCIM Groups (role mapping) + discovery endpoints."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.CONFIG_FILE, {'scim_enabled': True, 'scim_token': 'sek'})
+        api.save(api.USERS_FILE, {
+            'root':  {'role': 'admin', 'created': 1},
+            'vicky': {'role': 'viewer', 'created': 1},
+        })
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer sek'
+        os.environ.pop('QUERY_STRING', None)
+
+    def tearDown(self):
+        os.environ.pop('HTTP_AUTHORIZATION', None)
+        os.environ.pop('QUERY_STRING', None)
+        super().tearDown()
+
+    def test_groups_list_maps_roles(self):
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_scim_groups_collection)
+        names = {g['displayName'] for g in r['Resources']}
+        self.assertIn('admin', names)
+        self.assertIn('viewer', names)
+        admin_grp = next(g for g in r['Resources'] if g['displayName'] == 'admin')
+        self.assertEqual([m['value'] for m in admin_grp['members']], ['root'])
+
+    def test_groups_filter(self):
+        os.environ['QUERY_STRING'] = 'filter=displayName eq "viewer"'
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_scim_groups_collection)
+        self.assertEqual(r['totalResults'], 1)
+        self.assertEqual(r['Resources'][0]['displayName'], 'viewer')
+
+    def test_groups_post_501(self):
+        api.method = lambda: 'POST'
+        self.call(api.handle_scim_groups_collection)
+        self.assertEqual(self.cap['s'], 501)
+
+    def test_patch_add_member_sets_role(self):
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'schemas': [api.SCIM_PATCH_SCHEMA],
+            'Operations': [{'op': 'add', 'path': 'members',
+                            'value': [{'value': 'vicky'}]}]}
+        self.call(api.handle_scim_group, 'admin')
+        self.assertEqual(api.load(api.USERS_FILE)['vicky']['role'], 'admin')
+
+    def test_patch_remove_member_demotes(self):
+        api.save(api.USERS_FILE, {
+            'root': {'role': 'admin', 'created': 1},
+            'al':   {'role': 'admin', 'created': 1}})
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'Operations': [
+            {'op': 'remove', 'path': 'members[value eq "al"]'}]}
+        self.call(api.handle_scim_group, 'admin')
+        self.assertEqual(api.load(api.USERS_FILE)['al']['role'], 'viewer')
+
+    def test_cannot_remove_last_admin(self):
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'Operations': [
+            {'op': 'remove', 'path': 'members[value eq "root"]'}]}
+        self.call(api.handle_scim_group, 'admin')
+        self.assertEqual(self.cap['s'], 409)
+        self.assertEqual(api.load(api.USERS_FILE)['root']['role'], 'admin')
+
+    def test_unknown_group_404(self):
+        api.method = lambda: 'GET'
+        self.call(api.handle_scim_group, 'nope')
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_discovery_endpoints(self):
+        api.method = lambda: 'GET'
+        spc = self.call(api.handle_scim_service_provider_config)
+        self.assertTrue(spc['patch']['supported'])
+        rt = self.call(api.handle_scim_resource_types)
+        self.assertEqual({t['id'] for t in rt['Resources']}, {'User', 'Group'})
+        sch = self.call(api.handle_scim_schemas)
+        self.assertTrue(any(s['id'] == api.SCIM_GROUP_SCHEMA for s in sch['Resources']))
+
+    def test_discovery_requires_auth(self):
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer nope'
+        api.method = lambda: 'GET'
+        self.call(api.handle_scim_service_provider_config)
+        self.assertEqual(self.cap['s'], 401)
+
+
 class TestMetricTimeseriesSqlite(unittest.TestCase):
     """v3.14.0 — append-only metric time-series on the SQLite backend (the store
     behind 30-day Trend charts; JSON keeps only the recent metrics.json window)."""

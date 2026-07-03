@@ -6,9 +6,23 @@ All notable changes to RemotePower. Newest first.
 
 ### Added
 
-- **9 new homelab connectors** (Settings → Integrations): Immich, Paperless-ngx,
-  Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome and
-  Homebridge — 38 connectors in total now (plus the Custom HTTP probe).
+- **10 new homelab connectors** (Settings → Integrations): Immich, Paperless-ngx,
+  Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge
+  and a **RemotePower (peer instance)** connector that surfaces another
+  RemotePower's public health (device/offline/open-alert counts via a viewer API
+  key — off-site visibility, not federation). 39 connectors in total now (plus
+  the Custom HTTP probe).
+- **Standalone-container Update.** The Containers view gains an Update action on
+  running non-compose containers: the agent pulls the latest image and recreates
+  the container with the same configuration (name, env, ports, mounts, restart
+  policy, labels, network). Already-current images are a no-op; compose-managed
+  containers are refused (update those from their stack). Rides the existing
+  RBAC + four-eyes-approval + reported-id checks.
+- **SCIM Groups + discovery.** `/scim/v2/Groups` maps SCIM groups to RemotePower
+  roles, so an IdP that pushes group membership drives role assignment (adding a
+  user to a group sets the role; removing demotes to viewer; the last admin is
+  protected). The discovery endpoints `ServiceProviderConfig`, `ResourceTypes`
+  and `Schemas` are now served (some IdPs require them). SCIM Users unchanged.
 - **3-2-1 backup-rule score** on the device drawer's Backups panel: a per-host
   read of the classic rule — 3 fresh copies, 2 distinct targets/media, 1
   off-site — inferred from the watched-backup data already collected. Purely

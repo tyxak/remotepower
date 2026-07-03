@@ -463,6 +463,7 @@ async function containersOpen(deviceId, name) {
         ${!isRunning ? `<button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="start" data-arg5="${escAttr(c.name||'')}">Start</button>` : ''}
         ${isRunning  ? `<button class="btn-icon isl-459" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="stop" data-arg5="${escAttr(c.name||'')}">Stop</button>` : ''}
         <button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="restart" data-arg5="${escAttr(c.name||'')}">Restart</button>
+        ${isRunning ? `<button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="update" data-arg5="${escAttr(c.name||'')}" title="Pull the latest image and recreate this standalone container (compose-managed containers update via their stack)">Update</button>` : ''}
         <button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="logs" data-arg5="${escAttr(c.name||'')}">Logs</button>
       </div>` : '';
     return `<div class="isl-460">
@@ -488,7 +489,11 @@ async function containersOpen(deviceId, name) {
 // because they're disruptive; start and logs don't.
 async function containerAction(deviceId, runtime, containerId, action, displayName) {
   const verb = action.charAt(0).toUpperCase() + action.slice(1);
-  if ((action === 'stop' || action === 'restart') &&
+  // v5.8.0 (B1.1): 'update' pulls the latest image and RECREATES the container —
+  // disruptive, so it gets an explicit confirm that names the recreate.
+  if (action === 'update') {
+    if (!confirm(`Update ${displayName || containerId}?\n\nThis pulls the latest image and recreates the container with the same configuration. Compose-managed containers are skipped — update those from their stack. Output arrives on the next heartbeat.`)) return;
+  } else if ((action === 'stop' || action === 'restart') &&
       !confirm(`${verb} container ${displayName || containerId}?`)) return;
   const resp = await api('POST',
     '/devices/' + encodeURIComponent(deviceId) + '/containers/action',

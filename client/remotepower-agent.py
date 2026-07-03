@@ -6374,8 +6374,10 @@ def _run_compose_deploy(cmd):
 
 # v2.1.1: per-container actions from the Containers page. Same allowlist
 # pattern as compose — verb table, argv-only invocation, no shell.
-CONTAINER_ALLOWED_ACTIONS = {'start', 'stop', 'restart', 'pause', 'unpause', 'logs'}
+CONTAINER_ALLOWED_ACTIONS = {'start', 'stop', 'restart', 'pause', 'unpause',
+                             'logs', 'update'}
 CONTAINER_ACTION_TIMEOUT_S = 60
+CONTAINER_PULL_TIMEOUT_S   = 300   # image pull can be slow on a big image / link
 CONTAINER_OUT_CAP          = 32 * 1024
 # Docker / podman IDs are alphanumeric (lowercase hex usually); container
 # names allow [a-zA-Z0-9_.-]. Reject anything else to keep argv safe.
@@ -6406,6 +6408,13 @@ def _run_container_action(cmd):
     if not _which(runtime):
         return {'cmd': cmd, 'output': f'{runtime} not installed', 'rc': -1}
 
+    # v5.8.0 (B1.1): "update" = pull the image + recreate a STANDALONE container
+    # with the same config. Compose-managed containers are refused (they have a
+    # working update path via compose:update). Distinct control flow from the
+    # single-verb docker actions below.
+    if action == 'update':
+        return _run_container_update(cmd, runtime, container_id)
+
     if action == 'logs':
         argv = [runtime, 'logs', '--tail=50', container_id]
     else:
@@ -6423,6 +6432,167 @@ def _run_container_action(cmd):
     except Exception as e:
         return {'cmd': cmd, 'output': f'{runtime} {action} failed: {e}', 'rc': -1}
 
+
+
+def _container_inspect(runtime, container_id):
+    """Return the parsed `<runtime> inspect` object for a container, or None."""
+    try:
+        r = subprocess.run([runtime, 'inspect', container_id],
+                           capture_output=True, text=True,
+                           timeout=CONTAINER_ACTION_TIMEOUT_S)
+        if r.returncode != 0:
+            return None
+        data = json.loads(r.stdout or '[]')
+        return data[0] if isinstance(data, list) and data else None
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        return None
+
+
+def _image_id(runtime, image_ref):
+    """The local image ID (sha256:…) for a ref, or '' if not present."""
+    try:
+        r = subprocess.run([runtime, 'image', 'inspect', '--format', '{{.Id}}',
+                            image_ref], capture_output=True, text=True,
+                           timeout=CONTAINER_ACTION_TIMEOUT_S)
+        return (r.stdout or '').strip() if r.returncode == 0 else ''
+    except (subprocess.TimeoutExpired, OSError):
+        return ''
+
+
+def _container_run_argv(runtime, info):
+    """Reconstruct a `<runtime> run -d` argv from an inspect object, covering the
+    common fields (name, restart policy, env, ports, mounts, network, labels,
+    privileged, entrypoint/cmd). Returns (argv, image) or (None, reason).
+
+    Conservative by design: if inspect reveals config we can't faithfully
+    reproduce, the caller aborts rather than recreate a subtly-different
+    container (the plan's "refuse when unsure" rule)."""
+    cfg = info.get('Config') or {}
+    host = info.get('HostConfig') or {}
+    image = cfg.get('Image') or ''
+    if not image:
+        return None, 'inspect has no Config.Image'
+    name = (info.get('Name') or '').lstrip('/')
+    argv = [runtime, 'run', '-d']
+    if name:
+        argv += ['--name', name]
+    # restart policy
+    rp = (host.get('RestartPolicy') or {}).get('Name') or ''
+    if rp and rp != 'no':
+        mrc = (host.get('RestartPolicy') or {}).get('MaximumRetryCount') or 0
+        argv += ['--restart', f'{rp}:{mrc}' if rp == 'on-failure' and mrc else rp]
+    # env
+    for e in (cfg.get('Env') or []):
+        argv += ['-e', e]
+    # labels — skip compose/podman-internal ones (compose is refused upstream)
+    for k, v in (cfg.get('Labels') or {}).items():
+        if k.startswith(('com.docker.compose', 'io.podman', 'io.buildah',
+                         'org.opencontainers.image')):
+            continue
+        argv += ['--label', f'{k}={v}']
+    # network mode
+    netmode = host.get('NetworkMode') or ''
+    if netmode and netmode not in ('default', 'bridge'):
+        argv += ['--network', netmode]
+    if host.get('Privileged'):
+        argv += ['--privileged']
+    # port bindings: {"80/tcp": [{"HostIp":"","HostPort":"8080"}]}
+    for cport, binds in (host.get('PortBindings') or {}).items():
+        for b in (binds or []):
+            hip = b.get('HostIp') or ''
+            hport = b.get('HostPort') or ''
+            spec = ':'.join(x for x in (hip, hport, cport) if x) if (hip or hport) else cport
+            argv += ['-p', spec]
+    # mounts: prefer HostConfig.Binds (source:dest:mode); fall back to Mounts
+    binds = host.get('Binds')
+    if binds:
+        for b in binds:
+            argv += ['-v', b]
+    else:
+        for m in (info.get('Mounts') or []):
+            if m.get('Type') == 'bind' and m.get('Source') and m.get('Destination'):
+                ro = '' if m.get('RW', True) else ':ro'
+                argv += ['-v', f"{m['Source']}:{m['Destination']}{ro}"]
+            elif m.get('Type') == 'volume' and m.get('Name') and m.get('Destination'):
+                argv += ['-v', f"{m['Name']}:{m['Destination']}"]
+    # entrypoint override (only if explicitly set on the container)
+    ep = cfg.get('Entrypoint')
+    if isinstance(ep, list) and ep:
+        argv += ['--entrypoint', ep[0]]
+        # extra entrypoint args are rare; fold into cmd below if present
+    argv.append(image)
+    # command
+    cmd = cfg.get('Cmd')
+    if isinstance(cmd, list) and cmd:
+        argv += cmd
+    return argv, image
+
+
+def _run_container_update(cmd, runtime, container_id):
+    """Pull the container's image and recreate it with the same config. No-op
+    (no recreate) when the image is already current. Refuses compose-managed
+    containers. Every step's outcome is reported in the command output so the
+    operator can audit exactly what happened."""
+    if not _which(runtime):
+        return {'cmd': cmd, 'output': f'{runtime} not installed', 'rc': -1}
+    info = _container_inspect(runtime, container_id)
+    if info is None:
+        return {'cmd': cmd, 'output': 'container not found / inspect failed', 'rc': -1}
+    labels = (info.get('Config') or {}).get('Labels') or {}
+    if labels.get('com.docker.compose.project'):
+        return {'cmd': cmd, 'rc': -1, 'output':
+                'container is compose-managed — update it with the compose '
+                'stack action, not the standalone update'}
+    image = (info.get('Config') or {}).get('Image') or ''
+    if not image:
+        return {'cmd': cmd, 'output': 'container has no image ref', 'rc': -1}
+
+    before = _image_id(runtime, image)
+    log.info(f"container update: pulling {image}")
+    try:
+        pull = subprocess.run([runtime, 'pull', image], capture_output=True,
+                              text=True, timeout=CONTAINER_PULL_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return {'cmd': cmd, 'output': f'pull TIMEOUT for {image}', 'rc': -1}
+    if pull.returncode != 0:
+        out = (pull.stdout + pull.stderr).strip()[:CONTAINER_OUT_CAP]
+        return {'cmd': cmd, 'output': f'pull failed: {out}', 'rc': pull.returncode}
+    after = _image_id(runtime, image)
+    if before and after and before == after:
+        return {'cmd': cmd, 'rc': 0,
+                'output': f'{image} already up to date — no recreate needed'}
+
+    argv, image_or_reason = _container_run_argv(runtime, info)
+    if argv is None:
+        return {'cmd': cmd, 'rc': -1,
+                'output': f'cannot safely recreate: {image_or_reason} '
+                          f'(image pulled but container left running)'}
+
+    name = (info.get('Name') or '').lstrip('/') or container_id
+    # Recreate: stop + rm the old, then run the reconstructed argv. If run fails
+    # we surface it loudly — the old container is already gone, so the operator
+    # must act (this is why "already up to date" short-circuits above).
+    steps = [f'pulled {image} (id {before[:19]}→{after[:19]})']
+    try:
+        subprocess.run([runtime, 'stop', container_id], capture_output=True,
+                       text=True, timeout=CONTAINER_ACTION_TIMEOUT_S)
+        subprocess.run([runtime, 'rm', container_id], capture_output=True,
+                       text=True, timeout=CONTAINER_ACTION_TIMEOUT_S)
+        steps.append(f'removed old container {name}')
+        run = subprocess.run(argv, capture_output=True, text=True,
+                             timeout=CONTAINER_ACTION_TIMEOUT_S)
+        out = (run.stdout + run.stderr).strip()[:CONTAINER_OUT_CAP]
+        if run.returncode == 0:
+            steps.append(f'recreated {name} on the new image')
+            log.info(f"container update ok: {name}")
+            return {'cmd': cmd, 'rc': 0, 'output': '; '.join(steps) + f'\n{out}'}
+        steps.append(f'RECREATE FAILED (rc={run.returncode}): {out}')
+        log.error(f"container update recreate failed: {name}")
+        return {'cmd': cmd, 'rc': run.returncode, 'output': '; '.join(steps)}
+    except subprocess.TimeoutExpired:
+        return {'cmd': cmd, 'rc': -1, 'output': '; '.join(steps) + '; TIMEOUT during recreate'}
+    except Exception as e:
+        return {'cmd': cmd, 'rc': -1, 'output': '; '.join(steps) + f'; error: {e}'}
 
 
 def run_custom_scripts(scripts):

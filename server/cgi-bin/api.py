@@ -18579,6 +18579,7 @@ def handle_users_list():
 # URL on the IdP side) so the existing /api/ routing/proxy covers it; auth is a
 # dedicated bearer token (Settings → Security), not a login session.
 SCIM_USER_SCHEMA  = 'urn:ietf:params:scim:schemas:core:2.0:User'
+SCIM_GROUP_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:Group'  # v5.8.0 (B3.2)
 SCIM_LIST_SCHEMA  = 'urn:ietf:params:scim:api:messages:2.0:ListResponse'
 SCIM_PATCH_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:PatchOp'
 SCIM_ERROR_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:Error'
@@ -18736,6 +18737,222 @@ def handle_scim_user(username):
                       f'{username} active={desired_active}')
         _scim_respond(200, _scim_user_resource(username, (load(USERS_FILE) or {}).get(username) or {}))
     _scim_error(405, 'method not allowed')
+
+
+# ── SCIM Groups (v5.8.0 B3.2) ────────────────────────────────────────────────
+# RemotePower maps a SCIM Group 1:1 to a ROLE (each user holds exactly one
+# role). Listing groups lists the assignable roles with their current members;
+# a PATCH that adds a user to a group sets that user's role, and removing them
+# reverts them to the default 'viewer'. This gives IdP-group-driven role
+# assignment (the SSO group→role story, but SCIM-pushed instead of JIT-on-login).
+
+def _scim_group_roles():
+    """The set of roles exposed as SCIM Groups: the built-ins a user may hold
+    plus any custom roles."""
+    return sorted(set(USER_ROLES) | _custom_role_names())
+
+
+def _scim_group_resource(role, users=None):
+    users = users if users is not None else (load(USERS_FILE) or {})
+    members = [{'value': u, 'display': u}
+               for u, d in users.items()
+               if (d.get('role', 'admin') or 'admin') == role]
+    return {
+        'schemas':     [SCIM_GROUP_SCHEMA],
+        'id':          role,
+        'displayName': role,
+        'members':     members,
+        'meta':        {'resourceType': 'Group',
+                        'location': f'/api/scim/v2/Groups/{role}'},
+    }
+
+
+def handle_scim_groups_collection():
+    """GET /api/scim/v2/Groups — list role-groups (optional ?filter=displayName
+    eq "x"). POST is not supported (roles are defined in RemotePower, not
+    created by the IdP) → 501."""
+    _scim_auth()
+    m = method()
+    if m == 'POST':
+        _scim_error(501, 'groups (roles) are managed in RemotePower; assign '
+                         'membership via PATCH, not create')
+    if m != 'GET':
+        _scim_error(405, 'method not allowed')
+    roles = _scim_group_roles()
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
+    flt = (qs.get('filter', [''])[0] or '')
+    mfil = re.match(r'\s*displayName\s+eq\s+"([^"]*)"', flt, re.I)
+    if mfil:
+        want = mfil.group(1)
+        roles = [r for r in roles if r == want]
+    users = load(USERS_FILE) or {}
+    resources = [_scim_group_resource(r, users) for r in roles]
+    _scim_respond(200, {
+        'schemas':      [SCIM_LIST_SCHEMA],
+        'totalResults': len(resources),
+        'startIndex':   1,
+        'itemsPerPage': len(resources),
+        'Resources':    resources,
+    })
+
+
+def handle_scim_group(role):
+    """GET/PUT/PATCH /api/scim/v2/Groups/<role>. PATCH members add/remove sets/
+    clears the role on the referenced users (the IdP-group→role bridge)."""
+    _scim_auth()
+    m = method()
+    if role not in _scim_group_roles():
+        _scim_error(404, 'group (role) not found')
+    if m == 'GET':
+        _scim_respond(200, _scim_group_resource(role))
+    if m in ('PUT', 'PATCH'):
+        body = get_json_obj()
+        # Collect (op, [usernames]) — support PATCH PatchOp members add/remove
+        # and a PUT that replaces the full members list.
+        add, remove, replace = [], [], None
+
+        def _member_ids(val):
+            out = []
+            if isinstance(val, list):
+                for mem in val:
+                    if isinstance(mem, dict) and mem.get('value'):
+                        out.append(str(mem['value']))
+                    elif isinstance(mem, str):
+                        out.append(mem)
+            elif isinstance(val, dict) and val.get('value'):
+                out.append(str(val['value']))
+            return out
+
+        if m == 'PUT':
+            replace = _member_ids(body.get('members'))
+        else:
+            for op in (body.get('Operations') or []):
+                verb = (op.get('op') or '').lower()
+                path = (op.get('path') or '').lower()
+                if path and not path.startswith('members'):
+                    continue
+                ids = _member_ids(op.get('value'))
+                if verb == 'add':
+                    add += ids
+                elif verb == 'remove':
+                    # remove can target a specific member via a path filter
+                    mm = re.search(r'members\[value eq "([^"]+)"\]', op.get('path') or '', re.I)
+                    if mm:
+                        remove.append(mm.group(1))
+                    else:
+                        remove += ids
+                elif verb == 'replace':
+                    replace = ids
+
+        users = load(USERS_FILE) or {}
+        if replace is not None:
+            current = {u for u, d in users.items()
+                       if (d.get('role', 'admin') or 'admin') == role}
+            want = set(replace)
+            add = list(want - current)
+            remove = list(current - want)
+        changed = []
+        for u in add:
+            if u in users:
+                _scim_set_user_role(u, role)
+                changed.append(f'+{u}')
+        for u in remove:
+            if u in users and (users.get(u, {}).get('role') == role):
+                try:
+                    _scim_set_user_role(u, 'viewer')   # demote to safe default
+                    changed.append(f'-{u}')
+                except ValueError:
+                    _scim_error(409, 'cannot remove the last admin from admin')
+        if changed:
+            audit_log('scim', 'scim_group_update',
+                      f'role={role} {" ".join(changed)}')
+        _scim_respond(200, _scim_group_resource(role))
+    _scim_error(405, 'method not allowed')
+
+
+def _scim_set_user_role(username, role):
+    """Set a user's role, refusing to demote the last enabled admin."""
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            return
+        if users[username].get('role') == 'admin' and role != 'admin':
+            enabled_admins = [u for u, d in users.items()
+                              if d.get('role', 'admin') == 'admin'
+                              and not d.get('disabled')]
+            if len(enabled_admins) <= 1 and username in enabled_admins:
+                raise ValueError('last_admin')
+        users[username]['role'] = role
+
+
+# ── SCIM discovery endpoints (v5.8.0 B3.2) — some IdPs refuse to start without
+# them. All static/read-only, still behind the bearer gate.
+
+def handle_scim_service_provider_config():
+    _scim_auth()
+    _scim_respond(200, {
+        'schemas': ['urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'],
+        'documentationUri': 'https://github.com/tyxak/remotepower/wiki',
+        'patch':          {'supported': True},
+        'bulk':           {'supported': False, 'maxOperations': 0, 'maxPayloadSize': 0},
+        'filter':         {'supported': True, 'maxResults': 200},
+        'changePassword': {'supported': False},
+        'sort':           {'supported': False},
+        'etag':           {'supported': False},
+        'authenticationSchemes': [{
+            'type': 'oauthbearertoken', 'name': 'OAuth Bearer Token',
+            'description': 'Authentication via the SCIM bearer token.',
+            'primary': True,
+        }],
+        'meta': {'resourceType': 'ServiceProviderConfig',
+                 'location': '/api/scim/v2/ServiceProviderConfig'},
+    })
+
+
+def handle_scim_resource_types():
+    _scim_auth()
+    types = [
+        {'schemas': ['urn:ietf:params:scim:schemas:core:2.0:ResourceType'],
+         'id': 'User', 'name': 'User', 'endpoint': '/Users',
+         'schema': SCIM_USER_SCHEMA,
+         'meta': {'resourceType': 'ResourceType',
+                  'location': '/api/scim/v2/ResourceTypes/User'}},
+        {'schemas': ['urn:ietf:params:scim:schemas:core:2.0:ResourceType'],
+         'id': 'Group', 'name': 'Group', 'endpoint': '/Groups',
+         'schema': SCIM_GROUP_SCHEMA,
+         'meta': {'resourceType': 'ResourceType',
+                  'location': '/api/scim/v2/ResourceTypes/Group'}},
+    ]
+    _scim_respond(200, {
+        'schemas': [SCIM_LIST_SCHEMA], 'totalResults': len(types),
+        'startIndex': 1, 'itemsPerPage': len(types), 'Resources': types,
+    })
+
+
+def handle_scim_schemas():
+    _scim_auth()
+    schemas = [
+        {'id': SCIM_USER_SCHEMA, 'name': 'User',
+         'description': 'SCIM core User', 'meta': {'resourceType': 'Schema'},
+         'attributes': [
+             {'name': 'userName', 'type': 'string', 'required': True,
+              'uniqueness': 'server', 'mutability': 'readWrite'},
+             {'name': 'active', 'type': 'boolean', 'required': False,
+              'mutability': 'readWrite'},
+         ]},
+        {'id': SCIM_GROUP_SCHEMA, 'name': 'Group',
+         'description': 'SCIM core Group (mapped to a RemotePower role)',
+         'meta': {'resourceType': 'Schema'},
+         'attributes': [
+             {'name': 'displayName', 'type': 'string', 'required': True,
+              'mutability': 'readOnly'},
+             {'name': 'members', 'type': 'complex', 'multiValued': True,
+              'required': False, 'mutability': 'readWrite'},
+         ]},
+    ]
+    _scim_respond(200, {
+        'schemas': [SCIM_LIST_SCHEMA], 'totalResults': len(schemas),
+        'startIndex': 1, 'itemsPerPage': len(schemas), 'Resources': schemas,
+    })
 
 
 def handle_user_create():
@@ -23447,7 +23664,12 @@ def handle_device_compose_action(dev_id):
 # action is allowlisted, container ID is validated against the agent's
 # reported listing so the server can't ask the agent to act on an
 # arbitrary container. Agent re-validates everything when it dequeues.
-CONTAINER_ACTION_ALLOWED = ('start', 'stop', 'restart', 'pause', 'unpause', 'logs')
+# v5.8.0 (B1.1): 'update' pulls the image + recreates a STANDALONE container
+# with the same config (compose-managed containers are refused agent-side —
+# they update via the compose stack action). Rides the same RBAC + 4-eyes
+# ('container' approval kind) + reported-id check as the other verbs.
+CONTAINER_ACTION_ALLOWED = ('start', 'stop', 'restart', 'pause', 'unpause',
+                            'logs', 'update')
 
 
 def handle_device_container_action(dev_id):
@@ -49483,6 +49705,11 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/tenants/', '', 'handle_tenant_delete', "pi.startswith('/api/tenants/') and m == 'DELETE'"),
     ('eq', None, '/api/scim/v2/Users', '', 'handle_scim_users_collection', "pi == '/api/scim/v2/Users'"),
     ('code', None, None, None, '_route_code_220', "pi.startswith('/api/scim/v2/Users/')"),
+    ('eq', None, '/api/scim/v2/Groups', '', 'handle_scim_groups_collection', "pi == '/api/scim/v2/Groups'"),
+    ('code', None, None, None, '_route_code_scim_group', "pi.startswith('/api/scim/v2/Groups/')"),
+    ('eq', None, '/api/scim/v2/ServiceProviderConfig', '', 'handle_scim_service_provider_config', "pi == '/api/scim/v2/ServiceProviderConfig'"),
+    ('eq', None, '/api/scim/v2/ResourceTypes', '', 'handle_scim_resource_types', "pi == '/api/scim/v2/ResourceTypes'"),
+    ('eq', None, '/api/scim/v2/Schemas', '', 'handle_scim_schemas', "pi == '/api/scim/v2/Schemas'"),
     ('eq', ('GET',), '/api/schedule.ics', '', 'handle_schedule_ics', "pi == '/api/schedule.ics' and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/services', 'handle_services_device', "pi.startswith('/api/devices/') and pi.endswith('/services') and m == 'GET'"),
     ('code', None, None, None, '_route_code_223', "pi.startswith('/api/devices/') and pi.endswith('/services/config')"),
@@ -49735,6 +49962,13 @@ def _route_code_173(pi, m):
 def _route_code_220(pi, m):
     if (pi.startswith('/api/scim/v2/Users/')):
         handle_scim_user(urllib.parse.unquote(pi[len('/api/scim/v2/Users/'):]))
+        return True
+    return False
+
+
+def _route_code_scim_group(pi, m):
+    if pi.startswith('/api/scim/v2/Groups/'):
+        handle_scim_group(urllib.parse.unquote(pi[len('/api/scim/v2/Groups/'):]))
         return True
     return False
 

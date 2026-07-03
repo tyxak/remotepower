@@ -845,6 +845,90 @@ def _grafana(inst, c):
     }
 
 
+@_register(
+    "remotepower",
+    "RemotePower (peer instance)",
+    "observability",
+    [_field("secret", "API key (viewer role)", PASSWORD)],
+    notes="Surfaces a PEER RemotePower instance's PUBLIC fleet health as a tile "
+    "beside your homelab integrations. Set URL to the peer's base "
+    "(https://peer.example.com) and paste a VIEWER-role API key generated on that "
+    "instance (Settings → API keys). Read-only 'federation-lite': it calls "
+    "GET /api/nav-counts (fleet vitals) plus the no-auth /api/public-info for the "
+    "version — off-site homelab visibility, NOT federation (no shared identity or "
+    "control).",
+)
+def _remotepower(inst, c):
+    key = (inst.get("secret") or "").strip()
+    if not key:
+        raise IntegrationError("a viewer-role API key from the peer instance is required")
+    # RemotePower authenticates API keys via the X-Token header (its primary
+    # scheme) and also accepts Authorization: Bearer; send both so the connector
+    # works against any recent peer. get_json() raises IntegrationError on a
+    # non-2xx (bad/expired key, no route, unreachable) → the poller marks the
+    # tile CRITICAL, which is exactly the "unreachable/auth-failed" case.
+    headers = {"X-Token": key, "Authorization": f"Bearer {key}"}
+    nc = c.get_json("/api/nav-counts", headers=headers)
+    if not isinstance(nc, dict):
+        raise IntegrationError("unexpected /api/nav-counts response from peer")
+    # nav-counts keys (peer side): fleet = offline monitored devices,
+    # monitoring = monitors currently down, security = critical CVE findings,
+    # site_health = {healthy, issues, failing}, alerts = {open, acknowledged, ...}.
+    # Everything is parsed defensively (chained .get()) — no hard dependency on a
+    # single key, since an older peer may omit some of them.
+    offline = int(_num(nc.get("fleet")))
+    monitors_down = int(_num(nc.get("monitoring")))
+    alerts = nc.get("alerts")
+    alerts_open = int(_num(alerts.get("open"))) if isinstance(alerts, dict) else 0
+    sh = nc.get("site_health")
+    # Default healthy=True so a peer that predates site_health isn't read as degraded.
+    sh_healthy = bool(sh.get("healthy", True)) if isinstance(sh, dict) else True
+
+    # Total device count isn't in nav-counts; the viewer-visible fleet/health
+    # summary carries it. Best-effort — degrade gracefully if the peer lacks it.
+    devices = None
+    try:
+        fh = c.get_json("/api/fleet/health", headers=headers)
+        if isinstance(fh, dict) and fh.get("total_devices") is not None:
+            devices = int(_num(fh.get("total_devices")))
+    except IntegrationError:
+        pass
+
+    # Version from the no-auth public-info endpoint (cheap, best-effort).
+    version = ""
+    try:
+        info = c.get_json("/api/public-info")
+        if isinstance(info, dict):
+            version = str(info.get("server_version") or "")
+    except IntegrationError:
+        pass
+
+    # OK only when the peer is reachable AND reports itself healthy with a quiet
+    # fleet; anything the peer flags (degraded control-plane / offline hosts /
+    # open alerts / monitors down) → WARNING. Unreachable/auth failures already
+    # raised above → CRITICAL via the poller.
+    degraded = (not sh_healthy) or offline or alerts_open or monitors_down
+    status = WARN if degraded else OK
+
+    metrics = {"offline": offline, "alerts_open": alerts_open}
+    if devices is not None:
+        metrics["devices"] = devices
+
+    parts = []
+    if devices is not None:
+        parts.append(f"{devices} device{'' if devices == 1 else 's'}")
+    parts.append(f"{offline} offline")
+    parts.append(f"{alerts_open} open alert{'' if alerts_open == 1 else 's'}")
+    detail = ", ".join(parts)
+    if not sh_healthy:
+        detail += " — peer control-plane degraded"
+
+    out = {"status": status, "detail": detail, "metrics": metrics}
+    if version:
+        out["version"] = version
+    return out
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # WAVE E — apps people care about
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1525,6 +1609,11 @@ _STATS: dict = {
     "uptimekuma": [("monitors", "Monitors", "num"), ("down", "Down", "num")],
     "netdata": [("alarms_critical", "Critical", "num"), ("alarms_warning", "Warning", "num")],
     "grafana": [("database_ok", "Database", "flag")],
+    "remotepower": [
+        ("devices", "Devices", "int"),
+        ("offline", "Offline", "num"),
+        ("alerts_open", "Open alerts", "num"),
+    ],
     "jellyfin": [("sessions_active", "Streaming", "num"), ("transcoding", "Transcode", "num")],
     "plex": [("sessions_active", "Streaming", "num")],
     "nextcloud": [("users", "Users", "int"), ("update_available", "Update", "flag")],
