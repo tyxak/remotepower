@@ -81,7 +81,10 @@ class TestIndustrialTheme(unittest.TestCase):
         self.assertIn("--font-mono:'IBMPlexMono'", base)
         # card gradient now derives from the live palette (theme-following)
         self.assertIn('--card-grad:linear-gradient(180deg,var(--surface)', base)
-        # graphite default + logo blue accent live in the scoped default block
+        # graphite default palette lives in the scoped default block; the blue
+        # accent stays on :root (NOT this block) so the accent picker (0,2,1)
+        # and themes (0,1,1) can win — pinning --accent here (0,3,1) is exactly
+        # the bug that stuck chamfered buttons on blue in light mode.
         self.assertIn(
             'body[data-ui="industrial"]:not([data-theme]):not(.light){', css)
         dm = re.search(
@@ -89,8 +92,9 @@ class TestIndustrialTheme(unittest.TestCase):
             _CSS, re.S)
         self.assertIsNotNone(dm)
         default_pal = dm.group(1).replace(' ', '')
-        self.assertIn('--accent:#3b7eff', default_pal)
         self.assertIn('--bg:#0f1217', default_pal)
+        self.assertNotIn('--accent:', default_pal)   # must NOT pin accent here
+        self.assertIn('--accent:#3b7eff', css)       # the blue default lives on :root
         self.assertIn('.sidebar*{font-family:var(--font-mono)', css)
 
     def test_fonts_are_self_hosted_not_external(self):

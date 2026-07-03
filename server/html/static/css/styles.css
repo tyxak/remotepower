@@ -5689,7 +5689,11 @@ body[data-ui="industrial"] {
 body[data-ui="industrial"]:not([data-theme]):not(.light) {
   --bg:#0f1217; --surface:#171b22; --surface2:#1f242d; --border:#313a47;
   --text:#dfe4ec; --muted:#7c879a;
-  --accent:#3b7eff; --accent2:#5c9fff;                       /* our logo blue, kept */
+  --accent2:#5c9fff;
+  /* NB: --accent is deliberately NOT set here. This block is (0,3,1); setting
+     --accent would beat the accent-picker rules (0,2,1) and pin the New UI to
+     blue. The default blue comes from :root's --accent (0,1,0); themes (0,1,1)
+     and the picker (0,2,1) both override it correctly. */
 }
 /* v4.6.0 (FIX), rescoped v5.6.x: the header bright/dark toggle sets body.light
    with NO data-theme (the plain "Daylight" light) — give it the steel/paper
@@ -5700,8 +5704,11 @@ body[data-ui="industrial"]:not([data-theme]):not(.light) {
 body[data-ui="industrial"].light:not([data-theme]) {
   --bg:#e7ebf0; --surface:#f7f9fb; --surface2:#eef1f5; --border:#cbd2dc;
   --text:#1b2230; --muted:#5c6675;
-  --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.55);
   --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
+  /* NB: --accent-soft/--accent-edge deliberately NOT set here. This block is
+     (0,3,1); setting them pinned chamfered .btn-secondary borders (e.g. "Enable
+     notifications") to blue in light mode, overriding the accent picker (0,2,1).
+     They now come from the structure block's default (0,1,1) and the picker. */
 }
 body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 /* v5.6.x fix (#19): the industrial base block (0,1,1) hardcodes --accent and is
