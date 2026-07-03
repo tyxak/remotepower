@@ -6883,3 +6883,77 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rota
     color: #111 !important; color-scheme: light !important; background: transparent !important;
   }
 }
+
+/* ── v5.6.x: narrow-viewport (mobile) audit fixes ─────────────────────────────
+   Systematic 390px/768px Playwright audit. Acceptance bar: no horizontal
+   document scroll on any page at 390px. All fixes are CSS-only (CSP: no
+   inline styles) and reuse the existing breakpoints (720/900). */
+
+/* 1. Grid children must be shrinkable. Grid items default to min-width:auto,
+   so ONE wide widget (heat map, health card, ticket rows) forces its 1fr
+   track — and the whole dashboard — wider than the viewport. This was the
+   root cause of the 819px document width on the home page at 390px. */
+.dash-grid > *,
+.dash-cols > * { min-width: 0; }
+
+/* 2. Capped lists already scroll vertically; let them scroll horizontally
+   too instead of blowing their content out through the card edge. */
+.scroll-cap, .scroll-cap-sm, .scroll-cap-lg {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 3. Health widget: the 140px+1fr score/detail grid can't fit at phone
+   width; stack it. Its columns must also be shrinkable (same min-width:auto
+   trap as #1) so long device names ellipsize instead of widening the card. */
+.hh-wrap > * { min-width: 0; }
+@media (max-width: 720px) {
+  .hh-wrap { grid-template-columns: 1fr; }
+}
+
+/* 4. The 4-/5-up stat rows (patches, CVE, summary) only collapse to a single
+   column at ≤600px; between 601 and 900px five cards clipped off-screen
+   (patches page scrolled to 1040px at a 768px viewport). Step through 2-up
+   first. */
+@media (max-width: 900px) {
+  .isl-134, .isl-136, .isl-139, .isl-142 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 5. Non-wrapping flex utility rows (toolbars, card headers, inline filter/
+   form rows) pushed buttons and inputs past the right edge on the devices,
+   monitor, cmdb, reports and patches pages at 390px — and STILL clipped at
+   768px, where the docked 240px sidebar leaves only ~500px of content width
+   (cmdb scoped-cred row, reports export buttons, patches actions). Let them
+   wrap on phone + tablet widths; desktop keeps the single-line layout. */
+@media (max-width: 1024px) {
+  .row-8, .row-8-mb8, .row-8-center, .section-header { flex-wrap: wrap; }
+}
+
+@media (max-width: 720px) {
+  /* 6. Devices minimal table: even with the low-priority columns hidden the
+     name+status+actions set is ~466px; scroll the wrap instead of the page.
+     (The wrap deliberately has no overflow on desktop so row menus can pop
+     out — on mobile the row menu is drawer-driven, so clipping is fine.) */
+  .devices-minimal-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 7. Nav tap targets: the drawer nav rows measured 36px and the burger
+     shrank to 18px wide (flex squeeze — its width is not a flex minimum).
+     40px is the audit bar; real touch devices additionally get the 44px
+     pointer:coarse bump below. */
+  .sidebar .nav-btn, .sidebar .sidebar-group-toggle { min-height: 40px; }
+  .mobile-burger {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+}
+
+/* 8. Sidebar group toggles were missing from the coarse-pointer tap-target
+   bump (nav-btn/btn-icon already get 44px there). */
+@media (hover: none) and (pointer: coarse) {
+  .sidebar-group-toggle { min-height: 44px; }
+}
