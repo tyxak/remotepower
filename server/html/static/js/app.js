@@ -3016,6 +3016,16 @@ async function loadSettings() {
   if (_cae) {
     _cae.checked = !!data.change_approval_enabled;
     const ns = document.getElementById('cfg-change-approval-no-self'); if (ns) ns.checked = data.change_approval_no_self !== false;
+    // v5.8.0 (B3.4): render the per-kind gate checkboxes from the offerable set.
+    const box = document.getElementById('cfg-approval-kinds');
+    if (box) {
+      const all = data.approval_kinds_all || ['reboot','shutdown','update','uninstall','upgrade','container'];
+      const gated = new Set(data.approval_gated_kinds || []);
+      const label = { reboot:'Reboot', shutdown:'Shutdown', update:'Agent update', uninstall:'Agent uninstall', upgrade:'Package upgrade', container:'Container action', exec:'Run command', compose:'Compose', service:'Service control', process:'Kill process', scan:'Scan' };
+      box.innerHTML = all.map(k =>
+        `<label class="form-label fs-13"><input type="checkbox" class="cfg-approval-kind" value="${escAttr(k)}" ${gated.has(k) ? 'checked' : ''}> ${escHtml(label[k] || k)}</label>`
+      ).join('');
+    }
   }
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
@@ -3469,6 +3479,10 @@ async function saveSettings(btn) {
   if (_caEn) {
     payload.change_approval_enabled = _caEn.checked;
     payload.change_approval_no_self = !!document.getElementById('cfg-change-approval-no-self')?.checked;
+    // v5.8.0 (B3.4): collect the checked gate kinds (server falls back to the
+    // default set if the list ends up empty).
+    const kinds = Array.from(document.querySelectorAll('.cfg-approval-kind:checked')).map(el => el.value);
+    payload.approval_gated_kinds = kinds;
   }
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');

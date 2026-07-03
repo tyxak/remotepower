@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-7">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-7">
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-7">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-8">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-8">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-8">
 
 </head>
 <body>
@@ -1923,9 +1923,14 @@
           <!-- v3.7.0 (moved to Security in v3.8.0): change approval (maker-checker) -->
           <div class="settings-section">
             <div class="section-title">Change approval (maker-checker)</div>
-            <p class="hint">When enabled, risky actions — Run command, reboot, shutdown, package update/upgrade, agent uninstall, and container start/stop/restart — are parked as a pending approval instead of executing immediately. A second admin approves them on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
+            <p class="hint">When enabled, the selected command kinds are parked as a pending approval instead of executing immediately. A second admin approves them on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for risky actions</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
+            <!-- v5.8.0 (B3.4): which command kinds require a second approver -->
+            <div class="form-group"><label class="form-label">Actions that require approval</label>
+              <div class="hint mb-6">Pick which command kinds are gated. Broaden it (e.g. add <strong>Run command</strong>, <strong>Compose</strong>, <strong>Service control</strong>) for a stricter posture, or narrow it.</div>
+              <div id="cfg-approval-kinds" class="flex-wrap-6"></div>
+            </div>
           </div>
 
           <!-- v3.12.0: host-audit toggle (listening ports + firewall drift) -->
@@ -8581,46 +8586,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-7"></script>
-<script defer src="static/js/app.js?v=5.8.0-7"></script>
+<script defer src="static/js/i18n.js?v=5.8.0-8"></script>
+<script defer src="static/js/app.js?v=5.8.0-8"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-network.js?v=5.8.0-8"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0-8"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-7"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-power.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0-8"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0-8"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-7"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0-8"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0-8"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-7"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0-8"></script>
 </body>
 </html>

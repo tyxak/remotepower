@@ -701,6 +701,13 @@ import ip_reputation
 # v4.7.0: homelab software integrations — per-product API connectors. Pure
 # parse functions; this file owns the SSRF-safe client, poll cadence + alerting.
 import integrations as integrations_mod
+# v5.8.0 (B5.1): load any operator-installed connector plugins from
+# server/cgi-bin/connectors.d/*.py (root-owned, filesystem-only). Best-effort:
+# a bad plugin is logged + skipped inside load_plugins, never fatal.
+try:
+    integrations_mod.load_plugins()
+except Exception as _e:   # pragma: no cover - defensive
+    sys.stderr.write(f'[remotepower] connector plugin load failed: {_e}\n')
 import hypervisor as hypervisor_mod   # v5.6.0: vSphere/OpenShift/vCloud lifecycle drivers
 import notify as notify_mod    # notification-channel payload builders (pure)
 import checks as checks_mod    # per-host Checks engine (pure)
@@ -14807,9 +14814,17 @@ MAX_QUEUED_PER_DEVICE = 100
 
 
 # v3.14.0: 4-eyes approval. When change_approval_enabled, these queued-command
-# kinds are parked as a confirmation for a SECOND admin to approve (exec is
-# already gated in handle_custom_cmd). Reuses the MCP confirmations store + UI.
+# kinds are parked as a confirmation for a SECOND admin to approve. Reuses the
+# MCP confirmations store + UI.
+# v5.8.0 (B3.4): the gated set is now a config-tunable subset of
+# _APPROVAL_KINDS_ALL — the tuple below is only the DEFAULT. An operator can add
+# arbitrary-exec / compose / service / process to the gate for a stricter
+# posture, or narrow it. `_needs_approval` reads `approval_gated_kinds` from cfg.
 _APPROVAL_GATED_KINDS = ('reboot', 'shutdown', 'update', 'uninstall', 'upgrade', 'container')
+# Every command kind that CAN be put behind the four-eyes gate (what the Settings
+# UI offers). Must be a superset of the default; each maps to a _command_kind().
+_APPROVAL_KINDS_ALL = ('reboot', 'shutdown', 'update', 'uninstall', 'upgrade',
+                       'container', 'exec', 'compose', 'service', 'process', 'scan')
 
 
 def _command_kind(command):
@@ -14831,9 +14846,20 @@ def _command_kind(command):
     return 'other'
 
 
+def _approval_gated_kinds(cfg):
+    """The configured set of command kinds behind the four-eyes gate. Defaults to
+    _APPROVAL_GATED_KINDS; a saved `approval_gated_kinds` list (validated on save
+    to a subset of _APPROVAL_KINDS_ALL) overrides it."""
+    raw = cfg.get('approval_gated_kinds')
+    if isinstance(raw, (list, tuple)):
+        gated = tuple(k for k in raw if k in _APPROVAL_KINDS_ALL)
+        return gated
+    return _APPROVAL_GATED_KINDS
+
+
 def _needs_approval(kind, cfg=None):
     cfg = cfg if cfg is not None else (load(CONFIG_FILE) or {})
-    return bool(cfg.get('change_approval_enabled')) and kind in _APPROVAL_GATED_KINDS
+    return bool(cfg.get('change_approval_enabled')) and kind in _approval_gated_kinds(cfg)
 
 
 def _park_for_approval(dev_id, command, actor, kind):
@@ -17035,6 +17061,10 @@ def handle_config_get():
         safe.setdefault('cloud_accounts', [])
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
+    # v5.8.0 (B3.4): surface the gated-kinds list (+ the full offerable set) so
+    # the Settings UI can render the per-kind checkboxes.
+    safe.setdefault('approval_gated_kinds', list(_APPROVAL_GATED_KINDS))
+    safe['approval_kinds_all'] = list(_APPROVAL_KINDS_ALL)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
@@ -18300,6 +18330,16 @@ def handle_config_save():
         cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
     if 'change_approval_no_self' in body:
         cfg['change_approval_no_self'] = bool(body['change_approval_no_self'])
+    # v5.8.0 (B3.4): which command kinds require a second approver. Validate to a
+    # subset of the offerable set; an empty/invalid list falls back to the default
+    # (a bad value must not silently disable the gate).
+    if 'approval_gated_kinds' in body:
+        raw = body['approval_gated_kinds']
+        if isinstance(raw, list):
+            kinds = [k for k in raw if isinstance(k, str) and k in _APPROVAL_KINDS_ALL]
+            cfg['approval_gated_kinds'] = kinds if kinds else list(_APPROVAL_GATED_KINDS)
+        else:
+            respond(400, {'error': 'approval_gated_kinds must be a list'})
     # v3.14.0: cert-expiry alerts (opt-in — noisy on hosts with many service certs)
     if 'cert_expiry_alerts_enabled' in body:
         cfg['cert_expiry_alerts_enabled'] = bool(body['cert_expiry_alerts_enabled'])

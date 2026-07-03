@@ -135,6 +135,49 @@ def _field(key, label, kind=PASSWORD, optional=False, placeholder=""):
     }
 
 
+PLUGIN_CONNECTORS: set = set()  # type_ids registered by a connectors.d/ plugin
+
+
+def load_plugins(plugin_dir=None):
+    """v5.8.0 (B5.1): import every ``*.py`` under ``connectors.d/`` so third-party
+    connector files self-register via the same ``@_register`` decorator the
+    built-ins use. Returns the list of loaded filenames.
+
+    SECURITY: this executes arbitrary Python as the web user, exactly like the
+    rest of cgi-bin. The directory MUST therefore be root-owned and only writable
+    by the operator (same as cgi-bin) — there is deliberately NO UI upload path;
+    plugins are filesystem-only. A plugin that raises on import is logged and
+    skipped so one bad file can't take the whole feature down."""
+    import glob
+    import importlib.util
+    import os
+    import sys
+
+    if plugin_dir is None:
+        plugin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "connectors.d")
+    loaded = []
+    if not os.path.isdir(plugin_dir):
+        return loaded
+    before = set(CONNECTORS)
+    for path in sorted(glob.glob(os.path.join(plugin_dir, "*.py"))):
+        base = os.path.basename(path)
+        modname = "rp_connector_" + os.path.splitext(base)[0]
+        try:
+            spec = importlib.util.spec_from_file_location(modname, path)
+            if spec is None or spec.loader is None:
+                continue
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            loaded.append(base)
+        except Exception as e:  # a bad plugin must not break the feature
+            sys.stderr.write(
+                f"[remotepower] connector plugin {base} failed to load: "
+                f"{e.__class__.__name__}: {e}\n"
+            )
+    PLUGIN_CONNECTORS.update(set(CONNECTORS) - before)
+    return loaded
+
+
 def list_connectors():
     """UI-facing catalog (no health fns), sorted by category then label."""
     out = []

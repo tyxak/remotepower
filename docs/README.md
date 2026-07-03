@@ -11,6 +11,8 @@ holds long-form docs that don't fit there.
  hardening, daily ops, backup/restore, upgrades, troubleshooting.
 - **[features.md](features.md)** — Full feature inventory and the
  per-feature guide.
+- **[writing-a-connector.md](writing-a-connector.md)** — Write your own
+ integration connector plugin (drop-in `connectors.d/*.py`).
 - **[cookbook.md](cookbook.md)** — Task-shaped recipes: "I want to do X — here
  are the steps" (monitor a host, 3-2-1 backups, tame alert noise, roll out
  safely, …).

@@ -65,8 +65,21 @@ All notable changes to RemotePower. Newest first.
   on in Settings → Notifications to page on new issues. Dashboard/Integrations
   tiles show repo + open-issue counts like every other connector.
 
+### Added
+
+- **Connector plugins.** Drop a `*.py` file into `server/cgi-bin/connectors.d/`
+  to add your own homelab integration connector via the same `@_register`
+  decorator the built-ins use — no source patch. Root-owned and filesystem-only
+  (no UI upload); a plugin that fails to import is logged and skipped. See
+  `docs/writing-a-connector.md`.
+
 ### Changed
 
+- **Four-eyes approval is now configurable.** The set of command kinds that
+  require a second admin's approval is no longer fixed — Settings → Security lets
+  you pick from reboot, shutdown, agent update/upgrade/uninstall, container
+  actions (the defaults) plus **Run command, Compose, Service control, Kill
+  process and Scan**. A bad/empty selection safely falls back to the default set.
 - **Dashboard & account card headers migrated to the canonical `.section-title`.**
   All dashboard-widget and account-page card headers now use the standard header
   element, so in the New UI (industrial skin) they render as the chamfered card

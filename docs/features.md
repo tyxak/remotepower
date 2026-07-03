@@ -149,7 +149,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Update history | Rolling 10-run buffer of apt/dnf/pacman output per device |
 | Command queue | View + cancel every device's pending queued commands; ACME actions logged; clear-all/clear-log *(v3.4.2)* |
 | Bulk delete & re-tag | Select many devices, remove or tag in one action *(v5.0.0)* |
-| Maker-checker approval | A second admin signs off arbitrary command runs; re-checks device state at approval *(v3.7.0)* |
+| Maker-checker approval | A second admin signs off risky actions; re-checks device state at approval *(v3.7.0)*; **configurable gated-kind set** — pick which command kinds require approval (reboot/shutdown/upgrade/uninstall/container by default; can add Run-command/Compose/Service/Kill) *(v5.8.0)* |
 | Quarantine | Per-device admin switch disabling every action, enforced at dispatch, audited *(v3.4.0)* |
 | Audit (read-only) mode | `/etc/remotepower/audit-mode` makes the agent refuse every command (exec/scripts/reboot/config/self-update); operator-owned; AUDIT badge *(v4.10.0)* |
 | Uninstall agent | Queues uninstall; agent removes unit/creds/state/binary *(v3.3.0)* |
@@ -408,6 +408,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Integration subsystem | Read-only server-side polling, folded into Alerts + dashboard; `integration_down` (auto-resolved); SSRF-guarded; admin-only URLs; **Show Homelab software** kill switch |
 | 39 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues, Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, RemotePower (peer instance) *(all v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
 | Custom HTTP probe plugin | Declarative — turn an endpoint's status/body/JSON field into a health signal; SSRF-guarded *(v5.1.0)* |
+| Connector plugins | Drop a `*.py` in `connectors.d/` to add your own integration connector via the same `@_register` decorator — root-owned, filesystem-only, load-fail-safe; full guide in [writing-a-connector.md](writing-a-connector.md) *(v5.8.0)* |
 | GitHub issue monitor | Watch repos (`owner/repo`, multiple per instance) for newly opened issues → `github_new_issue` alert in the Alerts inbox (PRs ignored, first poll baselines; webhook/paging off by default) *(v5.8.0)* |
 
 ## Agents
