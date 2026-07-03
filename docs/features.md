@@ -235,6 +235,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Container detail | Per-device list — health badge, live CPU%/mem, published ports, stale pill *(v3.4.2)* |
 | Container alerts | `container_stopped`, `container_restarting`, `containers_stale` *(v1.11.4)* |
 | Image updates | Pulled-digest vs registry digest → stale flag on Image Updates page; one-click compose pull + up -d *(v3.3.4 / v3.9.0)*; **standalone-container Update** (pull image + recreate with the same config; compose-managed refused) *(v5.8.0)* |
+| Patch rings | An auto-patch policy can patch in **staged rings** (canary → wave → rest) — spawns a health-gated rollout that verifies each ring before the next and auto-halts on a health drop; optional per-ring reboot *(v5.8.0)* |
 | Proxmox VE | Connect one node (scoped API token); QEMU VM + LXC start/shutdown, server-to-API *(v2.3.0)* |
 | Proxmox snapshots | Create/list/roll-back/delete per guest; type-to-confirm rollback *(v2.4.0)* |
 | Proxmox create / delete | LXC create wizard + delete *(v3.5.0)*; QEMU VM create wizard *(v3.7.0)* |

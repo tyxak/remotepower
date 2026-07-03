@@ -12,6 +12,12 @@ All notable changes to RemotePower. Newest first.
   RemotePower's public health (device/offline/open-alert counts via a viewer API
   key — off-site visibility, not federation). 39 connectors in total now (plus
   the Custom HTTP probe).
+- **Patch rings (staged auto-patch).** An auto-patch policy can now define
+  ordered **rings** (e.g. canary → wave 2 → rest). When it fires it spawns a
+  health-gated rollout that patches one ring, verifies it, and only then
+  promotes to the next — auto-halting if a host's health score drops. Optional
+  per-ring reboot. A policy without rings patches the whole target at once, as
+  before. Configure it in the auto-patch policy form.
 - **Standalone-container Update.** The Containers view gains an Update action on
   running non-compose containers: the agent pulls the latest image and recreates
   the container with the same configuration (name, env, ports, mounts, restart

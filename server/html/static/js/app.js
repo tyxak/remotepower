@@ -6684,6 +6684,51 @@ async function loadAutopatch() {
   _autopatchCache = d.policies || [];
   tableCtl.render('autopatch', _autopatchCache);
 }
+// v5.8.0 (B1.3): show/hide the staged-rollout (rings) config.
+function onAutopatchStagedToggle() {
+  const on = document.getElementById('autopatch-staged')?.checked;
+  document.getElementById('autopatch-rings-box')?.classList.toggle('hidden', !on);
+}
+// Serialize the rings textarea ("name = tag:value" per line) to the API shape.
+function _autopatchParseRings() {
+  const raw = document.getElementById('autopatch-rings')?.value || '';
+  const rings = [];
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const eq = t.indexOf('=');
+    const name = eq >= 0 ? t.slice(0, eq).trim() : '';
+    const spec = (eq >= 0 ? t.slice(eq + 1) : t).trim();
+    const colon = spec.indexOf(':');
+    if (colon < 0) continue;
+    const type = spec.slice(0, colon).trim();
+    const val = spec.slice(colon + 1).trim();
+    if (type === 'ids') {
+      rings.push({ name, selector: { type: 'ids', ids: val.split(',').map(s => s.trim()).filter(Boolean) } });
+    } else if (type === 'group' || type === 'tag') {
+      rings.push({ name, selector: { type, value: val } });
+    }
+  }
+  return rings;
+}
+// Render the rings config back into the textarea for editing.
+function _autopatchRingsToText(rings) {
+  return (rings || []).map(r => {
+    const s = r.selector || {};
+    const spec = s.type === 'ids' ? `ids:${(s.ids || []).join(',')}` : `${s.type}:${s.value || ''}`;
+    return `${r.name || ''} = ${spec}`;
+  }).join('\n');
+}
+function _autopatchSetStaged(p) {
+  const staged = !!(p && p.rings && p.rings.length);
+  document.getElementById('autopatch-staged').checked = staged;
+  document.getElementById('autopatch-rings').value = staged ? _autopatchRingsToText(p.rings) : '';
+  document.getElementById('autopatch-autopromote').checked = p ? (p.auto_promote !== false) : true;
+  document.getElementById('autopatch-verify').value = (p && p.verify_minutes) || 15;
+  document.getElementById('autopatch-gate').checked = !!(p && p.health_gate && p.health_gate.enabled);
+  document.getElementById('autopatch-gate-threshold').value = (p && p.health_gate && p.health_gate.threshold) || 70;
+  onAutopatchStagedToggle();
+}
 function openAutopatchCreate() {
   document.getElementById('autopatch-edit-id').value = '';
   document.getElementById('autopatch-name').value = '';
@@ -6691,6 +6736,7 @@ function openAutopatchCreate() {
   document.getElementById('autopatch-target-value').value = '';
   document.getElementById('autopatch-cron').value = '0 3 * * 0';
   document.getElementById('autopatch-reboot').checked = false;
+  _autopatchSetStaged(null);
   document.getElementById('autopatch-modal-title').textContent = 'New auto-patch policy';
   document.getElementById('autopatch-save-btn').textContent = 'Create';
   openModal('autopatch-modal');
@@ -6703,6 +6749,7 @@ function _autopatchEditBtn(btn) {
   document.getElementById('autopatch-target-value').value = p.target?.value || '';
   document.getElementById('autopatch-cron').value = p.cron || '';
   document.getElementById('autopatch-reboot').checked = !!p.reboot;
+  _autopatchSetStaged(p);
   document.getElementById('autopatch-modal-title').textContent = 'Edit auto-patch policy';
   document.getElementById('autopatch-save-btn').textContent = 'Save';
   openModal('autopatch-modal');
@@ -6716,6 +6763,19 @@ async function saveAutopatch() {
     cron: document.getElementById('autopatch-cron').value.trim(),
     reboot: document.getElementById('autopatch-reboot').checked,
   };
+  // v5.8.0 (B1.3): staged rollout config. An empty rings list clears staged mode.
+  if (document.getElementById('autopatch-staged').checked) {
+    body.rings = _autopatchParseRings();
+    if (!body.rings.length) { toast('Staged rollout needs at least one ring (e.g. "canary = tag:canary")', 'error'); return; }
+    body.auto_promote = document.getElementById('autopatch-autopromote').checked;
+    body.verify_minutes = parseInt(document.getElementById('autopatch-verify').value) || 15;
+    body.health_gate = {
+      enabled: document.getElementById('autopatch-gate').checked,
+      threshold: parseInt(document.getElementById('autopatch-gate-threshold').value) || 70,
+    };
+  } else {
+    body.rings = [];   // explicit clear on save
+  }
   if (!body.name) { toast('Name required', 'error'); return; }
   const d = id ? await api('PUT', '/autopatch/' + encodeURIComponent(id), body)
                : await api('POST', '/autopatch', body);

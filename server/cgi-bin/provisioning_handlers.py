@@ -149,7 +149,11 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
     ids = A._rollout_resolve_ring(ring.get('selector'), devices)
     now = int(time.time())
     if roll.get('action') == 'upgrade':
-        queued = f'exec:{A._UPGRADE_CMD}'
+        # v5.8.0 (B1.3 patch rings): a reboot-flagged rollout uses the
+        # upgrade+reboot command so each ring reboots as it patches (health-gated
+        # per ring). Default = bare upgrade, no reboot (unchanged).
+        queued = (f'exec:{A._SCHED_UPGRADE_REBOOT_CMD}' if roll.get('reboot')
+                  else f'exec:{A._UPGRADE_CMD}')
     elif roll.get('action') == 'self-update':
         queued = 'update'   # the agent's own hash-verified self-update command
     else:

@@ -11633,6 +11633,18 @@ def handle_autopatch_create():
            'reboot': bool(body.get('reboot', False)), 'enabled': True,
            'created': int(time.time()), 'created_by': actor,
            'last_run': 0, 'last_fired_minute': None}
+    # v5.8.0 (B1.3): optional staged rollout. With `rings`, firing the policy
+    # spawns a health-gated rollout (canary → wave → rest) instead of a one-shot
+    # fan-out. Without rings, behaviour is unchanged.
+    _rings = _autopatch_clean_rings(body.get('rings'))
+    if _rings:
+        pol['rings'] = _rings
+        pol['auto_promote'] = bool(body.get('auto_promote', True))
+        pol['health_gate'] = _autopatch_clean_health_gate(body.get('health_gate'))
+        try:
+            pol['verify_minutes'] = max(1, min(120, int(body.get('verify_minutes') or 15)))
+        except (TypeError, ValueError):
+            pol['verify_minutes'] = 15
     data['policies'].append(pol)
     save(AUTOPATCH_FILE, data)
     _autopatch_sync(pol)   # v3.13.0: mirror into maintenance window + calendar
@@ -11666,6 +11678,22 @@ def handle_autopatch_update(pol_id):
         tv = _sanitize_str(str(body['target'].get('value', '')), 64)
         if tt in ('all', 'group', 'tag', 'site'):
             pol['target'] = {'type': tt, 'value': tv}
+    # v5.8.0 (B1.3): rings + gate. Passing an empty list clears staged mode.
+    if 'rings' in body:
+        _rings = _autopatch_clean_rings(body.get('rings'))
+        if _rings:
+            pol['rings'] = _rings
+        else:
+            pol.pop('rings', None)
+    if 'auto_promote' in body:
+        pol['auto_promote'] = bool(body['auto_promote'])
+    if 'health_gate' in body:
+        pol['health_gate'] = _autopatch_clean_health_gate(body.get('health_gate'))
+    if 'verify_minutes' in body:
+        try:
+            pol['verify_minutes'] = max(1, min(120, int(body['verify_minutes'])))
+        except (TypeError, ValueError):
+            pass
     save(AUTOPATCH_FILE, data)
     _autopatch_sync(pol)   # v3.13.0: keep the maintenance window + calendar in sync
     audit_log(actor, 'autopatch_update', detail=f'policy={pol_id}')
@@ -11688,9 +11716,105 @@ def handle_autopatch_delete(pol_id):
     respond(200, {'ok': True})
 
 
+def _autopatch_clean_rings(raw):
+    """Validate a policy's `rings` — a list of {name, selector:{type,value|ids}}
+    reusing the rollout ring shape. Returns a clean list (max 10) or []."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for r in raw[:10]:
+        if not isinstance(r, dict):
+            continue
+        sel = r.get('selector') or {}
+        st = sel.get('type')
+        if st not in ('group', 'tag', 'ids'):
+            continue
+        clean = {'type': st}
+        if st == 'ids':
+            clean['ids'] = [str(x).strip() for x in (sel.get('ids') or [])[:500]
+                            if _validate_id(str(x).strip())]
+            if not clean['ids']:
+                continue
+        else:
+            clean['value'] = _sanitize_str(str(sel.get('value', '')), 128)
+            if not clean['value']:
+                continue
+        out.append({'name': _sanitize_str(str(r.get('name', '')), 40) or f'ring {len(out)+1}',
+                    'selector': clean})
+    return out
+
+
+def _autopatch_clean_health_gate(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    try:
+        floor = max(1, min(100, int(raw.get('threshold', 70))))
+    except (TypeError, ValueError):
+        floor = 70
+    return {'enabled': bool(raw.get('enabled')), 'threshold': floor}
+
+
+def _autopatch_spawn_rollout(pol, actor):
+    """v5.8.0 (B1.3): fire a staged (ringed) auto-patch policy by SPAWNING a
+    health-gated rollout — reusing the rollout engine's ring state machine,
+    verify + health gate, and reboot handling. Returns the new rollout id.
+
+    Idempotent-ish: if this policy already has a rollout that's still running/
+    paused, don't spawn a duplicate (the cron would otherwise stack one per
+    matching minute). Started immediately in `running` so `_rollout_tick`
+    drives it."""
+    with _LockedUpdate(ROLLOUTS_FILE) as store:
+        rolls = store.setdefault('rollouts', [])
+        for r in rolls:
+            if (r.get('_autopatch_id') == pol['id']
+                    and r.get('state') in ('running', 'paused')):
+                return r.get('id')          # one active rollout per policy
+        try:
+            vmin = max(1, min(120, int(pol.get('verify_minutes', 15))))
+        except (TypeError, ValueError):
+            vmin = 15
+        roll = {
+            'id': secrets.token_hex(8),
+            'name': f'Auto-patch: {pol.get("name", pol["id"])}',
+            'action': 'upgrade',
+            'reboot': bool(pol.get('reboot')),   # v5.8.0: per-ring reboot support
+            'script_id': '', 'rollback_script_id': '',
+            'rings': [dict(r) for r in pol['rings']],
+            'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0,
+                             'ok_count': 0, 'failed_count': 0} for _ in pol['rings']],
+            'auto_promote': bool(pol.get('auto_promote', True)),
+            'verify_minutes': vmin,
+            'health_gate': _autopatch_clean_health_gate(pol.get('health_gate')),
+            'state': 'running',              # start immediately; tick drives rings
+            'current_ring': 0,
+            'history': [],
+            'created_by': actor,
+            'created_at': int(time.time()),
+            'updated_at': int(time.time()),
+            '_autopatch_id': pol['id'],      # link back (and the dedup key above)
+        }
+        _rollout_log(roll, f'spawned by auto-patch policy "{pol.get("name")}" — '
+                           f'{len(roll["rings"])} ring(s), '
+                           f'{"reboot, " if roll["reboot"] else ""}'
+                           f'{"health-gated" if roll["health_gate"]["enabled"] else "no gate"}')
+        if len(rolls) >= 100:
+            rolls.pop(0)                     # cap; drop the oldest
+        rolls.append(roll)
+    return roll['id']
+
+
 def _autopatch_queue(pol, actor):
-    """Queue the upgrade command to every device the policy targets. Returns
-    the count queued."""
+    """Fire a policy. Staged policies (with `rings`) spawn a health-gated rollout
+    (canary → wave → rest); flat policies queue the upgrade to the whole target
+    at once (unchanged). Returns the count queued (or the ring device count for
+    a staged policy)."""
+    if pol.get('rings'):
+        _autopatch_spawn_rollout(pol, actor)
+        # Report how many devices the rings cover, for the run response.
+        devices = load(DEVICES_FILE)
+        covered = set()
+        for ring in pol['rings']:
+            covered.update(_rollout_resolve_ring(ring.get('selector'), devices))
+        return len(covered)
     cmd = (f'exec:{_SCHED_UPGRADE_REBOOT_CMD}' if pol.get('reboot')
            else f'exec:{_SCHED_UPGRADE_CMD}')
     targets = _autopatch_target_devices(pol.get('target'))
