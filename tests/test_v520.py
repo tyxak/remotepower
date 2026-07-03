@@ -61,8 +61,9 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"What's new — v{self.V}",
                       (_ROOT / "server/html/index.html").read_text())
 
-    def test_codename(self):
-        self.assertIn("AccessMatters", (_ROOT / "docs" / "v5.2.0.md").read_text())
+    # test_codename removed on the v5.7.0 bump: docs/v5.2.0.md was pruned to the
+    # keep-5 set, so its codename can no longer be asserted here (this class is
+    # already loosened to the current version; strict pins live in test_v570).
 
 
 if __name__ == "__main__":

@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.6.0">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.6.0">
-<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-49">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.7.0">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.7.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.7.0">
 
 </head>
 <body>
@@ -3077,7 +3077,31 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.6.0 heapmatters provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure as code render apply plan destroy run execute server-side ansible playbook catalog folder spin up machine deploy enroll alert tuning noise noisy mute silence ignore suppress quiet ack acknowledge timesheet watcher watch team finance read-only optional features settings save hanging file manager virtualization vmware vsphere vcenter esxi cloud director vcloud openshift kubevirt hypervisor vm power snapshot knowledge base kb sop runbook howto article rag automation action open ticket add tag mute">
+          <details class="doc-card" open data-keywords="release notes changelog v5.7.0 f4ct0rmatters factormatters refactor bugfix new ui industrial light mode theme themes accent color picker tokyo dracula nord gruvbox chamfer chamfered button profile menu account dropdown delete device remove device mobile responsive narrow viewport 390px touch target ticket lifecycle opened resolved config secret encryption rp_config_key at rest rls row level security multi-table tenant lazy template page first paint font preload navigation preload entity storage heartbeat api.py decomposition module notify checks tickets provisioning backups cmdb handlers event registry route table release-prep settings groups">
+            <summary><strong>What's new — v5.7.0 "F4ct0rMatters"</strong> — a refactor-and-fix release: fixes five New-UI theming / light-mode / accent bugs (device delete, profile menu, accent picker, themes, chamfered buttons) and a mobile pass, adds ticket lifecycle events and whole-tree config-secret encryption + multi-table Postgres RLS (opt-in), and starts faster on a slimmer, modular server (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.7.0 "F4ct0rMatters" is a refactor-and-fix release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.7.0</code>).</p>
+              <p><strong>Fixed — the New UI</strong> (all reported by @AndiBSE)</p>
+              <ul>
+                <li><strong>Devices can be deleted again</strong> — the drawer's <em>Remove device</em> button silently did nothing; it now confirms and deletes (every device type).</li>
+                <li><strong>Profile menu is readable in light mode</strong>; the <strong>accent picker</strong> and full <strong>themes</strong> (Tokyo / Dracula / Nord / …) now work in the New UI; and the accent reaches <strong>chamfered buttons</strong> in light mode too.</li>
+                <li><strong>Mobile / narrow viewports</strong>: no page scrolls sideways at phone width; header controls and the devices grid reflow for touch.</li>
+              </ul>
+              <p><strong>Added</strong> (opt-in)</p>
+              <ul>
+                <li><strong>Ticket lifecycle events</strong> — <code>ticket_opened</code> / <code>ticket_resolved</code> to the feed + webhooks; resolving a ticket auto-closes its SLA-breach alert.</li>
+                <li><strong>Config-secret encryption — full coverage</strong>: set <code>RP_CONFIG_KEY</code> and every secret at any depth (ACME DNS creds, webhook tokens, AI keys, integration secrets) is AES-GCM encrypted at rest, decrypted transparently on use.</li>
+                <li><strong>Postgres row-level security — multi-table</strong>: tenant isolation now covers per-device entity / list / metric rows, not just the roster.</li>
+              </ul>
+              <p><strong>Faster &amp; cleaner</strong></p>
+              <ul>
+                <li>Parallel font loading + preloads, service-worker navigation preload, and lazy <code>&lt;template&gt;</code> pages cut the boot DOM ~a third; the Postgres heartbeat writes one row instead of the whole fleet's blob.</li>
+                <li>The server is modular now (<code>api.py</code> ~57k→~52k lines) and Settings is grouped into Setup / Monitoring / Connections / System.</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.7.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.6.0 heapmatters provisioning blueprint terraform cloud-init ipxe pxe iac infrastructure as code render apply plan destroy run execute server-side ansible playbook catalog folder spin up machine deploy enroll alert tuning noise noisy mute silence ignore suppress quiet ack acknowledge timesheet watcher watch team finance read-only optional features settings save hanging file manager virtualization vmware vsphere vcenter esxi cloud director vcloud openshift kubevirt hypervisor vm power snapshot knowledge base kb sop runbook howto article rag automation action open ticket add tag mute">
             <summary><strong>What's new — v5.6.0 "HeapMatters"</strong> — the IaC / automation + alert-tuning release: a <strong>Provisioning</strong> blueprint catalog (Terraform / cloud-init / Ansible / iPXE) that renders or runs Terraform server-side, an <strong>alert Tuning</strong> page with per-host mute, and <strong>timesheet watchers</strong> (all opt-in, no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.6.0 "HeapMatters" is the IaC / automation + alert-tuning release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.6.0</code>).</p>
@@ -3160,19 +3184,6 @@
                 <li><strong>Contacts.</strong> A shared internal phonebook under <em>Admin → Contacts</em>.</li>
               </ul>
               <p class="hint">See <code>docs/ticket-system.md</code> and <code>docs/v5.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.2.0 accessmatters wg access wireguard vpn road-warrior road warrior tunnel client peer keypair qr code conf config split tunnel full tunnel reach scope dashboard fleet curve25519 x25519 in-browser browser keygen private key endpoint allowed ips handshake">
-            <summary><strong>What's new — v5.2.0 "AccessMatters"</strong> — WG Access: a built-in WireGuard road-warrior VPN that lets people reach the dashboard and fleet over an encrypted tunnel (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.2.0 adds <strong>WG Access</strong> (Admin → WG Access): a turnkey WireGuard road-warrior VPN. Define a tunnel, scope what it can reach, then issue per-device client configs — keys are generated in your browser, so the private key never touches the server. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.2.0</code>).</p>
-              <ul>
-                <li><strong>Tunnels.</strong> Create a WireGuard hub interface and choose its <em>reach</em> — dashboard-only, the entire fleet, or a single site / group / tag — plus full-tunnel (route all traffic) or split-tunnel, an optional DNS, and an optional expiry. One sortable table shows each tunnel's reach, connected/total clients, listen port and expiry.</li>
-                <li><strong>Clients.</strong> Issue a per-device config under a tunnel. The keypair (Curve25519) is generated <strong>in your browser</strong>; only the public key is sent to the server. You get a ready-to-use <code>.conf</code> and a QR to scan in the WireGuard app — shown once, never stored.</li>
-                <li><strong>Live status.</strong> Per-client connection state (connected / idle / offline), last handshake age and rx/tx transfer, so you can see who's actually on the tunnel.</li>
-                <li><strong>Events.</strong> New fleet activity for <code>vpn_client_connected</code>, <code>vpn_client_disconnected</code> and <code>vpn_handshake_stale</code>, click-through to the WG Access page.</li>
-              </ul>
-              <p class="hint">Open <em>Admin → WG Access</em>. Requires the WireGuard helper on the server. See <code>docs/v5.2.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -8543,46 +8554,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.6.0-2"></script>
-<script defer src="static/js/app.js?v=5.6.0-50"></script>
+<script defer src="static/js/i18n.js?v=5.7.0"></script>
+<script defer src="static/js/app.js?v=5.7.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.6.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.6.0"></script>
-<script defer src="static/js/app-containers.js?v=5.6.0"></script>
-<script defer src="static/js/app-network.js?v=5.6.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.7.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.7.0"></script>
+<script defer src="static/js/app-containers.js?v=5.7.0"></script>
+<script defer src="static/js/app-network.js?v=5.7.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.6.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.6.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.6.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.7.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.7.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.7.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.6.0"></script>
-<script defer src="static/js/app-dns.js?v=5.6.0"></script>
-<script defer src="static/js/app-drift.js?v=5.6.0"></script>
-<script defer src="static/js/app-dmarc.js?v=5.6.0"></script>
-<script defer src="static/js/app-cve.js?v=5.6.0"></script>
-<script defer src="static/js/app-firewall.js?v=5.6.0"></script>
-<script defer src="static/js/app-backups.js?v=5.6.0"></script>
-<script defer src="static/js/app-iac.js?v=5.6.0"></script>
-<script defer src="static/js/app-provisioning.js?v=5.6.0"></script>
-<script defer src="static/js/app-tuning.js?v=5.6.0"></script>
-<script defer src="static/js/app-kb.js?v=5.6.0"></script>
-<script defer src="static/js/app-rollouts.js?v=5.6.0"></script>
-<script defer src="static/js/app-power.js?v=5.6.0"></script>
-<script defer src="static/js/app-gpu.js?v=5.6.0"></script>
-<script defer src="static/js/app-proxmox.js?v=5.6.0"></script>
-<script defer src="static/js/wg-access.js?v=5.6.0"></script>
-<script defer src="static/js/app-billing.js?v=5.6.0"></script>
-<script defer src="static/js/app-virt.js?v=5.6.0"></script>
+<script defer src="static/js/app-ai.js?v=5.7.0"></script>
+<script defer src="static/js/app-dns.js?v=5.7.0"></script>
+<script defer src="static/js/app-drift.js?v=5.7.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.7.0"></script>
+<script defer src="static/js/app-cve.js?v=5.7.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.7.0"></script>
+<script defer src="static/js/app-backups.js?v=5.7.0"></script>
+<script defer src="static/js/app-iac.js?v=5.7.0"></script>
+<script defer src="static/js/app-provisioning.js?v=5.7.0"></script>
+<script defer src="static/js/app-tuning.js?v=5.7.0"></script>
+<script defer src="static/js/app-kb.js?v=5.7.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.7.0"></script>
+<script defer src="static/js/app-power.js?v=5.7.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.7.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.7.0"></script>
+<script defer src="static/js/wg-access.js?v=5.7.0"></script>
+<script defer src="static/js/app-billing.js?v=5.7.0"></script>
+<script defer src="static/js/app-virt.js?v=5.7.0"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.6.0"></script>
-<script defer src="static/js/app-checks.js?v=5.6.0"></script>
-<script defer src="static/js/app-logs.js?v=5.6.0"></script>
-<script defer src="static/js/app-remote.js?v=5.6.0"></script>
-<script defer src="static/js/app-tickets.js?v=5.6.0"></script>
+<script defer src="static/js/app-alerts.js?v=5.7.0"></script>
+<script defer src="static/js/app-checks.js?v=5.7.0"></script>
+<script defer src="static/js/app-logs.js?v=5.7.0"></script>
+<script defer src="static/js/app-remote.js?v=5.7.0"></script>
+<script defer src="static/js/app-tickets.js?v=5.7.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.6.0"></script>
+<script defer src="static/js/sw-register.js?v=5.7.0"></script>
 </body>
 </html>

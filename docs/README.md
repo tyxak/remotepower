@@ -63,6 +63,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.7.0.md](v5.7.0.md)** — "F4ct0rMatters": a refactor-and-fix release.
+ Fixes five New-UI theming/accent/light-mode bugs (device delete, profile menu,
+ accent picker, themes, chamfered buttons) reported by @AndiBSE and a mobile
+ pass; adds ticket lifecycle events, full-tree config-secret encryption and
+ multi-table Postgres RLS (both opt-in); and is faster to start (lazy pages,
+ parallel fonts) on a much slimmer, modular server. No breaking changes.
 - **[v5.6.0.md](v5.6.0.md)** — "HeapMatters": the IaC / automation +
  alert-tuning release. An opt-in **Provisioning** blueprint catalog (Terraform /
  cloud-init / Ansible / iPXE) that renders to copy/download or **runs Terraform
@@ -90,12 +96,6 @@ The five most recent per-release notes are kept here:
  an HTML signature — plus an internal **Contacts** directory, a tickets AI/RAG
  source + Helpdesk-triage advisor, and a whole-project hardening/perf/consistency
  sweep. No breaking changes.
-- **[v5.2.0.md](v5.2.0.md)** — "AccessMatters": **WG Access**, a built-in light
- WireGuard road-warrior VPN (Admin → WG Access). Reach the dashboard and fleet
- over an encrypted tunnel: tunnels carry a reach scope (dashboard-only / fleet /
- site / group / tag), full- or split-tunnel egress and optional auto-expiry;
- per-client `.conf` + QR configs are issued with keys generated in your browser.
- No breaking changes.
 
 Older release notes (v5.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

@@ -28,6 +28,13 @@ Thanks to everyone who has contributed fixes, features, and reports.
     supports API keys for per-app usage tracking)
   - #11 — requested the ability to run embeddings on a different provider/service
     than chat (separate embedding endpoint + key)
+- **@AndiBSE** — first contributed in v5.7.0:
+  - #17 — reported that devices could not be deleted (the drawer's Remove action
+    called an undefined function and silently threw)
+  - #18 — reported the account/profile menu was unreadable in light mode
+  - #19 — reported the accent-colour picker was ignored in the New UI (and, in
+    follow-up, that full themes and the accent on chamfered buttons in light mode
+    were affected by the same class of bug)
 
 ---
 

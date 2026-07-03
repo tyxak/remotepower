@@ -1,9 +1,10 @@
-"""Strict version-surface pins for v5.6.0 "HeapMatters" — the IaC /
-automation + alert-tuning release (Provisioning blueprint catalog + server-side
-Terraform exec, Monitoring → Tuning with per-host alert mute, timesheet watchers).
+"""Strict version-surface pins for v5.7.0 "F4ct0rMatters" — the refactor-and-fix
+release (New-UI theming/accent/light-mode fixes reported by @AndiBSE, api.py
+decomposition into bound modules, whole-tree config-secret encryption,
+multi-table Postgres RLS, lazy pages + parallel fonts).
 
-Loosen TestVersionBumps to dynamic (V = api.SERVER_VERSION) on the next bump, the
-same way test_v540 / test_v550 were loosened.
+Loosen TestVersionBumps to dynamic (V = api.SERVER_VERSION) on the NEXT bump,
+the same way test_v540 / test_v550 / test_v560 were loosened.
 """
 import importlib.util
 import os
@@ -15,8 +16,8 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 _CGI = _ROOT / "server" / "cgi-bin"
 sys.path.insert(0, str(_CGI))
-os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v560-test-"))
-_spec = importlib.util.spec_from_file_location("api_v560_ver", _CGI / "api.py")
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp(prefix="rp-v570-test-"))
+_spec = importlib.util.spec_from_file_location("api_v570_ver", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
@@ -26,9 +27,7 @@ def _html():
 
 
 class TestVersionBumps(unittest.TestCase):
-    # v5.7.0: loosened to dynamic (tracks the current SERVER_VERSION) so a
-    # bump doesn't fail this file — the strict pins live in test_v570.py.
-    V = api.SERVER_VERSION
+    V = "5.7.0"
 
     def test_server_version(self):
         self.assertEqual(api.SERVER_VERSION, self.V)
@@ -49,7 +48,8 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"?v={self.V}", _html())
 
     def test_no_stale_cachebust(self):
-        self.assertNotIn("?v=5.5.0", _html())
+        # every ?v= must be the current version — no lingering 5.6.0 busts
+        self.assertNotIn("?v=5.6.0", _html())
 
     def test_readme_and_changelog(self):
         self.assertIn(f"version-{self.V}-blue", (_ROOT / "README.md").read_text())
@@ -66,29 +66,23 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"What's new — v{self.V}", _html())
 
     def test_changelog_codename(self):
-        self.assertIn('## v5.6.0 — "HeapMatters"', (_ROOT / "CHANGELOG.md").read_text())
+        self.assertIn('## v5.7.0 — "F4ct0rMatters"', (_ROOT / "CHANGELOG.md").read_text())
 
 
-class TestHeapMattersWiring(unittest.TestCase):
-    """The opt-in surfaces that ship with this version."""
+class TestF4ct0rMattersWiring(unittest.TestCase):
+    """A few load-bearing surfaces this release introduced/changed."""
 
-    def test_provisioning_handlers(self):
-        for fn in ("handle_blueprints_list", "handle_blueprint_render",
-                   "handle_blueprint_run", "_terraform_run", "_iac_execute_enabled"):
-            self.assertTrue(hasattr(api, fn), fn)
+    def test_bound_modules_present(self):
+        for m in ("notify.py", "checks.py", "tickets_handlers.py",
+                  "provisioning_handlers.py", "backups_handlers.py", "cmdb_handlers.py"):
+            self.assertTrue((_CGI / m).exists(), m)
 
-    def test_alert_mute_handlers(self):
-        for fn in ("handle_alert_mutes", "handle_alert_tuning", "_alert_muted"):
-            self.assertTrue(hasattr(api, fn), fn)
+    def test_ticket_lifecycle_events_registered(self):
+        for ev in ("ticket_opened", "ticket_resolved"):
+            self.assertIn(ev, api.WEBHOOK_EVENT_NAMES)
 
-    def test_timesheet_watch_handlers(self):
-        for fn in ("handle_timesheet_watchers", "handle_timesheet_watchable",
-                   "_can_view_timesheet"):
-            self.assertTrue(hasattr(api, fn), fn)
-
-    def test_page_modules_present(self):
-        for m in ("app-provisioning.js", "app-tuning.js"):
-            self.assertTrue((_CGI.parent / "html" / "static" / "js" / m).exists(), m)
+    def test_contributor_credited(self):
+        self.assertIn("@AndiBSE", (_ROOT / "CONTRIBUTORS.md").read_text())
 
 
 if __name__ == "__main__":

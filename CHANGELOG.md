@@ -2,7 +2,77 @@
 
 All notable changes to RemotePower. Newest first.
 
-## Unreleased (test)
+## v5.7.0 — "F4ct0rMatters" — 2026-07-03
+
+### Fixed — New UI (light mode / theming), reported by @AndiBSE
+
+- **Devices could not be deleted (#17).** The device drawer's "Remove device"
+  action called an undefined function, so the click silently threw and nothing
+  happened — for agents, direct-deploy hosts and agentless/netscan rows alike.
+  Removing a device now works (name-confirmed, then `DELETE /api/devices/<id>`).
+- **Profile menu unreadable in light mode (#18).** The account dropdown used an
+  undefined `--card` variable that always fell back to a hard dark colour, so in
+  light mode it was dark-on-dark. It now uses the theme-aware surface variable.
+- **Accent picker ignored in the New UI (#19).** The industrial skin hardcoded
+  `--accent` after the accent presets at equal specificity, so the picker did
+  nothing. The picked accent now applies (and keeps the logo blue as the default).
+- **Themes did not work in the New UI.** The industrial skin hardcoded the whole
+  palette after the theme blocks, so Tokyo/Dracula/Nord/Gruvbox/… were ignored.
+  Themes now repaint the New UI while keeping its structure (the card gradient
+  now derives from the active palette); named light themes paint their own light
+  palette.
+- **Accent didn't reach chamfered buttons in light mode.** Chamfer borders (e.g.
+  "Enable notifications") stayed blue in light mode while solid fills followed
+  the accent. The accent axis is now owned entirely by the presets/picker in
+  both modes.
+- **Mobile / narrow viewports.** No page scrolls horizontally at 390px anymore;
+  header controls, nav rows and the devices grid reflow for touch, and the CMDB
+  scoped-credentials row wraps cleanly on a docked-sidebar tablet.
+
+### Added
+
+- **Ticket lifecycle events.** `ticket_opened` and `ticket_resolved` fire from
+  every creation path (operator, inbound email, automation) and route to the
+  activity feed + webhooks; `ticket_resolved` auto-resolves the ticket's open
+  SLA-breach alert. With the recover events below, `WEBHOOK_EVENTS` reaches 103.
+- **Config-secret encryption now covers the whole config tree** (opt-in
+  `RP_CONFIG_KEY`). Beyond the original five flat fields it now encrypts every
+  secret-bearing value at any depth — ACME DNS credentials, webhook tokens/URLs,
+  AI API keys, integration secrets — at rest, transparently, with a per-install
+  salt and a fast KDF suited to full coverage. No key set = byte-identical no-op.
+- **Postgres row-level security extended beyond the device roster** (opt-in
+  multi-tenancy). `entity`, `listrow` and `metric_samples` now carry
+  device-derived tenant isolation, with non-device rows shared across tenants to
+  match the app layer. Default off.
+- **`tools/release-prep.py`** — automates the mechanical release chores (version
+  bumps, docs keep-N pruning, count refreshes, checklist verification).
+
+### Changed — performance & responsiveness
+
+- **Faster first paint.** Fonts load in parallel (the `@import` chain is gone)
+  with preloads; the service worker uses navigation preload. Eight heavy pages
+  plus the large Settings page are now inert `<template>`s cloned on first visit,
+  cutting the boot DOM ~36%. Always-on background animations were removed and
+  off-screen rows on heavy pages are skipped.
+- **Lower Postgres write-amplification on the heartbeat.** Eight more
+  device-keyed stores (hardware, drift, helm, discovery, secrets, speedtest,
+  ACME) moved to per-row storage, so a report rewrites one row instead of the
+  whole fleet's blob; the hottest ingests also read a single row.
+- **Settings** reorganised into four labelled groups (Setup / Monitoring /
+  Connections / System) — same tabs, easier to scan.
+
+### Changed — internals (no behaviour change)
+
+- **api.py decomposition.** The ~57k-line module is down to ~52k: notification
+  builders (`notify.py`), the per-host checks engine (`checks.py`), and the
+  tickets, provisioning, backups and CMDB subsystems (`*_handlers.py`) moved to
+  sibling modules. Every fleet/webhook event now derives from one
+  `EVENT_REGISTRY`; the request dispatcher is a declarative route table; and the
+  self-locking recorders auto-defer under locks, retiring a recurring
+  silent-drop bug class. `app.js` shed ~2,500 more lines into page modules.
+- **Housekeeping.** Dead code removed, an orphaned credential scrubber wired up
+  (queued ACME commands no longer echo DNS secrets to the admin queue view), and
+  the test suite runs ~20% faster.
 
 - **Alerts now self-clear for eight more host conditions.** Several
   edge-triggered alerts fired once but had no recover event, so they sat OPEN
