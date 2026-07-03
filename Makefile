@@ -252,6 +252,8 @@ dist: clean
 	  --exclude='./CLAUDE.md' \
 	  --exclude='./opencode.md' \
 	  --exclude='./AGENTS.md' \
+	  --exclude='./.claude' \
+	  --exclude='./design' \
 	  --exclude='./packaging/aur/*/src' \
 	  --exclude='./packaging/aur/*/pkg' \
 	  --exclude='*.tar.gz' \

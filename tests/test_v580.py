@@ -69,6 +69,19 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIn(f"What's new — v{self.V}", _html())
 
 
+class TestDistExcludesLocalTooling(unittest.TestCase):
+    """The release tarball is built from the WORKING TREE (tar, not git
+    archive), so untracked/gitignored local files ship unless the
+    hand-maintained exclude list names them. `.claude/` (session tooling)
+    leaked into the published v5.2.0–v5.7.0 tarballs this way — benign
+    content, but it must never recur."""
+
+    def test_dist_excludes(self):
+        mk = (_ROOT / "Makefile").read_text()
+        self.assertIn("--exclude='./.claude'", mk)
+        self.assertIn("--exclude='./design'", mk)
+
+
 class TestTlsScheduleWiring(unittest.TestCase):
     """The v5.8.0 fix: the server owns the TLS re-probe cadence (was cron-only)."""
 
