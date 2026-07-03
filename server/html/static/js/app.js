@@ -1256,7 +1256,7 @@ const _SIDEBAR_EXTRA = [
   { label: 'Settings ▸ Advanced', tab: 'advanced', kw: 'advanced backup backups export import release signing gpg automation rules danger reset' },
   { label: 'Settings ▸ Email / Mailbox', tab: 'mailbox', kw: 'mailbox email smtp imap inbound helpdesk osticket ticket' },
   { label: 'Settings ▸ Proxmox', tab: 'proxmox', kw: 'proxmox pve token node cluster lxc qemu' },
-  { label: 'Settings ▸ SNMP', tab: 'snmp', kw: 'snmp community oid synology mikrotik routeros agentless poller' },
+  { label: 'Settings ▸ SNMP', tab: 'snmp', kw: 'snmp community oid synology mikrotik routeros agentless poller snmpv3 v3 usm auth priv aes sha' },
   { label: 'Settings ▸ Getting started', tab: 'install', kw: 'install setup checklist onboarding getting started first run' },
   { label: 'Settings ▸ General', tab: 'general', kw: 'general poll interval timezone retention session demo offline ttl' },
 ];
@@ -15881,17 +15881,59 @@ function _renderDrawerSettings() {
       <div id="ds-snmp-status" class="hint mb-8">Loading…</div>
       <label class="click-row-6">
         <input type="checkbox" id="ds-snmp-enabled">
-        <span class="fs-12">Enable SNMPv2c polling (sys-group every 5 min)</span>
+        <span class="fs-12">Enable SNMP polling (sys-group every 5 min)</span>
       </label>
     </div>
     <div class="drawer-setting-row isl-622">
-      <span class="drawer-setting-label isl-623">Community / port</span>
+      <span class="drawer-setting-label isl-623">Version / port</span>
       <div class="row-8-center">
-        <input type="password" class="form-input isl-620" id="ds-snmp-community" placeholder="(keep current)" maxlength="128" autocomplete="off">
+        <select class="form-input isl-620" id="ds-snmp-version">
+          <option value="2c">SNMPv2c (community)</option>
+          <option value="3">SNMPv3 (user, auth/priv)</option>
+        </select>
         <input type="number" class="form-input isl-621" id="ds-snmp-port" placeholder="161" min="1" max="65535">
         <button class="btn-icon" data-action="_drawerSnmpPollNow" type="button">Poll now</button>
       </div>
+    </div>
+    <div class="drawer-setting-row isl-622" id="ds-snmp-v2-row">
+      <span class="drawer-setting-label isl-623">Community</span>
+      <input type="password" class="form-input isl-620" id="ds-snmp-community" placeholder="(keep current)" maxlength="128" autocomplete="off">
       <span class="hint">Community is write-only; the GET response shows only a 3-char preview.</span>
+    </div>
+    <div id="ds-snmp-v3-rows" class="hidden">
+      <div class="drawer-setting-row isl-622">
+        <span class="drawer-setting-label isl-623">v3 user / context</span>
+        <div class="row-8-center">
+          <input type="text" class="form-input isl-620" id="ds-snmp-v3-user" placeholder="monitor" maxlength="64" autocomplete="off">
+          <input type="text" class="form-input isl-621" id="ds-snmp-v3-context" placeholder="context (optional)" maxlength="64" autocomplete="off">
+        </div>
+      </div>
+      <div class="drawer-setting-row isl-622">
+        <span class="drawer-setting-label isl-623">Authentication</span>
+        <div class="row-8-center">
+          <select class="form-input isl-621" id="ds-snmp-v3-auth-proto">
+            <option value="none">none</option>
+            <option value="md5">MD5</option>
+            <option value="sha">SHA-1</option>
+            <option value="sha224">SHA-224</option>
+            <option value="sha256">SHA-256</option>
+            <option value="sha384">SHA-384</option>
+            <option value="sha512">SHA-512</option>
+          </select>
+          <input type="password" class="form-input isl-620" id="ds-snmp-v3-auth-secret" placeholder="auth password (min 8, keep current if blank)" maxlength="128" autocomplete="off">
+        </div>
+      </div>
+      <div class="drawer-setting-row isl-622">
+        <span class="drawer-setting-label isl-623">Privacy</span>
+        <div class="row-8-center">
+          <select class="form-input isl-621" id="ds-snmp-v3-priv-proto">
+            <option value="none">none</option>
+            <option value="aes">AES-128</option>
+          </select>
+          <input type="password" class="form-input isl-620" id="ds-snmp-v3-priv-secret" placeholder="priv password (min 8, keep current if blank)" maxlength="128" autocomplete="off">
+        </div>
+        <span class="hint">Passwords are write-only. Privacy needs authentication (authPriv). DES is not supported — use AES on the agent.</span>
+      </div>
     </div>
     <div id="ds-snmp-feedback" class="mb-8"></div>
     ` : ''}
@@ -15902,6 +15944,13 @@ function _renderDrawerSettings() {
   // Populate SNMP fields async (agentless only). Don't block the form
   // render on the round trip.
   if (isAgentless) _drawerLoadSnmpConfig(id);
+}
+
+// v5.8.0: show the credential rows matching the selected SNMP version.
+function _drawerSnmpVersionSync() {
+  const ver = document.getElementById('ds-snmp-version')?.value || '2c';
+  document.getElementById('ds-snmp-v2-row')?.classList.toggle('hidden', ver === '3');
+  document.getElementById('ds-snmp-v3-rows')?.classList.toggle('hidden', ver !== '3');
 }
 
 async function _drawerLoadSnmpConfig(devId) {
@@ -15919,6 +15968,24 @@ async function _drawerLoadSnmpConfig(devId) {
     if (comm) comm.placeholder = cfg.has_community
                 ? `(keep current — preview: ${cfg.community_preview || '…'})`
                 : 'public';
+    const ver = document.getElementById('ds-snmp-version');
+    if (ver) {
+      ver.value = cfg.version === '3' ? '3' : '2c';
+      ver.onchange = _drawerSnmpVersionSync;   // property assignment — CSP-safe
+      _drawerSnmpVersionSync();
+    }
+    const v3u = document.getElementById('ds-snmp-v3-user');
+    const v3c = document.getElementById('ds-snmp-v3-context');
+    const v3ap = document.getElementById('ds-snmp-v3-auth-proto');
+    const v3pp = document.getElementById('ds-snmp-v3-priv-proto');
+    const v3as = document.getElementById('ds-snmp-v3-auth-secret');
+    const v3ps = document.getElementById('ds-snmp-v3-priv-secret');
+    if (v3u)  v3u.value = cfg.v3_user || '';
+    if (v3c)  v3c.value = cfg.v3_context || '';
+    if (v3ap) v3ap.value = cfg.v3_auth_proto || 'none';
+    if (v3pp) v3pp.value = cfg.v3_priv_proto || 'none';
+    if (v3as && cfg.has_v3_auth_secret) v3as.placeholder = '(keep current)';
+    if (v3ps && cfg.has_v3_priv_secret) v3ps.placeholder = '(keep current)';
     if (status) {
       if (!cfg.enabled) {
         status.innerHTML = '<span class="c-muted">Disabled</span>';
@@ -16028,16 +16095,30 @@ async function _drawerSaveSettings() {
     const snmpBody = {
       enabled: snmpEnabled.checked,
       port:    parseInt(document.getElementById('ds-snmp-port')?.value || '161', 10),
+      version: document.getElementById('ds-snmp-version')?.value || '2c',
     };
     const comm = document.getElementById('ds-snmp-community')?.value || '';
     if (comm) snmpBody.community = comm;
+    // v5.8.0: SNMPv3 fields. Protocol/user/context always sent (cheap,
+    // idempotent); the passwords only when typed (write-only semantics —
+    // blank keeps the stored value).
+    snmpBody.v3_user       = document.getElementById('ds-snmp-v3-user')?.value || '';
+    snmpBody.v3_context    = document.getElementById('ds-snmp-v3-context')?.value || '';
+    snmpBody.v3_auth_proto = document.getElementById('ds-snmp-v3-auth-proto')?.value || 'none';
+    snmpBody.v3_priv_proto = document.getElementById('ds-snmp-v3-priv-proto')?.value || 'none';
+    const v3as = document.getElementById('ds-snmp-v3-auth-secret')?.value || '';
+    const v3ps = document.getElementById('ds-snmp-v3-priv-secret')?.value || '';
+    if (v3as) snmpBody.v3_auth_secret = v3as;
+    if (v3ps) snmpBody.v3_priv_secret = v3ps;
     const sr = await api('PATCH', `/devices/${id}/snmp`, snmpBody);
     if (sr?.ok) {
       toast('SNMP config saved', 'success');
       // Refresh the status block so the operator sees the new state
       _drawerLoadSnmpConfig(id);
-      const c = document.getElementById('ds-snmp-community');
-      if (c) c.value = '';
+      for (const fid of ['ds-snmp-community', 'ds-snmp-v3-auth-secret', 'ds-snmp-v3-priv-secret']) {
+        const c = document.getElementById(fid);
+        if (c) c.value = '';
+      }
     } else {
       toast(sr?.error || 'SNMP save failed', 'error');
     }

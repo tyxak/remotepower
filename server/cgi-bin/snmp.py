@@ -1,18 +1,29 @@
 """
-Minimal SNMPv2c (community-string) client — pure stdlib.
+Minimal SNMPv2c + SNMPv3/USM client — pure stdlib (AES privacy via the
+`cryptography` package the server already ships for backups/TLS).
 
 v3.2.0 (B5): used by api.py to poll agentless devices (switches, APs,
-printers, IPMI cards) for the sys* group OIDs. SNMPv1 and SNMPv3 are
-deliberately out of scope:
+printers, IPMI cards) for the sys* group OIDs. SNMPv1 stays out of scope
+(counters wrap at 32 bits in 30 seconds on a 10G interface; no Counter64).
 
-  - SNMPv1 is obsolete (counters wrap at 32 bits in 30 seconds on a
-    10G interface; no GETBULK; no Counter64).
-  - SNMPv3 requires HMAC/AES from the security model. The pure-stdlib
-    cost is high and most homelab equipment runs v2c with a community
-    string on a private VLAN. v3 may land in a later release; the
-    interface here leaves room for it.
+v5.8.0: SNMPv3 (User-based Security Model, RFC 3414/3826/7860):
+  * security levels noAuthNoPriv / authNoPriv / authPriv
+  * auth: HMAC-MD5-96, HMAC-SHA-96 and the SHA-2 family
+    (SHA-224/256/384/512 per RFC 7860) — pure hashlib/hmac
+  * privacy: AES-128-CFB (RFC 3826) via `cryptography`. DES-CBC is
+    deliberately REJECTED (single DES is broken; every v3-capable agent
+    this decade offers AES)
+  * engine discovery + time-window sync (REPORT handling, one retry)
+  * response authentication (constant-time HMAC check) and decryption
 
-What this supports:
+Every public helper (snmp_get / snmp_walk / poll_*) takes the same
+`community` argument it always did; pass a **string** for v2c or a
+**dict of v3 credentials** and the right envelope is used:
+
+    {'user': 'monitor', 'auth_proto': 'sha256', 'auth_secret': '…',
+     'priv_proto': 'aes', 'priv_secret': '…', 'context': ''}
+
+What the v2c layer supports:
   * GetRequest PDU (0xA0)
   * INTEGER / OCTET STRING / NULL / OBJECT IDENTIFIER encoding
   * IpAddress, Counter32, Gauge32, TimeTicks, Counter64 decoding
@@ -22,8 +33,7 @@ What this supports:
 Intentionally NOT supported (would inflate the file without payoff in
 the agentless-monitoring scope):
   * SET requests — RemotePower is read-only against SNMP targets.
-  * GETBULK / table walks — covered by the existing CMDB / ifTable
-    polling roadmap; keep this minimal until that lands.
+  * GETBULK — GETNEXT walks cover the current polling scope.
   * Trap reception — different transport, requires a daemon.
 
 API:
@@ -37,6 +47,9 @@ API:
 """
 from __future__ import annotations
 
+import hashlib
+import hmac as _hmac
+import os
 import socket
 import struct
 import time
@@ -249,7 +262,7 @@ def _build_get_request(community, request_id, oids):
 
 
 def _parse_response(buf, expected_request_id):
-    """Parse an SNMP response and return {oid: value}."""
+    """Parse a v2c SNMP response and return {oid: value}."""
     tag, body, _ = _decode_tlv(buf, 0)
     if tag != TAG_SEQUENCE:
         raise SnmpError(f'response not a SEQUENCE (tag=0x{tag:02x})')
@@ -266,7 +279,12 @@ def _parse_response(buf, expected_request_id):
     pdu_tag, pdu_body, offset = _decode_tlv(body, offset)
     if pdu_tag != PDU_GET_RESPONSE:
         raise SnmpError(f'expected GetResponse, got tag 0x{pdu_tag:02x}')
+    return _parse_pdu_body(pdu_body, expected_request_id)
 
+
+def _parse_pdu_body(pdu_body, expected_request_id):
+    """Parse a GetResponse PDU *body* (request-id / error-status / varbinds)
+    into {oid: value}. Shared by the v2c and v3 response paths."""
     inner = 0
     t, rid_bytes, inner = _decode_tlv(pdu_body, inner)
     if t != TAG_INTEGER:
@@ -307,7 +325,12 @@ def _parse_response(buf, expected_request_id):
 # ── Public API ─────────────────────────────────────────────────────────────
 
 def snmp_get(host, community, oids, port=161, timeout=2.0, retries=1):
-    """Synchronously fetch one or more OIDs via SNMPv2c GET.
+    """Synchronously fetch one or more OIDs via SNMP GET.
+
+    `community` is a v2c community **string**, or a **dict** of SNMPv3/USM
+    credentials (see the module docstring) — every caller up the stack
+    (poll_system, poll_interfaces, …) inherits v3 support through this
+    dispatch without changes.
 
     Returns a dict {oid: decoded_value}. Raises SnmpError on transport
     failure, timeout, or agent error-status != noError. Performs at most
@@ -315,6 +338,9 @@ def snmp_get(host, community, oids, port=161, timeout=2.0, retries=1):
     """
     if isinstance(oids, str):
         oids = [oids]
+    if isinstance(community, dict):
+        return _v3_request(host, community, PDU_GET_REQUEST, oids,
+                           port=port, timeout=timeout, retries=retries)
     request_id = int(time.time() * 1000) & 0x7FFFFFFF
     msg = _build_get_request(community, request_id, oids)
 
@@ -382,6 +408,26 @@ def snmp_walk(host, community, root_oid, port=161, timeout=2.0, retries=1,
     base_rid = int(time.time() * 1000) & 0x7FFFFFFF
     for step in range(max_results):
         request_id = (base_rid + step) & 0x7FFFFFFF
+        if isinstance(community, dict):
+            # v3: one GETNEXT round trip through the USM envelope. The engine
+            # cache means only the first step pays the discovery round trip.
+            try:
+                got = _v3_request(host, community, PDU_GET_NEXT, [current],
+                                  port=port, timeout=timeout, retries=retries)
+            except SnmpError as e:
+                if results:
+                    return results          # partial walk — keep what we have
+                raise
+            if not got:
+                return results
+            next_oid, value = next(iter(got.items()))
+            if value is None and next_oid == current:
+                return results
+            if not _oid_in_subtree(next_oid, root_oid):
+                return results
+            results[next_oid] = value
+            current = next_oid
+            continue
         msg = _build_get_next_request(community, request_id, current)
         last_err = None
         got = None
@@ -416,6 +462,359 @@ def snmp_walk(host, community, root_oid, port=161, timeout=2.0, retries=1,
         results[next_oid] = value
         current = next_oid
     return results
+
+
+# ── SNMPv3 / USM (RFC 3414, 3826, 7860) ─────────────────────────────────────
+#
+# Design: the PDU layer above is untouched — v3 only adds a different message
+# ENVELOPE (header + security parameters + scopedPDU) around the same
+# GetRequest/GetNext PDUs, so _parse_pdu_body / _decode_value are shared.
+# Auth is pure hashlib/hmac; AES-128-CFB privacy uses the `cryptography`
+# package the server already depends on elsewhere (backups, TLS parsing).
+# DES-CBC is deliberately unsupported — single DES is cryptographically
+# broken and every v3-capable agent this decade offers AES.
+
+SNMP_V3 = 3
+PDU_REPORT = 0xA8
+
+# auth proto → (hash constructor, HMAC truncation length per RFC 3414 §6 /
+# RFC 7860 §4.1). 'sha' is HMAC-SHA-96 (SHA-1), the classic default.
+_V3_AUTH = {
+    'md5':    (hashlib.md5,    12),
+    'sha':    (hashlib.sha1,   12),
+    'sha224': (hashlib.sha224, 16),
+    'sha256': (hashlib.sha256, 24),
+    'sha384': (hashlib.sha384, 32),
+    'sha512': (hashlib.sha512, 48),
+}
+V3_AUTH_PROTOCOLS = ('none',) + tuple(sorted(_V3_AUTH))
+V3_PRIV_PROTOCOLS = ('none', 'aes')          # aes = AES-128-CFB (RFC 3826)
+
+# usmStats REPORT counters (1.3.6.1.6.3.15.1.1.x) → operator-readable error.
+_USM_REPORTS = {
+    '1.3.6.1.6.3.15.1.1.1.0': 'unsupported security level',
+    '1.3.6.1.6.3.15.1.1.2.0': 'not in time window',
+    '1.3.6.1.6.3.15.1.1.3.0': 'unknown user name',
+    '1.3.6.1.6.3.15.1.1.4.0': 'unknown engine id',
+    '1.3.6.1.6.3.15.1.1.5.0': 'wrong digest (check the auth password/protocol)',
+    '1.3.6.1.6.3.15.1.1.6.0': 'decryption error (check the priv password/protocol)',
+}
+
+# Engine cache: (host, port, user) → discovered engine parameters, so repeated
+# polls in one process (WSGI tier, walks, multi-group polls) skip the
+# discovery round trip. engineTime is re-estimated from a monotonic clock.
+_V3_ENGINE_CACHE: dict = {}
+
+
+def _v3_validate(creds):
+    """Normalize + validate a v3 credential dict. Returns
+    (user, auth_proto, auth_secret, priv_proto, priv_secret, context)."""
+    user = str(creds.get('user') or '')
+    if not user:
+        raise SnmpError('SNMPv3: user required')
+    auth_proto = str(creds.get('auth_proto') or 'none').lower()
+    priv_proto = str(creds.get('priv_proto') or 'none').lower()
+    auth_secret = str(creds.get('auth_secret') or '')
+    priv_secret = str(creds.get('priv_secret') or '')
+    if auth_proto != 'none' and auth_proto not in _V3_AUTH:
+        raise SnmpError(f'SNMPv3: unsupported auth protocol {auth_proto!r}')
+    if priv_proto not in V3_PRIV_PROTOCOLS:
+        if priv_proto in ('des', '3des', 'des-cbc'):
+            raise SnmpError('SNMPv3: DES privacy is not supported (broken '
+                            'cipher) — configure AES on the agent')
+        raise SnmpError(f'SNMPv3: unsupported priv protocol {priv_proto!r}')
+    if priv_proto != 'none' and auth_proto == 'none':
+        raise SnmpError('SNMPv3: privacy requires authentication (authPriv)')
+    if auth_proto != 'none' and len(auth_secret) < 8:
+        raise SnmpError('SNMPv3: auth password must be at least 8 characters')
+    if priv_proto != 'none' and len(priv_secret) < 8:
+        raise SnmpError('SNMPv3: priv password must be at least 8 characters')
+    return (user, auth_proto, auth_secret, priv_proto, priv_secret,
+            str(creds.get('context') or ''))
+
+
+def _usm_password_to_key(hash_fn, password):
+    """RFC 3414 A.2: stretch the passphrase over 1MB of repetitions → Ku."""
+    pw = password.encode('utf-8')
+    h = hash_fn()
+    reps, rem = divmod(1024 * 1024, len(pw))
+    h.update(pw * reps + pw[:rem])
+    return h.digest()
+
+
+def _usm_localize_key(hash_fn, password, engine_id):
+    """RFC 3414 §2.6: Kul = H(Ku || engineID || Ku)."""
+    ku = _usm_password_to_key(hash_fn, password)
+    return hash_fn(ku + engine_id + ku).digest()
+
+
+def _aes_cfb(key16, iv16, data, encrypt):
+    try:
+        from cryptography.hazmat.primitives.ciphers import (
+            Cipher, algorithms, modes)
+    except ImportError:
+        raise SnmpError('SNMPv3 AES privacy needs the python "cryptography" '
+                        'package (pip install cryptography)')
+    c = Cipher(algorithms.AES(key16), modes.CFB(iv16))
+    op = c.encryptor() if encrypt else c.decryptor()
+    return op.update(data) + op.finalize()
+
+
+def _v3_encode(msg_id, flags, engine_id, boots, etime, user,
+               auth_params, priv_params, msg_data):
+    """Assemble one SNMPv3Message. `msg_data` is the scopedPDU SEQUENCE bytes
+    (plaintext) or an already-encrypted OCTET STRING TLV."""
+    global_data = _encode_tlv(TAG_SEQUENCE, (
+        _encode_integer(msg_id) +
+        _encode_integer(65507) +                      # msgMaxSize
+        _encode_octet_string(bytes([flags])) +
+        _encode_integer(3)))                          # msgSecurityModel = USM
+    sec_params = _encode_tlv(TAG_SEQUENCE, (
+        _encode_octet_string(engine_id) +
+        _encode_integer(boots) +
+        _encode_integer(etime) +
+        _encode_octet_string(user) +
+        _encode_octet_string(auth_params) +
+        _encode_octet_string(priv_params)))
+    return _encode_tlv(TAG_SEQUENCE, (
+        _encode_integer(SNMP_V3) +
+        global_data +
+        _encode_octet_string(sec_params) +
+        msg_data))
+
+
+def _v3_scoped_pdu(engine_id, context, pdu):
+    return _encode_tlv(TAG_SEQUENCE, (
+        _encode_octet_string(engine_id) +
+        _encode_octet_string(context) +
+        pdu))
+
+
+def _encode_pdu(pdu_tag, request_id, oids):
+    """A bare GetRequest/GetNext PDU (no v2c envelope) for the v3 path."""
+    vb = b''
+    for oid in oids:
+        vb += _encode_tlv(TAG_SEQUENCE, _encode_oid(oid) + _encode_null())
+    return _encode_tlv(pdu_tag, (
+        _encode_integer(request_id) +
+        _encode_integer(0) +
+        _encode_integer(0) +
+        _encode_tlv(TAG_SEQUENCE, vb)))
+
+
+def _v3_parse(buf):
+    """Parse an SNMPv3Message into a dict of its parts. Tracks the absolute
+    byte offset of the authParams value in `buf` so the caller can zero it
+    in place for HMAC verification (re-encoding the message risks byte
+    differences if the agent used non-minimal BER lengths)."""
+    tag, body, msg_end = _decode_tlv(buf, 0)
+    if tag != TAG_SEQUENCE:
+        raise SnmpError(f'v3 response not a SEQUENCE (tag=0x{tag:02x})')
+    body_abs = msg_end - len(body)      # absolute offset of `body` within buf
+
+    off = 0
+    t, ver, off = _decode_tlv(body, off)
+    if t != TAG_INTEGER or _decode_integer(ver) != SNMP_V3:
+        raise SnmpError('not an SNMPv3 message')
+    t, gd, off = _decode_tlv(body, off)
+    if t != TAG_SEQUENCE:
+        raise SnmpError('v3 msgGlobalData missing')
+    g = 0
+    _t, mid, g = _decode_tlv(gd, g)
+    msg_id = _decode_integer(mid)
+    _t, _sz, g = _decode_tlv(gd, g)
+    _t, fl, g = _decode_tlv(gd, g)
+    flags = fl[0] if fl else 0
+    # msgSecurityParameters: OCTET STRING wrapping a SEQUENCE
+    t, sp, off = _decode_tlv(body, off)
+    if t != TAG_OCTET_STRING:
+        raise SnmpError('v3 msgSecurityParameters missing')
+    sp_val_abs = body_abs + off - len(sp)   # absolute offset of sp bytes in buf
+    t, spb, spb_end = _decode_tlv(sp, 0)
+    if t != TAG_SEQUENCE:
+        raise SnmpError('v3 USM security parameters not a SEQUENCE')
+    spb_abs = sp_val_abs + spb_end - len(spb)
+    s = 0
+    _t, eng, s = _decode_tlv(spb, s)
+    _t, boots, s = _decode_tlv(spb, s)
+    _t, etime, s = _decode_tlv(spb, s)
+    _t, usr, s = _decode_tlv(spb, s)
+    _t, auth, s = _decode_tlv(spb, s)
+    auth_abs = spb_abs + s - len(auth)  # absolute offset of authParams value
+    _t, priv, s = _decode_tlv(spb, s)
+    # msgData: plaintext scopedPDU SEQUENCE, or OCTET STRING of ciphertext
+    dtag, ddata, _ = _decode_tlv(body, off)
+    return {
+        'msg_id': msg_id, 'flags': flags,
+        'engine_id': eng, 'boots': _decode_integer(boots),
+        'time': _decode_integer(etime), 'user': usr,
+        'auth_params': auth, 'auth_params_abs': auth_abs,
+        'priv_params': priv,
+        'data_tag': dtag, 'data': ddata,
+    }
+
+
+def _v3_scoped_parse(scoped_body, expected_request_id):
+    """contextEngineID + contextName + PDU → {oid: value}; REPORT → SnmpError."""
+    off = 0
+    _t, _ceid, off = _decode_tlv(scoped_body, off)
+    _t, _cname, off = _decode_tlv(scoped_body, off)
+    pdu_tag, pdu_body, _ = _decode_tlv(scoped_body, off)
+    if pdu_tag == PDU_REPORT:
+        # The varbind OID names the usmStats counter that fired.
+        try:
+            inner = 0
+            _t, _rid, inner = _decode_tlv(pdu_body, inner)
+            _t, _es, inner = _decode_tlv(pdu_body, inner)
+            _t, _ei, inner = _decode_tlv(pdu_body, inner)
+            _t, vb, inner = _decode_tlv(pdu_body, inner)
+            _t, one, _ = _decode_tlv(vb, 0)
+            _t, oid_b, _ = _decode_tlv(one, 0)
+            oid = _decode_oid(oid_b)
+        except Exception:
+            oid = '?'
+        reason = _USM_REPORTS.get(oid, f'agent REPORT ({oid})')
+        err = SnmpError(f'SNMPv3: {reason}')
+        err.usm_report_oid = oid
+        raise err
+    if pdu_tag != PDU_GET_RESPONSE:
+        raise SnmpError(f'expected GetResponse, got tag 0x{pdu_tag:02x}')
+    return _parse_pdu_body(pdu_body, expected_request_id)
+
+
+def _v3_exchange(host, port, msg, timeout, retries):
+    """One UDP round trip (with retry) used by the v3 paths."""
+    last_err = None
+    for _ in range(retries + 1):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        try:
+            sock.sendto(msg, (host, port))
+            buf, _addr = sock.recvfrom(65536)
+            return buf
+        except socket.timeout:
+            last_err = SnmpError(f'timeout after {timeout}s to {host}:{port}')
+        except OSError as e:
+            last_err = SnmpError(f'transport error: {e}')
+        finally:
+            sock.close()
+    raise last_err if last_err else SnmpError('unknown')
+
+
+def _v3_discover(host, port, timeout, retries):
+    """Engine discovery (RFC 3414 §4): an unauthenticated request with an
+    empty engineID; the agent's REPORT carries its engineID/boots/time."""
+    msg_id = int(time.time() * 1000) & 0x7FFFFFFF
+    pdu = _encode_pdu(PDU_GET_REQUEST, msg_id, [])
+    msg = _v3_encode(msg_id, 0x04, b'', 0, 0, b'', b'', b'',
+                     _v3_scoped_pdu(b'', b'', pdu))
+    buf = _v3_exchange(host, port, msg, timeout, retries)
+    parts = _v3_parse(buf)
+    if not parts['engine_id']:
+        raise SnmpError('SNMPv3: engine discovery failed (no engineID)')
+    return parts
+
+
+def _v3_engine(host, port, timeout, retries, user):
+    """Cached engine parameters; engineTime advances on a monotonic clock."""
+    key = (host, port, user)
+    ent = _V3_ENGINE_CACHE.get(key)
+    if ent is None:
+        parts = _v3_discover(host, port, timeout, retries)
+        ent = {'engine_id': parts['engine_id'], 'boots': parts['boots'],
+               'time': parts['time'], 'stamp': time.monotonic()}
+        _V3_ENGINE_CACHE[key] = ent
+    return ent
+
+
+def _v3_request(host, creds, pdu_tag, oids, port=161, timeout=2.0, retries=1,
+                _resync=True):
+    """One authenticated (and optionally encrypted) SNMPv3 GET/GETNEXT."""
+    (user, auth_proto, auth_secret,
+     priv_proto, priv_secret, context) = _v3_validate(creds)
+    ent = _v3_engine(host, port, timeout, retries, user)
+    engine_id = ent['engine_id']
+    boots = ent['boots']
+    etime = ent['time'] + int(time.monotonic() - ent['stamp'])
+
+    request_id = int(time.time() * 1000) & 0x7FFFFFFF
+    pdu = _encode_pdu(pdu_tag, request_id, oids)
+    scoped = _v3_scoped_pdu(engine_id, context.encode(), pdu)
+
+    flags = 0x04                                     # reportable
+    priv_params = b''
+    msg_data = scoped
+    if auth_proto != 'none':
+        flags |= 0x01
+        hash_fn, trunc = _V3_AUTH[auth_proto]
+        auth_kul = _usm_localize_key(hash_fn, auth_secret, engine_id)
+        if priv_proto == 'aes':
+            flags |= 0x02
+            priv_kul = _usm_localize_key(hash_fn, priv_secret, engine_id)
+            if len(priv_kul) < 16:                    # md5 gives exactly 16
+                raise SnmpError('SNMPv3: priv key derivation too short')
+            salt = os.urandom(8)
+            iv = struct.pack('>II', boots, etime) + salt
+            cipher = _aes_cfb(priv_kul[:16], iv, scoped, encrypt=True)
+            msg_data = _encode_octet_string(cipher)
+            priv_params = salt
+        # Two-pass auth: build with zeroed authParams, HMAC the exact bytes,
+        # rebuild the identical structure with the real MAC spliced in.
+        msg0 = _v3_encode(request_id, flags, engine_id, boots, etime,
+                          user.encode(), b'\x00' * trunc, priv_params, msg_data)
+        mac = _hmac.new(auth_kul, msg0, hash_fn).digest()[:trunc]
+        msg = _v3_encode(request_id, flags, engine_id, boots, etime,
+                         user.encode(), mac, priv_params, msg_data)
+    else:
+        msg = _v3_encode(request_id, flags, engine_id, boots, etime,
+                         user.encode(), b'', b'', msg_data)
+
+    buf = _v3_exchange(host, port, msg, timeout, retries)
+    parts = _v3_parse(buf)
+
+    # Authenticate the response before trusting anything in it.
+    if auth_proto != 'none' and (parts['flags'] & 0x01):
+        hash_fn, trunc = _V3_AUTH[auth_proto]
+        auth_kul = _usm_localize_key(hash_fn, auth_secret, engine_id)
+        got_mac = parts['auth_params']
+        a = parts['auth_params_abs']
+        zeroed = buf[:a] + b'\x00' * len(got_mac) + buf[a + len(got_mac):]
+        want = _hmac.new(auth_kul, zeroed, hash_fn).digest()[:trunc]
+        if len(got_mac) != trunc or not _hmac.compare_digest(got_mac, want):
+            raise SnmpError('SNMPv3: response authentication failed')
+
+    if parts['data_tag'] == TAG_OCTET_STRING:        # encrypted scopedPDU
+        if priv_proto != 'aes':
+            raise SnmpError('SNMPv3: unexpected encrypted response')
+        hash_fn, _tr = _V3_AUTH[auth_proto]
+        priv_kul = _usm_localize_key(hash_fn, priv_secret, engine_id)
+        iv = struct.pack('>II', parts['boots'], parts['time']) + parts['priv_params']
+        plain = _aes_cfb(priv_kul[:16], iv, parts['data'], encrypt=False)
+        t, scoped_body, _ = _decode_tlv(plain, 0)
+        if t != TAG_SEQUENCE:
+            raise SnmpError('SNMPv3: decryption produced garbage '
+                            '(check the priv password/protocol)')
+    else:
+        scoped_body = parts['data']
+
+    try:
+        return _v3_scoped_parse(scoped_body, request_id)
+    except SnmpError as e:
+        oid = getattr(e, 'usm_report_oid', '')
+        # Time-window / engine drift: refresh from this REPORT and retry once
+        # (an agent reboot bumps engineBoots and invalidates our cache).
+        if _resync and oid in ('1.3.6.1.6.3.15.1.1.2.0',
+                               '1.3.6.1.6.3.15.1.1.4.0'):
+            key = (host, port, user)
+            if parts['engine_id'] and parts.get('boots') is not None:
+                _V3_ENGINE_CACHE[key] = {
+                    'engine_id': parts['engine_id'], 'boots': parts['boots'],
+                    'time': parts['time'], 'stamp': time.monotonic()}
+            else:
+                _V3_ENGINE_CACHE.pop(key, None)
+            return _v3_request(host, creds, pdu_tag, oids, port=port,
+                               timeout=timeout, retries=retries, _resync=False)
+        raise
 
 
 # Standard sys* OIDs — RFC 3418 SNMPv2-MIB::system

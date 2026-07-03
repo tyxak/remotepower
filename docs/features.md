@@ -424,7 +424,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Re-enrolment | Preserves history, tags, group, notes |
 | Adjustable poll interval | Per-device cadence (10–3600s), applied on next heartbeat |
 | Mailbox monitor | Counts files in configured directories (Maildir unread); `mailbox_threshold` *(v2.4.3)* |
-| SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); `snmp_unreachable`/`snmp_recover` |
+| SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); `snmp_unreachable`/`snmp_recover`; **SNMPv2c or SNMPv3/USM** (noAuth/auth/authPriv — MD5/SHA-1/SHA-2 auth, AES-128 privacy) *(v3: v5.8.0)* |
 
 ## Platform, scale & storage backend
 

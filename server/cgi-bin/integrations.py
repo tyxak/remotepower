@@ -1435,8 +1435,8 @@ def _custom_probe(inst, c):
 # SSRF rule from the virt drivers: an absolute-URL "id" would otherwise pass
 # the public-host preflight and redirect the authed call elsewhere).
 _GH_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
-_GH_MAX_REPOS = 10          # per-instance bound (one HTTP call per repo per poll)
-_GH_PER_PAGE = 30           # newest issues fetched per repo (detection window)
+_GH_MAX_REPOS = 10  # per-instance bound (one HTTP call per repo per poll)
+_GH_PER_PAGE = 30  # newest issues fetched per repo (detection window)
 
 
 def _gh_repos(inst):
@@ -1455,10 +1455,18 @@ def _gh_repos(inst):
     "GitHub Issues",
     "apps",
     [
-        _field("slug", "Repositories (owner/repo, comma-separated)", TEXT,
-               placeholder="tyxak/remotepower, owner/other-repo"),
-        _field("secret", "Access token (optional — private repos / rate limit)",
-               PASSWORD, optional=True),
+        _field(
+            "slug",
+            "Repositories (owner/repo, comma-separated)",
+            TEXT,
+            placeholder="tyxak/remotepower, owner/other-repo",
+        ),
+        _field(
+            "secret",
+            "Access token (optional — private repos / rate limit)",
+            PASSWORD,
+            optional=True,
+        ),
     ],
     notes="Watches one or more GitHub repositories and raises a github_new_issue "
     "alert when a NEW issue is opened (pull requests are ignored; the first "
@@ -1476,11 +1484,14 @@ def _github(inst, c):
     # that) to the real API root instead. GHE roots pass through untouched.
     prefix = ""
     u = (inst.get("url") or "").strip().lower().rstrip("/")
-    if u in ("https://github.com", "http://github.com",
-             "https://www.github.com", "http://www.github.com"):
+    if u in (
+        "https://github.com",
+        "http://github.com",
+        "https://www.github.com",
+        "http://www.github.com",
+    ):
         prefix = "https://api.github.com"
-    headers = {"Accept": "application/vnd.github+json",
-               "X-GitHub-Api-Version": "2022-11-28"}
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if inst.get("secret"):
         headers.update(_hdr_token(inst, "Authorization", "Bearer "))
     open_count = 0
@@ -1488,9 +1499,15 @@ def _github(inst, c):
     for repo in repos:
         try:
             issues = c.get_json(
-                f"{prefix}/repos/{repo}/issues", headers=headers,
-                params={"state": "open", "per_page": _GH_PER_PAGE,
-                        "sort": "created", "direction": "desc"})
+                f"{prefix}/repos/{repo}/issues",
+                headers=headers,
+                params={
+                    "state": "open",
+                    "per_page": _GH_PER_PAGE,
+                    "sort": "created",
+                    "direction": "desc",
+                },
+            )
         except IntegrationError:
             failed.append(repo)
             continue
@@ -1503,12 +1520,14 @@ def _github(inst, c):
         open_count += len(real)
         state[repo] = max((int(i.get("number") or 0) for i in real), default=0)
         for i in real:
-            latest.append({
-                "repo": repo,
-                "number": int(i.get("number") or 0),
-                "title": str(i.get("title") or "")[:140],
-                "url": str(i.get("html_url") or "")[:300],
-            })
+            latest.append(
+                {
+                    "repo": repo,
+                    "number": int(i.get("number") or 0),
+                    "title": str(i.get("title") or "")[:140],
+                    "url": str(i.get("html_url") or "")[:300],
+                }
+            )
     if not state:
         raise IntegrationError(f"all repos failed: {', '.join(failed + bad)[:150]}")
     status = WARN if (failed or bad) else OK

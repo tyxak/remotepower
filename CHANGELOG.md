@@ -6,6 +6,15 @@ All notable changes to RemotePower. Newest first.
 
 ### Added
 
+- **SNMPv3 (USM) polling.** Agentless SNMP devices can now be polled with
+  SNMPv3 instead of a v2c community: per-device user + security level
+  (noAuthNoPriv / authNoPriv / authPriv), auth protocols MD5, SHA-1 and the
+  SHA-2 family (SHA-224/256/384/512), AES-128 privacy, optional context.
+  Engine discovery, time-window resync and response authentication are
+  handled automatically; passwords are write-only in the API/UI. DES privacy
+  is deliberately not supported (broken cipher — use AES on the agent). All
+  existing pollers (sys-group, processors, storage, Mikrotik/Synology vendor
+  reads, deep interface walks) work over v3 unchanged.
 - **GitHub issue monitor integration.** New `github` connector (Settings →
   Integrations): watch one or more repositories (`owner/repo`, comma-separated,
   optional token for private repos / rate limit; GitHub Enterprise API roots

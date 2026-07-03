@@ -40134,17 +40134,33 @@ def handle_oidc_callback():
 # ── v3.2.0 (B5): SNMPv2c polling for agentless devices ─────────────────────
 
 def _device_snmp_target(dev):
-    """Return (host, community, port) for an agentless device with SNMP
-    configured, or None if it's missing fields / not enabled."""
+    """Return (host, credentials, port) for an agentless device with SNMP
+    configured, or None if it's missing fields / not enabled.
+
+    `credentials` is the v2c community STRING, or (v5.8.0) a v3/USM creds
+    DICT — snmp.snmp_get dispatches on the type, so every poll_* helper
+    downstream works for both versions unchanged."""
     snmp_cfg = dev.get('snmp') or {}
     if not snmp_cfg.get('enabled'):
         return None
     host = dev.get('ip') or dev.get('hostname') or dev.get('host')
-    community = snmp_cfg.get('community') or ''
     try:
         port = int(snmp_cfg.get('port') or 161)
     except (TypeError, ValueError):
         port = 161
+    if str(snmp_cfg.get('version') or '2c') == '3':
+        community = {
+            'user':        snmp_cfg.get('v3_user') or '',
+            'auth_proto':  snmp_cfg.get('v3_auth_proto') or 'none',
+            'auth_secret': snmp_cfg.get('v3_auth_secret') or '',
+            'priv_proto':  snmp_cfg.get('v3_priv_proto') or 'none',
+            'priv_secret': snmp_cfg.get('v3_priv_secret') or '',
+            'context':     snmp_cfg.get('v3_context') or '',
+        }
+        if not community['user']:
+            return None
+    else:
+        community = snmp_cfg.get('community') or ''
     if not host or not community:
         return None
     # v5.0.0 SSRF: SNMP was the one fleet outbound path with no IP classification.
@@ -41612,13 +41628,21 @@ def handle_device_snmp(dev_id):
     if m == 'GET':
         require_auth()
         snmp_cfg = devs[dev_id].get('snmp') or {}
-        # Redact community for the GET — show prefix only
+        # Redact community for the GET — show prefix only. v3 secrets are
+        # fully write-only (has_* booleans, never a preview).
         community = snmp_cfg.get('community') or ''
         redacted_cfg = {
             'enabled':            bool(snmp_cfg.get('enabled')),
             'port':               int(snmp_cfg.get('port') or 161),
             'community_preview':  (community[:3] + '…') if community else '',
             'has_community':      bool(community),
+            'version':            str(snmp_cfg.get('version') or '2c'),
+            'v3_user':            snmp_cfg.get('v3_user') or '',
+            'v3_auth_proto':      snmp_cfg.get('v3_auth_proto') or 'none',
+            'v3_priv_proto':      snmp_cfg.get('v3_priv_proto') or 'none',
+            'v3_context':         snmp_cfg.get('v3_context') or '',
+            'has_v3_auth_secret': bool(snmp_cfg.get('v3_auth_secret')),
+            'has_v3_priv_secret': bool(snmp_cfg.get('v3_priv_secret')),
         }
         data = load(SNMP_DATA_FILE).get(dev_id) or {}
         traps = load(SNMP_TRAPS_FILE).get(dev_id) or []
@@ -41640,6 +41664,25 @@ def handle_device_snmp(dev_id):
                     respond(400, {'error': 'port must be 1..65535'})
             except (TypeError, ValueError):
                 respond(400, {'error': 'port must be an integer'})
+        # v5.8.0: SNMPv3 fields. Validate protocols against what snmp.py
+        # actually implements (DES is deliberately rejected there — broken
+        # cipher), so a typo'd protocol fails at save, not at poll time.
+        import snmp as _snmp_mod
+        if 'version' in body and str(body['version']) not in ('2c', '3'):
+            respond(400, {'error': "version must be '2c' or '3'"})
+        if 'v3_auth_proto' in body and \
+                str(body['v3_auth_proto']).lower() not in _snmp_mod.V3_AUTH_PROTOCOLS:
+            respond(400, {'error': 'v3_auth_proto must be one of: '
+                                   + ', '.join(_snmp_mod.V3_AUTH_PROTOCOLS)})
+        if 'v3_priv_proto' in body and \
+                str(body['v3_priv_proto']).lower() not in _snmp_mod.V3_PRIV_PROTOCOLS:
+            respond(400, {'error': 'v3_priv_proto must be one of: '
+                                   + ', '.join(_snmp_mod.V3_PRIV_PROTOCOLS)
+                                   + ' (DES is not supported — broken cipher)'})
+        for sk in ('v3_auth_secret', 'v3_priv_secret'):
+            if body.get(sk) and len(str(body[sk])) < 8:
+                respond(400, {'error': f'{sk} must be at least 8 characters '
+                                       '(RFC 3414 minimum)'})
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             snmp_cfg = dict(dev.get('snmp') or {})
@@ -41649,12 +41692,43 @@ def handle_device_snmp(dev_id):
                 snmp_cfg['community'] = _sanitize_str(str(body['community']), 128)
             if port_in is not None:
                 snmp_cfg['port'] = port_in
-            # If enabling, require a community + a reachable host on the
-            # device record. Catches the "I ticked enabled but forgot to
-            # type a community" path before the polling layer sees nothing
-            # to do.
+            if 'version' in body:
+                snmp_cfg['version'] = str(body['version'])
+            if 'v3_user' in body:
+                snmp_cfg['v3_user'] = _sanitize_str(str(body['v3_user']), 64)
+            if 'v3_auth_proto' in body:
+                snmp_cfg['v3_auth_proto'] = str(body['v3_auth_proto']).lower()
+            if 'v3_priv_proto' in body:
+                snmp_cfg['v3_priv_proto'] = str(body['v3_priv_proto']).lower()
+            if 'v3_context' in body:
+                snmp_cfg['v3_context'] = _sanitize_str(str(body['v3_context']), 64)
+            # Secrets are write-only: a blank/absent field keeps the stored
+            # value (the integrations pattern), so re-saving the form doesn't
+            # wipe them.
+            for sk in ('v3_auth_secret', 'v3_priv_secret'):
+                if body.get(sk):
+                    snmp_cfg[sk] = _sanitize_str(str(body[sk]), 128)
+            # If enabling, require a complete credential set + a reachable
+            # host on the device record. Catches the "I ticked enabled but
+            # forgot the community/user" path before the polling layer sees
+            # nothing to do.
             if snmp_cfg.get('enabled'):
-                if not snmp_cfg.get('community'):
+                if str(snmp_cfg.get('version') or '2c') == '3':
+                    ap = snmp_cfg.get('v3_auth_proto') or 'none'
+                    pp = snmp_cfg.get('v3_priv_proto') or 'none'
+                    if not snmp_cfg.get('v3_user'):
+                        respond(400, {'error': 'v3_user required when SNMPv3 '
+                                               'is enabled'})
+                    if pp != 'none' and ap == 'none':
+                        respond(400, {'error': 'privacy requires authentication '
+                                               '(authPriv) — pick an auth protocol'})
+                    if ap != 'none' and not snmp_cfg.get('v3_auth_secret'):
+                        respond(400, {'error': 'auth password required for '
+                                               f'auth protocol {ap}'})
+                    if pp != 'none' and not snmp_cfg.get('v3_priv_secret'):
+                        respond(400, {'error': 'priv password required for '
+                                               f'priv protocol {pp}'})
+                elif not snmp_cfg.get('community'):
                     respond(400, {
                         'error': 'community required when SNMP is enabled — '
                                  'set it in the same PATCH, or untick "enabled"'})

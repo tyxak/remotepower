@@ -65,10 +65,12 @@ The five most recent per-release notes are kept here:
 
 - **[v5.8.0.md](v5.8.0.md)** — unreleased (test): TLS/DANE expiry probing now
  runs on the server's own ~6h schedule (it was silently cron-only, and blind
- under the SQLite/Postgres backends), and a new **GitHub Issues** connector
- raises `github_new_issue` alerts when a new issue is opened on watched
- repositories (PRs ignored, first poll baselines, paging off by default).
- No breaking changes.
+ under the SQLite/Postgres backends); **SNMPv3/USM** polling for agentless
+ devices (MD5/SHA-1/SHA-2 auth + AES-128 privacy, engine discovery and
+ time-window resync automatic, write-only passwords); and a new **GitHub
+ Issues** connector that raises `github_new_issue` alerts when a new issue is
+ opened on watched repositories (PRs ignored, first poll baselines, paging
+ off by default). No breaking changes.
 - **[v5.7.0.md](v5.7.0.md)** — "F4ct0rMatters": a refactor-and-fix release.
  Fixes five New-UI theming/accent/light-mode bugs (device delete, profile menu,
  accent picker, themes, chamfered buttons) reported by @AndiBSE and a mobile
