@@ -5664,32 +5664,44 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    Interface. Placed after every theme block so its palette wins by source order.
    Pure CSS, self-hosted fonts — CSP-safe.
    ════════════════════════════════════════════════════════════════════════════ */
+/* v5.6.x fix: the industrial STRUCTURE (fonts + status colours + the graphite
+   card gradient / well) — always applies, but the palette-dependent surfaces
+   now DERIVE from --surface/--bg instead of being hardcoded graphite, so a
+   chosen theme (data-theme) repaints the New UI instead of being overridden.
+   The actual bg/surface/text PALETTE moved to the scoped default blocks below,
+   so `body[data-theme="…"]` (0,1,1) can win when a theme is picked. */
 body[data-ui="industrial"] {
-  --bg:#0f1217; --surface:#171b22; --surface2:#1f242d; --border:#313a47;
-  --text:#dfe4ec; --muted:#7c879a;
-  --accent:#3b7eff; --accent2:#5c9fff;                       /* our logo blue, kept */
   --accent-soft:rgba(59,126,255,0.12); --accent-edge:rgba(59,126,255,0.55);
   --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
   --warm:#f5a623; --warm-soft:rgba(245,166,35,0.16); --warm-edge:rgba(245,166,35,0.55);
-  /* Card fill gradient — deliberately dramatic (light graphite → near-black). */
-  --card-grad:linear-gradient(180deg,#1c222c 0%,#0c0f14 100%);  /* visible card gradient */
-  --well-bg:#0b0e12;  /* recessed text well */
+  /* Card fill gradient + recessed well — derived from the live palette (lighter
+     surface → darker bg) so every theme keeps the industrial DEPTH without a
+     per-theme override. */
+  --card-grad:linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+  --well-bg:var(--bg);
   --font:'Inter','Segoe UI',system-ui,sans-serif;        /* body = the old font */
   --font-mono:'IBM Plex Mono','JetBrains Mono',ui-monospace,monospace;  /* the sidebar keeps this */
   --font-display:'Inter','Segoe UI',system-ui,sans-serif; /* headings = the old font too */
 }
-/* v4.6.0 (FIX): the graphite palette above is unconditional, so the header
-   bright/dark toggle (which sets body.light) did NOTHING in the New UI — its
-   vars were always overridden. Provide a LIGHT Industrial variant (steel/paper,
-   same blue) so the toggle works again. The `.light` class adds specificity
-   (0,2,1) > (0,1,1), so it wins over the dark block above regardless of order. */
-body[data-ui="industrial"].light {
+/* DEFAULT graphite dark palette — ONLY when no explicit theme is chosen
+   (:not([data-theme])) and not the light toggle. A dark theme (tokyo, dracula,
+   nord, …) sets data-theme, so this bows out and the theme's palette applies. */
+body[data-ui="industrial"]:not([data-theme]):not(.light) {
+  --bg:#0f1217; --surface:#171b22; --surface2:#1f242d; --border:#313a47;
+  --text:#dfe4ec; --muted:#7c879a;
+  --accent:#3b7eff; --accent2:#5c9fff;                       /* our logo blue, kept */
+}
+/* v4.6.0 (FIX), rescoped v5.6.x: the header bright/dark toggle sets body.light
+   with NO data-theme (the plain "Daylight" light) — give it the steel/paper
+   industrial palette. A NAMED light theme (paper, solarized-light, nord-light)
+   sets data-theme too, so `:not([data-theme])` bows out and the theme paints
+   its own light palette. --card-grad/--well-bg derive from these via the
+   structure block above. */
+body[data-ui="industrial"].light:not([data-theme]) {
   --bg:#e7ebf0; --surface:#f7f9fb; --surface2:#eef1f5; --border:#cbd2dc;
   --text:#1b2230; --muted:#5c6675;
   --accent-soft:rgba(59,126,255,0.10); --accent-edge:rgba(59,126,255,0.55);
   --warm:#c2710a; --warm-soft:rgba(194,113,10,0.12); --warm-edge:rgba(194,113,10,0.50);
-  --card-grad:linear-gradient(180deg,#ffffff 0%,#eef1f5 100%);
-  --well-bg:#e9edf2;
 }
 body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
 /* v5.6.x fix (#19): the industrial base block (0,1,1) hardcodes --accent and is
