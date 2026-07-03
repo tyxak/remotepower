@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-3">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-3">
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-3">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-4">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-4">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-4">
 
 </head>
 <body>
@@ -2820,13 +2820,17 @@
           <h3>On-call &amp; escalation</h3>
           <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup.</p>
           <div class="mb-8 fs-13">Currently on call: <strong id="oncall-current">—</strong></div>
+          <div id="oncall-schedule" class="mb-8"></div>
           <div class="settings-row isl-57">
             <div class="form-group"><label for="oncall-enabled" class="form-label">On-call rotation</label>
               <select id="oncall-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
             <div class="form-group"><label class="form-label">Rotate every (days)</label><input type="number" id="oncall-rotation" class="form-input isl-80" min="1" max="365" value="7"></div>
+            <div class="form-group"><label for="oncall-anchor" class="form-label">Rotation start <span class="meta-sm-nm">(anchors "this week")</span></label>
+              <input type="date" id="oncall-anchor" class="form-input isl-80"></div>
           </div>
           <div class="mb-12"><label for="oncall-contacts" class="form-label">Contacts <span class="meta-sm-nm">(comma-separated, rotate in order)</span></label>
-            <input type="text" id="oncall-contacts" class="form-input input-wide" placeholder="alice, bob, carol"></div>
+            <input type="text" id="oncall-contacts" class="form-input input-wide" placeholder="alice, bob, carol">
+            <div class="hint mt-4">Set a <strong>rotation start</strong> date to get a calendar schedule (deterministic "who's on call this week" + upcoming handoffs). Leave it blank for the legacy automatic rotation.</div></div>
           <div class="settings-row isl-57">
             <div class="form-group"><label for="esc-enabled" class="form-label">Escalation</label>
               <select id="esc-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
@@ -8560,46 +8564,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-3"></script>
-<script defer src="static/js/app.js?v=5.8.0-3"></script>
+<script defer src="static/js/i18n.js?v=5.8.0-4"></script>
+<script defer src="static/js/app.js?v=5.8.0-4"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-network.js?v=5.8.0-4"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0-4"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-3"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-power.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0-4"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0-4"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-3"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0-4"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0-4"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-3"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0-4"></script>
 </body>
 </html>

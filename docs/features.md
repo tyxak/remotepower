@@ -107,7 +107,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Quiet hours | Hold non-critical delivery during a daily window; critical always pages *(v3.4.1)* |
 | Maintenance windows | Suppress alerts and/or gate command execution; per-device/group/fleet; one-shot or recurring cron+duration; audit trail *(v3.4.2)* |
 | After-hours detection | Flag selected events firing outside business hours *(v3.4.2)* |
-| On-call & escalation | Escalation tiers re-notify unacked alerts; on-call rotation names the contact *(v3.4.2)*; **per-tier target** routes a tier to one webhook destination *(v5.5.0)* |
+| On-call & escalation | Escalation tiers re-notify unacked alerts; on-call rotation names the contact *(v3.4.2)*; **per-tier target** routes a tier to one webhook destination *(v5.5.0)*; **calendar rotation** — anchored "who's on call this week" schedule + dated overrides/handoffs + upcoming-handoffs view *(v5.8.0)* |
 | Automation rules engine | Event (at severity) on matching devices → run saved script, notify, **open a ticket**, **add a tag** or **mute the alert** *(actions extended v5.6.0)*; per-rule cooldown, admin-only, audited *(v3.4.2)* |
 | Device dependency map | Declare device→upstream deps; downstream alerts held while upstream offline *(v3.4.2)* |
 | Patch alerts | Webhook when pending updates exceed a threshold |

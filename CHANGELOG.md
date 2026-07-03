@@ -13,6 +13,11 @@ All notable changes to RemotePower. Newest first.
   read of the classic rule — 3 fresh copies, 2 distinct targets/media, 1
   off-site — inferred from the watched-backup data already collected. Purely
   informational (the stale/verify signals still page).
+- **Calendar-based on-call rotation.** Set a rotation *start date* and the
+  on-call schedule becomes a deterministic "who's on call this week", with dated
+  **overrides** for handoffs/swaps and an upcoming-handoffs view in Settings →
+  Notifications. Leaving the start date blank keeps the previous automatic
+  rotation.
 - **"Fix" button on the Alerts page.** Alerts whose event maps to a remediation
   playbook (reboot, service down, disk, drift, failed unit, CVE, container,
   CPU/memory/swap, AV, backup, SSH key, new port, log, patches) now show a Fix

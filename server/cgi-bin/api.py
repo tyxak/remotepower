@@ -17843,8 +17843,36 @@ def handle_config_save():
             rot = max(1, min(365, int(oc.get('rotation_days') or 7)))
         except (TypeError, ValueError):
             rot = 7
-        cfg['oncall'] = {'enabled': bool(oc.get('enabled')),
-                         'contacts': contacts, 'rotation_days': rot}
+        new_oc = {'enabled': bool(oc.get('enabled')),
+                  'contacts': contacts, 'rotation_days': rot}
+        # v5.8.0 (B3.3): anchored calendar schedule + dated overrides. `anchor`
+        # is a unix ts marking the start of contacts[0]'s first slot; absent =
+        # legacy wall-clock modulo. Overrides are dated handoffs that win for
+        # their window.
+        try:
+            anchor = int(oc.get('anchor')) if oc.get('anchor') else 0
+        except (TypeError, ValueError):
+            anchor = 0
+        if anchor:
+            new_oc['anchor'] = anchor
+        overrides = []
+        for ov in (oc.get('overrides') or [])[:100]:
+            if not isinstance(ov, dict):
+                continue
+            who = _sanitize_str(ov.get('contact'), 80)
+            try:
+                start = int(ov.get('start') or 0)
+                end = int(ov.get('end') or 0)
+            except (TypeError, ValueError):
+                continue
+            if who and 0 < start < end:
+                overrides.append({'contact': who, 'start': start, 'end': end})
+        # Drop overrides fully in the past so the list can't grow unbounded.
+        _oc_now = int(time.time())
+        overrides = [o for o in overrides if o['end'] > _oc_now]
+        if overrides:
+            new_oc['overrides'] = sorted(overrides, key=lambda o: o['start'])
+        cfg['oncall'] = new_oc
 
     # v3.4.2: after-hours activity detection.
     if 'after_hours' in body:
@@ -38746,19 +38774,91 @@ _last_escalation_tick = [0.0]
 _ESCALATION_INTERVAL = 60   # seconds
 
 
-def _oncall_now(cfg, now=None):
-    """Current on-call contact from the rotation, or '' if not configured."""
+def _oncall_index(now, anchor, period_s, n):
+    """Rotation index for `now` given the anchor (start) time and period. Before
+    the anchor, the first person holds it (index 0)."""
+    if now < anchor:
+        return 0
+    return int((now - anchor) // period_s) % n
+
+
+def _oncall_at(cfg, now=None):
+    """Resolve the on-call contact for `now`, honouring (in priority order):
+      1. a dated OVERRIDE window (handoff / swap) that covers `now`;
+      2. an anchored rotation SCHEDULE (who is on call THIS week — deterministic
+         from an anchor date + rotation length, not wall-clock modulo);
+      3. the legacy stateless modulo rotation (backwards compatible).
+    Returns '' when on-call isn't configured/enabled."""
     oc = (cfg or {}).get('oncall') or {}
+    if not oc.get('enabled'):
+        return ''
     contacts = [c for c in (oc.get('contacts') or []) if c]
-    if not oc.get('enabled') or not contacts:
+    now = int(now or time.time())
+
+    # 1. Overrides win — a specific dated assignment.
+    for ov in (oc.get('overrides') or []):
+        if not isinstance(ov, dict):
+            continue
+        who = ov.get('contact')
+        try:
+            start = int(ov.get('start') or 0)
+            end = int(ov.get('end') or 0)
+        except (TypeError, ValueError):
+            continue
+        if who and start <= now < end:
+            return who
+
+    # 2. Anchored schedule.
+    anchor = oc.get('anchor')
+    if contacts and anchor:
+        try:
+            anchor = int(anchor)
+            days = max(1, int(oc.get('rotation_days') or 7))
+        except (TypeError, ValueError):
+            anchor = None
+        if anchor:
+            return contacts[_oncall_index(now, anchor, days * 86400, len(contacts))]
+
+    # 3. Legacy stateless modulo (unchanged).
+    if not contacts:
         return ''
     try:
         days = max(1, int(oc.get('rotation_days') or 7))
     except (TypeError, ValueError):
         days = 7
+    return contacts[(now // (days * 86400)) % len(contacts)]
+
+
+def _oncall_upcoming(cfg, now=None, count=4):
+    """The next `count` handoffs as [{start, contact}] from the anchored
+    schedule (empty if no anchor/contacts). Overrides are listed separately by
+    the handler; this is the base rotation timeline."""
+    oc = (cfg or {}).get('oncall') or {}
+    contacts = [c for c in (oc.get('contacts') or []) if c]
+    anchor = oc.get('anchor')
+    if not (oc.get('enabled') and contacts and anchor):
+        return []
+    try:
+        anchor = int(anchor)
+        days = max(1, int(oc.get('rotation_days') or 7))
+    except (TypeError, ValueError):
+        return []
     now = int(now or time.time())
-    idx = (now // (days * 86400)) % len(contacts)
-    return contacts[idx]
+    period = days * 86400
+    # Start of the current rotation slot.
+    slot = anchor if now < anchor else anchor + ((now - anchor) // period) * period
+    out = []
+    for k in range(count):
+        start = slot + k * period
+        idx = _oncall_index(start, anchor, period, len(contacts))
+        out.append({'start': start, 'contact': contacts[idx]})
+    return out
+
+
+def _oncall_now(cfg, now=None):
+    """Back-compat shim — the current on-call contact string. Delegates to the
+    calendar-aware resolver (overrides → anchored schedule → legacy modulo)."""
+    return _oncall_at(cfg, now)
 
 
 def _escalation_tick(now=None):
@@ -38843,12 +38943,20 @@ def _escalation_tick_if_due():
 
 
 def handle_oncall():
-    """GET /api/oncall — current on-call contact + the rotation + escalation cfg."""
+    """GET /api/oncall — current on-call contact, the next handoffs, active/
+    upcoming overrides, and the rotation + escalation cfg."""
     require_auth()
     cfg = load(CONFIG_FILE) or {}
+    now = int(time.time())
+    oc = cfg.get('oncall') or {}
     respond(200, {
-        'current': _oncall_now(cfg),
-        'oncall': cfg.get('oncall') or {'enabled': False, 'contacts': [], 'rotation_days': 7},
+        'current':  _oncall_now(cfg, now),
+        # v5.8.0 (B3.3): the next 4 rotation handoffs (empty unless an anchored
+        # schedule is set) + any override windows still in effect / upcoming.
+        'upcoming': _oncall_upcoming(cfg, now, count=4),
+        'overrides': [o for o in (oc.get('overrides') or [])
+                      if isinstance(o, dict) and (o.get('end') or 0) > now],
+        'oncall': oc or {'enabled': False, 'contacts': [], 'rotation_days': 7},
         'escalation': cfg.get('escalation') or {'enabled': False, 'tiers': [], 'severities': ['critical', 'high']},
     })
 

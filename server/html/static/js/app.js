@@ -15226,11 +15226,20 @@ async function loadDashboardSettings() {
   setVal('oncall-enabled', oc.enabled ? '1' : '0');
   setVal('oncall-rotation', oc.rotation_days || 7);
   setVal('oncall-contacts', (oc.contacts || []).join(', '));
+  // v5.8.0 (B3.3): anchor date (unix ts → yyyy-mm-dd for the date input)
+  if (oc.anchor) {
+    const d = new Date(oc.anchor * 1000);
+    setVal('oncall-anchor', d.toISOString().slice(0, 10));
+  } else setVal('oncall-anchor', '');
   setVal('esc-enabled', es.enabled ? '1' : '0');
   setVal('esc-severities', (es.severities || ['critical', 'high']).join(', '));
   setVal('esc-tiers', (es.tiers || []).map(t => t.after_minutes).join(', '));
   setVal('esc-tier-targets', (es.tiers || []).map(t => t.target || '').join(', '));   // v5.4.1 (G2)
-  api('GET', '/oncall').then(r => { const e = document.getElementById('oncall-current'); if (e && r) e.textContent = r.current || '(rotation off)'; }).catch(() => {});
+  api('GET', '/oncall').then(r => {
+    const e = document.getElementById('oncall-current');
+    if (e && r) e.textContent = r.current || '(rotation off)';
+    _renderOncallSchedule(r);
+  }).catch(() => {});
 
   // v3.2.3: channel routing matrix — replaces the two legacy
   // kind/activity panes. Server is the source of truth for the kind
@@ -15338,11 +15347,39 @@ async function saveAfterHours() {
   else toast(r?.error || 'Failed', 'error');
 }
 
+// v5.8.0 (B3.3): render the on-call current holder + next handoffs + overrides.
+function _renderOncallSchedule(r) {
+  const el = document.getElementById('oncall-schedule');
+  if (!el) return;
+  if (!r || (!(r.upcoming || []).length && !(r.overrides || []).length)) {
+    el.innerHTML = '';
+    return;
+  }
+  const fmt = ts => new Date(ts * 1000).toLocaleDateString(undefined,
+    { weekday: 'short', month: 'short', day: 'numeric' });
+  let html = '';
+  if ((r.upcoming || []).length) {
+    html += '<div class="fs-12 c-muted mb-4">Upcoming handoffs</div><div class="flex-wrap-6">'
+      + r.upcoming.map((u, i) => `<span class="status-pill ${i === 0 ? 'ok' : 'neutral'}">${fmt(u.start)}: ${escHtml(u.contact)}</span>`).join('')
+      + '</div>';
+  }
+  if ((r.overrides || []).length) {
+    html += '<div class="fs-12 c-muted mt-8 mb-4">Overrides</div><div class="flex-wrap-6">'
+      + r.overrides.map(o => `<span class="status-pill info">${escHtml(o.contact)} · ${fmt(o.start)}–${fmt(o.end)}</span>`).join('')
+      + '</div>';
+  }
+  el.innerHTML = html;
+}
+
 async function saveOncall() {
+  const anchorStr = (document.getElementById('oncall-anchor')?.value || '').trim();
   const oncall = {
     enabled: document.getElementById('oncall-enabled').value === '1',
     rotation_days: parseInt(document.getElementById('oncall-rotation').value) || 7,
     contacts: document.getElementById('oncall-contacts').value.split(',').map(s => s.trim()).filter(Boolean),
+    // v5.8.0 (B3.3): anchor date → unix ts (midnight UTC). Blank clears it
+    // (server falls back to the legacy modulo rotation).
+    anchor: anchorStr ? Math.floor(new Date(anchorStr + 'T00:00:00Z').getTime() / 1000) : 0,
   };
   const escalation = {
     enabled: document.getElementById('esc-enabled').value === '1',
