@@ -6913,6 +6913,26 @@ function deleteDeviceView(name) {
   const i = views.findIndex(v => v.page === 'devices' && v.name === name);
   if (i >= 0) { views.splice(i, 1); _scheduleFlushUiPrefs(); renderViewsMenu(); }
 }
+// v5.6.x fix (#17): the device-drawer "Remove device" action has always called
+// deleteDevice(id, name), but that function was never defined — the click threw
+// a silent ReferenceError, so removing a device did nothing. (The old
+// removeDevice(id) existed but nothing called it.) Confirms by name, DELETEs,
+// refreshes the grid.
+async function deleteDevice(id, name) {
+  if (!id) return;
+  const label = name ? `"${name}"` : 'this device';
+  if (!await uiConfirm({
+        title: 'Remove device',
+        message: `Remove ${label} from RemotePower? This cannot be undone.`,
+        confirmText: 'Remove', danger: true })) return;
+  const data = await api('DELETE', '/devices/' + encodeURIComponent(id));
+  if (data && data.ok) {
+    toast('Device removed', 'info');
+    loadDevices();
+  } else {
+    toast((data && data.error) || 'Could not remove the device', 'error');
+  }
+}
 function _applyInitialViewHash() {
   try {
     const m = (location.hash || '').match(/^#devices\?view=(.+)$/);

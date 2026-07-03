@@ -1009,7 +1009,11 @@
   .acct-avatar-sm { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: #3b7eff; color: #fff; font-size: 12px; font-weight: 600; overflow: hidden; }
   .acct-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
   .acct-name { font-size: 13px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .acct-dropdown { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; background: var(--card, #1e1e24); border: 1px solid rgba(127,127,127,0.25); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 1000; padding: 4px; }
+  /* v5.6.x fix (#18): was background:var(--card, #1e1e24) — but --card is never
+     defined anywhere, so it always fell back to the hard dark #1e1e24; in light
+     mode the panel stayed dark with dark (inherited) text = unreadable. Use the
+     light-aware --surface2 (defined for every theme + body.light). */
+  .acct-dropdown { position: absolute; right: 0; top: calc(100% + 6px); min-width: 180px; background: var(--surface2); color: var(--text); border: 1px solid rgba(127,127,127,0.25); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 1000; padding: 4px; }
   .acct-dropdown-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   .acct-dropdown-item:hover { background: rgba(127,127,127,0.14); }
   .acct-profile { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
@@ -5688,6 +5692,18 @@ body[data-ui="industrial"].light {
   --well-bg:#e9edf2;
 }
 body[data-ui="industrial"].light .sidebar { background:#e2e7ec; }
+/* v5.6.x fix (#19): the industrial base block (0,1,1) hardcodes --accent and is
+   placed AFTER the body[data-accent="…"] presets (also 0,1,1), so it won by
+   source order and the accent PICKER did nothing in the New UI. Re-apply the
+   presets scoped to industrial at (0,2,1) — the same specificity trick the
+   .light variant above uses — so the user's explicit accent choice wins while
+   the default (no data-accent) stays the logo blue. Placed after the .light
+   block so the accent colour also wins in the light+accent combo. */
+body[data-ui="industrial"][data-accent="emerald"] { --accent:#10b981; --accent-soft:rgba(16,185,129,0.12); --accent-edge:rgba(16,185,129,0.55); }
+body[data-ui="industrial"][data-accent="violet"]  { --accent:#8b5cf6; --accent-soft:rgba(139,92,246,0.12); --accent-edge:rgba(139,92,246,0.55); }
+body[data-ui="industrial"][data-accent="amber"]   { --accent:#f59e0b; --accent-soft:rgba(245,158,11,0.12); --accent-edge:rgba(245,158,11,0.55); }
+body[data-ui="industrial"][data-accent="rose"]    { --accent:#f43f5e; --accent-soft:rgba(244,63,94,0.12);  --accent-edge:rgba(244,63,94,0.55); }
+body[data-ui="industrial"][data-accent="cyan"]    { --accent:#06b6d4; --accent-soft:rgba(6,182,212,0.12);  --accent-edge:rgba(6,182,212,0.55); }
 body[data-ui="industrial"] { font-family:var(--font); }
 /* the SIDEBAR keeps the distinctive mono font (the rest of the app reverts to the
    old Inter font); brand + nav + labels + headers all in IBM Plex Mono */
