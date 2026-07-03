@@ -664,12 +664,82 @@ def handle_backup_test_restore():
         shutil.rmtree(str(scratch), ignore_errors=True)
 
 
+def _backup_321_score(items, monitors):
+    """v5.8.0 (B2.2): a 3-2-1 backup-rule assessment for one host from data
+    RemotePower already has. The 3-2-1 rule: >=3 copies, on >=2 distinct media/
+    targets, with >=1 kept off-site. Each leg is a heuristic (we don't see the
+    physical media), so the result is INFORMATIONAL — the stale/verify events
+    still do the paging. Returns {score 0-3, legs{...}, label, detail}.
+
+    Legs:
+      copies   — number of watched, currently-fresh backup paths (a stale path
+                 doesn't count as a live copy). >=3 satisfies leg 1.
+      media    — distinct backup *targets* (a monitor's `target`/`tool`/`dest`
+                 or the path's top-level mount). >=2 satisfies leg 2.
+      offsite  — any monitor flagged offsite (offsite_dir / offsite / remote /
+                 a pbs/ssh/s3/rsync-style target). >=1 satisfies leg 3.
+    ``items`` are the per-path dicts handle_device_backups built; ``monitors``
+    is the matching backup_monitors config subset (carries the target hints
+    that the freshness items don't)."""
+    fresh = [it for it in items if it.get('ok')]
+    copies = len(fresh)
+    mon_by_path = {m.get('path'): m for m in monitors if isinstance(m, dict)}
+
+    def _target_of(it):
+        m = mon_by_path.get(it.get('path')) or {}
+        for k in ('target', 'dest', 'tool', 'offsite_dir'):
+            v = (m.get(k) or '').strip()
+            if v:
+                return v.lower()
+        p = str(it.get('path') or '')
+        # Fall back to the top-level directory as a coarse "medium" proxy.
+        parts = [seg for seg in p.split('/') if seg]
+        return ('/' + parts[0]).lower() if parts else p.lower()
+
+    media = len({_target_of(it) for it in fresh})
+
+    _OFFSITE_HINT = ('offsite', 'remote', 'pbs', 's3', 'b2', 'ssh://', 'rsync',
+                     'nfs', 'smb', 'cifs', 'cloud', 'backblaze', 'wasabi')
+
+    def _is_offsite(it):
+        m = mon_by_path.get(it.get('path')) or {}
+        if m.get('offsite') or m.get('offsite_dir'):
+            return True
+        blob = ' '.join(str(m.get(k) or '') for k in ('target', 'dest', 'tool',
+                                                       'type', 'label')).lower()
+        return any(h in blob for h in _OFFSITE_HINT)
+
+    offsite = any(_is_offsite(it) for it in fresh)
+
+    legs = {
+        'copies':  {'ok': copies >= 3, 'value': copies,
+                    'label': f'{copies} fresh cop{"y" if copies == 1 else "ies"}'},
+        'media':   {'ok': media >= 2, 'value': media,
+                    'label': f'{media} target{"" if media == 1 else "s"}'},
+        'offsite': {'ok': offsite, 'value': int(offsite),
+                    'label': 'off-site copy' if offsite else 'no off-site copy'},
+    }
+    score = sum(1 for leg in legs.values() if leg['ok'])
+    if not fresh:
+        label = 'no fresh backups'
+    elif score == 3:
+        label = '3-2-1 satisfied'
+    else:
+        label = f'{score}/3 of the 3-2-1 rule'
+    return {
+        'score': score, 'max': 3, 'legs': legs, 'label': label,
+        'detail': ' · '.join(leg['label'] for leg in legs.values()),
+        'fresh': copies, 'total': len(items),
+    }
+
+
 def handle_device_backups(dev_id):
     """GET /api/devices/<id>/backups — live freshness of this device's watched
     backup paths. Joins backup_state.json (per-path ok/age, written on every
     heartbeat that carries backup_status) with the backup_monitors config for
     the label + threshold. Surfaces what previously only drove the
-    backup_stale webhook. Auth: require_auth (+ central per-device scope)."""
+    backup_stale webhook. Adds a 3-2-1-rule score (v5.8.0, informational).
+    Auth: require_auth (+ central per-device scope)."""
     A.require_auth()
     if A.method() != 'GET':
         A.respond(405, {'error': 'Method not allowed'})
@@ -700,7 +770,13 @@ def handle_device_backups(dev_id):
         })
     # Stale first, then by label, so the actionable rows are at the top.
     items.sort(key=lambda x: (x['ok'], str(x['label']).lower()))
-    A.respond(200, {'backups': items})
+    dev_paths = {it['path'] for it in items}
+    dev_monitors = [m for m in monitors
+                    if isinstance(m, dict) and m.get('path') in dev_paths]
+    A.respond(200, {
+        'backups': items,
+        'score_321': _backup_321_score(items, dev_monitors),
+    })
 
 
 def handle_proxmox_backup_threshold() -> None:

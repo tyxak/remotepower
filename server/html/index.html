@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-2">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-2">
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-2">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-3">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-3">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-3">
 
 </head>
 <body>
@@ -3089,7 +3089,11 @@
               <ul>
                 <li><strong>SNMPv3 (USM) polling</strong>: agentless SNMP devices can use v3 instead of a v2c community — per-device user, MD5/SHA-1/SHA-2 authentication and AES-128 privacy (noAuthNoPriv / authNoPriv / authPriv), optional context. Engine discovery and time-window resync are automatic, responses are authenticated, and passwords are write-only. DES is deliberately unsupported (broken cipher — use AES). Configure it in the device drawer → Settings → SNMP polling.</li>
                 <li><strong>GitHub issue monitor</strong> (Settings → Integrations → <em>GitHub Issues</em>): watch repositories — <code>owner/repo</code>, several per instance — and get a <code>github_new_issue</code> alert in the Alerts inbox when a new issue is opened. Pull requests are ignored and the first poll only baselines, so attaching a repo never floods with its backlog. The token is optional (private repos / rate limit); GitHub Enterprise API roots work. Webhook/push routing for the new <em>GitHub new issues</em> kind is off by default — enable it under Settings → Notifications to page on it.</li>
+                <li><strong>9 more homelab connectors</strong>: Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome and Homebridge — 38 connectors in total.</li>
+                <li><strong>"Fix" button on the Alerts page</strong>: alerts whose event has a remediation playbook (reboot, service down, disk, drift, failed unit, CVE, container, CPU/memory/swap, AV, backup, SSH key, new port, log, patches) now open the guided diagnostic → AI → fix runner directly — previously only reachable from the dashboard's needs-attention feed.</li>
+                <li><strong>3-2-1 backup score</strong> on the device drawer's Backups panel: 3 fresh copies / 2 distinct targets / 1 off-site, inferred from watched-backup data. Informational — the stale/verify alerts still page.</li>
               </ul>
+              <p><strong>Also</strong>: enrollment PINs are stored hashed at rest; maintenance windows suppress more predictable churn (metrics, drift, failed units, reboots, container restarts, stale backups); a first-run empty Devices page shows an "add your first device" prompt; and a new <code>docs/cookbook.md</code> collects step-by-step recipes.
               <p class="hint">See <code>docs/v5.8.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
@@ -3424,7 +3428,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Homelab software integrations</strong> — monitor the self-hosted apps you already run</summary>
             <div class="doc-body">
               <p>A read-only, server-side subsystem polls popular self-hosted software for health on a cadence and folds the result into the <strong>Alerts</strong> inbox and the dashboard. Nothing is installed on the target — each connector only reads a service's own health/status API. Set one up under <strong>Settings → Integrations</strong>: pick a type, point it at the service on your LAN, add an API token, and <strong>Test</strong>.</p>
-              <p><strong>29 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues (raises a <code>github_new_issue</code> alert when a new issue is opened on a watched repo), the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
+              <p><strong>38 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues (raises a <code>github_new_issue</code> alert when a new issue is opened on a watched repo), Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
               <p><strong>Alerts &amp; widget:</strong> an unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</p>
               <p><strong>Read-only &amp; SSRF-guarded:</strong> every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, with no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only. A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling and hides the section + widget.</p>
             </div>
@@ -8556,46 +8560,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-2"></script>
-<script defer src="static/js/app.js?v=5.8.0-2"></script>
+<script defer src="static/js/i18n.js?v=5.8.0-3"></script>
+<script defer src="static/js/app.js?v=5.8.0-3"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-2"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-network.js?v=5.8.0-3"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-2"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0-3"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-2"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-2"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-power.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0-3"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0-3"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-2"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-2"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0-3"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0-3"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-2"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0-3"></script>
 </body>
 </html>

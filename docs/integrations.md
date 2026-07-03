@@ -47,8 +47,8 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 | Network | **UniFi Network** |
 | Reverse proxy / certs | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
 | Observability | **Netdata**, **Grafana**, **Uptime Kuma** |
-| Media | **Jellyfin**, **Plex** |
-| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues** |
+| Media | **Jellyfin**, **Plex**, **Immich**, **Frigate** |
+| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues**, **Paperless-ngx**, **Vaultwarden**, **Gitea / Forgejo**, **Syncthing**, **OctoPrint**, **ESPHome** (dashboard), **Homebridge** |
 | Download clients | **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet** |
 | Media automation | **Servarr** (Sonarr / Radarr / Prowlarr / Lidarr — one connector), **Bazarr** |
 | Requests | **Overseerr / Jellyseerr** |
@@ -57,11 +57,14 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 
 - **API token / key** (Bearer or header): TrueNAS, Home Assistant, Kubernetes,
   PBS, Jellyfin, Plex, SABnzbd, Servarr, Bazarr, Overseerr/Jellyseerr, Netdata
-  (optional), Grafana (optional), Unraid.
+  (optional), Grafana (optional), Unraid, Immich, Paperless-ngx, Syncthing,
+  OctoPrint, Gitea/Forgejo (optional).
 - **Username + password** (Basic / login): AdGuard, UniFi, vCenter, NPM,
-  NZBGet, Nextcloud, qBittorrent; Traefik / Transmission only if protected.
+  NZBGet, Nextcloud, qBittorrent, Homebridge; Traefik / Transmission only if
+  protected.
 - **No credential / public**: Caddy admin API, Uptime Kuma (a published
-  status-page slug).
+  status-page slug), Vaultwarden (`/alive` liveness), Frigate, ESPHome
+  dashboard (protect it at your proxy).
 
 ### Notes per category
 
@@ -77,6 +80,9 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
   different API and is its own type.
 - **Standalone ESXi** exposes only SOAP; point the vCenter connector at a
   vCenter instance.
+- **OctoPrint** reports a disconnected printer as a *warning* (OctoPrint itself
+  is still up), and only unreachability as critical. **ESPHome** warns when a
+  node's deployed firmware is behind the dashboard's current version.
 - **GitHub Issues** watches repositories for **newly opened issues** rather than
   service health. URL is the API root (`https://api.github.com`, or your GitHub
   Enterprise `/api/v3` root); list repos as `owner/repo, owner/repo` (up to 10);

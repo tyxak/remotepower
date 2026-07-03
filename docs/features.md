@@ -45,7 +45,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Firewall fingerprint | Active backend, rule count, drift baseline fingerprint *(v3.13.0)* |
 | Pressure pills | Brute-force lockout badge; disk/swap pressure pills *(v3.13.0)* |
 | Per-interface MAC | MAC per interface *(v3.10.0)* |
-| Backups | Each watched backup path's age + fresh/stale state *(v3.4.2)* |
+| Backups | Each watched backup path's age + fresh/stale state *(v3.4.2)*; **3-2-1-rule score** (3 fresh copies / 2 distinct targets / 1 off-site — informational) *(v5.8.0)* |
 
 ## Metrics, history & forecasting
 
@@ -405,7 +405,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Integration subsystem | Read-only server-side polling, folded into Alerts + dashboard; `integration_down` (auto-resolved); SSRF-guarded; admin-only URLs; **Show Homelab software** kill switch |
-| 29 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues *(v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
+| 38 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues, Immich, Paperless-ngx, Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome, Homebridge *(all v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
 | Custom HTTP probe plugin | Declarative — turn an endpoint's status/body/JSON field into a health signal; SSRF-guarded *(v5.1.0)* |
 | GitHub issue monitor | Watch repos (`owner/repo`, multiple per instance) for newly opened issues → `github_new_issue` alert in the Alerts inbox (PRs ignored, first poll baselines; webhook/paging off by default) *(v5.8.0)* |
 

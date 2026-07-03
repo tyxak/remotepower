@@ -2606,7 +2606,9 @@ class TestLargeFleetCapsAndUX(unittest.TestCase):
 
     def test_device_card_grid_is_capped(self):
         i = self.APP.find('function renderDevices')
-        chunk = self.APP[i:i + 8000]
+        # Window widened v5.8.0: the split empty-state CTA (B2.3) grew the
+        # pre-cap body of renderDevices; DEVICE_CARD_CAP now sits deeper.
+        chunk = self.APP[i:i + 10000]
         self.assertIn('DEVICE_CARD_CAP', chunk)
         self.assertIn('_cardOverflow', chunk)
         # the overflow notice (rendered after the long card template) + its CSS

@@ -6,6 +6,21 @@ All notable changes to RemotePower. Newest first.
 
 ### Added
 
+- **9 new homelab connectors** (Settings → Integrations): Immich, Paperless-ngx,
+  Vaultwarden, Gitea/Forgejo, Syncthing, Frigate, OctoPrint, ESPHome and
+  Homebridge — 38 connectors in total now (plus the Custom HTTP probe).
+- **3-2-1 backup-rule score** on the device drawer's Backups panel: a per-host
+  read of the classic rule — 3 fresh copies, 2 distinct targets/media, 1
+  off-site — inferred from the watched-backup data already collected. Purely
+  informational (the stale/verify signals still page).
+- **"Fix" button on the Alerts page.** Alerts whose event maps to a remediation
+  playbook (reboot, service down, disk, drift, failed unit, CVE, container,
+  CPU/memory/swap, AV, backup, SSH key, new port, log, patches) now show a Fix
+  button that opens the same guided diagnostic→AI→remediation runner previously
+  reachable only from the dashboard's needs-attention feed.
+- **Empty-state guidance.** A first-run empty Devices page now shows an "Add your
+  first device" call-to-action; a filtered-to-empty list offers a Clear-filters
+  action instead of the enrol prompt.
 - **SNMPv3 (USM) polling.** Agentless SNMP devices can now be polled with
   SNMPv3 instead of a v2c community: per-device user + security level
   (noAuthNoPriv / authNoPriv / authPriv), auth protocols MD5, SHA-1 and the
@@ -24,6 +39,16 @@ All notable changes to RemotePower. Newest first.
   attention routing for the new `github_issue` kind is off by default — flip it
   on in Settings → Notifications to page on new issues. Dashboard/Integrations
   tiles show repo + open-issue counts like every other connector.
+
+### Changed
+
+- **Maintenance windows suppress more of the predictable churn.** A window can
+  now silence resource (`metric_warning`/`metric_critical`), drift, failed-unit,
+  reboot-required, container and backup-stale alerts in addition to the previous
+  set — a per-window event list can still narrow it.
+- **Enrollment PINs are stored hashed at rest** (like device and enrollment
+  tokens since v5.4.1), so a leaked `pins.json` can't be replayed. Verification
+  still accepts a legacy plaintext-keyed PIN mid-TTL across the upgrade.
 
 ### Fixed
 

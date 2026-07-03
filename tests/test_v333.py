@@ -129,7 +129,7 @@ class TestInvestigateAlertButton(unittest.TestCase):
         self.assertNotEqual(res, -1, 'resolveAlert button missing')
         self.assertTrue(inv < mute < res,
             'Investigate should render before Mute and Resolve in the alert row')
-        self.assertLess(res - inv, 800,
+        self.assertLess(res - inv, 1200,
             'Investigate/Mute/Resolve should share one alert-row actions block')
 
 

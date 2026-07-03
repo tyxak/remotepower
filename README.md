@@ -93,7 +93,7 @@ the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-di
 PIN, like pairing a console controller.
 
 Deliberately small and **readable**: nginx + Python CGI + flat JSON files — around
-**~79,000 lines** of server Python, one HTML file, one CSS file and a handful of
+**~80,000 lines** of server Python, one HTML file, one CSS file and a handful of
 vanilla JS files. No external database, no Node.js, no Redis, no Kubernetes,
 **no build step, no bundler, no framework** — you can read every line. The whole
 `/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs
@@ -163,10 +163,11 @@ One tool instead of six — the ten things it does best:
 | **Pentest what you own** | Authorized vulnerability scanning of your own hosts & domains — nuclei / nikto / nmap / **OWASP ZAP** / wapiti / lynis — on a hardened scanner satellite, authorization-gated and schedulable. |
 | **CMDB + RAG search** | Asset DB, **encrypted credentials vault**, Markdown docs per asset, a **Knowledge Base** of runbooks / SOPs, network map — and an AI assistant whose **RAG** answers from *your* fleet and docs and cites the source (local or cloud model; off by default). |
 | **Stay compliant** | **OpenSCAP** CIS / STIG / PCI scans with downloadable HTML reports, plus PCI / HIPAA / SOC 2 control mapping and scheduled posture reports. |
-| **Integrate** | 29 **homelab-app** health connectors (Pi-hole, TrueNAS, the *arr suite, …) plus a code-free **custom HTTP-probe** plugin to turn any endpoint into a signal, Prometheus / Grafana / Uptime-Kuma endpoints, inbound webhooks & syslog, and an **MCP server** so an AI client can query your fleet. |
+| **Integrate** | 38 **homelab-app** health connectors (Pi-hole, TrueNAS, the *arr suite, …) plus a code-free **custom HTTP-probe** plugin to turn any endpoint into a signal, Prometheus / Grafana / Uptime-Kuma endpoints, inbound webhooks & syslog, and an **MCP server** so an AI client can query your fleet. |
 | **Deploy & automate** | An **app catalog** — one-click Docker Compose deploy of curated (or your own custom) self-contained apps to a host — auto-patch policies (cron, per group / tag / site, maintenance-aware), config-**drift** detection, ACME / Let's Encrypt, backup orchestration, an **IaC generator** (Terraform / Ansible / Pulumi / …), and a **Provisioning** blueprint catalog that renders — or runs Terraform (Plan / Apply / Destroy) — server-side. |
 
 **Full feature inventory → [docs/features.md](docs/features.md).**
+**Step-by-step recipes → [docs/cookbook.md](docs/cookbook.md).**
 
 ### Recent releases
 

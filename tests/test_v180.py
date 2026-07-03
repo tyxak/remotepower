@@ -282,6 +282,13 @@ class TestSuppressibleEvents(unittest.TestCase):
             'service_down', 'service_up',
             'patch_alert', 'cve_found',
             'log_alert',
+            # v5.8.0 (B1.4): broadened to the maintenance/patch churn set
+            'metric_warning', 'metric_critical',
+            'config_drift', 'drift_detected',
+            'failed_unit', 'timer_failed',
+            'reboot_required',
+            'container_stopped', 'container_restarting', 'containers_stale',
+            'backup_stale',
         }
         self.assertEqual(set(api_module.SUPPRESSIBLE_EVENTS), expected)
 

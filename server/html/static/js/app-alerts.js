@@ -91,6 +91,12 @@ function _alertRowHtml(a, role) {
   let actions = '';
   if (!isResolved) {
     actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
+    // v5.8.0 (B1.2): one-click remediation when the server tagged a playbook
+    // for this alert's event (mitigation_kind set only when a device + playbook
+    // apply). Opens the same diagnostic→AI→fix runner as the dashboard feed.
+    if (a.mitigation_kind && a.device_id) {
+      actions += `<button class="btn-icon btn-xs" data-action="mitigateAlert" data-arg="${a.id}" title="Fix: run the guided remediation playbook for this alert">${_icon('wrench',14)} Fix</button> `;
+    }
     actions += `<button class="btn-icon btn-xs" data-action="muteAlert" data-arg="${a.id}" title="Mute: silence this exact alert (${_escapeHtml(a.event || '')}) from this host. Lift it under Monitoring → Tuning.">${_icon('bellOff',14)} Mute</button> `;
     actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
     if (window._ticketsOn && !a.rp_ticket) {
@@ -247,6 +253,20 @@ async function muteAlert(id) {
     if (document.getElementById('page-home')?.classList.contains('active')) loadHome();
     else loadAlerts();
   } else toast((r && r.error) || 'Failed to mute', 'error');
+}
+
+// v5.8.0 (B1.2): open the guided remediation runner for an alert the server
+// tagged with a mitigation playbook. Reuses openMitigateModal (app.js) — the
+// same modal the dashboard needs-attention feed uses.
+function mitigateAlert(id) {
+  const a = (_alertsCache || []).find(x => x.id === id);
+  if (!a) { toast('Alert not found', 'error'); return; }
+  if (!a.mitigation_kind || !a.device_id) {
+    toast('No remediation playbook for this alert', 'info');
+    return;
+  }
+  openMitigateModal(a.device_id, a.mitigation_kind, a.mitigation_target || '',
+                    a.device_name || a.device_id);
 }
 
 async function ackAlert(id) {

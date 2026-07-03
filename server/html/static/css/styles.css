@@ -2012,6 +2012,8 @@
 
   /* v5.6.0: Knowledge base list/article styles. */
   .chip-sm { font-size: 11px; padding: 1px 6px; }
+  /* v5.8.0 (B2.2): wrapping row for the 3-2-1 backup-rule leg pills. */
+  .flex-wrap-6 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .kb-cat-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
     color: var(--muted); margin: 12px 0 4px; font-weight: 600; }
   .kb-cat-head:first-child { margin-top: 0; }

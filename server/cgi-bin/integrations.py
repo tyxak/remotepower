@@ -1221,6 +1221,251 @@ def _overseerr(inst, c):
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# WAVE G — self-hosted apps round-out
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@_register(
+    "immich",
+    "Immich",
+    "media",
+    [_field("secret", "API key", PASSWORD)],
+    notes="Immich API key (Account Settings → API Keys), sent as x-api-key.",
+)
+def _immich(inst, c):
+    h = {"x-api-key": inst.get("secret", "")}
+    about = c.get_json("/api/server/about", headers=h) or {}
+    ver = str(about.get("version", "") or "")
+    stats = c.get_json("/api/server/statistics", headers=h) or {}
+    photos = int(_num(stats.get("photos", 0)))
+    videos = int(_num(stats.get("videos", 0)))
+    usage_mb = int(_num(stats.get("usage", 0)) / (1024 * 1024))
+    return {
+        "status": OK,
+        "version": ver,
+        "detail": f"{photos} photos, {videos} videos, {usage_mb} MB used",
+        "metrics": {"photos": photos, "videos": videos, "usage_mb": usage_mb},
+    }
+
+
+@_register(
+    "paperless",
+    "Paperless-ngx",
+    "apps",
+    [_field("secret", "API token", PASSWORD)],
+    notes="Paperless-ngx API token (profile → API auth token), sent as Authorization: Token.",
+)
+def _paperless(inst, c):
+    h = _hdr_token(inst, "Authorization", "Token ")
+    st = c.get_json("/api/statistics/", headers=h) or {}
+    docs = int(_num(st.get("documents_total", 0)))
+    inbox = int(_num(st.get("documents_inbox", 0)))
+    return {
+        "status": OK,
+        "detail": f"{docs} documents, {inbox} in inbox",
+        "metrics": {"documents": docs, "inbox": inbox},
+    }
+
+
+@_register(
+    "vaultwarden",
+    "Vaultwarden",
+    "apps",
+    [],
+    notes="Unauthenticated /alive liveness probe (+ /api/config for the server version). "
+    "No credential needed.",
+)
+def _vaultwarden(inst, c):
+    r = c.get("/alive")
+    if not r.ok:
+        raise IntegrationError(f"/alive returned HTTP {r.status}")
+    ver = ""
+    try:
+        ver = str((c.get_json("/api/config") or {}).get("version", "") or "")
+    except IntegrationError:
+        pass
+    return {"status": OK, "version": ver, "detail": "alive", "metrics": {"alive": True}}
+
+
+@_register(
+    "gitea",
+    "Gitea / Forgejo",
+    "apps",
+    [_field("secret", "Access token (optional)", PASSWORD, optional=True)],
+    notes="Gitea/Forgejo API (/api/v1). A token (Authorization: token …) is only "
+    "needed for a private instance / to count private repos.",
+)
+def _gitea(inst, c):
+    h = _hdr_token(inst, "Authorization", "token ") if inst.get("secret") else {}
+    ver = str((c.get_json("/api/v1/version", headers=h) or {}).get("version", "") or "")
+    repos = 0
+    try:
+        r = c.get("/api/v1/repos/search", headers=h, params={"limit": 1})
+        if r.ok:
+            body = r.json() or {}
+            # The total lives in the X-Total-Count header (the body is one page);
+            # fall back to body fields for older/forked servers.
+            hdr = next(
+                (v for k, v in (r.headers or {}).items() if str(k).lower() == "x-total-count"),
+                None,
+            )
+            if hdr is not None:
+                repos = int(_num(hdr))
+            else:
+                repos = int(_num(body.get("total_count", len(body.get("data") or []))))
+    except IntegrationError:
+        pass
+    return {
+        "status": OK,
+        "version": ver,
+        "detail": f"up · {repos} repositories",
+        "metrics": {"repos": repos},
+    }
+
+
+@_register(
+    "syncthing",
+    "Syncthing",
+    "apps",
+    [_field("secret", "API key", PASSWORD)],
+    notes="Syncthing REST API key (Actions → Settings → General), sent as X-API-Key.",
+)
+def _syncthing(inst, c):
+    # Unauthenticated liveness first — distinguishes "down" from "bad key".
+    health = c.get_json("/rest/noauth/health")
+    if str((health or {}).get("status", "")).upper() != "OK":
+        raise IntegrationError("health endpoint did not report OK")
+    h = {"X-API-Key": inst.get("secret", "")}
+    st = c.get_json("/rest/system/status", headers=h) or {}
+    uptime = int(_num(st.get("uptime", 0)))
+    conns = (c.get_json("/rest/system/connections", headers=h) or {}).get("connections") or {}
+    connected = sum(1 for d in conns.values() if (d or {}).get("connected"))
+    return {
+        "status": OK,
+        "detail": f"{connected}/{len(conns)} devices connected, up {uptime // 3600}h",
+        "metrics": {"devices_connected": connected, "devices": len(conns), "uptime_s": uptime},
+    }
+
+
+@_register(
+    "frigate",
+    "Frigate",
+    "media",
+    [],
+    notes="Frigate /api/stats — camera count + detection FPS. Frigate's API is "
+    "unauthenticated; front it with a trusted proxy if exposed.",
+)
+def _frigate(inst, c):
+    stats = c.get_json("/api/stats") or {}
+    cams = stats.get("cameras") or {}
+    det = stats.get("detection_fps")
+    if det is None:  # newer Frigate reports it per-camera only
+        det = sum(_num((v or {}).get("detection_fps")) for v in cams.values())
+    det = round(_num(det), 1)
+    ver = str(((stats.get("service") or {}).get("version", "")) or "")
+    return {
+        "status": OK,
+        "version": ver,
+        "detail": f"{len(cams)} cameras, {det} detection FPS",
+        "metrics": {"cameras": len(cams), "det_fps": det},
+    }
+
+
+@_register(
+    "octoprint",
+    "OctoPrint",
+    "apps",
+    [_field("secret", "API key", PASSWORD)],
+    notes="OctoPrint API key (Settings → API), sent as X-Api-Key. A disconnected "
+    "printer is a warning (OctoPrint itself is still up), not critical.",
+)
+def _octoprint(inst, c):
+    h = {"X-Api-Key": inst.get("secret", "")}
+    ver = c.get_json("/api/version", headers=h) or {}
+    server = str(ver.get("server", "") or "")
+    r = c.get("/api/printer", headers=h, params={"exclude": "temperature,sd"})
+    if r.status == 409:  # OctoPrint is up but no printer is connected
+        return {
+            "status": WARN,
+            "version": server,
+            "detail": "printer disconnected",
+            "metrics": {"printing": False, "operational": False},
+        }
+    if not r.ok:
+        raise IntegrationError(f"HTTP {r.status} from /api/printer")
+    flags = ((r.json() or {}).get("state") or {}).get("flags") or {}
+    printing = bool(flags.get("printing"))
+    operational = bool(flags.get("operational"))
+    status = OK if operational else WARN
+    detail = "printing" if printing else ("operational, idle" if operational else "not operational")
+    return {
+        "status": status,
+        "version": server,
+        "detail": detail,
+        "metrics": {"printing": printing, "operational": operational},
+    }
+
+
+@_register(
+    "esphome",
+    "ESPHome (dashboard)",
+    "apps",
+    [],
+    notes="ESPHome dashboard device list (/devices) — counts nodes and flags "
+    "out-of-date firmware. The dashboard has no token auth; protect it at the proxy.",
+)
+def _esphome(inst, c):
+    data = c.get_json("/devices")
+    nodes = (data.get("configured") if isinstance(data, dict) else data) or []
+    outdated = 0
+    for n in nodes:
+        dep = (n or {}).get("deployed_version")
+        cur = (n or {}).get("current_version")
+        if dep and cur and str(dep) != str(cur):
+            outdated += 1
+    status = WARN if outdated else OK
+    return {
+        "status": status,
+        "detail": f"{len(nodes)} nodes"
+        + (f", {outdated} out of date" if outdated else ", all current"),
+        "metrics": {"nodes": len(nodes), "outdated": outdated},
+    }
+
+
+@_register(
+    "homebridge",
+    "Homebridge",
+    "apps",
+    [_field("username", "Username", TEXT), _field("secret", "Password", PASSWORD)],
+    notes="Homebridge UI (homebridge-config-ui-x) — logs in for a token, reads "
+    "bridge status + plugin count.",
+)
+def _homebridge(inst, c):
+    login = c.post_json(
+        "/api/auth/login",
+        {"username": inst.get("username", ""), "password": inst.get("secret", "")},
+    )
+    if not login.ok:
+        raise IntegrationError(f"login failed (HTTP {login.status})")
+    tok = str((login.json() or {}).get("access_token", "") or "")
+    if not tok:
+        raise IntegrationError("login returned no access token")
+    h = {"Authorization": "Bearer " + tok}
+    st = c.get_json("/api/status/homebridge", headers=h) or {}
+    up = str(st.get("status", "")).lower() == "up"
+    plugins = 0
+    try:
+        plugins = len(c.get_json("/api/plugins", headers=h) or [])
+    except IntegrationError:
+        pass
+    return {
+        "status": OK if up else WARN,
+        "detail": f"bridge {st.get('status', 'unknown')}, {plugins} plugins",
+        "metrics": {"up": up, "plugins": plugins},
+    }
+
+
 # ── per-connector headline stat chips (for the rich tiles) ─────────────────────
 # Map each connector type to a few (metric_key, label, kind) the UI shows as
 # labeled chips. kinds: int (humanized 12.3k), pct (18%), num (small count),
@@ -1295,6 +1540,19 @@ _STATS: dict = {
     "servarr": [("health_errors", "Errors", "num"), ("health_warnings", "Warnings", "num")],
     "bazarr": [("health_issues", "Issues", "num")],
     "overseerr": [("pending_requests", "Pending", "num"), ("update_available", "Update", "flag")],
+    "immich": [
+        ("photos", "Photos", "int"),
+        ("videos", "Videos", "int"),
+        ("usage_mb", "Usage", "mb"),
+    ],
+    "paperless": [("documents", "Documents", "int"), ("inbox", "Inbox", "num")],
+    "vaultwarden": [("alive", "Alive", "flag")],
+    "gitea": [("repos", "Repos", "int")],
+    "syncthing": [("devices_connected", "Connected", "num"), ("devices", "Devices", "num")],
+    "frigate": [("cameras", "Cameras", "num"), ("det_fps", "Detect FPS", "num")],
+    "octoprint": [("printing", "Printing", "flag"), ("operational", "Operational", "flag")],
+    "esphome": [("nodes", "Nodes", "num"), ("outdated", "Outdated", "num")],
+    "homebridge": [("up", "Bridge", "flag"), ("plugins", "Plugins", "num")],
 }
 # The named *arr connectors share the servarr stat chips.
 for _arr in ("sonarr", "radarr", "prowlarr", "lidarr", "readarr"):

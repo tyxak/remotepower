@@ -12268,8 +12268,13 @@ def handle_enroll_pin():
     pin = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
     pins = load(PINS_FILE)
     now = int(time.time())
-    pins = {k: v for k, v in pins.items() if now - v['created'] < PIN_TTL}
-    pins[pin] = {'created': now}
+    # v5.8.0 (B3.1): store PINs HASHED at rest (like device/enroll tokens) so a
+    # leaked pins.json can't be replayed to enroll a rogue device. The 6-digit
+    # space is small but the 10-min TTL + per-IP rate limit at register time
+    # bound brute force; hashing removes the at-rest exposure. Keyed by hash;
+    # legacy plaintext-keyed entries (6-digit key) are still accepted on verify.
+    pins = {k: v for k, v in pins.items() if now - v.get('created', 0) < PIN_TTL}
+    pins[_hash_device_token(pin)] = {'created': now}
     save(PINS_FILE, pins)
     respond(200, {'pin': pin, 'expires': now + PIN_TTL})
 
@@ -12658,10 +12663,18 @@ def handle_enroll_register():
             respond(400, {'error': 'Invalid PIN format'})
         pins = load(PINS_FILE)
         now = int(time.time())
-        entry = pins.get(pin)
-        if not entry or (now - entry['created']) > PIN_TTL:
+        # v5.8.0 (B3.1): PINs are stored hashed; look up by hash. Accept a legacy
+        # plaintext-keyed entry too (pre-upgrade PINs mid-TTL) so an in-flight
+        # enrollment doesn't break across the upgrade. Consume whichever matched.
+        pin_hash = _hash_device_token(pin)
+        entry = pins.get(pin_hash)
+        stored_key = pin_hash
+        if not entry and pin in pins:
+            entry = pins.get(pin)
+            stored_key = pin
+        if not entry or (now - entry.get('created', 0)) > PIN_TTL:
             respond(403, {'error': 'Invalid or expired PIN'})
-        del pins[pin]; save(PINS_FILE, pins)
+        del pins[stored_key]; save(PINS_FILE, pins)
     else:
         respond(400, {'error': 'Either pin or enrollment_token is required'})
 
@@ -37619,6 +37632,61 @@ def _annotate_alert_correlation(alerts):
     return alerts
 
 
+# v5.8.0 (B1.2): map an alert's `event` to a mitigation playbook kind so the
+# Alerts page can show the same "Fix" affordance the dashboard needs-attention
+# feed already has. Keys are alert event names; values are _MITIGATE_PLAYBOOKS
+# keys. metric_* alerts resolve by their payload `metric` field (cpu/mem/swap/
+# disk). Only tagged when a device_id is present (playbooks act on a host).
+_EVENT_TO_MITIGATION = {
+    'patch_alert':          'patches',
+    'disk_predict_fail':    'disk',
+    'smart_failure':        'hardware',
+    'config_drift':         'drift',
+    'drift_detected':       'drift',
+    'service_down':         'service_down',
+    'reboot_required':      'reboot',
+    'failed_unit':          'failed_units',
+    'timer_failed':         'failed_units',
+    'brute_force_detected': 'brute_force',
+    'cve_found':            'cve',
+    'container_stopped':    'container',
+    'container_restarting': 'container',
+    'av_infected':          'av_posture',
+    'av_warning':           'av_posture',
+    'backup_stale':         'backup',
+    'backup_verify_failed': 'backup',
+    'ssh_key_added':        'ssh_key',
+    'new_port_detected':    'new_port',
+    'log_alert':            'log_alert',
+}
+_METRIC_TO_MITIGATION = {'cpu': 'cpu', 'memory': 'memory', 'mem': 'memory',
+                         'swap': 'swap', 'disk': 'disk'}
+
+
+def _annotate_alert_mitigation(alerts):
+    """Tag each open alert with `mitigation_kind` (+ `mitigation_target`) when a
+    remediation playbook applies to its event AND it names a device. Mirrors the
+    needs-attention tagging (see the `_mitigable_kinds` loop) so the Alerts page
+    and the dashboard feed offer the same Fix button. Backend-only; the frontend
+    just renders when the field is present."""
+    playbooks = _MITIGATE_PLAYBOOKS if '_MITIGATE_PLAYBOOKS' in globals() else {}
+    for a in alerts:
+        if not isinstance(a, dict) or a.get('resolved_at') or not a.get('device_id'):
+            continue
+        event = a.get('event') or ''
+        p = a.get('payload') or {}
+        kind = _EVENT_TO_MITIGATION.get(event)
+        if event in ('metric_warning', 'metric_critical'):
+            kind = _METRIC_TO_MITIGATION.get(str(p.get('metric') or '').lower())
+        if not kind or kind not in playbooks:
+            continue
+        a['mitigation_kind'] = kind
+        # service_down carries the unit name as the target; others don't need one.
+        tgt = p.get('unit') or p.get('target') or p.get('service')
+        if tgt:
+            a['mitigation_target'] = tgt
+
+
 def handle_alerts_list():
     """GET /api/alerts?status=open|ack|resolved|all&limit=N
 
@@ -37661,6 +37729,7 @@ def handle_alerts_list():
     filtered.reverse()  # newest first
     page = filtered[:limit]
     _annotate_alert_correlation(page)   # v4.1.0: host root-cause folding
+    _annotate_alert_mitigation(page)    # v5.8.0 (B1.2): Fix-button tagging
     respond(200, {
         'alerts': page,
         'total':  len(filtered),
@@ -44883,13 +44952,23 @@ def _parse_iso(s):
     return int(_dt.datetime.fromisoformat(s).timestamp())
 
 
-# Events that maintenance windows can suppress
+# Events that maintenance windows can suppress. A window is the operator saying
+# "expect noise from these hosts now", so the set is broad; a per-window `events`
+# list can NARROW it. v5.8.0 (B1.4): added the resource/drift/unit/reboot/
+# container/backup churn that a patch or maintenance window predictably causes.
 SUPPRESSIBLE_EVENTS = (
     'device_offline', 'device_online',
     'monitor_down',   'monitor_up',
     'service_down',   'service_up',
     'patch_alert',    'cve_found',
     'log_alert',
+    # v5.8.0 (B1.4)
+    'metric_warning', 'metric_critical',
+    'config_drift',   'drift_detected',
+    'failed_unit',    'timer_failed',
+    'reboot_required',
+    'container_stopped', 'container_restarting', 'containers_stale',
+    'backup_stale',
 )
 
 

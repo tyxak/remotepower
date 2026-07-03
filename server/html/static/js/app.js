@@ -1857,7 +1857,22 @@ function renderDevices() {
   if (deviceSiteFilter === '__none__') filtered = filtered.filter(d => !d.site);
   else if (deviceSiteFilter !== 'all') filtered = filtered.filter(d => d.site === deviceSiteFilter);
   if (filtered.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div class="empty-title">No devices enrolled</div><div class="empty-text">Click "Enroll device" to generate a PIN,<br>then run the client installer on your machine.</div></div>`;
+    const devIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`;
+    // v5.8.0 (B2.3): distinguish true first-run (no devices at all → strong
+    // add-your-first-device CTA) from a filter that eliminated everything
+    // (→ clear-filter hint, so the operator isn't told to "enroll" when they
+    // already have hosts).
+    if (devices.length === 0) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
+        + `<div class="empty-title">Add your first device</div>`
+        + `<div class="empty-text">Enroll a machine to start monitoring it — generate a PIN or a one-line install command, then run it on the target host. It appears here within ~60 seconds.</div>`
+        + `<div class="empty-actions mt-12"><button class="btn-primary" data-action="openEnrollModal">${_icon('plus',14)} Enroll device</button></div></div>`;
+    } else {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">${devIcon}</div>`
+        + `<div class="empty-title">No devices match your filters</div>`
+        + `<div class="empty-text">No enrolled device matches the current search / status / group / site filters.</div>`
+        + `<div class="empty-actions mt-12"><button class="btn-icon" data-action="clearDeviceFilters">Clear filters</button></div></div>`;
+    }
     return;
   }
   // v1.11.7: split path. Minimal density renders as a real table with
@@ -4150,6 +4165,21 @@ function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const ic
 // all-numeric args to Number, which broke the strict `activeTagFilter===t`
 // highlight test (t is always a string) for purely numeric tags.
 function setTagFilter(tag) { activeTagFilter = (tag == null ? null : String(tag)); renderDevices(); }
+
+// v5.8.0 (B2.3): reset every Devices-page filter to its default and re-render.
+// Filter state lives in the DOM inputs (read per render) plus the activeTagFilter
+// global — clear both.
+function clearDeviceFilters() {
+  activeTagFilter = null;
+  const search = document.getElementById('device-search-input');
+  if (search) search.value = '';
+  for (const id of ['device-status-filter', 'device-group-filter',
+                    'device-site-filter', 'device-snmp-filter']) {
+    const sel = document.getElementById(id);
+    if (sel) sel.value = 'all';
+  }
+  renderDevices();
+}
 // v4.3.0 perf: widen the device-card window (see DEVICE_CARD_PAGE in
 // renderDevices). Session-sticky so the 60s refresh keeps the expansion.
 function showMoreDeviceCards() {
@@ -17197,7 +17227,22 @@ async function _loadAuditSection(key) {
           verify: b.verify_status || '',
         }));
         const _fmtAge = h => h == null ? 'missing' : (h >= 48 ? `${(h/24).toFixed(1)}d` : `${h}h`);
-        body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
+        // v5.8.0 (B2.2): 3-2-1-rule summary chip row (informational — the
+        // stale/verify columns below do the actionable work).
+        let s321html = '';
+        const s = data && data.score_321;
+        if (s) {
+          const legChip = (leg, txt) => `<span class="status-pill ${leg.ok ? 'ok' : 'warn'}" title="${escAttr(txt)}">${escHtml(leg.label)}</span>`;
+          const scoreCls = s.score === 3 ? 'c-green' : (s.score === 0 ? 'c-red' : 'c-amber');
+          s321html = `<div class="mb-8"><span class="fw-600">3-2-1 backup rule: <span class="${scoreCls}">${escHtml(s.label)}</span></span>
+            <div class="flex-wrap-6 mt-4">
+              ${legChip(s.legs.copies, '3+ copies — count of fresh watched backups')}
+              ${legChip(s.legs.media, '2+ distinct targets / media')}
+              ${legChip(s.legs.offsite, '1+ off-site copy')}
+            </div>
+            <div class="hint mt-4">Heuristic from watched-path data — "media" and "off-site" are inferred from each monitor's target. It won't page you; the stale/verify signals do.</div></div>`;
+        }
+        body.innerHTML = s321html + `<div class="scrollable-table-wrap audit-scroll"><table class="audit-table">
           <thead id="device-backups-thead"><tr>
             <th data-col="label">Backup</th><th data-col="age">Age</th>
             <th data-col="threshold">Threshold</th><th data-col="status">Status</th>
