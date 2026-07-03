@@ -6957,3 +6957,21 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rota
 @media (hover: none) and (pointer: coarse) {
   .sidebar-group-toggle { min-height: 44px; }
 }
+
+/* ── v5.6.x Settings IA: the 12 flat tabs are clustered into labeled groups
+   (Setup / Monitoring / Connections / System). Buttons and ids unchanged —
+   the grouping is visual scent only. Scoped to .settings-tab-group so the
+   other .settings-tabs bars (billing) are unaffected. Labels use the 11px
+   eyebrow role from the canonical type scale. */
+.settings-tab-group { display: flex; align-items: center; gap: 0; }
+.settings-tab-group + .settings-tab-group { margin-left: 14px; padding-left: 14px;
+  border-left: 1px solid var(--border); }
+.settings-tab-group-label { font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); margin-right: 8px;
+  white-space: nowrap; user-select: none; }
+@media (max-width: 900px) {
+  .settings-tabs { flex-wrap: wrap; row-gap: 4px; }
+  .settings-tab-group { flex-wrap: wrap; }
+  .settings-tab-group + .settings-tab-group { margin-left: 0; padding-left: 0;
+    border-left: 0; }
+}

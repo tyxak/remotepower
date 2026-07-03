@@ -27,7 +27,7 @@
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.6.0">
 <link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.6.0">
-<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-46">
+<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-47">
 
 </head>
 <body>
@@ -1262,19 +1262,34 @@
         </div>
 
         <!-- v1.8.4: tab switcher -->
+        <!-- v5.6.x IA: 12 flat tabs → 4 labeled task-oriented clusters. Every
+             button/id/data-arg is unchanged (bookmarks #settings/<tab> and
+             switchSettingsTab untouched) — grouping is purely visual scent. -->
         <div class="settings-tabs">
-          <button class="settings-tab"        data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
-          <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
-          <button class="settings-tab"        data-tab="interface" data-action="switchSettingsTab" data-arg="interface" >Interface</button>
-          <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
-          <button class="settings-tab"        data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
-          <button class="settings-tab"        data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
-          <button class="settings-tab"        data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
-          <button class="settings-tab"        data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Virtualization</button>
-          <button class="settings-tab"        data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
-          <button class="settings-tab"        data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced" >Advanced</button>
-          <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Dashboard</button>
-          <button class="settings-tab"        data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
+          <div class="settings-tab-group">
+            <span class="settings-tab-group-label">Setup</span>
+            <button class="settings-tab"        data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
+            <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
+            <button class="settings-tab"        data-tab="interface" data-action="switchSettingsTab" data-arg="interface" >Interface</button>
+            <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Dashboard</button>
+          </div>
+          <div class="settings-tab-group">
+            <span class="settings-tab-group-label">Monitoring</span>
+            <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
+            <button class="settings-tab"        data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
+            <button class="settings-tab"        data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
+          </div>
+          <div class="settings-tab-group">
+            <span class="settings-tab-group-label">Connections</span>
+            <button class="settings-tab"        data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
+            <button class="settings-tab"        data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Virtualization</button>
+            <button class="settings-tab"        data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
+          </div>
+          <div class="settings-tab-group">
+            <span class="settings-tab-group-label">System</span>
+            <button class="settings-tab"        data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
+            <button class="settings-tab"        data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced" >Advanced</button>
+          </div>
         </div>
 
         <!-- ── General ──────────────────────────────────────────────────── -->

@@ -172,6 +172,11 @@
     // v5.6.x: card headers migrated from <h3> onto the canonical .section-title
     // (Monitoring/Reports/Patches/CMDB/Tickets pages) — now chrome-scanned.
     'Monitoring profiles': { zh: '监控配置集', hi: 'निगरानी प्रोफ़ाइल', es: 'Perfiles de monitorización', ar: 'ملفات المراقبة' },
+    // v5.6.x: Settings tab-group eyebrow labels
+    'Setup': { zh: '设置', hi: 'सेटअप', es: 'Configuración inicial', ar: 'الإعداد' },
+    'Monitoring': { zh: '监控', hi: 'निगरानी', es: 'Monitorización', ar: 'المراقبة' },
+    'Connections': { zh: '连接', hi: 'कनेक्शन', es: 'Conexiones', ar: 'الاتصالات' },
+    'System': { zh: '系统', hi: 'सिस्टम', es: 'Sistema', ar: 'النظام' },
     'Break-glass requests': { zh: '紧急访问请求', hi: 'आपातकालीन पहुँच अनुरोध', es: 'Solicitudes de acceso de emergencia', ar: 'طلبات الوصول الطارئ' },
     'Scoped credentials': { zh: '范围凭据', hi: 'स्कोप्ड क्रेडेंशियल', es: 'Credenciales por ámbito', ar: 'بيانات اعتماد محددة النطاق' },
     'New tickets': { zh: '新工单', hi: 'नए टिकट', es: 'Tickets nuevos', ar: 'تذاكر جديدة' },
