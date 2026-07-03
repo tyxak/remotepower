@@ -2115,9 +2115,76 @@ def _data_file_bytes(path):
 # decrypt error (e.g. a changed/lost key) returns the value as-is — it never
 # crashes config reads. The key must be STABLE (a lost key = unreadable secrets,
 # same contract as RP_BACKUP_PASSPHRASE).
+# v5.6.x: coverage extended from five flat fields to the WHOLE config tree —
+# any secret-NAMED string leaf at any depth (acme_dns_credentials.<provider>.*,
+# webhook destination tokens/itsm secrets, ai.api_key, integration `secret`s,
+# IMAP/SMTP passwords, the legacy token-bearing webhook_url scalar, ...), which
+# is what the original C2 plan specified. Decrypt-side is name-agnostic: ANY
+# `enc:v…:` string leaf is decrypted, so matcher evolution can never strand a
+# value. New writes use the v2 format (per-install salt + HKDF-style one-shot
+# KDF, derived once per process) because v1's per-VALUE 200k-iteration PBKDF2
+# is fine for 5 fields but ruinous for ~30 under fork-per-request CGI; v1
+# blobs stay readable and migrate to v2 on the next config save.
+# RP_CONFIG_KEY should be high-entropy (e.g. `openssl rand -base64 32`) — the
+# fast KDF hardens structure, not a guessable passphrase.
 _CONFIG_SECRET_FIELDS = ('smtp_password', 'oidc_client_secret', 'ldap_bind_password',
                          'siem_token', 'audit_forward_token')
 _CONFIG_ENC_PREFIX = 'enc:v1:'
+_CONFIG_ENC_PREFIX_V2 = 'enc:v2:'
+# Secret-NAMED key matcher for the outbound (encrypt) walk. Skip-suffixes keep
+# non-secret siblings plaintext (password_min_length, proxmox_token_id,
+# secrets_scan_paths, *_set/_configured indicator booleans are non-str anyway).
+_CONFIG_SECRET_NAME_RE = re.compile(
+    r'(password|passphrase|secret|token|api_?key|private_key|community|'
+    r'bearer|webhook_url|credential)', re.I)
+_CONFIG_SECRET_NAME_SKIP_RE = re.compile(
+    r'(_id|_ids|_ttl|_len|_length|_classes|_check|_paths?|_mutes?|_enabled|'
+    r'_days|_port|_interval|_count|_header|_hint|_label|_set|_configured)$', re.I)
+
+
+def _is_config_secret_name(k):
+    k = str(k)
+    return (bool(_CONFIG_SECRET_NAME_RE.search(k))
+            and not _CONFIG_SECRET_NAME_SKIP_RE.search(k))
+
+
+_CONFIG_SALT_FILE_NAME = '.config_salt'
+_CFG_DK_CACHE = {}   # (master, salt_bytes) -> derived key; per-process
+
+
+def _config_install_salt():
+    """Per-install 16-byte salt for the v2 KDF — a REAL file (like
+    STORAGE_MARKER_FILE) so it exists identically under every backend and
+    rides inside DATA_DIR backups (restore on a new box keeps secrets
+    readable, given the same RP_CONFIG_KEY). Salts aren't secret."""
+    sp = DATA_DIR / _CONFIG_SALT_FILE_NAME
+    try:
+        raw = sp.read_bytes()
+        if len(raw) >= 16:
+            return raw[:16]
+    except OSError:
+        pass
+    salt = os.urandom(16)
+    try:
+        fd = os.open(str(sp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'wb') as f:
+            f.write(salt)
+    except OSError as e:
+        sys.stderr.write(f'[remotepower] config salt write failed: {e}\n')
+    return salt
+
+
+def _cfg_derived_key(master, salt):
+    """One-shot HMAC-SHA256 KDF (HKDF-extract shape), cached per process.
+    Deliberately fast: the master key comes from the operator's environment
+    and is expected to be high-entropy, so iteration hardening buys nothing
+    and would cost ~80 ms × N values per CGI request."""
+    ck = (master, salt)
+    dk = _CFG_DK_CACHE.get(ck)
+    if dk is None:
+        dk = hmac.new(salt, master.encode(), hashlib.sha256).digest()
+        _CFG_DK_CACHE[ck] = dk
+    return dk
 
 
 _SECRET_CMD_CACHE = {}
@@ -2163,32 +2230,35 @@ def _config_master_key():
 
 
 def _cfg_enc(plain):
-    """AES-256-GCM encrypt one config-secret string → ``enc:v1:<b64(salt+nonce+ct)>``.
-    No-op (returns the input) when there's no master key, no crypto lib, it's not a
-    non-empty str, or it's already encrypted."""
+    """AES-256-GCM encrypt one config-secret string → ``enc:v2:<b64(nonce+ct)>``
+    (v2: per-install salt + per-process cached fast KDF — see the block comment).
+    No-op (returns the input) when there's no master key, no crypto lib, it's not
+    a non-empty str, or it's already encrypted (either version)."""
     key = _config_master_key()
-    if not key or not isinstance(plain, str) or not plain or plain.startswith(_CONFIG_ENC_PREFIX):
+    if (not key or not isinstance(plain, str) or not plain
+            or plain.startswith((_CONFIG_ENC_PREFIX, _CONFIG_ENC_PREFIX_V2))):
         return plain
     try:
         if not backup_crypto.available():
             return plain   # operator set a key but crypto is missing — don't break saves
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         import base64 as _b64
-        salt = os.urandom(16)
-        dk = hashlib.pbkdf2_hmac('sha256', key.encode(), salt, 200000)
+        dk = _cfg_derived_key(key, _config_install_salt())
         nonce = os.urandom(12)
         ct = AESGCM(dk).encrypt(nonce, plain.encode('utf-8'), None)
-        return _CONFIG_ENC_PREFIX + _b64.b64encode(salt + nonce + ct).decode()
+        return _CONFIG_ENC_PREFIX_V2 + _b64.b64encode(nonce + ct).decode()
     except Exception as e:
         sys.stderr.write(f'[remotepower] config secret encrypt failed: {e}\n')
         return plain
 
 
 def _cfg_dec(blob):
-    """Decrypt one config secret. Fail-graceful — returns the input unchanged if it
-    isn't enc-marked, there's no key, or on ANY error (a key mismatch leaves the
-    field as-is rather than crashing every config read)."""
-    if not isinstance(blob, str) or not blob.startswith(_CONFIG_ENC_PREFIX):
+    """Decrypt one config secret (v1 per-value-PBKDF2 legacy, or v2 fast-KDF).
+    Fail-graceful — returns the input unchanged if it isn't enc-marked, there's
+    no key, or on ANY error (a key mismatch leaves the field as-is rather than
+    crashing every config read). v1 derivations are cached per (salt) so a
+    legacy store costs each unique PBKDF2 once per process, not per read."""
+    if not isinstance(blob, str):
         return blob
     key = _config_master_key()
     if not key:
@@ -2196,40 +2266,74 @@ def _cfg_dec(blob):
     try:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         import base64 as _b64
-        raw = _b64.b64decode(blob[len(_CONFIG_ENC_PREFIX):])
-        salt, nonce, ct = raw[:16], raw[16:28], raw[28:]
-        dk = hashlib.pbkdf2_hmac('sha256', key.encode(), salt, 200000)
-        return AESGCM(dk).decrypt(nonce, ct, None).decode('utf-8')
+        if blob.startswith(_CONFIG_ENC_PREFIX_V2):
+            raw = _b64.b64decode(blob[len(_CONFIG_ENC_PREFIX_V2):])
+            nonce, ct = raw[:12], raw[12:]
+            dk = _cfg_derived_key(key, _config_install_salt())
+            return AESGCM(dk).decrypt(nonce, ct, None).decode('utf-8')
+        if blob.startswith(_CONFIG_ENC_PREFIX):
+            raw = _b64.b64decode(blob[len(_CONFIG_ENC_PREFIX):])
+            salt, nonce, ct = raw[:16], raw[16:28], raw[28:]
+            ck = ('v1', key, salt)
+            dk = _CFG_DK_CACHE.get(ck)
+            if dk is None:
+                dk = hashlib.pbkdf2_hmac('sha256', key.encode(), salt, 200000)
+                _CFG_DK_CACHE[ck] = dk
+            return AESGCM(dk).decrypt(nonce, ct, None).decode('utf-8')
+        return blob
     except Exception as e:
         sys.stderr.write(f'[remotepower] config secret decrypt failed: {e}\n')
         return blob
 
 
+def _walk_config_tree(node, fn, want_key, _depth=0):
+    """Depth-bounded in-place walk over the config tree: apply ``fn`` to every
+    string leaf whose dict key satisfies ``want_key(key, value)``. List items
+    are recursed but never transformed directly (they have no key — e.g.
+    secrets_scan_paths entries stay plaintext)."""
+    if _depth > 10:
+        return node
+    if isinstance(node, dict):
+        for k, v in list(node.items()):
+            if isinstance(v, (dict, list)):
+                _walk_config_tree(v, fn, want_key, _depth + 1)
+            elif isinstance(v, str) and v and want_key(k, v):
+                node[k] = fn(v)
+    elif isinstance(node, list):
+        for item in node:
+            if isinstance(item, (dict, list)):
+                _walk_config_tree(item, fn, want_key, _depth + 1)
+    return node
+
+
 def _config_secrets_inbound(path, data):
-    """Decrypt secret fields after loading CONFIG_FILE (in place). No-op unless this
-    is the config file and a master key is set."""
+    """Decrypt secret values after loading CONFIG_FILE (in place). Runs on the
+    cache-fill, so every consumer sees plaintext. Name-AGNOSTIC: any string
+    leaf carrying an ``enc:v…:`` marker is decrypted regardless of its key, so
+    values encrypted by past/future matcher generations can never be stranded.
+    No-op unless this is the config file and a master key is set."""
     if path != CONFIG_FILE or not _config_master_key() or not isinstance(data, dict):
         return data
-    for f in _CONFIG_SECRET_FIELDS:
-        v = data.get(f)
-        if isinstance(v, str) and v.startswith(_CONFIG_ENC_PREFIX):
-            data[f] = _cfg_dec(v)
-    return data
+    return _walk_config_tree(
+        data, _cfg_dec,
+        lambda k, v: v.startswith((_CONFIG_ENC_PREFIX, _CONFIG_ENC_PREFIX_V2)))
 
 
 def _config_secrets_outbound(path, data):
-    """Encrypt secret fields before writing CONFIG_FILE. Returns a deepcopy with the
-    secrets encrypted (so the caller's in-memory dict is NOT mutated to ciphertext);
+    """Encrypt secret values before writing CONFIG_FILE. Covers every
+    secret-NAMED string leaf at any depth (_is_config_secret_name) plus the
+    legacy explicit _CONFIG_SECRET_FIELDS. Returns a deepcopy with the secrets
+    encrypted (the caller's in-memory dict is NOT mutated to ciphertext);
     a no-op returning the original otherwise."""
     if path != CONFIG_FILE or not _config_master_key() or not isinstance(data, dict):
         return data
     import copy as _c
     out = _c.deepcopy(data)
-    for f in _CONFIG_SECRET_FIELDS:
-        v = out.get(f)
-        if isinstance(v, str) and v and not v.startswith(_CONFIG_ENC_PREFIX):
-            out[f] = _cfg_enc(v)
-    return out
+    explicit = set(_CONFIG_SECRET_FIELDS)
+    return _walk_config_tree(
+        out, _cfg_enc,
+        lambda k, v: (k in explicit or _is_config_secret_name(k))
+        and not v.startswith((_CONFIG_ENC_PREFIX, _CONFIG_ENC_PREFIX_V2)))
 
 
 def load(path):
@@ -38919,9 +39023,11 @@ def handle_security_posture():
     _cfg_enc_armed = bool(_config_master_key())
     add('config_secrets_encrypted', 'Config secrets encrypted at rest', _cfg_enc_armed,
         'armed (RP_CONFIG_KEY set)' if _cfg_enc_armed else 'plaintext at rest',
-        'Set the RP_CONFIG_KEY environment variable (a stable secret, like '
-        'RP_BACKUP_PASSPHRASE) — or RP_CONFIG_KEY_CMD to fetch it from Vault/KMS — '
-        'so SMTP/OIDC/SAML/LDAP/SIEM secrets are AES-GCM encrypted in config.json.')
+        'Set the RP_CONFIG_KEY environment variable (a stable, high-entropy '
+        'secret, like RP_BACKUP_PASSPHRASE) — or RP_CONFIG_KEY_CMD to fetch it '
+        'from Vault/KMS — so every secret-bearing config value (SMTP/OIDC/LDAP/'
+        'SIEM, ACME DNS credentials, webhook tokens, AI api_key, integration '
+        'secrets) is AES-GCM encrypted in config.json.')
     ok = sum(1 for c in checks if c['status'] == 'ok')
     respond(200, {'checks': checks, 'score': ok, 'total': len(checks)})
 

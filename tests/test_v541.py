@@ -628,7 +628,8 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         api._LOAD_CACHE.clear()
         api.save(api.CONFIG_FILE, {'smtp_password': 's3cret', 'siem_token': 'st', 'plain': 'v'})
         on_disk = self._at_rest()
-        self.assertTrue(on_disk['smtp_password'].startswith('enc:v1:'))  # ciphertext at rest
+        # v5.6.x: new writes use the v2 format (per-install salt, fast KDF)
+        self.assertTrue(on_disk['smtp_password'].startswith('enc:v2:'))  # ciphertext at rest
         self.assertEqual(on_disk['plain'], 'v')                          # non-secret untouched
         api._LOAD_CACHE.clear()
         cfg = api.load(api.CONFIG_FILE)
@@ -644,7 +645,7 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         os.environ['RP_CONFIG_KEY'] = 'key-B'   # changed/lost key
         api._LOAD_CACHE.clear()
         cfg = api.load(api.CONFIG_FILE)          # must not raise
-        self.assertTrue(cfg['smtp_password'].startswith('enc:v1:'))  # left as-is, not crashed
+        self.assertTrue(cfg['smtp_password'].startswith('enc:v'))   # left as-is, not crashed
 
     def test_helpers_and_posture(self):
         self.assertEqual(set(api._CONFIG_SECRET_FIELDS) >= {

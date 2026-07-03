@@ -275,7 +275,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Backup integrity verification | Agent runs the tool's own check (`tar -tf` / `restic check` / `borg check`); `backup_verify_failed` *(v4.10.0)* |
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |
-| Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for SMTP/OIDC/LDAP/SIEM/audit-forward secrets; transparent at load/save, fail-graceful *(v5.5.0)* |
+| Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for every secret-bearing config value at any depth (SMTP/OIDC/LDAP/SIEM, ACME DNS credentials, webhook tokens/URL, AI api_key, integration secrets) *(v5.6.x: full-tree coverage)*; transparent at load/save, fail-graceful *(v5.5.0)* |
 | External key sourcing | `RP_CONFIG_KEY` / `RP_BACKUP_PASSPHRASE` can be fetched from an external command (`<NAME>_CMD`, e.g. Vault/KMS/`pass`) instead of the process environment; cached per worker *(v5.5.0)* |
 | WORM audit sink | `audit_worm_path` appends every hash-chained audit entry to an operator-immutable file (`chattr +a` / WORM mount) — tamper-resistant copy *(v5.5.0)* |
 | Off-host backups + restore-verify | Mirror the DR backup to an off-host destination (`backup.offsite_dir`, an NFS/SMB/sshfs mount); **Test restore** decrypts + decompresses + structure-checks the latest archive *(v5.5.0)* |
