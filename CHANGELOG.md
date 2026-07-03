@@ -2,6 +2,31 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v5.8.0 — "WatchMatters" — unreleased (test)
+
+### Added
+
+- **GitHub issue monitor integration.** New `github` connector (Settings →
+  Integrations): watch one or more repositories (`owner/repo`, comma-separated,
+  optional token for private repos / rate limit; GitHub Enterprise API roots
+  work too). A newly opened issue raises a `github_new_issue` alert in the
+  Alerts inbox (pull requests are ignored; the first poll only baselines, so
+  attaching a repo never floods with its backlog). Webhook / push / needs-
+  attention routing for the new `github_issue` kind is off by default — flip it
+  on in Settings → Notifications to page on new issues. Dashboard/Integrations
+  tiles show repo + open-issue counts like every other connector.
+
+### Fixed
+
+- **TLS/DANE expiry checks now actually run on schedule.** The watchlist's
+  periodic probing existed only as an optional cron script the installer merely
+  suggested — and that script read the watchlist as a raw file, so it saw
+  nothing under the SQLite/Postgres storage backends even when installed. The
+  server now owns the cadence (`run_tls_scan_if_due`, ~6h per target, bounded
+  per sweep, edge-triggered `tls_expiry` webhooks honouring per-target
+  warn/crit days) on the same maintenance cycle as every other monitor; the
+  standalone `remotepower-tls-check` runner is now optional and backend-aware.
+
 ## v5.7.0 — "F4ct0rMatters" — 2026-07-03
 
 ### Fixed — New UI (light mode / theming), reported by @AndiBSE

@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.7.0">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.7.0">
-<link rel="stylesheet" href="static/css/styles.css?v=5.7.0">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0">
 
 </head>
 <body>
@@ -3077,7 +3077,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.7.0 f4ct0rmatters factormatters refactor bugfix new ui industrial light mode theme themes accent color picker tokyo dracula nord gruvbox chamfer chamfered button profile menu account dropdown delete device remove device mobile responsive narrow viewport 390px touch target ticket lifecycle opened resolved config secret encryption rp_config_key at rest rls row level security multi-table tenant lazy template page first paint font preload navigation preload entity storage heartbeat api.py decomposition module notify checks tickets provisioning backups cmdb handlers event registry route table release-prep settings groups">
+          <details class="doc-card" open data-keywords="release notes changelog v5.8.0 tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue">
+            <summary><strong>What's new — v5.8.0</strong> — TLS/DANE expiry checks now run on the server's own built-in ~6h schedule (previously cron-only), and a new GitHub Issues connector raises an alert when a new issue is opened on a repository you watch (no breaking changes)</summary>
+            <div class="doc-body">
+              <p>v5.8.0 fixes a silent monitoring gap and adds a developer-facing integration. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.8.0</code>).</p>
+              <p><strong>Fixed</strong></p>
+              <ul>
+                <li><strong>TLS/DANE expiry checks run on schedule now.</strong> Periodic probing of the TLS watchlist previously required an optional cron entry the installer only suggested — and that runner couldn't see the watchlist on the SQLite/Postgres backends. The server now re-probes every target about every 6 hours on its own maintenance cadence (bounded per pass) and fires <code>tls_expiry</code> alerts on warn/critical crossings using each target's own thresholds. Nothing to configure; an existing cron entry is now redundant.</li>
+              </ul>
+              <p><strong>Added</strong></p>
+              <ul>
+                <li><strong>GitHub issue monitor</strong> (Settings → Integrations → <em>GitHub Issues</em>): watch repositories — <code>owner/repo</code>, several per instance — and get a <code>github_new_issue</code> alert in the Alerts inbox when a new issue is opened. Pull requests are ignored and the first poll only baselines, so attaching a repo never floods with its backlog. The token is optional (private repos / rate limit); GitHub Enterprise API roots work. Webhook/push routing for the new <em>GitHub new issues</em> kind is off by default — enable it under Settings → Notifications to page on it.</li>
+              </ul>
+              <p class="hint">See <code>docs/v5.8.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v5.7.0 f4ct0rmatters factormatters refactor bugfix new ui industrial light mode theme themes accent color picker tokyo dracula nord gruvbox chamfer chamfered button profile menu account dropdown delete device remove device mobile responsive narrow viewport 390px touch target ticket lifecycle opened resolved config secret encryption rp_config_key at rest rls row level security multi-table tenant lazy template page first paint font preload navigation preload entity storage heartbeat api.py decomposition module notify checks tickets provisioning backups cmdb handlers event registry route table release-prep settings groups">
             <summary><strong>What's new — v5.7.0 "F4ct0rMatters"</strong> — a refactor-and-fix release: fixes five New-UI theming / light-mode / accent bugs (device delete, profile menu, accent picker, themes, chamfered buttons) and a mobile pass, adds ticket lifecycle events and whole-tree config-secret encryption + multi-table Postgres RLS (opt-in), and starts faster on a slimmer, modular server (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.7.0 "F4ct0rMatters" is a refactor-and-fix release. <strong>Everything new is opt-in and default-off.</strong> Hard-reload once after upgrading (cache <code>remotepower-shell-v5.7.0</code>).</p>
@@ -3170,20 +3185,6 @@
                 <li><strong>Export.</strong> CSV and JSON API on the ledger, worksheet and invoices; print an invoice to PDF from the browser.</li>
               </ul>
               <p class="hint">See <code>docs/time-billing.md</code> and <code>docs/v5.4.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
-            </div>
-          </details>
-          <details class="doc-card" data-keywords="release notes changelog v5.3.0 resolvematters ticket tickets helpdesk incident request change priority sla assignee ownership team group sub-ticket parent child master imap inbound mail signature conversation reply resolve close alert contacts directory phonebook">
-            <summary><strong>What's new — v5.3.0 "ResolveMatters"</strong> — a built-in opt-in ticket system (helpdesk) that turns alerts into owned, tracked, resolvable work, plus an internal Contacts directory (no breaking changes)</summary>
-            <div class="doc-body">
-              <p>v5.3.0 adds a built-in <strong>ticket system</strong>, off by default — enable it under <em>Settings → Advanced → Tickets</em>. It lives next to your fleet, so the alert you just saw and the work you do about it stay in one place. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.3.0</code>).</p>
-              <ul>
-                <li><strong>Tickets.</strong> Stable <code>#RP</code> numbers; types Incident / Request / Change; priorities P1 Major – P4 Low; open one from an alert (it inherits the severity, device and title) or stand-alone.</li>
-                <li><strong>Ownership &amp; teams.</strong> Take ownership (assigns you + your team) or hand a ticket to a group's queue; set your team under <em>Profile → Team</em>. The page splits into New / My open / My team's open / Other — searchable and sortable.</li>
-                <li><strong>SLA.</strong> Per-priority response targets; tickets show the time left and breaches raise a <code>ticket_sla_breached</code> event that routes through your normal alerts/webhooks.</li>
-                <li><strong>Closing the loop.</strong> Master / sub-tickets, and resolving a ticket opened from an alert <strong>resolves that alert</strong>. Email in/out through your SMTP + a dedicated IMAP mailbox, with a per-user HTML signature and a mail-loop guard.</li>
-                <li><strong>Contacts.</strong> A shared internal phonebook under <em>Admin → Contacts</em>.</li>
-              </ul>
-              <p class="hint">See <code>docs/ticket-system.md</code> and <code>docs/v5.3.0.md</code>. Older releases → <code>CHANGELOG.md</code>.</p>
             </div>
           </details>
           <details class="doc-card" data-keywords="release notes changelog older versions history v5.1.0 unitymatters v5.0.1 tempermatters v4.10.0 perimetermatters v4.7.0 integrationsmatters v4.6.1 v4.5.0 trustmatters v4.4.1 v4.4.0 v4.3.0 v3.11 v3.8 v3.7 v3.6 v3.5 v3.4 v3.3 v3.2 v3.1 v3.0">
@@ -3422,7 +3423,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Homelab software integrations</strong> — monitor the self-hosted apps you already run</summary>
             <div class="doc-body">
               <p>A read-only, server-side subsystem polls popular self-hosted software for health on a cadence and folds the result into the <strong>Alerts</strong> inbox and the dashboard. Nothing is installed on the target — each connector only reads a service's own health/status API. Set one up under <strong>Settings → Integrations</strong>: pick a type, point it at the service on your LAN, add an API token, and <strong>Test</strong>.</p>
-              <p><strong>28 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
+              <p><strong>29 connectors (plus a Custom HTTP probe):</strong> Pi-hole, AdGuard, TrueNAS, Unraid, Kubernetes/k3s, VMware vSphere/ESXi/vCenter, Red Hat OpenShift, VMware Cloud Director, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues (raises a <code>github_new_issue</code> alert when a new issue is opened on a watched repo), the download clients (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet), the *arr suite (one Servarr connector for Sonarr/Radarr/Prowlarr/Lidarr) + Bazarr, Overseerr/Jellyseerr, and a generic Custom HTTP probe for anything else.</p>
               <p><strong>Alerts &amp; widget:</strong> an unhealthy or unreachable target raises an <code>integration_down</code> alert (auto-resolved on recovery) routed through your channels, plus an <strong>Integration health</strong> dashboard widget and live status badges.</p>
               <p><strong>Read-only &amp; SSRF-guarded:</strong> every outbound call is blocked from loopback / link-local / cloud-metadata (RFC1918 LAN allowed), re-validated at connect time, with no redirects. Credentials are stored server-side and redacted from every response; the raw URL is admin-only. A <strong>Show Homelab software</strong> switch (default on) is an instance-wide kill switch — off stops polling and hides the section + widget.</p>
             </div>
@@ -8554,46 +8555,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.7.0"></script>
-<script defer src="static/js/app.js?v=5.7.0"></script>
+<script defer src="static/js/i18n.js?v=5.8.0"></script>
+<script defer src="static/js/app.js?v=5.8.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.7.0"></script>
-<script defer src="static/js/app-cmdb.js?v=5.7.0"></script>
-<script defer src="static/js/app-containers.js?v=5.7.0"></script>
-<script defer src="static/js/app-network.js?v=5.7.0"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0"></script>
+<script defer src="static/js/app-network.js?v=5.8.0"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.7.0"></script>
-<script defer src="static/js/app-compliance.js?v=5.7.0"></script>
-<script defer src="static/js/app-integrations.js?v=5.7.0"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.7.0"></script>
-<script defer src="static/js/app-dns.js?v=5.7.0"></script>
-<script defer src="static/js/app-drift.js?v=5.7.0"></script>
-<script defer src="static/js/app-dmarc.js?v=5.7.0"></script>
-<script defer src="static/js/app-cve.js?v=5.7.0"></script>
-<script defer src="static/js/app-firewall.js?v=5.7.0"></script>
-<script defer src="static/js/app-backups.js?v=5.7.0"></script>
-<script defer src="static/js/app-iac.js?v=5.7.0"></script>
-<script defer src="static/js/app-provisioning.js?v=5.7.0"></script>
-<script defer src="static/js/app-tuning.js?v=5.7.0"></script>
-<script defer src="static/js/app-kb.js?v=5.7.0"></script>
-<script defer src="static/js/app-rollouts.js?v=5.7.0"></script>
-<script defer src="static/js/app-power.js?v=5.7.0"></script>
-<script defer src="static/js/app-gpu.js?v=5.7.0"></script>
-<script defer src="static/js/app-proxmox.js?v=5.7.0"></script>
-<script defer src="static/js/wg-access.js?v=5.7.0"></script>
-<script defer src="static/js/app-billing.js?v=5.7.0"></script>
-<script defer src="static/js/app-virt.js?v=5.7.0"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0"></script>
+<script defer src="static/js/app-power.js?v=5.8.0"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.7.0"></script>
-<script defer src="static/js/app-checks.js?v=5.7.0"></script>
-<script defer src="static/js/app-logs.js?v=5.7.0"></script>
-<script defer src="static/js/app-remote.js?v=5.7.0"></script>
-<script defer src="static/js/app-tickets.js?v=5.7.0"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0"></script>
 
-<script defer src="static/js/sw-register.js?v=5.7.0"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0"></script>
 </body>
 </html>

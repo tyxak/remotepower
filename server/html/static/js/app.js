@@ -13500,6 +13500,8 @@ function _renderHomeActivity(fleetEvents) {
     'scan_finding',
     // v4.7.0: homelab software integration health
     'integration_down', 'integration_recovered',
+    // v5.8.0: GitHub issue monitor — new issue on a watched repo
+    'github_new_issue',
     // v4.8.0: IP reputation (DNSBL) monitor
     'ip_blacklisted', 'ip_blacklist_cleared',
     // v4.9.0: DNS resolver health monitor
@@ -13599,6 +13601,8 @@ function _renderHomeActivity(fleetEvents) {
         detail = p.path || p.unit || ''; break;
       case 'config_drift':
         detail = (p.sections||[]).slice(0,3).join(', '); break;
+      case 'github_new_issue':
+        detail = `${p.repo || ''}${p.number ? ` #${p.number}` : ''}${p.title ? `: ${p.title}` : ''}`; break;
       case 'ip_blacklisted':
         detail = `${p.ip || ''}${p.blocklists ? ' — ' + p.blocklists : ''}`; break;
       case 'ip_blacklist_cleared':
@@ -13706,6 +13710,9 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="scans"`;
     // v4.7.0: integration health → the Integrations page
     case 'integration_down': case 'integration_recovered':
+      return `${base} data-home-act="integrations"`;
+    // v5.8.0: new GitHub issue → the Integrations page (the watching instance)
+    case 'github_new_issue':
       return `${base} data-home-act="integrations"`;
     case 'ip_blacklisted': case 'ip_blacklist_cleared':
       return `${base} data-home-act="dmarc"`;

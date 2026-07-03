@@ -20,6 +20,7 @@ The instance-config dict (stored per-integration in the server config) carries:
 """
 
 import json
+import re
 import urllib.parse
 
 OK = "ok"
@@ -1229,6 +1230,10 @@ _STATS: dict = {
     "custom_probe": [
         ("http_status", "HTTP", "num"),
     ],
+    "github": [
+        ("repos", "Repos", "int"),
+        ("open_issues", "Open issues", "int"),
+    ],
     "pihole": [
         ("queries_today", "Queries", "int"),
         ("blocked_pct", "Blocked", "pct"),
@@ -1423,6 +1428,94 @@ def _custom_probe(inst, c):
             }
         return {"status": OK, "detail": f"HTTP {r.status}, {field}={val}", "metrics": metrics}
     return {"status": OK, "detail": f"HTTP {r.status}", "metrics": metrics}
+
+
+# One GitHub owner/repo path segment pair. Repo names are interpolated into the
+# outbound URL path, so they MUST be reduced to a strict charset first (the
+# SSRF rule from the virt drivers: an absolute-URL "id" would otherwise pass
+# the public-host preflight and redirect the authed call elsewhere).
+_GH_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+_GH_MAX_REPOS = 10          # per-instance bound (one HTTP call per repo per poll)
+_GH_PER_PAGE = 30           # newest issues fetched per repo (detection window)
+
+
+def _gh_repos(inst):
+    """The instance's watched repo list — 'owner/repo, owner/repo' in ``slug``."""
+    out, bad = [], []
+    for raw in (inst.get("slug") or "").split(","):
+        r = raw.strip().strip("/")
+        if not r:
+            continue
+        (out if _GH_REPO_RE.match(r) else bad).append(r)
+    return out[:_GH_MAX_REPOS], bad
+
+
+@_register(
+    "github",
+    "GitHub Issues",
+    "apps",
+    [
+        _field("slug", "Repositories (owner/repo, comma-separated)", TEXT,
+               placeholder="tyxak/remotepower, owner/other-repo"),
+        _field("secret", "Access token (optional — private repos / rate limit)",
+               PASSWORD, optional=True),
+    ],
+    notes="Watches one or more GitHub repositories and raises a github_new_issue "
+    "alert when a NEW issue is opened (pull requests are ignored; the first "
+    "poll only baselines). URL is the API root — https://api.github.com, or "
+    "your GitHub Enterprise /api/v3 root. A classic token with repo read "
+    "scope lifts the anonymous rate limit and allows private repos.",
+)
+def _github(inst, c):
+    repos, bad = _gh_repos(inst)
+    if not repos:
+        raise IntegrationError("no valid repositories configured (owner/repo, comma-separated)")
+    headers = {"Accept": "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28"}
+    if inst.get("secret"):
+        headers.update(_hdr_token(inst, "Authorization", "Bearer "))
+    open_count = 0
+    state, latest, failed = {}, [], []
+    for repo in repos:
+        try:
+            issues = c.get_json(
+                f"/repos/{repo}/issues", headers=headers,
+                params={"state": "open", "per_page": _GH_PER_PAGE,
+                        "sort": "created", "direction": "desc"})
+        except IntegrationError:
+            failed.append(repo)
+            continue
+        if not isinstance(issues, list):
+            failed.append(repo)
+            continue
+        # The issues endpoint interleaves PRs — a PR is an issue with a
+        # `pull_request` stub; only real issues count/alert.
+        real = [i for i in issues if isinstance(i, dict) and not i.get("pull_request")]
+        open_count += len(real)
+        state[repo] = max((int(i.get("number") or 0) for i in real), default=0)
+        for i in real:
+            latest.append({
+                "repo": repo,
+                "number": int(i.get("number") or 0),
+                "title": str(i.get("title") or "")[:140],
+                "url": str(i.get("html_url") or "")[:300],
+            })
+    if not state:
+        raise IntegrationError(f"all repos failed: {', '.join(failed + bad)[:150]}")
+    status = WARN if (failed or bad) else OK
+    detail = f"{len(state)} repo(s), {open_count} open issue(s)"
+    if failed or bad:
+        detail += f" — unreachable/invalid: {', '.join(failed + bad)[:100]}"
+    return {
+        "status": status,
+        "detail": detail,
+        "metrics": {"repos": len(state), "open_issues": open_count},
+        # Consumed by api._persist_integration_results for edge-triggered
+        # github_new_issue alerts (per-repo high-water issue number + the
+        # newest issues so alert payloads can carry title/url).
+        "gh_state": state,
+        "gh_latest": latest,
+    }
 
 
 def format_stats(type_, metrics):

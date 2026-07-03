@@ -48,7 +48,7 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
 | Reverse proxy / certs | **Traefik**, **Nginx Proxy Manager**, **Caddy** |
 | Observability | **Netdata**, **Grafana**, **Uptime Kuma** |
 | Media | **Jellyfin**, **Plex** |
-| Apps | **Home Assistant**, **Nextcloud** |
+| Apps | **Home Assistant**, **Nextcloud**, **GitHub Issues** |
 | Download clients | **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet** |
 | Media automation | **Servarr** (Sonarr / Radarr / Prowlarr / Lidarr — one connector), **Bazarr** |
 | Requests | **Overseerr / Jellyseerr** |
@@ -77,6 +77,15 @@ leaving a credential blank keeps the stored value). Configuration is admin-only.
   different API and is its own type.
 - **Standalone ESXi** exposes only SOAP; point the vCenter connector at a
   vCenter instance.
+- **GitHub Issues** watches repositories for **newly opened issues** rather than
+  service health. URL is the API root (`https://api.github.com`, or your GitHub
+  Enterprise `/api/v3` root); list repos as `owner/repo, owner/repo` (up to 10);
+  the token is optional (needed for private repos, and lifts the anonymous rate
+  limit). A new issue raises a `github_new_issue` alert in the Alerts inbox —
+  pull requests are ignored and the first poll only baselines, so attaching a
+  repo never floods with its existing backlog. The **GitHub new issues** channel
+  kind defaults to inbox + activity feed only; enable webhook/push routing in
+  Settings → Notifications if you want to page on it.
 
 ## What you see
 

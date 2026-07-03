@@ -50,6 +50,7 @@ CADENCE = (
     'run_ticket_sla_if_due',
     'run_reputation_scan_if_due',
     'run_resolver_health_if_due',
+    'run_tls_scan_if_due',
     'run_snmp_polls_if_due',
     'run_agentless_reachability_if_due',
     'run_routeros_update_check_if_due',

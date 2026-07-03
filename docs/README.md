@@ -63,6 +63,12 @@ The full release history — every version, newest first — lives in
 
 The five most recent per-release notes are kept here:
 
+- **[v5.8.0.md](v5.8.0.md)** — unreleased (test): TLS/DANE expiry probing now
+ runs on the server's own ~6h schedule (it was silently cron-only, and blind
+ under the SQLite/Postgres backends), and a new **GitHub Issues** connector
+ raises `github_new_issue` alerts when a new issue is opened on watched
+ repositories (PRs ignored, first poll baselines, paging off by default).
+ No breaking changes.
 - **[v5.7.0.md](v5.7.0.md)** — "F4ct0rMatters": a refactor-and-fix release.
  Fixes five New-UI theming/accent/light-mode bugs (device delete, profile menu,
  accent picker, themes, chamfered buttons) reported by @AndiBSE and a mobile
@@ -89,13 +95,6 @@ The five most recent per-release notes are kept here:
  recurring fees into per-customer **invoices** (worksheet → draft/sent/paid, with
  issue-time hour locking). New read-only **finance** role; CSV / JSON-API /
  browser-PDF export. No breaking changes.
-- **[v5.3.0.md](v5.3.0.md)** — "ResolveMatters": a built-in, opt-in **ticket
- system** (helpdesk) — tickets typed Incident/Request/Change with P1–P4 priorities
- and SLA targets, ownership/teams/groups, master & sub-tickets, alert→ticket→
- auto-resolve, inbound-mail auto-create + reply threading and outbound email with
- an HTML signature — plus an internal **Contacts** directory, a tickets AI/RAG
- source + Helpdesk-triage advisor, and a whole-project hardening/perf/consistency
- sweep. No breaking changes.
 
 Older release notes (v5.0.1 and earlier) live in
 [CHANGELOG.md](../CHANGELOG.md).

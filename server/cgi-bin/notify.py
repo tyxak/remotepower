@@ -734,6 +734,12 @@ def _webhook_message(event, payload):
         )
     elif event == "integration_recovered":
         return f'Integration "{payload.get("label", "?")}" recovered'
+    elif event == "github_new_issue":
+        num = payload.get("number")
+        return (
+            f'New GitHub issue {f"#{num} " if num else ""}in '
+            f'{payload.get("repo", "?")}: {payload.get("title", "?")}'
+        )
     elif event == "ip_blacklisted":
         return (
             f'IP {payload.get("ip","?")} is listed on '

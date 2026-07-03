@@ -25,7 +25,9 @@ The target gets an opaque `tls_<hex>` ID. Until the first probe
 runs, the row's status is "unknown" and most fields are blank.
 
 Click **Scan now** to run a synchronous probe immediately, or wait
-for the next cron run (default: every 6 hours).
+for the next scheduled probe — the server re-probes each target
+automatically about every 6 hours (bounded to 10 targets / 15 s per
+sweep pass, so large watchlists drain over a few passes).
 
 ---
 
@@ -122,9 +124,23 @@ N outbound connections from the server. Audit-logged as
 
 ---
 
-## Cron / systemd
+## Scheduling
 
-Suggested cron entry every 6 hours:
+The server schedules probes itself: `run_tls_scan_if_due()` rides the
+same maintenance cadence as every other monitor (it runs opportunistically
+on request traffic, or from the out-of-band scheduler when that is
+enabled). Each target is re-probed once its last result is older than
+6 hours; threshold-crossing targets fire the `tls_expiry` webhook/alert
+edge-triggered, honouring the per-target warn/critical days.
+
+No cron entry is required.
+
+## Cron / systemd (optional, legacy)
+
+The standalone `remotepower-tls-check` runner predates the built-in
+schedule. Keep it only if the server receives zero traffic for long
+stretches AND you don't run the out-of-band scheduler. Suggested cron
+entry every 6 hours:
 
 ```
 0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check

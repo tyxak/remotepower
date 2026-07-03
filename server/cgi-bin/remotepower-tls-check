@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""RemotePower TLS expiry probe — cron runner.
+"""RemotePower TLS expiry probe — OPTIONAL cron runner (legacy).
 
-Run periodically (suggested: every 6 hours) from systemd timer or cron.
-Probes every host in ``tls_targets.json``, writes the latest result to
-``tls_results.json``, and emits webhook notifications for hosts that
-crossed a warn/critical threshold since the last run.
+Since v5.8.0 the server schedules TLS probes itself (``run_tls_scan_if_due``
+rides the same maintenance cadence as every other monitor), so a cron entry is
+no longer required. Keep this runner only if you want probes to continue while
+the server receives zero traffic AND you don't run the out-of-band scheduler.
 
-Designed to be safe to run alongside the CGI: writes are atomic (the
-shared ``save()`` helper writes to a tempfile + rename) and the data
-files are short enough that a partial overwrite isn't a concern.
+Probes every host on the TLS watchlist, writes the latest results, and emits
+webhook notifications for hosts that crossed a warn/critical threshold since
+the last run. Storage goes through the server's backend-aware ``load``/``save``
+(the watchlist lives in DB tables under the SQLite/Postgres backends — a raw
+file read sees nothing there); the plain-file fallback only covers a broken
+api import.
 
 Exit code: 0 always (don't spam cron mail on transient probe failures).
 Use journalctl / the audit log to diagnose persistent failures.
@@ -43,8 +46,21 @@ RESULTS  = DATA_DIR / "tls_results.json"
 WARN_DAYS = 30   # warning severity
 CRIT_DAYS = 7    # critical severity
 
+try:
+    # Backend-aware storage (JSON / SQLite / Postgres) — the same code path the
+    # CGI uses. Importing api is heavyweight for a cron but runs from cached
+    # bytecode; without it the runner is blind on the DB backends.
+    import api as _api
+except Exception as exc:                                    # pragma: no cover
+    _api = None
+    print(f"[tls-check] api import failed ({exc}); falling back to raw files",
+          file=sys.stderr)
+
 
 def _load(p: Path) -> dict:
+    if _api is not None:
+        data = _api.load(p)
+        return data if isinstance(data, dict) else {}
     if not p.exists():
         return {}
     try:
@@ -56,7 +72,10 @@ def _load(p: Path) -> dict:
 
 
 def _save(p: Path, data: dict) -> None:
-    """Atomic write — same shape as the CGI's save() helper."""
+    """Backend-aware save; raw atomic write only as the no-api fallback."""
+    if _api is not None:
+        _api.save(p, data)
+        return
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2))

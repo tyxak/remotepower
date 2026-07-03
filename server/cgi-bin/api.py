@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '5.7.0'
+SERVER_VERSION = '5.8.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -444,6 +444,9 @@ MAX_TLS_TARGETS = 200
 MAX_TLS_HOST_LEN = 255
 TLS_DEFAULT_WARN_DAYS = 14
 TLS_DEFAULT_CRIT_DAYS = 3
+TLS_SCAN_INTERVAL   = 6 * 3600   # per-target auto re-probe cadence (docs promise ~6h)
+TLS_MAX_PER_RUN     = 10         # cap targets probed per sweep run (bounded heartbeat)
+TLS_RUN_BUDGET      = 15         # wall-clock seconds cap per sweep run (probe worst case 5+5s)
 
 # ── v1.11.1: network-map tunnels + draggable positions ───────────────────────
 # Tunnels are a second kind of edge between two devices — distinct from the
@@ -1241,6 +1244,9 @@ EVENT_REGISTRY = {
     'integration_recovered': dict(
         label='An integration target recovered', kind='integration',
         title='Integration Recovered', resolves=('integration_down',)),
+    'github_new_issue': dict(
+        label='New issue opened on a watched GitHub repository', kind='github_issue',
+        title='New GitHub Issue', severity='low', tags='memo'),
     'ip_blacklisted': dict(
         label='A monitored IP is listed on a DNS blocklist (DNSBL)', kind='reputation',
         title='IP Blocklisted', severity='high'),
@@ -5745,7 +5751,9 @@ def _record_fleet_event(event, payload):
                     # v5.6.x: ticket lifecycle — feed items link and label
                     # the ticket (#RP number, subject, who/what resolved it).
                     'number', 'subject', 'ticket_id', 'source', 'status',
-                    'priority', 'assignee', 'resolved_by'):
+                    'priority', 'assignee', 'resolved_by',
+                    # v5.8.0: github_new_issue feed items name the repo/issue.
+                    'repo', 'title', 'url', 'label'):
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -5900,6 +5908,7 @@ CHANNEL_KIND_DEFS = (
     ('scan', 'Security scan findings', 'operational'),
     # v4.7.0: homelab software integration health
     ('integration', 'Integration health', 'operational'),
+    ('github_issue', 'GitHub new issues', 'operational'),  # v5.8.0
     ('reputation', 'IP reputation (DNSBL)', 'operational'),
     ('resolver', 'DNS resolver health', 'operational'),
     ('fail2ban', 'fail2ban intrusion bans', 'operational'),  # v5.1.0
@@ -5978,6 +5987,10 @@ CHANNEL_KIND_DEFAULTS = {
     # webhook / needs_attention off. Operators who page on lifecycle can flip
     # them back on in Settings → Notifications; a saved choice always wins.
     'agentlifecycle': {'needs_attention': False, 'alerts': False, 'webhook': False},
+    # New GitHub issues are informational: they land in the Alerts inbox (the
+    # point of watching a repo) but don't page — webhook/push/needs_attention
+    # stay off until an operator opts in via Settings → Notifications.
+    'github_issue': {'needs_attention': False, 'webhook': False},
 }
 
 
@@ -6933,7 +6946,11 @@ def _record_alert(event, payload):
                     # v5.6.x: ticket lifecycle — ticket_id is the identity
                     # ticket_resolved matches to auto-resolve the SLA-breach
                     # alert; number is the operator-facing #RP reference.
-                    'ticket_id', 'number'):
+                    'ticket_id', 'number',
+                    # v5.8.0: github_new_issue — repo + number identify the
+                    # issue; title/url make the alert self-describing and let
+                    # the UI link straight to it.
+                    'repo', 'title', 'url'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -16167,6 +16184,46 @@ def _persist_integration_results(results):
         label = r.get('label', key)
         rtype = r.get('type', '')
         detail = r.get('detail', '')
+        prev = latest.get(key) if isinstance(latest.get(key), dict) else {}
+        # v5.8.0: GitHub new-issue detection — edge-triggered off the per-repo
+        # high-water issue number the connector reports in gh_state. The first
+        # poll (and the first poll of a newly-attached repo) only BASELINES —
+        # no alert flood for a repo's existing backlog. Carry forward marks for
+        # repos missing from this poll (transient fetch failure) so an outage
+        # can't reset the baseline and re-alert on old issues.
+        if rtype == 'github' and isinstance(r.get('gh_state'), dict):
+            prev_gh = prev.get('gh_state') if isinstance(prev.get('gh_state'), dict) else {}
+            new_issues = []
+            for item in (r.get('gh_latest') or []):
+                if not isinstance(item, dict):
+                    continue
+                prev_max = prev_gh.get(item.get('repo'))
+                if prev_max is None:
+                    continue        # baseline: first sighting of this repo
+                try:
+                    if int(item.get('number') or 0) > int(prev_max):
+                        new_issues.append(item)
+                except (TypeError, ValueError):
+                    continue
+            new_issues.sort(key=lambda i: i.get('number') or 0)
+            overflow = len(new_issues) - 10
+            for item in new_issues[:10]:    # anti-burst cap per poll
+                pending.append(('github_new_issue', {
+                    'label': label, 'integration_id': key,
+                    'repo': item.get('repo', ''),
+                    'number': item.get('number', 0),
+                    'title': item.get('title', ''),
+                    'url': item.get('url', ''),
+                }))
+            if overflow > 0:                # no silent cap — summarize the rest
+                pending.append(('github_new_issue', {
+                    'label': label, 'integration_id': key,
+                    'repo': (new_issues[-1].get('repo', '') if new_issues else ''),
+                    'title': f'…and {overflow} more new issue(s) this poll',
+                    'url': '',
+                }))
+            for repo, mark in prev_gh.items():
+                r['gh_state'].setdefault(repo, mark)
         latest[key] = r
         hist.setdefault(key, [])
         hist[key].append({'ts': r.get('checked'), 'status': status, 'detail': detail})
@@ -23496,6 +23553,80 @@ def handle_tls_scan() -> None:
     save(TLS_RESULTS_FILE, results)
     audit_log(actor, 'tls_scan', detail=f'targets={len(targets)}')
     respond(200, {'ok': True, 'scanned': len(results)})
+
+
+def _tls_expiry_crossings(target, prev, cur):
+    """Edge-triggered ``tls_expiry`` payloads for one target: fired only when a
+    probe CROSSES the target's warn/crit threshold (or DANE flips ok→fail), so a
+    cert that sits at 10 days doesn't re-alert on every sweep. Mirrors the logic
+    the ``remotepower-tls-check`` cron runner has always used, but honours the
+    per-target ``warn_days``/``crit_days`` instead of that script's fixed 30/7."""
+    warn = int(target.get('warn_days', TLS_DEFAULT_WARN_DAYS))
+    crit = int(target.get('crit_days', TLS_DEFAULT_CRIT_DAYS))
+    days      = tls_monitor.days_until_expiry(cur)
+    prev_days = tls_monitor.days_until_expiry(prev) if prev else 9999
+    host = target.get('host', '?')
+    port = int(target.get('port', 443))
+    out = []
+    if prev_days > crit >= days:
+        out.append({'host': host, 'port': port, 'days_left': days,
+                    'severity': 'critical'})
+    elif prev_days > warn >= days:
+        out.append({'host': host, 'port': port, 'days_left': days,
+                    'severity': 'warning'})
+    dane_ok_prev = (prev or {}).get('dane_status', 'ok') in ('ok', 'not_checked', None, '')
+    dane_ok_now  = cur.get('dane_status', 'ok') in ('ok', 'not_checked', None, '')
+    if dane_ok_prev and not dane_ok_now:
+        out.append({'host': host, 'port': port, 'days_left': days,
+                    'severity': 'warning'})
+    return out
+
+
+def run_tls_scan_if_due():
+    """Periodic TLS/DANE expiry re-probe so the watchlist is a real monitor.
+
+    Historically this cadence lived ONLY in the optional ``remotepower-tls-check``
+    cron (which the installer merely suggests, and which reads the watchlist as a
+    raw file — invisible rows under the SQLite/Postgres backends), so unless an
+    operator hand-installed the cron on a JSON-backend box, scheduled scans never
+    ran. Now the server owns the schedule like every other monitor: per-target
+    cadence (oldest ``checked_at`` first, skip younger than TLS_SCAN_INTERVAL),
+    bounded per run + wall-clock budget so a big watchlist never bursts or blocks
+    a heartbeat. Cheap when nothing is due. Webhooks fire edge-triggered after
+    the save (never under a lock)."""
+    targets = _tls_targets()
+    if not targets:
+        return
+    results = _tls_results()
+    now = int(time.time())
+    order = sorted(
+        ((tid, t) for tid, t in targets.items() if isinstance(t, dict) and t.get('host')),
+        key=lambda kv: (results.get(kv[0]) or {}).get('checked_at', 0))
+    pending, scanned = [], 0
+    start = time.monotonic()
+    for tid, t in order:
+        prev = results.get(tid) or {}
+        if now - int(prev.get('checked_at', 0) or 0) < TLS_SCAN_INTERVAL:
+            break               # oldest-first: everything after this is younger
+        if scanned >= TLS_MAX_PER_RUN or time.monotonic() - start > TLS_RUN_BUDGET:
+            break
+        try:
+            cur = tls_monitor.probe_all({tid: t}).get(tid)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] tls probe failed {t.get("host")}: {e}\n')
+            continue
+        if not cur:
+            continue
+        scanned += 1
+        results[tid] = cur
+        pending.extend(('tls_expiry', p) for p in _tls_expiry_crossings(t, prev, cur))
+    if not scanned:
+        return
+    # Drop results for deleted targets so the store can't grow unbounded.
+    results = {tid: r for tid, r in results.items() if tid in targets}
+    save(TLS_RESULTS_FILE, results)
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
 
 
 # ─── v4.8.0: DMARC posture monitor (DNS-only) ────────────────────────────────
@@ -49413,6 +49544,8 @@ def main():
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).
     _safe(run_resolver_health_if_due, 'run_resolver_health_if_due')
+    # v5.8.0: periodic TLS/DANE expiry re-probe (was cron-only — see the sweep).
+    _safe(run_tls_scan_if_due, 'run_tls_scan_if_due')
     # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).

@@ -87,7 +87,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Log tail + alerts | journalctl per watched unit; rolling 6-hour buffer; regex search; pattern-match alerts; per-rule template / exclude / snooze; matched line shown in NA card / inbox / webhook + Open-in-Logs deep link *(v3.3.0)* |
 | Inbound syslog | HTTP receiver — point rsyslog `omhttp`/fluent-bit/`curl` at `POST /api/syslog/in/<token>`; parses RFC 3164/5424 into the device log buffer for `log_alert` rules *(v3.2.0)* |
 | SNMP trap receiver | HTTP receiver — an `snmptrapd` handler POSTs decoded traps as JSON to `POST /api/snmp/trap/<token>`; traps attach to the pinned device's SNMP view and raise a coalesced `snmp_trap_received` alert |
-| TLS / DNS expiry | Server-side probes against a watchlist; warn 14d / crit 3d |
+| TLS / DNS expiry | Server-side probes against a watchlist; warn 14d / crit 3d; auto re-probed ~6h by the built-in schedule — no cron needed *(v5.8.0)* |
 | Resolver health monitor | Re-resolves a name across public resolvers; tracks latency + NXDOMAIN; `resolver_unhealthy`/`resolver_recovered` *(v4.9.0)* |
 | Healthchecks.io watchdog | Server pings a URL on a cadence so an external monitor flips red if RemotePower stops |
 
@@ -96,7 +96,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Metric alerts | Disk/memory/swap/CPU-load thresholds with hysteresis *(v1.11.10)*; per-device + per-mount overrides *(v1.12.0)* |
-| Webhook event registry | 103 event types (incl. ticket lifecycle: opened/resolved/SLA-breached), per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.5.0)* |
+| Webhook event registry | 104 event types (incl. ticket lifecycle: opened/resolved/SLA-breached), per-event toggles, test-event button; payloads carry a `schema_version` so consumers can guard against shape drift *(v5.5.0)* |
 | Notification sandbox mode | `notifications_test_mode` (or per-destination `dry_run`) logs webhook + email deliveries without sending — validate event routing on a staging instance without spamming recipients *(v5.5.0)* |
 | Channel routing matrix | Per event-kind, which surfaces it reaches — Needs Attention / Recent Activity / Alerts inbox / Webhook *(v3.3.0)* |
 | Host-grouped alert inbox | Open alerts stacked per host (worst first), Ack-all/Resolve-all, symptoms folded under `device_offline` root cause *(v4.1.0)* |
@@ -405,8 +405,9 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Integration subsystem | Read-only server-side polling, folded into Alerts + dashboard; `integration_down` (auto-resolved); SSRF-guarded; admin-only URLs; **Show Homelab software** kill switch |
-| 28 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
+| 29 connectors (+ Custom HTTP) | Pi-hole v6, AdGuard Home, TrueNAS, Unraid, Kubernetes/k3s, **VMware vSphere/ESXi/vCenter**, **Red Hat OpenShift** *(v5.6.0)*, **VMware Cloud Director** *(v5.6.0)*, Proxmox Backup Server, UniFi, Traefik, Nginx Proxy Manager, Caddy, Netdata, Grafana, Uptime Kuma, Jellyfin, Plex, Home Assistant, Nextcloud, GitHub Issues *(v5.8.0)*, qBittorrent, Transmission, Deluge, SABnzbd, NZBGet, Servarr (Sonarr/Radarr/Prowlarr/Lidarr), Bazarr, Overseerr/Jellyseerr |
 | Custom HTTP probe plugin | Declarative — turn an endpoint's status/body/JSON field into a health signal; SSRF-guarded *(v5.1.0)* |
+| GitHub issue monitor | Watch repos (`owner/repo`, multiple per instance) for newly opened issues → `github_new_issue` alert in the Alerts inbox (PRs ignored, first poll baselines; webhook/paging off by default) *(v5.8.0)* |
 
 ## Agents
 
