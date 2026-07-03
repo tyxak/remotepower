@@ -45,4 +45,8 @@ regexes = [
   '''-----BEGIN OPENSSH PRIVATE KEY-----''',
   '''(?i)(saml|oidc|ldap)_[a-z0-9_]*''',  # SSO config KEY-NAME literals (not secrets)
   '''x509_cert''',
+  # test_config_secret_tree.py's original fixture value (commit 14cef9f) — an
+  # obviously-fake unit fixture that pattern-matched generic-api-key; the
+  # working-tree fixture was renamed, but the historical commit is permanent.
+  '''sk-live-abc123''',
 ]

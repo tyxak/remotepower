@@ -44,7 +44,7 @@ CFG = {
     'secrets_scan_paths': ['/etc', '/opt'],         # list items: stay plaintext
     'webhook_url': 'https://hooks.slack.com/services/T00/B00/SECRETPART',
     'smtp_password': 'flat-legacy-field',
-    'ai': {'provider': 'openai', 'api_key': 'sk-live-abc123'},
+    'ai': {'provider': 'openai', 'api_key': 'unit-fake-ai-credential-1'},
     'acme_dns_credentials': {'dns_cf': {'CF_Token': 'cf-secret-xyz'}},
     'webhook_destinations': [
         {'name': 'pd', 'format': 'pagerduty', 'routing_key': 'rk',
@@ -53,7 +53,7 @@ CFG = {
     'integrations': [{'type': 'pihole', 'url': 'http://10.0.0.2/admin',
                       'secret': 'pihole-api-key'}],
 }
-SECRET_VALUES = ('SECRETPART', 'flat-legacy-field', 'sk-live-abc123',
+SECRET_VALUES = ('SECRETPART', 'flat-legacy-field', 'unit-fake-ai-credential-1',
                  'cf-secret-xyz', 'dest-token-1', 'pihole-api-key')
 
 
@@ -123,7 +123,7 @@ class TestTreeCoverage(_Base):
         api.save(api.CONFIG_FILE, dict(CFG))
         api._LOAD_CACHE.clear()
         cfg = api.load(api.CONFIG_FILE)
-        self.assertEqual(cfg['ai']['api_key'], 'sk-live-abc123')
+        self.assertEqual(cfg['ai']['api_key'], 'unit-fake-ai-credential-1')
         self.assertEqual(cfg['acme_dns_credentials']['dns_cf']['CF_Token'],
                          'cf-secret-xyz')
         self.assertEqual(cfg['webhook_destinations'][0]['token'], 'dest-token-1')
@@ -135,7 +135,7 @@ class TestTreeCoverage(_Base):
         api._LOAD_CACHE.clear()
         api.save(api.CONFIG_FILE, dict(CFG))
         d = self._at_rest()
-        self.assertEqual(d['ai']['api_key'], 'sk-live-abc123')   # byte-identical
+        self.assertEqual(d['ai']['api_key'], 'unit-fake-ai-credential-1')   # byte-identical
 
 
 class TestV1Compat(_Base):
