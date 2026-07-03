@@ -1470,6 +1470,15 @@ def _github(inst, c):
     repos, bad = _gh_repos(inst)
     if not repos:
         raise IntegrationError("no valid repositories configured (owner/repo, comma-separated)")
+    # Forgive the predictable URL mistake: the WEBSITE (github.com) instead of
+    # the API root (api.github.com). The website answers /repos/... with HTML
+    # 404s, so every repo would "fail". Requests go absolute (the client allows
+    # that) to the real API root instead. GHE roots pass through untouched.
+    prefix = ""
+    u = (inst.get("url") or "").strip().lower().rstrip("/")
+    if u in ("https://github.com", "http://github.com",
+             "https://www.github.com", "http://www.github.com"):
+        prefix = "https://api.github.com"
     headers = {"Accept": "application/vnd.github+json",
                "X-GitHub-Api-Version": "2022-11-28"}
     if inst.get("secret"):
@@ -1479,7 +1488,7 @@ def _github(inst, c):
     for repo in repos:
         try:
             issues = c.get_json(
-                f"/repos/{repo}/issues", headers=headers,
+                f"{prefix}/repos/{repo}/issues", headers=headers,
                 params={"state": "open", "per_page": _GH_PER_PAGE,
                         "sort": "created", "direction": "desc"})
         except IntegrationError:

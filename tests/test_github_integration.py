@@ -96,6 +96,23 @@ class TestConnector(unittest.TestCase):
         I.poll_instance({'type': 'github', 'slug': 'o/r'}, c)
         self.assertNotIn('Authorization', c.calls[0][2])
 
+    def test_website_url_autocorrected_to_api_root(self):
+        # The predictable operator mistake: URL = the website (github.com), not
+        # the API root. The connector must go absolute to api.github.com.
+        c = FakeClient({'https://api.github.com/repos/o/r/issues': [_issue(2)]})
+        res = I.poll_instance(
+            {'type': 'github', 'slug': 'o/r', 'url': 'https://github.com/'}, c)
+        self.assertEqual(res['status'], I.OK)
+        self.assertEqual(res['gh_state'], {'o/r': 2})
+
+    def test_enterprise_api_root_untouched(self):
+        c = FakeClient({'/repos/o/r/issues': [_issue(2)]})
+        res = I.poll_instance(
+            {'type': 'github', 'slug': 'o/r',
+             'url': 'https://ghe.corp.example/api/v3'}, c)
+        self.assertEqual(res['status'], I.OK)
+        self.assertEqual(c.calls[0][1], '/repos/o/r/issues')
+
 
 def _load_api():
     os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
