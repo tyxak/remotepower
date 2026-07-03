@@ -27,7 +27,7 @@
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.6.0">
 <link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.6.0">
-<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-47">
+<link rel="stylesheet" href="static/css/styles.css?v=5.6.0-48">
 
 </head>
 <body>
@@ -1251,6 +1251,10 @@
       </div>
 
       <!-- ── Settings page (unchanged) ────────────────────────────────────── -->
+      <!-- v5.6.x lazy page (the whale: ~1.7k lines): inert until first visit;
+           showPage clones it before switchSettingsTab/loadSettings run, so
+           #settings/<tab> deep links keep working. -->
+      <template data-page-tpl="settings">
       <div id="page-settings" class="page">
         <div class="page-title">Settings</div>
         <div class="page-subtitle">Server configuration</div>
@@ -2924,6 +2928,7 @@
           <button class="btn-icon" data-action="testWebhook" id="btn-webhook-test"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send test webhook</button>
         </div>
       </div>
+      </template>
 
 
       <!-- ── v2.9.0: Device Drawer — markup MOVED to body level (after #app),

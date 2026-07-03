@@ -709,7 +709,13 @@ function _routeFromHashOnBoot() {
     if (!raw || raw === 'home') return;
     if (raw.startsWith('device/') || raw.startsWith('devices?')) return;  // own handlers
     const page = raw.split(/[/?]/)[0];
-    if (!page || !document.getElementById('page-' + page)) return;         // unknown -> stay home
+    // v5.6.x lazy pages: a not-yet-instantiated page exists as a <template>
+    // — count it as known (showPage clones it), or a refresh on a lazy
+    // page's bookmark silently dropped back to home.
+    if (!page || (!document.getElementById('page-' + page)
+                  && !document.querySelector('template[data-page-tpl="' + page + '"]'))) {
+      return;   // genuinely unknown -> stay home
+    }
     showPage(page, document.querySelector('.nav-btn[data-page="' + page + '"]') || undefined);
     if (page === 'settings') {
       const tab = raw.split('/')[1];
