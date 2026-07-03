@@ -1358,19 +1358,127 @@ AGENTLESS_PING_INTERVAL = 60          # seconds between sweeps
 AGENTLESS_PING_FAIL_THRESHOLD = 2     # consecutive fails before OFFLINE (debounce)
 
 
-def _ping_host(host, timeout=2):
-    """True if `host` answers a single ICMP echo. Same approach as the
-    Monitor ping check — argv only (the `--` guards against a hostname
-    that looks like a flag), no shell."""
+def _icmp_socket_ping(host, timeout=2):
+    """One ICMP echo via an UNPRIVILEGED datagram socket — no ping binary, no
+    CAP_NET_RAW (allowed by net.ipv4.ping_group_range, which systemd defaults
+    wide since v247, incl. Debian 12 / Ubuntu 22.04+ / inside Docker).
+
+    Returns True (reply), False (no reply / no route / no resolution), or
+    None when the MECHANISM is unavailable (kernel forbids the socket) so the
+    caller can distinguish "host is down" from "can't probe from here"."""
+    host = str(host or '').strip()
     if not host:
         return False
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_UDP)
+    except OSError:
+        return False                      # unresolvable → effectively down
+    info = next((i for i in infos if i[0] == socket.AF_INET), None) or \
+           next((i for i in infos if i[0] == socket.AF_INET6), None)
+    if info is None:
+        return False
+    fam = info[0]
+    addr = info[4]
+    v6 = fam == socket.AF_INET6
+    proto = socket.IPPROTO_ICMPV6 if v6 else socket.IPPROTO_ICMP
+    # Echo request: type/code/checksum/id/seq + payload. The kernel rewrites
+    # the id on dgram-icmp sockets (that's how replies are demuxed back to
+    # this socket) and computes the ICMPv6 checksum; the v4 checksum we
+    # compute ourselves.
+    import struct
+    payload = b'remotepower-reach'
+    pkt = struct.pack('!BBHHH', 128 if v6 else 8, 0, 0, 0, 1) + payload
+    if not v6:
+        s = 0
+        buf = pkt if len(pkt) % 2 == 0 else pkt + b'\x00'
+        for i in range(0, len(buf), 2):
+            s += (buf[i] << 8) + buf[i + 1]
+            s = (s & 0xFFFF) + (s >> 16)
+        pkt = pkt[:2] + struct.pack('!H', ~s & 0xFFFF) + pkt[4:]
+    try:
+        sock = socket.socket(fam, socket.SOCK_DGRAM, proto)
+    except (PermissionError, OSError):
+        return None                       # ping_group_range forbids → N/A
+    try:
+        sock.settimeout(max(0.2, float(timeout)))
+        sock.connect(addr[:2] if not v6 else addr)
+        sock.send(pkt)
+        while True:
+            data = sock.recv(2048)
+            if data and data[0] == (129 if v6 else 0):   # echo reply
+                return True
+    except socket.timeout:
+        return False
+    except OSError:
+        return False
+    finally:
+        sock.close()
+
+
+def _tcp_reach_ping(host, timeout=2, ports=(443, 80, 22)):
+    """Zero-privilege reachability of last resort: a TCP connect that either
+    SUCCEEDS or is REFUSED (RST) proves the host is up — only timeouts and
+    unreachable-network errors count as down. Used only when neither the ping
+    binary nor the unprivileged ICMP socket is available (e.g. a container
+    without iputils and with a restricted ping_group_range)."""
+    per_port = max(0.3, min(1.0, float(timeout) / max(1, len(ports))))
+    for port in ports:
+        try:
+            with socket.create_connection((str(host), port), timeout=per_port):
+                return True
+        except ConnectionRefusedError:
+            return True                   # RST — somebody answered
+        except OSError:
+            continue
+    return False
+
+
+_PING_FALLBACK_LOGGED = False
+
+
+def _ping_host(host, timeout=2):
+    """True if `host` answers a reachability probe. Tiered (v5.8.0, issue #20):
+
+    1. the system `ping` binary — argv only (`--` guards against a hostname
+       that looks like a flag), no shell;
+    2. an unprivileged ICMP datagram socket — covers installs WITHOUT
+       iputils-ping (the stock Docker image, minimal Debian) or where
+       NoNewPrivileges blocks ping's caps;
+    3. a TCP connect probe (success OR refused = up) — only when no ICMP
+       mechanism exists at all, so a working install keeps pure-ICMP
+       semantics.
+
+    Before the fallbacks existed, a missing/blocked ping binary made every
+    ICMP-mode agentless device flip offline forever ~2 sweeps after being
+    added — while the netscan that found them worked fine."""
+    if not host:
+        return False
+    icmp_ran = False
     try:
         r = subprocess.run(
             ['ping', '-c', '1', '-W', str(int(timeout)), '--', str(host)],
             capture_output=True, timeout=timeout + 3)
-        return r.returncode == 0
+        if r.returncode == 0:
+            return True
+        if r.returncode == 1:
+            icmp_ran = True               # probe worked; host didn't answer
     except Exception:
-        return False
+        pass
+    res = _icmp_socket_ping(host, timeout)
+    if res is True:
+        return True
+    if res is False:
+        icmp_ran = True
+    if icmp_ran:
+        return False                      # a real ICMP probe said down
+    global _PING_FALLBACK_LOGGED
+    if not _PING_FALLBACK_LOGGED:
+        _PING_FALLBACK_LOGGED = True
+        sys.stderr.write(
+            '[remotepower] no ICMP mechanism available (ping binary missing/blocked '
+            'and unprivileged ICMP sockets forbidden) — agentless reachability '
+            'falling back to TCP probes; install iputils-ping for real ICMP\n')
+    return _tcp_reach_ping(host, timeout)
 
 
 def run_agentless_reachability_if_due():
@@ -8191,9 +8299,16 @@ def _icmp_reachable(host, timeout=1):
     try:
         r = subprocess.run(['ping', '-c', '1', '-W', str(to), '--', host],
                            capture_output=True, timeout=to + 2)
-        return r.returncode == 0
+        if r.returncode == 0:
+            return True
+        if r.returncode == 1:
+            return False        # ping ran; host really didn't answer
     except Exception:
-        return False
+        pass
+    # v5.8.0 (issue #20): ping binary missing/blocked — try the unprivileged
+    # ICMP socket. Only True is authoritative (the caller's contract), so a
+    # None (mechanism unavailable) stays False.
+    return _icmp_socket_ping(host, to) is True
 
 
 def _offline_sweep_has_work(cfg, devices, now, ttl, skip_dev_id):
@@ -15665,6 +15780,11 @@ def _run_one_monitor_check(mtype, target, label, m):
             if mtype == 'ping':
                 ok = r.returncode == 0
                 detail = 'up' if ok else 'no reply'
+                if not ok and r.returncode not in (0, 1):
+                    # v5.8.0 (issue #20): ping ERRORED (no caps / bad env)
+                    # rather than "host down" — try the unprivileged socket.
+                    ok = _icmp_socket_ping(target, 2) is True
+                    detail = 'up' if ok else 'no reply'
             else:
                 out = r.stdout or ''
                 ml = re.search(r'(\d+(?:\.\d+)?)% packet loss', out)
@@ -15677,6 +15797,15 @@ def _run_one_monitor_check(mtype, target, label, m):
                 if ok and isinstance(max_lat, (int, float)) and avg is not None and avg > max_lat:
                     ok = False
                 detail = f'{loss:.0f}% loss' + (f', {avg:.0f}ms avg' if avg is not None else '')
+        except FileNotFoundError:
+            # v5.8.0 (issue #20): no iputils-ping on the host/container. The
+            # single up/down check works over the unprivileged ICMP socket;
+            # the latency/loss variant genuinely needs the binary.
+            if mtype == 'ping':
+                ok = _icmp_socket_ping(target, 2) is True
+                detail = 'up' if ok else 'no reply'
+            else:
+                detail = 'ping binary not installed (icmp monitor needs iputils-ping)'
         except Exception:
             detail = 'error'
     elif mtype == 'tcp':

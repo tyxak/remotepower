@@ -27,6 +27,20 @@ All notable changes to RemotePower. Newest first.
 
 ### Fixed
 
+- **Agentless devices no longer flip offline forever when the server can't
+  run `ping`** (#20, reported by @AndiBSE). The ICMP reachability sweep
+  shelled out to the `ping` binary — which the Docker image never shipped and
+  minimal Debian installs don't have — so netscan-added devices went offline
+  after ~2 sweeps and stayed there. Reachability is now tiered: system
+  `ping` → an unprivileged ICMP datagram socket (no binary, no CAP_NET_RAW;
+  allowed by the `ping_group_range` systemd defaults everywhere modern) → a
+  TCP connect probe (success or refused both prove the host is up) as the
+  last resort when no ICMP mechanism exists. A working ICMP probe that says
+  "down" stays authoritative — the TCP tier never softens a real ICMP
+  verdict. The same socket fallback covers the pre-offline "definitely up?"
+  guard and `ping`-type monitors; the Docker image, `install-server.sh`
+  (apt/dnf/pacman) and the AUR server package now also ship `iputils` so
+  real ICMP (and the latency/loss `icmp` monitor) works out of the box.
 - **TLS/DANE expiry checks now actually run on schedule.** The watchlist's
   periodic probing existed only as an optional cron script the installer merely
   suggested — and that script read the watchlist as a raw file, so it saw

@@ -72,13 +72,13 @@ info "Installing dependencies..."
 case $PKG_MGR in
   apt)
     apt-get update -qq
-    apt-get install -y nginx fcgiwrap python3 python3-pip --no-install-recommends
+    apt-get install -y nginx fcgiwrap python3 python3-pip iputils-ping --no-install-recommends
     ;;
   dnf)
-    dnf install -y -q nginx fcgiwrap python3 python3-pip
+    dnf install -y -q nginx fcgiwrap python3 python3-pip iputils
     ;;
   pacman)
-    pacman -Sy --noconfirm --noprogressbar nginx fcgiwrap python python-pip
+    pacman -Sy --noconfirm --noprogressbar nginx fcgiwrap python python-pip iputils
     ;;
 esac
 success "Dependencies installed"
