@@ -261,6 +261,15 @@ dist: clean
 	  --exclude='*.tar.xz' \
 	  --exclude='*.pkg.tar.zst' \
 	  .
+	@# Leak gate (v5.8.0): the tarball packs the WORKING TREE, so untracked/
+	@# gitignored local files ship unless the exclude list above names them —
+	@# .claude/ (session tooling) rode into the published v5.2.0–v5.7.0
+	@# tarballs exactly this way. Fail the build LOUDLY if any forbidden
+	@# path is in the file list; a new local tool dir means a new exclude.
+	@echo "==> Leak-checking the tarball file list"
+	@! tar -tzf $(DIST_DIR)/$(DIST_NAME).tar.gz | grep -E \
+	  '(^|/)(\.claude/|\.git/|CLAUDE\.md|opencode\.md|AGENTS\.md|site/|deploy/|api\.env|\.ssh/|\.codeql-cache/)|-internal\.md$$|\.enc$$' \
+	  || { echo "==> LEAK: forbidden files in the tarball (listed above) — add an exclude"; exit 1; }
 	@# Verify the smoke test passes against the staged tree. Extract into
 	@# a scratch dir, run the tests, then nuke it. This catches the kind
 	@# of release-time bug where someone forgets to commit a new file —
