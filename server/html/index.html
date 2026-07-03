@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-6">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-6">
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-6">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-7">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-7">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-7">
 
 </head>
 <body>
@@ -620,7 +620,7 @@
 
         <!-- v4.1.0: upcoming calendar/scheduler events -->
         <div class="dash-card mt-16 mb-16" id="home-upcoming" data-widget="upcoming">
-          <div class="row-8-center mb-6"><h3 class="m-0">Upcoming</h3><span class="fs-12 c-muted">next events from the calendar &amp; scheduler</span></div>
+          <div class="row-8-center mb-6"><div class="section-title">Upcoming</div><span class="fs-12 c-muted">next events from the calendar &amp; scheduler</span></div>
           <div id="home-upcoming-body" class="scroll-cap"><div class="skeleton skeleton-line med mb-6"></div><div class="skeleton skeleton-line long"></div></div>
         </div>
 
@@ -640,7 +640,7 @@
 
         <!-- Fleet health score (v3.4.1) -->
         <div class="dash-card mt-16 mb-16" id="home-health" data-widget="health">
-          <h3>Fleet health</h3>
+          <div class="section-title">Fleet health</div>
           <div id="home-health-body">
             <div class="skeleton skeleton-line med mb-6"></div>
             <div class="skeleton skeleton-line long"></div>
@@ -649,14 +649,14 @@
 
         <!-- Fleet heat map (v3.4.2) -->
         <div class="dash-card mb-16" id="home-heatmap-card" data-widget="heatmap">
-          <div class="row-8-center mb-6"><h3 class="m-0">Fleet heat map</h3><span class="fs-12 c-muted">health score per device — green healthy, red needs attention</span></div>
+          <div class="row-8-center mb-6"><div class="section-title">Fleet heat map</div><span class="fs-12 c-muted">health score per device — green healthy, red needs attention</span></div>
           <div id="home-heatmap" class="scroll-cap"></div>
         </div>
 
         <!-- Two-column: needs attention | recent activity -->
         <div class="dash-cols" id="home-overview" data-widget="overview">
           <div class="dash-card">
-            <h3>Needs attention</h3>
+            <div class="section-title">Needs attention</div>
             <div id="home-attention" class="scroll-cap">
               <div class="skeleton skeleton-line long mb-6"></div>
               <div class="skeleton skeleton-line med mb-6"></div>
@@ -675,7 +675,7 @@
 
         <!-- Fleet roster with 7-day status stripe per device -->
         <div class="dash-card" id="home-roster" data-widget="roster">
-          <h3>Fleet roster · 7-day status</h3>
+          <div class="section-title">Fleet roster · 7-day status</div>
           <div id="home-fleet" class="col-4">
             <div class="skeleton skeleton-line long"></div>
             <div class="skeleton skeleton-line med"></div>
@@ -691,66 +691,66 @@
         </div>
 
         <!-- v4.1.0: add-on widgets (off by default; added from Customize → Add). -->
-        <div class="dash-card dash-off" id="home-w-postit" data-widget="postit"><h3>Post-it</h3><textarea id="home-postit-text" class="form-input" rows="4" maxlength="2000" placeholder="Your dashboard sticky note — saved to your account."></textarea></div>
-        <div class="dash-card dash-off" id="home-w-offline" data-widget="offline"><h3>Offline hosts</h3><div id="home-w-offline-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-updates" data-widget="updates"><h3>Pending updates</h3><div id="home-w-updates-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-cves" data-widget="cves"><h3>CVE exposure</h3><div id="home-w-cves-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-drift" data-widget="drift"><h3>Config drift</h3><div id="home-w-drift-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-capacity" data-widget="capacity"><h3>Resource pressure</h3><div id="home-w-capacity-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-groups" data-widget="groups"><h3>Fleet by group</h3><div id="home-w-groups-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-monitored" data-widget="monitored"><h3>Monitoring coverage</h3><div id="home-w-monitored-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-stale" data-widget="stale"><h3>Stale agents</h3><div id="home-w-stale-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-mailwatch" data-widget="mailwatch"><h3>Mailbox watch</h3><div id="home-w-mailwatch-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-oncall" data-widget="oncall"><h3>On-call now</h3><div id="home-w-oncall-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-os" data-widget="os"><h3>Devices by OS</h3><div id="home-w-os-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-agentver" data-widget="agentver"><h3>Agent versions</h3><div id="home-w-agentver-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-devtypes" data-widget="devtypes"><h3>Device types</h3><div id="home-w-devtypes-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-tags" data-widget="tags"><h3>Top tags</h3><div id="home-w-tags-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-ungrouped" data-widget="ungrouped"><h3>Ungrouped devices</h3><div id="home-w-ungrouped-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-activity" data-widget="activity"><h3>Recent activity</h3><div id="home-w-activity-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-attseverity" data-widget="attseverity"><h3>Attention by severity</h3><div id="home-w-attseverity-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-atttop" data-widget="atttop"><h3>Top attention items</h3><div id="home-w-atttop-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-healthscore" data-widget="healthscore"><h3>Health score</h3><div id="home-w-healthscore-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-fleettotal" data-widget="fleettotal"><h3>Fleet size</h3><div id="home-w-fleettotal-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-crittotal" data-widget="crittotal"><h3>Critical / high CVEs</h3><div id="home-w-crittotal-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-updatestotal" data-widget="updatestotal"><h3>Updates pending</h3><div id="home-w-updatestotal-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-drifttotal" data-widget="drifttotal"><h3>Drifted files</h3><div id="home-w-drifttotal-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-recentonline" data-widget="recentonline"><h3>Recent check-ins</h3><div id="home-w-recentonline-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-alertsev" data-widget="alertsev"><h3>Open alerts by severity</h3><div id="home-w-alertsev-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-maintenance" data-widget="maintenance"><h3>Maintenance windows</h3><div id="home-w-maintenance-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-monitors" data-widget="monitors"><h3>Monitor status</h3><div id="home-w-monitors-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-containers" data-widget="containers"><h3>Container issues</h3><div id="home-w-containers-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-diskfill" data-widget="diskfill"><h3>Disk fill ETA</h3><div id="home-w-diskfill-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-subnet" data-widget="subnet"><h3>Devices by subnet</h3><div id="home-w-subnet-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-patchpct" data-widget="patchpct"><h3>Patch compliance</h3><div id="home-w-patchpct-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-agentless" data-widget="agentless"><h3>Agent vs agentless</h3><div id="home-w-agentless-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-neverseen" data-widget="neverseen"><h3>Never checked in</h3><div id="home-w-neverseen-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-worsthealth" data-widget="worsthealth"><h3>Lowest health hosts</h3><div id="home-w-worsthealth-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-gradedist" data-widget="gradedist"><h3>Health grade spread</h3><div id="home-w-gradedist-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-versionskew" data-widget="versionskew"><h3>Agent version skew</h3><div id="home-w-versionskew-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-offlinegroups" data-widget="offlinegroups"><h3>Offline by group</h3><div id="home-w-offlinegroups-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-rebootreq" data-widget="rebootreq"><h3>Reboot required</h3><div id="home-w-rebootreq-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-worldports" data-widget="worldports"><h3>World-exposed ports</h3><div id="home-w-worldports-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-failedunits" data-widget="failedunits"><h3>Failed services</h3><div id="home-w-failedunits-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-timers" data-widget="timers"><h3>Failed timers</h3><div id="home-w-timers-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-smart" data-widget="smart"><h3>Disk SMART failures</h3><div id="home-w-smart-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-ups" data-widget="ups"><h3>UPS on battery</h3><div id="home-w-ups-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-temp" data-widget="temp"><h3>Over temperature</h3><div id="home-w-temp-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-backups" data-widget="backups"><h3>Backup jobs</h3><div id="home-w-backups-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-mounts" data-widget="mounts"><h3>Mount issues</h3><div id="home-w-mounts-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-clockskew" data-widget="clockskew"><h3>Clock skew</h3><div id="home-w-clockskew-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-gateway" data-widget="gateway"><h3>Gateway unreachable</h3><div id="home-w-gateway-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-oom" data-widget="oom"><h3>Recent OOM kills</h3><div id="home-w-oom-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-storagedeg" data-widget="storagedeg"><h3>Storage degraded</h3><div id="home-w-storagedeg-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-newports" data-widget="newports"><h3>New ports (recent)</h3><div id="home-w-newports-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-fwchanges" data-widget="fwchanges"><h3>Firewall changes</h3><div id="home-w-fwchanges-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-sshkeys" data-widget="sshkeys"><h3>SSH keys added</h3><div id="home-w-sshkeys-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-tls" data-widget="tls"><h3>Expiring certificates</h3><div id="home-w-tls-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-bruteforce" data-widget="bruteforce"><h3>Active brute-force</h3><div id="home-w-bruteforce-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-bandwidth" data-widget="bandwidth"><h3>Top bandwidth</h3><div id="home-w-bandwidth-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-checksrollup" data-widget="checksrollup"><h3>Checks roll-up</h3><div id="home-w-checksrollup-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-integrations" data-widget="integrations"><h3>Integration health</h3><div id="home-w-integrations-body" class="dash-mini"></div></div>
-        <div class="dash-card dash-off" id="home-w-alertsfeed" data-widget="alertsfeed"><h3>Alerts</h3><div id="home-w-alertsfeed-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-postit" data-widget="postit"><div class="section-title">Post-it</div><textarea id="home-postit-text" class="form-input" rows="4" maxlength="2000" placeholder="Your dashboard sticky note — saved to your account."></textarea></div>
+        <div class="dash-card dash-off" id="home-w-offline" data-widget="offline"><div class="section-title">Offline hosts</div><div id="home-w-offline-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-updates" data-widget="updates"><div class="section-title">Pending updates</div><div id="home-w-updates-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-cves" data-widget="cves"><div class="section-title">CVE exposure</div><div id="home-w-cves-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-drift" data-widget="drift"><div class="section-title">Config drift</div><div id="home-w-drift-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-capacity" data-widget="capacity"><div class="section-title">Resource pressure</div><div id="home-w-capacity-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-groups" data-widget="groups"><div class="section-title">Fleet by group</div><div id="home-w-groups-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-monitored" data-widget="monitored"><div class="section-title">Monitoring coverage</div><div id="home-w-monitored-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-stale" data-widget="stale"><div class="section-title">Stale agents</div><div id="home-w-stale-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-mailwatch" data-widget="mailwatch"><div class="section-title">Mailbox watch</div><div id="home-w-mailwatch-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-oncall" data-widget="oncall"><div class="section-title">On-call now</div><div id="home-w-oncall-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-os" data-widget="os"><div class="section-title">Devices by OS</div><div id="home-w-os-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-agentver" data-widget="agentver"><div class="section-title">Agent versions</div><div id="home-w-agentver-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-devtypes" data-widget="devtypes"><div class="section-title">Device types</div><div id="home-w-devtypes-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-tags" data-widget="tags"><div class="section-title">Top tags</div><div id="home-w-tags-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-ungrouped" data-widget="ungrouped"><div class="section-title">Ungrouped devices</div><div id="home-w-ungrouped-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-activity" data-widget="activity"><div class="section-title">Recent activity</div><div id="home-w-activity-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-attseverity" data-widget="attseverity"><div class="section-title">Attention by severity</div><div id="home-w-attseverity-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-atttop" data-widget="atttop"><div class="section-title">Top attention items</div><div id="home-w-atttop-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-healthscore" data-widget="healthscore"><div class="section-title">Health score</div><div id="home-w-healthscore-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-fleettotal" data-widget="fleettotal"><div class="section-title">Fleet size</div><div id="home-w-fleettotal-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-crittotal" data-widget="crittotal"><div class="section-title">Critical / high CVEs</div><div id="home-w-crittotal-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-updatestotal" data-widget="updatestotal"><div class="section-title">Updates pending</div><div id="home-w-updatestotal-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-drifttotal" data-widget="drifttotal"><div class="section-title">Drifted files</div><div id="home-w-drifttotal-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-recentonline" data-widget="recentonline"><div class="section-title">Recent check-ins</div><div id="home-w-recentonline-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-alertsev" data-widget="alertsev"><div class="section-title">Open alerts by severity</div><div id="home-w-alertsev-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-maintenance" data-widget="maintenance"><div class="section-title">Maintenance windows</div><div id="home-w-maintenance-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-monitors" data-widget="monitors"><div class="section-title">Monitor status</div><div id="home-w-monitors-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-containers" data-widget="containers"><div class="section-title">Container issues</div><div id="home-w-containers-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-diskfill" data-widget="diskfill"><div class="section-title">Disk fill ETA</div><div id="home-w-diskfill-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-subnet" data-widget="subnet"><div class="section-title">Devices by subnet</div><div id="home-w-subnet-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-patchpct" data-widget="patchpct"><div class="section-title">Patch compliance</div><div id="home-w-patchpct-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-agentless" data-widget="agentless"><div class="section-title">Agent vs agentless</div><div id="home-w-agentless-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-neverseen" data-widget="neverseen"><div class="section-title">Never checked in</div><div id="home-w-neverseen-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-worsthealth" data-widget="worsthealth"><div class="section-title">Lowest health hosts</div><div id="home-w-worsthealth-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-gradedist" data-widget="gradedist"><div class="section-title">Health grade spread</div><div id="home-w-gradedist-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-versionskew" data-widget="versionskew"><div class="section-title">Agent version skew</div><div id="home-w-versionskew-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-offlinegroups" data-widget="offlinegroups"><div class="section-title">Offline by group</div><div id="home-w-offlinegroups-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-rebootreq" data-widget="rebootreq"><div class="section-title">Reboot required</div><div id="home-w-rebootreq-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-worldports" data-widget="worldports"><div class="section-title">World-exposed ports</div><div id="home-w-worldports-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-failedunits" data-widget="failedunits"><div class="section-title">Failed services</div><div id="home-w-failedunits-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-timers" data-widget="timers"><div class="section-title">Failed timers</div><div id="home-w-timers-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-smart" data-widget="smart"><div class="section-title">Disk SMART failures</div><div id="home-w-smart-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-ups" data-widget="ups"><div class="section-title">UPS on battery</div><div id="home-w-ups-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-temp" data-widget="temp"><div class="section-title">Over temperature</div><div id="home-w-temp-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-backups" data-widget="backups"><div class="section-title">Backup jobs</div><div id="home-w-backups-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-mounts" data-widget="mounts"><div class="section-title">Mount issues</div><div id="home-w-mounts-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-clockskew" data-widget="clockskew"><div class="section-title">Clock skew</div><div id="home-w-clockskew-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-gateway" data-widget="gateway"><div class="section-title">Gateway unreachable</div><div id="home-w-gateway-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-oom" data-widget="oom"><div class="section-title">Recent OOM kills</div><div id="home-w-oom-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-storagedeg" data-widget="storagedeg"><div class="section-title">Storage degraded</div><div id="home-w-storagedeg-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-newports" data-widget="newports"><div class="section-title">New ports (recent)</div><div id="home-w-newports-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-fwchanges" data-widget="fwchanges"><div class="section-title">Firewall changes</div><div id="home-w-fwchanges-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-sshkeys" data-widget="sshkeys"><div class="section-title">SSH keys added</div><div id="home-w-sshkeys-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-tls" data-widget="tls"><div class="section-title">Expiring certificates</div><div id="home-w-tls-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-bruteforce" data-widget="bruteforce"><div class="section-title">Active brute-force</div><div id="home-w-bruteforce-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-bandwidth" data-widget="bandwidth"><div class="section-title">Top bandwidth</div><div id="home-w-bandwidth-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-checksrollup" data-widget="checksrollup"><div class="section-title">Checks roll-up</div><div id="home-w-checksrollup-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-integrations" data-widget="integrations"><div class="section-title">Integration health</div><div id="home-w-integrations-body" class="dash-mini"></div></div>
+        <div class="dash-card dash-off" id="home-w-alertsfeed" data-widget="alertsfeed"><div class="section-title">Alerts</div><div id="home-w-alertsfeed-body" class="dash-mini"></div></div>
         </div><!-- /dash-grid -->
 
         <!-- v4.1.0: Ask-AI omnibox + dashboard customize, moved to the bottom.
@@ -1117,27 +1117,27 @@
         <div class="page-subtitle">Your personal settings — these apply to <strong id="acct-username">you</strong> only, not the whole server.</div>
 
         <div class="settings-section">
-          <h3>My timesheet</h3>
+          <div class="section-title">My timesheet</div>
           <p class="hint">Your weekly time log — record billable (debtable) and internal hours by day. Hours you log on a ticket land here too.</p>
           <button class="btn-primary mt-8" data-action="showPage" data-arg="timesheet">Open my timesheet</button>
         </div>
 
         <div class="settings-section">
-          <h3>Team</h3>
+          <div class="section-title">Team</div>
           <p class="hint">Your team name — used by the Tickets <strong>"My team's open tickets"</strong> view to group tickets assigned to your teammates. Everyone who types the same team name is on that team.</p>
           <input type="text" id="acct-team" class="form-input" maxlength="64" placeholder="e.g. NOC, Support, Platform">
           <button class="btn-primary mt-8" data-action="saveTeam">Save team</button>
         </div>
 
         <div class="settings-section">
-          <h3>Email signature</h3>
+          <div class="section-title">Email signature</div>
           <p class="hint">HTML signature appended to ticket emails you send (sent as a rich HTML part, with a plain-text fallback). Paste HTML — e.g. your full contact block with links.</p>
           <textarea id="acct-signature" class="form-input ff-mono" rows="8" maxlength="8000" placeholder="&lt;strong&gt;Jane Doe&lt;/strong&gt;&lt;br&gt;Acme Support&lt;br&gt;&lt;a href=&quot;mailto:support@acme.com&quot;&gt;support@acme.com&lt;/a&gt;"></textarea>
           <button class="btn-primary mt-8" data-action="saveSignature">Save signature</button>
         </div>
 
         <div class="settings-section">
-          <h3>Profile</h3>
+          <div class="section-title">Profile</div>
           <div class="acct-profile">
             <div id="acct-avatar-preview" class="acct-avatar">?</div>
             <div class="acct-profile-meta">
@@ -1162,7 +1162,7 @@
 
         <!-- v3.14.0 (#46): appearance — theme + accent (stored locally per browser). -->
         <div class="settings-section">
-          <h3>Appearance</h3>
+          <div class="section-title">Appearance</div>
           <!-- v4.6.0: New UI (Industrial) / Old UI (classic) — per browser. -->
           <div class="form-label mb-6">Interface</div>
           <p class="hint mb-12">New UI is the Industrial interface (default); Old UI restores the classic look. Colour themes below apply to the Old UI.</p>
@@ -1191,7 +1191,7 @@
 
         <!-- v3.14.0 #42: browser push notifications -->
         <div class="settings-section" id="acct-push-section" hidden>
-          <h3>Browser notifications</h3>
+          <div class="section-title">Browser notifications</div>
           <p class="hint">Get a desktop notification on this device when a high or critical alert fires — even when RemotePower isn't the active tab. Per-browser; enable it on each device you want notified.</p>
           <div id="acct-push-status" class="hint mb-8">—</div>
           <div class="row-8-center">
@@ -1202,26 +1202,26 @@
         </div>
 
         <div class="settings-section">
-          <h3>Permissions</h3>
+          <div class="section-title">Permissions</div>
           <p class="hint">What your role lets you do. Managed by an administrator under <a href="#" data-action-btn="_showPageBtn" data-page="users" data-prevent-default class="c-accent">Users &amp; roles</a>.</p>
           <div id="acct-permissions" class="hint">—</div>
         </div>
 
         <div class="settings-section">
-          <h3>Two-Factor Authentication (2FA)</h3>
+          <div class="section-title">Two-Factor Authentication (2FA)</div>
           <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
           <div id="totp-status" class="mb-12"></div>
           <div id="totp-setup-area"></div>
         </div>
         <div class="settings-section" id="acct-passkey-section" hidden>
-          <h3>Passkeys (WebAuthn)</h3>
+          <div class="section-title">Passkeys (WebAuthn)</div>
           <p class="hint">Phishing-resistant sign-in with a security key, your phone, or this device's biometrics. A passkey also satisfies any MFA-required policy.</p>
           <div id="passkeys-list" class="mb-12 scroll-cap-sm"></div>
           <button class="btn-icon" data-action="addPasskey"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="5"/><path d="M2 21v-2a7 7 0 0 1 11-5.7"/><circle cx="18" cy="17" r="3"/><path d="M18 14v-1M18 21v-1"/></svg> Add a passkey</button>
         </div>
 
         <div class="settings-section">
-          <h3>SSH preferences</h3>
+          <div class="section-title">SSH preferences</div>
           <p class="hint">Your default SSH username. Used by the quick-SSH link on the Devices page so you don't retype it each time. Stored per-user, not shared.</p>
           <div class="settings-row">
             <div class="form-group isl-49">
@@ -1233,14 +1233,14 @@
         </div>
 
         <div class="settings-section">
-          <h3>My acknowledged alerts</h3>
+          <div class="section-title">My acknowledged alerts</div>
           <p class="hint">Open alerts you've taken ownership of (acknowledged but not yet resolved).</p>
           <div id="acct-acked-alerts" class="sb-result">—</div>
         </div>
 
         <!-- v3.14.0: active session management -->
         <div class="settings-section">
-          <h3>Active sessions</h3>
+          <div class="section-title">Active sessions</div>
           <p class="hint">Browsers and devices currently signed in as you. Revoke any you don't recognise.</p>
           <div class="sb-controls mb-8">
             <button class="btn-icon" data-action="loadSessions" title="Refresh sessions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
@@ -1299,14 +1299,14 @@
         <!-- ── General ──────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-install">
           <div class="settings-section">
-            <h3>Getting started</h3>
+            <div class="section-title">Getting started</div>
             <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it.</p>
             <div id="setup-progress" class="mb-12"></div>
             <div id="setup-steps" class="scroll-cap"><div class="c-muted">Loading…</div></div>
           </div>
           <!-- v5.0.0: Install update -->
           <div class="settings-section">
-            <h3>Install update</h3>
+            <div class="section-title">Install update</div>
             <p class="hint">Compares the running version against the latest published release.</p>
             <div id="update-status" class="mb-8"><div class="c-muted">Not checked yet.</div></div>
             <button class="btn-icon" data-action="loadUpdatePanel">Check for updates</button>
@@ -1331,7 +1331,7 @@
         <!-- ── Interface (New UI / Old UI) ──────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-interface">
           <div class="settings-section">
-            <h3>Interface</h3>
+            <div class="section-title">Interface</div>
             <p class="hint">Choose how RemotePower looks. <strong>New UI</strong> is the Industrial interface (graphite &amp; steel with the RemotePower blue) — the default. <strong>Old UI</strong> restores the previous look. The choice is saved in this browser and applies instantly; switch back any time. Colour themes under <em>My Account → Appearance</em> apply to the Old UI.</p>
             <div class="ui-toggle" role="group" aria-label="Interface version">
               <button class="ui-opt" type="button" data-action="setUIVersion" data-arg="new">
@@ -1348,7 +1348,7 @@
 
         <div class="settings-pane active" id="settings-pane-general">
           <div class="settings-section">
-            <h3>Server identity</h3>
+            <div class="section-title">Server identity</div>
             <p class="hint">Display name shown in the page title, push notification subject lines, and webhook payloads. Helps tell instances apart when you have more than one.</p>
             <div class="settings-row">
               <div class="form-group isl-21">
@@ -1369,7 +1369,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Default poll interval</h3>
+            <div class="section-title">Default poll interval</div>
             <p class="hint">How often newly-enrolled agents heartbeat back to the server. Existing devices are not affected — change theirs from the device detail page.</p>
             <div class="settings-row">
               <div class="form-group mw-160">
@@ -1381,7 +1381,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Online TTL</h3>
+            <div class="section-title">Online TTL</div>
             <p class="hint">A device is considered offline if no heartbeat is received within this window. Should be at least <code>2 × poll_interval</code> to avoid false offline alerts during a single missed poll.</p>
             <div class="settings-row">
               <div class="form-group mw-160">
@@ -1393,7 +1393,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Monitor check interval</h3>
+            <div class="section-title">Monitor check interval</div>
             <p class="hint">How often monitors auto-check when the Monitor page is open. Also controls server-side offline/patch check frequency.</p>
             <div class="settings-row">
               <div class="form-group isl-23">
@@ -1427,7 +1427,7 @@
 
 
           <div class="settings-section">
-            <h3>Wake-on-LAN</h3>
+            <div class="section-title">Wake-on-LAN</div>
             <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p>
             <div class="settings-row">
               <div class="form-group">
@@ -1445,7 +1445,7 @@
         <!-- ── Notifications ────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-notifs">
           <div class="settings-section">
-            <h3>Healthchecks.io watchdog</h3>
+            <div class="section-title">Healthchecks.io watchdog</div>
             <p class="hint">RemotePower pings this URL on a fixed interval so an external watchdog (Healthchecks.io, BetterStack, your own) flips red when the server stops serving requests. Off by default. Cadence defaults to 60 s, minimum 30 s.</p>
             <div class="settings-row">
               <div class="form-group flex-1">
@@ -1462,7 +1462,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Reboot / shutdown blast-radius guardrail</h3>
+            <div class="section-title">Reboot / shutdown blast-radius guardrail</div>
             <p class="hint">Refuse a batch reboot or shutdown that would hit too many hosts at once unless it's explicitly confirmed. Either cap can be set independently; 0 disables it. Single-device actions are never affected.</p>
             <div class="settings-row">
               <label for="cfg-batch-max-devices" class="form-label">Max devices per batch (0 = no limit)</label>
@@ -1477,14 +1477,14 @@
 
           <!-- v4.1.0 (#56): alerts inbox behaviour -->
           <div class="settings-section">
-            <h3>Alerts inbox</h3>
+            <div class="section-title">Alerts inbox</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ack-comment-enabled" checked> Prompt for an optional comment when acknowledging an alert</label></div>
             <p class="hint">When on, acknowledging an alert (single or "Ack selected") asks for an optional comment. The comment is stored on the alert and included in the acknowledgement webhook. Turn this off to acknowledge in one click.</p>
           </div>
 
           <!-- v3.0.2: multi-webhook destinations -->
           <div class="settings-section">
-            <h3>Webhook destinations</h3>
+            <div class="section-title">Webhook destinations</div>
             <p class="hint">Fire each event to any number of destinations simultaneously. Each entry has its own format adapter (Discord, Slack, Pushover, Teams, ntfy, generic JSON) and optional per-destination event filter. Use case: Pushover for critical-only push notifications + Discord channel for all events.</p>
             <div id="webhook-dests" class="isl-25 scroll-cap"></div>
             <button class="btn-secondary isl-26" data-action="addWebhookDest" >+ Add destination</button>
@@ -1492,7 +1492,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Legacy webhook URL</h3>
+            <div class="section-title">Legacy webhook URL</div>
             <p class="hint">The original single-URL field, still honoured for backward compatibility. New setups should use "Webhook destinations" above — it supports the same formats plus Pushover, Teams, per-event filtering, and labeling.</p>
             <div class="settings-row">
               <div class="form-group flex-1">
@@ -1510,7 +1510,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Per-event toggles</h3>
+            <div class="section-title">Per-event toggles</div>
             <p class="hint">Enable or disable each event type. Disabled events are recorded as "disabled" in the webhook log so you can see what was suppressed.</p>
             <input type="text" class="form-input page-filter mb-8" placeholder="Filter events…" data-input="filterRows" data-input-el="1" data-filter-target="#event-toggle-table tbody tr" aria-label="Filter events">
             <div class="sticky-head-scroll">
@@ -1522,7 +1522,7 @@
 
           <!-- ── v1.8.6: SMTP / email notifications ───────────────────────── -->
           <div class="settings-section">
-            <h3>Email notifications (SMTP)</h3>
+            <div class="section-title">Email notifications (SMTP)</div>
             <p class="hint">Send the same events via email as a sibling channel to webhooks. Both channels respect maintenance windows. Email is opt-in per event in the table above.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-smtp-enabled" class="isl-34">
@@ -1609,7 +1609,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Webhook log</h3>
+            <div class="section-title">Webhook log</div>
             <div class="section-header mb-12">
               <div class="section-title isl-42">Recent deliveries</div>
               <div class="isl-43">
@@ -1644,7 +1644,7 @@
         <div class="settings-pane" id="settings-pane-integrations">
           <!-- v4.7.0: homelab software integrations -->
           <div class="settings-section">
-            <h3>Homelab software integrations</h3>
+            <div class="section-title">Homelab software integrations</div>
             <p class="hint">Poll popular self-hosted software for health and fold it into Alerts. Pick a type, point it at the service on your LAN, add an API token, and Test. The server polls on a cadence (default 5&nbsp;min); an unhealthy or unreachable target raises an <code>integration_down</code> alert that recovers automatically.</p>
             <div class="mb-12">
               <label><input type="checkbox" id="show-homelab" data-action="toggleShowHomelab" checked> Show Homelab software on this instance</label>
@@ -1670,7 +1670,7 @@
           </div>
           <!-- v3.14.0 #32: cloud inventory import (AWS EC2) -->
           <div class="settings-section">
-            <h3>Cloud import (AWS EC2)</h3>
+            <div class="section-title">Cloud import (AWS EC2)</div>
             <p class="hint">Pull EC2 instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / <code>aws</code> / region). Read-only — uses an IAM access key with <code>ec2:DescribeInstances</code>. Re-running updates in place. Other providers come later.</p>
             <div id="cloud-accounts-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row isl-82">
@@ -1687,7 +1687,7 @@
 
           <!-- v3.14.0: push fleet metrics to a Prometheus Pushgateway / remote target. -->
           <div class="settings-section">
-            <h3>Metrics push (Prometheus)</h3>
+            <div class="section-title">Metrics push (Prometheus)</div>
             <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher.</p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span class="fs-14">Enable metrics push</span></label>
             <div class="settings-row">
@@ -1709,7 +1709,7 @@
           </div>
           <!-- v3.14.0 (#27): GitOps — desired-state drift config from a Git repo. -->
           <div class="settings-section">
-            <h3>GitOps (config from Git)</h3>
+            <div class="section-title">GitOps (config from Git)</div>
             <p class="hint">Keep your <strong>drift profiles</strong> (watched-config-file sets) and their tag/group assignments in version control. RemotePower periodically fetches a JSON manifest from a raw Git URL and reconciles the profiles it owns to match it. It only manages watched-file lists and assignments — never command execution or file-content pushes — and host enforcement still follows each device's existing apply/enforce opt-in. Off by default; fetched through the SSRF-safe fetcher; profiles you create by hand are never touched. <a href="#" data-action-btn="_showPageBtn" data-page="drift" data-prevent-default class="c-accent">View drift profiles →</a></p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-gitops-enabled"> <span class="fs-14">Enable GitOps sync</span></label>
             <div class="settings-row">
@@ -1735,7 +1735,7 @@
           </div>
           <!-- v3.4.2: moved here from Advanced — it's an external-access integration. -->
           <div class="settings-section">
-            <h3>Status endpoint</h3>
+            <div class="section-title">Status endpoint</div>
             <p class="hint">A machine-readable fleet summary at <code>/api/status</code> for external dashboards — Uptime Kuma, Homepage, Grafana. It needs a status token (not a login), so a monitoring tool can poll it, but it is not public. Generate a token to enable it.</p>
             <p class="hint">The same token also powers a read-only <strong>Home Assistant</strong> bridge at <code>/api/ha?token=…</code> — flat JSON shaped for an HA REST sensor (<code>value_template: "{{ value_json.state }}"</code>), with online/offline and alert counts as attributes. One-way: status only, no control.</p>
             <div id="status-token-box">
@@ -1744,7 +1744,7 @@
           </div>
           <!-- v5.1.0: public status page (component groups + incident history) -->
           <div class="settings-section">
-            <h3>Public status page</h3>
+            <div class="section-title">Public status page</div>
             <p class="hint">A shareable, read-only status page at <code>/status.html?token=…</code> — group your devices and monitors into named components and show recent incident history. No login required. It uses the status token above; generate one if you haven't.</p>
             <label class="click-row-mb6"><input type="checkbox" id="cfg-sp-enabled"> Enable the public status page</label>
             <div class="form-group">
@@ -1766,7 +1766,7 @@
             <div id="sp-share" class="hint-mb6"></div>
           </div>
           <div class="settings-section">
-            <h3>Inbound webhooks &amp; syslog</h3>
+            <div class="section-title">Inbound webhooks &amp; syslog</div>
             <p class="hint">Two token types share this table:</p>
             <ul class="hint">
               <li><strong>Alert webhook</strong> — POST JSON <code>{severity, title, …}</code> to <code>/api/webhook/in/&lt;token&gt;</code>. Lands in the Alerts inbox. For Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
@@ -1790,7 +1790,7 @@
 
           <!-- v3.12.0: relay satellites -->
           <div class="settings-section">
-            <h3>Relay satellites</h3>
+            <div class="section-title">Relay satellites</div>
             <p class="hint">Run a satellite (<code>client/remotepower-satellite.py</code>) inside a segmented network — agents there reach this server <em>through</em> it (<code>agent → satellite → server</code>). Each satellite authenticates with its own token, so you can see and revoke relays independently of the agents. Set the minted token as <code>RP_SATELLITE_TOKEN</code> and <code>RP_UPSTREAM</code> on the satellite host, then point that segment's agents at <code>http://&lt;satellite&gt;:8800</code>.</p>
             <button class="enroll-btn" data-action="createSatellite"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New satellite</button>
             <pre id="satellite-new-token" class="sb-result" hidden></pre>
@@ -1798,7 +1798,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>OIDC / OpenID Connect</h3>
+            <div class="section-title">OIDC / OpenID Connect</div>
             <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel.</p>
             <form id="oidc-config-form" data-submit="saveOidcConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
@@ -1835,7 +1835,7 @@
           </div>
           <!-- v4.2.0 (B1): SAML 2.0 SSO -->
           <div class="settings-section">
-            <h3>SAML 2.0 (enterprise SSO)</h3>
+            <div class="section-title">SAML 2.0 (enterprise SSO)</div>
             <p class="hint">Sign in via a SAML identity provider (Okta, Azure AD / Entra, OneLogin, Ping, ADFS, …). Paste the IdP's entity ID, SSO URL and signing certificate; users arrive with the role mapped from their group attribute. Requires the <code class="ff-mono">pysaml2</code> library and the <code class="ff-mono">xmlsec1</code> binary on the server — when either is missing this stays disabled.</p>
             <form id="saml-config-form" data-submit="saveSamlConfig" data-prevent-default="1" class="form-stack">
               <label class="form-label">
@@ -1875,7 +1875,7 @@
           </div>
           <!-- v3.14.0 (#30): SCIM 2.0 provisioning -->
           <div class="settings-section">
-            <h3>SCIM provisioning (auto user lifecycle)</h3>
+            <div class="section-title">SCIM provisioning (auto user lifecycle)</div>
             <p class="hint">Let your identity provider (Okta, Azure AD, OneLogin, …) create and — importantly — <strong>deactivate</strong> users automatically. When the IdP offboards someone, their access and live sessions are revoked at once. SSO (OIDC/LDAP) only ever <em>creates</em> on first login; SCIM closes the offboarding gap. Endpoint base URL: <code class="ff-mono">&lt;your-server&gt;/api/scim/v2</code>. Provisioned users start as <strong>viewer</strong>.</p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-scim-enabled"> <span class="fs-14">Enable SCIM provisioning</span></label>
             <div class="form-group">
@@ -1893,7 +1893,7 @@
         <!-- ── Security ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-security">
           <div class="settings-section">
-            <h3>CVE details cache</h3>
+            <div class="section-title">CVE details cache</div>
             <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
             <div class="settings-row">
               <div class="form-group mw-160">
@@ -1904,7 +1904,7 @@
             </div>
           </div>
           <div class="settings-section">
-            <h3>IP allowlist</h3>
+            <div class="section-title">IP allowlist</div>
             <p class="hint">Restrict UI/API access to specific source IPs. Loopback (127.0.0.1, ::1) is always allowed so the local MCP sidecar keeps working. Agent paths (heartbeat, enrollment, agent download) are exempt — enabling this never blocks an agent. Off by default.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-ipal-enabled" class="isl-34">
@@ -1922,7 +1922,7 @@
 
           <!-- v3.7.0 (moved to Security in v3.8.0): change approval (maker-checker) -->
           <div class="settings-section">
-            <h3>Change approval (maker-checker)</h3>
+            <div class="section-title">Change approval (maker-checker)</div>
             <p class="hint">When enabled, risky actions — Run command, reboot, shutdown, package update/upgrade, agent uninstall, and container start/stop/restart — are parked as a pending approval instead of executing immediately. A second admin approves them on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for risky actions</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
@@ -1930,7 +1930,7 @@
 
           <!-- v3.12.0: host-audit toggle (listening ports + firewall drift) -->
           <div class="settings-section">
-            <h3>Listening-port &amp; firewall audit</h3>
+            <div class="section-title">Listening-port &amp; firewall audit</div>
             <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cert-expiry-alerts-enabled"> Alert on expiring local certificate files (off by default — only your own service certs, not the CA trust store)</label></div>
@@ -1946,7 +1946,7 @@
 
           <!-- v3.14.0 #35: secrets-on-disk scanning (opt-in) -->
           <div class="settings-section">
-            <h3>Secrets-on-disk scanning</h3>
+            <div class="section-title">Secrets-on-disk scanning</div>
             <p class="hint">When enabled, agents scan the paths below for exposed secrets (private keys, API tokens, passwords) and raise a <em>secret_exposed</em> alert when a new one appears. <strong>Off by default</strong> — it reads files and is heavier than other checks. The scan is <strong>redacting by design</strong>: the agent never sends a secret's value, only its type, location, a masked preview and a fingerprint. Findings appear on the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page, where you can mute false positives.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
@@ -1956,7 +1956,7 @@
           <!-- v4.2.0 follow-up: the account-guardrail keys the posture self-check
                grades, settable here instead of via the config API -->
           <div class="settings-section">
-            <h3>Account guardrails</h3>
+            <div class="section-title">Account guardrails</div>
             <p class="hint">The controls the <strong>security-posture self-check</strong> (Audit page) grades. Everything enforces immediately on save; MFA-required users are prompted to enrol on their next sign-in.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-mfa-require-admin"> Require MFA (TOTP or a passkey) for <strong>admin</strong> accounts</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-mfa-extra-roles">Also require MFA for these roles (comma-separated, optional)</label>
@@ -1988,7 +1988,7 @@
 
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
           <div class="settings-section">
-            <h3>Audit log forwarding</h3>
+            <div class="section-title">Audit log forwarding</div>
             <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging.</p>
             <div class="settings-row"><label class="form-label" for="cfg-audit-worm-path">Append-only (WORM) sink — absolute file path (each audit entry is appended; make it immutable with <code>chattr +a</code> or a WORM mount for a tamper-resistant copy)</label>
               <input type="text" id="cfg-audit-worm-path" class="form-input mw-380" placeholder="/var/log/remotepower-audit.jsonl (blank = off)"></div>
@@ -2009,7 +2009,7 @@
 
           <!-- v3.14.0 #34: SIEM event streaming (fleet events / alerts) -->
           <div class="settings-section">
-            <h3>SIEM event streaming</h3>
+            <div class="section-title">SIEM event streaming</div>
             <p class="hint">Stream every fleet event and alert to a SIEM in its native ingest format. Distinct from audit-log forwarding above (which streams the audit trail). Best-effort and non-blocking.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-siem-enabled"> Enable streaming</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-siem-format">Format</label>
@@ -2028,7 +2028,7 @@
 
           <!-- v3.14.0 #28: OpenTelemetry (OTLP/HTTP) metrics export -->
           <div class="settings-section">
-            <h3>OpenTelemetry export (OTLP)</h3>
+            <div class="section-title">OpenTelemetry export (OTLP)</div>
             <p class="hint">Push rolled-up fleet gauges (devices online/offline, alerts by severity, health score) to an OTLP/HTTP collector — otel-collector, Grafana Alloy, or any OTLP endpoint. The push piggybacks on agent heartbeats, rate-limited to the interval below. Same metrics Prometheus scrapes at <code>/api/metrics</code>, pushed instead of pulled.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-otlp-enabled"> Enable OTLP export</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-otlp-endpoint">Collector endpoint</label>
@@ -2042,7 +2042,7 @@
 
           <!-- v3.14.0 #42: browser push notifications (admin enable) -->
           <div class="settings-section">
-            <h3>Browser push notifications</h3>
+            <div class="section-title">Browser push notifications</div>
             <p class="hint">When enabled, high and critical alerts are pushed to operators who've turned on notifications in <em>My Account → Browser notifications</em> — even when RemotePower isn't the active tab. A VAPID key is generated automatically on first enable. Uses the Web Push standard; no third-party service.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-webpush-enabled"> Enable browser push for high/critical alerts</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-webpush-subject">Contact URI (VAPID subject)</label>
@@ -2051,7 +2051,7 @@
 
           <!-- v3.14.0 #24 P2: tenant isolation -->
           <div class="settings-section">
-            <h3>Multi-tenancy</h3>
+            <div class="section-title">Multi-tenancy</div>
             <p class="hint">When enforced, each tenant's admins and operators see only <strong>their own</strong> devices; a platform superadmin (an admin in the built-in <em>default</em> tenant) still sees everything. <strong>Off by default</strong> — turning it on partitions the fleet by tenant, so enable it deliberately. Tenants, user-to-tenant and device-to-tenant assignment are managed via the API (<code>/api/tenants</code>, a user's <code>tenant_id</code>, and a device's <code>tenant</code>).</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-enforced"> Enforce tenant isolation</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tenancy-rls"> Also enforce at the database (Postgres row-level security)</label>
@@ -2060,7 +2060,7 @@
 
           <!-- v3.14.0 #48: agentless SSH -->
           <div class="settings-section">
-            <h3>Agentless SSH</h3>
+            <div class="section-title">Agentless SSH</div>
             <p class="hint">Run commands and collect basic metrics on hosts with <strong>no agent</strong>, over SSH. <strong>Off by default.</strong> Set an agentless device's <em>reachability</em> to SSH and its SSH user (device drawer), then use Poll/Run there. Connections are non-interactive (<code>BatchMode</code>, key-only, trust-on-first-use); each command is admin-only, allowlist-checked, and audited. The private key is write-only — never returned by the API.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-agentless-ssh-enabled"> Enable agentless SSH</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-agentless-ssh-key">SSH private key (PEM)</label>
@@ -2069,7 +2069,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Session length</h3>
+            <div class="section-title">Session length</div>
             <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>
             <div class="settings-row">
               <div class="form-group mw-200">
@@ -2092,7 +2092,7 @@
 
           <!-- ── v5.0.0 (#C1): mutual TLS for agents ─────────────────────────── -->
           <div class="settings-section">
-            <h3>Agent mutual TLS (mTLS)</h3>
+            <div class="section-title">Agent mutual TLS (mTLS)</div>
             <p class="hint">Require every agent to present a client certificate signed by your RemotePower CA — defence-in-depth on top of the per-device token, so a stolen token alone can't impersonate a host. <strong>Enable the nginx <code>ssl_verify_client optional</code> block first</strong> (see <code>deploy/nginx/remotepower.conf</code>) and run agents with <code>RP_CLIENT_CERT</code>/<code>RP_CLIENT_KEY</code>, or healthy agents will be locked out.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-require-agent-mtls" class="isl-34">
@@ -2102,7 +2102,7 @@
 
           <!-- ── v5.0.0 (#R1): server disk-space watchdog ────────────────────── -->
           <div class="settings-section">
-            <h3>Server disk watchdog</h3>
+            <div class="section-title">Server disk watchdog</div>
             <p class="hint">Alert when the RemotePower controller's own data directory fills up — <em>before</em> file-lock writes start failing. Fires a high-severity <code>server_disk_low</code> alert (and a recover when it drops back). Checked every 30 min on the heartbeat hook.</p>
             <div class="settings-row">
               <div class="form-group mw-200">
@@ -2114,7 +2114,7 @@
 
           <!-- ── v5.0.0 (#R3): maintenance mode ──────────────────────────────── -->
           <div class="settings-section">
-            <h3>Maintenance mode</h3>
+            <div class="section-title">Maintenance mode</div>
             <p class="hint">Pause new agent command dispatch during a controller upgrade — heartbeats and read-only browsing keep working, so devices don't flip offline. In-flight commands drain normally; new exec/reboot/install attempts are refused with a clear message and a banner is shown to everyone.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-maintenance-mode" class="isl-34" data-action="toggleMaintenanceMode">
@@ -2130,7 +2130,7 @@
 
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
           <div class="settings-section">
-            <h3>LDAP / LDAPS authentication</h3>
+            <div class="section-title">LDAP / LDAPS authentication</div>
             <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership.</p>
             <label class="isl-33">
               <input type="checkbox" id="cfg-ldap-enabled" class="isl-34">
@@ -2206,7 +2206,7 @@
 
           <!-- ── v3.0.6: Transport & CSP diagnostics ─────────────────────── -->
           <div class="settings-section">
-            <h3>Content-Security-Policy reporting</h3>
+            <div class="section-title">Content-Security-Policy reporting</div>
             <p class="hint">When the browser blocks something the CSP forbids (an injected inline script, a stylesheet from a disallowed origin, …) it POSTs a report to <code>/api/csp-report</code>. Each report becomes one audit-log line tagged <code>csp:…</code>. Disable here if reports get noisy; raise the per-IP throttle if you're investigating an active issue.</p>
             <label class="isl-2">
               <input type="checkbox" id="cfg-csp-report-logging">
@@ -2224,7 +2224,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Audit log</h3>
+            <div class="section-title">Audit log</div>
             <p class="hint">Records every login, command, settings change, and CSP report. Live entries persist in <code>audit_log.json</code>; entries older than the retention window roll into the gzipped archive next to it. Retention is set in <strong>Settings → Advanced</strong>.</p>
             <div class="hint">Live entries: <span id="cfg-audit-entries">—</span></div>
             <div class="hint">Archive on disk: <span id="cfg-audit-archive">—</span></div>
@@ -2232,7 +2232,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Self-signed certificate</h3>
+            <div class="section-title">Self-signed certificate</div>
             <p class="hint">Generate a self-signed <strong>CA</strong> + server certificate for an internal / airgapped instance that can't use a real (Let's Encrypt) cert. The files are written under the data directory's <code>tls/</code> folder; point nginx at <code>server.crt</code> / <code>server.key</code> and enrol agents with the printed fingerprint. Re-generating reuses the CA, so the server cert renews without re-trusting agents. <strong>Prefer a real cert</strong> when you have a public hostname — full guide in <code>docs/tls-selfsigned.md</code>.</p>
             <div class="sb-controls mt-8">
               <input type="text" id="tls-gen-hosts" class="form-input" placeholder="rp.internal, 10.0.0.5  (hostnames / IPs, comma-separated)" autocomplete="off">
@@ -2242,7 +2242,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Import a certificate (.p12 / .pfx)</h3>
+            <div class="section-title">Import a certificate (.p12 / .pfx)</div>
             <p class="hint">Already have a certificate? Upload a <strong>PKCS#12</strong> bundle (<code>.p12</code> / <code>.pfx</code>) containing the certificate and its private key. The cert (plus any chain) and key are written to the data directory's <code>tls/</code> folder as <code>server.crt</code> / <code>server.key</code> — point nginx at them and reload. The bundle password is optional and never stored.</p>
             <div class="sb-controls mt-8">
               <input type="file" id="p12-file" class="form-input" accept=".p12,.pfx,application/x-pkcs12">
@@ -2253,7 +2253,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Transport security (HSTS)</h3>
+            <div class="section-title">Transport security (HSTS)</div>
             <p class="hint">HSTS forces every future visit to use HTTPS — defence against a downgrade attack. Set by nginx, not the application; this panel just reports whether the response on your current page is carrying the header.</p>
             <div id="cfg-hsts-status" class="hint">Checking…</div>
             <div class="hint fs-12">To enable: uncomment the <code>add_header Strict-Transport-Security</code> line in <code>server/conf/remotepower.conf</code> (or your in-place nginx config), then <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code>. Only do this once you're certain the site is HTTPS-only — HSTS is sticky in the browser for the configured <code>max-age</code>.</div>
@@ -2263,7 +2263,7 @@
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-advanced">
           <div class="settings-section">
-            <h3>Optional features</h3>
+            <div class="section-title">Optional features</div>
             <p class="hint">Opt-in modules, all off by default. Enabling one adds its page to the sidebar.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-tickets-enabled"> Built-in ticket system (helpdesk with optional email; attach tickets to alerts &amp; devices). Configure the mailbox below once enabled.</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-billing-enabled"> Billing (time-tracking worksheet, per-customer invoices and rates &amp; fees; admin / finance). Logging hours on tickets and the weekly timesheet stay available regardless.</label></div>
@@ -2274,7 +2274,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Tickets</h3>
+            <div class="section-title">Tickets</div>
             <p class="hint">Mailbox, threading and auto-reply for the ticket system above. Only relevant when Tickets is enabled.</p>
             <div class="meta-sm-nm mt-4">Ticket mailbox (IMAP) — dedicated inbox for customer replies. Replies are matched to a ticket by the #RP number in the subject; auto-replies and our own mail are ignored (loop-safe). Outbound uses your existing SMTP.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkimap-enabled"> Poll a mailbox for ticket replies</label></div>
@@ -2309,7 +2309,7 @@
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">
-            <h3>Branding (white-label)</h3>
+            <div class="section-title">Branding (white-label)</div>
             <p class="hint">Set the in-app product name and default accent colour shown to everyone — for MSPs reselling RemotePower. Users can still pick their own accent in <em>My Account → Appearance</em>; this is the org default. (The login-page logo image is unchanged.)</p>
             <div class="settings-row">
               <div class="form-group flex-1">
@@ -2337,7 +2337,7 @@
 
           <!-- v3.0.2: audit log retention -->
           <div class="settings-section">
-            <h3>Audit log retention</h3>
+            <div class="section-title">Audit log retention</div>
             <p class="hint">Entries older than this many days are moved to <code>audit_log_archive.jsonl.gz</code> and kept indefinitely (gzipped, append-only). The live <code>audit_log.json</code> only holds recent entries — keeps the loaded-into-memory file small. Default 90 days. Set to 0 to disable age-based eviction (legacy count-only cap still applies).</p>
             <div class="settings-row">
               <label class="form-label" for="audit-retention-days">Retention (days)</label>
@@ -2347,7 +2347,7 @@
 
           <!-- v3.0.2: backup config -->
           <div class="settings-section">
-            <h3>Scheduled backup</h3>
+            <div class="section-title">Scheduled backup</div>
             <p class="hint">Daily snapshot of <code>/var/lib/remotepower</code> to a tarball. Triggered once per 24h via the heartbeat hook (cheap when not due). Backup state and a "Run now" button are on the <a href="#" data-action-btn="_homeNavAction" data-home-act="self" data-prevent-default class="c-accent">Server status</a> page.</p>
             <div class="settings-row">
               <label class="click-row"><input type="checkbox" id="backup-enabled" checked> <span class="form-label">Enabled</span></label>
@@ -2369,7 +2369,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Debug logging</h3>
+            <div class="section-title">Debug logging</div>
             <p class="hint">When enabled, verbose logs are written to the browser console (F12 → Console) and to <code>/var/lib/remotepower/debug.log</code> on the server. Disable in production — the log file grows unbounded.</p>
             <div class="settings-row">
               <label class="click-row"><input type="checkbox" id="debug-logging-toggle" data-change="saveDebugLogging" data-change-checked="1"> <span class="form-label">Enable debug logging</span></label>
@@ -2379,7 +2379,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Backup &amp; restore</h3>
+            <div class="section-title">Backup &amp; restore</div>
             <p class="hint">Two kinds of backup. The <strong>redacted export</strong> is a ZIP with API keys and integration secrets stripped — safe to store or share. The <strong>full disaster-recovery backup</strong> is a tar.gz of the <em>entire</em> data directory <em>including</em> the encrypted credentials vault and integration secrets — it can fully rebuild this controller, so keep it private. <strong>Restore</strong> applies a full backup and <em>overwrites current data</em>; a safety snapshot of the existing data is taken first (under <code>restore-snapshots/</code> in the data dir).</p>
             <div class="sb-controls">
               <button class="btn-icon" data-action="exportBackup" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-c923885c"/></svg> Export (redacted ZIP)</button>
@@ -2392,7 +2392,7 @@
 
           <!-- ── Storage backend (v3.12.0) ───────────────────────────────── -->
           <div class="settings-section">
-            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-61813343"/></svg> Storage backend</h3>
+            <div class="section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><use href="#ic-61813343"/></svg> Storage backend</div>
             <p class="hint">RemotePower stores all data as flat-JSON files by default. For large fleets with many devices and frequent writes, switch to an embedded <strong>SQLite</strong> database (WAL mode), or to an external <strong>PostgreSQL</strong> server for concurrency, replication/HA and central backups. Switching migrates your data in place, verifies the round-trip, and only then flips the active backend — fully reversible (switch back the same way).</p>
             <div id="storage-backend-status" class="hint">Loading current backend…</div>
             <div id="storage-backend-netfs-warn" class="hint sb-warn" hidden></div>
@@ -2417,7 +2417,7 @@
 
           <!-- ── Database maintenance & retention (v3.12.0) ──────────────── -->
           <div class="settings-section">
-            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg> Data retention &amp; maintenance</h3>
+            <div class="section-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg> Data retention &amp; maintenance</div>
             <p class="hint">Cap how long historical records are kept. Set a value in <strong>days</strong>; <code>0</code> keeps everything (subject only to the per-log count limits). Old entries are pruned automatically once a day, and immediately when you run maintenance below. Open alerts are never purged — only resolved ones past their age limit.</p>
             <div class="retention-grid">
               <label for="ret-history">Command history (days)
@@ -2445,7 +2445,7 @@
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-proxmox">
           <div class="settings-section">
-            <h3>VMware / OpenShift / Cloud Director</h3>
+            <div class="section-title">VMware / OpenShift / Cloud Director</div>
             <p class="hint">Connect read-only to other virtualization platforms — VMware vSphere / ESXi / vCenter, Red Hat OpenShift, and VMware Cloud Director. Their status + inventory feed Alerts and the dashboard, the same way Proxmox does. Pick a platform, fill its URL + credentials, Save, then Test.</p>
             <div id="virt-platforms-list" class="mb-12 scroll-cap"></div>
             <div class="settings-row isl-iadd">
@@ -2460,7 +2460,7 @@
             </div>
           </div>
           <div class="settings-section">
-            <h3>Proxmox VE connection</h3>
+            <div class="section-title">Proxmox VE connection</div>
             <p class="hint">Connect a single Proxmox VE node. The RemotePower server calls the Proxmox API directly to list QEMU VMs (Virtualization page) and LXC containers (Containers page), and to start / shut them down. Authentication uses a Proxmox API token — create one under Datacenter → Permissions → API Tokens.</p>
             <p class="hint c-amber"><strong>Note:</strong> the API token secret is stored in the server's <code>config.json</code> (file mode 600). It is not encrypted at rest. Use an API token scoped to only the permissions it needs (VM.PowerMgmt, VM.Audit), not a full-access token.</p>
             <p class="hint"><strong>More secure option:</strong> set the token secret in the environment variable <code>RP_PROXMOX_TOKEN_SECRET</code> (in the systemd unit or container env) instead of here. When that variable is set it takes precedence, the secret stays out of <code>config.json</code>, and it is not included in the backup export.</p>
@@ -2507,7 +2507,7 @@
         <!-- ── Mailbox monitor (v2.4.4) ───────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-mailbox">
           <div class="settings-section">
-            <h3>Mailbox monitor</h3>
+            <div class="section-title">Mailbox monitor</div>
             <p class="hint">Count messages in a mailbox without IMAP/SMTP. Pick a device, give it one or more directory paths, and the agent counts the regular files in each (a Maildir <code>new</code> folder holds one file per unread message). Tick "Show on dashboard" to surface a device's count as a tile on the Home dashboard.</p>
             <div class="settings-row">
               <div class="form-group isl-65">
@@ -2543,7 +2543,7 @@
         <!-- ── AI assistant (v2.1.3) ──────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-ai">
           <div class="settings-section">
-            <h3>AI provider</h3>
+            <div class="section-title">AI provider</div>
             <p class="hint">Wire in an LLM for the AI buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
             <div class="settings-row isl-57">
               <div class="form-group isl-60">
@@ -2582,7 +2582,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Privacy — what gets sent to the provider</h3>
+            <div class="section-title">Privacy — what gets sent to the provider</div>
             <p class="hint">By default, hostnames and IP addresses are stripped from every request before it leaves the building. Long hex strings, bearer tokens, and AWS access keys are <i>always</i> redacted regardless of these toggles. Cleartext journal content and command output are sent only when you explicitly opt in.</p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-priv-hostnames"> Send hostnames (FQDNs)</label>
             <label class="click-row-mb6"><input type="checkbox" id="ai-priv-ips"> Send IP addresses</label>
@@ -2591,7 +2591,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Context awareness <span class="isl-74">(v2.1.7)</span></h3>
+            <div class="section-title">Context awareness <span class="isl-74">(v2.1.7)</span></div>
             <p class="hint">A small block of background ("you are an assistant inside RemotePower; the agent polls every 60s…") plus a one-line-per-device fleet snapshot is prepended to every AI request. The model stops giving generic Linux advice and starts giving advice that references <i>your</i> devices and <i>your</i> conventions. Project context is non-sensitive. <strong>Fleet context contains hostnames and group names by design</strong> — if you're on a cloud provider and don't want hostnames egressing, turn the fleet toggle off (project context will stay on).</p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-project" checked> Include project context (what RemotePower is)</label>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-fleet" checked> Include fleet snapshot (one line per device)</label>
@@ -2600,12 +2600,12 @@
 
           <!-- v3.4.0: RAG over your infrastructure -->
           <div class="settings-section">
-            <h3>
+            <div class="section-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round" class="isl-771">
                 <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/>
               </svg>
               Knowledge index (RAG) <span class="isl-74">(v3.4.0)</span>
-            </h3>
+            </div>
             <p class="hint">Indexes your own infrastructure — device state, watched services, CVEs, containers, CMDB metadata &amp; docs, runbooks, recent commands and alerts, plus the product docs — so the assistant answers from <i>your</i> fleet instead of generic knowledge. Lexical (keyword) search works with every provider, including Anthropic. Optional embeddings add semantic search when you run an embedding-capable provider. <strong>The credentials vault is never indexed.</strong></p>
 
             <label class="click-row-mb6"><input type="checkbox" id="ai-rag-enabled" checked> Enable the knowledge index</label>
@@ -2684,12 +2684,12 @@
             <pre id="ai-rag-backend-result" class="hint sb-result" hidden></pre>
 
             <div class="settings-section isl-776">
-              <h3 class="isl-777">
+              <div class="section-title isl-777">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="isl-772">
                   <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
                 </svg>
                 Test retrieval
-              </h3>
+              </div>
               <p class="hint">See exactly which indexed chunks a question would pull in — no model call, no tokens spent. Useful for checking coverage before you trust the assistant's answers.</p>
               <div class="settings-row isl-72 isl-779">
                 <div class="form-group flex-1">
@@ -2702,7 +2702,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Limits</h3>
+            <div class="section-title">Limits</div>
             <p class="hint">Bounds to keep cloud-provider costs predictable. The token limit is per response. The daily request cap is per user — set to 0 to disable.</p>
             <div class="settings-row isl-72">
               <div class="form-group mw-200">
@@ -2717,7 +2717,7 @@
           </div>
 
           <div class="settings-section">
-            <h3>Test connection</h3>
+            <div class="section-title">Test connection</div>
             <p class="hint">Round-trip a one-word "say hi" request against the configured provider. Saves a settings round-trip before you start using the AI buttons in anger.</p>
             <div class="isl-75">
               <button class="btn-icon" data-action="testAIConnection" >Test connection</button>
@@ -2727,7 +2727,7 @@
 
           <!-- v3.0.1: Per-feature system prompt customization -->
           <div class="settings-section">
-            <h3>Prompt customization</h3>
+            <div class="section-title">Prompt customization</div>
             <p class="hint">Each AI feature uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models. Edit if your model needs different wording (e.g. DeepSeek reasoning models, smaller local models, format-specific quirks). Clearing a field reverts to the default for that feature.</p>
             <div id="ai-prompts-list" class="isl-77 scroll-cap">
               <div class="isl-78">Loading prompts…</div>
@@ -2739,7 +2739,7 @@
       <div class="settings-pane" id="settings-pane-dashboard">
 
         <div class="settings-section">
-          <h3>Brute-force detection</h3>
+          <div class="section-title">Brute-force detection</div>
           <p class="hint">Counts failed login attempts per source IP in a rolling window. Fires a webhook and shows in Needs Attention when the threshold is exceeded.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
@@ -2761,7 +2761,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Health-score alerts</h3>
+          <div class="section-title">Health-score alerts</div>
           <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing, not every heartbeat. Set to <strong>0</strong> to disable.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
@@ -2773,7 +2773,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Quiet hours</h3>
+          <div class="section-title">Quiet hours</div>
           <p class="hint">Hold non-critical webhook/email notifications during a daily window — events still land in the Alerts inbox and Recent Activity, they just don't page you overnight. Anything at or above the chosen severity always goes through. The window may cross midnight (e.g. 22:00–07:00).</p>
           <div class="settings-row isl-57">
             <div class="form-group">
@@ -2801,7 +2801,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>After-hours activity detection</h3>
+          <div class="section-title">After-hours activity detection</div>
           <p class="hint">Flag selected events that fire <strong>outside</strong> business hours (a login, a new port, a command at 3am is more suspicious). Surfaces as a Needs Attention item. Applies Mon–Fri within the window below; anything outside it counts as after-hours.</p>
           <div class="settings-row isl-57">
             <div class="form-group">
@@ -2817,7 +2817,7 @@
         </div>
 
         <div class="settings-section" id="oncall-card">
-          <h3>On-call &amp; escalation</h3>
+          <div class="section-title">On-call &amp; escalation</div>
           <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup.</p>
           <div class="mb-8 fs-13">Currently on call: <strong id="oncall-current">—</strong></div>
           <div id="oncall-schedule" class="mb-8"></div>
@@ -2844,7 +2844,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Backup file monitoring</h3>
+          <div class="section-title">Backup file monitoring</div>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
           <div id="backup-monitors-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
@@ -2870,7 +2870,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Process thresholds</h3>
+          <div class="section-title">Process thresholds</div>
           <p class="hint">Fire <code>process_alert</code> (edge-triggered, with a <code>process_recovered</code> follow-up) when a process whose name matches crosses a CPU or memory threshold. Matched against the agent's top processes each heartbeat.</p>
           <div id="process-watches-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
@@ -2894,7 +2894,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Log ignore patterns</h3>
+          <div class="section-title">Log ignore patterns</div>
           <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc.</p>
           <div id="log-ignore-list" class="isl-85 scroll-cap"></div>
           <div class="row-8-center">
@@ -2905,7 +2905,7 @@
         </div>
 
         <div class="settings-section">
-          <h3>Channel routing</h3>
+          <div class="section-title">Channel routing</div>
           <p class="hint">For every alert kind, choose which surfaces it appears on. <strong>Needs Attention</strong> = the priority cards on Home; <strong>Recent Activity</strong> = the home feed; <strong>Alerts</strong> = the alerts inbox; <strong>Webhook</strong> = external delivery (Slack, Discord, etc.). Unchecking a column for a row silences that kind on just that surface — uncheck whole rows for a kind you never want to hear about.</p>
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter kinds or events…" data-input="filterRows" data-input-el="1" data-filter-target="#dash-channel-matrix tbody tr" aria-label="Filter channel routing">
           <div id="dash-channel-matrix"><div class="isl-78">Loading…</div></div>
@@ -2916,7 +2916,7 @@
       <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->
       <div class="settings-pane" id="settings-pane-ignored">
         <div class="settings-section">
-          <h3>Ignored items</h3>
+          <div class="section-title">Ignored items</div>
           <p class="hint">Items you've hidden using the × button on Needs Attention cards, device rows on the Containers page, or stale container rows. Click <em>Restore</em> on any entry to bring it back into view.</p>
           <div id="ignored-items-list" class="isl-88 scroll-cap">
             <div class="isl-78">Loading…</div>
@@ -4680,7 +4680,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="signing-status" class="mb-16"><div class="c-muted">Loading…</div></div>
         <div class="settings-section">
-          <h3>Distribute the public key to agents</h3>
+          <div class="section-title">Distribute the public key to agents</div>
           <p class="hint">Pin this on each agent host at <code>/etc/remotepower/release.pub</code>. Once present, that agent enforces signatures (fail-closed). No key pinned → agent keeps using sha256-only verification.</p>
           <textarea id="signing-pubkey" class="form-input ff-mono fs-12" rows="6" readonly placeholder="Generate a key to see the public key here."></textarea>
         </div>
@@ -8581,46 +8581,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-6"></script>
-<script defer src="static/js/app.js?v=5.8.0-6"></script>
+<script defer src="static/js/i18n.js?v=5.8.0-7"></script>
+<script defer src="static/js/app.js?v=5.8.0-7"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-6"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-network.js?v=5.8.0-7"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-6"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0-7"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-6"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-6"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-power.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0-7"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0-7"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-6"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-6"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0-7"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0-7"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-6"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0-7"></script>
 </body>
 </html>

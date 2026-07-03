@@ -67,6 +67,12 @@ All notable changes to RemotePower. Newest first.
 
 ### Changed
 
+- **Dashboard & account card headers migrated to the canonical `.section-title`.**
+  All dashboard-widget and account-page card headers now use the standard header
+  element, so in the New UI (industrial skin) they render as the chamfered card
+  tab consistently, and every one is translatable. The Old UI keeps its previous
+  header appearance. New translations were added for the migrated headers and the
+  v5.8.0 UI strings (Chinese / Hindi / Spanish / Arabic).
 - **Maintenance windows suppress more of the predictable churn.** A window can
   now silence resource (`metric_warning`/`metric_critical`), drift, failed-unit,
   reboot-required, container and backup-stale alerts in addition to the previous

@@ -2530,6 +2530,25 @@ input.form-input[type="text"][data-token],
   margin: 0 0 12px 0;
   font-weight: 500;
 }
+/* v5.8.0 (B4.1): card/section headers migrated from <h3> to the canonical
+   `.section-title`. In the INDUSTRIAL skin these render as the chamfered card
+   tab (see the tab rules below). In the DEFAULT (Old UI) skin, preserve the
+   exact look the old <h3> had so the migration is visually invisible there —
+   a card header stays 13px muted uppercase, a settings-section header 14px. */
+.dash-card > .section-title:first-child,
+.dash-card > div:first-child > .section-title:first-child {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+.settings-section > .section-title:first-child {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
 .dash-feed-item {
   display: flex;
   align-items: flex-start;
