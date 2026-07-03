@@ -93,7 +93,7 @@ the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-di
 PIN, like pairing a console controller.
 
 Deliberately small and **readable**: nginx + Python CGI + flat JSON files — around
-**~77,000 lines** of server Python, one HTML file, one CSS file and a handful of
+**~78,000 lines** of server Python, one HTML file, one CSS file and a handful of
 vanilla JS files. No external database, no Node.js, no Redis, no Kubernetes,
 **no build step, no bundler, no framework** — you can read every line. The whole
 `/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs

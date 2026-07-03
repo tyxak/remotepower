@@ -6974,6 +6974,119 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rota
   .sidebar-group-toggle { min-height: 44px; }
 }
 
+/* 9. Header touch density (the structural follow-up the 390px audit deferred):
+   a.logo (36px), .theme-btn (38×36), .acct-btn (36px) and the #site-health
+   pill (~22px) were sub-40px tap targets on phones / touch screens. Grow the
+   HIT AREA only — no font growth — to the same 40px audit bar as item 7.
+   The header bar cannot grow from this: at ≤720px its flex line is already
+   40px tall (the .mobile-burger, item 7), and on coarse-pointer tablets the
+   always-present header .btn-icon controls (density / banner toggles) hold a
+   44px line — every bump here stays ≤ that. (#site-health is display:none at
+   ≤720px; its bump matters on the >720px coarse-pointer band, where the pill
+   was a ~22px sliver.) */
+@media (max-width: 720px), (hover: none) and (pointer: coarse) {
+  a.logo {
+    min-height: 40px;
+    min-width: 40px;
+    align-items: center;   /* .logo is already display:flex */
+  }
+  .theme-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .acct-btn { min-height: 40px; }
+  .site-health { min-height: 40px; min-width: 40px; justify-content: center; }
+}
+/* The grown logo/theme targets cost ~6px of row width at 390px, which tipped
+   the bar 1px past the viewport: the phone header carried a DOUBLE side
+   inset (header 0 10px from the ≤720 compact block + .header-inner's desktop
+   0 24px). Fold the inner inset to 12px on phones — 22px effective, and the
+   row fits with ~12px to spare. Desktop keeps the 24px. */
+@media (max-width: 720px) {
+  .header-inner { padding: 0 12px; }
+}
+
+/* 10. Devices minimal density → stacked rows on phones (the structural
+   follow-up to item 6, which merely let the ~466px-wide name+status+actions
+   table PAN inside .devices-minimal-wrap at a 390px viewport). Phones now
+   get one stacked block per device instead: line 1 = checkbox + status dot +
+   name + actions menu, line 2 = the key columns (hostname / group / OS / IP /
+   version / last seen) as a muted 12px strip. CSS-only: each tr becomes a
+   wrapping flex line and the tr::after break (flex-basis:100%, order:1)
+   splits the two lines; the width-based column-drop rules further up are
+   overridden back to visible because the detail strip has room for all of
+   them (it wraps onto extra lines when it doesn't). Desktop (>720px) keeps
+   the real table untouched, and the >20-row .scrollable-table-wrap height
+   cap still applies — the stack scrolls vertically inside it. */
+@media (max-width: 720px) {
+  .devices-minimal-table,
+  .devices-minimal-table tbody { display: block; }
+  .devices-minimal-table thead { display: none; }
+  .devices-minimal-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 2px;
+    padding: 8px 12px;
+  }
+  /* the line break between the name line (order 0) and the detail strip
+     (order 2) — an empty full-width flex item forces the wrap */
+  .devices-minimal-table tbody tr::after {
+    content: '';
+    flex-basis: 100%;
+    order: 1;
+    height: 0;
+  }
+  .devices-minimal-table tbody td {
+    display: block;
+    width: auto;
+    padding: 0;
+    border: none;
+  }
+  /* .selected paints per-cell top/bottom borders in table mode — cell
+     borders are wrong for the stacked flex line (the row keeps its own
+     border-bottom + the .selected background). */
+  .devices-minimal-table tbody tr.selected td { border: none; }
+  .devices-minimal-table .dev-name-cell {
+    flex: 1 1 0;
+    min-width: 0;
+    text-overflow: ellipsis;
+  }
+  .devices-minimal-table .dev-actions-cell {
+    margin-left: auto;
+    padding: 0;
+  }
+  /* detail strip: re-show what the column-drop rules hid, demote to the
+     12px muted role */
+  .devices-minimal-table .dev-host-cell,
+  .devices-minimal-table .dev-group-cell,
+  .devices-minimal-table .dev-os-cell,
+  .devices-minimal-table .dev-ip-cell,
+  .devices-minimal-table .dev-version-cell,
+  .devices-minimal-table .dev-lastseen-cell {
+    display: block;
+    order: 2;
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 100%;
+    text-overflow: ellipsis;
+  }
+}
+
+/* 11. CMDB scoped-credentials entry row: 5 fixed-width .input-auto fields +
+   the Add button ≈ 1104px, which a docked-240px-sidebar desktop only fits at
+   a ≥ ~1450px viewport — from 1025px (where item 5's generic ≤1024 wrap
+   stops) up to that point the Password field and Add button clipped through
+   the card edge. Let THIS row wrap across the whole band; flex-wrap is inert
+   once the line fits, so wide desktops render pixel-identically. */
+@media (max-width: 1460px) {
+  #cmdb-scoped-card .row-8-center { flex-wrap: wrap; }
+}
+
 /* ── v5.6.x Settings IA: the 12 flat tabs are clustered into labeled groups
    (Setup / Monitoring / Connections / System). Buttons and ids unchanged —
    the grouping is visual scent only. Scoped to .settings-tab-group so the
