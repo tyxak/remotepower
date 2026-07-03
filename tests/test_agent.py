@@ -132,7 +132,11 @@ class TestGetJournal(unittest.TestCase):
 class TestGetPatchInfo(unittest.TestCase):
     def test_apt_counts_inst_lines(self):
         fake_output = "Inst nginx [1.0] (2.0)\nInst curl [7.0] (8.0)\nNot an inst line\n"
-        with patch('pathlib.Path.exists', return_value=True), \
+        # get_third_party_updates probes flatpak/snap/pip with REAL
+        # subprocess.run (a flatpak network query costs ~5s on a host that
+        # has it) — irrelevant to the manager-count assertions; stub it.
+        with patch.object(agent, 'get_third_party_updates', return_value={}), \
+             patch('pathlib.Path.exists', return_value=True), \
              patch('subprocess.check_output', return_value=fake_output):
             # Patch only apt path
             original_exists = Path.exists
@@ -146,7 +150,8 @@ class TestGetPatchInfo(unittest.TestCase):
                 self.assertEqual(result['upgradable'], 2)
 
     def test_returns_unknown_on_no_package_manager(self):
-        with patch.object(Path, 'exists', return_value=False):
+        with patch.object(agent, 'get_third_party_updates', return_value={}), \
+             patch.object(Path, 'exists', return_value=False):
             result = agent.get_patch_info()
             self.assertEqual(result['manager'], 'unknown')
             self.assertIsNone(result['upgradable'])

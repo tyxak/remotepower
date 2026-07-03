@@ -915,35 +915,44 @@ class TestSnmpIntegration(_ApiTestBase):
             sock.bind(('127.0.0.1', 0))
             port_box.append(sock.getsockname()[1])
             ready.set()
-            sock.settimeout(5)
+            # Answer EVERY request until the poll finishes (it makes ~5
+            # probe batches + walks). The old one-shot server answered the
+            # first and vanished — every later probe burned a full 2s
+            # timeout + retry, costing ~28s of pure waiting per test run.
+            # Short idle timeout ends the thread right after the poll.
+            sock.settimeout(0.5)
+            import snmp as s
+            values = response_overrides or {
+                '1.3.6.1.2.1.1.1.0': ('octet', 'Test Switch v1'),
+                '1.3.6.1.2.1.1.5.0': ('octet', 'sw-fake'),
+            }
             try:
-                data, addr = sock.recvfrom(65536)
-                import snmp as s
-                tag, body, _ = s._decode_tlv(data, 0)
-                off = 0
-                _, _, off = s._decode_tlv(body, off)    # version
-                _, _, off = s._decode_tlv(body, off)    # community
-                pdu_tag, pdu_body, _ = s._decode_tlv(body, off)
-                _, rid_bytes, _ = s._decode_tlv(pdu_body, 0)
-                rid = s._decode_integer(rid_bytes)
-                values = response_overrides or {
-                    '1.3.6.1.2.1.1.1.0': ('octet', 'Test Switch v1'),
-                    '1.3.6.1.2.1.1.5.0': ('octet', 'sw-fake'),
-                }
-                vbs = b''
-                for oid, (typ, val) in values.items():
-                    if typ == 'octet':
-                        v_bytes = s._encode_octet_string(val)
-                    else:
-                        v_bytes = s._encode_null()
-                    vbs += s._encode_tlv(s.TAG_SEQUENCE, s._encode_oid(oid) + v_bytes)
-                pdu = s._encode_tlv(s.PDU_GET_RESPONSE,
-                    s._encode_integer(rid) + s._encode_integer(0) +
-                    s._encode_integer(0) + s._encode_tlv(s.TAG_SEQUENCE, vbs))
-                msg = s._encode_tlv(s.TAG_SEQUENCE,
-                    s._encode_integer(s.SNMP_V2C) +
-                    s._encode_octet_string('public') + pdu)
-                sock.sendto(msg, addr)
+                while True:
+                    try:
+                        data, addr = sock.recvfrom(65536)
+                    except OSError:
+                        break   # idle — poll finished
+                    tag, body, _ = s._decode_tlv(data, 0)
+                    off = 0
+                    _, _, off = s._decode_tlv(body, off)    # version
+                    _, _, off = s._decode_tlv(body, off)    # community
+                    pdu_tag, pdu_body, _ = s._decode_tlv(body, off)
+                    _, rid_bytes, _ = s._decode_tlv(pdu_body, 0)
+                    rid = s._decode_integer(rid_bytes)
+                    vbs = b''
+                    for oid, (typ, val) in values.items():
+                        if typ == 'octet':
+                            v_bytes = s._encode_octet_string(val)
+                        else:
+                            v_bytes = s._encode_null()
+                        vbs += s._encode_tlv(s.TAG_SEQUENCE, s._encode_oid(oid) + v_bytes)
+                    pdu = s._encode_tlv(s.PDU_GET_RESPONSE,
+                        s._encode_integer(rid) + s._encode_integer(0) +
+                        s._encode_integer(0) + s._encode_tlv(s.TAG_SEQUENCE, vbs))
+                    msg = s._encode_tlv(s.TAG_SEQUENCE,
+                        s._encode_integer(s.SNMP_V2C) +
+                        s._encode_octet_string('public') + pdu)
+                    sock.sendto(msg, addr)
             except Exception:
                 pass
             finally:

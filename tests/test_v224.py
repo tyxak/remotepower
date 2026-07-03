@@ -132,6 +132,12 @@ class TestRecordFleetEvent(_Base):
         self.assertLessEqual(len(events[0]['payload']['path']), 256)
 
     def test_log_capped_at_max_fleet_events(self):
+        # The CAP LOGIC is under test, not the constant's value — shrink it
+        # so the loop isn't 1050 real locked load+saves of a growing store
+        # (O(n^2) I/O, ~7s; the pair of cap tests cost 13s of the suite).
+        self._orig_max = api.MAX_FLEET_EVENTS
+        api.MAX_FLEET_EVENTS = 60
+        self.addCleanup(lambda: setattr(api, 'MAX_FLEET_EVENTS', self._orig_max))
         for i in range(api.MAX_FLEET_EVENTS + 50):
             api._record_fleet_event('device_offline', {
                 'device_id': f'd{i}', 'device_name': f'host{i}',
@@ -194,7 +200,11 @@ class TestHandleFleetEvents(_Base):
         self.assertEqual(len(r.body), 5)
 
     def test_limit_capped_at_max(self):
-        # Even a wild limit can't exceed MAX_FLEET_EVENTS
+        # Even a wild limit can't exceed MAX_FLEET_EVENTS (constant shrunk —
+        # see test_log_capped_at_max_fleet_events).
+        self._orig_max = api.MAX_FLEET_EVENTS
+        api.MAX_FLEET_EVENTS = 60
+        self.addCleanup(lambda: setattr(api, 'MAX_FLEET_EVENTS', self._orig_max))
         for i in range(api.MAX_FLEET_EVENTS):
             api._record_fleet_event('device_offline', {'device_id': f'd{i}'})
         _set_method('GET', 'limit=99999')

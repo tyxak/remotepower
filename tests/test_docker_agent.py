@@ -136,6 +136,8 @@ class TestHostPackageDB(unittest.TestCase):
         root = tempfile.mkdtemp()
         os.makedirs(root + '/var/lib/pacman/local')   # pacman host
         m = load_agent(host_root=root)
+        # stub the third-party probes (flatpak/snap do real subprocess/network)
+        m.get_third_party_updates = lambda: {}
         info = m.get_patch_info()
         self.assertEqual(info['manager'], 'pacman')
         self.assertIsNone(info['upgradable'])         # unknown, not a false 0
