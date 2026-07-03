@@ -1,0 +1,783 @@
+"""RemotePower — backup orchestration (data-dir DR + per-device jobs + Proxmox cache).
+
+Bound-module decomposition of api.py (same pattern as tickets_handlers.py —
+see its module docstring for the full rationale): every api service, and
+every call BETWEEN these functions, resolves dynamically through the bound
+``A`` namespace proxy so test monkeypatching of api attributes keeps
+working; api.py execs a PRIVATE instance per api instance and binds its own
+globals(); handler names are bound back into api's globals so the route
+tables and all existing callers are untouched. Constants and routes stay in
+api.py. Adding a feature here: edit this file; new routes go in api.py's
+_PATTERN_ROUTE_DEFS / _build_exact_routes as usual.
+"""
+import os
+import secrets
+import shutil
+import sys
+import time
+
+
+class _ApiNamespace:
+    __slots__ = ('_g',)
+
+    def __init__(self, g):
+        self._g = g
+
+    def __getattr__(self, name):
+        try:
+            return self._g[name]
+        except KeyError:
+            raise AttributeError(f'api namespace has no {name!r}') from None
+
+
+A = None
+
+
+def bind(api_globals):
+    """Called once per api instance, with api's ``globals()``."""
+    global A
+    A = _ApiNamespace(api_globals)
+
+
+def _backup_include(rel):
+    """True if a data-dir-relative path belongs in a backup. Skips transient
+    caches, lock/tmp artifacts, and the pre-restore snapshots themselves."""
+    parts = rel.replace('\\', '/').split('/')
+    if parts and parts[0] == A._BACKUP_SNAPSHOT_DIR:
+        return False
+    base = parts[-1]
+    if base in A._BACKUP_EXCLUDE_NAMES:
+        return False
+    if base.endswith('.lock') or base.endswith('.tmp') or '.tmp.' in base:
+        return False
+    return True
+
+
+def _backup_jobs_load():
+    data = A.load(A.BACKUP_JOBS_FILE)
+    if not isinstance(data, dict) or 'jobs' not in data:
+        return {'jobs': []}
+    return data
+
+
+def _backup_passphrase():
+    """v5.0.0 (#C2): the DR-backup encryption passphrase, sourced ONLY from the
+    `RP_BACKUP_PASSPHRASE` environment variable — never the config/data dir (the
+    backup contains the data dir, so storing the key there would be circular).
+    Empty/unset → backups stay plaintext (legacy behavior). v5.4.1 (C8): may also
+    be sourced from an external command via RP_BACKUP_PASSPHRASE_CMD (Vault/KMS)."""
+    return (A._secret_from_env('RP_BACKUP_PASSPHRASE') or '').strip()
+
+
+def _maybe_run_scheduled_backup():
+    """Daily scheduled backup. Called from the heartbeat hot path with
+    a poll-rate gate so the check itself is cheap.
+
+    Schedule: once per 24h, regardless of which agent's heartbeat triggers
+    the check. State stored in self_backup_state.json so a restart of the
+    server doesn't double-fire.
+    """
+    cfg = A.load(A.CONFIG_FILE) or {}
+    if not (cfg.get('backup') or {}).get('enabled', True):
+        return
+    state_file = A.DATA_DIR / 'self_backup_state.json'
+    # v5.0.0 CRITICAL: must use backend_exists, NOT Path.exists(). Under the
+    # SQLite/Postgres backend self_backup_state.json is a DB row, not a file, so
+    # Path.exists() is always False → the persisted last_run was never read → the
+    # 24h gate never tripped → EVERY heartbeat ran a full backup (runaway, filled
+    # the backup dir). The sibling _maybe_check_disk_space already does this right.
+    state = A.load(state_file) if A.backend_exists(state_file) else {}
+    last = state.get('last_run') or 0
+    if int(time.time()) - last < 86400:
+        return  # ran within the last 24h
+    # Use a lock-file so two simultaneous heartbeats don't both run it
+    sentinel = A.DATA_DIR / '.backup_in_progress'
+    if sentinel.exists():
+        # Stale lock recovery: if the sentinel is >1h old, assume the
+        # previous attempt died and clear it.
+        try:
+            if time.time() - sentinel.stat().st_mtime < 3600:
+                return
+            sentinel.unlink()
+        except OSError:
+            return
+    try:
+        sentinel.write_text(str(os.getpid()))
+        A._run_data_backup(triggered_by='scheduled')
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] scheduled backup failed: {e}\n')
+    finally:
+        try: sentinel.unlink()
+        except OSError: pass
+
+
+def _refresh_proxmox_backup_cache(pc: dict) -> None:
+    """v3.6.0: per-guest vzdump backup recency → PROXMOX_BACKUP_CACHE, so
+    _compute_attention() can flag guests with stale / missing backups without a
+    live Proxmox call. Opportunistic, like the snapshot cache. Covers BOTH
+    guest types in one pass (backups aren't typed), so it only needs to run once
+    per Virtualization page load."""
+    now = int(time.time())
+    # Names from both guest types (a backup archive only carries a vmid).
+    names = {}
+    nodes = set()
+    for gt in ('qemu', 'lxc'):
+        try:
+            for g in A.proxmox_client.list_guests(pc, gt):
+                if g.get('vmid'):
+                    names[int(g['vmid'])] = g.get('name', str(g['vmid']))
+                    if g.get('node'):
+                        nodes.add(g['node'])
+        except Exception:
+            pass
+    # Enumerate vzdump archives on every node a guest lives on (a cluster writes
+    # backups to per-node local storage), not just the configured node, so
+    # cross-node guests are not falsely flagged as having no backup. Node names
+    # are already validated by the client, and the newest-ctime merge below
+    # dedups any shared-storage archive seen from more than one node.
+    # All-or-nothing: if ANY node's backup listing fails (transient API error,
+    # member briefly unreachable), preserve the previous cache rather than
+    # rebuilding it from a partial set -- a partial rebuild would write
+    # age_days=None for guests on the failed node and fire false "no backup"
+    # alerts. Matches the pre-cluster single-node abort-on-error behaviour.
+    backups = []
+    for node in (nodes or {pc['node']}):
+        try:
+            backups.extend(A.proxmox_client.list_backups({**pc, 'node': node}))
+        except Exception:
+            return  # leave the previous cache intact on any node failure
+    newest = {}   # vmid -> newest ctime
+    for b in backups:
+        vid = b.get('vmid')
+        if not vid:
+            continue
+        newest[vid] = max(newest.get(vid, 0), b.get('ctime', 0))
+    guests = []
+    for vmid, name in sorted(names.items()):
+        ct = newest.get(vmid, 0)
+        age_days = int((now - ct) / 86400) if ct else None
+        guests.append({'vmid': vmid, 'name': name, 'age_days': age_days,
+                       'last_backup': ct or None})
+    A.save(A.PROXMOX_BACKUP_CACHE, {'updated_at': now, 'node': pc.get('node', ''),
+                                'guests': guests})
+
+
+def _run_data_backup(triggered_by='scheduled'):
+    """Snapshot DATA_DIR to a tarball; prune old ones; record state.
+
+    Excluded: the backup dir itself, .tmp.* in-flight writes, .gz archives
+    (already compressed; their inclusion would double size for no value).
+    """
+    cfg = A.load(A.CONFIG_FILE) or {}
+    bcfg = cfg.get('backup') or {}
+    enabled = bcfg.get('enabled', True)
+    if not enabled and triggered_by != 'manual':
+        return {'skipped': True, 'reason': 'backup disabled in config'}
+    base = bcfg.get('path') or '/var/lib/remotepower/backups'
+    keep = int(bcfg.get('retain_days') or 14)
+    p_base = A.Path(base)
+    p_base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    import tarfile
+    ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    out_path = p_base / f'remotepower_data_{ts}.tar.gz'
+    excluded_names = {'backups'}
+    # v3.12.0: under SQLite, never tar the live DB or its WAL sidecars — a
+    # mid-checkpoint copy can be torn/unrecoverable. We exclude them here and
+    # add a consistent online-backup snapshot below instead.
+    sqlite_mode = A._storage_backend() == 'sqlite'
+    live_db_names = set()
+    if sqlite_mode:
+        _dbn = A.storage.db_path(A.DATA_DIR).name
+        live_db_names = {_dbn, _dbn + '-wal', _dbn + '-shm', _dbn + '-journal'}
+    def _filter(tarinfo):
+        # Skip the backups dir, in-flight tmp files, and already-compressed
+        # archive files (re-compressing wastes time).
+        bn = os.path.basename(tarinfo.name)
+        if bn in excluded_names: return None
+        if '.tmp.' in bn: return None
+        if bn.endswith('.gz'): return None
+        if bn in live_db_names: return None
+        # Drop owner/group info so restoring on a different host doesn't
+        # complain about missing uids
+        tarinfo.uid = 0; tarinfo.gid = 0
+        tarinfo.uname = ''; tarinfo.gname = ''
+        return tarinfo
+    _snap_tmp = None
+    with tarfile.open(str(out_path), 'w:gz') as tar:
+        tar.add(str(A.DATA_DIR), arcname='remotepower', filter=_filter)
+        if sqlite_mode:
+            # Consistent snapshot of the database into the tarball.
+            _snap_tmp = p_base / f'.snap_{ts}_{os.getpid()}.db'
+            try:
+                A.storage.snapshot(_snap_tmp, A.DATA_DIR)
+                tar.add(str(_snap_tmp),
+                        arcname=f'remotepower/{A.storage.db_path(A.DATA_DIR).name}')
+            finally:
+                try:
+                    if _snap_tmp and _snap_tmp.exists():
+                        _snap_tmp.unlink()
+                except OSError:
+                    pass
+    # v5.0.0 (#C2): encrypt at rest if RP_BACKUP_PASSPHRASE is set. The plaintext
+    # tarball is replaced by `*.tar.gz.enc` (AES-256-GCM, streamed) and unlinked,
+    # so nothing readable lingers in backup_path. The passphrase lives ONLY in the
+    # environment — never in the data dir the backup contains.
+    encrypted = False
+    passphrase = A._backup_passphrase()
+    if passphrase:
+        if not A.backup_crypto.available():
+            # Don't silently ship plaintext when the operator asked for crypto.
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
+            raise RuntimeError("RP_BACKUP_PASSPHRASE is set but the 'cryptography' "
+                               "library is missing — refusing to write a plaintext backup")
+        enc_path = out_path.with_suffix(out_path.suffix + '.enc')
+        A.backup_crypto.encrypt_file(out_path, enc_path, passphrase)
+        try:
+            out_path.unlink()
+        except OSError:
+            pass
+        out_path = enc_path
+        encrypted = True
+    # Prune — retain BOTH plaintext and encrypted archives (a fleet may have a mix
+    # across a passphrase change).
+    cutoff = time.time() - keep * 86400
+    pruned = 0
+    for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
+        for f in p_base.glob(pat):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink(); pruned += 1
+            except OSError:
+                pass
+    # v5.4.1 (G1): mirror the finished archive to an offsite destination — a path,
+    # typically an NFS/SMB/sshfs mount to OFF-host storage, so a host loss doesn't
+    # take the backups with it. Best-effort: a copy failure NEVER fails the backup;
+    # the result is recorded in state + graded on the posture page. The same
+    # retention prunes the offsite copies.
+    offsite = (bcfg.get('offsite_dir') or '').strip()
+    offsite_ok = None
+    if offsite:
+        try:
+            od = A.Path(offsite)
+            od.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copy2(str(out_path), str(od / out_path.name))
+            for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
+                for f in od.glob(pat):
+                    try:
+                        if f.stat().st_mtime < cutoff:
+                            f.unlink()
+                    except OSError:
+                        pass
+            offsite_ok = True
+        except Exception as e:
+            offsite_ok = False
+            sys.stderr.write(f'[remotepower] offsite backup copy failed: {e}\n')
+    state = {
+        'last_run':    int(time.time()),
+        'last_file':   str(out_path),
+        'last_bytes':  out_path.stat().st_size,
+        'triggered_by': triggered_by,
+        'encrypted':   encrypted,
+        'pruned':      pruned,
+        'retain_days': keep,
+        'offsite_dir': offsite,
+        'offsite_ok':  offsite_ok,
+    }
+    A.save(A.DATA_DIR / 'self_backup_state.json', state)
+    return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
+            'bytes': out_path.stat().st_size, 'pruned': pruned,
+            'offsite_ok': offsite_ok}
+
+
+def handle_backup_clear():
+    """DELETE /api/self/backup-state — delete all backup archives + reset state."""
+    actor = A.require_admin_auth()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'}); return
+    cfg = A.load(A.CONFIG_FILE) or {}
+    bcfg = cfg.get('backup') or {}
+    base = bcfg.get('path') or '/var/lib/remotepower/backups'
+    p_base = A.Path(base)
+    deleted = 0
+    if p_base.exists():
+        # Both plaintext (*.tar.gz) AND encrypted (*.tar.gz.enc) archives — the
+        # glob `*.tar.gz` does NOT match `*.tar.gz.enc`, so clearing an
+        # encryption-armed instance used to leave every archive behind. Mirror
+        # the retention pruner, which iterates both patterns.
+        for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
+            for f in p_base.glob(pat):
+                try:
+                    f.unlink()
+                    deleted += 1
+                except OSError:
+                    pass
+    # v5.0.0: reset the backup state for BOTH backends. Under SQLite/Postgres it's
+    # a DB row (no file to unlink), so save({}) clears it; also drop the JSON-backend
+    # file if one is present. (The old code only unlink()ed, so a DB-backed instance
+    # kept its stale last_run.)
+    bs_file = A.DATA_DIR / 'self_backup_state.json'
+    if A.backend_exists(bs_file):
+        try: A.save(bs_file, {})
+        except Exception: pass
+    try:
+        if bs_file.exists(): bs_file.unlink()
+    except OSError: pass
+    A.audit_log(actor, 'backup_clear', detail=f'deleted={deleted} path={base}')
+    A.respond(200, {'ok': True, 'deleted': deleted})
+
+
+def handle_backup_download():
+    """GET /api/backup/download — stream a gzip tarball of the whole data dir.
+    Admin only. This is the controller's disaster-recovery snapshot."""
+    actor = A.require_admin_auth()
+    import tarfile
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    fname = f'remotepower-backup-{stamp}.tar.gz'
+    A.audit_log(actor, 'backup_download', fname)
+    print("Status: 200 OK")
+    print("Content-Type: application/gzip")
+    print(f'Content-Disposition: attachment; filename="{fname}"')
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    tar = tarfile.open(mode='w:gz', fileobj=sys.stdout.buffer)
+    try:
+        A._write_data_dir_tar(tar)
+    finally:
+        tar.close()
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_backup_encrypt_existing():
+    """v5.0.0: POST /api/self/backup-encrypt — migrate existing PLAINTEXT backup
+    archives to encrypted (AES-256-GCM) using an admin-supplied passphrase.
+
+    The passphrase is used for THIS request only and is never persisted (same
+    philosophy as the env-var path — the thing the backup protects must not store
+    the key). Each `remotepower_data_*.tar.gz` is encrypted to `*.tar.gz.enc`,
+    the result is verified decryptable, then the plaintext is removed. For ONGOING
+    scheduled backups, set `RP_BACKUP_PASSPHRASE` so new snapshots are encrypted
+    at write time — this endpoint only converts the archives already on disk."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'}); return
+    if not A.backup_crypto.available():
+        A.respond(400, {'error': "the 'cryptography' library is not installed"}); return
+    passphrase = str(A.get_json_obj().get('passphrase') or '')
+    if len(passphrase) < 8:
+        A.respond(400, {'error': 'passphrase must be at least 8 characters'}); return
+    bcfg = (A.load(A.CONFIG_FILE) or {}).get('backup') or {}
+    bdir = A.Path(bcfg.get('path') or '/var/lib/remotepower/backups')
+    encrypted = failed = 0
+    import tempfile as _tf
+    for f in sorted(bdir.glob('remotepower_data_*.tar.gz')):
+        if f.name.endswith('.enc') or '.tmp.' in f.name:
+            continue
+        enc = f.with_suffix(f.suffix + '.enc')
+        try:
+            A.backup_crypto.encrypt_file(f, enc, passphrase)
+            # verify it round-trips before deleting the plaintext
+            with _tf.NamedTemporaryFile(dir=str(bdir), delete=False,
+                                        prefix='.verify_', suffix='.tmp') as _vt:
+                _vpath = A.Path(_vt.name)
+            try:
+                A.backup_crypto.decrypt_file(enc, _vpath, passphrase)
+            finally:
+                try:
+                    _vpath.unlink()
+                except OSError:
+                    pass
+            f.unlink()
+            encrypted += 1
+        except Exception:
+            failed += 1
+            try:
+                if enc.exists():
+                    enc.unlink()
+            except OSError:
+                pass
+    A.audit_log(actor, 'backup_encrypt_existing',
+              detail=f'encrypted={encrypted} failed={failed}')
+    A.respond(200, {'ok': True, 'encrypted': encrypted, 'failed': failed})
+
+
+def handle_backup_job_create():
+    """POST /api/backup-jobs — define a backup job (admin)."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    name = A._sanitize_str(body.get('name', ''), 80).strip()
+    dev_id = str(body.get('device_id', '')).strip()
+    command = str(body.get('command', '')).strip()
+    cron = A._sanitize_str(body.get('cron', ''), 64).strip()
+    if not name or not command:
+        A.respond(400, {'error': 'name and command are required'})
+    if len(command) > A.MAX_BACKUP_CMD_LEN:
+        A.respond(400, {'error': f'command too long (max {A.MAX_BACKUP_CMD_LEN})'})
+    if not A._validate_id(dev_id):
+        A.respond(400, {'error': 'valid device_id required'})
+    devices = A.load(A.DEVICES_FILE)
+    if dev_id not in devices:
+        A.respond(404, {'error': 'Device not found'})
+    if cron and not A._valid_cron(cron):
+        A.respond(400, {'error': 'invalid cron expression'})
+    data = A._backup_jobs_load()
+    if len(data['jobs']) >= A.MAX_BACKUP_JOBS:
+        A.respond(400, {'error': f'job limit reached (max {A.MAX_BACKUP_JOBS})'})
+    job = {'id': secrets.token_urlsafe(8), 'name': name, 'device_id': dev_id,
+           'device_name': devices[dev_id].get('name', dev_id), 'command': command,
+           'cron': cron or None, 'enabled': True, 'created': int(time.time()),
+           'created_by': actor, 'last_run': 0, 'last_fired_minute': None}
+    data['jobs'].append(job)
+    A.save(A.BACKUP_JOBS_FILE, data)
+    A.audit_log(actor, 'backup_job_create', detail=f'job={job["id"]} device={dev_id}')
+    A.respond(200, {'ok': True, 'id': job['id']})
+
+
+def handle_backup_job_delete(job_id):
+    """DELETE /api/backup-jobs/{id} (admin)."""
+    actor = A.require_admin_auth()
+    if A.method() != 'DELETE':
+        A.respond(405, {'error': 'Method not allowed'})
+    data = A._backup_jobs_load()
+    n = len(data['jobs'])
+    data['jobs'] = [j for j in data['jobs'] if j['id'] != job_id]
+    if len(data['jobs']) == n:
+        A.respond(404, {'error': 'job not found'})
+    A.save(A.BACKUP_JOBS_FILE, data)
+    A.audit_log(actor, 'backup_job_delete', detail=f'job={job_id}')
+    A.respond(200, {'ok': True})
+
+
+def handle_backup_job_run(job_id):
+    """POST /api/backup-jobs/{id}/run — queue the backup command now."""
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    data = A._backup_jobs_load()
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job:
+        A.respond(404, {'error': 'job not found'})
+    actor = A.require_perm('command', [job['device_id']])
+    job['last_run'] = int(time.time())
+    A.save(A.BACKUP_JOBS_FILE, data)
+    A.audit_log(actor, 'backup_job_run', detail=f'job={job_id} device={job["device_id"]}')
+    A._queue_command(job['device_id'], f'exec:{job["command"]}', actor)  # responds + exits
+
+
+def handle_backup_job_update(job_id):
+    """PUT /api/backup-jobs/{id} — edit a backup job (admin)."""
+    actor = A.require_admin_auth()
+    if A.method() != 'PUT':
+        A.respond(405, {'error': 'Method not allowed'})
+    body = A.get_json_obj()
+    data = A._backup_jobs_load()
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job:
+        A.respond(404, {'error': 'job not found'})
+    if 'name' in body:
+        job['name'] = A._sanitize_str(body['name'], 80).strip() or job['name']
+    if 'command' in body:
+        c = str(body['command']).strip()
+        if not c or len(c) > A.MAX_BACKUP_CMD_LEN:
+            A.respond(400, {'error': 'invalid command'})
+        job['command'] = c
+    if 'cron' in body:
+        cron = A._sanitize_str(body['cron'], 64).strip()
+        if cron and not A._valid_cron(cron):
+            A.respond(400, {'error': 'invalid cron expression'})
+        job['cron'] = cron or None
+    if 'enabled' in body:
+        job['enabled'] = bool(body['enabled'])
+    A.save(A.BACKUP_JOBS_FILE, data)
+    A.audit_log(actor, 'backup_job_update', detail=f'job={job_id}')
+    A.respond(200, {'ok': True})
+
+
+def handle_backup_jobs_list():
+    """GET /api/backup-jobs — all defined backup jobs."""
+    A.require_auth()
+    A.respond(200, {'ok': True, 'jobs': A._backup_jobs_load()['jobs']})
+
+
+def handle_backup_restore():
+    """POST /api/backup/restore — restore the data dir from an uploaded gzip
+    tarball (as produced by /api/backup/download). Admin only. Takes a safety
+    snapshot of the CURRENT data dir first, then extracts with strict path
+    validation (no absolute paths, no '..', regular files/dirs only — symlinks,
+    devices and hardlinks are rejected)."""
+    actor = A.require_admin_auth()
+    import tarfile, io as _io
+    raw = A.get_body()
+    if not raw:
+        A.respond(400, {'error': 'empty body — POST the backup .tar.gz'})
+    # v5.0.0 (#C2): transparently decrypt an uploaded `*.tar.gz.enc`. The
+    # passphrase comes from the X-RP-Backup-Passphrase header (so an operator can
+    # restore on a fresh box) or falls back to RP_BACKUP_PASSPHRASE in the env.
+    if raw[:len(A.backup_crypto.MAGIC)] == A.backup_crypto.MAGIC:
+        pw = (A._env('HTTP_X_RP_BACKUP_PASSPHRASE') or A._backup_passphrase()).strip()
+        if not pw:
+            A.respond(400, {'error': 'encrypted backup — supply the passphrase via the '
+                                   'X-RP-Backup-Passphrase header or RP_BACKUP_PASSPHRASE env'})
+        if not A.backup_crypto.available():
+            A.respond(400, {'error': "the 'cryptography' library is required to decrypt this backup"})
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as _td:
+            _ep = A.Path(_td) / 'in.enc'
+            _dp = A.Path(_td) / 'out.tar.gz'
+            _ep.write_bytes(raw)
+            try:
+                A.backup_crypto.decrypt_file(_ep, _dp, pw)
+            except A.backup_crypto.BackupCryptoError as e:
+                A.respond(400, {'error': str(e)})
+            raw = _dp.read_bytes()
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    # 1) Safety snapshot of the current state before we overwrite anything.
+    try:
+        snap_dir = A.DATA_DIR / A._BACKUP_SNAPSHOT_DIR
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        snap_name = f'pre-restore-{stamp}.tar.gz'
+        with tarfile.open(str(snap_dir / snap_name), 'w:gz') as snap:
+            A._write_data_dir_tar(snap)
+    except Exception as e:
+        A.respond(500, {'error': f'pre-restore snapshot failed (nothing changed): {e}'})
+    # 2) Open + validate the uploaded archive.
+    try:
+        tf = tarfile.open(fileobj=_io.BytesIO(raw), mode='r:gz')
+    except Exception as e:
+        A.respond(400, {'error': f'not a valid .tar.gz: {e}'})
+    base = os.path.realpath(str(A.DATA_DIR))
+    # v3.13.0: decompression-bomb guard — a 50 MB gzip can inflate to many GB.
+    # Cap the cumulative uncompressed size and member count before extracting so
+    # a crafted archive can't fill the data-dir filesystem.
+    _MAX_RESTORE_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB uncompressed
+    _MAX_RESTORE_MEMBERS = 50000
+    safe_members = []
+    total_bytes = 0
+    for m in tf.getmembers():
+        if not (m.isfile() or m.isdir()):
+            A.respond(400, {'error': f'archive contains a non-regular entry ({m.name}) — refused'})
+        name = m.name
+        if name.startswith('/') or '..' in name.replace('\\', '/').split('/'):
+            A.respond(400, {'error': f'unsafe path in archive: {name}'})
+        dest = os.path.realpath(os.path.join(base, name))
+        if dest != base and not dest.startswith(base + os.sep):
+            A.respond(400, {'error': f'path escapes data dir: {name}'})
+        total_bytes += int(getattr(m, 'size', 0) or 0)
+        if total_bytes > _MAX_RESTORE_BYTES or len(safe_members) > _MAX_RESTORE_MEMBERS:
+            A.respond(400, {'error': 'archive too large when decompressed — refused (possible zip bomb)'})
+        safe_members.append(m)
+    # 3) Extract.
+    restored = 0
+    for m in safe_members:
+        try:
+            tf.extract(m, path=base)
+            if m.isfile():
+                restored += 1
+        except Exception:
+            pass
+    tf.close()
+    # Storage backend may cache file handles / mtimes — drop them.
+    try:
+        A._invalidate_backend_cache()
+    except Exception:
+        pass
+    A.audit_log(actor, 'backup_restore',
+              f'{restored} files restored (safety snapshot {snap_name})')
+    A.respond(200, {'ok': True, 'restored': restored, 'snapshot': snap_name})
+
+
+def handle_backup_run():
+    """POST /api/self/backup-now — manually run a snapshot backup of DATA_DIR.
+
+    Mirrors what the scheduled job does (`_maybe_run_scheduled_backup`).
+    Writes a tarball into the configured backup_path (default
+    `/var/lib/remotepower/backups/`), records state, prunes by retention.
+    """
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'}); return
+    try:
+        result = A._run_data_backup(triggered_by='manual')
+    except Exception as e:
+        A.respond(500, {'error': str(e)}); return
+    A.audit_log(actor, 'backup_run_manual',
+              detail=f"file={result.get('file','?')} bytes={result.get('bytes','?')}")
+    A.respond(200, result)
+
+
+def handle_backup_test_restore():
+    """POST /api/backup/test-restore — v5.4.1 (G1): verify the LATEST backup is
+    actually restorable without touching the live data. Decrypts it (if encrypted +
+    RP_BACKUP_PASSPHRASE set), opens the gzip/tar stream, and confirms it carries
+    the expected ``remotepower/`` tree — exercising the whole decrypt→decompress→
+    parse path. Nothing is extracted to a real location. Admin only; audited."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    cfg = A.load(A.CONFIG_FILE) or {}
+    base = (cfg.get('backup') or {}).get('path') or '/var/lib/remotepower/backups'
+    p_base = A.Path(base)
+    files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
+                         + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]
+    if not files:
+        A.respond(404, {'error': 'no backup archives found to test'})
+    latest = max(files, key=lambda f: f.stat().st_mtime)
+    import tarfile
+    import tempfile as _tf
+    scratch = A.Path(_tf.mkdtemp(prefix='rp_restore_test_'))
+    try:
+        src = latest
+        if str(latest).endswith('.enc'):
+            pp = A._backup_passphrase()
+            if not pp:
+                A.respond(400, {'error': 'latest backup is encrypted but RP_BACKUP_PASSPHRASE is not set'})
+            if not A.backup_crypto.available():
+                A.respond(400, {'error': "encrypted backup but the 'cryptography' library is missing"})
+            dec = scratch / 'dec.tar.gz'
+            A.backup_crypto.decrypt_file(latest, dec, pp)
+            src = dec
+        members = 0
+        saw_root = False
+        with tarfile.open(str(src), 'r:gz') as tar:
+            for m in tar:
+                members += 1
+                top = m.name.split('/', 1)[0]
+                if top == 'remotepower':
+                    saw_root = True
+        ok = saw_root and members > 0
+        A.audit_log(actor, 'backup_test_restore', f'file={latest.name} members={members} ok={ok}')
+        A.respond(200, {'ok': ok, 'file': latest.name, 'members': members,
+                      'encrypted': str(latest).endswith('.enc'),
+                      'message': ('Backup is restorable (decrypted, decompressed, '
+                                  f'{members} entries, data tree present).' if ok
+                                  else 'Archive opened but the expected remotepower/ tree was missing.')})
+    except Exception as e:
+        A.audit_log(actor, 'backup_test_restore', f'file={latest.name} FAILED: {str(e)[:120]}')
+        A.respond(200, {'ok': False, 'file': latest.name, 'error': f'restore test failed: {str(e)[:200]}'})
+    finally:
+        shutil.rmtree(str(scratch), ignore_errors=True)
+
+
+def handle_device_backups(dev_id):
+    """GET /api/devices/<id>/backups — live freshness of this device's watched
+    backup paths. Joins backup_state.json (per-path ok/age, written on every
+    heartbeat that carries backup_status) with the backup_monitors config for
+    the label + threshold. Surfaces what previously only drove the
+    backup_stale webhook. Auth: require_auth (+ central per-device scope)."""
+    A.require_auth()
+    if A.method() != 'GET':
+        A.respond(405, {'error': 'Method not allowed'})
+    if not A._validate_id(dev_id):
+        A.respond(404, {'error': 'Device not found'})
+    state = A.load(A.DATA_DIR / 'backup_state.json') or {}
+    monitors = (A.load(A.CONFIG_FILE) or {}).get('backup_monitors') or []
+    mon_by_path = {m.get('path'): m for m in monitors if isinstance(m, dict)}
+    prefix = f'{dev_id}:'
+    items = []
+    for key, st in state.items():
+        if not key.startswith(prefix) or not isinstance(st, dict):
+            continue
+        path = key[len(prefix):]
+        mon = mon_by_path.get(path) or {}
+        items.append({
+            'path':          path,
+            'label':         mon.get('label') or path,
+            'ok':            bool(st.get('ok')),
+            'age_h':         st.get('age_h'),
+            'max_age_hours': float(mon.get('max_age_hours', 24)),
+            # v4.10.0: integrity-verification status (when verify is enabled)
+            'verify_enabled': bool(mon.get('verify_enabled')),
+            'verify_status':  st.get('verify_status', 'unknown'),
+            'verify_output':  st.get('verify_output', ''),
+            'verify_at':      st.get('verify_at', 0),
+            'verify_tool':    st.get('verify_tool', mon.get('tool', '')),
+        })
+    # Stale first, then by label, so the actionable rows are at the top.
+    items.sort(key=lambda x: (x['ok'], str(x['label']).lower()))
+    A.respond(200, {'backups': items})
+
+
+def handle_proxmox_backup_threshold() -> None:
+    """``POST /api/proxmox/backups/threshold`` — set proxmox_backup_warn_days."""
+    actor = A.require_admin_auth()
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    try:
+        days = int((A.get_json_obj()).get('days'))
+    except (TypeError, ValueError):
+        A.respond(400, {'error': 'days must be an integer'})
+    if not (1 <= days <= 365):
+        A.respond(400, {'error': 'days must be between 1 and 365'})
+    with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+        cfg['proxmox_backup_warn_days'] = days
+    A.audit_log(actor, 'proxmox_backup_threshold', detail=f'days={days}')
+    A.respond(200, {'ok': True, 'warn_days': days})
+
+
+def handle_proxmox_backups_get() -> None:
+    """``GET /api/proxmox/backups`` — per-guest vzdump backup recency, plus the
+    adjustable staleness threshold. Live-refreshes the cache when Proxmox is
+    configured so the Backups page is always current; falls back to the last
+    cached snapshot on a transient API error."""
+    A.require_auth()
+    cfg = A.load(A.CONFIG_FILE)
+    warn_days = int(cfg.get('proxmox_backup_warn_days', 7))
+    pc = A.proxmox_client.config_from(cfg)
+    enabled = bool(pc['enabled'])
+    configured = enabled and A.proxmox_client.is_configured(pc)
+    if configured:
+        try:
+            A._refresh_proxmox_backup_cache(pc)
+        except Exception:
+            pass
+    cache = A.load(A.PROXMOX_BACKUP_CACHE) if A.backend_exists(A.PROXMOX_BACKUP_CACHE) else {}
+    if not isinstance(cache, dict):
+        cache = {}
+    guests = cache.get('guests', [])
+    for g in guests:
+        age = g.get('age_days')
+        g['status'] = ('missing' if age is None
+                       else 'stale' if age > warn_days else 'ok')
+    A.respond(200, {'ok': True, 'enabled': enabled, 'configured': configured,
+                  'warn_days': warn_days, 'node': cache.get('node', ''),
+                  'updated_at': cache.get('updated_at', 0), 'guests': guests})
+
+
+def process_backup_jobs():
+    """Per-request sweep: fire cron-scheduled backup jobs whose minute matches."""
+    data = A._backup_jobs_load()
+    now = int(time.time())
+    current_minute = now // 60
+    changed = False
+    cmds = None
+    for job in data['jobs']:
+        if not job.get('enabled') or not job.get('cron'):
+            continue
+        if job.get('last_fired_minute') == current_minute:
+            continue
+        if not A._cron_matches(job['cron'], now):
+            continue
+        dev_id = job['device_id']
+        devices = A.load(A.DEVICES_FILE)
+        if dev_id in devices and not A._device_quarantined(devices[dev_id]):
+            if cmds is None:
+                cmds = A.load(A.CMDS_FILE)
+            cmds.setdefault(dev_id, [])
+            queued = f'exec:{job["command"]}'
+            if queued not in cmds[dev_id]:
+                cmds[dev_id].append(queued)
+            A.log_command(f'backup({job["created_by"]})', dev_id,
+                        job.get('device_name', dev_id), f'backup:{job["name"]}')
+        job['last_fired_minute'] = current_minute
+        job['last_run'] = now
+        changed = True
+    if cmds is not None:
+        A.save(A.CMDS_FILE, cmds)
+    if changed:
+        A.save(A.BACKUP_JOBS_FILE, data)

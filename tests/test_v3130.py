@@ -14,6 +14,7 @@ os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 import importlib.util
 import sys
 import unittest
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
@@ -133,7 +134,7 @@ class TestFleetRiskCache(unittest.TestCase):
         self.assertTrue(callable(getattr(api, "_fleet_risk_cache_file", None)))
 
     def test_callers_use_cache(self):
-        src = (_CGI_BIN / "api.py").read_text()
+        src = _apisrc_combined()
         # The Risk endpoint routes through the cache. (v3.13.0: fleet health no
         # longer calls it — risk is decoupled from health.)
         self.assertIn("risks = _fleet_risk_cached()", src)
@@ -141,7 +142,7 @@ class TestFleetRiskCache(unittest.TestCase):
 
 class TestSecurityHardening(unittest.TestCase):
     def setUp(self):
-        self.src = (_CGI_BIN / "api.py").read_text()
+        self.src = _apisrc_combined()
 
     def test_scap_report_sandboxed_csp(self):
         # The agent-supplied SCAP HTML is served under a self-contained
@@ -186,7 +187,7 @@ class TestNetworkMounts(unittest.TestCase):
 
     def setUp(self):
         self.agent = (_ROOT / "client/remotepower-agent.py").read_text()
-        self.api = (_CGI_BIN / "api.py").read_text()
+        self.api = _apisrc_combined()
         self.js = client_js()
 
     def test_agent_includes_network_filesystems(self):
@@ -242,7 +243,7 @@ class TestCmdbHardwareFields(unittest.TestCase):
 
     def setUp(self):
         self.agent_mod = self._load_agent()
-        self.api_src = (_CGI_BIN / "api.py").read_text()
+        self.api_src = _apisrc_combined()
         self.js = client_js()
 
     @staticmethod
@@ -307,7 +308,7 @@ class TestDriftProfiles(unittest.TestCase):
     """Named drift profiles: routes, resolution precedence, frontend wiring."""
 
     def setUp(self):
-        self.api_src = (_CGI_BIN / "api.py").read_text()
+        self.api_src = _apisrc_combined()
         self.js = client_js()
 
     def test_routes_registered(self):
@@ -411,7 +412,7 @@ class TestDriftEffective(unittest.TestCase):
         self.assertEqual(api._drift_effective('x', {}, {'enabled': False})['source'], 'disabled')
 
     def test_endpoint_exposes_source(self):
-        self.assertIn("effective['source']", (_CGI_BIN / "api.py").read_text())
+        self.assertIn("effective['source']", _apisrc_combined())
 
 
 class TestControllerBackup(unittest.TestCase):
@@ -461,7 +462,7 @@ class TestMountTrends(unittest.TestCase):
     """Network mounts flow into the daily history + per-mount Trends series."""
 
     def setUp(self):
-        self.src = (_CGI_BIN / "api.py").read_text()
+        self.src = _apisrc_combined()
 
     def test_daily_history_skips_stalled(self):
         # The daily-sample mount builder must skip mounts with no numeric percent.
@@ -507,7 +508,7 @@ class TestThemeAndControls(unittest.TestCase):
 class TestUpgradeRebootReliability(unittest.TestCase):
     def setUp(self):
         self.agent = (_ROOT / "client/remotepower-agent.py").read_text()
-        self.api = (_CGI_BIN / "api.py").read_text()
+        self.api = _apisrc_combined()
 
     def test_upgrade_gets_long_timeout(self):
         # Upgrades must not be killed at 300s before the trailing reboot runs.
@@ -554,14 +555,14 @@ class TestAutopatchSync(unittest.TestCase):
         self.assertEqual(api._cron_to_recur('0 3 * * *'), 'daily')
 
     def test_create_wires_sync(self):
-        self.assertIn("_autopatch_sync(pol)", (_CGI_BIN / "api.py").read_text())
+        self.assertIn("_autopatch_sync(pol)", _apisrc_combined())
 
 
 class TestInventoryCatalog(unittest.TestCase):
     """Software center: aggregated installed-package catalog + has-package version."""
 
     def test_route_registered(self):
-        src = (_CGI_BIN / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("/api/inventory/catalog", src)
         self.assertTrue(callable(getattr(api, "handle_inventory_catalog", None)))
 
@@ -591,7 +592,7 @@ class TestInventoryCatalog(unittest.TestCase):
             api.PACKAGES_FILE, api.DEVICES_FILE = old_pkg, old_dev
 
     def test_fleet_query_outputs_pkg_version(self):
-        src = (_CGI_BIN / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("'pkg_match': matched_pkg", src)
         # the matched string includes the installed version
         self.assertIn("p.get('version', '')", src)
@@ -668,7 +669,7 @@ class TestUiPolishBatch(unittest.TestCase):
 
     def test_software_center_where_installed(self):
         # endpoint returns host names per version
-        self.assertIn("'host_names'", (_CGI_BIN / "api.py").read_text())
+        self.assertIn("'host_names'", _apisrc_combined())
         # frontend expands a row to show where it's installed
         self.assertIn("_swCatalogToggle", self.js)
         self.assertIn("Installed on:", self.js)
@@ -715,7 +716,7 @@ class TestFleetHostConfig(unittest.TestCase):
         self.assertTrue(callable(getattr(api, 'handle_host_config_export', None)))
 
     def test_collect_uses_agent_command(self):
-        src = (_CGI_BIN / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("exec:remotepower-agent send_current_configs", src)
         # agentless devices are excluded from collect-all
         self.assertIn("(devices.get(d) or {}).get('agentless')", src)
@@ -733,7 +734,7 @@ class TestSecurityAuditFixes(unittest.TestCase):
     """v3.13.0 audit fixes: restore bomb guard, AI-chat RBAC scoping, SHA1 nits."""
 
     def setUp(self):
-        self.src = (_CGI_BIN / "api.py").read_text()
+        self.src = _apisrc_combined()
 
     def test_restore_decompression_bomb_guard(self):
         self.assertIn("_MAX_RESTORE_BYTES", self.src)
@@ -795,7 +796,7 @@ class TestRiskScoring(unittest.TestCase):
         self.assertFalse(any(f['kind'] == 'cve_critical' for f in ignored['factors']))
 
     def test_fleet_health_no_longer_blends_risk(self):
-        src = (_CGI_BIN / "api.py").read_text()
+        src = _apisrc_combined()
         fh = src.split("def _fleet_health(")[1].split("\ndef ")[0]
         self.assertNotIn("risk_by_id", fh)
         self.assertNotIn("rec['risk']", fh)

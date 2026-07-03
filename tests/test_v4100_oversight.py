@@ -3,6 +3,10 @@ agent-stopped (host-was-up) distinct signal."""
 import importlib.util
 import sys
 import unittest
+import sys as _as_sys
+from pathlib import Path as _as_Path
+_as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
@@ -12,7 +16,7 @@ _spec = importlib.util.spec_from_file_location("api_oversight", _CGI_BIN / "api.
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
-API_SRC = (_CGI_BIN / "api.py").read_text()
+API_SRC = _apisrc_combined()
 APP = (_ROOT / "server" / "html" / "static" / "js" / "app.js").read_text()
 AGENT = (_ROOT / "client" / "remotepower-agent.py").read_text()
 

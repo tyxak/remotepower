@@ -2,6 +2,10 @@
 import importlib.util
 import sys
 import unittest
+import sys as _as_sys
+from pathlib import Path as _as_Path
+_as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
@@ -13,7 +17,7 @@ _spec.loader.exec_module(api)
 
 from clientjs import client_js  # noqa: E402  (app.js was split into page modules)
 
-API_SRC = (_CGI_BIN / "api.py").read_text()
+API_SRC = _apisrc_combined()
 AGENT = (_ROOT / "client" / "remotepower-agent.py").read_text()
 APP = client_js()
 

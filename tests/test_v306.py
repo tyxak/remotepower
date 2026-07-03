@@ -15,6 +15,7 @@ import re
 import sys
 import tempfile
 import unittest
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -27,7 +28,7 @@ class TestVersionBumps(unittest.TestCase):
     """Loosened to regex — v3.1.0 now holds the strict pin."""
 
     def test_api_server_version(self):
-        text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        text = _apisrc_combined()
         m = re.search(r"^SERVER_VERSION\s*=\s*'(\d+\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
 
@@ -77,7 +78,7 @@ class TestHealthEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.api_py = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        cls.api_py = _apisrc_combined()
 
     def test_handler_defined(self):
         self.assertRegex(self.api_py, r'(?m)^def handle_health\(\):',
@@ -124,7 +125,7 @@ class TestCspReportEndpoint(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.api_py = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        cls.api_py = _apisrc_combined()
 
     def test_handler_defined(self):
         self.assertRegex(self.api_py, r'(?m)^def handle_csp_report\(\):',
@@ -286,7 +287,7 @@ class TestCmdbVlanField(unittest.TestCase):
         self.assertRegex(js, r'vlan:\s*document\.getElementById\(\s*[\'"]cmdb-asset-vlan[\'"]\s*\)\.value\.trim\(\)')
 
     def test_handler_accepts_vlan(self):
-        api_py = self.API_PY.read_text()
+        api_py = _apisrc_combined()   # cmdb handlers live in cmdb_handlers.py
         # Default record carries the field so old records get backfilled.
         self.assertRegex(api_py, r"'vlan':\s*''", )
         # Update handler validates and persists it.

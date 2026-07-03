@@ -13,6 +13,10 @@ import importlib.util
 import re
 import sys
 import unittest
+import sys as _as_sys
+from pathlib import Path as _as_Path
+_as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
@@ -89,7 +93,7 @@ class TestF1AvWarning(unittest.TestCase):
         self.assertIn("case 'av_warning'", js)
 
     def test_ingest_fires_on_rising_warnings(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("fire_webhook('av_warning'", src)
 
 
@@ -115,7 +119,7 @@ class TestF2Attachments(unittest.TestCase):
         self.assertEqual(api._attach_safe_ct('garbage'), 'application/octet-stream')
 
     def test_route_registered_before_generic(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("'/attachments/' in pi", src)
         # must come before the generic ticket GET
         self.assertLess(src.index("'/attachments/' in pi"),
@@ -169,7 +173,7 @@ class TestF5BillingGate(unittest.TestCase):
         self.assertIn('cfg-billing-enabled', html)
 
     def test_config_persists_flag(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("cfg['billing_enabled'] = bool(body['billing_enabled'])", src)
         self.assertIn("'billing_enabled': bool(cfg.get('billing_enabled'))", src)
 
@@ -223,13 +227,13 @@ class TestEnterpriseHardening(unittest.TestCase):
 
     # D3 — idle timeout (config surface)
     def test_idle_timeout_in_config_defaults(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("idle_timeout_minutes", src)
         self.assertIn("now - int(entry.get('last_seen') or entry.get('created') or 0) > _idle * 60", src)
 
     # D4 — config-change audit
     def test_config_change_audit_wired(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("_cfg_before = dict(cfg or {})", src)
         self.assertIn("'config_changed'", src)
 
@@ -237,18 +241,18 @@ class TestEnterpriseHardening(unittest.TestCase):
     def test_webhook_schema_version(self):
         self.assertEqual(api.WEBHOOK_SCHEMA_VERSION, '1')
         self.assertEqual(api._siem_record('x', {'name': 'h'}).get('schema_version'), '1')
-        self.assertIn("'schema_version': WEBHOOK_SCHEMA_VERSION", (_CGI / "api.py").read_text())
+        self.assertIn("'schema_version': WEBHOOK_SCHEMA_VERSION", _apisrc_combined())
 
     # A7 — MAX_DEVICES cap
     def test_max_devices_cap(self):
         self.assertTrue(isinstance(api.MAX_DEVICES, int) and api.MAX_DEVICES > 0)
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("denied_cap", src)
         self.assertIn("get('max_devices') or MAX_DEVICES", src)
 
     # config persistence + GET exposure of the new knobs
     def test_new_config_keys_persisted_and_exposed(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         for k in ('password_min_length', 'password_require_classes', 'password_breach_check',
                   'sso_only', 'idle_timeout_minutes', 'max_devices'):
             self.assertIn(f"'{k}' in body", src, f'{k} not in config-save whitelist')
@@ -284,7 +288,7 @@ class TestEnterpriseHardening2(unittest.TestCase):
         self.assertEqual(len(api._apikey_hash('x')), 64)  # sha256 hex
 
     def test_apikey_create_stores_hash_not_plaintext(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("'key_hash': _apikey_hash(key_value)", src)
         # the list handler must not echo key/key_hash
         self.assertNotIn("'key': v.get('key'", src)
@@ -334,7 +338,7 @@ class TestEnterpriseHardening2(unittest.TestCase):
         self.assertRegex(api._request_id(), r'^[0-9a-f]{16}$')   # minted
         os.environ.pop('HTTP_X_REQUEST_ID', None)
         self.assertTrue(callable(api.log_json))
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn('print(f"X-Request-Id: {_request_id()}")', src)
 
     # F4 — frontend error reporting
@@ -362,7 +366,7 @@ class TestEnterpriseHardening2(unittest.TestCase):
         # default brand + accent
         self.assertIn('RemotePower', sn.brand_html(None, 't', 'b'))
         # alert + digest emails pass a branded html_body
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn('html_body=smtp_notifier.brand_html(cfg, subject, body)', src)
 
 
@@ -406,7 +410,7 @@ class TestEnterpriseHardening3(unittest.TestCase):
         self.assertEqual(r[0]['n'], 3)
 
     def test_paginate_applied_to_list_endpoints(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("respond(200, _paginate_list([{'id': kid", src)  # apikeys list
 
     # C4 — signed exports
@@ -429,7 +433,7 @@ class TestEnterpriseHardening3(unittest.TestCase):
             api.DATA_DIR = orig
 
     def test_evidence_pack_and_archive_signed(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("pack['signature'] = {", src)
         self.assertIn('X-RP-Signature: hmac-sha256=', src)
 
@@ -454,7 +458,7 @@ class TestEnterpriseHardening5(unittest.TestCase):
             api.DATA_DIR = orig
 
     def test_posture_surfaces_new_controls(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         for key in ("'password_policy'", "'idle_timeout'", "'sso_only'", "'signed_exports'"):
             self.assertIn(key, src, f'posture row {key} missing')
 
@@ -510,7 +514,7 @@ class TestE1OpenApiCoverage(unittest.TestCase):
     def test_handler_passes_routes(self):
         # v5.6.0: the handler now feeds the exact table PLUS the dispatcher-parsed
         # prefix/templated routes so the spec covers the whole surface.
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("list(_build_exact_routes().keys()) + _dispatcher_routes()", src)
 
 
@@ -545,7 +549,7 @@ class TestG1OffsiteBackup(unittest.TestCase):
         html = _html()
         self.assertIn('id="backup-offsite-dir"', html)
         self.assertIn('data-action="testRestore"', html)
-        self.assertIn("'backup_offsite'", (_CGI / "api.py").read_text())  # posture row
+        self.assertIn("'backup_offsite'", _apisrc_combined())  # posture row
 
 
 class TestG2EscalationTargets(unittest.TestCase):
@@ -572,7 +576,7 @@ class TestG2EscalationTargets(unittest.TestCase):
             api._dispatch_one_webhook = orig
 
     def test_tier_target_wired(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("tier.get('target')", src)               # captured in the tick
         self.assertIn("only_dest_ids=({_tgt} if _tgt else None)", src)
         self.assertIn("tier['target'] = tgt", src)             # accepted in config save
@@ -651,7 +655,7 @@ class TestC2ConfigSecretEncryption(unittest.TestCase):
         self.assertEqual(set(api._CONFIG_SECRET_FIELDS) >= {
             'smtp_password', 'oidc_client_secret', 'ldap_bind_password',
             'siem_token', 'audit_forward_token'}, True)
-        self.assertIn("'config_secrets_encrypted'", (_CGI / "api.py").read_text())
+        self.assertIn("'config_secrets_encrypted'", _apisrc_combined())
 
 
 class TestWormAuditSink(unittest.TestCase):
@@ -687,7 +691,7 @@ class TestWormAuditSink(unittest.TestCase):
             api._LOAD_CACHE.clear()
 
     def test_config_and_posture_wired(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("cfg['audit_worm_path'] = wp", src)
         self.assertIn("'audit_worm'", src)            # posture row
         self.assertIn('id="cfg-audit-worm-path"', _html())
@@ -786,7 +790,7 @@ class TestF3Slo(unittest.TestCase):
         self.assertIn(('GET', '/api/slo'), api._build_exact_routes())
         self.assertIn('remotepower_slo_target_percent',
                       (_CGI / "prometheus_export.py").read_text())
-        self.assertIn("'slo':             _compute_slo()", (_CGI / "api.py").read_text())
+        self.assertIn("'slo':             _compute_slo()", _apisrc_combined())
 
 
 class TestC7SupplyChain(unittest.TestCase):
@@ -847,7 +851,7 @@ class TestKeystoneStageA(unittest.TestCase):
         self.assertEqual(api._LOAD_CACHE, {})
 
     def test_main_calls_begin_request(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         idx = src.find('def main():')
         self.assertGreater(idx, 0)
         # _begin_request() is the first call in main(), before the cadence sweeps.
@@ -869,7 +873,7 @@ class TestDeviceTokenHashing(unittest.TestCase):
         self.assertFalse(api._device_token_ok({'token_hash': h}, ''))
 
     def test_enroll_stores_hash_and_heartbeat_migrates(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         # enroll (new + re-enroll) stores token_hash, not plaintext
         self.assertEqual(src.count("'token_hash': _hash_device_token(new_token)"), 2)
         # every device-token auth goes through the helper (no raw plaintext compare)
@@ -885,7 +889,7 @@ class TestEnrollmentTokenHashing(unittest.TestCase):
     list/revoke UX and a legacy plaintext-key fallback. Completes credential-at-rest."""
 
     def test_create_keys_by_hash_with_prefix(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("tokens[_hash_device_token(token)] = {", src)
         self.assertIn("'prefix':        token[:8],", src)
 
@@ -907,7 +911,7 @@ class TestEnrollmentTokenHashing(unittest.TestCase):
         self.assertEqual((store2[leg].get('prefix') or leg[:8]), leg[:8])
 
     def test_source_wiring(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("_ekey = _eh if _eh in tokens else enroll_token", src)   # consume
         self.assertIn("(m.get('prefix') or k).startswith(prefix)", src)        # revoke
         self.assertIn("(meta.get('prefix') or token[:8])", src)                # list
@@ -978,7 +982,7 @@ class TestG3ControlPlaneUptime(unittest.TestCase):
         self.assertIn('window="24h"', out)
 
     def test_wired_into_cadence_and_selftest(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("_safe(_record_self_alive, '_record_self_alive')", src)
         self.assertIn("'control_uptime':  _control_uptime()", src)
         self.assertIn("'uptime': up,", src)
@@ -1040,9 +1044,10 @@ class TestC8ExternalKeySourcing(unittest.TestCase):
             self.assertIsNone(api._secret_from_env(self._N))
 
     def test_wired_into_both_key_sources(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("return _secret_from_env('RP_CONFIG_KEY') or None", src)
-        self.assertIn("return (_secret_from_env('RP_BACKUP_PASSPHRASE') or '').strip()", src)
+        self.assertRegex(src,
+            r"return \((?:A\.)?_secret_from_env\('RP_BACKUP_PASSPHRASE'\) or ''\)\.strip\(\)")
 
 
 class TestF2TraceContext(unittest.TestCase):
@@ -1103,7 +1108,7 @@ class TestF2TraceContext(unittest.TestCase):
         self.assertEqual(rec['trace_id'], 'a' * 32)
 
     def test_webhook_propagation_wired(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("headers.setdefault('traceparent', _traceparent_out())", src)
 
 
@@ -1157,7 +1162,7 @@ class TestD5GroupRoleMatrix(unittest.TestCase):
             api.USERS_FILE = orig
 
     def test_config_save_whitelisted_and_sanitised(self):
-        src = (_CGI / "api.py").read_text()
+        src = _apisrc_combined()
         self.assertIn("cfg['sso_group_roles'] = clean", src)
         self.assertIn("if 'sso_group_roles' in body:", src)
 

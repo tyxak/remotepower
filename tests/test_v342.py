@@ -15,6 +15,7 @@ import re
 import shutil
 import sys
 import unittest
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +30,7 @@ class TestVersionBumps(unittest.TestCase):
     regression tests below stay."""
 
     def test_api_server_version(self):
-        text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        text = _apisrc_combined()
         m = re.search(r"^SERVER_VERSION\s*=\s*'(\d+\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
 
@@ -71,7 +72,7 @@ class TestVersionBumps(unittest.TestCase):
 
 class TestV342Automation(unittest.TestCase):
     """Automation rules engine — when an event matches, run a script / notify."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -147,7 +148,7 @@ class TestV342Automation(unittest.TestCase):
 class TestV342FleetMgmt(unittest.TestCase):
     """octofleet-inspired batch: patch catalog, post-deploy verify, metering,
     heat map, after-hours, fleet query, signed-agent badge on Devices."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
@@ -204,7 +205,7 @@ class TestV342FleetMgmt(unittest.TestCase):
 class TestV342Deployment(unittest.TestCase):
     """Second octofleet batch: staged rollouts, maintenance change-windows,
     CIS-style compliance baselines, metering normalization/reclamation, PDF."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
     CSS = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
@@ -399,7 +400,7 @@ class TestV342Deployment(unittest.TestCase):
 
 class TestV342RBAC(unittest.TestCase):
     """Granular RBAC: custom roles with per-action permissions + device scope."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -537,7 +538,7 @@ class TestV342RBAC(unittest.TestCase):
 
 class TestV342RBACv2(unittest.TestCase):
     """RBAC v2: per-endpoint read scoping — no out-of-scope device data leaks."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
 
     def _api(self):
         import importlib, tempfile, json
@@ -634,7 +635,7 @@ class TestV342RBACv2(unittest.TestCase):
 class TestV342SettingsActions(unittest.TestCase):
     """Sign-password gate, install wizard, expanded fleet query, settings
     re-categorization, and tag/group-targeted software install + SCAP."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -921,7 +922,7 @@ class TestV342ForecastVolatile(unittest.TestCase):
 class TestV342NinjaParity(unittest.TestCase):
     """Linux-RMM Tier-A batch: OpenSCAP scans, third-party patching, on-call /
     escalation, and zero-dep trend charts."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
@@ -1052,7 +1053,7 @@ class TestV342NinjaParity(unittest.TestCase):
 class TestV342ReviewFixes(unittest.TestCase):
     """Review round: disable-signing password gate, SNMP live-threshold fix,
     cron-builder → Planning, anomaly-scan → Security."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -1137,7 +1138,7 @@ class TestV342UxFixes(unittest.TestCase):
 
 class TestV342BakeSign(unittest.TestCase):
     """Server-side bake & sign UI + key management."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
@@ -1225,7 +1226,7 @@ class TestV342BakeSign(unittest.TestCase):
 
 class TestV342ReleaseSigning(unittest.TestCase):
     """Cryptographic release signing — detached GPG signature over the agent."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
 
     def test_wiring(self):
@@ -1279,7 +1280,7 @@ class TestV342ReleaseSigning(unittest.TestCase):
 
 class TestV342AgentIntegrity(unittest.TestCase):
     """Agent integrity attestation — running hash vs canonical served hash."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
     APP = client_js()
 
@@ -1313,7 +1314,7 @@ class TestV342AgentIntegrity(unittest.TestCase):
 
 class TestV342Anomaly(unittest.TestCase):
     """Statistical resource anomaly detection (anomaly_stats.py)."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
 
     def test_route_and_module(self):
@@ -1344,7 +1345,7 @@ class TestV342Anomaly(unittest.TestCase):
 
 class TestV342Dependencies(unittest.TestCase):
     """Device dependency map — depends_on + downstream alert suppression."""
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     NET = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-network.js').read_text()
 
     def test_route_and_handlers(self):

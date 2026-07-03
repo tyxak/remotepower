@@ -725,6 +725,68 @@ for _tk_name in (
 ):
     globals()[_tk_name] = getattr(tickets_handlers_mod, _tk_name)
 del _tk_name
+
+# CMDB assets + encrypted credentials + vault + scoped credentials — same private-instance loader as tickets_handlers above.
+_cm_spec = _tk_ilu.spec_from_file_location(
+    'cmdb_handlers', Path(__file__).parent / 'cmdb_handlers.py')
+cmdb_handlers_mod = _tk_ilu.module_from_spec(_cm_spec)
+_cm_spec.loader.exec_module(cmdb_handlers_mod)
+cmdb_handlers_mod.bind(globals())
+for _cm_name in (
+        '_caller_scope_covers_credential', '_cmdb_clean_list', '_cmdb_get_request_key',
+        '_cmdb_get_vault_meta', '_cmdb_load', '_cmdb_record_default',
+        '_cmdb_require_unlocked', '_cmdb_strip_creds', '_cmdb_validate_doc_body',
+        '_cmdb_validate_doc_title', '_cmdb_validate_function', '_cmdb_validate_url',
+        'handle_cmdb_credentials_add', 'handle_cmdb_credentials_delete',
+        'handle_cmdb_credentials_list', 'handle_cmdb_credentials_reveal',
+        'handle_cmdb_credentials_update', 'handle_cmdb_doc_add', 'handle_cmdb_doc_delete',
+        'handle_cmdb_doc_update', 'handle_cmdb_get', 'handle_cmdb_list',
+        'handle_cmdb_server_functions', 'handle_cmdb_update', 'handle_cmdb_vault_change',
+        'handle_cmdb_vault_setup', 'handle_cmdb_vault_status', 'handle_cmdb_vault_unlock',
+        'handle_device_inherited_credentials', 'handle_scoped_credentials_add',
+        'handle_scoped_credentials_delete', 'handle_scoped_credentials_list',
+        'handle_scoped_credentials_reveal',
+):
+    globals()[_cm_name] = getattr(cmdb_handlers_mod, _cm_name)
+del _cm_name
+
+# backup orchestration (data-dir DR + per-device jobs + Proxmox cache) — same private-instance loader as tickets_handlers above.
+_bk_spec = _tk_ilu.spec_from_file_location(
+    'backups_handlers', Path(__file__).parent / 'backups_handlers.py')
+backups_handlers_mod = _tk_ilu.module_from_spec(_bk_spec)
+_bk_spec.loader.exec_module(backups_handlers_mod)
+backups_handlers_mod.bind(globals())
+for _bk_name in (
+        '_backup_include', '_backup_jobs_load', '_backup_passphrase',
+        '_maybe_run_scheduled_backup', '_refresh_proxmox_backup_cache', '_run_data_backup',
+        'handle_backup_clear', 'handle_backup_download', 'handle_backup_encrypt_existing',
+        'handle_backup_job_create', 'handle_backup_job_delete', 'handle_backup_job_run',
+        'handle_backup_job_update', 'handle_backup_jobs_list', 'handle_backup_restore',
+        'handle_backup_run', 'handle_backup_test_restore', 'handle_device_backups',
+        'handle_proxmox_backup_threshold', 'handle_proxmox_backups_get',
+        'process_backup_jobs',
+):
+    globals()[_bk_name] = getattr(backups_handlers_mod, _bk_name)
+del _bk_name
+
+# provisioning blueprints + health-gated rollouts + terraform exec — same private-instance loader as tickets_handlers above.
+_pv_spec = _tk_ilu.spec_from_file_location(
+    'provisioning_handlers', Path(__file__).parent / 'provisioning_handlers.py')
+provisioning_handlers_mod = _tk_ilu.module_from_spec(_pv_spec)
+_pv_spec.loader.exec_module(provisioning_handlers_mod)
+provisioning_handlers_mod.bind(globals())
+for _pv_name in (
+        '_blueprints_load', '_provisioning_enabled', '_rollout_advance',
+        '_rollout_dispatch_ring', '_rollout_log', '_rollout_public',
+        '_rollout_resolve_ring', '_rollout_ring_progress', '_rollout_script_body',
+        '_rollout_tick', '_rollout_tick_if_due', '_terraform_available', '_terraform_run',
+        'handle_blueprint_create', 'handle_blueprint_delete', 'handle_blueprint_render',
+        'handle_blueprint_run', 'handle_blueprint_update', 'handle_blueprints_list',
+        'handle_rollout_action', 'handle_rollout_delete', 'handle_rollouts_create',
+        'handle_rollouts_list',
+):
+    globals()[_pv_name] = getattr(provisioning_handlers_mod, _pv_name)
+del _pv_name
 from checks import (
     SERVER_CHECK_TYPES, AGENT_CHECK_TYPES, _host_checks, _custom_checks_for,
     _eval_custom_check, _custom_check_applies, _exposure_muted,
@@ -11276,144 +11338,20 @@ def handle_device_fail2ban_action(dev_id):
 MAX_BACKUP_CMD_LEN = 2048
 
 
-def _backup_jobs_load():
-    data = load(BACKUP_JOBS_FILE)
-    if not isinstance(data, dict) or 'jobs' not in data:
-        return {'jobs': []}
-    return data
+# ── backup orchestration (data-dir DR + per-device jobs + Proxmox cache) now lives in backups_handlers.py ─
+# (bound-module pattern — see tickets_handlers.py. Constants/routes stay HERE.)
 
 
-def handle_backup_jobs_list():
-    """GET /api/backup-jobs — all defined backup jobs."""
-    require_auth()
-    respond(200, {'ok': True, 'jobs': _backup_jobs_load()['jobs']})
 
 
-def handle_backup_job_create():
-    """POST /api/backup-jobs — define a backup job (admin)."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    name = _sanitize_str(body.get('name', ''), 80).strip()
-    dev_id = str(body.get('device_id', '')).strip()
-    command = str(body.get('command', '')).strip()
-    cron = _sanitize_str(body.get('cron', ''), 64).strip()
-    if not name or not command:
-        respond(400, {'error': 'name and command are required'})
-    if len(command) > MAX_BACKUP_CMD_LEN:
-        respond(400, {'error': f'command too long (max {MAX_BACKUP_CMD_LEN})'})
-    if not _validate_id(dev_id):
-        respond(400, {'error': 'valid device_id required'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    if cron and not _valid_cron(cron):
-        respond(400, {'error': 'invalid cron expression'})
-    data = _backup_jobs_load()
-    if len(data['jobs']) >= MAX_BACKUP_JOBS:
-        respond(400, {'error': f'job limit reached (max {MAX_BACKUP_JOBS})'})
-    job = {'id': secrets.token_urlsafe(8), 'name': name, 'device_id': dev_id,
-           'device_name': devices[dev_id].get('name', dev_id), 'command': command,
-           'cron': cron or None, 'enabled': True, 'created': int(time.time()),
-           'created_by': actor, 'last_run': 0, 'last_fired_minute': None}
-    data['jobs'].append(job)
-    save(BACKUP_JOBS_FILE, data)
-    audit_log(actor, 'backup_job_create', detail=f'job={job["id"]} device={dev_id}')
-    respond(200, {'ok': True, 'id': job['id']})
 
 
-def handle_backup_job_update(job_id):
-    """PUT /api/backup-jobs/{id} — edit a backup job (admin)."""
-    actor = require_admin_auth()
-    if method() != 'PUT':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    data = _backup_jobs_load()
-    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
-    if not job:
-        respond(404, {'error': 'job not found'})
-    if 'name' in body:
-        job['name'] = _sanitize_str(body['name'], 80).strip() or job['name']
-    if 'command' in body:
-        c = str(body['command']).strip()
-        if not c or len(c) > MAX_BACKUP_CMD_LEN:
-            respond(400, {'error': 'invalid command'})
-        job['command'] = c
-    if 'cron' in body:
-        cron = _sanitize_str(body['cron'], 64).strip()
-        if cron and not _valid_cron(cron):
-            respond(400, {'error': 'invalid cron expression'})
-        job['cron'] = cron or None
-    if 'enabled' in body:
-        job['enabled'] = bool(body['enabled'])
-    save(BACKUP_JOBS_FILE, data)
-    audit_log(actor, 'backup_job_update', detail=f'job={job_id}')
-    respond(200, {'ok': True})
 
 
-def handle_backup_job_delete(job_id):
-    """DELETE /api/backup-jobs/{id} (admin)."""
-    actor = require_admin_auth()
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'})
-    data = _backup_jobs_load()
-    n = len(data['jobs'])
-    data['jobs'] = [j for j in data['jobs'] if j['id'] != job_id]
-    if len(data['jobs']) == n:
-        respond(404, {'error': 'job not found'})
-    save(BACKUP_JOBS_FILE, data)
-    audit_log(actor, 'backup_job_delete', detail=f'job={job_id}')
-    respond(200, {'ok': True})
 
 
-def handle_backup_job_run(job_id):
-    """POST /api/backup-jobs/{id}/run — queue the backup command now."""
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    data = _backup_jobs_load()
-    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
-    if not job:
-        respond(404, {'error': 'job not found'})
-    actor = require_perm('command', [job['device_id']])
-    job['last_run'] = int(time.time())
-    save(BACKUP_JOBS_FILE, data)
-    audit_log(actor, 'backup_job_run', detail=f'job={job_id} device={job["device_id"]}')
-    _queue_command(job['device_id'], f'exec:{job["command"]}', actor)  # responds + exits
 
 
-def process_backup_jobs():
-    """Per-request sweep: fire cron-scheduled backup jobs whose minute matches."""
-    data = _backup_jobs_load()
-    now = int(time.time())
-    current_minute = now // 60
-    changed = False
-    cmds = None
-    for job in data['jobs']:
-        if not job.get('enabled') or not job.get('cron'):
-            continue
-        if job.get('last_fired_minute') == current_minute:
-            continue
-        if not _cron_matches(job['cron'], now):
-            continue
-        dev_id = job['device_id']
-        devices = load(DEVICES_FILE)
-        if dev_id in devices and not _device_quarantined(devices[dev_id]):
-            if cmds is None:
-                cmds = load(CMDS_FILE)
-            cmds.setdefault(dev_id, [])
-            queued = f'exec:{job["command"]}'
-            if queued not in cmds[dev_id]:
-                cmds[dev_id].append(queued)
-            log_command(f'backup({job["created_by"]})', dev_id,
-                        job.get('device_name', dev_id), f'backup:{job["name"]}')
-        job['last_fired_minute'] = current_minute
-        job['last_run'] = now
-        changed = True
-    if cmds is not None:
-        save(CMDS_FILE, cmds)
-    if changed:
-        save(BACKUP_JOBS_FILE, data)
 
 
 # ── v3.6.0: auto-patch policy ───────────────────────────────────────────────
@@ -11896,15 +11834,10 @@ def handle_ansible_playbook_run(pb_id):
 _BLUEPRINT_VAR_RE = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}')
 
 
-def _provisioning_enabled():
-    return bool((load(CONFIG_FILE) or {}).get('show_provisioning'))
+# ── provisioning blueprints + health-gated rollouts + terraform exec now lives in provisioning_handlers.py ─
+# (bound-module pattern — see tickets_handlers.py. Constants/routes stay HERE.)
 
 
-def _blueprints_load():
-    data = load(PROVISION_FILE)
-    if not isinstance(data, dict) or 'blueprints' not in data:
-        return {'blueprints': []}
-    return data
 
 
 def _bp_clean_folder(s):
@@ -11970,167 +11903,14 @@ def _request_base_url(environ):
     return f'{proto}://{host}'
 
 
-def handle_blueprints_list():
-    """GET /api/provisioning/blueprints — all blueprints (admin)."""
-    require_admin_auth()
-    if not _provisioning_enabled():
-        respond(200, {'ok': True, 'enabled': False, 'blueprints': [],
-                      'kinds': list(_BLUEPRINT_KINDS)})
-    bps = [_bp_public(b) for b in _blueprints_load()['blueprints']]
-    respond(200, {'ok': True, 'enabled': True, 'blueprints': bps,
-                  'kinds': list(_BLUEPRINT_KINDS),
-                  # v5.6.0: tells the UI whether terraform blueprints can be RUN
-                  'execute_enabled': _iac_execute_enabled(),
-                  'terraform_available': _terraform_available()})
 
 
-def handle_blueprint_create():
-    """POST /api/provisioning/blueprints — store a blueprint (admin)."""
-    actor = require_admin_auth()
-    if not _provisioning_enabled():
-        respond(403, {'error': 'Provisioning is disabled'})
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    name = _sanitize_str(body.get('name', ''), 120).strip()
-    kind = str(body.get('kind', '')).strip()
-    content = body.get('content', '')
-    if not name or kind not in _BLUEPRINT_KINDS or not isinstance(content, str) or not content.strip():
-        respond(400, {'error': 'name, a valid kind, and content are required'})
-    if len(content.encode('utf-8')) > MAX_BLUEPRINT_BYTES:
-        respond(400, {'error': f'blueprint too large (max {MAX_BLUEPRINT_BYTES} bytes)'})
-    data = _blueprints_load()
-    if len(data['blueprints']) >= MAX_BLUEPRINTS:
-        respond(400, {'error': f'blueprint limit reached (max {MAX_BLUEPRINTS})'})
-    bp = {'id': secrets.token_urlsafe(8), 'name': name, 'kind': kind,
-          'folder': _bp_clean_folder(body.get('folder', '')),
-          'content': content, 'variables': _bp_clean_vars(body.get('variables')),
-          'created': int(time.time()), 'updated': int(time.time()),
-          'created_by': actor}
-    data['blueprints'].append(bp)
-    save(PROVISION_FILE, data)
-    audit_log(actor, 'blueprint_create', detail=f'blueprint={bp["id"]} name={name} kind={kind}')
-    respond(200, {'ok': True, 'id': bp['id']})
 
 
-def handle_blueprint_update(bp_id):
-    """PUT /api/provisioning/blueprints/{id} (admin)."""
-    actor = require_admin_auth()
-    if not _provisioning_enabled():
-        respond(403, {'error': 'Provisioning is disabled'})
-    if method() != 'PUT':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    data = _blueprints_load()
-    bp = next((b for b in data['blueprints'] if b['id'] == bp_id), None)
-    if not bp:
-        respond(404, {'error': 'blueprint not found'})
-    if 'name' in body:
-        bp['name'] = _sanitize_str(body['name'], 120).strip() or bp['name']
-    if 'folder' in body:
-        bp['folder'] = _bp_clean_folder(body['folder'])
-    if 'kind' in body and body['kind'] in _BLUEPRINT_KINDS:
-        bp['kind'] = body['kind']
-    if 'content' in body:
-        c = body['content']
-        if not isinstance(c, str) or not c.strip():
-            respond(400, {'error': 'content must be non-empty'})
-        if len(c.encode('utf-8')) > MAX_BLUEPRINT_BYTES:
-            respond(400, {'error': 'blueprint too large'})
-        bp['content'] = c
-    if 'variables' in body:
-        bp['variables'] = _bp_clean_vars(body['variables'])
-    bp['updated'] = int(time.time())
-    save(PROVISION_FILE, data)
-    audit_log(actor, 'blueprint_update', detail=f'blueprint={bp_id}')
-    respond(200, {'ok': True})
 
 
-def handle_blueprint_delete(bp_id):
-    """DELETE /api/provisioning/blueprints/{id} (admin)."""
-    actor = require_admin_auth()
-    if not _provisioning_enabled():
-        respond(403, {'error': 'Provisioning is disabled'})
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'})
-    data = _blueprints_load()
-    if not any(b['id'] == bp_id for b in data['blueprints']):
-        respond(404, {'error': 'blueprint not found'})
-    # v5.6.0: don't orphan live infrastructure — a terraform blueprint with
-    # resources in its state must be destroyed (Run → Destroy) before deletion.
-    safe_id = re.sub(r'[^A-Za-z0-9_-]', '_', str(bp_id))[:64]
-    wd = IAC_RUNS_DIR / safe_id
-    state = wd / 'terraform.tfstate'
-    if state.exists():
-        try:
-            if (json.loads(state.read_text()) or {}).get('resources'):
-                respond(409, {'error': 'This blueprint has live Terraform state — '
-                                       'Run → Destroy first, then delete.'})
-        except (ValueError, OSError):
-            pass
-    # Remove under the store lock (concurrent status writes from another
-    # blueprint's run must not be clobbered — see handle_blueprint_run).
-    with _LockedUpdate(PROVISION_FILE) as d:
-        if isinstance(d, dict):
-            d['blueprints'] = [b for b in d.get('blueprints', [])
-                               if not (isinstance(b, dict) and b.get('id') == bp_id)]
-    # clean up the (now state-free) workdir + lockfile
-    import shutil
-    shutil.rmtree(wd, ignore_errors=True)
-    try:
-        (IAC_RUNS_DIR / (safe_id + '.lock')).unlink()
-    except OSError:
-        pass
-    audit_log(actor, 'blueprint_delete', detail=f'blueprint={bp_id}')
-    respond(200, {'ok': True})
 
 
-def handle_blueprint_render(bp_id):
-    """POST /api/provisioning/blueprints/{id}/render — substitute ${var}
-    placeholders with the supplied values (plus ${rp_*} macros) and return the
-    rendered text. Pure string substitution: no eval, no shell, no execution."""
-    require_admin_auth()
-    if not _provisioning_enabled():
-        respond(403, {'error': 'Provisioning is disabled'})
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    bp = next((b for b in _blueprints_load()['blueprints'] if b['id'] == bp_id), None)
-    if not bp:
-        respond(404, {'error': 'blueprint not found'})
-    fname = re.sub(r'[^A-Za-z0-9._-]', '_', bp.get('name', 'blueprint')) or 'blueprint'
-    # Terraform owns ${...} for its own HCL interpolation — never rewrite it.
-    # Terraform blueprints take their values natively as var.<name> at Run time;
-    # Render just returns the HCL verbatim so it copies cleanly.
-    if bp.get('kind') == 'terraform':
-        respond(200, {'ok': True, 'rendered': bp.get('content', ''),
-                      'missing': [], 'filename': fname})
-    supplied = body.get('vars') if isinstance(body.get('vars'), dict) else {}
-    base = _request_base_url(os.environ)
-    # Convenience macros, always available to every blueprint.
-    macros = {
-        'rp_server_url': base,
-        'rp_agent_install': f'curl -fsSL {base}/install | sudo sh -s -- --token <enrollment-token>',
-    }
-    values = dict(macros)
-    for v in bp.get('variables', []):
-        if isinstance(v, dict) and v.get('name'):
-            values[v['name']] = str(v.get('default', ''))
-    for k, val in supplied.items():
-        if isinstance(k, str) and _BLUEPRINT_VAR_RE.fullmatch('${' + k + '}'):
-            values[k] = '' if val is None else str(val)[:8192]
-    missing = []
-
-    def _sub(mo):
-        key = mo.group(1)
-        if key in values:
-            return values[key]
-        missing.append(key)
-        return mo.group(0)
-
-    rendered = _BLUEPRINT_VAR_RE.sub(_sub, bp.get('content', ''))
-    respond(200, {'ok': True, 'rendered': rendered,
-                  'missing': sorted(set(missing)), 'filename': fname})
 
 
 # ── v5.6.0: server-side terraform execution ─────────────────────────────────
@@ -12142,9 +11922,6 @@ def handle_blueprint_render(bp_id):
 # variables are passed as ENV only (never written to disk or the command line);
 # non-secret variables become an auto-loaded tfvars file.
 
-def _terraform_available():
-    import shutil
-    return shutil.which('terraform') is not None
 
 
 def _iac_execute_enabled():
@@ -12161,120 +11938,8 @@ _TF_ENV_PROTECTED = frozenset({
 })
 
 
-def _terraform_run(bp, op, supplied):
-    """Run `terraform <op>` for a blueprint in its persistent workdir. Returns
-    (output, returncode). Pure subprocess orchestration — no request access."""
-    import subprocess
-    workdir = IAC_RUNS_DIR / re.sub(r'[^A-Za-z0-9_-]', '_', str(bp['id']))[:64]
-    workdir.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(workdir, 0o700)   # may hold provider plugins + state
-    except OSError:
-        pass
-    (workdir / 'main.tf').write_text(bp.get('content', ''))
-    # declared variables: non-secret → on-disk tfvars; secret → env only.
-    tfvars, env = {}, dict(os.environ)
-    for v in bp.get('variables', []):
-        if not isinstance(v, dict) or not v.get('name'):
-            continue
-        name = v['name']
-        val = supplied.get(name, v.get('default', ''))
-        val = '' if val is None else str(val)
-        if v.get('secret'):
-            env['TF_VAR_' + name] = val
-            # Bare env too, for cloud-provider creds (AWS_ACCESS_KEY_ID …). Guard
-            # against a variable name that would clobber a critical process env
-            # var (PATH/HOME/LD_*/…) and break or subvert the terraform
-            # subprocess — TF_VAR_<name> still carries the value regardless.
-            if name.upper() not in _TF_ENV_PROTECTED and \
-               not name.upper().startswith(('LD_', 'DYLD_')):
-                env[name] = val
-        else:
-            tfvars[name] = val
-    (workdir / 'rp.auto.tfvars.json').write_text(json.dumps(tfvars))
-    env['TF_IN_AUTOMATION'] = '1'
-    env['TF_INPUT'] = '0'
-    parts, rc = [], 0
-
-    def _tf(args, timeout):
-        try:
-            p = subprocess.run(['terraform', *args], capture_output=True, text=True,  # nosec B603 B607
-                               timeout=timeout, cwd=str(workdir), env=env)
-            parts.append((p.stdout or '') + (('\n' + p.stderr) if p.stderr else ''))
-            return p.returncode
-        except subprocess.TimeoutExpired:
-            parts.append(f'\n[terraform {args[0]}] timed out')
-            return 124
-        except FileNotFoundError:
-            parts.append('terraform not found')
-            return 127
-
-    if not (workdir / '.terraform').exists():
-        rc = _tf(['init', '-input=false', '-no-color'], 300)
-    if rc == 0:
-        if op == 'plan':
-            rc = _tf(['plan', '-input=false', '-no-color'], 900)
-        elif op == 'apply':
-            rc = _tf(['apply', '-input=false', '-auto-approve', '-no-color'], 1800)
-        elif op == 'destroy':
-            rc = _tf(['destroy', '-input=false', '-auto-approve', '-no-color'], 1800)
-    return '\n'.join(parts)[-65536:], rc
 
 
-def handle_blueprint_run(bp_id):
-    """POST /api/provisioning/blueprints/{id}/run — execute a TERRAFORM blueprint
-    server-side. Body: {op: plan|apply|destroy, vars:{...}}. Admin-only; gated by
-    BOTH the provisioning toggle and iac_execute_enabled."""
-    actor = require_admin_auth()
-    if not _provisioning_enabled():
-        respond(403, {'error': 'Provisioning is disabled'})
-    if not _iac_execute_enabled():
-        respond(403, {'error': 'Server-side execution is disabled — enable it under Settings → Advanced'})
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    if not _terraform_available():
-        respond(400, {'error': 'terraform is not installed on the server'})
-    body = get_json_obj()
-    op = str(body.get('op', '')).strip()
-    if op not in ('plan', 'apply', 'destroy'):
-        respond(400, {'error': 'op must be plan, apply or destroy'})
-    bp = next((b for b in _blueprints_load()['blueprints'] if b['id'] == bp_id), None)
-    if not bp:
-        respond(404, {'error': 'blueprint not found'})
-    if bp.get('kind') != 'terraform':
-        respond(400, {'error': 'only terraform blueprints can be executed; the others are render-only'})
-    supplied = body.get('vars') if isinstance(body.get('vars'), dict) else {}
-    # Per-blueprint exclusive lock: terraform's own state lock guards apply, but
-    # serialise here too so two ops on one blueprint can't race init/plan.
-    import fcntl
-    IAC_RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    lock_path = IAC_RUNS_DIR / (re.sub(r'[^A-Za-z0-9_-]', '_', str(bp_id))[:64] + '.lock')
-    lf = open(lock_path, 'w')   # noqa: SIM115
-    try:
-        try:
-            fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (OSError, BlockingIOError):
-            respond(409, {'error': 'a run is already in progress for this blueprint'})
-        out, rc = _terraform_run(bp, op, supplied)
-    finally:
-        try:
-            fcntl.flock(lf, fcntl.LOCK_UN)
-            lf.close()
-        except Exception:
-            pass
-    # Status write under the store lock — two runs on DIFFERENT blueprints each
-    # hold only their own per-blueprint flock, so a bare load/mutate/save here
-    # could lose the other's status badge. (audit_log is self-locking → after.)
-    with _LockedUpdate(PROVISION_FILE) as data:
-        if isinstance(data, dict):
-            for b in data.setdefault('blueprints', []):
-                if isinstance(b, dict) and b.get('id') == bp_id:
-                    b['last_op'] = op
-                    b['last_run'] = int(time.time())
-                    b['last_rc'] = rc
-                    break
-    audit_log(actor, 'blueprint_run', detail=f'blueprint={bp_id} op={op} rc={rc}')
-    respond(200, {'ok': rc == 0, 'op': op, 'rc': rc, 'output': out})
 
 
 def handle_device_group(dev_id):
@@ -20885,76 +20550,8 @@ def handle_tls_import_p12():
                   'chain': len(chain or []), 'server_crt': str(crt_p), 'server_key': str(key_p)})
 
 
-def handle_backup_run():
-    """POST /api/self/backup-now — manually run a snapshot backup of DATA_DIR.
-
-    Mirrors what the scheduled job does (`_maybe_run_scheduled_backup`).
-    Writes a tarball into the configured backup_path (default
-    `/var/lib/remotepower/backups/`), records state, prunes by retention.
-    """
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'}); return
-    try:
-        result = _run_data_backup(triggered_by='manual')
-    except Exception as e:
-        respond(500, {'error': str(e)}); return
-    audit_log(actor, 'backup_run_manual',
-              detail=f"file={result.get('file','?')} bytes={result.get('bytes','?')}")
-    respond(200, result)
 
 
-def handle_backup_encrypt_existing():
-    """v5.0.0: POST /api/self/backup-encrypt — migrate existing PLAINTEXT backup
-    archives to encrypted (AES-256-GCM) using an admin-supplied passphrase.
-
-    The passphrase is used for THIS request only and is never persisted (same
-    philosophy as the env-var path — the thing the backup protects must not store
-    the key). Each `remotepower_data_*.tar.gz` is encrypted to `*.tar.gz.enc`,
-    the result is verified decryptable, then the plaintext is removed. For ONGOING
-    scheduled backups, set `RP_BACKUP_PASSPHRASE` so new snapshots are encrypted
-    at write time — this endpoint only converts the archives already on disk."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'}); return
-    if not backup_crypto.available():
-        respond(400, {'error': "the 'cryptography' library is not installed"}); return
-    passphrase = str(get_json_obj().get('passphrase') or '')
-    if len(passphrase) < 8:
-        respond(400, {'error': 'passphrase must be at least 8 characters'}); return
-    bcfg = (load(CONFIG_FILE) or {}).get('backup') or {}
-    bdir = Path(bcfg.get('path') or '/var/lib/remotepower/backups')
-    encrypted = failed = 0
-    import tempfile as _tf
-    for f in sorted(bdir.glob('remotepower_data_*.tar.gz')):
-        if f.name.endswith('.enc') or '.tmp.' in f.name:
-            continue
-        enc = f.with_suffix(f.suffix + '.enc')
-        try:
-            backup_crypto.encrypt_file(f, enc, passphrase)
-            # verify it round-trips before deleting the plaintext
-            with _tf.NamedTemporaryFile(dir=str(bdir), delete=False,
-                                        prefix='.verify_', suffix='.tmp') as _vt:
-                _vpath = Path(_vt.name)
-            try:
-                backup_crypto.decrypt_file(enc, _vpath, passphrase)
-            finally:
-                try:
-                    _vpath.unlink()
-                except OSError:
-                    pass
-            f.unlink()
-            encrypted += 1
-        except Exception:
-            failed += 1
-            try:
-                if enc.exists():
-                    enc.unlink()
-            except OSError:
-                pass
-    audit_log(actor, 'backup_encrypt_existing',
-              detail=f'encrypted={encrypted} failed={failed}')
-    respond(200, {'ok': True, 'encrypted': encrypted, 'failed': failed})
 
 
 def handle_storage_backend_status():
@@ -21129,275 +20726,14 @@ def handle_storage_backend_migrate():
     respond(status, result)
 
 
-def _backup_passphrase():
-    """v5.0.0 (#C2): the DR-backup encryption passphrase, sourced ONLY from the
-    `RP_BACKUP_PASSPHRASE` environment variable — never the config/data dir (the
-    backup contains the data dir, so storing the key there would be circular).
-    Empty/unset → backups stay plaintext (legacy behavior). v5.4.1 (C8): may also
-    be sourced from an external command via RP_BACKUP_PASSPHRASE_CMD (Vault/KMS)."""
-    return (_secret_from_env('RP_BACKUP_PASSPHRASE') or '').strip()
 
 
-def _run_data_backup(triggered_by='scheduled'):
-    """Snapshot DATA_DIR to a tarball; prune old ones; record state.
-
-    Excluded: the backup dir itself, .tmp.* in-flight writes, .gz archives
-    (already compressed; their inclusion would double size for no value).
-    """
-    cfg = load(CONFIG_FILE) or {}
-    bcfg = cfg.get('backup') or {}
-    enabled = bcfg.get('enabled', True)
-    if not enabled and triggered_by != 'manual':
-        return {'skipped': True, 'reason': 'backup disabled in config'}
-    base = bcfg.get('path') or '/var/lib/remotepower/backups'
-    keep = int(bcfg.get('retain_days') or 14)
-    p_base = Path(base)
-    p_base.mkdir(parents=True, exist_ok=True, mode=0o700)
-    import tarfile
-    ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-    out_path = p_base / f'remotepower_data_{ts}.tar.gz'
-    excluded_names = {'backups'}
-    # v3.12.0: under SQLite, never tar the live DB or its WAL sidecars — a
-    # mid-checkpoint copy can be torn/unrecoverable. We exclude them here and
-    # add a consistent online-backup snapshot below instead.
-    sqlite_mode = _storage_backend() == 'sqlite'
-    live_db_names = set()
-    if sqlite_mode:
-        _dbn = storage.db_path(DATA_DIR).name
-        live_db_names = {_dbn, _dbn + '-wal', _dbn + '-shm', _dbn + '-journal'}
-    def _filter(tarinfo):
-        # Skip the backups dir, in-flight tmp files, and already-compressed
-        # archive files (re-compressing wastes time).
-        bn = os.path.basename(tarinfo.name)
-        if bn in excluded_names: return None
-        if '.tmp.' in bn: return None
-        if bn.endswith('.gz'): return None
-        if bn in live_db_names: return None
-        # Drop owner/group info so restoring on a different host doesn't
-        # complain about missing uids
-        tarinfo.uid = 0; tarinfo.gid = 0
-        tarinfo.uname = ''; tarinfo.gname = ''
-        return tarinfo
-    _snap_tmp = None
-    with tarfile.open(str(out_path), 'w:gz') as tar:
-        tar.add(str(DATA_DIR), arcname='remotepower', filter=_filter)
-        if sqlite_mode:
-            # Consistent snapshot of the database into the tarball.
-            _snap_tmp = p_base / f'.snap_{ts}_{os.getpid()}.db'
-            try:
-                storage.snapshot(_snap_tmp, DATA_DIR)
-                tar.add(str(_snap_tmp),
-                        arcname=f'remotepower/{storage.db_path(DATA_DIR).name}')
-            finally:
-                try:
-                    if _snap_tmp and _snap_tmp.exists():
-                        _snap_tmp.unlink()
-                except OSError:
-                    pass
-    # v5.0.0 (#C2): encrypt at rest if RP_BACKUP_PASSPHRASE is set. The plaintext
-    # tarball is replaced by `*.tar.gz.enc` (AES-256-GCM, streamed) and unlinked,
-    # so nothing readable lingers in backup_path. The passphrase lives ONLY in the
-    # environment — never in the data dir the backup contains.
-    encrypted = False
-    passphrase = _backup_passphrase()
-    if passphrase:
-        if not backup_crypto.available():
-            # Don't silently ship plaintext when the operator asked for crypto.
-            try:
-                out_path.unlink()
-            except OSError:
-                pass
-            raise RuntimeError("RP_BACKUP_PASSPHRASE is set but the 'cryptography' "
-                               "library is missing — refusing to write a plaintext backup")
-        enc_path = out_path.with_suffix(out_path.suffix + '.enc')
-        backup_crypto.encrypt_file(out_path, enc_path, passphrase)
-        try:
-            out_path.unlink()
-        except OSError:
-            pass
-        out_path = enc_path
-        encrypted = True
-    # Prune — retain BOTH plaintext and encrypted archives (a fleet may have a mix
-    # across a passphrase change).
-    cutoff = time.time() - keep * 86400
-    pruned = 0
-    for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
-        for f in p_base.glob(pat):
-            try:
-                if f.stat().st_mtime < cutoff:
-                    f.unlink(); pruned += 1
-            except OSError:
-                pass
-    # v5.4.1 (G1): mirror the finished archive to an offsite destination — a path,
-    # typically an NFS/SMB/sshfs mount to OFF-host storage, so a host loss doesn't
-    # take the backups with it. Best-effort: a copy failure NEVER fails the backup;
-    # the result is recorded in state + graded on the posture page. The same
-    # retention prunes the offsite copies.
-    offsite = (bcfg.get('offsite_dir') or '').strip()
-    offsite_ok = None
-    if offsite:
-        try:
-            od = Path(offsite)
-            od.mkdir(parents=True, exist_ok=True, mode=0o700)
-            shutil.copy2(str(out_path), str(od / out_path.name))
-            for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
-                for f in od.glob(pat):
-                    try:
-                        if f.stat().st_mtime < cutoff:
-                            f.unlink()
-                    except OSError:
-                        pass
-            offsite_ok = True
-        except Exception as e:
-            offsite_ok = False
-            sys.stderr.write(f'[remotepower] offsite backup copy failed: {e}\n')
-    state = {
-        'last_run':    int(time.time()),
-        'last_file':   str(out_path),
-        'last_bytes':  out_path.stat().st_size,
-        'triggered_by': triggered_by,
-        'encrypted':   encrypted,
-        'pruned':      pruned,
-        'retain_days': keep,
-        'offsite_dir': offsite,
-        'offsite_ok':  offsite_ok,
-    }
-    save(DATA_DIR / 'self_backup_state.json', state)
-    return {'ok': True, 'file': str(out_path), 'encrypted': encrypted,
-            'bytes': out_path.stat().st_size, 'pruned': pruned,
-            'offsite_ok': offsite_ok}
 
 
-def handle_backup_test_restore():
-    """POST /api/backup/test-restore — v5.4.1 (G1): verify the LATEST backup is
-    actually restorable without touching the live data. Decrypts it (if encrypted +
-    RP_BACKUP_PASSPHRASE set), opens the gzip/tar stream, and confirms it carries
-    the expected ``remotepower/`` tree — exercising the whole decrypt→decompress→
-    parse path. Nothing is extracted to a real location. Admin only; audited."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    cfg = load(CONFIG_FILE) or {}
-    base = (cfg.get('backup') or {}).get('path') or '/var/lib/remotepower/backups'
-    p_base = Path(base)
-    files = [f for f in (list(p_base.glob('remotepower_data_*.tar.gz'))
-                         + list(p_base.glob('remotepower_data_*.tar.gz.enc'))) if f.exists()]
-    if not files:
-        respond(404, {'error': 'no backup archives found to test'})
-    latest = max(files, key=lambda f: f.stat().st_mtime)
-    import tarfile
-    import tempfile as _tf
-    scratch = Path(_tf.mkdtemp(prefix='rp_restore_test_'))
-    try:
-        src = latest
-        if str(latest).endswith('.enc'):
-            pp = _backup_passphrase()
-            if not pp:
-                respond(400, {'error': 'latest backup is encrypted but RP_BACKUP_PASSPHRASE is not set'})
-            if not backup_crypto.available():
-                respond(400, {'error': "encrypted backup but the 'cryptography' library is missing"})
-            dec = scratch / 'dec.tar.gz'
-            backup_crypto.decrypt_file(latest, dec, pp)
-            src = dec
-        members = 0
-        saw_root = False
-        with tarfile.open(str(src), 'r:gz') as tar:
-            for m in tar:
-                members += 1
-                top = m.name.split('/', 1)[0]
-                if top == 'remotepower':
-                    saw_root = True
-        ok = saw_root and members > 0
-        audit_log(actor, 'backup_test_restore', f'file={latest.name} members={members} ok={ok}')
-        respond(200, {'ok': ok, 'file': latest.name, 'members': members,
-                      'encrypted': str(latest).endswith('.enc'),
-                      'message': ('Backup is restorable (decrypted, decompressed, '
-                                  f'{members} entries, data tree present).' if ok
-                                  else 'Archive opened but the expected remotepower/ tree was missing.')})
-    except Exception as e:
-        audit_log(actor, 'backup_test_restore', f'file={latest.name} FAILED: {str(e)[:120]}')
-        respond(200, {'ok': False, 'file': latest.name, 'error': f'restore test failed: {str(e)[:200]}'})
-    finally:
-        shutil.rmtree(str(scratch), ignore_errors=True)
 
 
-def handle_backup_clear():
-    """DELETE /api/self/backup-state — delete all backup archives + reset state."""
-    actor = require_admin_auth()
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'}); return
-    cfg = load(CONFIG_FILE) or {}
-    bcfg = cfg.get('backup') or {}
-    base = bcfg.get('path') or '/var/lib/remotepower/backups'
-    p_base = Path(base)
-    deleted = 0
-    if p_base.exists():
-        # Both plaintext (*.tar.gz) AND encrypted (*.tar.gz.enc) archives — the
-        # glob `*.tar.gz` does NOT match `*.tar.gz.enc`, so clearing an
-        # encryption-armed instance used to leave every archive behind. Mirror
-        # the retention pruner, which iterates both patterns.
-        for pat in ('remotepower_data_*.tar.gz', 'remotepower_data_*.tar.gz.enc'):
-            for f in p_base.glob(pat):
-                try:
-                    f.unlink()
-                    deleted += 1
-                except OSError:
-                    pass
-    # v5.0.0: reset the backup state for BOTH backends. Under SQLite/Postgres it's
-    # a DB row (no file to unlink), so save({}) clears it; also drop the JSON-backend
-    # file if one is present. (The old code only unlink()ed, so a DB-backed instance
-    # kept its stale last_run.)
-    bs_file = DATA_DIR / 'self_backup_state.json'
-    if backend_exists(bs_file):
-        try: save(bs_file, {})
-        except Exception: pass
-    try:
-        if bs_file.exists(): bs_file.unlink()
-    except OSError: pass
-    audit_log(actor, 'backup_clear', detail=f'deleted={deleted} path={base}')
-    respond(200, {'ok': True, 'deleted': deleted})
 
 
-def _maybe_run_scheduled_backup():
-    """Daily scheduled backup. Called from the heartbeat hot path with
-    a poll-rate gate so the check itself is cheap.
-
-    Schedule: once per 24h, regardless of which agent's heartbeat triggers
-    the check. State stored in self_backup_state.json so a restart of the
-    server doesn't double-fire.
-    """
-    cfg = load(CONFIG_FILE) or {}
-    if not (cfg.get('backup') or {}).get('enabled', True):
-        return
-    state_file = DATA_DIR / 'self_backup_state.json'
-    # v5.0.0 CRITICAL: must use backend_exists, NOT Path.exists(). Under the
-    # SQLite/Postgres backend self_backup_state.json is a DB row, not a file, so
-    # Path.exists() is always False → the persisted last_run was never read → the
-    # 24h gate never tripped → EVERY heartbeat ran a full backup (runaway, filled
-    # the backup dir). The sibling _maybe_check_disk_space already does this right.
-    state = load(state_file) if backend_exists(state_file) else {}
-    last = state.get('last_run') or 0
-    if int(time.time()) - last < 86400:
-        return  # ran within the last 24h
-    # Use a lock-file so two simultaneous heartbeats don't both run it
-    sentinel = DATA_DIR / '.backup_in_progress'
-    if sentinel.exists():
-        # Stale lock recovery: if the sentinel is >1h old, assume the
-        # previous attempt died and clear it.
-        try:
-            if time.time() - sentinel.stat().st_mtime < 3600:
-                return
-            sentinel.unlink()
-        except OSError:
-            return
-    try:
-        sentinel.write_text(str(os.getpid()))
-        _run_data_backup(triggered_by='scheduled')
-    except Exception as e:
-        sys.stderr.write(f'[remotepower] scheduled backup failed: {e}\n')
-    finally:
-        try: sentinel.unlink()
-        except OSError: pass
 
 
 def _maybe_check_disk_space():
@@ -23363,55 +22699,6 @@ def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
     save(PROXMOX_SNAPSHOT_CACHE, cache)
 
 
-def _refresh_proxmox_backup_cache(pc: dict) -> None:
-    """v3.6.0: per-guest vzdump backup recency → PROXMOX_BACKUP_CACHE, so
-    _compute_attention() can flag guests with stale / missing backups without a
-    live Proxmox call. Opportunistic, like the snapshot cache. Covers BOTH
-    guest types in one pass (backups aren't typed), so it only needs to run once
-    per Virtualization page load."""
-    now = int(time.time())
-    # Names from both guest types (a backup archive only carries a vmid).
-    names = {}
-    nodes = set()
-    for gt in ('qemu', 'lxc'):
-        try:
-            for g in proxmox_client.list_guests(pc, gt):
-                if g.get('vmid'):
-                    names[int(g['vmid'])] = g.get('name', str(g['vmid']))
-                    if g.get('node'):
-                        nodes.add(g['node'])
-        except Exception:
-            pass
-    # Enumerate vzdump archives on every node a guest lives on (a cluster writes
-    # backups to per-node local storage), not just the configured node, so
-    # cross-node guests are not falsely flagged as having no backup. Node names
-    # are already validated by the client, and the newest-ctime merge below
-    # dedups any shared-storage archive seen from more than one node.
-    # All-or-nothing: if ANY node's backup listing fails (transient API error,
-    # member briefly unreachable), preserve the previous cache rather than
-    # rebuilding it from a partial set -- a partial rebuild would write
-    # age_days=None for guests on the failed node and fire false "no backup"
-    # alerts. Matches the pre-cluster single-node abort-on-error behaviour.
-    backups = []
-    for node in (nodes or {pc['node']}):
-        try:
-            backups.extend(proxmox_client.list_backups({**pc, 'node': node}))
-        except Exception:
-            return  # leave the previous cache intact on any node failure
-    newest = {}   # vmid -> newest ctime
-    for b in backups:
-        vid = b.get('vmid')
-        if not vid:
-            continue
-        newest[vid] = max(newest.get(vid, 0), b.get('ctime', 0))
-    guests = []
-    for vmid, name in sorted(names.items()):
-        ct = newest.get(vmid, 0)
-        age_days = int((now - ct) / 86400) if ct else None
-        guests.append({'vmid': vmid, 'name': name, 'age_days': age_days,
-                       'last_backup': ct or None})
-    save(PROXMOX_BACKUP_CACHE, {'updated_at': now, 'node': pc.get('node', ''),
-                                'guests': guests})
 
 
 def handle_proxmox_list(guest_type: str) -> None:
@@ -23666,50 +22953,8 @@ def handle_proxmox_snapshots_list() -> None:
     respond(200, {'snapshots': snaps})
 
 
-def handle_proxmox_backups_get() -> None:
-    """``GET /api/proxmox/backups`` — per-guest vzdump backup recency, plus the
-    adjustable staleness threshold. Live-refreshes the cache when Proxmox is
-    configured so the Backups page is always current; falls back to the last
-    cached snapshot on a transient API error."""
-    require_auth()
-    cfg = load(CONFIG_FILE)
-    warn_days = int(cfg.get('proxmox_backup_warn_days', 7))
-    pc = proxmox_client.config_from(cfg)
-    enabled = bool(pc['enabled'])
-    configured = enabled and proxmox_client.is_configured(pc)
-    if configured:
-        try:
-            _refresh_proxmox_backup_cache(pc)
-        except Exception:
-            pass
-    cache = load(PROXMOX_BACKUP_CACHE) if backend_exists(PROXMOX_BACKUP_CACHE) else {}
-    if not isinstance(cache, dict):
-        cache = {}
-    guests = cache.get('guests', [])
-    for g in guests:
-        age = g.get('age_days')
-        g['status'] = ('missing' if age is None
-                       else 'stale' if age > warn_days else 'ok')
-    respond(200, {'ok': True, 'enabled': enabled, 'configured': configured,
-                  'warn_days': warn_days, 'node': cache.get('node', ''),
-                  'updated_at': cache.get('updated_at', 0), 'guests': guests})
 
 
-def handle_proxmox_backup_threshold() -> None:
-    """``POST /api/proxmox/backups/threshold`` — set proxmox_backup_warn_days."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    try:
-        days = int((get_json_obj()).get('days'))
-    except (TypeError, ValueError):
-        respond(400, {'error': 'days must be an integer'})
-    if not (1 <= days <= 365):
-        respond(400, {'error': 'days must be between 1 and 365'})
-    with _LockedUpdate(CONFIG_FILE) as cfg:
-        cfg['proxmox_backup_warn_days'] = days
-    audit_log(actor, 'proxmox_backup_threshold', detail=f'days={days}')
-    respond(200, {'ok': True, 'warn_days': days})
 
 
 def handle_proxmox_snapshot_action() -> None:
@@ -27982,43 +27227,6 @@ def handle_device_helm(dev_id):
     respond(200, {'releases': rec.get('releases', []), 'ts': rec.get('ts')})
 
 
-def handle_device_backups(dev_id):
-    """GET /api/devices/<id>/backups — live freshness of this device's watched
-    backup paths. Joins backup_state.json (per-path ok/age, written on every
-    heartbeat that carries backup_status) with the backup_monitors config for
-    the label + threshold. Surfaces what previously only drove the
-    backup_stale webhook. Auth: require_auth (+ central per-device scope)."""
-    require_auth()
-    if method() != 'GET':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'Device not found'})
-    state = load(DATA_DIR / 'backup_state.json') or {}
-    monitors = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
-    mon_by_path = {m.get('path'): m for m in monitors if isinstance(m, dict)}
-    prefix = f'{dev_id}:'
-    items = []
-    for key, st in state.items():
-        if not key.startswith(prefix) or not isinstance(st, dict):
-            continue
-        path = key[len(prefix):]
-        mon = mon_by_path.get(path) or {}
-        items.append({
-            'path':          path,
-            'label':         mon.get('label') or path,
-            'ok':            bool(st.get('ok')),
-            'age_h':         st.get('age_h'),
-            'max_age_hours': float(mon.get('max_age_hours', 24)),
-            # v4.10.0: integrity-verification status (when verify is enabled)
-            'verify_enabled': bool(mon.get('verify_enabled')),
-            'verify_status':  st.get('verify_status', 'unknown'),
-            'verify_output':  st.get('verify_output', ''),
-            'verify_at':      st.get('verify_at', 0),
-            'verify_tool':    st.get('verify_tool', mon.get('tool', '')),
-        })
-    # Stale first, then by label, so the actionable rows are at the top.
-    items.sort(key=lambda x: (x['ok'], str(x['label']).lower()))
-    respond(200, {'backups': items})
 
 
 def handle_device_runbook(dev_id):
@@ -33605,18 +32813,6 @@ _BACKUP_EXCLUDE_NAMES = {'attention_cache.json', 'fleet_risk_cache.json'}
 _BACKUP_SNAPSHOT_DIR = 'restore-snapshots'
 
 
-def _backup_include(rel):
-    """True if a data-dir-relative path belongs in a backup. Skips transient
-    caches, lock/tmp artifacts, and the pre-restore snapshots themselves."""
-    parts = rel.replace('\\', '/').split('/')
-    if parts and parts[0] == _BACKUP_SNAPSHOT_DIR:
-        return False
-    base = parts[-1]
-    if base in _BACKUP_EXCLUDE_NAMES:
-        return False
-    if base.endswith('.lock') or base.endswith('.tmp') or '.tmp.' in base:
-        return False
-    return True
 
 
 def _write_data_dir_tar(tar):
@@ -33636,115 +32832,8 @@ def _write_data_dir_tar(tar):
                 pass
 
 
-def handle_backup_download():
-    """GET /api/backup/download — stream a gzip tarball of the whole data dir.
-    Admin only. This is the controller's disaster-recovery snapshot."""
-    actor = require_admin_auth()
-    import tarfile
-    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
-    fname = f'remotepower-backup-{stamp}.tar.gz'
-    audit_log(actor, 'backup_download', fname)
-    print("Status: 200 OK")
-    print("Content-Type: application/gzip")
-    print(f'Content-Disposition: attachment; filename="{fname}"')
-    print("Cache-Control: no-store")
-    print("X-Content-Type-Options: nosniff")
-    print()
-    sys.stdout.flush()
-    tar = tarfile.open(mode='w:gz', fileobj=sys.stdout.buffer)
-    try:
-        _write_data_dir_tar(tar)
-    finally:
-        tar.close()
-    sys.stdout.buffer.flush()
-    sys.exit(0)
 
 
-def handle_backup_restore():
-    """POST /api/backup/restore — restore the data dir from an uploaded gzip
-    tarball (as produced by /api/backup/download). Admin only. Takes a safety
-    snapshot of the CURRENT data dir first, then extracts with strict path
-    validation (no absolute paths, no '..', regular files/dirs only — symlinks,
-    devices and hardlinks are rejected)."""
-    actor = require_admin_auth()
-    import tarfile, io as _io
-    raw = get_body()
-    if not raw:
-        respond(400, {'error': 'empty body — POST the backup .tar.gz'})
-    # v5.0.0 (#C2): transparently decrypt an uploaded `*.tar.gz.enc`. The
-    # passphrase comes from the X-RP-Backup-Passphrase header (so an operator can
-    # restore on a fresh box) or falls back to RP_BACKUP_PASSPHRASE in the env.
-    if raw[:len(backup_crypto.MAGIC)] == backup_crypto.MAGIC:
-        pw = (_env('HTTP_X_RP_BACKUP_PASSPHRASE') or _backup_passphrase()).strip()
-        if not pw:
-            respond(400, {'error': 'encrypted backup — supply the passphrase via the '
-                                   'X-RP-Backup-Passphrase header or RP_BACKUP_PASSPHRASE env'})
-        if not backup_crypto.available():
-            respond(400, {'error': "the 'cryptography' library is required to decrypt this backup"})
-        import tempfile as _tf
-        with _tf.TemporaryDirectory() as _td:
-            _ep = Path(_td) / 'in.enc'
-            _dp = Path(_td) / 'out.tar.gz'
-            _ep.write_bytes(raw)
-            try:
-                backup_crypto.decrypt_file(_ep, _dp, pw)
-            except backup_crypto.BackupCryptoError as e:
-                respond(400, {'error': str(e)})
-            raw = _dp.read_bytes()
-    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
-    # 1) Safety snapshot of the current state before we overwrite anything.
-    try:
-        snap_dir = DATA_DIR / _BACKUP_SNAPSHOT_DIR
-        snap_dir.mkdir(parents=True, exist_ok=True)
-        snap_name = f'pre-restore-{stamp}.tar.gz'
-        with tarfile.open(str(snap_dir / snap_name), 'w:gz') as snap:
-            _write_data_dir_tar(snap)
-    except Exception as e:
-        respond(500, {'error': f'pre-restore snapshot failed (nothing changed): {e}'})
-    # 2) Open + validate the uploaded archive.
-    try:
-        tf = tarfile.open(fileobj=_io.BytesIO(raw), mode='r:gz')
-    except Exception as e:
-        respond(400, {'error': f'not a valid .tar.gz: {e}'})
-    base = os.path.realpath(str(DATA_DIR))
-    # v3.13.0: decompression-bomb guard — a 50 MB gzip can inflate to many GB.
-    # Cap the cumulative uncompressed size and member count before extracting so
-    # a crafted archive can't fill the data-dir filesystem.
-    _MAX_RESTORE_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB uncompressed
-    _MAX_RESTORE_MEMBERS = 50000
-    safe_members = []
-    total_bytes = 0
-    for m in tf.getmembers():
-        if not (m.isfile() or m.isdir()):
-            respond(400, {'error': f'archive contains a non-regular entry ({m.name}) — refused'})
-        name = m.name
-        if name.startswith('/') or '..' in name.replace('\\', '/').split('/'):
-            respond(400, {'error': f'unsafe path in archive: {name}'})
-        dest = os.path.realpath(os.path.join(base, name))
-        if dest != base and not dest.startswith(base + os.sep):
-            respond(400, {'error': f'path escapes data dir: {name}'})
-        total_bytes += int(getattr(m, 'size', 0) or 0)
-        if total_bytes > _MAX_RESTORE_BYTES or len(safe_members) > _MAX_RESTORE_MEMBERS:
-            respond(400, {'error': 'archive too large when decompressed — refused (possible zip bomb)'})
-        safe_members.append(m)
-    # 3) Extract.
-    restored = 0
-    for m in safe_members:
-        try:
-            tf.extract(m, path=base)
-            if m.isfile():
-                restored += 1
-        except Exception:
-            pass
-    tf.close()
-    # Storage backend may cache file handles / mtimes — drop them.
-    try:
-        _invalidate_backend_cache()
-    except Exception:
-        pass
-    audit_log(actor, 'backup_restore',
-              f'{restored} files restored (safety snapshot {snap_name})')
-    respond(200, {'ok': True, 'restored': restored, 'snapshot': snap_name})
 
 
 def handle_drift_overview():
@@ -36153,457 +35242,30 @@ _ROLLOUT_TICK_INTERVAL      = 20      # seconds between periodic advances
 _last_rollout_tick          = [0.0]
 
 
-def _rollout_script_body(script_id):
-    """Body of a saved script by id, or '' if not found."""
-    for s in (load(SCRIPTS_FILE) or {}).get('scripts', []):
-        if s.get('id') == script_id:
-            return s.get('body', '')
-    return ''
 
 
-def _rollout_log(roll, msg):
-    h = roll.setdefault('history', [])
-    h.append({'ts': int(time.time()), 'msg': str(msg)[:200]})
-    roll['history'] = h[-100:]
-    roll['updated_at'] = int(time.time())
 
 
-def _rollout_resolve_ring(selector, devices):
-    """Resolve a ring selector ({'type':'group'|'tag'|'ids', 'value'/'ids'}) to a
-    de-duped list of valid device ids that currently exist."""
-    t = (selector or {}).get('type')
-    out = []
-    if t == 'ids':
-        for d in (selector.get('ids') or [])[:500]:
-            d = str(d).strip()
-            if _validate_id(d) and d in devices:
-                out.append(d)
-    elif t == 'group':
-        g = str(selector.get('value') or '')
-        out = [did for did, dev in devices.items()
-               if isinstance(dev, dict) and (dev.get('group') or '') == g]
-    elif t == 'tag':
-        tag = str(selector.get('value') or '')
-        out = [did for did, dev in devices.items()
-               if isinstance(dev, dict) and tag in (dev.get('tags') or [])]
-    seen, uniq = set(), []
-    for d in out:
-        if d not in seen:
-            seen.add(d); uniq.append(d)
-    return uniq
 
 
-def _rollout_dispatch_ring(roll, idx, devices, cmds):
-    """Queue the rollout action onto ring `idx`'s devices. Mutates devices+cmds
-    in place (caller saves). Skips quarantined devices. Returns (dispatched_ids,
-    queued_command_string)."""
-    ring = roll['rings'][idx]
-    ids = _rollout_resolve_ring(ring.get('selector'), devices)
-    now = int(time.time())
-    if roll.get('action') == 'upgrade':
-        queued = f'exec:{_UPGRADE_CMD}'
-    elif roll.get('action') == 'self-update':
-        queued = 'update'   # the agent's own hash-verified self-update command
-    else:
-        queued = f'exec:{roll.get("_script_body", "")}'
-    dispatched = []
-    actor = roll.get('created_by', 'system')
-    for dev_id in ids:
-        dev = devices.get(dev_id)
-        if not dev or _device_quarantined(dev):
-            continue
-        cmds.setdefault(dev_id, [])
-        if queued not in cmds[dev_id]:
-            cmds[dev_id].append(queued)
-        if roll.get('action') == 'upgrade':
-            dev['upgrade_queued_at'] = now
-            dev['upgrade_pending_before'] = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
-            dev['force_package_scan'] = True
-        dispatched.append(dev_id)
-        log_command(actor, dev_id, dev.get('name', dev_id),
-                    f'rollout "{roll.get("name","")[:30]}" ring {ring.get("name","")[:20]}')
-    return dispatched, queued
 
 
-def _rollout_ring_progress(roll, rstate, devices, cmds):
-    """(ok, failed, total) for a dispatched ring. For upgrades, ok == verified
-    'ok' and failed == 'stalled' (real post-deploy verification). For scripts we
-    can only confirm delivery, so ok == command consumed from the queue."""
-    ids = rstate.get('dispatched_ids') or []
-    total = len(ids)
-    now = int(time.time())
-    ok = failed = 0
-    if roll.get('action') == 'upgrade':
-        for dev_id in ids:
-            st = _upgrade_verify_status(devices.get(dev_id) or {}, now)
-            if st == 'ok':
-                ok += 1
-            elif st == 'stalled':
-                failed += 1
-    else:
-        q = rstate.get('queued')
-        for dev_id in ids:
-            if q and q not in (cmds.get(dev_id) or []):
-                ok += 1
-    return ok, failed, total
 
 
-def _rollout_advance(roll, devices, cmds, pending=None):
-    """Advance a single running rollout by at most one transition. Returns True
-    if devices/cmds were mutated (a ring was dispatched). `pending` (a list)
-    collects ('event', payload) tuples to fire AFTER the ROLLOUTS_FILE lock —
-    fire_webhook takes its own lock, so it must never run inside this one."""
-    if pending is None:
-        pending = []
-    if roll.get('state') != 'running':
-        return False
-    idx = roll.get('current_ring', 0)
-    rings = roll.get('rings') or []
-    rs = roll.get('rings_state') or []
-    if idx >= len(rings) or idx >= len(rs):
-        roll['state'] = 'done'; return False
-    rstate = rs[idx]
-    now = int(time.time())
-    mutated = False
-    if rstate.get('state') == 'pending':
-        dispatched, queued = _rollout_dispatch_ring(roll, idx, devices, cmds)
-        rstate['dispatched_ids'] = dispatched
-        rstate['dispatched_at'] = now
-        rstate['total'] = len(dispatched)
-        rstate['queued'] = queued
-        rstate['state'] = 'verifying' if dispatched else 'done'
-        _rollout_log(roll, f'ring {idx+1}/{len(rings)} "{rings[idx].get("name")}" '
-                           f'dispatched to {len(dispatched)} device(s)')
-        if not dispatched:
-            rstate['done_at'] = now
-        mutated = True
-    if rstate.get('state') == 'verifying':
-        ok, failed, total = _rollout_ring_progress(roll, rstate, devices, cmds)
-        rstate['ok_count'] = ok
-        rstate['failed_count'] = failed
-        elapsed_min = (now - (rstate.get('dispatched_at') or now)) / 60.0
-        verify_min = roll.get('verify_minutes', _ROLLOUT_VERIFY_MIN_DEFAULT)
-        # v4.10.0: health gate — auto-halt if a dispatched host's health drops
-        # below the floor during the watch window. Baseline captured at dispatch
-        # so a pre-existing low score never false-trips; only a DROP halts.
-        hg = roll.get('health_gate') or {}
-        if hg.get('enabled'):
-            try:
-                floor = int(hg.get('threshold', 70))
-                hb = {d['device_id']: d['score'] for d in (_fleet_health().get('devices') or [])}
-                if not rstate.get('baseline_health'):
-                    rstate['baseline_health'] = {did: hb.get(did, 100)
-                                                 for did in (rstate.get('dispatched_ids') or [])}
-                base = rstate['baseline_health']
-                degraded = [did for did in (rstate.get('dispatched_ids') or [])
-                            if hb.get(did, 100) < floor and base.get(did, 100) >= floor]
-                if degraded:
-                    rstate['state'] = 'failed'
-                    rstate['health_failures'] = degraded
-                    roll['state'] = 'failed'
-                    names = ', '.join(devices.get(d, {}).get('name', d) for d in degraded[:3])
-                    _rollout_log(roll, f'ring {idx+1} HALTED — health dropped below {floor} '
-                                       f'on {len(degraded)} host(s) ({names}); rollout paused')
-                    pending.append(('rollout_halted', {
-                        'rollout_id': roll.get('id'), 'name': roll.get('name'),
-                        'ring': idx + 1, 'reason': 'health_gate', 'threshold': floor,
-                        'degraded': len(degraded),
-                    }))
-            except Exception:
-                pass
-        if rstate.get('state') == 'verifying' and (ok >= total or elapsed_min >= verify_min):
-            if total > 0 and ok == 0:
-                rstate['state'] = 'failed'
-                roll['state'] = 'failed'
-                _rollout_log(roll, f'ring {idx+1} FAILED — 0/{total} verified after '
-                                   f'{int(elapsed_min)}m; rollout halted')
-                pending.append(('rollout_halted', {
-                    'rollout_id': roll.get('id'), 'name': roll.get('name'),
-                    'ring': idx + 1, 'reason': 'no_verification',
-                }))
-            else:
-                rstate['state'] = 'done'
-                rstate['done_at'] = now
-                _rollout_log(roll, f'ring {idx+1} done — {ok}/{total} verified'
-                                   + (f', {failed} stalled' if failed else ''))
-                if idx + 1 >= len(rings):
-                    roll['state'] = 'done'
-                    _rollout_log(roll, 'rollout complete')
-                elif roll.get('auto_promote'):
-                    roll['current_ring'] = idx + 1
-                    _rollout_log(roll, f'auto-promoting to ring {idx+2}')
-                else:
-                    roll['state'] = 'paused'
-                    _rollout_log(roll, f'ring {idx+1} done — awaiting manual promote')
-    return mutated
 
 
-def _rollout_tick():
-    """Advance every running rollout. Cheap early-out when none are running."""
-    try:
-        rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
-    except Exception:
-        return
-    if not any(r.get('state') == 'running' for r in rolls):
-        return
-    pending = []   # v4.10.0: ('event', payload) tuples fired AFTER the lock
-    try:
-        with _LockedUpdate(ROLLOUTS_FILE) as store:
-            rolls = store.get('rollouts') or []
-            if not any(r.get('state') == 'running' for r in rolls):
-                return
-            devices = load(DEVICES_FILE)
-            cmds = load(CMDS_FILE)
-            dirty = False
-            for roll in rolls:
-                if roll.get('state') != 'running':
-                    continue
-                if roll.get('action') == 'script' and roll.get('script_id'):
-                    roll['_script_body'] = _rollout_script_body(roll['script_id'])
-                if _rollout_advance(roll, devices, cmds, pending):
-                    dirty = True
-                roll.pop('_script_body', None)
-            if dirty:
-                # issue #8: this is the ONE permitted bare DEVICES write — it runs
-                # while holding _LockedUpdate(ROLLOUTS_FILE), so it can't take a
-                # second _LockedUpdate(DEVICES_FILE) (nested BEGIN IMMEDIATE would
-                # throw under SQLite). Cross-lock atomicity here is a known residual;
-                # the guardrail test allowlists _rollout_tick.
-                save(DEVICES_FILE, devices)
-                save(CMDS_FILE, cmds)
-            store['rollouts'] = rolls
-    except Exception as e:
-        sys.stderr.write(f'[remotepower] rollout tick failed: {e}\n')
-    for _ev, _pl in pending:   # outside the ROLLOUTS_FILE lock — fire-safe
-        try:
-            fire_webhook(_ev, _pl)
-        except Exception:
-            pass
 
 
-def _rollout_tick_if_due():
-    now = time.time()
-    if now - _last_rollout_tick[0] < _ROLLOUT_TICK_INTERVAL:
-        return
-    _last_rollout_tick[0] = now
-    _rollout_tick()
 
 
-def _rollout_public(roll):
-    """Strip internal (underscore-prefixed) keys for the API."""
-    return {k: v for k, v in roll.items() if not k.startswith('_')}
 
 
-def handle_rollouts_list():
-    """GET /api/rollouts — list rollouts, advancing running ones first."""
-    require_auth()
-    _rollout_tick()
-    rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
-    rolls = sorted(rolls, key=lambda r: -(r.get('created_at') or 0))
-    respond(200, {'rollouts': [_rollout_public(r) for r in rolls]})
 
 
-def handle_rollouts_create():
-    """POST /api/rollouts — create a draft rollout."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_obj()
-    name = _sanitize_str(body.get('name', ''), 80)
-    if not name:
-        respond(400, {'error': 'name required'})
-    action = body.get('action') or 'upgrade'
-    if action not in ('upgrade', 'script', 'self-update'):
-        respond(400, {'error': 'action must be upgrade, script or self-update'})
-    script_id = ''
-    rollback_script_id = ''
-    if action == 'script':
-        script_id = _sanitize_str(body.get('script_id', ''), 64)
-        if not _rollout_script_body(script_id):
-            respond(400, {'error': 'script_id not found'})
-        # v5.0.0 (#F5): optional rollback script — a one-click "undo" that
-        # re-dispatches this script to exactly the devices the rollout reached.
-        rollback_script_id = _sanitize_str(body.get('rollback_script_id', ''), 64)
-        if rollback_script_id and not _rollout_script_body(rollback_script_id):
-            respond(400, {'error': 'rollback_script_id not found'})
-    raw_rings = body.get('rings') if isinstance(body.get('rings'), list) else []
-    rings = []
-    for r in raw_rings[:10]:
-        if not isinstance(r, dict):
-            continue
-        sel = r.get('selector') or {}
-        st = sel.get('type')
-        if st not in ('group', 'tag', 'ids'):
-            continue
-        clean = {'type': st}
-        if st == 'ids':
-            clean['ids'] = [str(x).strip() for x in (sel.get('ids') or [])[:500]
-                            if _validate_id(str(x).strip())]
-            if not clean['ids']:
-                continue
-        else:
-            clean['value'] = _sanitize_str(sel.get('value', ''), 128)
-            if not clean['value']:
-                continue
-        rings.append({'name': _sanitize_str(r.get('name', ''), 40) or f'ring {len(rings)+1}',
-                      'selector': clean})
-    if not rings:
-        respond(400, {'error': 'at least one ring with a valid selector required'})
-    try:
-        vmin = max(1, min(_ROLLOUT_VERIFY_MIN_MAX,
-                          int(body.get('verify_minutes') or _ROLLOUT_VERIFY_MIN_DEFAULT)))
-    except (TypeError, ValueError):
-        vmin = _ROLLOUT_VERIFY_MIN_DEFAULT
-    # v4.10.0: optional health gate — auto-halt the rollout if a dispatched host's
-    # health score drops below the floor during the verify window. Default OFF.
-    _hg_in = body.get('health_gate') or {}
-    try:
-        _hg_floor = max(1, min(100, int(_hg_in.get('threshold', 70))))
-    except (TypeError, ValueError):
-        _hg_floor = 70
-    health_gate = {'enabled': bool(_hg_in.get('enabled')), 'threshold': _hg_floor}
-    roll = {
-        'id': secrets.token_hex(8),
-        'name': name,
-        'action': action,
-        'script_id': script_id,
-        'rollback_script_id': rollback_script_id,
-        'rings': rings,
-        'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0,
-                         'ok_count': 0, 'failed_count': 0} for _ in rings],
-        'auto_promote': bool(body.get('auto_promote')),
-        'verify_minutes': vmin,
-        'health_gate': health_gate,
-        'state': 'draft',
-        'current_ring': 0,
-        'history': [],
-        'created_by': actor,
-        'created_at': int(time.time()),
-        'updated_at': int(time.time()),
-    }
-    _rollout_log(roll, f'created — {action}, {len(rings)} ring(s), '
-                       f'{"auto" if roll["auto_promote"] else "manual"} promote')
-    with _LockedUpdate(ROLLOUTS_FILE) as store:
-        rl = store.setdefault('rollouts', [])
-        if len(rl) >= 100:
-            respond(400, {'error': 'too many rollouts (max 100) — delete old ones'})
-        rl.append(roll)
-    audit_log(actor, 'rollout_create', f'id={roll["id"]} action={action} rings={len(rings)}')
-    respond(200, {'ok': True, 'rollout': _rollout_public(roll)})
 
 
-def handle_rollout_action(roll_id, action):
-    """POST /api/rollouts/<id>/<start|pause|resume|cancel|promote>."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    err_box = [None, None]   # [error, new_rollback_id]  (v5.0.0 #F5)
-    with _LockedUpdate(ROLLOUTS_FILE) as store:
-        rolls = store.get('rollouts') or []
-        roll = next((r for r in rolls if r.get('id') == roll_id), None)
-        if not roll:
-            respond(404, {'error': 'rollout not found'})
-        st = roll.get('state')
-        if action == 'start':
-            if st not in ('draft', 'paused'):
-                err_box[0] = f'cannot start from state {st}'
-            else:
-                roll['state'] = 'running'
-                _rollout_log(roll, 'started' if st == 'draft' else 'resumed')
-        elif action == 'pause':
-            if st != 'running':
-                err_box[0] = 'only a running rollout can be paused'
-            else:
-                roll['state'] = 'paused'; _rollout_log(roll, 'paused')
-        elif action == 'resume':
-            if st != 'paused':
-                err_box[0] = 'only a paused rollout can be resumed'
-            else:
-                roll['state'] = 'running'; _rollout_log(roll, 'resumed')
-        elif action == 'cancel':
-            if st in ('done', 'cancelled'):
-                err_box[0] = f'already {st}'
-            else:
-                roll['state'] = 'cancelled'; _rollout_log(roll, 'cancelled')
-        elif action == 'promote':
-            idx = roll.get('current_ring', 0)
-            rs = roll.get('rings_state') or []
-            if st not in ('running', 'paused'):
-                err_box[0] = f'cannot promote from {st}'
-            elif idx >= len(rs) or rs[idx].get('state') != 'done':
-                err_box[0] = 'current ring is not done yet'
-            elif idx + 1 >= len(roll.get('rings') or []):
-                err_box[0] = 'no further ring to promote to'
-            else:
-                roll['current_ring'] = idx + 1
-                roll['state'] = 'running'
-                _rollout_log(roll, f'manually promoted to ring {idx+2}')
-        elif action == 'rollback':
-            # v5.0.0 (#F5): create + start a NEW script rollout that runs the
-            # configured rollback script on exactly the devices this rollout
-            # already reached (the union of every ring's dispatched_ids).
-            if roll.get('action') != 'script' or not roll.get('rollback_script_id'):
-                err_box[0] = ('rollback needs a script rollout with a rollback '
-                              'script configured (agent-binary rollback requires a '
-                              'reinstall)')
-            else:
-                hit = []
-                for rs in (roll.get('rings_state') or []):
-                    for d in (rs.get('dispatched_ids') or []):
-                        if d not in hit:
-                            hit.append(d)
-                if not hit:
-                    err_box[0] = 'this rollout has not dispatched to any device yet'
-                else:
-                    rb = {
-                        'id': secrets.token_hex(8),
-                        'name': f'Rollback of {roll.get("name", roll_id)}'[:80],
-                        'action': 'script',
-                        'script_id': roll['rollback_script_id'],
-                        'rollback_script_id': '',
-                        'rings': [{'name': 'rollback', 'selector': {'type': 'ids', 'ids': hit}}],
-                        'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0,
-                                         'ok_count': 0, 'failed_count': 0}],
-                        'auto_promote': True,
-                        'verify_minutes': roll.get('verify_minutes', _ROLLOUT_VERIFY_MIN_DEFAULT),
-                        'health_gate': {'enabled': False, 'threshold': 70},
-                        'state': 'running',
-                        'current_ring': 0,
-                        'history': [],
-                        'rolled_back_from': roll_id,
-                        'created_by': actor,
-                        'created_at': int(time.time()),
-                        'updated_at': int(time.time()),
-                    }
-                    _rollout_log(rb, f'rollback of {roll_id} — {len(hit)} device(s)')
-                    rolls.append(rb)
-                    roll['rolled_back_by'] = rb['id']
-                    _rollout_log(roll, f'rolled back via {rb["id"]}')
-                    err_box[1] = rb['id']  # carry the new id out for the response
-        else:
-            err_box[0] = 'unknown action'
-        store['rollouts'] = rolls
-    if err_box[0]:
-        respond(400, {'error': err_box[0]})
-    audit_log(actor, f'rollout_{action}', f'id={roll_id}')
-    _rollout_tick()   # dispatch/advance immediately so the UI reflects it
-    rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
-    fresh = next((r for r in rolls if r.get('id') == roll_id), None)
-    respond(200, {'ok': True, 'rollout': _rollout_public(fresh) if fresh else None,
-                  'rollback_id': err_box[1]})
 
 
-def handle_rollout_delete(roll_id):
-    """DELETE /api/rollouts/<id>."""
-    actor = require_admin_auth()
-    with _LockedUpdate(ROLLOUTS_FILE) as store:
-        rolls = store.get('rollouts') or []
-        remaining = [r for r in rolls if r.get('id') != roll_id]
-        if len(remaining) == len(rolls):
-            respond(404, {'error': 'rollout not found'})
-        store['rollouts'] = remaining
-    audit_log(actor, 'rollout_delete', f'id={roll_id}')
-    respond(200, {'ok': True})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48308,140 +46970,12 @@ def handle_tasks_delete(task_id):
 # Asset metadata + encrypted credentials, scoped to enrolled devices only.
 # Vault crypto details live in cmdb_vault.py — this section is plumbing.
 
-def _cmdb_load() -> dict:
-    """Load the CMDB store from disk.
-
-    Returns:
-        Mapping of ``device_id`` to record dict. Returns an empty dict if
-        the store file is missing or corrupt — never raises.
-
-    Migration: v2.0 introduced the multi-doc ``docs`` field. Records that
-    were last written under v1.x have ``documentation`` (a single Markdown
-    string) but no ``docs`` list. We synthesise a single-doc list from
-    the legacy field so downstream code only has to handle the new shape.
-    The legacy field is left in place — old API consumers (scripts, the
-    ``documentation`` field in the existing ``handle_cmdb_update``) keep
-    working unchanged. On first save through the new endpoints the legacy
-    field is cleared.
-    """
-    store = load(CMDB_FILE)
-    if not isinstance(store, dict):
-        return {}
-    # Lightweight in-memory migration. Cheap to do on every load (just
-    # walks N records, conditional). Pushing it into save() would mean
-    # records weren't migrated until they were modified.
-    for rec in store.values():
-        if not isinstance(rec, dict):
-            continue
-        if 'docs' not in rec or not isinstance(rec.get('docs'), list):
-            legacy = rec.get('documentation') or ''
-            if isinstance(legacy, str) and legacy.strip():
-                rec['docs'] = [{
-                    'id':         'legacy',
-                    'title':      'Documentation',
-                    'body':       legacy,
-                    'created_by': rec.get('updated_by', ''),
-                    'created_at': rec.get('updated_at', 0),
-                    'updated_by': rec.get('updated_by', ''),
-                    'updated_at': rec.get('updated_at', 0),
-                }]
-            else:
-                rec['docs'] = []
-        # v5.0.0: synthesise the interfaces list from the legacy single
-        # primary_interface/nat_ip fields so older records show up in the new
-        # multi-NIC editor. Left non-destructive; the single fields stay in sync.
-        if 'interfaces' not in rec or not isinstance(rec.get('interfaces'), list):
-            _pi = (rec.get('primary_interface') or '').strip()
-            _nat = (rec.get('nat_ip') or '').strip()
-            rec['interfaces'] = ([{'iface': _pi, 'ip': '', 'nat_ip': _nat,
-                                   'primary': True}] if (_pi or _nat) else [])
-    return store
+# ── CMDB assets + encrypted credentials + vault + scoped credentials now lives in cmdb_handlers.py ─
+# (bound-module pattern — see tickets_handlers.py. Constants/routes stay HERE.)
 
 
-def _cmdb_record_default() -> dict:
-    """Build an empty CMDB record skeleton.
-
-    Every enrolled device implicitly has one of these — the storage layer
-    only persists records the user has actually edited, but the API
-    presents a uniform shape.
-
-    Returns:
-        Dict with all CMDB fields set to their type-appropriate empties
-        (empty string, empty list, default port, zero timestamp).
-    """
-    return {
-        'asset_id':        '',
-        'server_function': '',
-        'environment':     '',     # v3.12.0: test / dev / staging / prod
-        # v5.0.0: coarse operational ownership bucket (fixed allowlist — see
-        # CMDB_BUSINESS_FUNCTIONS). Drives reporting/grouping, not a free-text.
-        'business_function': '',
-        'vlan':            '',
-        # v5.0.0: network interfaces, each with an optional NAT/public IP child.
-        # `interfaces` is the source of truth (multi-NIC, multi-NAT); the legacy
-        # single primary_interface/nat_ip are kept in sync (derived from the
-        # primary row) for back-compat with older readers.
-        'interfaces':        [],   # [{iface, ip, nat_ip, primary}]
-        'primary_interface': '',
-        'nat_ip':            '',
-        'hypervisor_url':  '',
-        'ssh_port':        CMDB_DEFAULT_SSH_PORT,
-        'documentation':   '',     # v1.x: single Markdown blob (kept for back-compat)
-        'docs':            [],     # v2.0: multiple titled Markdown docs
-        'credentials':     [],
-        # v3.5.0: lifecycle expiry dates (ISO YYYY-MM-DD or ''). Drive the
-        # warranty/license/support attention items — same NA pattern as os_eol.
-        'warranty_expiry':          '',
-        'license_expiry':           '',
-        'support_contract_expiry':  '',
-        # v3.12.0: business lists — see _CMDB_LIST_SPECS.
-        'contracts':       [],
-        'contacts':        [],
-        'licenses':        [],
-        'updated_by':      '',
-        'updated_at':      0,
-    }
 
 
-def _cmdb_strip_creds(record: dict) -> dict:
-    """Redact credential ciphertext from a CMDB record.
-
-    Returns a shallow copy of ``record`` where each credential keeps only
-    its plaintext-safe metadata (``id``, ``label``, ``username``, ``note``,
-    timestamps). The ``nonce`` and ``ct`` fields — the AES-GCM ciphertext
-    — are never returned by list endpoints; only ``/reveal`` decrypts and
-    surfaces plaintext.
-
-    Args:
-        record: The full CMDB record as stored in ``cmdb.json``.
-
-    Returns:
-        A new dict safe to serialise to API clients.
-    """
-    out = dict(record)
-    safe = []
-    for c in record.get('credentials') or []:
-        # v3.7.0: rotation policy + a derived "due" flag (age since last
-        # set/rotate exceeds the per-credential policy).
-        rad = int(c.get('rotate_after_days', 0) or 0)
-        anchor = int(c.get('rotated_at') or c.get('created_at') or 0)
-        age_days = int((time.time() - anchor) / 86400) if anchor else None
-        rotation_due = bool(rad and age_days is not None and age_days > rad)
-        safe.append({
-            'id':            c.get('id', ''),
-            'label':         c.get('label', ''),
-            'username':      c.get('username', ''),
-            'note':          c.get('note', ''),
-            'created_by':    c.get('created_by', ''),
-            'created_at':    c.get('created_at', 0),
-            'updated_by':    c.get('updated_by', ''),
-            'updated_at':    c.get('updated_at', 0),
-            'rotate_after_days': rad,
-            'age_days':      age_days,
-            'rotation_due':  rotation_due,
-        })
-    out['credentials'] = safe
-    return out
 
 
 # v3.12.0: CMDB business lists — contracts, customer contacts, licenses.
@@ -48461,232 +46995,18 @@ _CMDB_LIST_SPECS = {
 }
 
 
-def _cmdb_clean_list(items, spec):
-    """Sanitize a CMDB business list (contracts/contacts/licenses) to its spec.
-    Returns (clean_list, error_or_None). Drops wholly-empty rows; caps length."""
-    import datetime as _dt
-    if not isinstance(items, list):
-        return [], 'must be a list'
-    out = []
-    for it in items[:MAX_CMDB_LIST_ITEMS]:
-        if not isinstance(it, dict):
-            continue
-        rec = {}
-        for f, rule in spec.items():
-            v = it.get(f)
-            if rule == 'date':
-                s = str(v or '').strip()
-                if s:
-                    try:
-                        _dt.date.fromisoformat(s)
-                    except ValueError:
-                        return [], f'{f} must be an ISO date (YYYY-MM-DD) or empty'
-                rec[f] = s
-            elif rule == 'int':
-                try:
-                    rec[f] = max(0, int(v)) if v not in (None, '') else 0
-                except (TypeError, ValueError):
-                    rec[f] = 0
-            elif rule == 'ip':       # v5.0.0: optional IPv4/IPv6 literal
-                s = str(v or '').strip()
-                if s:
-                    import ipaddress as _ipa
-                    try:
-                        s = str(_ipa.ip_address(s))
-                    except ValueError:
-                        return [], f'{f} must be a valid IP address or empty'
-                rec[f] = s
-            elif rule == 'iface':    # v5.0.0: NIC name
-                s = str(v or '').strip()
-                if s and not _CMDB_IFACE_RE.match(s):
-                    return [], f'{f} must be letters/digits/.:_- (max 32)'
-                rec[f] = s
-            elif rule == 'bool':
-                rec[f] = bool(v)
-            else:
-                rec[f] = _sanitize_str(str(v or ''), rule)
-        # Drop wholly-empty rows — but ignore bool flags (a lone primary=True
-        # with no iface/IP is still empty and shouldn't be kept).
-        if any(rec.get(f) for f in spec if spec[f] != 'bool'):
-            out.append(rec)
-    return out, None
 
 
-def _cmdb_validate_url(url) -> 'str | None':
-    """Validate a hypervisor URL.
-
-    Empty is acceptable (resets the field). Anything else must be
-    ``http://`` or ``https://``, ≤512 characters, and free of whitespace
-    or control characters. The latter is a defence against header /
-    response splitting if the URL is later interpolated unsafely.
-
-    Args:
-        url: Raw value from the request body. Strings, ints, ``None`` —
-            anything stringifiable.
-
-    Returns:
-        The cleaned URL string on success, an empty string for falsy
-        input, or ``None`` to indicate a validation failure (caller
-        should respond with 400).
-    """
-    if not url:
-        return ''
-    url = str(url).strip()
-    if len(url) > MAX_CMDB_URL_LEN:
-        return None
-    if not (url.startswith('http://') or url.startswith('https://')):
-        return None
-    # Reject control characters / whitespace inside the URL
-    if any(c.isspace() or ord(c) < 0x20 for c in url):
-        return None
-    return url
 
 
-def _cmdb_validate_function(fn) -> 'str | None':
-    """Validate a ``server_function`` value.
-
-    Free text but charset-restricted to ``[A-Za-z0-9 _\\-/]`` (max 64
-    chars) so the value is safe to splice into autocomplete dropdowns
-    without HTML escaping every code path.
-
-    Args:
-        fn: Raw value from the request body.
-
-    Returns:
-        Cleaned string on success, empty string for falsy input,
-        ``None`` to signal validation failure.
-    """
-    if fn is None:
-        return ''
-    fn = str(fn).strip()
-    if not fn:
-        return ''
-    if not _CMDB_FUNC_RE.match(fn):
-        return None
-    return fn
 
 
-def _cmdb_get_vault_meta() -> dict:
-    """Load vault metadata (KDF params + canary) from disk."""
-    return load(CMDB_VAULT_FILE)
 
 
-def _cmdb_get_request_key() -> bytes:
-    """Extract the derived vault key from the request headers.
-
-    Returns:
-        The 32-byte key as raw bytes.
-
-    Raises:
-        cmdb_vault.VaultLockedError: Header is missing.
-        cmdb_vault.VaultKeyError: Header is malformed (not hex, wrong length).
-    """
-    raw = _env('HTTP_X_RP_VAULT_KEY', '')
-    return cmdb_vault.parse_key_header(raw)
 
 
-def _cmdb_require_unlocked() -> 'tuple[bytes, dict]':
-    """Common preamble for credential operations.
-
-    Loads the vault metadata, extracts and verifies the request's vault
-    key, and returns both for the caller to use. Short-circuits via
-    :func:`respond` (which raises :class:`HTTPError`) on any failure.
-
-    Returns:
-        A ``(key, vault_meta)`` tuple. ``key`` is 32 bytes; ``vault_meta``
-        is the dict from ``cmdb_vault.json``.
-    """
-    meta = _cmdb_get_vault_meta()
-    if not cmdb_vault.is_configured(meta):
-        respond(409, {'error': 'vault not configured', 'code': 'vault_not_configured'})
-    try:
-        key = _cmdb_get_request_key()
-    except cmdb_vault.VaultLockedError:
-        respond(401, {'error': 'vault locked', 'code': 'vault_locked'})
-    except cmdb_vault.VaultKeyError as e:
-        respond(400, {'error': str(e)})
-    if not cmdb_vault.verify_key(key, meta):
-        respond(403, {'error': 'invalid vault key', 'code': 'vault_key_invalid'})
-    return key, meta
 
 
-def handle_cmdb_list() -> None:
-    """``GET /api/cmdb`` — list assets joined with their CMDB metadata.
-
-    Returns one entry per enrolled device (devices with no CMDB record
-    appear with empty fields). Supports two query-string filters:
-
-    ``?q=<text>``
-        Free-text search across name, hostname, OS, IP, MAC, group,
-        asset_id, server_function, hypervisor_url, tags, and the
-        documentation body. Case-insensitive substring match.
-
-    ``?function=<value>``
-        Exact match on ``server_function`` (case-insensitive).
-
-    Results are sorted by ``server_function`` then by ``name``;
-    unspecified-function assets sort last.
-
-    Side effects:
-        Calls :func:`respond` with status 200 and the asset list.
-    """
-    require_auth()
-    # v3.5.0 RBAC v2: a scoped role only sees CMDB metadata for in-scope assets
-    # (mirrors the device-list filter — the per-device GET is already guarded).
-    devices = _scope_filter_devices(load(DEVICES_FILE))
-    cmdb = _cmdb_load()
-    qs = urllib.parse.parse_qs(_env('QUERY_STRING', ''))
-    q = (qs.get('q', [''])[0] or '').strip().lower()
-    func_filter = (qs.get('function', [''])[0] or '').strip().lower()
-
-    out = []
-    for dev_id, dev in devices.items():
-        rec = cmdb.get(dev_id) or _cmdb_record_default()
-        rec_safe = _cmdb_strip_creds(rec)
-        entry = {
-            'device_id':       dev_id,
-            'name':            dev.get('name', dev_id),
-            'hostname':        dev.get('hostname', ''),
-            'os':              dev.get('os', ''),
-            'ip':              dev.get('ip', ''),
-            'mac':             dev.get('mac', ''),
-            'group':           dev.get('group', ''),
-            'tags':            dev.get('tags', []),
-            'asset_id':        rec_safe.get('asset_id', ''),
-            'server_function': rec_safe.get('server_function', ''),
-            'environment':     rec_safe.get('environment', ''),
-            'business_function': rec_safe.get('business_function', ''),     # v5.0.0
-            'vlan':            rec_safe.get('vlan', ''),
-            'interfaces':      rec_safe.get('interfaces', []),            # v5.0.0
-            'primary_interface': rec_safe.get('primary_interface', ''),   # v5.0.0
-            'nat_ip':          rec_safe.get('nat_ip', ''),                # v5.0.0
-            'decommissioned':  bool(dev.get('decommissioned')),          # v5.0.0
-            'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
-            'ssh_port':        rec_safe.get('ssh_port', CMDB_DEFAULT_SSH_PORT),
-            # True if EITHER the legacy single-blob `documentation` OR the v2.0
-            # multi-doc `docs` list has content. Checking only `documentation`
-            # missed every asset whose docs were written through the new
-            # multi-doc editor (which clears the legacy field on first save) →
-            # the green "has docs" dot never lit despite attached docs.
-            'has_documentation': bool(rec_safe.get('documentation')
-                                      or rec_safe.get('docs')),
-            'credential_count': len(rec_safe.get('credentials') or []),
-        }
-        if func_filter and entry['server_function'].lower() != func_filter:
-            continue
-        if q:
-            haystack = ' '.join([
-                entry['name'], entry['hostname'], entry['os'], entry['ip'],
-                entry['mac'], entry['group'], entry['asset_id'],
-                entry['server_function'], entry['vlan'], entry['hypervisor_url'],
-                ' '.join(entry['tags'] or []),
-                rec_safe.get('documentation', ''),
-            ]).lower()
-            if q not in haystack:
-                continue
-        out.append(entry)
-    out.sort(key=lambda x: (x.get('server_function') or '~', x['name'].lower()))
-    respond(200, out)
 
 
 def _trim_sysinfo(sysinfo) -> dict:
@@ -48750,852 +47070,40 @@ def _trim_sysinfo(sysinfo) -> dict:
     return out
 
 
-def handle_cmdb_get(dev_id: str) -> None:
-    """``GET /api/cmdb/{device_id}`` — full asset detail with credentials redacted.
-
-    Args:
-        dev_id: The enrolled device's ID.
-
-    Side effects:
-        Calls :func:`respond` with 200 + asset detail, or 404 if the
-        device is unknown.
-    """
-    require_auth()
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id) or _cmdb_record_default()
-    # Backfill ssh_port for records created before v1.10.0.
-    if 'ssh_port' not in rec:
-        rec['ssh_port'] = CMDB_DEFAULT_SSH_PORT
-    dev = devices[dev_id]
-    payload = _cmdb_strip_creds(rec)
-    payload['device_id'] = dev_id
-    payload['name']      = dev.get('name', dev_id)
-    payload['hostname']  = dev.get('hostname', '')
-    payload['os']        = dev.get('os', '')
-    payload['ip']        = dev.get('ip', '')
-    payload['mac']       = dev.get('mac', '')
-    payload['version']   = dev.get('version', '')
-    payload['group']     = dev.get('group', '')
-    payload['tags']      = dev.get('tags', [])
-    payload['decommissioned'] = bool(dev.get('decommissioned'))   # v5.0.0
-    # v1.10.0: send a trimmed sysinfo subset rather than the full dict.
-    # Saves ~50 KB on busy assets, cuts CMDB modal load time noticeably.
-    payload['sysinfo']   = _trim_sysinfo(dev.get('sysinfo', {}))
-    respond(200, payload)
 
 
-def handle_cmdb_update(dev_id: str) -> None:
-    """``PUT /api/cmdb/{device_id}`` — patch CMDB metadata for an asset.
-
-    Accepts a JSON body with any subset of the writable fields.
-    Unrecognised keys are silently ignored; recognised keys that fail
-    validation cause a 400. At least one recognised key is required.
-
-    Writable fields:
-        ``asset_id``: Free text, ``[A-Za-z0-9_-]{0,64}``.
-        ``server_function``: Free text, ``[A-Za-z0-9 _\\-/]{0,64}``.
-        ``vlan``: Free text, ``[A-Za-z0-9 _\\-/,()]{0,64}``. Lets the
-            operator capture single IDs, comma-lists for trunks, or
-            descriptive labels like "100 (DMZ)".
-        ``hypervisor_url``: ``http(s)://…``, max 512 chars.
-        ``ssh_port``: 1-65535. Empty/0 resets to default 22.
-        ``documentation``: Markdown, max 64 KB.
-        ``warranty_expiry`` / ``license_expiry`` /
-            ``support_contract_expiry``: ISO date (YYYY-MM-DD) or '' to
-            clear. Drive the lifecycle-expiry attention items (v3.5.0).
-
-    Args:
-        dev_id: The enrolled device's ID.
-    """
-    actor = require_write_role('edit CMDB')
-    if method() != 'PUT':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-
-    body = get_json_obj()
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id) or _cmdb_record_default()
-
-    changed = []
-
-    if 'asset_id' in body:
-        asset_id = str(body.get('asset_id') or '').strip()
-        if asset_id and not _SAFE_ID_RE.match(asset_id):
-            respond(400, {'error': 'asset_id must match [A-Za-z0-9_-]{1,64}'})
-        if len(asset_id) > MAX_CMDB_ASSET_ID:
-            respond(400, {'error': f'asset_id too long (max {MAX_CMDB_ASSET_ID})'})
-        rec['asset_id'] = asset_id
-        changed.append('asset_id')
-
-    if 'server_function' in body:
-        fn = _cmdb_validate_function(body.get('server_function'))
-        if fn is None:
-            respond(400, {'error': 'server_function: alphanumerics/spaces/_-/, max 64 chars'})
-        rec['server_function'] = fn
-        changed.append('server_function')
-
-    if 'environment' in body:
-        env = str(body.get('environment') or '').strip().lower()
-        if env not in CMDB_ENVIRONMENTS:
-            respond(400, {'error': f'environment must be one of: {", ".join(e for e in CMDB_ENVIRONMENTS if e)} (or empty)'})
-        rec['environment'] = env
-        changed.append('environment')
-
-    if 'business_function' in body:
-        bf = str(body.get('business_function') or '').strip()
-        if bf not in CMDB_BUSINESS_FUNCTIONS:
-            respond(400, {'error': f'business_function must be one of: {", ".join(b for b in CMDB_BUSINESS_FUNCTIONS if b)} (or empty)'})
-        rec['business_function'] = bf
-        changed.append('business_function')
-
-    if 'vlan' in body:
-        vlan = str(body.get('vlan') or '').strip()
-        if vlan and not _CMDB_VLAN_RE.match(vlan):
-            respond(400, {'error': 'vlan: alphanumerics/spaces/_-/,() , max 64 chars'})
-        rec['vlan'] = vlan
-        changed.append('vlan')
-
-    # v5.0.0: primary interface name (free-form NIC label).
-    if 'primary_interface' in body:
-        iface = str(body.get('primary_interface') or '').strip()
-        if iface and not _CMDB_IFACE_RE.match(iface):
-            respond(400, {'error': 'primary_interface: letters/digits/.:_- , max 32 chars'})
-        rec['primary_interface'] = iface
-        changed.append('primary_interface')
-
-    # v5.0.0: NAT / public IP attached to the primary interface as a child.
-    # Validated as a real IPv4/IPv6 literal (or '' to clear).
-    if 'nat_ip' in body:
-        nat = str(body.get('nat_ip') or '').strip()
-        if nat:
-            import ipaddress as _ipa
-            try:
-                nat = str(_ipa.ip_address(nat))
-            except ValueError:
-                respond(400, {'error': 'nat_ip must be a valid IPv4/IPv6 address or empty'})
-        rec['nat_ip'] = nat
-        changed.append('nat_ip')
-
-    if 'hypervisor_url' in body:
-        url = _cmdb_validate_url(body.get('hypervisor_url'))
-        if url is None:
-            respond(400, {'error': 'hypervisor_url must be http(s)://… and ≤512 chars'})
-        rec['hypervisor_url'] = url
-        changed.append('hypervisor_url')
-
-    if 'ssh_port' in body:
-        # Accept int, numeric string, or empty/None → reset to default.
-        raw = body.get('ssh_port')
-        if raw in (None, '', 0):
-            port = CMDB_DEFAULT_SSH_PORT
-        else:
-            try:
-                port = int(raw)
-            except (TypeError, ValueError):
-                respond(400, {'error': 'ssh_port must be an integer'})
-            if port < CMDB_SSH_PORT_MIN or port > CMDB_SSH_PORT_MAX:
-                respond(400, {'error': f'ssh_port must be between '
-                                       f'{CMDB_SSH_PORT_MIN} and {CMDB_SSH_PORT_MAX}'})
-        rec['ssh_port'] = port
-        changed.append('ssh_port')
-
-    if 'documentation' in body:
-        doc = body.get('documentation') or ''
-        if not isinstance(doc, str):
-            respond(400, {'error': 'documentation must be a string'})
-        if len(doc) > MAX_CMDB_DOC_LEN:
-            respond(400, {'error': f'documentation too large (max {MAX_CMDB_DOC_LEN} bytes)'})
-        rec['documentation'] = doc
-        changed.append('documentation')
-
-    # v3.5.0: lifecycle expiry dates. Each is an ISO YYYY-MM-DD string, or
-    # empty to clear. Validated for shape so the attention computation can
-    # parse them without try/excepting per device.
-    for _field in ('warranty_expiry', 'license_expiry', 'support_contract_expiry'):
-        if _field in body:
-            val = str(body.get(_field) or '').strip()
-            if val:
-                import datetime as _dt
-                try:
-                    _dt.date.fromisoformat(val)
-                except ValueError:
-                    respond(400, {'error': f'{_field} must be an ISO date (YYYY-MM-DD) or empty'})
-            rec[_field] = val
-            changed.append(_field)
-
-    # v3.12.0: business lists — contracts / contacts / licenses.
-    # v5.0.0: + interfaces (multi-NIC, multi-NAT). All validated by spec.
-    for _lf, _spec in _CMDB_LIST_SPECS.items():
-        if _lf in body:
-            _clean, _err = _cmdb_clean_list(body.get(_lf), _spec)
-            if _err:
-                respond(400, {'error': f'{_lf}: {_err}'})
-            rec[_lf] = _clean
-            changed.append(_lf)
-
-    # v5.0.0: normalise interfaces to exactly one primary and mirror it into the
-    # legacy single fields so older readers (cmdb table/list) keep working.
-    if 'interfaces' in body:
-        ifaces = rec.get('interfaces') or []
-        prim_idx = next((i for i, x in enumerate(ifaces) if x.get('primary')),
-                        0 if ifaces else None)
-        for i, x in enumerate(ifaces):
-            x['primary'] = (i == prim_idx)
-        prim = ifaces[prim_idx] if prim_idx is not None else {}
-        rec['primary_interface'] = prim.get('iface', '')
-        rec['nat_ip'] = prim.get('nat_ip', '')
-
-    if not changed:
-        respond(400, {'error': 'no recognised fields to update'})
-
-    rec['updated_by'] = actor
-    rec['updated_at'] = int(time.time())
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_update', detail=f'device={dev_id} fields={",".join(changed)}')
-    respond(200, {'ok': True, 'record': _cmdb_strip_creds(rec)})
 
 
-def _cmdb_validate_doc_title(raw) -> 'str | None':
-    """Validate a CMDB doc title.
-
-    Returns the cleaned title if valid, or None and emits a 400 response.
-    Titles are required (a doc with no title is unsearchable in the UI).
-    They have a sane upper bound — anything longer is probably a mistake.
-    """
-    if not isinstance(raw, str):
-        respond(400, {'error': 'doc title must be a string'})
-        return None
-    title = raw.strip()
-    if not title:
-        respond(400, {'error': 'doc title is required'})
-        return None
-    if len(title) > MAX_CMDB_DOC_TITLE:
-        respond(400, {'error': f'doc title too long (max {MAX_CMDB_DOC_TITLE})'})
-        return None
-    # Disallow control characters that could mangle UI rendering or
-    # produce confusable headings. Allow common Unicode (people might
-    # title things in their own language).
-    if any(ord(c) < 0x20 and c not in '\t' for c in title):
-        respond(400, {'error': 'doc title may not contain control characters'})
-        return None
-    return title
 
 
-def _cmdb_validate_doc_body(raw) -> 'str | None':
-    """Validate a CMDB doc body. Returns cleaned body or None with 400."""
-    if not isinstance(raw, str):
-        respond(400, {'error': 'doc body must be a string'})
-        return None
-    if len(raw) > MAX_CMDB_DOC_LEN:
-        respond(400, {'error': f'doc body too large (max {MAX_CMDB_DOC_LEN} bytes)'})
-        return None
-    return raw
 
 
-def handle_cmdb_doc_add(dev_id: str) -> None:
-    """``POST /api/cmdb/{device_id}/docs`` — attach a new doc to an asset.
-
-    Body: ``{"title": "...", "body": "..."}``. Body may be empty;
-    title may not. Returns the created doc with its server-assigned id.
-
-    The new doc is appended (not prepended) so existing UI ordering
-    is preserved.
-    """
-    actor = require_write_role('edit CMDB documentation')
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-
-    body = get_json_obj()
-    title = _cmdb_validate_doc_title(body.get('title'))
-    if title is None:
-        return
-    doc_body = _cmdb_validate_doc_body(body.get('body', ''))
-    if doc_body is None:
-        return
-
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id) or _cmdb_record_default()
-    docs = rec.get('docs') or []
-    if len(docs) >= MAX_CMDB_DOCS:
-        respond(400, {'error': f'too many docs (max {MAX_CMDB_DOCS} per asset)'})
-
-    now = int(time.time())
-    new_doc = {
-        'id':         secrets.token_hex(6),   # 12 hex chars, ~48 bits — plenty per asset
-        'title':      title,
-        'body':       doc_body,
-        'created_by': actor,
-        'created_at': now,
-        'updated_by': actor,
-        'updated_at': now,
-    }
-    docs.append(new_doc)
-    rec['docs'] = docs
-    rec['updated_by'] = actor
-    rec['updated_at'] = now
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_doc_add', f'device={dev_id} doc={new_doc["id"]} title="{title}"')
-    respond(200, new_doc)
 
 
-def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
-    """``PUT /api/cmdb/{device_id}/docs/{doc_id}`` — edit a doc.
-
-    Body: any subset of ``{"title", "body"}``. Updates ``updated_by``
-    and ``updated_at`` on the doc and on the parent record. Returns
-    the updated doc.
-
-    Migrated 'legacy' docs use a fixed id of ``legacy``; once edited,
-    they get a real random id assigned to make subsequent operations
-    less ambiguous and to clear the legacy flag.
-    """
-    actor = require_write_role('edit CMDB documentation')
-    if method() != 'PUT':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-
-    body = get_json_obj()
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id)
-    if rec is None:
-        respond(404, {'error': 'no CMDB record'})
-    docs = rec.get('docs') or []
-
-    idx = next((i for i, d in enumerate(docs) if d.get('id') == doc_id), -1)
-    if idx < 0:
-        respond(404, {'error': 'doc not found'})
-    doc = docs[idx]
-
-    changed = []
-    if 'title' in body:
-        title = _cmdb_validate_doc_title(body.get('title'))
-        if title is None:
-            return
-        doc['title'] = title
-        changed.append('title')
-    if 'body' in body:
-        new_body = _cmdb_validate_doc_body(body.get('body'))
-        if new_body is None:
-            return
-        doc['body'] = new_body
-        changed.append('body')
-
-    if not changed:
-        respond(400, {'error': 'no recognised fields'})
-
-    now = int(time.time())
-    doc['updated_by'] = actor
-    doc['updated_at'] = now
-    # Promote legacy doc to a real id once edited
-    if doc_id == 'legacy':
-        doc['id'] = secrets.token_hex(6)
-        # Clear the legacy field — it's been superseded by the docs list
-        rec['documentation'] = ''
-    docs[idx] = doc
-    rec['docs'] = docs
-    rec['updated_by'] = actor
-    rec['updated_at'] = now
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_doc_update',
-              f'device={dev_id} doc={doc["id"]} changed={",".join(changed)}')
-    respond(200, doc)
 
 
-def handle_cmdb_doc_delete(dev_id: str, doc_id: str) -> None:
-    """``DELETE /api/cmdb/{device_id}/docs/{doc_id}`` — remove a doc.
-
-    Hard delete. Audit log retains the title so you can tell after the
-    fact what got removed.
-    """
-    actor = require_write_role('edit CMDB documentation')
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device write scope
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id)
-    if rec is None:
-        respond(404, {'error': 'no CMDB record'})
-    docs = rec.get('docs') or []
-
-    idx = next((i for i, d in enumerate(docs) if d.get('id') == doc_id), -1)
-    if idx < 0:
-        respond(404, {'error': 'doc not found'})
-
-    removed = docs.pop(idx)
-    # If we just deleted the last doc that's a legacy migration, clear
-    # the back-compat field too. Otherwise it'd reappear on next load.
-    if doc_id == 'legacy' and not docs:
-        rec['documentation'] = ''
-
-    rec['docs'] = docs
-    rec['updated_by'] = actor
-    rec['updated_at'] = int(time.time())
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_doc_delete',
-              f'device={dev_id} doc={doc_id} title="{removed.get("title", "")}"')
-    respond(200, {'ok': True})
 
 
-def handle_cmdb_server_functions() -> None:
-    """``GET /api/cmdb/server-functions`` — distinct values for autocomplete.
-
-    Returns the set of ``server_function`` values currently in use across
-    all assets, sorted case-insensitively. The frontend feeds this into a
-    ``<datalist>`` for the asset-edit modal.
-    """
-    require_auth()
-    cmdb = _cmdb_load()
-    seen = set()
-    for rec in cmdb.values():
-        fn = (rec or {}).get('server_function') or ''
-        if fn:
-            seen.add(fn)
-    respond(200, sorted(seen, key=str.lower))
 
 
 # ── Vault management endpoints ─────────────────────────────────────────────────
 
-def handle_cmdb_vault_status() -> None:
-    """``GET /api/cmdb/vault/status`` — has the vault been initialised?
-
-    Returns a ``VaultStatus`` payload (see OpenAPI schema). Safe to call
-    pre-login from the frontend bootstrap path — though it currently
-    requires auth like every other endpoint.
-    """
-    require_auth()
-    meta = _cmdb_get_vault_meta()
-    respond(200, {
-        'configured': cmdb_vault.is_configured(meta),
-        'kdf':        meta.get('kdf') if meta else None,
-        'iterations': meta.get('iterations') if meta else None,
-        'created_at': meta.get('created_at') if meta else None,
-        'created_by': meta.get('created_by') if meta else None,
-    })
 
 
-def handle_cmdb_vault_setup() -> None:
-    """``POST /api/cmdb/vault/setup`` — initialise the credential vault.
-
-    One-shot operation: subsequent calls return 409 even from the same
-    admin. Use ``/cmdb/vault/change`` to rotate the passphrase later.
-
-    The derived AES-GCM key is returned in the response so the browser
-    doesn't need to re-unlock immediately after setup. The passphrase
-    itself is never persisted.
-
-    Audit:
-        Logs ``cmdb_vault_setup`` with the chosen KDF.
-
-    Raises:
-        HTTPError 400: Passphrase fails strength validation.
-        HTTPError 409: Vault already configured.
-        HTTPError 500: ``cryptography`` package not installed.
-    """
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    meta = _cmdb_get_vault_meta()
-    if cmdb_vault.is_configured(meta):
-        respond(409, {'error': 'vault already configured'})
-    body = get_json_obj()
-    passphrase = body.get('passphrase') or ''
-    try:
-        new_meta = cmdb_vault.setup_vault(passphrase)
-    except cmdb_vault.VaultNotInstalledError as e:
-        respond(500, {'error': str(e)})
-    except cmdb_vault.VaultKeyError as e:
-        respond(400, {'error': str(e)})
-    new_meta['created_at'] = int(time.time())
-    new_meta['created_by'] = actor
-    save(CMDB_VAULT_FILE, new_meta)
-    audit_log(actor, 'cmdb_vault_setup', detail=f'kdf={new_meta["kdf"]}')
-    # Derive and return the key so the caller doesn't have to re-unlock
-    key = cmdb_vault.derive_key_from_meta(passphrase, new_meta)
-    respond(200, {'ok': True, 'key': key.hex()})
 
 
-def handle_cmdb_vault_unlock() -> None:
-    """``POST /api/cmdb/vault/unlock`` — derive the vault key from a passphrase.
-
-    Any authenticated user can attempt to unlock; it's only the
-    *credential operations* that require admin role. This split lets
-    viewers see encrypted credential metadata (label, username) without
-    being able to decrypt the password.
-
-    Audit:
-        Logs ``cmdb_vault_unlock`` on success, ``cmdb_vault_unlock_failed``
-        on bad passphrase. Source IP recorded in both cases.
-    """
-    actor = require_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    meta = _cmdb_get_vault_meta()
-    if not cmdb_vault.is_configured(meta):
-        respond(409, {'error': 'vault not configured', 'code': 'vault_not_configured'})
-    body = get_json_obj()
-    passphrase = body.get('passphrase') or ''
-    try:
-        key = cmdb_vault.derive_key_from_meta(passphrase, meta)
-    except cmdb_vault.VaultNotInstalledError as e:
-        respond(500, {'error': str(e)})
-    except cmdb_vault.VaultKeyError as e:
-        respond(400, {'error': str(e)})
-    if not cmdb_vault.verify_key(key, meta):
-        audit_log(actor, 'cmdb_vault_unlock_failed', detail='bad passphrase',
-                  source_ip=_get_client_ip())
-        respond(403, {'error': 'invalid passphrase'})
-    audit_log(actor, 'cmdb_vault_unlock', source_ip=_get_client_ip())
-    respond(200, {'ok': True, 'key': key.hex()})
 
 
-def handle_cmdb_vault_change() -> None:
-    """``POST /api/cmdb/vault/change`` — rotate passphrase, re-encrypt credentials.
-
-    Walks every credential in the CMDB, decrypts under the old key, and
-    re-encrypts under the new key. The new vault metadata is written
-    first so a crash mid-rotation leaves the vault openable with the
-    old passphrase. Credentials that fail to decrypt during rotation
-    (corrupt entries) are dropped and logged as
-    ``cmdb_vault_change_drop`` for the admin to investigate.
-
-    Returns:
-        ``{'ok': True, 'key': <hex>, 'rotated': <int>}`` where ``rotated``
-        is the count of credentials successfully re-encrypted.
-    """
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    meta = _cmdb_get_vault_meta()
-    if not cmdb_vault.is_configured(meta):
-        respond(409, {'error': 'vault not configured'})
-    body = get_json_obj()
-    old_pw = body.get('old_passphrase') or ''
-    new_pw = body.get('new_passphrase') or ''
-
-    try:
-        old_key = cmdb_vault.derive_key_from_meta(old_pw, meta)
-    except cmdb_vault.VaultNotInstalledError as e:
-        respond(500, {'error': str(e)})
-    except cmdb_vault.VaultKeyError as e:
-        respond(400, {'error': str(e)})
-    if not cmdb_vault.verify_key(old_key, meta):
-        audit_log(actor, 'cmdb_vault_change_failed', detail='bad old passphrase',
-                  source_ip=_get_client_ip())
-        respond(403, {'error': 'invalid old passphrase'})
-
-    try:
-        new_meta = cmdb_vault.setup_vault(new_pw)
-    except cmdb_vault.VaultKeyError as e:
-        respond(400, {'error': str(e)})
-    new_key = cmdb_vault.derive_key_from_meta(new_pw, new_meta)
-
-    # Re-encrypt every credential in cmdb.json. We build the new file fully
-    # before persisting it so a crash mid-rotation can't corrupt the vault.
-    cmdb = _cmdb_load()
-    rotated = 0
-    for dev_id, rec in cmdb.items():
-        new_creds = []
-        for c in (rec.get('credentials') or []):
-            try:
-                pw_pt = cmdb_vault.decrypt(old_key,
-                                           {'nonce': c.get('nonce', ''), 'ct': c.get('ct', '')})
-            except cmdb_vault.VaultError:
-                # Corrupt entry — drop it but log so the admin notices
-                audit_log(actor, 'cmdb_vault_change_drop',
-                          detail=f'device={dev_id} cred={c.get("id","?")} reason=decrypt_failed')
-                continue
-            blob = cmdb_vault.encrypt(new_key, pw_pt)
-            new_c = dict(c)
-            new_c['nonce'] = blob['nonce']
-            new_c['ct']    = blob['ct']
-            new_creds.append(new_c)
-            rotated += 1
-        rec['credentials'] = new_creds
-
-    new_meta['created_at']   = meta.get('created_at') or int(time.time())
-    new_meta['created_by']   = meta.get('created_by') or actor
-    new_meta['rotated_at']   = int(time.time())
-    new_meta['rotated_by']   = actor
-
-    save(CMDB_VAULT_FILE, new_meta)
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_vault_change', detail=f'rotated_credentials={rotated}')
-    respond(200, {'ok': True, 'key': new_key.hex(), 'rotated': rotated})
 
 
 # ── Credentials CRUD (require admin + unlocked vault) ──────────────────────────
 
-def handle_cmdb_credentials_list(dev_id: str) -> None:
-    """``GET /api/cmdb/{device_id}/credentials`` — list credentials, metadata only.
-
-    Returns each credential with ``id``, ``label``, ``username``, ``note``,
-    and timestamps. The encrypted ciphertext is never included; callers
-    that need plaintext use the dedicated ``/reveal`` endpoint.
-
-    Args:
-        dev_id: The enrolled device's ID.
-    """
-    require_auth()
-    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id) or _cmdb_record_default()
-    safe = _cmdb_strip_creds(rec)
-    respond(200, {'credentials': safe.get('credentials') or []})
 
 
-def handle_cmdb_credentials_add(dev_id: str) -> None:
-    """``POST /api/cmdb/{device_id}/credentials`` — encrypt and store a credential.
-
-    Requires admin role and an unlocked vault (via the
-    ``X-RP-Vault-Key`` request header). The plaintext password is
-    AES-GCM-encrypted with a fresh nonce and stored alongside the
-    plaintext metadata.
-
-    Args:
-        dev_id: The enrolled device's ID.
-
-    Audit:
-        Logs ``cmdb_credential_add`` with the credential ID + label.
-
-    Raises:
-        HTTPError 400: Missing/empty label or password, or password too long.
-        HTTPError 401: Vault not unlocked (``code=vault_locked``).
-        HTTPError 403: Bad vault key.
-    """
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'device not found'})
-
-    key, _meta = _cmdb_require_unlocked()
-    body = get_json_obj()
-    label    = _sanitize_str(body.get('label', ''),    MAX_CMDB_LABEL,    allow_empty=False)
-    username = _sanitize_str(body.get('username', ''), MAX_CMDB_USERNAME, allow_empty=True) or ''
-    password = body.get('password', '')
-    note     = _sanitize_str(body.get('note', ''),     MAX_CMDB_CRED_NOTE, allow_empty=True) or ''
-
-    if not label:
-        respond(400, {'error': 'label required'})
-    if not isinstance(password, str):
-        respond(400, {'error': 'password must be a string'})
-    if len(password) > MAX_CMDB_PASSWORD:
-        respond(400, {'error': f'password too long (max {MAX_CMDB_PASSWORD})'})
-    if not password:
-        respond(400, {'error': 'password required'})
-
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id) or _cmdb_record_default()
-    creds = rec.get('credentials') or []
-    if len(creds) >= MAX_CMDB_CREDS:
-        respond(400, {'error': f'max {MAX_CMDB_CREDS} credentials per asset'})
-
-    try:
-        blob = cmdb_vault.encrypt(key, password)
-    except cmdb_vault.VaultError as e:
-        respond(500, {'error': f'encrypt failed: {e}'})
-
-    try:
-        rotate_after_days = int(body.get('rotate_after_days', 0) or 0)
-    except (TypeError, ValueError):
-        rotate_after_days = 0
-    if not (0 <= rotate_after_days <= 3650):
-        respond(400, {'error': 'rotate_after_days must be 0 (off) to 3650'})
-
-    now = int(time.time())
-    new_id = 'cred_' + secrets.token_hex(8)
-    creds.append({
-        'id':         new_id,
-        'label':      label,
-        'username':   username,
-        'note':       note,
-        'nonce':      blob['nonce'],
-        'ct':         blob['ct'],
-        'rotate_after_days': rotate_after_days,
-        'rotated_at': now,   # v3.7.0: anchor for rotation reminders
-        # v5.0.0 (#C3): mark a sensitive credential (root/IPMI/etc.) for
-        # break-glass — its reveal then requires a SECOND admin's approval.
-        'break_glass': bool(body.get('break_glass')),
-        'created_by': actor,
-        'created_at': now,
-        'updated_by': actor,
-        'updated_at': now,
-    })
-    rec['credentials'] = creds
-    rec['updated_by']  = actor
-    rec['updated_at']  = now
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_credential_add',
-              detail=f'device={dev_id} cred={new_id} label={label[:40]}')
-    respond(200, {'ok': True, 'id': new_id})
 
 
-def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
-    """``PUT /api/cmdb/{device_id}/credentials/{cred_id}`` — update a credential.
-
-    Sends only the fields you want to change. The vault key is required
-    only if the password is being changed; metadata-only edits skip
-    the unlock check. This lets viewers (in some configurations) update
-    their own labels without touching ciphertext.
-
-    Args:
-        dev_id: The enrolled device's ID.
-        cred_id: The credential's ``cred_<hex>`` identifier.
-    """
-    actor = require_admin_auth()
-    if method() != 'PUT':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    if not cred_id.startswith('cred_') or not _validate_id(cred_id[len('cred_'):]):
-        respond(404, {'error': 'credential not found'})
-
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id)
-    if not rec:
-        respond(404, {'error': 'credential not found'})
-    creds = rec.get('credentials') or []
-    idx = next((i for i, c in enumerate(creds) if c.get('id') == cred_id), -1)
-    if idx < 0:
-        respond(404, {'error': 'credential not found'})
-
-    body = get_json_obj()
-    cred = dict(creds[idx])
-    changed = []
-
-    if 'label' in body:
-        label = _sanitize_str(body.get('label', ''), MAX_CMDB_LABEL, allow_empty=False)
-        if not label:
-            respond(400, {'error': 'label cannot be empty'})
-        cred['label'] = label
-        changed.append('label')
-    if 'username' in body:
-        cred['username'] = _sanitize_str(body.get('username', ''),
-                                         MAX_CMDB_USERNAME, allow_empty=True) or ''
-        changed.append('username')
-    if 'note' in body:
-        cred['note'] = _sanitize_str(body.get('note', ''),
-                                     MAX_CMDB_CRED_NOTE, allow_empty=True) or ''
-        changed.append('note')
-    if 'password' in body:
-        password = body.get('password', '')
-        if not isinstance(password, str):
-            respond(400, {'error': 'password must be a string'})
-        if len(password) > MAX_CMDB_PASSWORD:
-            respond(400, {'error': f'password too long (max {MAX_CMDB_PASSWORD})'})
-        if not password:
-            respond(400, {'error': 'password cannot be empty'})
-        key, _meta = _cmdb_require_unlocked()
-        try:
-            blob = cmdb_vault.encrypt(key, password)
-        except cmdb_vault.VaultError as e:
-            respond(500, {'error': f'encrypt failed: {e}'})
-        cred['nonce'] = blob['nonce']
-        cred['ct']    = blob['ct']
-        cred['rotated_at'] = int(time.time())   # v3.7.0: a password change is a rotation
-        changed.append('password')
-    if 'rotate_after_days' in body:
-        try:
-            rad = int(body.get('rotate_after_days', 0) or 0)
-        except (TypeError, ValueError):
-            respond(400, {'error': 'rotate_after_days must be an integer'})
-        if not (0 <= rad <= 3650):
-            respond(400, {'error': 'rotate_after_days must be 0 (off) to 3650'})
-        cred['rotate_after_days'] = rad
-        changed.append('rotate_after_days')
-
-    if not changed:
-        respond(400, {'error': 'no recognised fields to update'})
-
-    cred['updated_by'] = actor
-    cred['updated_at'] = int(time.time())
-    creds[idx] = cred
-    rec['credentials'] = creds
-    rec['updated_by']  = actor
-    rec['updated_at']  = int(time.time())
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_credential_update',
-              detail=f'device={dev_id} cred={cred_id} fields={",".join(changed)}')
-    respond(200, {'ok': True})
 
 
-def handle_cmdb_credentials_delete(dev_id: str, cred_id: str) -> None:
-    """``DELETE /api/cmdb/{device_id}/credentials/{cred_id}`` — hard-delete.
-
-    The encrypted blob is removed from ``cmdb.json`` on save. The audit
-    log keeps the ``cmdb_credential_delete`` entry but the ciphertext
-    itself is gone — there's no trash can.
-
-    Args:
-        dev_id: The enrolled device's ID.
-        cred_id: The credential's ``cred_<hex>`` identifier.
-    """
-    actor = require_admin_auth()
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    if not cred_id.startswith('cred_') or not _validate_id(cred_id[len('cred_'):]):
-        respond(404, {'error': 'credential not found'})
-
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id)
-    if not rec:
-        respond(404, {'error': 'credential not found'})
-    creds = rec.get('credentials') or []
-    remaining = [c for c in creds if c.get('id') != cred_id]
-    if len(remaining) == len(creds):
-        respond(404, {'error': 'credential not found'})
-    rec['credentials'] = remaining
-    rec['updated_by']  = actor
-    rec['updated_at']  = int(time.time())
-    cmdb[dev_id] = rec
-    save(CMDB_FILE, cmdb)
-    audit_log(actor, 'cmdb_credential_delete',
-              detail=f'device={dev_id} cred={cred_id}')
-    respond(200, {'ok': True})
 
 
 # ─── v5.0.0 (#C3): break-glass two-person rule for sensitive credential reveals ──
@@ -49715,86 +47223,6 @@ def handle_breakglass_approve(req_id: str) -> None:
     respond(200, {'ok': True, 'request_id': req_id})
 
 
-def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
-    """``POST /api/cmdb/{device_id}/credentials/{cred_id}/reveal`` — return plaintext.
-
-    The audit-logged moment of truth. Decrypts the credential's
-    ciphertext using the vault key from the request header and returns
-    the plaintext. Every reveal is recorded with actor, source IP,
-    asset, and credential label so post-incident review can answer
-    "who looked at the IPMI password last Thursday".
-
-    Args:
-        dev_id: The enrolled device's ID.
-        cred_id: The credential's ``cred_<hex>`` identifier.
-
-    Audit:
-        ``cmdb_credential_reveal`` on success,
-        ``cmdb_credential_reveal_failed`` on decrypt failure.
-    """
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    if not cred_id.startswith('cred_') or not _validate_id(cred_id[len('cred_'):]):
-        respond(404, {'error': 'credential not found'})
-
-    key, _meta = _cmdb_require_unlocked()
-
-    cmdb = _cmdb_load()
-    rec = cmdb.get(dev_id)
-    if not rec:
-        respond(404, {'error': 'credential not found'})
-    cred = next((c for c in (rec.get('credentials') or []) if c.get('id') == cred_id), None)
-    if not cred:
-        respond(404, {'error': 'credential not found'})
-
-    # v5.0.0 (#C3): break-glass two-person rule. A flagged credential can only
-    # be revealed once a SECOND admin has approved a pending request. The first
-    # reveal opens the request (and notifies via webhook); the reveal that
-    # carries an approved, fresh, non-self request_id returns the plaintext.
-    bg_body = get_json_obj() if method() == 'POST' else {}  # coerce non-dict → {} (stdin reads once)
-    bg_req_id = str(bg_body.get('request_id', '')).strip()
-    if cred.get('break_glass'):
-        if not bg_req_id:
-            new_req = _breakglass_open(actor, dev_id, cred_id, cred.get('label', ''),
-                                       str(bg_body.get('reason', ''))[:200])
-            respond(202, {'break_glass': True, 'pending': True,
-                          'request_id': new_req,
-                          'message': 'Break-glass credential — a second admin must '
-                                     'approve before it is revealed.'})
-        ok, why = _breakglass_check(bg_req_id, dev_id, cred_id, actor)
-        if not ok:
-            respond(403, {'break_glass': True, 'error': why})
-
-    try:
-        plaintext = cmdb_vault.decrypt(key,
-                                       {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})
-    except cmdb_vault.VaultKeyError:
-        audit_log(actor, 'cmdb_credential_reveal_failed',
-                  detail=f'device={dev_id} cred={cred_id} reason=decrypt',
-                  source_ip=_get_client_ip())
-        respond(403, {'error': 'decryption failed — vault key may be stale'})
-    except cmdb_vault.VaultError as e:
-        respond(500, {'error': f'decrypt failed: {e}'})
-
-    if cred.get('break_glass'):
-        _breakglass_consume(bg_req_id)
-        audit_log(actor, 'cmdb_break_glass_reveal',
-                  detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
-                  source_ip=_get_client_ip())
-    audit_log(actor, 'cmdb_credential_reveal',
-              detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
-              source_ip=_get_client_ip())
-    respond(200, {
-        'ok':       True,
-        'id':       cred_id,
-        'label':    cred.get('label', ''),
-        'username': cred.get('username', ''),
-        'password': plaintext,
-        'note':     cred.get('note', ''),
-    })
 
 
 # ─── v4.10.0: site / group / tag-scoped credentials ─────────────────────────
@@ -49845,163 +47273,16 @@ def _scoped_cred_applies(c: dict, dev: dict) -> bool:
     return False
 
 
-def _caller_scope_covers_credential(scope_type: str, scope_value: str) -> bool:
-    """v4.10.0: does the caller's RBAC scope cover a scoped credential? Admins and
-    all-scope roles → True. A scoped operator covers a credential only when its
-    scope_type maps to the operator's RBAC scope type AND the value is in scope —
-    so a sites-scoped tech can reveal that site's credentials, but not another
-    site's, and not a group/tag credential. Used to relax list/reveal/inherited
-    from admin-only to admin-or-scope-covered (create/delete stay admin-only)."""
-    caller = _caller_scope()
-    if caller is None:                              # admin / all-scope
-        return True
-    rbac_type = {'site': 'sites', 'group': 'groups', 'tag': 'tags'}.get(scope_type)
-    if not rbac_type or caller.get('type') != rbac_type:
-        return False
-    return scope_value in (caller.get('values') or [])
 
 
-def handle_scoped_credentials_list() -> None:
-    """GET /api/scoped-credentials — metadata for every scope-scoped credential
-    the caller can see, plus the count of devices each applies to. No ciphertext.
-    Admins see all; a scoped operator sees only credentials within its scope."""
-    require_auth()
-    creds = _scoped_creds_load()['creds']
-    devices = load(DEVICES_FILE) or {}
-    out = []
-    for c in creds:
-        if not isinstance(c, dict):
-            continue
-        if not _caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value')):
-            continue
-        m = _scoped_cred_meta(c)
-        m['applies_to'] = sum(1 for d in devices.values()
-                              if isinstance(d, dict) and _scoped_cred_applies(c, d))
-        out.append(m)
-    respond(200, {'ok': True, 'credentials': out})
 
 
-def handle_scoped_credentials_add() -> None:
-    """POST /api/scoped-credentials — encrypt + store a scope-scoped credential.
-    Admin + unlocked vault (X-RP-Vault-Key)."""
-    actor = require_admin_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    key, _meta = _cmdb_require_unlocked()
-    body = get_json_obj()
-    scope_type  = str(body.get('scope_type', '')).strip().lower()
-    scope_value = _sanitize_str(body.get('scope_value', ''), 128, allow_empty=False)
-    label    = _sanitize_str(body.get('label', ''),    MAX_CMDB_LABEL,    allow_empty=False)
-    username = _sanitize_str(body.get('username', ''), MAX_CMDB_USERNAME, allow_empty=True) or ''
-    password = body.get('password', '')
-    note     = _sanitize_str(body.get('note', ''),     MAX_CMDB_CRED_NOTE, allow_empty=True) or ''
-    if scope_type not in _SCOPED_CRED_SCOPES:
-        respond(400, {'error': 'scope_type must be site, group or tag'})
-    if not scope_value:
-        respond(400, {'error': 'scope_value required'})
-    if not label:
-        respond(400, {'error': 'label required'})
-    if not isinstance(password, str) or not password:
-        respond(400, {'error': 'password required'})
-    if len(password) > MAX_CMDB_PASSWORD:
-        respond(400, {'error': f'password too long (max {MAX_CMDB_PASSWORD})'})
-    store = _scoped_creds_load()
-    if len(store['creds']) >= MAX_SCOPED_CREDS:
-        respond(400, {'error': f'max {MAX_SCOPED_CREDS} scoped credentials'})
-    try:
-        blob = cmdb_vault.encrypt(key, password)
-    except cmdb_vault.VaultError as e:
-        respond(500, {'error': f'encrypt failed: {e}'})
-    now = int(time.time())
-    new_id = 'scred_' + secrets.token_hex(8)
-    store['creds'].append({
-        'id': new_id, 'scope_type': scope_type, 'scope_value': scope_value,
-        'label': label, 'username': username, 'note': note,
-        'nonce': blob['nonce'], 'ct': blob['ct'],
-        'created_by': actor, 'created_at': now,
-    })
-    save(SCOPED_VAULT_FILE, store)
-    audit_log(actor, 'scoped_credential_add',
-              detail=f'{scope_type}={scope_value} cred={new_id} label={label[:40]}')
-    respond(200, {'ok': True, 'id': new_id})
 
 
-def handle_scoped_credentials_delete(cred_id: str) -> None:
-    """DELETE /api/scoped-credentials/{id} — remove a scope-scoped credential."""
-    actor = require_admin_auth()
-    if method() != 'DELETE':
-        respond(405, {'error': 'Method not allowed'})
-    if not cred_id.startswith('scred_') or not _validate_id(cred_id[len('scred_'):]):
-        respond(404, {'error': 'credential not found'})
-    store = _scoped_creds_load()
-    before = len(store['creds'])
-    store['creds'] = [c for c in store['creds'] if c.get('id') != cred_id]
-    if len(store['creds']) == before:
-        respond(404, {'error': 'credential not found'})
-    save(SCOPED_VAULT_FILE, store)
-    audit_log(actor, 'scoped_credential_delete', detail=f'cred={cred_id}')
-    respond(200, {'ok': True})
 
 
-def handle_scoped_credentials_reveal(cred_id: str) -> None:
-    """POST /api/scoped-credentials/{id}/reveal — decrypt + return plaintext.
-    Admin OR a scoped operator whose RBAC scope covers the credential, plus the
-    vault key; every reveal is audit-logged."""
-    actor = require_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    # v5.0.1 (SECURITY): revealing a credential is privileged. Read-only roles
-    # (viewer/mcp/auditor) resolve to an EMPTY permission set + scope 'all', so
-    # the scope-cover check below would otherwise pass — a viewer holding the
-    # vault key could reveal any scoped credential. Require admin OR a role with
-    # at least one action permission (a scoped operator). Permission-based, not a
-    # role-string denylist (per the denylist-role bug class).
-    _su, _srole = verify_token(get_token_from_request())
-    _srr = _resolve_role(_srole)
-    if not _srr.get('admin') and not _srr.get('permissions'):
-        respond(403, {'error': 'your role cannot reveal credentials'})
-    if not cred_id.startswith('scred_') or not _validate_id(cred_id[len('scred_'):]):
-        respond(404, {'error': 'credential not found'})
-    key, _meta = _cmdb_require_unlocked()
-    cred = next((c for c in _scoped_creds_load()['creds'] if c.get('id') == cred_id), None)
-    if not cred:
-        respond(404, {'error': 'credential not found'})
-    if not _caller_scope_covers_credential(cred.get('scope_type'), cred.get('scope_value')):
-        respond(403, {'error': 'this credential is outside your role scope'})
-    try:
-        plaintext = cmdb_vault.decrypt(key, {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})
-    except cmdb_vault.VaultKeyError:
-        audit_log(actor, 'scoped_credential_reveal_failed',
-                  detail=f'cred={cred_id} reason=decrypt', source_ip=_get_client_ip())
-        respond(403, {'error': 'decryption failed — vault key may be stale'})
-    except cmdb_vault.VaultError as e:
-        respond(500, {'error': f'decrypt failed: {e}'})
-    audit_log(actor, 'scoped_credential_reveal',
-              detail=(f'cred={cred_id} {cred.get("scope_type")}={cred.get("scope_value")} '
-                      f'label={cred.get("label","")[:40]}'),
-              source_ip=_get_client_ip())
-    respond(200, {'ok': True, 'id': cred_id, 'label': cred.get('label', ''),
-                  'username': cred.get('username', ''), 'password': plaintext,
-                  'note': cred.get('note', '')})
 
 
-def handle_device_inherited_credentials(dev_id: str) -> None:
-    """GET /api/cmdb/{device_id}/inherited-credentials — the scope-scoped
-    credentials that apply to this device by its site/group/tags. Metadata only;
-    reveal goes through /api/scoped-credentials/{id}/reveal. Admin, or a scoped
-    operator who can see the device + the credential's scope."""
-    require_auth()
-    if not _validate_id(dev_id):
-        respond(404, {'error': 'device not found'})
-    dev = (load(DEVICES_FILE) or {}).get(dev_id)
-    if not dev:
-        respond(404, {'error': 'device not found'})
-    if not _device_in_scope(_caller_scope(), dev):
-        respond(403, {'error': 'this device is outside your role scope'})
-    out = [_scoped_cred_meta(c) for c in _scoped_creds_load()['creds']
-           if isinstance(c, dict) and _scoped_cred_applies(c, dev)
-           and _caller_scope_covers_credential(c.get('scope_type'), c.get('scope_value'))]
-    respond(200, {'ok': True, 'credentials': out})
 
 
 

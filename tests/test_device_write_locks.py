@@ -16,6 +16,10 @@ import re
 import sys
 import tempfile
 import unittest
+import sys as _as_sys
+from pathlib import Path as _as_Path
+_as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
@@ -26,7 +30,7 @@ _spec = importlib.util.spec_from_file_location("api_devlocks", _CGI / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
-API_SRC = (_CGI / "api.py").read_text()
+API_SRC = _apisrc_combined()
 
 # Functions allowed to contain a bare `save(DEVICES_FILE, ...)`.
 _ALLOWED_BARE = {"_rollout_tick"}
@@ -45,7 +49,10 @@ class TestNoBareDevicesSave(unittest.TestCase):
         lines = API_SRC.split("\n")
         offenders = {}
         for i, l in enumerate(lines):
-            if re.match(r"\s*save\(DEVICES_FILE,", l):
+            # (?:A\.)? — inside the bound *_handlers modules api services are
+            # accessed via the A namespace; the invariant must keep seeing
+            # bare device saves THERE too, not go blind on extraction.
+            if re.match(r"\s*(?:A\.)?save\((?:A\.)?DEVICES_FILE,", l):
                 fn = _enclosing_func(lines, i)
                 if fn not in _ALLOWED_BARE:
                     offenders[fn] = i + 1
@@ -59,7 +66,8 @@ class TestNoBareDevicesSave(unittest.TestCase):
         # allowlist (don't let the allowlist rot into a silent escape hatch).
         self.assertIn("def _rollout_tick(", API_SRC)
         i = API_SRC.index("def _rollout_tick(")
-        self.assertIn("save(DEVICES_FILE, devices)", API_SRC[i:i + 2000])
+        self.assertRegex(API_SRC[i:i + 2000],
+                         r"(?:A\.)?save\((?:A\.)?DEVICES_FILE, devices\)")
 
 
 class TestConvertedHandlerBehaviour(unittest.TestCase):

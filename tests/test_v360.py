@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import unittest
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -26,7 +27,7 @@ class TestVersionBumps(unittest.TestCase):
     """Loosened to regex — v3.7.0 now holds the strict pin (test_v370.py)."""
 
     def test_api_server_version(self):
-        text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        text = _apisrc_combined()
         self.assertRegex(text, r"SERVER_VERSION\s*=\s*'\d+\.\d+\.\d+'")
 
     def test_agent_version(self):
@@ -86,7 +87,7 @@ class TestV360Routes(unittest.TestCase):
 
 
 class TestV360UserFirewall(unittest.TestCase):
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -135,7 +136,7 @@ class TestV360FileManager(unittest.TestCase):
 
 
 class TestV360BackupOrchestration(unittest.TestCase):
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -156,7 +157,7 @@ class TestV360BackupOrchestration(unittest.TestCase):
 
 
 class TestV360AutoPatch(unittest.TestCase):
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     APP = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
@@ -176,7 +177,7 @@ class TestV360AutoPatch(unittest.TestCase):
 
 
 class TestV360AvAndProxmoxBackup(unittest.TestCase):
-    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    API = _apisrc_combined()
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
     PCLIENT = (REPO_ROOT / 'server' / 'cgi-bin' / 'proxmox_client.py').read_text()
 

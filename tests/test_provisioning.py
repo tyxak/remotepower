@@ -7,6 +7,10 @@ behind `show_provisioning`.
 """
 import importlib.util
 import unittest
+import sys as _as_sys
+from pathlib import Path as _as_Path
+_as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
@@ -14,7 +18,7 @@ _CGI = _ROOT / 'server' / 'cgi-bin'
 _spec = importlib.util.spec_from_file_location('api_prov', _CGI / 'api.py')
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
-_SRC = (_CGI / 'api.py').read_text()
+_SRC = _apisrc_combined()
 
 
 class TestBlueprintHelpers(unittest.TestCase):
@@ -139,8 +143,10 @@ class TestTerraformExecution(unittest.TestCase):
         self.assertIn('fcntl.flock', seg)                       # per-blueprint run lock
 
     def test_list_exposes_exec_flags(self):
-        self.assertIn("'execute_enabled': _iac_execute_enabled()", _SRC)
-        self.assertIn("'terraform_available': _terraform_available()", _SRC)
+        # (?:A.)? — the provisioning handlers access api services via the
+        # bound A namespace since the bound-module extraction.
+        self.assertRegex(_SRC, r"'execute_enabled': (?:A\.)?_iac_execute_enabled\(\)")
+        self.assertRegex(_SRC, r"'terraform_available': (?:A\.)?_terraform_available\(\)")
 
     def test_config_flag_emitted_and_saved(self):
         self.assertIn("'iac_execute_enabled': bool(cfg.get('iac_execute_enabled'))", _SRC)

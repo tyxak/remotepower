@@ -8,12 +8,16 @@ the blueprint status write is lock-safe.
 import os
 import tempfile
 import unittest
+import sys as _as_sys
+from pathlib import Path as _as_Path
+_as_sys.path.insert(0, str(_as_Path(__file__).resolve().parent))
+from apisrc import api_source as _apisrc_combined   # api.py + *_handlers.py bound modules (decomposition-safe pins)
 from pathlib import Path
 
 os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp(prefix='rp-sweep-'))
 
 _ROOT = Path(__file__).parent.parent
-_API = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+_API = _apisrc_combined()
 _APPJS = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
 
 
@@ -73,7 +77,7 @@ class TestBlueprintStatusLock(unittest.TestCase):
     def test_run_status_write_is_locked(self):
         seg = _API[_API.index('def handle_blueprint_run'):
                    _API.index('def handle_blueprint_run') + 4000]
-        self.assertIn('_LockedUpdate(PROVISION_FILE)', seg)
+        self.assertRegex(seg, r'(?:A\.)?_LockedUpdate\((?:A\.)?PROVISION_FILE\)')
 
 
 if __name__ == '__main__':
