@@ -13482,8 +13482,8 @@ function _renderHomeActivity(fleetEvents) {
     'av_clean',
     // v5.2.0: WG Access (WireGuard road-warrior VPN) client connectivity
     'vpn_client_connected', 'vpn_client_disconnected', 'vpn_handshake_stale',
-    // v5.3.0: helpdesk ticket SLA breach
-    'ticket_sla_breached',
+    // v5.3.0: helpdesk ticket SLA breach; v5.6.x: lifecycle events
+    'ticket_sla_breached', 'ticket_opened', 'ticket_resolved',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -13694,6 +13694,8 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'vpn'}"`;
     // v5.3.0: ticket SLA breach → the Tickets page
     case 'ticket_sla_breached':
+    case 'ticket_opened':
+    case 'ticket_resolved':
       return `${base} data-home-act="tickets"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;

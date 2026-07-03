@@ -239,7 +239,7 @@
     'Blueprints':  { zh: '蓝图', hi: 'ब्लूप्रिंट', es: 'Plantillas', ar: 'المخططات' },
     'New blueprint': { zh: '新建蓝图', hi: 'नया ब्लूप्रिंट', es: 'Nueva plantilla', ar: 'مخطط جديد' },
     'Render':      { zh: '生成', hi: 'रेंडर', es: 'Generar', ar: 'إنشاء' },
-    'Ansible playbooks': { zh: 'Ansible 剧本', hi: 'Ansible playbooks', es: 'Playbooks de Ansible', ar: 'كتب Ansible' },
+    'Ansible playbooks': { zh: 'Ansible 剧本', hi: 'Ansible प्लेबुक', es: 'Playbooks de Ansible', ar: 'كتب Ansible' },
     'Knowledge base': { zh: '知识库', hi: 'ज्ञान आधार', es: 'Base de conocimiento', ar: 'قاعدة المعرفة' },
     'Articles':    { zh: '文章', hi: 'लेख', es: 'Artículos', ar: 'المقالات' },
     'New article': { zh: '新建文章', hi: 'नया लेख', es: 'Nuevo artículo', ar: 'مقال جديد' },

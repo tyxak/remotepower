@@ -109,8 +109,10 @@ class TestWebhookEventRegistryCoverage(unittest.TestCase):
         # don't create an alert row.
         self.recover = set(api._ALERT_RECOVER) | {
             e for evs in api._ALERT_RECOVER_EXTRA.values() for e in evs}
+        # ticket_opened is deliberately feed/webhook-only (v5.6.x) — tickets
+        # ARE the workflow, they don't also open inbox alerts.
         self.non_alerting = self.recover | {'command_queued', 'command_executed',
-                                             'service_up'}
+                                             'service_up', 'ticket_opened'}
 
     def test_every_event_resolves_to_a_channel_kind(self):
         missing = sorted(self.events - set(api.EVENT_KIND_MAP))

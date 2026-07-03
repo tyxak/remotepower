@@ -320,7 +320,10 @@ class TestWebhookRegistryConsistency(unittest.TestCase):
         # #2 (the silent one): an alertable event missing from _ALERT_RULES fires
         # a webhook but never lands in the Alerts inbox. Recover/up events and the
         # two command-bookkeeping events intentionally do NOT create alerts.
-        non_alerting = self.recover | {'command_queued', 'command_executed', 'service_up'}
+        # v5.6.x: ticket_opened is deliberately feed/webhook-only —
+        # tickets ARE the workflow, they don't also open inbox alerts.
+        non_alerting = self.recover | {'command_queued', 'command_executed',
+                                       'service_up', 'ticket_opened'}
         missing = sorted((self.events - non_alerting) - set(api._ALERT_RULES))
         self.assertEqual(missing, [],
             f'alertable events missing from _ALERT_RULES (silent inbox drop): {missing}')

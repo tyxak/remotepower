@@ -1195,6 +1195,16 @@ EVENT_REGISTRY = {
     'ticket_sla_breached': dict(
         label='A helpdesk ticket passed its SLA response target', kind='tickets',
         title='Ticket SLA Breached', severity=None),
+    # v5.6.x: ticket lifecycle events (opened / resolved) — activity-feed +
+    # webhook routing only (no severity: tickets ARE the workflow, they don't
+    # also land in the Alerts inbox). ticket_resolved auto-resolves the
+    # ticket's open SLA-breach alert (matched by ticket_id).
+    'ticket_opened': dict(
+        label='A helpdesk ticket was opened', kind='tickets',
+        title='Ticket Opened'),
+    'ticket_resolved': dict(
+        label='A helpdesk ticket was resolved or closed', kind='tickets',
+        title='Ticket Resolved', resolves=('ticket_sla_breached',)),
 }
 
 # Derived: the Settings-page event list — (event, description, default-on).
@@ -5541,7 +5551,11 @@ def _record_fleet_event(event, payload):
                     'guest_type', 'vmid', 'action',
                     # v3.4.0: port discriminators so the compliance report
                     # can name the offending port, not just the host.
-                    'proto', 'port'):
+                    'proto', 'port',
+                    # v5.6.x: ticket lifecycle — feed items link and label
+                    # the ticket (#RP number, subject, who/what resolved it).
+                    'number', 'subject', 'ticket_id', 'source', 'status',
+                    'priority', 'assignee', 'resolved_by'):
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -6403,6 +6417,11 @@ def handle_tickets():
         except Exception:
             pass
     audit_log(actor, 'ticket_create', f'#{number} type={ttype} dev={device_id}')
+    fire_webhook('ticket_opened', {
+        'number': number, 'ticket_id': tid, 'subject': subject,
+        'priority': priority, 'type': ttype, 'assignee': body.get('assignee') or actor,
+        'group': str(body.get('group', ''))[:64], 'device_id': device_id,
+        'device_name': dev_name, 'source': 'operator'})
     respond(200, {'ok': True, 'id': tid, 'number': number})
 
 
@@ -6483,7 +6502,20 @@ def handle_ticket_update(tid):
         if t:
             ok = True
             if 'status' in body and str(body['status']).strip().lower() in TICKET_STATUSES:
+                _prev_status = t.get('status')
                 t['status'] = str(body['status']).strip().lower()
+                # v5.6.x: fire ticket_resolved on the transition INTO
+                # resolved/closed only (re-saving an already-resolved ticket
+                # must not re-fire). Auto-deferred until the lock releases.
+                if (t['status'] in ('resolved', 'closed')
+                        and _prev_status not in ('resolved', 'closed')):
+                    fire_webhook('ticket_resolved', {
+                        'number': t.get('number'), 'ticket_id': t.get('id'),
+                        'subject': t.get('subject', ''),
+                        'priority': _coerce_priority(t.get('priority', 4)),
+                        'status': t['status'], 'resolved_by': actor,
+                        'device_id': t.get('device_id', ''),
+                        'device_name': t.get('device_name', '')})
                 # Resolving/closing a ticket resolves its linked alert (captured
                 # here, applied after this lock — ALERTS_FILE lock must not nest).
                 # Suppressed for callers who may not mutate alert state (strict mode).
@@ -7194,6 +7226,15 @@ def _fetch_ticket_replies():
                         # v5.4.1: queue a one-time acknowledgement (sent post-lock).
                         autoreply_jobs.append((frm_email, TICKET_STANDALONE_BASE + seq,
                                                re.sub(r'\s*#RP0*\d+\s*', ' ', subj).strip() or subj))
+                        # v5.6.x: lifecycle event (auto-deferred until the
+                        # lock releases — recorders are nesting-safe now).
+                        fire_webhook('ticket_opened', {
+                            'number': TICKET_STANDALONE_BASE + seq,
+                            'ticket_id': tickets[-1]['id'],
+                            'subject': tickets[-1]['subject'], 'priority': 4,
+                            'type': 'request', 'assignee': '', 'group': '',
+                            'device_id': '', 'device_name': '',
+                            'source': 'email'})
         try:
             M.logout()
         except Exception:
@@ -7532,7 +7573,11 @@ def _record_alert(event, payload):
                     # v5.6.0: custom checks — check_id is the identity/auto-resolve
                     # key; check_name + output make the alert self-describing +
                     # searchable (the failing check and the issue it reported).
-                    'check_id', 'check_name', 'output', 'status'):
+                    'check_id', 'check_name', 'output', 'status',
+                    # v5.6.x: ticket lifecycle — ticket_id is the identity
+                    # ticket_resolved matches to auto-resolve the SLA-breach
+                    # alert; number is the operator-facing #RP reference.
+                    'ticket_id', 'number'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -7640,6 +7685,10 @@ def _auto_resolve_alerts(event, payload):
         # v5.0.0 (#R1): the server disk watchdog isn't a device — match the open
         # server_disk_low alert by its fixed target ('server').
         sub_match['target'] = p.get('target')
+    elif event == 'ticket_resolved':
+        # v5.6.x: tickets aren't devices — match the open ticket_sla_breached
+        # alert by the ticket's stable id (stored via the payload whitelist).
+        sub_match['ticket_id'] = p.get('ticket_id')
     elif event == 'vpn_client_connected':
         # v5.2.0: WG Access clients aren't devices — match the open
         # vpn_client_disconnected / vpn_handshake_stale alert by client_id.
@@ -7849,6 +7898,11 @@ def _run_automation_action(action, event, payload, dev_id, cfg, rule):
             })
         audit_log('automation', 'rule_open_ticket',
                   f"rule={rule.get('id')} dev={dev_id} #{number} on {event}")
+        fire_webhook('ticket_opened', {
+            'number': number, 'ticket_id': tid, 'subject': subj,
+            'priority': prio, 'type': 'incident', 'assignee': '',
+            'group': str(action.get('group', ''))[:64], 'device_id': dev_id,
+            'device_name': dev.get('name', dev_id), 'source': 'automation'})
     elif atype == 'add_tag':
         # v5.6.0: auto-classify the event's device with a tag.
         tag = _sanitize_str(str(action.get('tag') or ''), 40).strip()
@@ -29817,300 +29871,306 @@ def _ingest_hardware(dev_id, dev_name, body, now):
     temp_sample = None
     smart_sample = None
     gpu_sample = None
-    with _locked_update(HARDWARE_FILE) as store:
-        rec = store.setdefault(dev_id, {})
-        events = []
+    # v5.6.x perf: O(1) per-device read+write via the entity helpers —
+    # hardware.json is ENTITY-promoted, and this locked whole-fleet load
+    # was the last hot-path whole-blob read on the heartbeat. Only this
+    # device's own (serialized) heartbeats write its row; the write is
+    # best-effort per _entity_write_one's contract, and the history
+    # samples below still land AFTER the row write, outside any lock.
+    rec = _entity_read_one(HARDWARE_FILE, dev_id, None) or {}
+    events = []
 
-        # ── SMART ────────────────────────────────────────────────────
-        if isinstance(body.get('smart'), list):
-            disks = []
-            failed_devs = []
-            for d in body['smart'][:MAX_SMART_DISKS]:
-                if not isinstance(d, dict):
-                    continue
-                health = _sanitize_str(str(d.get('health', 'UNKNOWN')), 16).upper()
-                entry = {
-                    'device': _sanitize_str(str(d.get('device', '')), 64),
-                    'health': health,
-                    'model':  _sanitize_str(str(d.get('model', '')), 64),
-                    'serial': _sanitize_str(str(d.get('serial', '')), 64),
-                }
-                # Numeric SMART attributes — clamp to sane ints.
-                for k in ('reallocated_sectors', 'pending_sectors',
-                          'offline_uncorrectable', 'reported_uncorrect',
-                          'crc_errors', 'temperature_c', 'power_on_hours'):
-                    v = d.get(k)
-                    if isinstance(v, (int, float)) and -1 < v < 1e12:
-                        entry[k] = int(v)
-                # v3.14.0: SSD/NVMe wear (used %, 0–100).
-                w = d.get('wear_pct')
-                if isinstance(w, (int, float)) and 0 <= w <= 100:
-                    entry['wear_pct'] = int(w)
-                # Persist the verdict so the UI (and any consumer) reads one
-                # authoritative `failed` flag instead of re-deriving the rule
-                # client-side — they drifted once already (UNKNOWN handling).
-                entry['failed'] = _smart_disk_failed(entry)
-                if entry['failed']:
-                    failed_devs.append(entry['device'])
-                disks.append(entry)
-            rec['smart'] = disks
-            # v3.14.0: snapshot per-disk SMART counters once/UTC-day for trend
-            # prediction. Captured here, written after the lock (see top note).
-            smart_sample = disks
-            # Edge-trigger on the *set* of failed disks, not a single device-level
-            # bool: fire when a disk newly enters the failed set. This re-arms as
-            # /dev/sdb, /dev/sdc fail after /dev/sda, and — because the key didn't
-            # exist before this change — fires once for hosts that were already
-            # failing when this shipped (so a pre-existing failure still alerts).
-            cur_failed = sorted(set(failed_devs))
-            prev_failed = set(rec.get('_smart_failed_devs') or [])
-            if set(cur_failed) - prev_failed:
-                events.append(('smart_failure', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'disks': ', '.join(cur_failed) or 'unknown',
-                }))
-            elif prev_failed and not cur_failed:
-                # v5.6.x: every previously-failing disk is healthy again (or was
-                # replaced) — auto-resolve the open smart_failure alert.
-                events.append(('smart_recovered', {
-                    'device_id': dev_id, 'name': dev_name,
-                }))
-            rec['_smart_failed_devs'] = cur_failed
-            rec['_smart_failed'] = bool(cur_failed)   # kept for back-compat
-
-        # ── kernel / livepatch ───────────────────────────────────────
-        if isinstance(body.get('kernel'), dict):
-            k = body['kernel']
-            kern = {
-                'running':          _sanitize_str(str(k.get('running', '')), 80),
-                'latest_installed': _sanitize_str(str(k.get('latest_installed', '')), 80),
-                'reboot_for_kernel': bool(k.get('reboot_for_kernel', False)),
+    # ── SMART ────────────────────────────────────────────────────
+    if isinstance(body.get('smart'), list):
+        disks = []
+        failed_devs = []
+        for d in body['smart'][:MAX_SMART_DISKS]:
+            if not isinstance(d, dict):
+                continue
+            health = _sanitize_str(str(d.get('health', 'UNKNOWN')), 16).upper()
+            entry = {
+                'device': _sanitize_str(str(d.get('device', '')), 64),
+                'health': health,
+                'model':  _sanitize_str(str(d.get('model', '')), 64),
+                'serial': _sanitize_str(str(d.get('serial', '')), 64),
             }
-            lp = k.get('livepatch')
-            if isinstance(lp, dict):
-                kern['livepatch'] = {
-                    'provider': _sanitize_str(str(lp.get('provider', '')), 40),
-                    'state':    _sanitize_str(str(lp.get('state', '')), 40),
-                    'patched':  bool(lp.get('patched', False)),
-                }
-            rec['kernel'] = kern
-            prev_old = rec.get('_kernel_old', False)
-            if kern['reboot_for_kernel'] and not prev_old:
-                events.append(('kernel_outdated', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'running': kern['running'],
-                    'latest':  kern['latest_installed'],
-                }))
-            elif prev_old and not kern['reboot_for_kernel']:
-                # v5.6.x: rebooted into the current kernel — auto-resolve the
-                # open kernel_outdated alert (falling edge, symmetric to above).
-                events.append(('kernel_current', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'running': kern['running'],
-                }))
-            rec['_kernel_old'] = kern['reboot_for_kernel']
+            # Numeric SMART attributes — clamp to sane ints.
+            for k in ('reallocated_sectors', 'pending_sectors',
+                      'offline_uncorrectable', 'reported_uncorrect',
+                      'crc_errors', 'temperature_c', 'power_on_hours'):
+                v = d.get(k)
+                if isinstance(v, (int, float)) and -1 < v < 1e12:
+                    entry[k] = int(v)
+            # v3.14.0: SSD/NVMe wear (used %, 0–100).
+            w = d.get('wear_pct')
+            if isinstance(w, (int, float)) and 0 <= w <= 100:
+                entry['wear_pct'] = int(w)
+            # Persist the verdict so the UI (and any consumer) reads one
+            # authoritative `failed` flag instead of re-deriving the rule
+            # client-side — they drifted once already (UNKNOWN handling).
+            entry['failed'] = _smart_disk_failed(entry)
+            if entry['failed']:
+                failed_devs.append(entry['device'])
+            disks.append(entry)
+        rec['smart'] = disks
+        # v3.14.0: snapshot per-disk SMART counters once/UTC-day for trend
+        # prediction. Captured here, written after the lock (see top note).
+        smart_sample = disks
+        # Edge-trigger on the *set* of failed disks, not a single device-level
+        # bool: fire when a disk newly enters the failed set. This re-arms as
+        # /dev/sdb, /dev/sdc fail after /dev/sda, and — because the key didn't
+        # exist before this change — fires once for hosts that were already
+        # failing when this shipped (so a pre-existing failure still alerts).
+        cur_failed = sorted(set(failed_devs))
+        prev_failed = set(rec.get('_smart_failed_devs') or [])
+        if set(cur_failed) - prev_failed:
+            events.append(('smart_failure', {
+                'device_id': dev_id, 'name': dev_name,
+                'disks': ', '.join(cur_failed) or 'unknown',
+            }))
+        elif prev_failed and not cur_failed:
+            # v5.6.x: every previously-failing disk is healthy again (or was
+            # replaced) — auto-resolve the open smart_failure alert.
+            events.append(('smart_recovered', {
+                'device_id': dev_id, 'name': dev_name,
+            }))
+        rec['_smart_failed_devs'] = cur_failed
+        rec['_smart_failed'] = bool(cur_failed)   # kept for back-compat
 
-        # ── passive hardware inventory ───────────────────────────────
-        if isinstance(body.get('hardware'), dict):
-            hw = body['hardware']
-            safe = {}
-            sysd = hw.get('system')
-            if isinstance(sysd, dict):
-                safe['system'] = {kk: _sanitize_str(str(sysd.get(kk, '')), 128)
-                                  for kk in ('manufacturer', 'product', 'serial')
-                                  if sysd.get(kk)}
-            mem = hw.get('memory')
-            if isinstance(mem, list):
-                dimms = []
-                for d in mem[:MAX_DIMMS]:
-                    if isinstance(d, dict):
-                        dimms.append({kk: _sanitize_str(str(v), 64)
-                                      for kk, v in d.items()
-                                      if kk in ('locator', 'size', 'type',
-                                                'speed', 'serial', 'manufacturer')})
-                safe['memory'] = dimms
-            temps = hw.get('temps')
-            if isinstance(temps, list):
-                safe['temps'] = [
-                    {'label': _sanitize_str(str(t.get('label', '')), 64),
-                     'current_c': round(float(t['current_c']), 1)}
-                    for t in temps[:MAX_TEMPS]
-                    if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))
-                ]
-            raid = hw.get('raid')
-            if isinstance(raid, list):
-                safe['raid'] = [
-                    {kk: _sanitize_str(str(r.get(kk, '')), 80)
-                     for kk in ('name', 'level', 'state', 'devices')}
-                    for r in raid[:32] if isinstance(r, dict)
-                ]
-            rec['hardware'] = safe
-            # v4.1.0: temperature alerting — edge-triggered temp_high → temp_normal
-            # (temp_normal auto-resolves the open temp_high). Threshold is
-            # configurable (default 85 C); fires once when any sensor crosses it.
-            try:
-                _t_thresh = float(_config_ro().get('temp_alert_threshold_c', 85))
-            except (TypeError, ValueError):
-                _t_thresh = 85.0
-            _hot = [t for t in (safe.get('temps') or [])
-                    if isinstance(t.get('current_c'), (int, float))
-                    and t['current_c'] >= _t_thresh]
-            # v4.7.0: GPU temperatures participate in the SAME thermal alert — a
-            # hot GPU fires temp_high (sensor labelled "GPU: <name>") and cooling
-            # back down auto-resolves it via temp_normal, exactly like a board
-            # sensor. No separate event/threshold to manage.
-            for _g in (body.get('gpus') or []):
-                if isinstance(_g, dict) and isinstance(_g.get('temp_c'), (int, float)) \
-                        and _g['temp_c'] >= _t_thresh:
-                    _hot.append({'label': 'GPU: ' + str(_g.get('name') or 'GPU'),
-                                 'current_c': _g['temp_c']})
-            was_hot = bool(rec.get('_temp_high'))
-            if _hot and not was_hot:
-                _h0 = max(_hot, key=lambda t: t['current_c'])
-                events.append(('temp_high', {
-                    'device_id': dev_id, 'name': dev_name,
-                    'sensor': _h0.get('label', ''), 'temp_c': _h0.get('current_c'),
-                    'threshold_c': _t_thresh}))
-            elif was_hot and not _hot:
-                events.append(('temp_normal', {'device_id': dev_id, 'name': dev_name}))
-            rec['_temp_high'] = bool(_hot)
-            # v5.0.0: stash the hottest reading across board sensors + SMART disks
-            # + GPUs. We sample it AFTER this lock exits — _maybe_sample_temp takes
-            # its own THERMAL_HIST_FILE lock, and DATA_DIR shares one SQLite
-            # connection, so calling it in here would nest BEGIN IMMEDIATE → abort.
-            _tvals = [t['current_c'] for t in (safe.get('temps') or [])
-                      if isinstance(t.get('current_c'), (int, float))]
-            for _sd in (body.get('smart') or []):
-                if isinstance(_sd, dict) and isinstance(_sd.get('temperature_c'), (int, float)):
-                    _tvals.append(_sd['temperature_c'])
-            for _gg in (body.get('gpus') or []):
-                if isinstance(_gg, dict) and isinstance(_gg.get('temp_c'), (int, float)):
-                    _tvals.append(_gg['temp_c'])
-            if _tvals:
-                temp_sample = max(_tvals)
+    # ── kernel / livepatch ───────────────────────────────────────
+    if isinstance(body.get('kernel'), dict):
+        k = body['kernel']
+        kern = {
+            'running':          _sanitize_str(str(k.get('running', '')), 80),
+            'latest_installed': _sanitize_str(str(k.get('latest_installed', '')), 80),
+            'reboot_for_kernel': bool(k.get('reboot_for_kernel', False)),
+        }
+        lp = k.get('livepatch')
+        if isinstance(lp, dict):
+            kern['livepatch'] = {
+                'provider': _sanitize_str(str(lp.get('provider', '')), 40),
+                'state':    _sanitize_str(str(lp.get('state', '')), 40),
+                'patched':  bool(lp.get('patched', False)),
+            }
+        rec['kernel'] = kern
+        prev_old = rec.get('_kernel_old', False)
+        if kern['reboot_for_kernel'] and not prev_old:
+            events.append(('kernel_outdated', {
+                'device_id': dev_id, 'name': dev_name,
+                'running': kern['running'],
+                'latest':  kern['latest_installed'],
+            }))
+        elif prev_old and not kern['reboot_for_kernel']:
+            # v5.6.x: rebooted into the current kernel — auto-resolve the
+            # open kernel_outdated alert (falling edge, symmetric to above).
+            events.append(('kernel_current', {
+                'device_id': dev_id, 'name': dev_name,
+                'running': kern['running'],
+            }))
+        rec['_kernel_old'] = kern['reboot_for_kernel']
 
-        # ── v3.14.0: GPU telemetry ───────────────────────────────────
-        if isinstance(body.get('gpus'), list):
-            gpus = []
-            for g in body['gpus'][:MAX_GPUS]:
-                if not isinstance(g, dict):
-                    continue
-                entry = {'vendor': _sanitize_str(str(g.get('vendor', '')), 16),
-                         'name':   _sanitize_str(str(g.get('name', '')), 96)}
-                for k in ('util_pct', 'mem_used_mb', 'mem_total_mb', 'temp_c', 'power_w', 'fan_pct'):
-                    v = g.get(k)
-                    if isinstance(v, (int, float)) and -1 < v < 1e9:
-                        entry[k] = round(float(v), 1)
-                gpus.append(entry)
-            rec['gpus'] = gpus
-            gpu_sample = gpus   # v4.7.0: trend sparklines — written after the lock
+    # ── passive hardware inventory ───────────────────────────────
+    if isinstance(body.get('hardware'), dict):
+        hw = body['hardware']
+        safe = {}
+        sysd = hw.get('system')
+        if isinstance(sysd, dict):
+            safe['system'] = {kk: _sanitize_str(str(sysd.get(kk, '')), 128)
+                              for kk in ('manufacturer', 'product', 'serial')
+                              if sysd.get(kk)}
+        mem = hw.get('memory')
+        if isinstance(mem, list):
+            dimms = []
+            for d in mem[:MAX_DIMMS]:
+                if isinstance(d, dict):
+                    dimms.append({kk: _sanitize_str(str(v), 64)
+                                  for kk, v in d.items()
+                                  if kk in ('locator', 'size', 'type',
+                                            'speed', 'serial', 'manufacturer')})
+            safe['memory'] = dimms
+        temps = hw.get('temps')
+        if isinstance(temps, list):
+            safe['temps'] = [
+                {'label': _sanitize_str(str(t.get('label', '')), 64),
+                 'current_c': round(float(t['current_c']), 1)}
+                for t in temps[:MAX_TEMPS]
+                if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))
+            ]
+        raid = hw.get('raid')
+        if isinstance(raid, list):
+            safe['raid'] = [
+                {kk: _sanitize_str(str(r.get(kk, '')), 80)
+                 for kk in ('name', 'level', 'state', 'devices')}
+                for r in raid[:32] if isinstance(r, dict)
+            ]
+        rec['hardware'] = safe
+        # v4.1.0: temperature alerting — edge-triggered temp_high → temp_normal
+        # (temp_normal auto-resolves the open temp_high). Threshold is
+        # configurable (default 85 C); fires once when any sensor crosses it.
+        try:
+            _t_thresh = float(_config_ro().get('temp_alert_threshold_c', 85))
+        except (TypeError, ValueError):
+            _t_thresh = 85.0
+        _hot = [t for t in (safe.get('temps') or [])
+                if isinstance(t.get('current_c'), (int, float))
+                and t['current_c'] >= _t_thresh]
+        # v4.7.0: GPU temperatures participate in the SAME thermal alert — a
+        # hot GPU fires temp_high (sensor labelled "GPU: <name>") and cooling
+        # back down auto-resolves it via temp_normal, exactly like a board
+        # sensor. No separate event/threshold to manage.
+        for _g in (body.get('gpus') or []):
+            if isinstance(_g, dict) and isinstance(_g.get('temp_c'), (int, float)) \
+                    and _g['temp_c'] >= _t_thresh:
+                _hot.append({'label': 'GPU: ' + str(_g.get('name') or 'GPU'),
+                             'current_c': _g['temp_c']})
+        was_hot = bool(rec.get('_temp_high'))
+        if _hot and not was_hot:
+            _h0 = max(_hot, key=lambda t: t['current_c'])
+            events.append(('temp_high', {
+                'device_id': dev_id, 'name': dev_name,
+                'sensor': _h0.get('label', ''), 'temp_c': _h0.get('current_c'),
+                'threshold_c': _t_thresh}))
+        elif was_hot and not _hot:
+            events.append(('temp_normal', {'device_id': dev_id, 'name': dev_name}))
+        rec['_temp_high'] = bool(_hot)
+        # v5.0.0: stash the hottest reading across board sensors + SMART disks
+        # + GPUs. We sample it AFTER this lock exits — _maybe_sample_temp takes
+        # its own THERMAL_HIST_FILE lock, and DATA_DIR shares one SQLite
+        # connection, so calling it in here would nest BEGIN IMMEDIATE → abort.
+        _tvals = [t['current_c'] for t in (safe.get('temps') or [])
+                  if isinstance(t.get('current_c'), (int, float))]
+        for _sd in (body.get('smart') or []):
+            if isinstance(_sd, dict) and isinstance(_sd.get('temperature_c'), (int, float)):
+                _tvals.append(_sd['temperature_c'])
+        for _gg in (body.get('gpus') or []):
+            if isinstance(_gg, dict) and isinstance(_gg.get('temp_c'), (int, float)):
+                _tvals.append(_gg['temp_c'])
+        if _tvals:
+            temp_sample = max(_tvals)
 
-        # ── v3.14.0: local x509 cert-file expiry inventory ───────────
-        if isinstance(body.get('cert_files'), list):
-            certs = []
-            for c in body['cert_files'][:MAX_CERT_FILES]:
-                if not isinstance(c, dict):
-                    continue
-                na = c.get('not_after')
-                certs.append({
-                    'path':      _sanitize_str(str(c.get('path', '')), 256),
-                    'subject':   _sanitize_str(str(c.get('subject', '')), 256),
-                    'issuer':    _sanitize_str(str(c.get('issuer', '')), 256),
-                    'not_after': int(na) if isinstance(na, (int, float)) and na >= 0 else 0,
-                })
-            rec['cert_files'] = certs
-            # v3.14.0: cert-expiry alerting is OPT-IN (off by default — see
-            # cert_expiry_alerts_enabled) and only for the host's OWN service
-            # certs, never the CA trust bundle. Coalesced to ONE alert per host
-            # (soonest cert + a count) so it can't flood, edge-triggered.
-            if _config_ro().get('cert_expiry_alerts_enabled'):
-                soon = now + 21 * 86400
-                _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
-                       '/usr/share/ca-certificates', '/etc/ca-certificates')
-                expiring = sorted((c for c in certs
-                                   if 0 < c['not_after'] <= soon
-                                   and not str(c['path']).startswith(_ca)),
-                                  key=lambda c: c['not_after'])
-                paths = [c['path'] for c in expiring]
-                prev_cert = set(rec.get('_cert_alerted') or [])
-                if expiring and any(p not in prev_cert for p in paths):
-                    s = expiring[0]
-                    events.append(('cert_file_expiring', {
-                        'device_id': dev_id, 'name': dev_name, 'path': s['path'],
-                        'days': max(0, int((s['not_after'] - now) / 86400)),
-                        'count': len(expiring)}))
-                elif prev_cert and not paths:
-                    # v5.6.x: no host cert is expiring any more (renewed) —
-                    # auto-resolve the open cert_file_expiring alert.
-                    events.append(('cert_file_renewed', {
-                        'device_id': dev_id, 'name': dev_name}))
-                rec['_cert_alerted'] = paths
+    # ── v3.14.0: GPU telemetry ───────────────────────────────────
+    if isinstance(body.get('gpus'), list):
+        gpus = []
+        for g in body['gpus'][:MAX_GPUS]:
+            if not isinstance(g, dict):
+                continue
+            entry = {'vendor': _sanitize_str(str(g.get('vendor', '')), 16),
+                     'name':   _sanitize_str(str(g.get('name', '')), 96)}
+            for k in ('util_pct', 'mem_used_mb', 'mem_total_mb', 'temp_c', 'power_w', 'fan_pct'):
+                v = g.get(k)
+                if isinstance(v, (int, float)) and -1 < v < 1e9:
+                    entry[k] = round(float(v), 1)
+            gpus.append(entry)
+        rec['gpus'] = gpus
+        gpu_sample = gpus   # v4.7.0: trend sparklines — written after the lock
 
-        # ── v3.14.0: local account posture ───────────────────────────
-        if isinstance(body.get('accounts'), list):
-            accts = []
-            for a in body['accounts'][:MAX_ACCOUNTS]:
-                if not isinstance(a, dict):
-                    continue
-                uid = a.get('uid')
-                age = a.get('age_days')
-                flags = a.get('flags')
-                accts.append({
-                    'user':     _sanitize_str(str(a.get('user', '')), 64),
-                    'uid':      int(uid) if isinstance(uid, (int, float)) and -1 < uid < 1e9 else -1,
-                    'shell':    _sanitize_str(str(a.get('shell', '')), 64),
-                    'home':     _sanitize_str(str(a.get('home', '')), 128),
-                    'login':    bool(a.get('login')),
-                    'locked':   bool(a.get('locked')),
-                    'sudo':     bool(a.get('sudo')),
-                    'age_days': int(age) if isinstance(age, (int, float)) else None,
-                    'flags':    [_sanitize_str(str(x), 24) for x in flags[:8]]
-                                if isinstance(flags, list) else [],
-                })
-            rec['accounts'] = accts
-            # Alert on unexpected UID-0 accounts (edge-triggered per user).
-            rogue = {a['user'] for a in accts if 'uid0' in (a.get('flags') or [])}
-            prev_uid0 = set(rec.get('_uid0_alerted') or [])
-            for u in (rogue - prev_uid0):
-                events.append(('rogue_uid0', {'device_id': dev_id, 'name': dev_name, 'user': u}))
-            if prev_uid0 and not rogue:
-                # v5.6.x: every unexpected UID-0 account is gone — auto-resolve
-                # the open rogue_uid0 alert(s) for this host.
-                events.append(('rogue_uid0_cleared', {'device_id': dev_id, 'name': dev_name}))
-            rec['_uid0_alerted'] = sorted(rogue)
+    # ── v3.14.0: local x509 cert-file expiry inventory ───────────
+    if isinstance(body.get('cert_files'), list):
+        certs = []
+        for c in body['cert_files'][:MAX_CERT_FILES]:
+            if not isinstance(c, dict):
+                continue
+            na = c.get('not_after')
+            certs.append({
+                'path':      _sanitize_str(str(c.get('path', '')), 256),
+                'subject':   _sanitize_str(str(c.get('subject', '')), 256),
+                'issuer':    _sanitize_str(str(c.get('issuer', '')), 256),
+                'not_after': int(na) if isinstance(na, (int, float)) and na >= 0 else 0,
+            })
+        rec['cert_files'] = certs
+        # v3.14.0: cert-expiry alerting is OPT-IN (off by default — see
+        # cert_expiry_alerts_enabled) and only for the host's OWN service
+        # certs, never the CA trust bundle. Coalesced to ONE alert per host
+        # (soonest cert + a count) so it can't flood, edge-triggered.
+        if _config_ro().get('cert_expiry_alerts_enabled'):
+            soon = now + 21 * 86400
+            _ca = ('/etc/ssl/certs/', '/etc/pki/ca-trust',
+                   '/usr/share/ca-certificates', '/etc/ca-certificates')
+            expiring = sorted((c for c in certs
+                               if 0 < c['not_after'] <= soon
+                               and not str(c['path']).startswith(_ca)),
+                              key=lambda c: c['not_after'])
+            paths = [c['path'] for c in expiring]
+            prev_cert = set(rec.get('_cert_alerted') or [])
+            if expiring and any(p not in prev_cert for p in paths):
+                s = expiring[0]
+                events.append(('cert_file_expiring', {
+                    'device_id': dev_id, 'name': dev_name, 'path': s['path'],
+                    'days': max(0, int((s['not_after'] - now) / 86400)),
+                    'count': len(expiring)}))
+            elif prev_cert and not paths:
+                # v5.6.x: no host cert is expiring any more (renewed) —
+                # auto-resolve the open cert_file_expiring alert.
+                events.append(('cert_file_renewed', {
+                    'device_id': dev_id, 'name': dev_name}))
+            rec['_cert_alerted'] = paths
 
-        # ── v3.14.0: UPS / power ─────────────────────────────────────
-        if isinstance(body.get('ups'), list):
-            upses = []
-            for u in body['ups'][:MAX_UPS]:
-                if not isinstance(u, dict):
-                    continue
-                entry = {'name':   _sanitize_str(str(u.get('name', '')), 64),
-                         'driver': _sanitize_str(str(u.get('driver', '')), 16),
-                         'status': _sanitize_str(str(u.get('status', '')), 32)}
-                for k in ('battery_pct', 'load_pct', 'runtime_s', 'input_v', 'power_w'):
-                    v = u.get(k)
-                    if isinstance(v, (int, float)) and -1 < v < 1e7:
-                        entry[k] = round(float(v), 1)
-                upses.append(entry)
-            rec['ups'] = upses
-            # Edge-triggered UPS on-battery → on-line (ups_on_line auto-resolves).
-            def _ob(u):
-                s = (u.get('status') or '')
-                return 'OB' in s or 'BATT' in s.upper()
-            on_batt = any(_ob(u) for u in upses)
-            was_on_batt = bool(rec.get('_ups_on_battery'))
-            if on_batt and not was_on_batt:
-                u0 = next((u for u in upses if _ob(u)), {})
-                events.append(('ups_on_battery', {'device_id': dev_id, 'name': dev_name,
-                    'ups': u0.get('name', ''), 'battery_pct': u0.get('battery_pct')}))
-            elif was_on_batt and not on_batt:
-                events.append(('ups_on_line', {'device_id': dev_id, 'name': dev_name,
-                    'ups': (upses[0].get('name') if upses else '')}))
-            rec['_ups_on_battery'] = on_batt
+    # ── v3.14.0: local account posture ───────────────────────────
+    if isinstance(body.get('accounts'), list):
+        accts = []
+        for a in body['accounts'][:MAX_ACCOUNTS]:
+            if not isinstance(a, dict):
+                continue
+            uid = a.get('uid')
+            age = a.get('age_days')
+            flags = a.get('flags')
+            accts.append({
+                'user':     _sanitize_str(str(a.get('user', '')), 64),
+                'uid':      int(uid) if isinstance(uid, (int, float)) and -1 < uid < 1e9 else -1,
+                'shell':    _sanitize_str(str(a.get('shell', '')), 64),
+                'home':     _sanitize_str(str(a.get('home', '')), 128),
+                'login':    bool(a.get('login')),
+                'locked':   bool(a.get('locked')),
+                'sudo':     bool(a.get('sudo')),
+                'age_days': int(age) if isinstance(age, (int, float)) else None,
+                'flags':    [_sanitize_str(str(x), 24) for x in flags[:8]]
+                            if isinstance(flags, list) else [],
+            })
+        rec['accounts'] = accts
+        # Alert on unexpected UID-0 accounts (edge-triggered per user).
+        rogue = {a['user'] for a in accts if 'uid0' in (a.get('flags') or [])}
+        prev_uid0 = set(rec.get('_uid0_alerted') or [])
+        for u in (rogue - prev_uid0):
+            events.append(('rogue_uid0', {'device_id': dev_id, 'name': dev_name, 'user': u}))
+        if prev_uid0 and not rogue:
+            # v5.6.x: every unexpected UID-0 account is gone — auto-resolve
+            # the open rogue_uid0 alert(s) for this host.
+            events.append(('rogue_uid0_cleared', {'device_id': dev_id, 'name': dev_name}))
+        rec['_uid0_alerted'] = sorted(rogue)
 
-        rec['ts'] = now
+    # ── v3.14.0: UPS / power ─────────────────────────────────────
+    if isinstance(body.get('ups'), list):
+        upses = []
+        for u in body['ups'][:MAX_UPS]:
+            if not isinstance(u, dict):
+                continue
+            entry = {'name':   _sanitize_str(str(u.get('name', '')), 64),
+                     'driver': _sanitize_str(str(u.get('driver', '')), 16),
+                     'status': _sanitize_str(str(u.get('status', '')), 32)}
+            for k in ('battery_pct', 'load_pct', 'runtime_s', 'input_v', 'power_w'):
+                v = u.get(k)
+                if isinstance(v, (int, float)) and -1 < v < 1e7:
+                    entry[k] = round(float(v), 1)
+            upses.append(entry)
+        rec['ups'] = upses
+        # Edge-triggered UPS on-battery → on-line (ups_on_line auto-resolves).
+        def _ob(u):
+            s = (u.get('status') or '')
+            return 'OB' in s or 'BATT' in s.upper()
+        on_batt = any(_ob(u) for u in upses)
+        was_on_batt = bool(rec.get('_ups_on_battery'))
+        if on_batt and not was_on_batt:
+            u0 = next((u for u in upses if _ob(u)), {})
+            events.append(('ups_on_battery', {'device_id': dev_id, 'name': dev_name,
+                'ups': u0.get('name', ''), 'battery_pct': u0.get('battery_pct')}))
+        elif was_on_batt and not on_batt:
+            events.append(('ups_on_line', {'device_id': dev_id, 'name': dev_name,
+                'ups': (upses[0].get('name') if upses else '')}))
+        rec['_ups_on_battery'] = on_batt
 
+    rec['ts'] = now
+
+    _entity_write_one(HARDWARE_FILE, dev_id, rec)
     # v5.0.0: write the trend/history samples outside the HARDWARE_FILE lock —
     # each self-locks its own *_HIST_FILE and DATA_DIR shares one SQLite
     # connection, so doing this inside the lock nests BEGIN IMMEDIATE and the
@@ -30148,8 +30208,8 @@ def _ingest_helm(dev_id, dev_name, releases, now):
             'app_version': _sanitize_str(str(rel.get('app_version', '')), 64),
             'updated':     _sanitize_str(str(rel.get('updated', '')), 64),
         })
-    with _locked_update(HELM_FILE) as store:
-        store[dev_id] = {'releases': safe, 'ts': now}
+    # v5.6.x perf: single-row entity write (store is ENTITY-promoted).
+    _entity_write_one(HELM_FILE, dev_id, {'releases': safe, 'ts': now})
 
 
 def _ingest_speedtest(dev_id, dev_name, result, now):
@@ -30167,10 +30227,11 @@ def _ingest_speedtest(dev_id, dev_name, result, now):
     else:
         entry['ok'] = False
         entry['error'] = _sanitize_str(str(result.get('error', 'failed')), 200)
-    with _locked_update(SPEEDTEST_FILE) as store:
-        lst = store.setdefault(dev_id, [])
-        lst.append(entry)
-        store[dev_id] = lst[-50:]
+    # v5.6.x perf: single-row entity read+write (store is ENTITY-promoted);
+    # only this device's own serialized heartbeats append to its row.
+    lst = _entity_read_one(SPEEDTEST_FILE, dev_id, None) or []
+    lst.append(entry)
+    _entity_write_one(SPEEDTEST_FILE, dev_id, lst[-50:])
 
 
 def _ingest_netscan(dev_id, dev_name, result, now):
@@ -30198,12 +30259,12 @@ def _ingest_netscan(dev_id, dev_name, result, now):
             'hostname': _sanitize_str(str(h.get('hostname', '')), 128),
             'managed':  ip in known_ips,
         })
-    with _locked_update(DISCOVERY_FILE) as store:
-        store[dev_id] = {
-            'ts':     now,
-            'method': _sanitize_str(str(result.get('method', '')), 40),
-            'hosts':  hosts,
-        }
+    # v5.6.x perf: single-row entity write (store is ENTITY-promoted).
+    _entity_write_one(DISCOVERY_FILE, dev_id, {
+        'ts':     now,
+        'method': _sanitize_str(str(result.get('method', '')), 40),
+        'hosts':  hosts,
+        })
 
 
 # Keep ~6 months of daily samples per device — enough for a year-over-year
@@ -54358,10 +54419,9 @@ def _ingest_acme_state(dev_id, acme):
         'updated_at': int(time.time()),
         'certs':     safe_certs,
     }
-    with _LockedUpdate(ACME_STATE_FILE) as store:
-        if not isinstance(store, dict):
-            store = {}
-        store[dev_id] = record
+    # v5.6.x perf: single-row entity write (store is ENTITY-promoted; the
+    # old non-dict guard rebound the yielded name and never persisted anyway).
+    _entity_write_one(ACME_STATE_FILE, dev_id, record)
 
 
 def _acme_log_path(dev_id, action_id):
