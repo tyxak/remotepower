@@ -48,6 +48,29 @@ class TestRlsWiring(unittest.TestCase):
         # tenant_id kept in sync with the doc's tenant by a trigger
         self.assertIn("rp_tenant_sync_", sp)
 
+    def test_multi_table_coverage(self):
+        # v5.6.x: RLS extended beyond the device roster to every device-keyed
+        # row table. The '__shared__' class keeps non-device rows (monitor
+        # history, server-level alerts) visible to every tenant — matching
+        # the app layer, so hardening never hides legitimately shared rows.
+        self.assertEqual(set(storage_pg._RLS_TABLES),
+                         {'devices', 'entity', 'listrow', 'metric_samples'})
+        sp = (_CGI / "storage_pg.py").read_text()
+        # tenant derivation: owning device, '__shared__' when none
+        self.assertIn("rp_tenant_of_device", sp)
+        self.assertIn("'__shared__'", sp)
+        # the row-table policies admit shared rows; devices policy must NOT
+        # (a device row is never shared)
+        self.assertIn("OR tenant_id = '__shared__'", sp)
+        dev_policy = sp[sp.index("CREATE POLICY rp_tenant_iso ON devices"):]
+        dev_policy = dev_policy[:dev_policy.index('"""')]
+        self.assertNotIn("__shared__", dev_policy)
+        # tenant moves cascade to the device's rows
+        self.assertIn("rp_tenant_cascade", sp)
+        self.assertIn("AFTER UPDATE OF tenant_id ON devices", sp)
+        # the heavy backfill is one-time (schema_meta marker), not per-process
+        self.assertIn("rls_backfill_v2", sp)
+
     def test_api_wiring(self):
         src = (_CGI / "api.py").read_text()
         self.assertIn("def _tenancy_rls_active", src)

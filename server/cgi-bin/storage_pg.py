@@ -82,7 +82,7 @@ _ATEXIT = False
 # when tenancy_enforced + tenancy_rls + postgres. Default OFF → no RLS, no GUC, the
 # storage layer is byte-identical to before.
 RLS_ACTIVE = False
-_RLS_TABLES = ('devices',)   # per-tenant tables hardened at the DB (the device roster)
+_RLS_TABLES = ('devices', 'entity', 'listrow', 'metric_samples')  # hardened at the DB
 _RLS_DONE = False
 # v3.14.0: a primary failover (or a mid-promotion connect) shouldn't fail the
 # request — retry the connect a few times so libpq can re-resolve hosts and land
@@ -271,33 +271,102 @@ def _enable_rls(conn):
     tables so a tenant's rows are unreachable cross-tenant AT THE DATABASE — defence
     in depth beneath the app-layer tenancy. Idempotent; runs once per process.
 
-    Per table: a `tenant_id` column kept in sync with the doc's `tenant` field by a
-    BEFORE-trigger (so the app writes the doc as usual), RLS ENABLE + **FORCE** (the
-    app connects as the table OWNER, and owners bypass RLS without FORCE — the silent
-    fail-open this guards against), and a policy keyed on the per-request GUC
-    `app.rp_tenant`: '*' = bypass (superadmin / agent / system), else exact match.
-    An unset GUC matches nothing → fail-CLOSED (deny)."""
+    v5.6.x: extended from the device roster to every device-keyed row table:
+      devices        — tenant from its OWN doc ('tenant' field, BEFORE-trigger)
+      entity         — rows keyed by device id (k): tenant of the owning device
+      listrow        — history/alert entries: tenant of doc->>'device_id'
+      metric_samples — tenant of the `device` column
+    Rows not owned by any device (monitor history keyed by monitor id, server-
+    level alerts, …) get tenant_id '__shared__' and stay visible to EVERY
+    tenant — exactly matching the app layer, so the DB hardening can never
+    hide legitimately shared rows. A device moving tenant CASCADES to its
+    entity/listrow/metric rows (admin '*' sessions do the move, so the cascade
+    update passes the policies). Backfills are gated by a schema_meta marker —
+    re-scanning metric_samples on every worker start would be ruinous.
+
+    Every table: RLS ENABLE + **FORCE** (the app connects as the table OWNER,
+    and owners bypass RLS without FORCE — the silent fail-open this guards
+    against), and a policy keyed on the per-request GUC `app.rp_tenant`:
+    '*' = bypass (superadmin / agent / system), else exact match (devices) or
+    exact-or-'__shared__' (the row tables). An unset GUC matches nothing →
+    fail-CLOSED (deny)."""
     global _RLS_DONE
     if _RLS_DONE:
         return
-    for t in _RLS_TABLES:
-        conn.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'")
+    _backfilled = conn.execute(
+        "SELECT value FROM schema_meta WHERE key='rls_backfill_v2'").fetchone()
+    fresh = _backfilled is None
+
+    # ── devices: tenant from its own doc (unchanged from Phase 6) ──────────
+    conn.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'")
+    conn.execute("""CREATE OR REPLACE FUNCTION rp_tenant_sync_devices() RETURNS trigger AS $$
+                    BEGIN NEW.tenant_id := COALESCE(NULLIF(NEW.doc::jsonb->>'tenant',''),'default');
+                          RETURN NEW; END; $$ LANGUAGE plpgsql""")
+    conn.execute("DROP TRIGGER IF EXISTS trg_rp_tenant_devices ON devices")
+    conn.execute("""CREATE TRIGGER trg_rp_tenant_devices BEFORE INSERT OR UPDATE ON devices
+                    FOR EACH ROW EXECUTE FUNCTION rp_tenant_sync_devices()""")
+    conn.execute("UPDATE devices SET tenant_id = COALESCE(NULLIF(doc::jsonb->>'tenant',''),'default')")
+    conn.execute("ALTER TABLE devices ENABLE ROW LEVEL SECURITY")
+    conn.execute("ALTER TABLE devices FORCE ROW LEVEL SECURITY")
+    conn.execute("DROP POLICY IF EXISTS rp_tenant_iso ON devices")
+    conn.execute("""CREATE POLICY rp_tenant_iso ON devices USING
+                    (current_setting('app.rp_tenant', true) = '*'
+                     OR tenant_id = current_setting('app.rp_tenant', true))
+                    WITH CHECK
+                    (current_setting('app.rp_tenant', true) = '*'
+                     OR tenant_id = current_setting('app.rp_tenant', true))""")
+
+    # ── shared derivation: tenant of the owning device, '__shared__' if none ──
+    conn.execute("""CREATE OR REPLACE FUNCTION rp_tenant_of_device(did TEXT)
+                    RETURNS TEXT AS $$
+                    SELECT COALESCE((SELECT tenant_id FROM devices WHERE id = did),
+                                    '__shared__')
+                    $$ LANGUAGE sql STABLE""")
+
+    # (table, key expression inside the BEFORE-trigger, backfill key expression)
+    _ROW_TABLES = (
+        ('entity',         'NEW.k',                          'k'),
+        ('listrow',        "NEW.doc::jsonb->>'device_id'",   "doc::jsonb->>'device_id'"),
+        ('metric_samples', 'NEW.device',                     'device'),
+    )
+    for t, new_expr, col_expr in _ROW_TABLES:
+        conn.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT '__shared__'")
         conn.execute(f"""CREATE OR REPLACE FUNCTION rp_tenant_sync_{t}() RETURNS trigger AS $$
-                         BEGIN NEW.tenant_id := COALESCE(NULLIF(NEW.doc::jsonb->>'tenant',''),'default');
+                         BEGIN NEW.tenant_id := rp_tenant_of_device({new_expr});
                                RETURN NEW; END; $$ LANGUAGE plpgsql""")
         conn.execute(f"DROP TRIGGER IF EXISTS trg_rp_tenant_{t} ON {t}")
         conn.execute(f"""CREATE TRIGGER trg_rp_tenant_{t} BEFORE INSERT OR UPDATE ON {t}
                          FOR EACH ROW EXECUTE FUNCTION rp_tenant_sync_{t}()""")
-        conn.execute(f"UPDATE {t} SET tenant_id = COALESCE(NULLIF(doc::jsonb->>'tenant',''),'default')")
+        if fresh:
+            conn.execute(f"UPDATE {t} SET tenant_id = rp_tenant_of_device({col_expr})")
         conn.execute(f"ALTER TABLE {t} ENABLE ROW LEVEL SECURITY")
         conn.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
         conn.execute(f"DROP POLICY IF EXISTS rp_tenant_iso ON {t}")
         conn.execute(f"""CREATE POLICY rp_tenant_iso ON {t} USING
                          (current_setting('app.rp_tenant', true) = '*'
-                          OR tenant_id = current_setting('app.rp_tenant', true))
+                          OR tenant_id = current_setting('app.rp_tenant', true)
+                          OR tenant_id = '__shared__')
                          WITH CHECK
                          (current_setting('app.rp_tenant', true) = '*'
-                          OR tenant_id = current_setting('app.rp_tenant', true))""")
+                          OR tenant_id = current_setting('app.rp_tenant', true)
+                          OR tenant_id = '__shared__')""")
+
+    # ── cascade: a device moving tenant re-labels its rows everywhere ──────
+    conn.execute("""CREATE OR REPLACE FUNCTION rp_tenant_cascade() RETURNS trigger AS $$
+                    BEGIN
+                      UPDATE entity SET tenant_id = NEW.tenant_id WHERE k = NEW.id;
+                      UPDATE listrow SET tenant_id = NEW.tenant_id
+                             WHERE doc::jsonb->>'device_id' = NEW.id;
+                      UPDATE metric_samples SET tenant_id = NEW.tenant_id
+                             WHERE device = NEW.id;
+                      RETURN NEW; END; $$ LANGUAGE plpgsql""")
+    conn.execute("DROP TRIGGER IF EXISTS trg_rp_tenant_cascade ON devices")
+    conn.execute("""CREATE TRIGGER trg_rp_tenant_cascade AFTER UPDATE OF tenant_id ON devices
+                    FOR EACH ROW WHEN (OLD.tenant_id IS DISTINCT FROM NEW.tenant_id)
+                    EXECUTE FUNCTION rp_tenant_cascade()""")
+    if fresh:
+        conn.execute("""INSERT INTO schema_meta(key, value) VALUES('rls_backfill_v2','1')
+                        ON CONFLICT(key) DO UPDATE SET value='1'""")
     _RLS_DONE = True
 
 
