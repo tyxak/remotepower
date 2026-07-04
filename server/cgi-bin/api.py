@@ -26167,6 +26167,67 @@ def handle_device_depends_on(dev_id: str) -> None:
     respond(200, {'ok': True, 'depends_on': ups})
 
 
+def _reboot_wave_plan(ids, devices):
+    """W2-36: order device ids into dependency waves for a rolling reboot — pure
+    downstream (nothing depends on them) first, upstreams last. Reverse
+    topological layering over the `depends_on` graph (Kahn); a dependency cycle
+    is dumped into a final wave so the plan always terminates."""
+    ids = [i for i in ids if i in devices]
+    idset = set(ids)
+    # indeg[X] = how many in-scope devices depend on X (must reboot before X)
+    indeg = {i: 0 for i in ids}
+    for y in ids:
+        for x in (devices[y].get('depends_on') or []):
+            if x in idset:
+                indeg[x] += 1
+    waves, remaining = [], set(ids)
+    while remaining:
+        layer = sorted(i for i in remaining if indeg.get(i, 0) == 0)
+        if not layer:                      # cycle → everything left goes last
+            layer = sorted(remaining)
+        waves.append(layer)
+        for y in layer:
+            remaining.discard(y)
+            for x in (devices[y].get('depends_on') or []):
+                if x in remaining:
+                    indeg[x] -= 1
+    return waves
+
+
+def handle_reboot_plan():
+    """POST /api/rollouts/reboot-plan — compute dependency-ordered reboot waves
+    for a scope (admin). Returns rings ready to feed `POST /api/rollouts` with
+    action='reboot'. Read-only preview; creating the rollout is a second step so
+    the operator confirms the wave order first."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    require_admin_auth()
+    body = get_json_obj()
+    devices = load(DEVICES_FILE) or {}
+    scope = body.get('scope') or {}
+    st = scope.get('type')
+    if st == 'all':
+        ids = [d for d, dev in devices.items()
+               if isinstance(dev, dict) and not dev.get('agentless')]
+    elif st in ('group', 'tag', 'ids'):
+        ids = _rollout_resolve_ring(scope, devices)
+        ids = [i for i in ids if not (devices.get(i) or {}).get('agentless')]
+    else:
+        respond(400, {'error': 'scope.type must be all, group, tag or ids'})
+    if not ids:
+        respond(400, {'error': 'no eligible devices in scope'})
+    waves = _reboot_wave_plan(ids, devices)
+    rings = []
+    for i, w in enumerate(waves):
+        rings.append({
+            'name': f'Wave {i + 1}',
+            'selector': {'type': 'ids', 'ids': w},
+            'devices': [{'id': d, 'name': (devices.get(d) or {}).get('name', d)}
+                        for d in w],
+        })
+    respond(200, {'ok': True, 'rings': rings, 'device_count': len(ids)})
+
+
 def _upstream_down(dev_id, devices, now, ttl):
     """Return the name of the first offline upstream this device depends on, or
     None. Used to suppress collateral downstream alerts. One hop only — keeps it
@@ -50908,6 +50969,7 @@ def _build_exact_routes():
         ('GET', '/api/cve/campaigns'): handle_cve_campaigns,   # W2-35
         ('POST', '/api/cve/campaigns'): handle_cve_campaigns,
         ('POST', '/api/import/monitors'): handle_import_monitors,   # W2-45
+        ('POST', '/api/rollouts/reboot-plan'): handle_reboot_plan,  # W2-36
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

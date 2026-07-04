@@ -5321,6 +5321,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon" data-action="loadRollouts"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           </div>
           <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
+          <!-- W2-36: rolling reboot orchestrator -->
+          <details class="dash-card mb-12">
+            <summary class="section-title">Rolling reboot</summary>
+            <p class="hint mt-8">Reboot a scope in <strong>dependency-ordered waves</strong> — devices nothing depends on first, upstreams last (from each device's declared <em>depends_on</em>). Each wave is health-gated and verified before the next, exactly like a rollout. Preview the waves, then create the rollout.</p>
+            <div class="row-6-center mt-8">
+              <select id="rr-scope-type" class="form-input input-auto" data-change="rrScopeChange" aria-label="Reboot scope type"><option value="all">Whole fleet</option><option value="group">Group</option><option value="tag">Tag</option></select>
+              <input type="text" id="rr-scope-value" class="form-input input-auto hidden" placeholder="group / tag name" aria-label="Scope value">
+              <label class="form-label"><input type="checkbox" id="rr-health-gate" checked> Health-gate</label>
+              <label class="form-label"><input type="checkbox" id="rr-auto-promote"> Auto-promote waves</label>
+              <button class="btn-secondary" data-action="previewRebootPlan">Preview waves</button>
+            </div>
+            <div id="rr-plan" class="mt-8"></div>
+          </details>
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter rollouts…" data-input="filterRows" data-input-el="1" aria-label="Filter rollouts" data-filter-target="#rollouts-list > *">
           <div id="rollouts-list" class="scroll-cap"><div class="c-muted">Click Refresh.</div></div>
         </div>

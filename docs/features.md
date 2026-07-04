@@ -364,6 +364,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Staged / ring rollouts | Canary → pilot → broad upgrade/script push, verified per ring, auto/manual promote *(v3.4.2)* |
 | Health-gated rollouts | Auto-halt + `rollout_halted` if a host's health drops during verify; pauses, never auto-rolls-back *(v4.10.0)* |
 | Rollout rollback | One-click rollback for a staged script rollout *(v5.0.0)* |
+| Rolling reboot orchestrator | Reboot a scope in dependency-ordered waves (leaves first, upstreams last, from each device's `depends_on`; cycle-safe), health-gated + verified per wave via the rollout engine. `POST /api/rollouts/reboot-plan` + `action: reboot` *(v5.8.0)* |
 | Fleet posture reports | One report binding patches/CVEs/health/compliance; JSON/CSV or scheduled email *(v3.4.1)* |
 | Custom report builder | Pick sections (devices/health/attention/patches/CVE/SLA/compliance), JSON/CSV, download or schedule *(v4.0.0)* |
 | Per-site (customer) reports | Same report scoped to one site; RBAC-scoped *(v4.10.0)* |

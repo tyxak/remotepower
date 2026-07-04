@@ -1389,5 +1389,78 @@ class TestMonitorImporters(_HandlerBase):
         self.assertEqual(self.cap['s'], 400)
 
 
+class TestRollingReboot(_HandlerBase):
+    """W2-36: dependency-ordered reboot wave planner + plan endpoint."""
+
+    def test_leaves_first_upstreams_last(self):
+        # web depends_on db; db depends_on nothing. web is a leaf (nothing
+        # depends on it) → wave 0; db (an upstream) → wave 1.
+        devices = {
+            'web': {'depends_on': ['db']},
+            'db':  {'depends_on': []},
+        }
+        waves = api._reboot_wave_plan(['web', 'db'], devices)
+        self.assertEqual(waves, [['web'], ['db']])
+
+    def test_three_tiers(self):
+        devices = {
+            'app': {'depends_on': ['api']},
+            'api': {'depends_on': ['db']},
+            'db':  {'depends_on': []},
+        }
+        waves = api._reboot_wave_plan(['app', 'api', 'db'], devices)
+        self.assertEqual(waves, [['app'], ['api'], ['db']])
+
+    def test_parallel_leaves_same_wave(self):
+        devices = {
+            'w1': {'depends_on': ['db']}, 'w2': {'depends_on': ['db']},
+            'db': {'depends_on': []},
+        }
+        waves = api._reboot_wave_plan(['w1', 'w2', 'db'], devices)
+        self.assertEqual(waves[0], ['w1', 'w2'])   # both leaves first (sorted)
+        self.assertEqual(waves[1], ['db'])
+
+    def test_out_of_scope_deps_ignored(self):
+        devices = {'web': {'depends_on': ['db']}, 'db': {'depends_on': []}}
+        # only web in scope → single wave (db not in scope, so web has no
+        # in-scope dependents)
+        waves = api._reboot_wave_plan(['web'], devices)
+        self.assertEqual(waves, [['web']])
+
+    def test_cycle_terminates(self):
+        devices = {'a': {'depends_on': ['b']}, 'b': {'depends_on': ['a']}}
+        waves = api._reboot_wave_plan(['a', 'b'], devices)
+        # cycle → all dumped into one final wave, no infinite loop
+        self.assertEqual(sorted(sum(waves, [])), ['a', 'b'])
+
+    def test_plan_endpoint(self):
+        api.save(api.DEVICES_FILE, {
+            'web': {'name': 'web', 'depends_on': ['db']},
+            'db':  {'name': 'db', 'depends_on': []},
+            'sw':  {'name': 'switch', 'agentless': True}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'scope': {'type': 'all'}}
+        r = self.call(api.handle_reboot_plan)
+        self.assertEqual(r['device_count'], 2)   # agentless excluded
+        self.assertEqual([ring['selector']['ids'] for ring in r['rings']],
+                         [['web'], ['db']])
+
+    def test_reboot_action_accepted(self):
+        # provisioning_handlers.handle_rollouts_create accepts action='reboot'
+        self._rf = api.ROLLOUTS_FILE
+        api.ROLLOUTS_FILE = self.d / 'rollouts.json'
+        try:
+            api.save(api.DEVICES_FILE, {'d1': {'name': 'd1', 'group': 'prod'}})
+            api.method = lambda: 'POST'
+            api.get_json_body = lambda: {
+                'name': 'rr', 'action': 'reboot',
+                'rings': [{'name': 'w1', 'selector': {'type': 'group', 'value': 'prod'}}]}
+            r = self.call(api.handle_rollouts_create)
+            self.assertTrue(r['ok'])
+            self.assertEqual(r['rollout']['action'], 'reboot')
+        finally:
+            api.ROLLOUTS_FILE = self._rf
+
+
 if __name__ == '__main__':
     unittest.main()

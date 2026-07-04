@@ -156,6 +156,8 @@ def _rollout_dispatch_ring(roll, idx, devices, cmds):
                   else f'exec:{A._UPGRADE_CMD}')
     elif roll.get('action') == 'self-update':
         queued = 'update'   # the agent's own hash-verified self-update command
+    elif roll.get('action') == 'reboot':
+        queued = 'reboot'   # W2-36: rolling reboot orchestrator (dependency-ordered waves)
     else:
         queued = f'exec:{roll.get("_script_body", "")}'
     dispatched = []
@@ -704,8 +706,8 @@ def handle_rollouts_create():
     if not name:
         A.respond(400, {'error': 'name required'})
     action = body.get('action') or 'upgrade'
-    if action not in ('upgrade', 'script', 'self-update'):
-        A.respond(400, {'error': 'action must be upgrade, script or self-update'})
+    if action not in ('upgrade', 'script', 'self-update', 'reboot'):
+        A.respond(400, {'error': 'action must be upgrade, script, self-update or reboot'})
     script_id = ''
     rollback_script_id = ''
     if action == 'script':

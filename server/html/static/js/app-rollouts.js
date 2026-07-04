@@ -131,3 +131,40 @@ async function deleteRollout(id) {
   if (r?.ok) { toast('Rollout deleted', 'success'); loadRollouts(); }
   else toast(r?.error || 'Failed to delete', 'error');
 }
+
+// W2-36: rolling reboot orchestrator.
+let _rrRings = null;
+function rrScopeChange() {
+  const t = document.getElementById('rr-scope-type')?.value;
+  document.getElementById('rr-scope-value')?.classList.toggle('hidden', t === 'all');
+}
+function _rrScope() {
+  const t = document.getElementById('rr-scope-type')?.value || 'all';
+  if (t === 'all') return { type: 'all' };
+  const v = (document.getElementById('rr-scope-value')?.value || '').trim();
+  return t === 'ids' ? { type: 'ids', ids: v.split(/[\s,]+/).filter(Boolean) }
+                     : { type: t, value: v };
+}
+async function previewRebootPlan() {
+  const box = document.getElementById('rr-plan');
+  const r = await api('POST', '/rollouts/reboot-plan', { scope: _rrScope() });
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); if (box) box.textContent = (r && r.error) || 'Failed'; return; }
+  _rrRings = r.rings;
+  box.innerHTML = `<div class="fw-500 mb-6">${r.device_count} device(s) → ${r.rings.length} wave(s)</div>`
+    + r.rings.map(w => `<div class="mb-4"><span class="fw-500 fs-13">${escHtml(w.name)}</span> <span class="meta-sm-nm">${w.devices.map(d => escHtml(d.name)).join(', ')}</span></div>`).join('')
+    + `<div class="row-6 mt-8"><button class="btn-primary" data-action="createRebootRollout">Create rolling-reboot rollout</button></div>`;
+}
+async function createRebootRollout() {
+  if (!_rrRings || !_rrRings.length) { toast('Preview the waves first', 'error'); return; }
+  if (!await uiConfirm(`Create a rolling reboot across ${_rrRings.length} wave(s)? It starts as a draft you release wave by wave (or auto-promote).`)) return;
+  const rings = _rrRings.map(w => ({ name: w.name, selector: w.selector }));
+  const body = {
+    name: 'Rolling reboot ' + new Date().toISOString().slice(0, 16).replace('T', ' '),
+    action: 'reboot', rings,
+    auto_promote: !!document.getElementById('rr-auto-promote')?.checked,
+    health_gate: { enabled: !!document.getElementById('rr-health-gate')?.checked, threshold: 70 },
+  };
+  const r = await api('POST', '/rollouts', body);
+  if (r && r.ok) { toast('Rolling-reboot rollout created', 'success'); _rrRings = null; document.getElementById('rr-plan').innerHTML = ''; loadRollouts(); }
+  else toast(r?.error || 'Failed', 'error');
+}

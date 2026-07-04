@@ -46,6 +46,8 @@
     'Incidents':             { zh: '事件', hi: 'घटनाएँ', es: 'Incidencias', ar: 'الحوادث' },
     'Remediation campaigns': { zh: '修复行动', hi: 'उपचार अभियान', es: 'Campañas de remediación', ar: 'حملات المعالجة' },
     'Import from Nagios / Uptime Kuma / Zabbix': { zh: '从 Nagios / Uptime Kuma / Zabbix 导入', hi: 'Nagios / Uptime Kuma / Zabbix से आयात करें', es: 'Importar desde Nagios / Uptime Kuma / Zabbix', ar: 'استيراد من Nagios / Uptime Kuma / Zabbix' },
+    'Rolling reboot':        { zh: '滚动重启', hi: 'रोलिंग रीबूट', es: 'Reinicio progresivo', ar: 'إعادة تشغيل متدرجة' },
+    'Preview waves':         { zh: '预览批次', hi: 'वेव्स पूर्वावलोकन', es: 'Previsualizar oleadas', ar: 'معاينة الموجات' },
     'Create campaign':       { zh: '创建行动', hi: 'अभियान बनाएँ', es: 'Crear campaña', ar: 'إنشاء حملة' },
     'Post incident':         { zh: '发布事件', hi: 'घटना पोस्ट करें', es: 'Publicar incidencia', ar: 'نشر حادث' },
     'Save subscribers':      { zh: '保存订阅者', hi: 'सब्सक्राइबर सहेजें', es: 'Guardar suscriptores', ar: 'حفظ المشتركين' },
