@@ -3964,6 +3964,9 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     # W1-31: customers click the CSAT survey link from arbitrary IPs; the HMAC
     # signature is the capability, so exempt it from the operator IP allowlist.
     '/api/tickets/csat',
+    # W1-21: operators click alert ack/resolve email links from anywhere (phone,
+    # home) — the HMAC signature is the capability. Exempt from the IP allowlist.
+    '/api/alerts/act',
 )
 
 
@@ -5869,6 +5872,56 @@ def _smtp_recipients_list(cfg):
     return [p.strip() for p in parts if p and '@' in p]
 
 
+def _alert_act_sig(alert_id, op):
+    """W1-21: HMAC tag authorizing a one-click alert action from an email link.
+    Namespaced 'alertact:' so it can't be replayed as another signed artefact.
+    Reuses the per-install export key."""
+    msg = f'alertact:{alert_id}:{op}'.encode()
+    return hmac.new(_export_signing_key(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def _find_open_alert_id(event, payload):
+    """Find the id of the OPEN alert matching this just-fired (event, payload).
+    _record_alert ran immediately before the email send, so the coalesced open
+    alert exists. Matches on the same identity _record_alert coalesces by."""
+    try:
+        summary = {k: (payload or {}).get(k) for k in _ALERT_IDENTITY_FIELDS
+                   if (payload or {}).get(k) is not None}
+        want = _alert_identity(event, summary, (payload or {}).get('device_id'))
+        store = load(ALERTS_FILE) or {}
+        for a in reversed(store.get('alerts', []) if isinstance(store, dict) else []):
+            if a.get('resolved_at') or a.get('event') != event:
+                continue
+            asum = a.get('payload') or {}
+            if _alert_identity(event, asum, a.get('device_id')) == want:
+                return a.get('id')
+    except Exception:
+        return None
+    return None
+
+
+def _alert_email_ack_block(event, payload, cfg):
+    """W1-21: plain-text 'Acknowledge / Resolve' link block for an alert email,
+    or '' when disabled / no base URL / no open alert. Links are signed +
+    single-capability (the HMAC is the auth)."""
+    if not cfg.get('alert_email_ack_links'):
+        return ''
+    try:
+        base = _request_base_url(os.environ)
+    except Exception:
+        return ''
+    host = base.split('://', 1)[-1]
+    if not host or host.startswith('localhost'):
+        return ''      # no externally-reachable URL to link to
+    aid = _find_open_alert_id(event, payload)
+    if not aid:
+        return ''
+    q = urllib.parse.quote
+    ack = f'{base}/api/alerts/act?a={q(aid)}&op=ack&s={_alert_act_sig(aid, "ack")}'
+    res = f'{base}/api/alerts/act?a={q(aid)}&op=resolve&s={_alert_act_sig(aid, "resolve")}'
+    return f'\n\nAcknowledge: {ack}\nResolve: {res}'
+
+
 def _send_event_email(event, payload, message, cfg, server_name):
     """Send the email channel for an event. Failures are logged, never raised."""
     recipients = _smtp_recipients_list(cfg)
@@ -5876,6 +5929,7 @@ def _send_event_email(event, payload, message, cfg, server_name):
         return
     try:
         subject, body = smtp_notifier.render_event_email(server_name, event, payload, message)
+        body += _alert_email_ack_block(event, payload, cfg)   # W1-21 (no-op unless enabled)
         # v5.4.1 (H4): branded HTML alternative; plain text stays as the fallback.
         smtp_notifier.send_email(cfg, recipients, subject, body,
                                  html_body=smtp_notifier.brand_html(cfg, subject, body))
@@ -17623,6 +17677,7 @@ def handle_config_get():
     safe.setdefault('apikey_default_expiry_days',  0)
     safe.setdefault('max_sessions_per_user',       0)
     safe.setdefault('viewers_can_ack_alerts', True)
+    safe.setdefault('alert_email_ack_links', False)   # W1-21: signed ack links in emails
     safe.setdefault('ip_allowlist_enabled',   False)
     # v3.7.0: audit forwarding — surface config + a *_set flag, never the token.
     safe.setdefault('audit_forward_enabled', False)
@@ -19080,6 +19135,9 @@ def handle_config_save():
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
+    # W1-21: append signed one-click ack/resolve links to alert emails.
+    if 'alert_email_ack_links' in body:
+        cfg['alert_email_ack_links'] = bool(body['alert_email_ack_links'])
     # v4.1.0 (#56): when False, the UI hides the optional "comment" prompt on
     # ack. The backend always accepts an `ack_note` either way (this only
     # governs whether operators are prompted for one).
@@ -39347,6 +39405,85 @@ def handle_alert_unack(alert_id):
     respond(200, {'ok': True})
 
 
+def _public_action_page(title, message):
+    """Emit a tiny self-contained sandboxed HTML page for a public one-click
+    action endpoint (alert ack/resolve email links). Exits the process."""
+    import html as _h
+    doc = (
+        '<!doctype html><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>' + _h.escape(title) + '</title>'
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+        'max-width:480px;margin:12vh auto;padding:24px;text-align:center;color:#16181d">'
+        '<div style="font-size:20px;font-weight:700;margin-bottom:10px">'
+        + _h.escape(title) + '</div>'
+        '<div style="font-size:15px;line-height:1.6;color:#41474f">'
+        + _h.escape(message) + '</div></div>'
+    ).encode('utf-8')
+    print("Status: 200 OK")
+    print("Content-Type: text/html; charset=utf-8")
+    print(f"Content-Length: {len(doc)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox;")
+    print("X-Frame-Options: DENY")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(doc)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_alert_act():
+    """GET /api/alerts/act?a=&op=ack|resolve&s= — PUBLIC one-click alert action
+    from a signed email link (W1-21). No login; the HMAC signature is the
+    capability. Idempotent: acking/resolving an already-closed alert just reports
+    the current state. Renders a tiny HTML page (opened in a browser)."""
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    aid = (qs.get('a') or [''])[0]
+    op = (qs.get('op') or [''])[0]
+    sig = (qs.get('s') or [''])[0]
+    if op not in ('ack', 'resolve') or not aid:
+        _public_action_page('Invalid link', 'This action link is not valid.')
+    if not hmac.compare_digest(sig, _alert_act_sig(aid, op)):
+        _public_action_page('Invalid link', 'This action link is not valid or has expired.')
+    now = int(time.time())
+    found = False
+    state = ''
+    with _LockedUpdate(ALERTS_FILE) as store:
+        a = next((x for x in store.get('alerts', []) if x.get('id') == aid), None)
+        if a:
+            found = True
+            if a.get('resolved_at'):
+                state = 'resolved'
+            elif op == 'ack':
+                if a.get('acknowledged_at'):
+                    state = 'acked'
+                else:
+                    a['acknowledged_by'] = 'email-link'
+                    a['acknowledged_at'] = now
+                    state = 'ack-done'
+            else:   # resolve
+                a['resolved_by'] = 'email-link'
+                a['resolved_at'] = now
+                if not a.get('acknowledged_at'):
+                    a['acknowledged_by'] = 'email-link'
+                    a['acknowledged_at'] = now
+                state = 'resolve-done'
+    if not found:
+        _public_action_page('Not found', 'That alert no longer exists.')
+    audit_log('email-link', 'alert_' + op, f'id={aid} via=email state={state}')
+    _MSG = {
+        'resolved':      'This alert is already resolved.',
+        'acked':         'This alert was already acknowledged.',
+        'ack-done':      'Alert acknowledged. Thank you.',
+        'resolve-done':  'Alert resolved. Thank you.',
+    }
+    _public_action_page('Done', _MSG.get(state, 'Done.'))
+
+
 def _alert_resolution_how(a):
     """Classify how a resolved alert was closed (for the MTTR timeline)."""
     rb = a.get('resolved_by')
@@ -50118,6 +50255,7 @@ def _build_exact_routes():
         ('POST', '/api/ai/test'): handle_ai_test,
         ('DELETE', '/api/alerts'): handle_alerts_clear,
         ('GET', '/api/alerts'): handle_alerts_list,
+        ('GET', '/api/alerts/act'): handle_alert_act,   # W1-21 PUBLIC (HMAC-signed email link)
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

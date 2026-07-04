@@ -2901,6 +2901,9 @@ async function loadSettings() {
   // v4.1.0 (#56): prompt for optional ack comment (default on)
   const _ace = document.getElementById('cfg-ack-comment-enabled');
   if (_ace) _ace.checked = data.ack_comment_enabled !== false;
+  // W1-21: signed ack/resolve links in alert emails (default off)
+  const _aal = document.getElementById('cfg-alert-ack-links');
+  if (_aal) _aal.checked = !!data.alert_email_ack_links;
 
   // v3.11.0: scheduled posture digest
   const _pde = document.getElementById('cfg-posture-digest-enabled');
@@ -3345,6 +3348,8 @@ async function saveSettings(btn) {
 
     // v4.1.0 (#56): prompt for optional ack comment (default on)
     ack_comment_enabled:       (document.getElementById('cfg-ack-comment-enabled') || {}).checked ?? true,
+    // W1-21: signed ack/resolve links in alert emails (default off)
+    alert_email_ack_links:     !!(document.getElementById('cfg-alert-ack-links') || {}).checked,
 
     // v3.11.0: scheduled posture digest
     posture_digest_enabled:    (document.getElementById('cfg-posture-digest-enabled') || {}).checked || false,

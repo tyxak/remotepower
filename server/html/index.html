@@ -1580,6 +1580,7 @@
               <div class="meta-sm">Comma-, semicolon- or whitespace-separated list. All listed addresses receive every enabled event.</div>
               <div class="meta-sm">Tip: add a self-hosted help-desk's inbound address (osTicket, Zammad, Request Tracker, FreeScout) here to turn alerts into tickets — no extra setup. See <a href="docs/webhooks.md" class="c-accent">Notifications docs</a>.</div>
             </div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-alert-ack-links"> Add one-click <strong>Acknowledge / Resolve</strong> links to alert emails</label><span class="hint">Signed, single-capability links so an operator can ack or resolve straight from the email — no login. Uses this request's server hostname for the link; leave off if the server isn't reachable at that address.</span></div>
 
             <div class="isl-38">
               <input type="email" id="cfg-smtp-test-recipient" class="form-input isl-39" placeholder="Send a test to (optional override)" aria-label="Send a test to (optional override)">

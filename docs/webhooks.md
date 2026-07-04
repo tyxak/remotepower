@@ -176,6 +176,25 @@ to a destination, which is handy after a receiver outage.
 
 Every successful POST is logged to `webhook_log.json` with the format suffix: `OK (200) [pushover]`, `HTTP 400 [discord]: Bad Request`, etc. Visible in Settings → Notifications → Recent deliveries, and aggregated for the success-rate stat on the Server status page.
 
+## One-click ack from alert emails
+
+Turn on **Settings → Notifications → Add one-click Acknowledge / Resolve links
+to alert emails** (`alert_email_ack_links`, default off) and every alert email
+gains two links:
+
+```
+Acknowledge: https://<server>/api/alerts/act?a=<id>&op=ack&s=<hmac>
+Resolve:     https://<server>/api/alerts/act?a=<id>&op=resolve&s=<hmac>
+```
+
+The `s` parameter is an HMAC (per-install key) binding the alert id and the
+operation — it is the capability, so clicking acks or resolves the alert with
+**no login**, from any device or network (the endpoint is exempt from the IP
+allowlist). The action is idempotent (clicking a link for an
+already-resolved alert just reports its state) and audit-logged as actor
+`email-link`. The link uses the server hostname from the request that sent the
+mail, so leave the toggle off if your server isn't reachable at that address.
+
 ## Agent lifecycle events
 
 Two events fire around an agent's lifecycle (both routable to any destination and

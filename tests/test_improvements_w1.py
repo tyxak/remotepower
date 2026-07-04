@@ -794,5 +794,79 @@ class TestTicketCsat(_HandlerBase):
         self.assertIn('/api/tickets/csat', api._IP_ALLOWLIST_EXEMPT_PATHS)
 
 
+class TestAlertEmailAckLinks(_HandlerBase):
+    """W1-21: signed one-click alert ack/resolve email links + public endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'id': 'a-1', 'event': 'metric_critical', 'device_id': 'd1',
+             'payload': {'device_id': 'd1', 'metric': 'disk'}}]})
+        self.pages = []
+        self._real_page = api._public_action_page
+
+        def _fake(title, msg):
+            self.pages.append((title, msg))
+            raise api.HTTPError(200, None)
+        api._public_action_page = _fake
+
+    def tearDown(self):
+        api._public_action_page = self._real_page
+        super().tearDown()
+
+    def _alert(self):
+        return (api.load(api.ALERTS_FILE) or {}).get('alerts')[0]
+
+    def _hit(self, a, op, sig):
+        import os as _os
+        _os.environ['QUERY_STRING'] = f'a={a}&op={op}&s={sig}'
+        api.method = lambda: 'GET'
+        self.call(api.handle_alert_act)
+
+    def test_sig_binds_id_and_op(self):
+        s_ack = api._alert_act_sig('a-1', 'ack')
+        self.assertNotEqual(s_ack, api._alert_act_sig('a-1', 'resolve'))
+        self.assertNotEqual(s_ack, api._alert_act_sig('a-2', 'ack'))
+        self.assertEqual(s_ack, api._alert_act_sig('a-1', 'ack'))
+
+    def test_ack_via_link(self):
+        self._hit('a-1', 'ack', api._alert_act_sig('a-1', 'ack'))
+        self.assertEqual(self._alert()['acknowledged_by'], 'email-link')
+        self.assertIn('acknowledged', self.pages[-1][1].lower())
+
+    def test_resolve_via_link_implies_ack(self):
+        self._hit('a-1', 'resolve', api._alert_act_sig('a-1', 'resolve'))
+        a = self._alert()
+        self.assertTrue(a['resolved_at'])
+        self.assertTrue(a['acknowledged_at'])   # resolve implies ack
+
+    def test_bad_sig_rejected(self):
+        self._hit('a-1', 'ack', 'deadbeef')
+        self.assertIsNone(self._alert().get('acknowledged_at'))
+        self.assertIn('Invalid', self.pages[-1][0])
+
+    def test_bad_op_rejected(self):
+        self._hit('a-1', 'delete', api._alert_act_sig('a-1', 'delete'))
+        self.assertIn('Invalid', self.pages[-1][0])
+
+    def test_ack_block_appended_only_when_enabled(self):
+        import os as _os
+        _os.environ['HTTP_HOST'] = 'rp.example.com'
+        # disabled → no block
+        self.assertEqual(api._alert_email_ack_block(
+            'metric_critical', {'device_id': 'd1', 'metric': 'disk'},
+            {'alert_email_ack_links': False}), '')
+        # enabled → finds the open alert + emits both links
+        block = api._alert_email_ack_block(
+            'metric_critical', {'device_id': 'd1', 'metric': 'disk'},
+            {'alert_email_ack_links': True})
+        self.assertIn('op=ack', block)
+        self.assertIn('op=resolve', block)
+        self.assertIn(api._alert_act_sig('a-1', 'ack'), block)
+
+    def test_exempt_from_ip_allowlist(self):
+        self.assertIn('/api/alerts/act', api._IP_ALLOWLIST_EXEMPT_PATHS)
+
+
 if __name__ == '__main__':
     unittest.main()
