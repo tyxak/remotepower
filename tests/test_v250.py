@@ -212,7 +212,7 @@ class TestHeartbeatWiring(unittest.TestCase):
         # v3.12.0: widened 50000→60000 — handle_heartbeat grew (single-row
         # device update + mount-issue sanitisation), pushing the strings this
         # test greps for past the old slice boundary.
-        cls.hb = cls.api[idx: idx + 90000]   # widened (v4.9.0/v4.10.0 ingests; v5.0.1 →78002; v5.5.0 failed_unit edge-trigger pushed 'custom_scripts' to ~84220)
+        cls.hb = cls.api[idx: idx + 100000]  # widened (v4.9.0/v4.10.0 ingests; v5.0.1 →78002; v5.5.0 failed_unit edge-trigger pushed 'custom_scripts' to ~84220; v5.8.0 W3 agent-wave ingests pushed it further)
 
     def test_custom_script_results_ingested(self):
         self.assertIn('custom_script_results', self.hb)
@@ -285,7 +285,7 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 34000]
+        block = self.agent[idx: idx + 40000]   # widened: v5.8.0 W3 agent-wave response handling
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):
