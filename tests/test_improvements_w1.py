@@ -221,5 +221,61 @@ class TestHttpMonitorAssertions(_HandlerBase):
         self.assertIn('not JSON', r['detail'])
 
 
+class TestCannedTicketReplies(_HandlerBase):
+    """W1-26: GET/POST /api/tickets/templates (canned replies)."""
+
+    def _post(self, templates):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'templates': templates}
+        return self.call(api.handle_ticket_templates)
+
+    def _get(self):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_ticket_templates)
+
+    def test_disabled_404(self):
+        api.save(api.CONFIG_FILE, {'tickets_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._get()
+        self.assertEqual(self.cap['s'], 404)
+
+    def test_roundtrip_sanitize_and_cap(self):
+        api.save(api.CONFIG_FILE, {'tickets_enabled': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        r = self._post([
+            {'name': '  Resolved — confirm  ', 'body': 'Hi,\n\nwe believe {ticket_id} is resolved.'},
+            {'name': '', 'body': 'nameless is dropped'},
+            {'name': 'empty body dropped', 'body': '   '},
+            'not-a-dict-is-dropped',
+        ])
+        self.assertEqual(self.cap['s'], 200)
+        self.assertEqual(len(r['templates']), 1)
+        self.assertEqual(r['templates'][0]['name'], 'Resolved — confirm')
+        self.assertIn('{ticket_id}', r['templates'][0]['body'])
+        # newlines survive in the body (multi-line snippets)
+        self.assertIn('\n', r['templates'][0]['body'])
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        g = self._get()
+        self.assertEqual(g['templates'], r['templates'])
+
+    def test_list_required_and_size_caps(self):
+        api.save(api.CONFIG_FILE, {'tickets_enabled': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self._post('nope')
+        self.assertEqual(self.cap['s'], 400)
+        r = self._post([{'name': f'n{i}', 'body': 'b'} for i in range(80)])
+        self.assertEqual(len(r['templates']), 50)   # hard cap
+        r = self._post([{'name': 'x' * 500, 'body': 'y' * 9000}])
+        self.assertLessEqual(len(r['templates'][0]['name']), 80)
+        self.assertLessEqual(len(r['templates'][0]['body']), 4000)
+
+    def test_route_registered(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route('GET', '/api/tickets/templates')[0],
+                         'handle_ticket_templates')
+        self.assertEqual(resolve_route('POST', '/api/tickets/templates')[0],
+                         'handle_ticket_templates')
+
+
 if __name__ == '__main__':
     unittest.main()

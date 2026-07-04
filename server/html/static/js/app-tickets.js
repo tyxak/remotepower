@@ -198,6 +198,11 @@ async function openTicket(tid) {
   const data = await api('GET', '/tickets/' + encodeURIComponent(tid));
   if (!data || !data.ticket) { toast('Failed to load ticket', 'error'); return; }
   const t = data.ticket;
+  // W1-26: canned replies for the composer picker (fetched once per session).
+  if (window._tkTemplates == null) {
+    try { const tr = await api('GET', '/tickets/templates'); window._tkTemplates = (tr && tr.templates) || []; }
+    catch (e) { window._tkTemplates = []; }
+  }
   window._tkOutAttach = [];          // v5.4.1: outbound attachments staged for the next reply
   window._tkLastDetail = t;          // v5.4.1: snapshot for the "View email thread" window
   document.getElementById('tk-detail-title').textContent = `${_tkNo(t.number)} — ${t.subject || ''}`;
@@ -290,6 +295,7 @@ async function openTicket(tid) {
     <div class="scroll-cap" id="tk-conversation">${msgs}</div>
     <div class="mt-12">
       <textarea id="tk-d-msg" class="form-input" rows="3" maxlength="8000" placeholder="Add a note or reply…"></textarea>
+      ${_tkTplPickerHtml()}
       <div class="row-6-center mt-6">
         <input type="file" id="tk-att-input" class="d-none" multiple aria-label="Attach files to this reply">
         <button class="btn-icon cell-sm" data-action-btn="_tkAttachPick" title="Attach files to the email reply (max 15 MB each)">${_icon('paperclip', 13)} Attach files</button>
@@ -653,6 +659,83 @@ async function saveTicketAutoreply() {
   const res = document.getElementById('tkar-result');
   if (r?.ok) { toast('Auto-reply saved', 'success'); if (res) res.textContent = 'Saved.'; }
   else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
+}
+// W1-26: canned replies — reusable composer snippets with insert-time
+// {ticket_id} / {customer} / {assignee} placeholder substitution.
+function _tkTplPickerHtml() {
+  const tpls = window._tkTemplates || [];
+  if (!tpls.length) return '';
+  const opts = tpls.map((t, i) => `<option value="${i}">${escHtml(t.name || '')}</option>`).join('');
+  return `<div class="row-6-center mt-6"><select id="tk-tpl-pick" class="form-input" data-change="_tkInsertTemplate" aria-label="Insert canned reply"><option value="">Insert canned reply…</option>${opts}</select></div>`;
+}
+function _tkInsertTemplate() {
+  const sel = document.getElementById('tk-tpl-pick');
+  const box = document.getElementById('tk-d-msg');
+  const idx = sel ? parseInt(sel.value, 10) : NaN;
+  const tpl = (window._tkTemplates || [])[idx];
+  if (!box || !tpl) return;
+  const t = window._tkLastDetail || {};
+  const text = String(tpl.body || '')
+    .replaceAll('{ticket_id}', _tkNo(t.number))
+    .replaceAll('{customer}', t.to_email || '')
+    .replaceAll('{assignee}', t.assignee || '');
+  box.value = box.value ? (box.value.replace(/\s+$/, '') + '\n\n' + text) : text;
+  if (sel) sel.value = '';
+  box.focus();
+}
+async function loadTicketTemplates() {
+  const r = await api('GET', '/tickets/templates');
+  window._tkTemplates = (r && r.templates) || [];
+  _tkRenderTplList();
+}
+function _tkRenderTplList() {
+  const box = document.getElementById('tk-tpl-list');
+  if (!box) return;
+  const tpls = window._tkTemplates || [];
+  if (!tpls.length) { box.innerHTML = '<div class="meta-sm-nm">No canned replies yet.</div>'; return; }
+  box.innerHTML = tpls.map((t, i) =>
+    `<div class="row-6-center mb-4"><span class="fw-500 fs-13">${escHtml(t.name || '')}</span>`
+    + `<span class="meta-sm-nm ellipsis flex-1">${escHtml((t.body || '').slice(0, 80))}</span>`
+    + `<button class="btn-icon cell-sm" data-action="editTicketTemplate" data-arg="${i}">Edit</button>`
+    + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteTicketTemplate" data-arg="${i}">Delete</button></div>`).join('');
+}
+async function _tkPostTemplates(tpls, okMsg) {
+  const r = await api('POST', '/tickets/templates', { templates: tpls });
+  const res = document.getElementById('tk-tpl-result');
+  if (r?.ok) {
+    window._tkTemplates = r.templates || tpls;
+    _tkRenderTplList();
+    toast(okMsg, 'success');
+    if (res) res.textContent = '';
+  } else {
+    toast(r?.error || 'Failed', 'error');
+    if (res) res.textContent = r?.error || 'Failed';
+  }
+}
+function saveTicketTemplate() {
+  const name = (document.getElementById('tk-tpl-name')?.value || '').trim();
+  const body = document.getElementById('tk-tpl-body')?.value || '';
+  if (!name || !body.trim()) { toast('Name and reply text are required', 'error'); return; }
+  const tpls = [...(window._tkTemplates || [])];
+  const i = tpls.findIndex(t => (t.name || '').toLowerCase() === name.toLowerCase());
+  if (i >= 0) tpls[i] = { name, body }; else tpls.push({ name, body });
+  _tkPostTemplates(tpls, i >= 0 ? 'Canned reply updated' : 'Canned reply added').then(() => {
+    const n = document.getElementById('tk-tpl-name'); if (n) n.value = '';
+    const b = document.getElementById('tk-tpl-body'); if (b) b.value = '';
+  });
+}
+function editTicketTemplate(i) {
+  const t = (window._tkTemplates || [])[parseInt(i, 10)];
+  if (!t) return;
+  const n = document.getElementById('tk-tpl-name'); if (n) n.value = t.name || '';
+  const b = document.getElementById('tk-tpl-body'); if (b) { b.value = t.body || ''; b.focus(); }
+}
+function deleteTicketTemplate(i) {
+  const tpls = [...(window._tkTemplates || [])];
+  const idx = parseInt(i, 10);
+  if (isNaN(idx) || idx < 0 || idx >= tpls.length) return;
+  tpls.splice(idx, 1);
+  _tkPostTemplates(tpls, 'Canned reply deleted');
 }
 async function loadTicketSla() {
   const r = await api('GET', '/tickets/sla');

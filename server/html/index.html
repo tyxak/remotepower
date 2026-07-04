@@ -2322,6 +2322,14 @@
               <div class="form-group"><label class="form-label" for="tksla-4">P4 Low (hours)</label><input type="number" id="tksla-4" class="form-input" min="0.1" step="0.5" value="72"></div>
             </div>
             <div class="row-6 mt-8"><button class="btn-primary" data-action="saveTicketSla">Save SLA targets</button></div>
+
+            <div class="section-title mt-16">Canned replies</div>
+            <div class="meta-sm-nm mt-4">Reusable reply snippets for the ticket composer. Placeholders fill in when inserted: <code>{ticket_id}</code> (the #RP number), <code>{customer}</code> (the contact address), <code>{assignee}</code>.</div>
+            <div id="tk-tpl-list" class="scroll-cap-sm mt-8"></div>
+            <div class="settings-row"><label class="form-label" for="tk-tpl-name">Name</label><input type="text" id="tk-tpl-name" class="form-input" maxlength="80" placeholder="Resolved — please confirm"></div>
+            <div class="settings-row"><label class="form-label" for="tk-tpl-body">Reply text</label><textarea id="tk-tpl-body" class="form-input" rows="4" maxlength="4000" placeholder="Hi, we believe {ticket_id} is resolved…"></textarea></div>
+            <div class="row-6"><button class="btn-primary" data-action="saveTicketTemplate">Save canned reply</button></div>
+            <div id="tk-tpl-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">

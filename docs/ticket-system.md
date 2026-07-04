@@ -93,6 +93,23 @@ Each ticket keeps a chronological thread. Outbound messages (yours) and inbound
 replies (the customer's) are shown as distinct chat bubbles, alongside internal
 notes that are never emailed. The thread auto-scrolls to the newest message.
 
+## Canned replies
+
+Reusable reply snippets for answers you type over and over ("we're looking into
+it", "resolved — please confirm"). Admins manage them under **Settings →
+Tickets → Canned replies** (saving with an existing name updates it); everyone
+gets an **Insert canned reply…** picker above the composer on every ticket.
+Placeholders substitute at insert time:
+
+| Placeholder | Becomes |
+|---|---|
+| `{ticket_id}` | The ticket's `#RP…` number |
+| `{customer}` | The ticket's contact email address |
+| `{assignee}` | The current assignee |
+
+The inserted text is normal composer text — edit it freely before sending.
+`GET/POST /api/tickets/templates`.
+
 ## A note on privacy
 
 Everything here stays on your server. Ticket contents, email and contacts live in

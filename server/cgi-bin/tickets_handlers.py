@@ -290,6 +290,41 @@ def handle_ticket_sla():
     A.respond(200, {'ok': True, 'sla': out})
 
 
+def handle_ticket_templates():
+    """GET/POST /api/tickets/templates — canned replies (W1-26).
+
+    Config key ``ticket_templates``: [{'name', 'body'}], ≤50 entries.
+    GET is any authenticated user (operators insert them while composing);
+    POST replaces the whole list, admin-only. The {ticket_id} / {customer} /
+    {assignee} placeholders substitute CLIENT-side at insert time, so the
+    stored body is plain text."""
+    if not A._tickets_enabled():
+        A.respond(404, {'error': 'ticket system is disabled'})
+    if A.method() == 'GET':
+        A.require_auth()
+        tpls = A._config_ro().get('ticket_templates') or []
+        A.respond(200, {'ok': True, 'templates': tpls})
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    actor = A.require_admin_auth()
+    body = A.get_json_obj()
+    raw = body.get('templates')
+    if not isinstance(raw, list):
+        A.respond(400, {'error': 'templates must be a list'})
+    tpls = []
+    for t in raw[:50]:
+        if not isinstance(t, dict):
+            continue
+        name = A._no_ctrl(A._sanitize_str(str(t.get('name', '')), 80)).strip()
+        tbody = A._sanitize_str(str(t.get('body', '')), 4000)
+        if name and tbody.strip():
+            tpls.append({'name': name, 'body': tbody})
+    with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+        cfg['ticket_templates'] = tpls
+    A.audit_log(actor, 'ticket_templates_save', detail=f'{len(tpls)} templates')
+    A.respond(200, {'ok': True, 'templates': tpls})
+
+
 def handle_ticket_update(tid):
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})

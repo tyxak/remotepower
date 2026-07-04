@@ -729,6 +729,7 @@ for _tk_name in (
         'handle_tickets', 'handle_ticket_get', 'handle_ticket_sla', 'handle_ticket_update',
         'handle_ticket_delete', 'handle_ticket_hours', 'handle_device_tickets', 'handle_ticket_attachment',
         'handle_ticket_autoreply', 'handle_ticket_imap_get', 'handle_ticket_imap_save', 'handle_ticket_imap_test',
+        'handle_ticket_templates',
         'handle_ticket_send_email', '_ticket_contact_email', '_ticket_autoreply_cfg', '_send_ticket_autoreply',
         '_ticket_imap_cfg', '_ticket_email_text', '_ticket_store_attachment', '_fetch_ticket_replies',
         '_open_ticket_device_ids', '_dashboard_tickets', 'run_ticket_imap_if_due', 'run_ticket_sla_if_due',
@@ -49810,6 +49811,8 @@ def _build_exact_routes():
         ('POST', '/api/tickets/autoreply'): handle_ticket_autoreply,
         ('GET', '/api/tickets/sla'): handle_ticket_sla,
         ('POST', '/api/tickets/sla'): handle_ticket_sla,
+        ('GET', '/api/tickets/templates'): handle_ticket_templates,
+        ('POST', '/api/tickets/templates'): handle_ticket_templates,
         # v5.4.0 RackMatters: time-tracking + billing
         ('GET', '/api/time-entries'): handle_time_entries,
         ('POST', '/api/time-entries'): handle_time_entries,
