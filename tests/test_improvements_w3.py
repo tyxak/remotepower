@@ -491,6 +491,56 @@ class TestCustomMetrics(_HandlerBase):
         self.assertNotIn('bad-name', m)      # invalid name skipped
 
 
+class TestLiveView(_HandlerBase):
+    """W3-19: live high-res view — arm, sample ingest, read."""
+
+    def setUp(self):
+        super().setUp()
+        self._lf = api.LIVE_FILE
+        self._lsf = api.LIVE_SAMPLES_FILE
+        api.LIVE_FILE = self.d / 'live_mode.json'
+        api.LIVE_SAMPLES_FILE = self.d / 'live_samples.json'
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'token_hash':
+                                           api._hash_device_token('tok1')}})
+
+    def tearDown(self):
+        api.LIVE_FILE = self._lf
+        api.LIVE_SAMPLES_FILE = self._lsf
+        super().tearDown()
+
+    def test_arm_sets_window(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        r = self.call(api.handle_device_live_start, 'd1')
+        self.assertTrue(r['until'] > int(__import__('time').time()))
+
+    def test_sample_ingest_requires_token(self):
+        api.method = lambda: 'POST'
+        api.get_token_from_request = lambda: ''
+        api.get_json_body = lambda: {'token': 'wrong', 'cpu': 10}
+        self.call(api.handle_device_live_sample, 'd1')
+        self.assertEqual(self.cap['s'], 403)
+        # valid token → accepted + stored
+        api.get_json_body = lambda: {'token': 'tok1', 'cpu': 12.5, 'mem': 40}
+        self.call(api.handle_device_live_sample, 'd1')
+        ring = (api.load(api.LIVE_SAMPLES_FILE) or {})['d1']
+        self.assertEqual(ring[-1]['cpu'], 12.5)
+
+    def test_read_samples_reports_active(self):
+        now = int(__import__('time').time())
+        api.save(api.LIVE_FILE, {'d1': {'until': now + 60}})
+        api.save(api.LIVE_SAMPLES_FILE, {'d1': [{'ts': now, 'cpu': 5}]})
+        api._caller_scope = lambda: None
+        r = self.call(api.handle_device_live_samples, 'd1')
+        self.assertTrue(r['active'])
+        self.assertEqual(len(r['samples']), 1)
+
+    def test_agent_has_burst(self):
+        src = (ROOT / 'client' / 'remotepower-agent.py').read_text()
+        self.assertIn('def _burst_live_samples', src)
+        self.assertIn("resp.get('live_until')", src)
+
+
 import json  # noqa: E402  (used by the file-manager test above)
 
 if __name__ == '__main__':

@@ -5311,6 +5311,29 @@ def collect_mount_issues():
     return issues[:50]
 
 
+def _burst_live_samples(server, creds, live_until, max_iters=30):
+    """W3-19: post 1 s high-res metric samples until `live_until` (bounded by
+    max_iters so the main heartbeat loop resumes promptly). Device-token auth;
+    failures stop the burst quietly."""
+    dev_id = creds.get('device_id')
+    token = creds.get('token')
+    if not dev_id or not token:
+        return
+    url = f'{server}/api/devices/{dev_id}/live-sample'
+    for _ in range(max_iters):
+        if int(time.time()) >= live_until:
+            break
+        try:
+            m = get_metrics()
+            http_post(url, {'token': token,
+                            'cpu': m.get('cpu_percent'), 'mem': m.get('mem_percent'),
+                            'disk': m.get('disk_percent'), 'swap': m.get('swap_percent')},
+                      timeout=5)
+        except Exception:
+            break
+        time.sleep(1)
+
+
 def get_metrics():
     """Collect CPU/RAM/disk/swap/loadavg metrics via psutil (optional).
 
@@ -8138,6 +8161,16 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 _wanted = {(c.get('path') if isinstance(c, dict) else c) for c in _canary_cfg}
                 for _gone in [p for p in list(_canary_reported) if p not in _wanted]:
                     _canary_reported.discard(_gone)
+            # W3-19: live high-res view — when armed, burst 1 s metric samples
+            # for a bounded window so the operator's Live tab updates in near
+            # real time. Bounded (≤30 iterations) so command processing resumes
+            # promptly; each sample is a tiny device-token POST.
+            _live_until = resp.get('live_until')
+            if _live_until and _PSUTIL:
+                try:
+                    _burst_live_samples(server, creds, int(_live_until))
+                except Exception as e:
+                    log.debug(f'live burst error: {e}')
             # v2.4.3: mailbox-count monitor — the server pushes a list of
             # directory paths whose regular-file count we should report
             # (e.g. a Maildir 'new' folder → unread message count). Empty

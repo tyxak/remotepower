@@ -53,6 +53,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Metrics history | CPU/RAM/disk/swap/loadavg sparklines per device, full chart on click; up to 1440 snapshots (`metrics.json`) |
 | Live metrics (Monitor page) | All-fleet current sysinfo, colour-coded by alert level *(v1.12.0)* |
+| Live high-res device view | Drawer **Live view** button arms a bounded (~30 s) burst — the agent posts 1-second CPU/mem/disk/swap samples that the drawer streams; auto-stops on close, re-arms while open. `POST /api/devices/{id}/live`, `GET …/live-samples` *(v5.8.0)* |
 | Metric trend modal | Time-series per device, one click from the fleet view *(v2.0)* |
 | Per-mount disk | Each non-pseudo mount tracked individually *(v1.11.10)* |
 | Network-mount trends | NFS/SMB/CIFS shares flow into daily history + disk-fill forecast *(v3.13.0)* |

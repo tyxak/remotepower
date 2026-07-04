@@ -106,6 +106,10 @@ PEER_CONNS_FILE = DATA_DIR / 'peer_conns.json'     # W3-8 observed outbound peer
 DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency suggestions
 CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
 MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
+LIVE_FILE = DATA_DIR / 'live_mode.json'            # W3-19 {dev_id: {until}} live-view requests
+LIVE_SAMPLES_FILE = DATA_DIR / 'live_samples.json' # W3-19 {dev_id: [1s samples]} high-res ring
+LIVE_WINDOW_SECONDS = 30                            # W3-19 how long a live burst runs
+MAX_LIVE_SAMPLES = 60                              # W3-19 ring cap per device
 WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
 _DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
@@ -15192,6 +15196,13 @@ def handle_heartbeat():
         # W3-38: canary/honeytoken files the agent plants + watches (fleet-wide).
         'canary_files':     _config_ro().get('canary_files') or [],
     }
+    # W3-19: tell the agent to burst 1 s live samples if live mode is armed.
+    try:
+        _live_until = int(((load(LIVE_FILE) or {}).get(dev_id) or {}).get('until', 0))
+        if _live_until > int(time.time()):
+            common_resp['live_until'] = _live_until
+    except Exception:
+        pass
     # v5.0.1 perf: the response-build only READS config (backup_monitors,
     # secrets flags, custom_checks) — use the shared cached view once instead
     # of two full-config deepcopies. MUST NOT mutate _sec_cfg / its nested data.
@@ -26622,6 +26633,61 @@ def _redact_sudo_command(cmd):
     # bite the `-p` inside an already-handled `--password=…`.
     out = re.sub(r'(?<![\w-])-p[^\s=]{3,}', '-p***', out)
     return out
+
+
+def handle_device_live_start(dev_id):
+    """POST /api/devices/{id}/live — arm live high-res mode for a device (admin).
+    The next heartbeat learns of it and the agent bursts 1 s samples for a short
+    window; a fresh call renews the window (the drawer Live tab re-arms while
+    open)."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    devices = load(DEVICES_FILE) or {}
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    now = int(time.time())
+    with _LockedUpdate(LIVE_FILE) as store:
+        store[dev_id] = {'until': now + LIVE_WINDOW_SECONDS + 30}
+    respond(200, {'ok': True, 'until': now + LIVE_WINDOW_SECONDS + 30,
+                  'poll_hint': dev_id and (devices.get(dev_id) or {}).get('poll_interval', 60)})
+
+
+def handle_device_live_sample(dev_id):
+    """POST /api/devices/{id}/live-sample — the agent pushes one high-res metric
+    sample during a live burst. Device-token authenticated (no session)."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    devices = load(DEVICES_FILE) or {}
+    dev = devices.get(dev_id)
+    body = get_json_obj()
+    tok = str(body.get('token') or '') or (get_token_from_request() or '')
+    if not dev or not _device_token_ok(dev, tok):
+        respond(403, {'error': 'invalid device token'})
+    now = int(time.time())
+
+    def _n(v):
+        return round(float(v), 2) if isinstance(v, (int, float)) else None
+    sample = {'ts': now, 'cpu': _n(body.get('cpu')), 'mem': _n(body.get('mem')),
+              'disk': _n(body.get('disk')), 'swap': _n(body.get('swap'))}
+    with _LockedUpdate(LIVE_SAMPLES_FILE) as store:
+        ring = store.get(dev_id) or []
+        ring.append(sample)
+        store[dev_id] = ring[-MAX_LIVE_SAMPLES:]
+    respond(200, {'ok': True})
+
+
+def handle_device_live_samples(dev_id):
+    """GET /api/devices/{id}/live-samples — the high-res ring for the Live tab
+    (admin; RBAC-scoped)."""
+    require_auth()
+    if _caller_scope() is not None:
+        devs = load(DEVICES_FILE) or {}
+        if dev_id not in _scope_filter_devices(devs):
+            respond(403, {'error': 'out of scope'})
+    ring = (load(LIVE_SAMPLES_FILE) or {}).get(dev_id) or []
+    active = int(((load(LIVE_FILE) or {}).get(dev_id) or {}).get('until', 0)) > int(time.time())
+    respond(200, {'ok': True, 'samples': ring[-MAX_LIVE_SAMPLES:], 'active': active})
 
 
 def handle_device_custom_metrics(dev_id):
@@ -51981,6 +52047,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/devices/', '/checks', 'handle_device_checks', "pi.startswith('/api/devices/') and pi.endswith('/checks') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/sudo-log', 'handle_device_sudo_log', "pi.startswith('/api/devices/') and pi.endswith('/sudo-log') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/custom-metrics', 'handle_device_custom_metrics', "pi.startswith('/api/devices/') and pi.endswith('/custom-metrics') and m == 'GET'"),
+    ('pat', ('POST',), '/api/devices/', '/live', 'handle_device_live_start', "pi.startswith('/api/devices/') and pi.endswith('/live') and m == 'POST'"),
+    ('pat', ('POST',), '/api/devices/', '/live-sample', 'handle_device_live_sample', "pi.startswith('/api/devices/') and pi.endswith('/live-sample') and m == 'POST'"),
+    ('pat', ('GET',), '/api/devices/', '/live-samples', 'handle_device_live_samples', "pi.startswith('/api/devices/') and pi.endswith('/live-samples') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
     ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep',\n                                     '/decommissioned'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),

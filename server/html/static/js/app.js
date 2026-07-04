@@ -16039,6 +16039,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
 }
 
 function closeDeviceDrawer() {
+  if (typeof _stopLiveView === 'function') _stopLiveView();   // W3-19: stop live polling
   const drawer = document.getElementById('device-drawer');
   drawer.classList.remove('open');
   document.body.style.overflow = '';
@@ -16174,6 +16175,45 @@ async function saveCanaryFiles() {
   const r = await api('POST', '/config', { canary_files });
   if (r && !r.error) toast(paths.length ? `${paths.length} canary file(s) armed` : 'Canary files off', 'success');
   else toast(r?.error || 'Failed', 'error');
+}
+
+// W3-19: live high-res device view — arm the burst + poll the sample ring.
+let _liveTimer = null, _liveRenew = null, _liveDevId = null;
+async function startLiveView(id) {
+  const box = document.getElementById('ds-live');
+  if (!box) return;
+  _liveDevId = id;
+  _stopLiveView();
+  const r = await api('POST', '/devices/' + encodeURIComponent(id) + '/live', {});
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed to start live view', 'error'); return; }
+  toast('Live view armed — samples appear on the next heartbeat', 'info');
+  box.innerHTML = '<div id="ds-live-out" class="meta-sm-nm">Waiting for samples…</div>'
+    + '<button class="btn-icon cell-sm mt-6" data-action="stopLiveView">Stop</button>';
+  const poll = async () => {
+    const s = await api('GET', '/devices/' + encodeURIComponent(id) + '/live-samples');
+    const out = document.getElementById('ds-live-out');
+    if (!out) { _stopLiveView(); return; }
+    if (!s || !s.ok) { out.textContent = 'Unavailable.'; return; }
+    const rows = s.samples || [];
+    if (!rows.length) { out.textContent = 'Waiting for samples…'; return; }
+    const last = rows[rows.length - 1];
+    out.innerHTML = `<div class="fs-13">CPU ${last.cpu ?? '—'}% · MEM ${last.mem ?? '—'}% · DISK ${last.disk ?? '—'}% · SWAP ${last.swap ?? '—'}%</div>`
+      + `<div class="mt-4">${renderSparkline(rows.map(x => x.cpu).filter(v => v != null), { width: 160, height: 24 })} <span class="meta-sm-nm">CPU, last ${rows.length} samples</span></div>`
+      + (s.active ? '' : '<div class="meta-sm-nm mt-4">Live window ended — press Start to re-arm.</div>');
+  };
+  poll();
+  _liveTimer = setInterval(poll, 1500);
+  // re-arm periodically so the window stays open while the tab is up
+  _liveRenew = setInterval(() => api('POST', '/devices/' + encodeURIComponent(id) + '/live', {}), 25000);
+}
+function _stopLiveView() {
+  if (_liveTimer) { clearInterval(_liveTimer); _liveTimer = null; }
+  if (_liveRenew) { clearInterval(_liveRenew); _liveRenew = null; }
+}
+function stopLiveView() {
+  _stopLiveView();
+  const box = document.getElementById('ds-live');
+  if (box) box.innerHTML = '<button class="btn-icon cell-sm" data-action="startLiveView" data-arg="' + escAttr(_liveDevId || '') + '">Start live (1s samples, ~30s)</button>';
 }
 
 // W3-40: load a device's sudo audit trail into the drawer.
@@ -16959,6 +16999,9 @@ async function _loadAuditSection(key) {
                    <td class="fs-11">${rec.lastTs ? escHtml(new Date(rec.lastTs*1000).toLocaleString()) : '<span class="c-muted">—</span>'}</td></tr>`
             ).join('') + `</tbody></table></div>`;
         }
+        // W3-19: live high-res view (opt-in button; polls a burst channel).
+        h += `<div class="mt-16 mb-8 fw-500 fs-13">Live view</div>`
+          + `<div id="ds-live"><button class="btn-icon cell-sm" data-action="startLiveView" data-arg="${escAttr(id)}">Start live (1s samples, ~30s)</button></div>`;
         // W3-11: operator-supplied custom metrics (if any).
         if (si.custom_metrics && Object.keys(si.custom_metrics).length) {
           h += `<div class="mt-16 mb-8 fw-500 fs-13">Custom metrics</div>`
