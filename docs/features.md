@@ -104,6 +104,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Notification sandbox mode | `notifications_test_mode` (or per-destination `dry_run`) logs webhook + email deliveries without sending — validate event routing on a staging instance without spamming recipients *(v5.5.0)* |
 | Notification digest window | Per-destination `digest_minutes` batches non-critical events into one periodic summary delivery; critical/urgent always page immediately *(v5.8.0)* |
 | Channel routing matrix | Per event-kind, which surfaces it reaches — Needs Attention / Recent Activity / Alerts inbox / Webhook *(v3.3.0)* |
+| Per-user notifications | Each operator subscribes their **own** webhook + email with personal filters (min urgency, event allowlist, group/tag/site scope) in My Account — additive to the org channels (never suppresses them); only fires for devices the user's role can see. `GET/POST /api/my/notify-prefs` *(v5.8.0)* |
 | Host-grouped alert inbox | Open alerts stacked per host (worst first), Ack-all/Resolve-all, symptoms folded under `device_offline` root cause *(v4.1.0)* |
 | Alert correlation | Tags `_root_cause` / `_symptom_of` for the grouped inbox |
 | Duplicate-alert coalescing | Repeat firings fold into the open alert (count bump) *(v5.0.1)* |

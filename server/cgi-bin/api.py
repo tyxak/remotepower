@@ -99,6 +99,7 @@ MAX_SLOW_HANDLERS  = 100
 # Severity, ack_by, ack_at, resolved_by, resolved_at land here.
 ALERTS_FILE = DATA_DIR / 'alerts.json'
 INCIDENTS_FILE = DATA_DIR / 'incidents.json'   # W2-25 operator-posted status-page incidents
+USER_NOTIFY_FILE = DATA_DIR / 'user_notify.json'   # W2-20 per-user notification subscriptions
 WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
 _DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
@@ -7998,6 +7999,88 @@ def fire_webhook(event, payload):
     # ── Channel 2: Email ────────────────────────────────────────────────────────
     if is_email_event_enabled(event, cfg):
         _send_event_email(event, payload_with_branding, message, cfg, server_name)
+
+    # ── Channel 3: per-user subscriptions (W2-20) ───────────────────────────────
+    # Additive — never suppresses the global channels above. A user opts into
+    # their own webhook/email with personal filters; delivery respects their RBAC
+    # device visibility. Isolated so a bad pref can't break the firing path.
+    try:
+        _deliver_user_notifications(event, payload_with_branding, message, cfg)
+    except Exception as _un_err:
+        sys.stderr.write(f'[remotepower] user-notify delivery failed: {_un_err}\n')
+
+
+def _user_notify_scope(username, users):
+    """The effective RBAC device scope for a user (by their role), or None for a
+    full-fleet role. Mirrors _caller_scope but resolved from a stored user record
+    rather than the request token."""
+    role = (users.get(username) or {}).get('role') or 'viewer'
+    rd = _resolve_role(role)
+    if rd.get('admin'):
+        return None
+    rs = rd.get('scope') or {'type': 'all'}
+    return rs if rs.get('type') != 'all' else None
+
+
+def _deliver_user_notifications(event, payload, message, cfg):
+    """W2-20: deliver an event to every user whose personal subscription matches.
+    Additive to the global channels; each user's filters (min priority, event
+    allowlist, optional group/tag scope) AND their RBAC device visibility are
+    honoured. Per-user webhook rides the same SSRF-guarded dispatcher; email uses
+    the shared SMTP."""
+    prefs_all = load(USER_NOTIFY_FILE)
+    if not isinstance(prefs_all, dict) or not prefs_all:
+        return
+    users = load(USERS_FILE) or {}
+    devices = None
+    priority = _webhook_priority(event)
+    dev_id = (payload or {}).get('device_id')
+    title = _webhook_title(event)
+    safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v)
+                    for k, v in (payload or {}).items()}
+    for username, p in prefs_all.items():
+        if not isinstance(p, dict) or not p.get('enabled') or username not in users:
+            continue
+        try:
+            if priority < int(p.get('min_priority', 0) or 0):
+                continue
+        except (TypeError, ValueError):
+            pass
+        evs = p.get('events')
+        if isinstance(evs, list) and evs and event not in evs:
+            continue
+        # device-scoped events: respect RBAC visibility + the user's own filter
+        if dev_id:
+            if devices is None:
+                devices = load(DEVICES_FILE) or {}
+            dev = devices.get(dev_id) or {}
+            rscope = _user_notify_scope(username, users)
+            if rscope is not None and not _device_in_scope(rscope, dev):
+                continue
+            pf = p.get('scope_filter')
+            if isinstance(pf, dict) and pf.get('type', 'all') != 'all' \
+                    and not _device_in_scope(pf, dev):
+                continue
+        url = (p.get('webhook_url') or '').strip()
+        if url:
+            dest = {'id': f'user:{username}', 'name': f'{username} (personal)',
+                    'url': url, 'format': _auto_detect_format(url), 'enabled': True}
+            try:
+                _dispatch_one_webhook(event, dest, dict(safe_payload), message,
+                                      title, priority, allow_digest=False)
+            except Exception as e:
+                _log_webhook(event, url, 'error',
+                             f'user {username}: {type(e).__name__}: {str(e)[:120]}')
+        email = (p.get('email') or '').strip()
+        if email and '@' in email and (cfg.get('smtp_host') or '').strip():
+            try:
+                subj = f'{title}'[:200]
+                smtp_notifier.send_email(cfg, [email], subj, message,
+                                         html_body=smtp_notifier.brand_html(cfg, subj, message),
+                                         extra_headers={'Auto-Submitted': 'auto-generated'})
+                _log_email(f'{event} (user:{username})', [email], 'ok', '')
+            except Exception as e:
+                _log_email(f'{event} (user:{username})', [email], 'error', str(e))
 
 
 def _send_webhook_to_url(event, safe_payload, message, cfg, only_dest_ids=None):
@@ -46070,6 +46153,59 @@ def run_cve_campaign_sample_if_due():
         fire_webhook('campaign_completed', p)
 
 
+def handle_my_notify_prefs():
+    """GET/POST /api/my/notify-prefs — the CURRENT user's personal notification
+    subscription (any authenticated user). Additive to the global channels; the
+    webhook URL is write-only (returned as a boolean). Delivery respects the
+    user's RBAC device visibility regardless of the scope filter set here."""
+    user = require_auth()
+    prefs_all = load(USER_NOTIFY_FILE) or {}
+    if method() == 'GET':
+        p = prefs_all.get(user) or {}
+        respond(200, {'ok': True,
+                      'enabled': bool(p.get('enabled')),
+                      'webhook_configured': bool((p.get('webhook_url') or '').strip()),
+                      'email': p.get('email', ''),
+                      'min_priority': int(p.get('min_priority', 0) or 0),
+                      'events': p.get('events') or [],
+                      'scope_filter': p.get('scope_filter') or {'type': 'all'}})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    existing = prefs_all.get(user) or {}
+    out = {'enabled': bool(body.get('enabled'))}
+    # webhook_url: blank keeps the existing one; explicit clear via clear_webhook
+    if body.get('clear_webhook'):
+        out['webhook_url'] = ''
+    else:
+        new_url = (body.get('webhook_url') or '').strip()
+        if new_url:
+            if not (new_url.startswith('http://') or new_url.startswith('https://')):
+                respond(400, {'error': 'webhook_url must be http(s)://'})
+            out['webhook_url'] = new_url[:512]
+        elif existing.get('webhook_url'):
+            out['webhook_url'] = existing['webhook_url']
+    email = (body.get('email') or '').strip()
+    out['email'] = _sanitize_str(email, 200) if '@' in email else ''
+    try:
+        out['min_priority'] = max(0, min(5, int(body.get('min_priority', 0))))
+    except (TypeError, ValueError):
+        out['min_priority'] = 0
+    evs = body.get('events')
+    if isinstance(evs, list):
+        out['events'] = [_sanitize_str(str(e), 64) for e in evs[:100] if str(e).strip()]
+    sf = body.get('scope_filter')
+    if isinstance(sf, dict) and sf.get('type') in ('groups', 'tags', 'sites'):
+        out['scope_filter'] = {'type': sf['type'],
+                               'values': [_sanitize_str(str(v), 64) for v in (sf.get('values') or [])[:50] if str(v).strip()]}
+    else:
+        out['scope_filter'] = {'type': 'all'}
+    with _LockedUpdate(USER_NOTIFY_FILE) as store:
+        store[user] = out
+    audit_log(user, 'notify_prefs_save', f'enabled={out["enabled"]}')
+    respond(200, {'ok': True})
+
+
 def handle_import_monitors():
     """POST /api/import/monitors — parse a Nagios / Uptime Kuma / Zabbix export
     into RemotePower monitors (admin). Dry-run by default (returns the proposal);
@@ -50979,6 +51115,8 @@ def _build_exact_routes():
         ('POST', '/api/cve/campaigns'): handle_cve_campaigns,
         ('POST', '/api/import/monitors'): handle_import_monitors,   # W2-45
         ('POST', '/api/rollouts/reboot-plan'): handle_reboot_plan,  # W2-36
+        ('GET', '/api/my/notify-prefs'): handle_my_notify_prefs,    # W2-20
+        ('POST', '/api/my/notify-prefs'): handle_my_notify_prefs,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

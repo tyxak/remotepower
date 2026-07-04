@@ -1214,6 +1214,20 @@
           </div>
         </div>
 
+        <!-- W2-20: per-user notification subscription -->
+        <div class="settings-section">
+          <div class="section-title">My notifications</div>
+          <p class="hint">Get alerts on your <strong>own</strong> webhook or email, with your own filters — <em>in addition to</em> the org-wide channels (this never turns those off). You only receive alerts for devices you're allowed to see.</p>
+          <div class="settings-row"><label class="form-label"><input type="checkbox" id="un-enabled"> Enable my personal notifications</label></div>
+          <div class="settings-row"><label class="form-label" for="un-webhook">My webhook URL (Discord/Slack/ntfy/generic)</label><input type="text" id="un-webhook" class="form-input ff-mono" maxlength="512" placeholder="https://… (leave blank to keep)"></div>
+          <div class="settings-row"><label class="form-label" for="un-email">My email</label><input type="email" id="un-email" class="form-input" maxlength="200" placeholder="me@example.com"></div>
+          <div class="settings-row"><label class="form-label" for="un-minprio">Minimum urgency</label><select id="un-minprio" class="form-input"><option value="0">Everything</option><option value="3">Normal and up</option><option value="4">High and up</option><option value="5">Urgent only</option></select></div>
+          <div class="settings-row"><label class="form-label" for="un-scope-type">Only devices in</label><select id="un-scope-type" class="form-input" data-change="unScopeChange"><option value="all">Any (all I can see)</option><option value="groups">Group</option><option value="tags">Tag</option><option value="sites">Site</option></select></div>
+          <div class="settings-row hidden" id="un-scope-val-row"><label class="form-label" for="un-scope-val">Name(s), comma-separated</label><input type="text" id="un-scope-val" class="form-input" maxlength="256" placeholder="prod, dc1"></div>
+          <div class="row-6"><button class="btn-primary" data-action="saveMyNotifyPrefs">Save my notifications</button></div>
+          <div id="un-result" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
+
         <div class="settings-section">
           <div class="section-title">Permissions</div>
           <p class="hint">What your role lets you do. Managed by an administrator under <a href="#" data-action-btn="_showPageBtn" data-page="users" data-prevent-default class="c-accent">Users &amp; roles</a>.</p>

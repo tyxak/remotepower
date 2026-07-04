@@ -1530,5 +1530,86 @@ class TestGuidedCisRemediation(_HandlerBase):
         self.assertEqual(self.cap['s'], 403)
 
 
+class TestPerUserNotifications(_HandlerBase):
+    """W2-20: per-user notification subscriptions."""
+
+    def setUp(self):
+        super().setUp()
+        self._unf = api.USER_NOTIFY_FILE
+        api.USER_NOTIFY_FILE = self.d / 'user_notify.json'
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin'},
+                                  'scoped': {'role': 'ops'}})
+        # a scoped role limited to group 'prod'
+        self._real_resolve = api._resolve_role
+        api._resolve_role = lambda role: (
+            {'admin': True} if role == 'admin'
+            else {'admin': False, 'scope': {'type': 'groups', 'values': ['prod']}})
+
+    def tearDown(self):
+        api._resolve_role = self._real_resolve
+        api.USER_NOTIFY_FILE = self._unf
+        super().tearDown()
+
+    def _save_prefs(self, user, prefs):
+        store = api.load(api.USER_NOTIFY_FILE) or {}
+        store[user] = prefs
+        api.save(api.USER_NOTIFY_FILE, store)
+
+    def _capture(self):
+        sent = []
+        self._real = api._dispatch_one_webhook
+        api._dispatch_one_webhook = lambda ev, dest, p, m, t, pr, allow_digest=True: sent.append(
+            {'dest': dest['id'], 'event': ev})
+        self.addCleanup(lambda: setattr(api, '_dispatch_one_webhook', self._real))
+        return sent
+
+    def test_get_post_roundtrip_webhook_masked(self):
+        api.require_auth = lambda require_admin=False: 'jakob'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'enabled': True, 'webhook_url': 'https://hooks.test/x',
+                                     'min_priority': 4}
+        self.call(api.handle_my_notify_prefs)
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_my_notify_prefs)
+        self.assertTrue(r['enabled'])
+        self.assertTrue(r['webhook_configured'])
+        self.assertNotIn('webhook_url', r)   # masked
+        self.assertEqual(r['min_priority'], 4)
+
+    def test_delivery_respects_min_priority(self):
+        sent = self._capture()
+        # priority of device_offline is high(4); a min_priority 5 filters it out
+        self._save_prefs('jakob', {'enabled': True, 'webhook_url': 'https://h.test',
+                                   'min_priority': 5})
+        api._deliver_user_notifications('device_online', {'device_id': 'd1'}, 'up',
+                                        {'smtp_host': ''})
+        self.assertEqual(sent, [])   # device_online is low priority
+
+    def test_delivery_event_allowlist(self):
+        sent = self._capture()
+        self._save_prefs('jakob', {'enabled': True, 'webhook_url': 'https://h.test',
+                                   'events': ['cve_found']})
+        api._deliver_user_notifications('device_offline', {'device_id': 'd1'}, 'x', {})
+        self.assertEqual(sent, [])   # not in allowlist
+        api._deliver_user_notifications('cve_found', {'device_id': 'd1'}, 'x', {})
+        self.assertEqual(len(sent), 1)
+
+    def test_rbac_scope_enforced(self):
+        sent = self._capture()
+        api.save(api.DEVICES_FILE, {'d1': {'group': 'dev'}})   # NOT in 'prod'
+        self._save_prefs('scoped', {'enabled': True, 'webhook_url': 'https://h.test'})
+        api._deliver_user_notifications('device_offline', {'device_id': 'd1'}, 'x', {})
+        self.assertEqual(sent, [])   # scoped user can't see a 'dev' device
+        api.save(api.DEVICES_FILE, {'d1': {'group': 'prod'}})
+        api._deliver_user_notifications('device_offline', {'device_id': 'd1'}, 'x', {})
+        self.assertEqual(len(sent), 1)
+
+    def test_disabled_pref_no_delivery(self):
+        sent = self._capture()
+        self._save_prefs('jakob', {'enabled': False, 'webhook_url': 'https://h.test'})
+        api._deliver_user_notifications('device_offline', {'device_id': 'd1'}, 'x', {})
+        self.assertEqual(sent, [])
+
+
 if __name__ == '__main__':
     unittest.main()

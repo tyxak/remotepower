@@ -5466,6 +5466,46 @@ async function saveTeam() {
   _scheduleFlushUiPrefs();
   toast('Team saved', 'success');
 }
+// W2-20: per-user notification subscription.
+function unScopeChange() {
+  const t = document.getElementById('un-scope-type')?.value;
+  document.getElementById('un-scope-val-row')?.classList.toggle('hidden', t === 'all');
+}
+async function loadMyNotifyPrefs() {
+  if (!document.getElementById('un-enabled')) return;
+  const p = await api('GET', '/my/notify-prefs');
+  if (!p || !p.ok) return;
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+  document.getElementById('un-enabled').checked = !!p.enabled;
+  set('un-webhook', '');
+  document.getElementById('un-webhook').placeholder = p.webhook_configured
+    ? '•••••••• (webhook set — leave blank to keep)' : 'https://… (leave blank to keep)';
+  set('un-email', p.email || '');
+  set('un-minprio', String(p.min_priority || 0));
+  const sf = p.scope_filter || { type: 'all' };
+  set('un-scope-type', sf.type || 'all');
+  set('un-scope-val', (sf.values || []).join(', '));
+  unScopeChange();
+}
+async function saveMyNotifyPrefs() {
+  const st = document.getElementById('un-scope-type')?.value || 'all';
+  const body = {
+    enabled: !!document.getElementById('un-enabled')?.checked,
+    email: document.getElementById('un-email')?.value || '',
+    min_priority: parseInt(document.getElementById('un-minprio')?.value || '0', 10),
+  };
+  const wh = (document.getElementById('un-webhook')?.value || '').trim();
+  if (wh) body.webhook_url = wh;
+  if (st !== 'all') {
+    body.scope_filter = { type: st, values: (document.getElementById('un-scope-val')?.value || '').split(',').map(s => s.trim()).filter(Boolean) };
+  } else {
+    body.scope_filter = { type: 'all' };
+  }
+  const r = await api('POST', '/my/notify-prefs', body);
+  const res = document.getElementById('un-result');
+  if (r && r.ok) { toast('Saved', 'success'); if (res) res.textContent = ''; loadMyNotifyPrefs(); }
+  else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
+}
 async function loadAccount() {
   const me = await loadMe();
   if (!me) return;
@@ -5473,6 +5513,7 @@ async function loadAccount() {
   { const tm = document.getElementById('acct-team'); if (tm) tm.value = (_uiPrefs && _uiPrefs.team) || ''; }
   _buildAppearancePicker();   // v3.14.0 (#46): theme + accent picker
   _initPushUI();              // v3.14.0 (#42): browser push notifications
+  loadMyNotifyPrefs();        // W2-20: per-user notification subscription
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
   set('acct-username', me.username);
   set('acct-username-2', me.username);
