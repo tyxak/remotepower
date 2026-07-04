@@ -141,5 +141,62 @@ class TestHttpFlowMonitor(_HandlerBase):
         self.assertEqual(len(mons[0]['steps']), 1)
 
 
+class TestNetworkPathMonitor(_HandlerBase):
+    """W4-15: path monitor evaluator + path_changed baseline diff."""
+
+    def setUp(self):
+        super().setUp()
+        self._mh = api.MON_HIST_FILE
+        api.MON_HIST_FILE = self.d / 'monitor_history.json'
+        self.fired = []
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
+
+    def tearDown(self):
+        api.MON_HIST_FILE = self._mh
+        super().tearDown()
+
+    def test_path_target_accepted(self):
+        self.assertEqual(api._sanitize_monitor_target('path', '8.8.8.8'), '8.8.8.8')
+        self.assertIsNone(api._sanitize_monitor_target('path', '-badflag'))
+
+    def test_evaluator_shapes_result(self):
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api._run_traceroute = lambda t: ([{'n': 1, 'ip': '10.0.0.1', 'ms': 1.0},
+                                          {'n': 2, 'ip': '8.8.8.8', 'ms': 5.0}], '')
+        r = api._run_one_monitor_check('path', '8.8.8.8', 'gw', {})
+        self.assertTrue(r['ok'])
+        self.assertEqual(len(r['hops']), 2)
+        self.assertIn('2 hops', r['detail'])
+
+    def test_no_traceroute_binary(self):
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api._run_traceroute = lambda t: ([], 'no traceroute/tracepath on the server')
+        r = api._run_one_monitor_check('path', '8.8.8.8', 'gw', {})
+        self.assertFalse(r['ok'])
+        self.assertIn('traceroute', r['detail'])
+
+    def test_path_changed_fires_on_hop_diff(self):
+        api.save(api.CONFIG_FILE, {'monitors': [{'label': 'gw', 'type': 'path'}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        # first result → baselines silently
+        api._persist_monitor_results([{'label': 'gw', 'type': 'path', 'target': '8.8.8.8',
+                                       'ok': True, 'detail': '2 hops', 'checked': 1,
+                                       'hops': [{'ip': '10.0.0.1'}, {'ip': '8.8.8.8'}]}])
+        self.assertEqual(self.fired, [])
+        # a changed route → path_changed
+        api._persist_monitor_results([{'label': 'gw', 'type': 'path', 'target': '8.8.8.8',
+                                       'ok': True, 'detail': '2 hops', 'checked': 2,
+                                       'hops': [{'ip': '10.0.0.9'}, {'ip': '8.8.8.8'}]}])
+        self.assertTrue(any(e == 'path_changed' for e, _ in self.fired))
+        # same (new) route again → no re-fire
+        self.fired.clear()
+        api._persist_monitor_results([{'label': 'gw', 'type': 'path', 'target': '8.8.8.8',
+                                       'ok': True, 'detail': '2 hops', 'checked': 3,
+                                       'hops': [{'ip': '10.0.0.9'}, {'ip': '8.8.8.8'}]}])
+        self.assertEqual(self.fired, [])
+
+
 if __name__ == '__main__':
     unittest.main()

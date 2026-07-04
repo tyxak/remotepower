@@ -251,7 +251,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
         expected = {
             'device_offline', 'device_online',
             'agent_stopped', 'agent_started',
-            'monitor_down', 'monitor_up',
+            'monitor_down', 'monitor_up', 'path_changed',    # W4-15
             'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
             'campaign_completed',                    # W2-35 CVE campaigns
             'service_down', 'service_up',

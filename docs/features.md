@@ -81,6 +81,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Feature | Notes |
 |---|---|
 | Ping / TCP / HTTP probes | ICMP, TCP, HTTP HEAD from the server; runs when dashboard closed *(v1.11.8)*; HTTP SSRF-guarded with connect-time recheck |
+| Network path monitoring | `path` monitor type — server runs traceroute/tracepath on cadence, stores the hop list, and fires `path_changed` when the route's hop set differs from the baseline (auto re-baselines); graceful when no traceroute binary is present *(v5.8.0)* |
 | DNS / ICMP / HTTP / DB monitors | DNS resolution with expected-address; ICMP latency + loss; HTTP status + latency-SLA; credential-less DB-liveness (PostgreSQL/MySQL/Redis); tag/group fan-out *(v4.1.0)* |
 | HTTP content assertions | Body contains / not-contains *(v3.12.0)*, regex match, and JSON dot-path field assertions (`status.healthy` = expected value, or just "must exist") — catches a 200 OK that's actually an error page *(regex/JSON v5.8.0)* |
 | Multi-step HTTP monitors | `http_flow` type — up to 5 ordered steps sharing a cookie jar, with per-step expect-status/contains and `extract`→`${var}` for later steps (e.g. login → CSRF token → fetch page); each step SSRF-guarded, no-redirect *(v5.8.0)* |

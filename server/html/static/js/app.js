@@ -13877,7 +13877,7 @@ function _renderHomeActivity(fleetEvents) {
   // server doesn't silently appear without dashboard recognition.
   const FLEET_EVENTS = new Set([
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
-    'monitor_down', 'monitor_up',
+    'monitor_down', 'monitor_up', 'path_changed',
     'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
     'service_down', 'service_up',
     'log_alert',
@@ -14072,7 +14072,7 @@ function _homeActivityAttrs(event, p) {
     case 'patch_sla_violation': return `${base} data-home-act="patches"`;
     case 'patch_sla_ok':   return `${base} data-home-act="patches"`;
     case 'campaign_completed': return `${base} data-home-act="cve"`;
-    case 'monitor_down':   case 'monitor_up':
+    case 'monitor_down':   case 'monitor_up':   case 'path_changed':
     case 'metric_warning': case 'metric_critical': case 'metric_recovered':
     case 'custom_metric_alert': case 'custom_metric_recover':
     case 'custom_script_fail': case 'custom_script_recover':

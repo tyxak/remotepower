@@ -1159,6 +1159,9 @@ EVENT_REGISTRY = {
     'custom_metric_alert': dict(
         label='A custom metric crossed its threshold', kind='metric',
         title='Custom Metric Threshold', severity=None, priority=4, tags='warning,chart_with_upwards_trend'),
+    'path_changed': dict(
+        label='Network path (traceroute) to a target changed', kind='monitor',
+        title='Network Path Changed', severity='medium', priority=4, tags='warning,world_map'),
     'custom_metric_recover': dict(
         label='A custom metric returned within threshold (recovered)', kind='metric',
         resolves=('custom_metric_alert',)),
@@ -4947,9 +4950,9 @@ def current_username():
 def _sanitize_monitor_target(mtype, target):
     """Validate monitor targets to prevent SSRF and flag injection."""
     target = str(target).strip()[:512]
-    if mtype in ('ping', 'icmp', 'dns'):
+    if mtype in ('ping', 'icmp', 'dns', 'path'):
         # hostname / IP only — no flags (leading dash). icmp = multi-ping;
-        # dns = name to resolve. Same character class as ping.
+        # dns = name to resolve; path (W4-15) = traceroute target. Same class.
         host = re.sub(r'[^a-zA-Z0-9.\-]', '', target)
         if not host or host.startswith('-'):
             return None
@@ -16875,8 +16878,66 @@ def _run_one_monitor_check(mtype, target, label, m):
         # cookie jar; a step can `extract` a regex capture into a variable for
         # later steps' url/body. DOWN on the first failing step.
         ok, detail = _run_http_flow(m)
+    elif mtype == 'path':
+        # W4-15: network path (traceroute) — the check itself just confirms the
+        # target is reachable via the trace; the hop diff / path_changed alert is
+        # handled by the caller from `hops` on the result dict.
+        hops, perr = _run_traceroute(target)
+        if perr:
+            ok, detail = False, perr
+        elif hops:
+            ok = True
+            last = hops[-1]
+            detail = f'{len(hops)} hops · {last.get("ms", "?")}ms'
+        else:
+            ok, detail = False, 'no route'
+        _pres = {'label': label, 'type': mtype, 'target': target,
+                 'ok': ok, 'detail': detail, 'checked': int(time.time())}
+        if hops:
+            _pres['hops'] = hops
+        return _pres
     return {'label': label, 'type': mtype, 'target': target,
             'ok': ok, 'detail': detail, 'checked': int(time.time())}
+
+
+def _run_traceroute(target):
+    """W4-15: run traceroute (or tracepath) to `target` and return
+    (hops, error). hops = [{n, ip, ms}]. target is already charset-sanitised by
+    _sanitize_monitor_target, and passed as a single argv element (no shell)."""
+    tool = None
+    if _which('traceroute'):
+        cmd = ['traceroute', '-n', '-q', '1', '-w', '2', '-m', '20', '--', target]
+        tool = 'traceroute'
+    elif _which('tracepath'):
+        cmd = ['tracepath', '-n', target]
+        tool = 'tracepath'
+    else:
+        return [], 'no traceroute/tracepath on the server'
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=45).stdout
+    except subprocess.TimeoutExpired:
+        return [], 'traceroute timed out'
+    except Exception as e:
+        return [], f'{type(e).__name__}'
+    hops = []
+    for line in out.splitlines():
+        line = line.strip()
+        m_hop = re.match(r'^(\d+)\s', line)
+        if not m_hop:
+            continue
+        n = int(m_hop.group(1))
+        ipm = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+        msm = re.search(r'([\d.]+)\s*ms', line)
+        hops.append({'n': n,
+                     'ip': ipm.group(1) if ipm else '*',
+                     'ms': round(float(msm.group(1)), 1) if msm else None})
+    return hops[:30], ''
+
+
+def _which(name):
+    """True if a binary is on PATH (module-scope shim; the agent has its own)."""
+    import shutil as _sh
+    return _sh.which(name) is not None
 
 
 def _run_http_flow(m):
@@ -17046,11 +17107,30 @@ def _persist_monitor_results(results):
                 except (TypeError, ValueError):
                     thresholds[_m['label']] = 1
         dirty = False
+        _path_baselines = cfg.get('path_baselines') or {}
         for r in results:
             key = r['label']
             if key not in mh: mh[key] = []
             mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
             mh[key] = mh[key][-MAX_MON_HISTORY:]
+            # W4-15: path monitors — diff the hop set against a stored baseline
+            # and fire path_changed (edge-triggered) when the route changes.
+            if r.get('type') == 'path' and r.get('hops'):
+                cur_hops = [h.get('ip') for h in r['hops'] if h.get('ip') and h['ip'] != '*']
+                base = _path_baselines.get(key)
+                if base is None:
+                    _path_baselines[key] = cur_hops
+                    cfg['path_baselines'] = _path_baselines
+                    dirty = True
+                elif cur_hops and set(cur_hops) != set(base):
+                    added = [h for h in cur_hops if h not in base]
+                    removed = [h for h in base if h not in cur_hops]
+                    fire_webhook('path_changed', {
+                        'label': key, 'target': r['target'],
+                        'output': f'+{len(added)} -{len(removed)} hops'})
+                    _path_baselines[key] = cur_hops
+                    cfg['path_baselines'] = _path_baselines
+                    dirty = True
             was_down = mon_notified.get(key, False)
             need = thresholds.get(key, 1)
             if not r['ok']:
