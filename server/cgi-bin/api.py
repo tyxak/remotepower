@@ -14395,6 +14395,16 @@ def handle_heartbeat():
     if 'sysinfo' in saved_dev:
         _record_metrics(dev_id, saved_dev['sysinfo'])
 
+    # W3-47: merge any store-and-forward backfill (samples the agent spooled
+    # while the server was unreachable) into the metrics history. History only —
+    # no alert checks run on backfilled samples.
+    _bf = body.get('backfill')
+    if isinstance(_bf, list) and _bf:
+        try:
+            _backfill_metrics(dev_id, _bf, now)
+        except Exception:
+            pass
+
     # v4.8.0: fire the metric_* webhooks collected inside the DEVICES lock now
     # that it has released (fire_webhook takes its own lock; nesting it under the
     # held lock silently drops the alert under SQLite — the B2 lock-nesting class).
@@ -15223,6 +15233,55 @@ def handle_heartbeat():
         respond(200, {'command': dispatch_cmd, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
+
+
+def _backfill_metrics(dev_id, samples, now):
+    """W3-47: merge agent store-and-forward samples (each carrying its ORIGINAL
+    ts) into the device's metrics window so an offline gap fills in on reconnect.
+    Rejects timestamps in the future or older than the 7-day window; never runs
+    alert checks (backfilled history is not live). Returns the count merged."""
+    if not isinstance(samples, list) or not samples:
+        return 0
+    floor = now - 7 * 86400
+    clean = []
+    for s in samples[:2000]:
+        if not isinstance(s, dict):
+            continue
+        try:
+            ts = int(s.get('ts') or 0)
+        except (TypeError, ValueError):
+            continue
+        if ts < floor or ts > now + 300:
+            continue
+        def _num(v):
+            return round(float(v), 2) if isinstance(v, (int, float)) else None
+        clean.append({'ts': ts, 'cpu': _num(s.get('cpu')), 'mem': _num(s.get('mem')),
+                      'disk': _num(s.get('disk')), 'swap': _num(s.get('swap'))})
+    if not clean:
+        return 0
+    _m = _dbmod()
+    if _m is not None:
+        try:
+            window = _m.entity_get(METRICS_FILE, dev_id) or []
+        except Exception:
+            window = []
+        seen = {int(w.get('ts') or 0) for w in window}
+        window.extend(s for s in clean if s['ts'] not in seen)
+        window.sort(key=lambda w: w.get('ts', 0))
+        window = window[-MAX_METRICS:]
+        try:
+            _m.entity_set(METRICS_FILE, dev_id, window)
+            _invalidate_load_cache(METRICS_FILE)
+        except Exception:
+            pass
+        return len(clean)
+    with _LockedUpdate(METRICS_FILE) as metrics:
+        window = metrics.get(dev_id) or []
+        seen = {int(w.get('ts') or 0) for w in window}
+        window.extend(s for s in clean if s['ts'] not in seen)
+        window.sort(key=lambda w: w.get('ts', 0))
+        metrics[dev_id] = window[-MAX_METRICS:]
+    return len(clean)
 
 
 def _record_metrics(dev_id, sysinfo):

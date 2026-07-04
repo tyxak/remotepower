@@ -2654,6 +2654,44 @@ def get_unit_logs(unit, since_seconds=LOG_LOOKBACK_SECONDS, max_lines=MAX_LOG_LI
 LOG_OUTBOX_FILE = STATE_DIR / 'log_outbox.json'
 _LOG_OUTBOX_MAX_LINES = 5000
 
+# W3-47: store-and-forward. When a heartbeat POST fails, spool the metrics
+# sample locally; on reconnect, ship the spool as `backfill` so offline gaps
+# fill into the sparklines. Bounded (oldest dropped) so it can't grow unbounded.
+METRICS_SPOOL_FILE = STATE_DIR / 'metrics_spool.json'
+_METRICS_SPOOL_MAX = 500          # samples (~oldest-dropped ring)
+_BACKFILL_BATCH    = 200          # samples shipped per reconnect heartbeat
+
+
+def _spool_metric_sample(sysinfo):
+    """Append the current cpu/mem/disk/swap to the local spool (best-effort)."""
+    if not isinstance(sysinfo, dict):
+        return
+    s = {'ts': int(time.time()),
+         'cpu': sysinfo.get('cpu_percent'), 'mem': sysinfo.get('mem_percent'),
+         'disk': sysinfo.get('disk_percent'), 'swap': sysinfo.get('swap_percent')}
+    if s['cpu'] is None and s['mem'] is None and s['disk'] is None and s['swap'] is None:
+        return
+    try:
+        spool = _read_metrics_spool()
+        spool.append(s)
+        _write_metrics_spool(spool[-_METRICS_SPOOL_MAX:])
+    except Exception as e:
+        log.debug(f'metrics spool write error: {e}')
+
+
+def _read_metrics_spool():
+    try:
+        return json.loads((STATE_DIR / 'metrics_spool.json').read_text()) or []
+    except Exception:
+        return []
+
+
+def _write_metrics_spool(spool):
+    try:
+        _safe_state_write('metrics_spool.json', json.dumps(spool))
+    except Exception:
+        pass
+
 
 def _load_log_outbox():
     try:
@@ -7808,9 +7846,21 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         if _HOST_SCAN_OUTBOX:
             payload['host_scan_result'] = _HOST_SCAN_OUTBOX[0]
 
+        # W3-47: attach any spooled samples (from earlier offline cycles) so the
+        # server backfills the metrics gap. Cleared only after a successful POST.
+        _spool_snapshot = _read_metrics_spool()
+        if _spool_snapshot and send_sysinfo:
+            payload['backfill'] = _spool_snapshot[:_BACKFILL_BATCH]
+
         try:
             resp = http_post(f"{server}/api/heartbeat", payload)
             cmd = resp.get('command')
+            # Delivered — drop the samples we just shipped from the spool.
+            if _spool_snapshot and resp.get('busy') is not True and payload.get('backfill'):
+                try:
+                    _write_metrics_spool(_read_metrics_spool()[len(payload['backfill']):])
+                except Exception:
+                    pass
             # v2.1.0: server may return HTTP 202 with {'busy': True, ...}
             # when a save() couldn't acquire the per-file flock quickly
             # (i.e. another writer is holding it). This is *not* a failure:
@@ -8032,6 +8082,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.warning(f"HTTP {e.code}")
         except Exception as e:
             log.warning(f"Heartbeat failed: {e}")
+            # W3-47: server unreachable — spool this cycle's metrics so the gap
+            # backfills into the sparklines once we reconnect.
+            if send_sysinfo:
+                try:
+                    _spool_metric_sample(payload.get('sysinfo') or {})
+                except Exception:
+                    pass
 
         # v1.8.0: submit recent unit logs every N polls if any units are watched
         # (either as services_watched, or as log_watch targets)

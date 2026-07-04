@@ -212,5 +212,57 @@ class TestRealtimeFim(unittest.TestCase):
         self.assertTrue(agent._watched_files_changed(wf))
 
 
+class TestStoreAndForward(_HandlerBase):
+    """W3-47: server-side metrics backfill + agent spool round-trip."""
+
+    def setUp(self):
+        super().setUp()
+        self._mf = api.METRICS_FILE
+        api.METRICS_FILE = self.d / 'metrics.json'
+
+    def tearDown(self):
+        api.METRICS_FILE = self._mf
+        super().tearDown()
+
+    def test_backfill_merges_and_sorts(self):
+        now = 1_000_000
+        api.save(api.METRICS_FILE, {'d1': [{'ts': now - 100, 'cpu': 5}]})
+        n = api._backfill_metrics('d1', [
+            {'ts': now - 300, 'cpu': 1, 'mem': 2},
+            {'ts': now - 200, 'cpu': 3}], now)
+        self.assertEqual(n, 2)
+        window = (api.load(api.METRICS_FILE) or {})['d1']
+        self.assertEqual([w['ts'] for w in window],
+                         [now - 300, now - 200, now - 100])   # sorted
+
+    def test_backfill_rejects_future_and_stale(self):
+        now = 1_000_000
+        api.save(api.METRICS_FILE, {'d1': []})
+        n = api._backfill_metrics('d1', [
+            {'ts': now + 10_000, 'cpu': 1},        # future
+            {'ts': now - 30 * 86400, 'cpu': 2}], now)  # >7d old
+        self.assertEqual(n, 0)
+
+    def test_backfill_dedups_ts(self):
+        now = 1_000_000
+        api.save(api.METRICS_FILE, {'d1': [{'ts': now - 100, 'cpu': 5}]})
+        api._backfill_metrics('d1', [{'ts': now - 100, 'cpu': 9}], now)
+        window = (api.load(api.METRICS_FILE) or {})['d1']
+        self.assertEqual(len(window), 1)   # same ts not duplicated
+
+    def test_agent_spool_roundtrip(self):
+        import tempfile as _tf
+        agent = _load_agent()
+        agent.STATE_DIR = Path(_tf.mkdtemp())
+        agent._spool_metric_sample({'cpu_percent': 10, 'mem_percent': 20})
+        agent._spool_metric_sample({'cpu_percent': 11})
+        spool = agent._read_metrics_spool()
+        self.assertEqual(len(spool), 2)
+        self.assertEqual(spool[0]['cpu'], 10)
+        # a sample with no metrics is not spooled
+        agent._spool_metric_sample({})
+        self.assertEqual(len(agent._read_metrics_spool()), 2)
+
+
 if __name__ == '__main__':
     unittest.main()

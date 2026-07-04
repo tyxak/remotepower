@@ -449,6 +449,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Version-compatibility checks | Server flags agents whose version is too far out of step before they cause surprises *(v5.0.0)* |
 | Containerized agent | Run as a container monitoring its Docker host; shared PID/net ns, host rootfs read-only; multi-arch `ghcr.io/tyxak/remotepower-agent` *(v4.7.0)* |
 | Re-enrolment | Preserves history, tags, group, notes |
+| Store-and-forward | Agent spools metric samples locally when the server is unreachable (bounded ring) and backfills the gap into the sparklines on reconnect; backfilled history never triggers retro-alerts *(v5.8.0)* |
 | Adjustable poll interval | Per-device cadence (10–3600s), applied on next heartbeat |
 | Mailbox monitor | Counts files in configured directories (Maildir unread); `mailbox_threshold` *(v2.4.3)* |
 | SNMP polling | Periodic SNMP read — sysDescr/uptime/contact/processors/storage + vendor (Mikrotik/Synology); `snmp_unreachable`/`snmp_recover`; **SNMPv2c or SNMPv3/USM** (noAuth/auth/authPriv — MD5/SHA-1/SHA-2 auth, AES-128 privacy) *(v3: v5.8.0)* |
