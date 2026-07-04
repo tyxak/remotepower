@@ -3135,6 +3135,8 @@ async function loadSettings() {
   // v3.14.0 #32: cloud import accounts
   renderCloudAccounts(data.cloud_accounts || []);
   // v3.14.0 #35: secrets-on-disk scanning
+  const _imgEn = document.getElementById('cfg-image-scan-enabled');   // W6-34
+  if (_imgEn) _imgEn.checked = !!data.image_scan_enabled;
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
     _secEn.checked = !!data.secrets_scan_enabled;
@@ -3616,6 +3618,9 @@ async function saveSettings(btn) {
     const k = document.getElementById('cfg-agentless-ssh-key')?.value || '';
     if (k.trim()) payload.agentless_ssh_key = k;
   }
+  // W6-34: container-image CVE scanning (trivy)
+  const _imgSaveEn = document.getElementById('cfg-image-scan-enabled');
+  if (_imgSaveEn) payload.image_scan_enabled = _imgSaveEn.checked;
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {

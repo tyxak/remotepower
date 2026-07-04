@@ -220,6 +220,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | KEV / EPSS prioritization | Re-ranked by CISA KEV (known-exploited) + FIRST EPSS (exploit-probability) *(v4.0.0)* |
 | Distro security flag | Counts vendor-flagged security updates (apt `-security`, dnf/yum `--security`, `arch-audit`) as a "N sec" badge *(v5.0.0)* |
 | CVE ↔ patch cross-link | Per device, how many critical/high CVEs a pending patch fixes *(v3.4.1)* |
+| Container image CVEs | Opt-in: the agent runs `trivy` against the images of running containers on a ~24h cadence (feature-invisible without trivy), ships a capped severity summary; the CVE page shows them grouped by image across the fleet. `GET /api/image-cves` *(v5.8.0)* |
 | CVE remediation campaigns | Group CVEs (by severity/KEV or explicit ids) into an owned, deadlined effort; server tracks the affected-host burn-down (daily sample) and fires `campaign_completed` at zero. `GET/POST /api/cve/campaigns` *(v5.8.0)* |
 | OSV circuit breaker | Scanner backs off when the OSV feed is unhealthy *(v5.0.0)* |
 | SBOM export | CycloneDX 1.5 + SPDX 2.3 per host/fleet, with purls + VEX vulnerabilities; deterministic *(v3.5.0)* |

@@ -2007,6 +2007,7 @@
             <div class="section-title">Secrets-on-disk scanning</div>
             <p class="hint">When enabled, agents scan the paths below for exposed secrets (private keys, API tokens, passwords) and raise a <em>secret_exposed</em> alert when a new one appears. <strong>Off by default</strong> — it reads files and is heavier than other checks. The scan is <strong>redacting by design</strong>: the agent never sends a secret's value, only its type, location, a masked preview and a fingerprint. Findings appear on the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page, where you can mute false positives.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only; feature-invisible on hosts without trivy)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
@@ -5128,6 +5129,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>
         </div>
         <div class="table-card"><table><thead id="cve-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="ecosystem">Ecosystem</th><th scope="col" data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th scope="col" data-col="critical" class="ta-center">Critical</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Medium</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="last_scan">Last scan</th><th scope="col"></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
+
+        <!-- W6-34: container-image CVEs (trivy) -->
+        <div class="dash-card mt-16">
+          <div class="section-header"><div class="section-title">Container image CVEs (trivy)</div><button class="btn-icon" data-action="loadImageCves"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
+          <p class="hint">Vulnerabilities found in the images of running containers, grouped by image across the fleet. Enable per-fleet in <strong>Settings → Security</strong> (needs <code>trivy</code> on the hosts; ~24h cadence).</p>
+          <div id="image-cve-list" class="mt-8"><div class="c-muted">Click Refresh.</div></div>
+        </div>
 
         <!-- W2-35: CVE remediation campaigns -->
         <div class="dash-card mt-16">

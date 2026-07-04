@@ -29,6 +29,35 @@ async function loadCVEReport() {
 }
 
 // W2-35: CVE remediation campaigns.
+// W6-34: container-image CVEs from trivy, grouped by image.
+async function loadImageCves() {
+  const box = document.getElementById('image-cve-list');
+  if (!box) return;
+  const r = await api('GET', '/image-cves').catch(() => null);
+  if (!r) { box.innerHTML = '<div class="c-red">Failed to load.</div>'; return; }
+  const imgs = r.images || [];
+  if (!imgs.length) {
+    box.innerHTML = r.enabled
+      ? '<div class="meta-sm-nm">No image CVEs reported yet (scan runs ~every 24h on hosts with trivy).</div>'
+      : '<div class="meta-sm-nm">Image scanning is off — enable it in Settings → Security.</div>';
+    return;
+  }
+  box.innerHTML = imgs.map(g => {
+    const hosts = g.hosts.map(h => escHtml(h.name)).join(', ');
+    const top = (g.top || []).slice(0, 8).map(v =>
+      `<tr><td class="ff-mono fs-12">${escHtml(v.id)}</td><td class="fs-12">${escHtml(v.pkg)}</td>`
+      + `<td class="fs-12 ${v.severity === 'CRITICAL' ? 'c-red' : 'c-amber'}">${escHtml(v.severity)}</td>`
+      + `<td class="fs-12">${escHtml(v.installed || '')}${v.fixed ? ' → ' + escHtml(v.fixed) : ''}</td></tr>`).join('');
+    return `<div class="dash-card mb-8"><div class="row-8-center"><span class="fw-500 ff-mono">${escHtml(g.image)}</span>`
+      + `<span class="patch-badge crit fs-11">${g.critical} crit</span>`
+      + `<span class="patch-badge fs-11">${g.high} high</span>`
+      + `<span class="patch-badge fs-11">${g.medium} med</span></div>`
+      + `<div class="hint mt-4">on: ${hosts}</div>`
+      + (top ? `<div class="table-card scrollable-table-wrap audit-scroll mt-6"><table><thead><tr><th>CVE</th><th>Package</th><th>Severity</th><th>Version</th></tr></thead><tbody>${top}</tbody></table></div>` : '')
+      + '</div>';
+  }).join('');
+}
+
 async function loadCveCampaigns() {
   const box = document.getElementById('cve-campaigns-list');
   if (!box) return;

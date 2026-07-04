@@ -184,5 +184,88 @@ class TestCloudSync(_HandlerBase):
         self.assertFalse(api.load(api.DEVICES_FILE)['hetzner-1'].get('decommissioned'))
 
 
+def _load_agent():
+    s = importlib.util.spec_from_file_location(
+        "rpagent_w6", ROOT / "client" / "remotepower-agent.py")
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    return m
+
+
+class TestImageCves(_HandlerBase):
+    """W6-34: trivy container-image CVE scan (agent parse + server aggregate)."""
+
+    def setUp(self):
+        super().setUp()
+        self._icf = api.IMAGE_CVE_FILE
+        api.IMAGE_CVE_FILE = self.d / 'image_cves.json'
+
+    def tearDown(self):
+        api.IMAGE_CVE_FILE = self._icf
+        super().tearDown()
+
+    def test_agent_parses_trivy_json(self):
+        agent = _load_agent()
+        report = ('{"Results":[{"Target":"x","Vulnerabilities":['
+                  '{"VulnerabilityID":"CVE-1","PkgName":"openssl","Severity":"CRITICAL",'
+                  '"InstalledVersion":"1.0","FixedVersion":"1.1"},'
+                  '{"VulnerabilityID":"CVE-2","PkgName":"bash","Severity":"HIGH"},'
+                  '{"VulnerabilityID":"CVE-3","PkgName":"zlib","Severity":"MEDIUM"}]}]}')
+
+        class _P:
+            returncode = 0
+            stdout = report
+        import subprocess
+        orig_run, orig_which = subprocess.run, agent._which
+        subprocess.run = lambda *a, **k: _P()
+        agent._which = lambda prog, _cache={}: '/usr/bin/trivy'
+        try:
+            rows = agent.collect_image_cves(['nginx:latest'])
+        finally:
+            subprocess.run = orig_run
+            agent._which = orig_which
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['critical'], 1)
+        self.assertEqual(rows[0]['high'], 1)
+        self.assertEqual(rows[0]['medium'], 1)
+        self.assertEqual(len(rows[0]['top']), 2)   # only CRITICAL+HIGH in top
+
+    def test_agent_skips_without_trivy(self):
+        agent = _load_agent()
+        orig = agent._which
+        agent._which = lambda prog, _cache={}: None
+        try:
+            self.assertEqual(agent.collect_image_cves(['nginx']), [])
+        finally:
+            agent._which = orig
+
+    def test_server_ingest_and_aggregate(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h1'}, 'd2': {'name': 'h2'}})
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api._ingest_image_cves('d1', [{'image': 'nginx:latest', 'critical': 2, 'high': 1,
+                                       'medium': 0, 'top': [{'id': 'CVE-1', 'severity': 'CRITICAL'}]}])
+        api._ingest_image_cves('d2', [{'image': 'nginx:latest', 'critical': 1, 'high': 0, 'medium': 3}])
+        saved = api._scope_filter_devices
+        api._scope_filter_devices = lambda d: d
+        try:
+            out = self.call(api.handle_image_cves)
+        finally:
+            api._scope_filter_devices = saved
+        self.assertEqual(len(out['images']), 1)
+        img = out['images'][0]
+        self.assertEqual(img['image'], 'nginx:latest')
+        self.assertEqual(img['critical'], 3)      # 2 + 1 across hosts
+        self.assertEqual(len(img['hosts']), 2)
+
+    def test_config_saves_flag(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'image_scan_enabled': True}
+        try:
+            api.handle_config_save()
+        except api.HTTPError:
+            pass
+        self.assertTrue((api.load(api.CONFIG_FILE) or {}).get('image_scan_enabled'))
+
+
 if __name__ == '__main__':
     unittest.main()

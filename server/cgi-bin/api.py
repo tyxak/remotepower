@@ -373,6 +373,7 @@ CMDB_SSH_PORT_MAX     = 65535
 # the last helm-release listing per device.
 HARDWARE_FILE    = DATA_DIR / 'hardware.json'
 SECRETS_FILE     = DATA_DIR / 'secret_findings.json'   # v3.14.0 #35: redacted on-disk-secret findings
+IMAGE_CVE_FILE   = DATA_DIR / 'image_cves.json'        # W6-34: trivy container-image CVE summaries
 PUSH_SUBS_FILE   = DATA_DIR / 'push_subscriptions.json'  # v3.14.0 #42: per-user Web Push subscriptions
 SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
 DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
@@ -15940,6 +15941,13 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] secrets ingest failed dev={dev_id}: {e}\n")
 
+    # W6-34: container-image CVE summaries (opt-in trivy scan).
+    if 'image_cves' in body and isinstance(body['image_cves'], list):
+        try:
+            _ingest_image_cves(dev_id, body['image_cves'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] image cve ingest failed dev={dev_id}: {e}\n")
+
     # v3.4.0: Helm releases (visibility only).
     if 'helm' in body:
         try:
@@ -16043,6 +16051,10 @@ def handle_heartbeat():
         _sec_paths = _sec_cfg.get('secrets_scan_paths') or []
         if _sec_paths:
             common_resp['secrets_scan_paths'] = _sec_paths
+    # W6-34: opt-in container-image CVE scan (trivy). Off by default; the agent
+    # only runs trivy once advertised, and it's feature-invisible without trivy.
+    if _sec_cfg.get('image_scan_enabled'):
+        common_resp['image_scan_enabled'] = True
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
@@ -19288,6 +19300,7 @@ def handle_config_get():
     safe['otlp_token_set'] = bool(cfg.get('otlp_token'))
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
+    safe.setdefault('image_scan_enabled', False)   # W6-34
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
@@ -20230,6 +20243,8 @@ def handle_config_save():
     # and reads sensitive files, so it never runs until explicitly enabled).
     if 'secrets_scan_enabled' in body:
         cfg['secrets_scan_enabled'] = bool(body['secrets_scan_enabled'])
+    if 'image_scan_enabled' in body:      # W6-34: opt-in trivy image CVE scan
+        cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
     if 'secrets_scan_paths' in body:
         raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
         paths = []
@@ -25304,6 +25319,66 @@ def _eval_process_watches(dev_id, dev_name, top_processes, now):
             fire_webhook(event, payload)
         except Exception:
             pass
+
+
+def _sanitize_image_cves(raw):
+    """W6-34: bound + normalise the agent's per-image trivy summaries."""
+    out = []
+    for e in (raw or [])[:50]:
+        if not isinstance(e, dict) or not e.get('image'):
+            continue
+        top = []
+        for v in (e.get('top') or [])[:25]:
+            if not isinstance(v, dict):
+                continue
+            top.append({
+                'id': _sanitize_str(str(v.get('id', '')), 40),
+                'pkg': _sanitize_str(str(v.get('pkg', '')), 80),
+                'severity': _sanitize_str(str(v.get('severity', '')), 10),
+                'installed': _sanitize_str(str(v.get('installed', '')), 40),
+                'fixed': _sanitize_str(str(v.get('fixed', '')), 40),
+            })
+        out.append({
+            'image': _sanitize_str(str(e.get('image')), 256),
+            'critical': int(e.get('critical') or 0),
+            'high': int(e.get('high') or 0),
+            'medium': int(e.get('medium') or 0),
+            'top': top,
+        })
+    return out
+
+
+def _ingest_image_cves(dev_id, raw):
+    """W6-34: store the device's latest per-image CVE summaries (O(1) row write)."""
+    clean = _sanitize_image_cves(raw)
+    with _LockedUpdate(IMAGE_CVE_FILE) as store:
+        store[dev_id] = {'ts': int(time.time()), 'images': clean}
+
+
+def handle_image_cves():
+    """GET /api/image-cves — per-host container-image CVE summaries (trivy),
+    grouped by image across the fleet. Auth: require_auth (scope-filtered)."""
+    require_auth()
+    store = load(IMAGE_CVE_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    by_image = {}
+    for dev_id, rec in store.items():
+        if dev_id not in devices or not isinstance(rec, dict):
+            continue
+        dname = devices[dev_id].get('name', dev_id)
+        for img in (rec.get('images') or []):
+            key = img.get('image', '')
+            g = by_image.setdefault(key, {'image': key, 'critical': 0, 'high': 0,
+                                          'medium': 0, 'hosts': [], 'top': []})
+            g['critical'] += img.get('critical', 0)
+            g['high'] += img.get('high', 0)
+            g['medium'] += img.get('medium', 0)
+            g['hosts'].append({'device_id': dev_id, 'name': dname, 'ts': rec.get('ts')})
+            for v in (img.get('top') or []):
+                if len(g['top']) < 25 and v not in g['top']:
+                    g['top'].append(v)
+    out = sorted(by_image.values(), key=lambda g: (-g['critical'], -g['high']))
+    respond(200, {'images': out, 'enabled': bool(_config_ro().get('image_scan_enabled'))})
 
 
 def _ingest_secret_findings(dev_id, dev_name, findings):
@@ -53374,6 +53449,7 @@ def _build_exact_routes():
         ('POST', '/api/dependency-suggestions'): handle_dependency_suggestions,
         ('GET', '/api/lldp-suggestions'): handle_lldp_suggestions,   # W5-1
         ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
+        ('GET', '/api/image-cves'): handle_image_cves,   # W6-34
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

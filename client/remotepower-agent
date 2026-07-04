@@ -873,6 +873,54 @@ def collect_lldp_neighbors(limit=64):
 # secrets_scan_enabled); bounded hard on files, file size, and wall-clock so it
 # can never hog a host.
 SECRETS_SCAN_EVERY = 360            # ~6h at the 60s default poll
+IMAGE_SCAN_EVERY   = 1440           # ~24h at the 60s default poll (W6-34)
+
+
+def collect_image_cves(images, limit=20):
+    """W6-34: scan container images with `trivy` (skips silently if absent).
+    `images` is the set of image refs of RUNNING containers. Runs
+    `trivy image` per unique image on a SLOW cadence, low priority, and ships a
+    capped SUMMARY (severity counts + a few top findings) — never the full
+    report. Bounded on image count + per-image wall clock. Best-effort."""
+    if not _which('trivy') or not images:
+        return []
+    import json as _json
+    out = []
+    for image in sorted(set(images))[:limit]:
+        if not image or len(image) > 256:
+            continue
+        try:
+            # --quiet + explicit severities keep the JSON small; nice/ionice via
+            # the argv is not portable, so rely on trivy's own light footprint.
+            proc = subprocess.run(
+                ['trivy', 'image', '--quiet', '--format', 'json',
+                 '--severity', 'CRITICAL,HIGH,MEDIUM', '--scanners', 'vuln', image],
+                capture_output=True, text=True, timeout=180)
+            if proc.returncode != 0 or not proc.stdout.strip():
+                continue
+            data = _json.loads(proc.stdout)
+        except Exception:
+            continue
+        counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0}
+        top = []
+        for res in (data.get('Results') or []):
+            for v in (res.get('Vulnerabilities') or []):
+                sev = str(v.get('Severity', '')).upper()
+                if sev in counts:
+                    counts[sev] += 1
+                if len(top) < 25 and sev in ('CRITICAL', 'HIGH'):
+                    top.append({
+                        'id': str(v.get('VulnerabilityID', ''))[:40],
+                        'pkg': str(v.get('PkgName', ''))[:80],
+                        'severity': sev,
+                        'installed': str(v.get('InstalledVersion', ''))[:40],
+                        'fixed': str(v.get('FixedVersion', ''))[:40],
+                    })
+        out.append({'image': image[:256],
+                    'critical': counts['CRITICAL'], 'high': counts['HIGH'],
+                    'medium': counts['MEDIUM'], 'top': top})
+    return out
+
 _SECRET_RULES = [
     ('private_key',    re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----')),
     ('aws_access_key', re.compile(r'\bAKIA[0-9A-Z]{16}\b')),
@@ -7650,6 +7698,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     secrets_scan_on = False
     secrets_scan_paths = None
     force_secrets_scan = False
+    # W6-34: container-image CVE scan (trivy), opt-in + slow.
+    image_scan_on = False
+    force_image_scan = False
     # v3.0.0: IaC collection request from server
     pending_iac_request_id = None
     pending_iac_categories = None
@@ -7930,6 +7981,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'secrets scan error: {e}')
             force_secrets_scan = False
+
+        # W6-34: container-image CVE scan (trivy) — opt-in, slow (~24h) cadence.
+        # Only images of RUNNING containers; feature-invisible without trivy.
+        if image_scan_on and (poll_count % IMAGE_SCAN_EVERY == 0 or force_image_scan):
+            try:
+                _imgs = [c.get('image') for c in (payload.get('containers') or [])
+                         if c.get('image')]
+                if not _imgs and (_which('docker') or _which('podman')):
+                    _imgs = [c.get('image') for c in (get_containers() or []) if c.get('image')]
+                if _imgs:
+                    payload['image_cves'] = collect_image_cves(_imgs)
+            except Exception as e:
+                log.debug(f'image cve scan error: {e}')
+            force_image_scan = False
 
         # v2.5.0: run custom monitoring scripts every SCRIPT_CHECK_EVERY polls.
         # Scripts arrive via the heartbeat response and are stored in
@@ -8244,6 +8309,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_secrets_scan'):
                 force_secrets_scan = True
                 log.info('Server requested a secrets scan')
+            # W6-34: container-image CVE scan (trivy), opt-in + force.
+            image_scan_on = bool(resp.get('image_scan_enabled'))
+            if resp.get('force_image_scan'):
+                force_image_scan = True
+                log.info('Server requested an image CVE scan')
             # v3.4.2: one-shot OpenSCAP scan request. oscap is slow (minutes),
             # so run it in a daemon thread and POST results when done — the
             # heartbeat loop keeps running. The lock prevents overlap.
