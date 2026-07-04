@@ -517,6 +517,36 @@ def _fmt_uptime(secs):
 
 # ─── command handling (Windows) ───────────────────────────────────────────────
 
+def _win_update_install_ps(title=''):
+    """W6-32: PowerShell to install pending Windows Updates. Prefers the
+    PSWindowsUpdate module (Install-WindowsUpdate); falls back to the built-in
+    Microsoft.Update COM API. `title` (optional) installs only updates whose
+    title contains it. Never auto-reboots (IgnoreReboot). Pure builder."""
+    safe = (title or '').replace("'", "''")[:200]
+    if safe:
+        psw = (f"Get-WindowsUpdate -Install -AcceptAll -IgnoreReboot "
+               f"-Title '*{safe}*' -Verbose")
+        com_filter = f"$_.Title -like '*{safe}*'"
+    else:
+        psw = "Get-WindowsUpdate -Install -AcceptAll -IgnoreReboot -Verbose"
+        com_filter = "$true"
+    return (
+        "$ErrorActionPreference='Stop';"
+        "if (Get-Command Get-WindowsUpdate -ErrorAction SilentlyContinue) {"
+        f"  {psw}"
+        "} else {"
+        "  $s=(New-Object -ComObject Microsoft.Update.Session);"
+        "  $sr=$s.CreateUpdateSearcher().Search('IsInstalled=0 and IsHidden=0').Updates;"
+        f"  $c=New-Object -ComObject Microsoft.Update.UpdateColl;"
+        f"  $sr | Where-Object {{ {com_filter} }} | ForEach-Object {{ $null=$c.Add($_) }};"
+        "  if ($c.Count -eq 0) { Write-Output 'No matching updates.'; exit 0 }"
+        "  $d=$s.CreateUpdateDownloader(); $d.Updates=$c; $null=$d.Download();"
+        "  $i=$s.CreateUpdateInstaller(); $i.Updates=$c; $r=$i.Install();"
+        "  Write-Output ('Installed '+$c.Count+' update(s); result='+$r.ResultCode);"
+        "}"
+    )
+
+
 def command_argv(cmd):
     """Map a server command string to a Windows argv list, or None if the
     command is handled elsewhere / unknown. Pure — unit-testable off-Windows."""
@@ -524,6 +554,11 @@ def command_argv(cmd):
         return ['shutdown', '/r', '/t', '30', '/c', 'RemotePower: scheduled reboot']
     if cmd == 'shutdown':
         return ['shutdown', '/s', '/t', '30', '/c', 'RemotePower: scheduled shutdown']
+    # W6-32: patch execution — `upgrade` (all) or `upgrade:<title>` (one update).
+    if cmd == 'upgrade' or (isinstance(cmd, str) and cmd.startswith('upgrade:')):
+        title = cmd[len('upgrade:'):].strip() if cmd.startswith('upgrade:') else ''
+        return ['powershell', '-NoProfile', '-NonInteractive', '-Command',
+                _win_update_install_ps(title)]
     if isinstance(cmd, str) and cmd.startswith('exec:'):
         body = cmd[len('exec:'):]
         # v5.0.0 (#F3): strip the optional "to=<seconds>:" per-command timeout prefix.
@@ -573,7 +608,9 @@ def handle_command(cmd):
         return {'cmd': cmd, 'output': f'unsupported command: {cmd}', 'rc': 1}
     try:
         is_exec = cmd.startswith('exec:')
-        _to = _exec_timeout_override(cmd) if is_exec else None
+        # W6-32: Windows Update installs are slow — give them a wide timeout.
+        is_upgrade = cmd == 'upgrade' or cmd.startswith('upgrade:')
+        _to = _exec_timeout_override(cmd) if is_exec else (1800 if is_upgrade else None)
         r = subprocess.run(argv, capture_output=True, text=True,
                            timeout=_to or (EXEC_TIMEOUT if is_exec else 30))
         out = ((r.stdout or '') + (r.stderr or '')).strip()[:MAX_OUTPUT]

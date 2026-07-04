@@ -360,6 +360,14 @@ def collect_sysinfo():
             pass
     except Exception:
         pass
+    # W6-32: Homebrew outdated formulae → the Patches page (None-safe; skipped
+    # without brew). Runs on the sysinfo cadence; brew outdated is cheap.
+    try:
+        _brew = brew_outdated()
+        if _brew is not None:
+            info['packages'] = _brew
+    except Exception:
+        pass
     return info
 
 
@@ -503,7 +511,48 @@ def command_argv(cmd):
         if m:
             body = m.group(1)
         return ['/bin/sh', '-c', body]
+    # W6-32: patch execution via Homebrew. `upgrade` upgrades all outdated
+    # formulae; `upgrade:<name>` upgrades one. Casks are NOT touched by default
+    # (never --greedy). No-op-safe if brew isn't installed (rc reflects it).
+    if cmd == 'upgrade' or (isinstance(cmd, str) and cmd.startswith('upgrade:')):
+        pkg = cmd[len('upgrade:'):].strip() if cmd.startswith('upgrade:') else ''
+        brew = _brew_path()
+        if not brew:
+            return None    # handled in handle_command → clear "brew not found"
+        if pkg and re.match(r'^[A-Za-z0-9@._+-]{1,80}$', pkg):
+            return [brew, 'upgrade', '--formula', pkg]
+        return [brew, 'upgrade', '--formula']
     return None
+
+
+def _brew_path():
+    """Locate the Homebrew binary (Apple-silicon /opt/homebrew, Intel
+    /usr/local). Returns the path or ''."""
+    for p in ('/opt/homebrew/bin/brew', '/usr/local/bin/brew'):
+        if os.path.exists(p):
+            return p
+    import shutil
+    return shutil.which('brew') or ''
+
+
+def brew_outdated():
+    """W6-32: outdated Homebrew formulae as a packages entry (mirrors the Linux
+    apt/dnf shape) so macOS hosts surface on the Patches page. None when brew
+    isn't installed."""
+    brew = _brew_path()
+    if not brew:
+        return None
+    try:
+        r = subprocess.run([brew, 'outdated', '--formula', '--json=v2'],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0 or not r.stdout.strip():
+            return {'manager': 'brew', 'upgradable': 0, 'upgradable_names': []}
+        data = json.loads(r.stdout)
+        names = [f.get('name', '') for f in (data.get('formulae') or []) if f.get('name')]
+        return {'manager': 'brew', 'upgradable': len(names),
+                'upgradable_names': names[:100]}
+    except Exception:
+        return None
 
 
 def _exec_timeout_override(cmd):
@@ -534,10 +583,14 @@ def handle_command(cmd):
         return {'cmd': cmd, 'output': 'self-update not supported by the minimal agent yet', 'rc': 0}
     argv = command_argv(cmd)
     if argv is None:
+        # W6-32: an upgrade command with no brew installed → a clear message.
+        if cmd == 'upgrade' or cmd.startswith('upgrade:'):
+            return {'cmd': cmd, 'output': 'Homebrew is not installed on this host', 'rc': 1}
         return {'cmd': cmd, 'output': f'unsupported command: {cmd}', 'rc': 1}
     try:
         is_exec = cmd.startswith('exec:')
-        _to = _exec_timeout_override(cmd) if is_exec else None
+        is_upgrade = cmd == 'upgrade' or cmd.startswith('upgrade:')   # W6-32: slow
+        _to = _exec_timeout_override(cmd) if is_exec else (1800 if is_upgrade else None)
         r = subprocess.run(argv, capture_output=True, text=True,
                            timeout=_to or (EXEC_TIMEOUT if is_exec else 30))
         out = ((r.stdout or '') + (r.stderr or '')).strip()[:MAX_OUTPUT]

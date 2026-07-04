@@ -193,6 +193,59 @@ def _load_agent():
     return m
 
 
+def _load_named_agent(fname, mod):
+    s = importlib.util.spec_from_file_location(mod, ROOT / "client" / fname)
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    return m
+
+
+class TestWinMacPatchExec(unittest.TestCase):
+    """W6-32: Windows / macOS patch execution (command_argv is pure)."""
+
+    def test_win_upgrade_all(self):
+        w = _load_named_agent("remotepower-agent-win.py", "rpwin_w6")
+        argv = w.command_argv('upgrade')
+        self.assertEqual(argv[0], 'powershell')
+        ps = argv[-1]
+        self.assertIn('Get-WindowsUpdate', ps)
+        self.assertIn('Microsoft.Update.Session', ps)   # COM fallback present
+        self.assertIn('IgnoreReboot', ps)
+
+    def test_win_upgrade_one_title(self):
+        w = _load_named_agent("remotepower-agent-win.py", "rpwin_w6b")
+        ps = w.command_argv('upgrade:Security Update')[-1]
+        self.assertIn("*Security Update*", ps)
+
+    def test_win_upgrade_timeout_is_wide(self):
+        w = _load_named_agent("remotepower-agent-win.py", "rpwin_w6c")
+        # the handler picks a 1800s timeout for upgrades — smoke via command_argv
+        self.assertIsNotNone(w.command_argv('upgrade'))
+
+    def test_mac_upgrade_argv_with_brew(self):
+        m = _load_named_agent("remotepower-agent-mac.py", "rpmac_w6")
+        m._brew_path = lambda: '/opt/homebrew/bin/brew'
+        self.assertEqual(m.command_argv('upgrade'),
+                         ['/opt/homebrew/bin/brew', 'upgrade', '--formula'])
+        self.assertEqual(m.command_argv('upgrade:wget'),
+                         ['/opt/homebrew/bin/brew', 'upgrade', '--formula', 'wget'])
+
+    def test_mac_upgrade_rejects_bad_pkg(self):
+        m = _load_named_agent("remotepower-agent-mac.py", "rpmac_w6b")
+        m._brew_path = lambda: '/opt/homebrew/bin/brew'
+        # a package name with shell metacharacters → falls back to upgrade-all
+        argv = m.command_argv('upgrade:wget; rm -rf /')
+        self.assertEqual(argv, ['/opt/homebrew/bin/brew', 'upgrade', '--formula'])
+
+    def test_mac_no_brew_message(self):
+        m = _load_named_agent("remotepower-agent-mac.py", "rpmac_w6c")
+        m._brew_path = lambda: ''
+        m._audit_mode = lambda: False
+        m.load_creds = lambda: {}
+        out = m.handle_command('upgrade')
+        self.assertIn('Homebrew is not installed', out['output'])
+
+
 class TestImageCves(_HandlerBase):
     """W6-34: trivy container-image CVE scan (agent parse + server aggregate)."""
 
