@@ -39,6 +39,8 @@
     'Recurring tickets':     { zh: '周期性工单', hi: 'आवर्ती टिकट', es: 'Tickets recurrentes', ar: 'التذاكر المتكررة' },
     'Add schedule':          { zh: '添加计划', hi: 'शेड्यूल जोड़ें', es: 'Añadir programación', ar: 'إضافة جدول' },
     'Satisfaction survey (CSAT)': { zh: '满意度调查 (CSAT)', hi: 'संतुष्टि सर्वेक्षण (CSAT)', es: 'Encuesta de satisfacción (CSAT)', ar: 'استبيان الرضا (CSAT)' },
+    'Business hours (SLA calendar)': { zh: '营业时间（SLA 日历）', hi: 'व्यावसायिक घंटे (SLA कैलेंडर)', es: 'Horario laboral (calendario de SLA)', ar: 'ساعات العمل (تقويم SLA)' },
+    'Save business hours':   { zh: '保存营业时间', hi: 'व्यावसायिक घंटे सहेजें', es: 'Guardar horario laboral', ar: 'حفظ ساعات العمل' },
     'Patch SLA':             { zh: '补丁 SLA', hi: 'पैच SLA', es: 'SLA de parches', ar: 'اتفاقية مستوى خدمة التصحيح' },
     'Add SLA rule':          { zh: '添加 SLA 规则', hi: 'SLA नियम जोड़ें', es: 'Añadir regla de SLA', ar: 'إضافة قاعدة SLA' },
     'Incidents':             { zh: '事件', hi: 'घटनाएँ', es: 'Incidencias', ar: 'الحوادث' },

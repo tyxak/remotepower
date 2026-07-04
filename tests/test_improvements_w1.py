@@ -1140,5 +1140,70 @@ class TestNotificationDigest(_HandlerBase):
         self.assertNotIn('digest_minutes', urls[1])   # 0 = off, not stored
 
 
+class TestBusinessHoursSla(_HandlerBase):
+    """W2-29: business-hours SLA deadline computation."""
+
+    # Mon–Fri 09:00–17:00 (540..1020 min), UTC.
+    SPEC = {'enabled': True, 'tz_offset_min': 0,
+            'weekly': {str(d): [[540, 1020]] for d in range(5)},
+            'holidays': []}
+
+    def _dt(self, s):
+        from datetime import datetime, timezone
+        return int(datetime.strptime(s, '%Y-%m-%d %H:%M').replace(
+            tzinfo=timezone.utc).timestamp())
+
+    def _iso(self, ts):
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(ts, timezone.utc).strftime('%Y-%m-%d %H:%M')
+
+    def test_within_same_day(self):
+        # Wed 2026-07-01 10:00 + 2 business hours = 12:00 same day
+        start = self._dt('2026-07-01 10:00')
+        due = api._business_deadline(start, 2 * 3600, self.SPEC)
+        self.assertEqual(self._iso(due), '2026-07-01 12:00')
+
+    def test_rolls_to_next_day(self):
+        # Wed 16:00 + 2h: 1h today (→17:00) then 1h next morning → Thu 10:00
+        start = self._dt('2026-07-01 16:00')
+        due = api._business_deadline(start, 2 * 3600, self.SPEC)
+        self.assertEqual(self._iso(due), '2026-07-02 10:00')
+
+    def test_pauses_over_weekend(self):
+        # Fri 2026-07-03 16:00 + 2h: 1h Fri (→17:00) then Mon 09:00–10:00
+        start = self._dt('2026-07-03 16:00')
+        due = api._business_deadline(start, 2 * 3600, self.SPEC)
+        self.assertEqual(self._iso(due), '2026-07-06 10:00')
+
+    def test_skips_holiday(self):
+        spec = dict(self.SPEC, holidays=['2026-07-02'])
+        # Wed 16:00 + 2h: 1h Wed, Thu is a holiday → Fri 09:00–10:00
+        start = self._dt('2026-07-01 16:00')
+        due = api._business_deadline(start, 2 * 3600, spec)
+        self.assertEqual(self._iso(due), '2026-07-03 10:00')
+
+    def test_start_before_open_waits_for_open(self):
+        # Wed 07:00 (before 09:00) + 1h → opens 09:00, due 10:00
+        start = self._dt('2026-07-01 07:00')
+        due = api._business_deadline(start, 3600, self.SPEC)
+        self.assertEqual(self._iso(due), '2026-07-01 10:00')
+
+    def test_ticket_sla_uses_business_hours_when_enabled(self):
+        api.save(api.CONFIG_FILE, {'ticket_business_hours': self.SPEC})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        t = {'priority': 3, 'created_at': self._dt('2026-07-03 16:00'), 'status': 'ongoing'}
+        # P3 default is 24h in the SLA policy; with business hours it lands
+        # well past a naive +24h wall-clock (which would be Sat)
+        due, _ = api._ticket_sla(t, {3: 2})   # 2 business hours
+        self.assertEqual(self._iso(due), '2026-07-06 10:00')
+
+    def test_disabled_is_wall_clock(self):
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        t = {'priority': 3, 'created_at': 1_000_000, 'status': 'ongoing'}
+        due, _ = api._ticket_sla(t, {3: 5})
+        self.assertEqual(due, 1_000_000 + 5 * 3600)
+
+
 if __name__ == '__main__':
     unittest.main()

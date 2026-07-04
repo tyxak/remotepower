@@ -28,6 +28,7 @@ import secrets
 import sys
 import time
 import urllib
+from datetime import datetime, timedelta, timezone
 
 # The api namespace, bound by api.py at import time (see bind()). A dict-backed
 # proxy rather than the module object: under the runpy CGI shim the executing
@@ -78,20 +79,82 @@ def _ticket_sla_policy():
     return out
 
 
+def _business_hours_cfg():
+    """W2-29: business-hours calendar for SLA clocks. {enabled, tz_offset_min,
+    weekly: {'0'..'6': [[startMin,endMin],...]}, holidays: ['YYYY-MM-DD']}.
+    weekday 0=Monday..6=Sunday. Absent/disabled → wall-clock SLA (unchanged)."""
+    c = (A.load(A.CONFIG_FILE) or {}).get('ticket_business_hours')
+    return c if isinstance(c, dict) and c.get('enabled') else None
+
+
+def _business_deadline(start_ts, seconds, spec):
+    """Pure: wall-clock instant by which `seconds` of BUSINESS time elapse from
+    `start_ts`, walking forward through the calendar's open windows only (the
+    clock 'pauses' overnight / weekends / holidays). Falls back to wall-clock if
+    no windows are configured so a misconfigured calendar can't push a deadline
+    to infinity."""
+    try:
+        offset = int(spec.get('tz_offset_min', 0) or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    tz = timezone(timedelta(minutes=offset))
+    weekly = spec.get('weekly') or {}
+    holidays = set(spec.get('holidays') or [])
+    remaining = float(seconds)
+    cur = datetime.fromtimestamp(int(start_ts), tz)
+    for _ in range(3700):     # ~10 years of days — safety bound
+        if remaining <= 0:
+            return int(cur.timestamp())
+        day_key = str(cur.weekday())
+        if cur.strftime('%Y-%m-%d') not in holidays:
+            midnight = cur.replace(hour=0, minute=0, second=0, microsecond=0)
+            for win in (weekly.get(day_key) or []):
+                try:
+                    s_min, e_min = int(win[0]), int(win[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if e_min <= s_min:
+                    continue
+                w_start = max(cur, midnight + timedelta(minutes=s_min))
+                w_end = midnight + timedelta(minutes=e_min)
+                if w_start >= w_end:
+                    continue
+                avail = (w_end - w_start).total_seconds()
+                if avail >= remaining:
+                    return int((w_start + timedelta(seconds=remaining)).timestamp())
+                remaining -= avail
+        cur = (cur + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(start_ts) + int(seconds)     # never fit → wall-clock fallback
+
+
 def _ticket_sla(t, policy=None):
-    """Return (due_ts, breached) for a ticket from its priority + created_at."""
+    """Return (due_ts, breached) for a ticket from its priority + created_at.
+    W2-29: when a business-hours calendar is enabled, the SLA target counts only
+    business time (clock pauses outside hours)."""
     policy = policy or A._ticket_sla_policy()
     hours = policy.get(A._coerce_priority(t.get('priority', 4)), 72)
-    due = int(t.get('created_at') or 0) + int(hours * 3600)
+    created = int(t.get('created_at') or 0)
+    bh = _business_hours_cfg()
+    if bh:
+        due = _business_deadline(created, int(hours * 3600), bh)
+    else:
+        due = created + int(hours * 3600)
     open_st = ('ongoing', 'pending_customer', 'pending_internal')
     breached = bool(t.get('status') in open_st and int(time.time()) > due)
     return due, breached
 
 
 def _ticket_public(t):
-    return {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
-            'device_id', 'device_name', 'alertid', 'to_email', 'parent', 'priority',
-            'assignee', 'group', 'affected_devices', 'new_reply', 'created_by', 'created_at', 'updated_at', 'csat')}
+    out = {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
+           'device_id', 'device_name', 'alertid', 'to_email', 'parent', 'priority',
+           'assignee', 'group', 'affected_devices', 'new_reply', 'created_by',
+           'created_at', 'updated_at', 'csat')}
+    # W2-29: server-computed SLA due/breached so the list honours the
+    # business-hours calendar (the client used to derive it wall-clock).
+    due, breached = _ticket_sla(t)
+    out['sla_due'] = due
+    out['sla_breached'] = breached
+    return out
 
 
 def handle_tickets():

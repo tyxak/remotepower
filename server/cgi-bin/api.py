@@ -752,6 +752,7 @@ for _tk_name in (
         'handle_ticket_templates', 'handle_ticket_schedules',
         'run_ticket_schedules_if_due', '_create_scheduled_ticket',
         'handle_ticket_csat', '_csat_enabled', '_csat_sig', '_send_ticket_csat',
+        '_business_hours_cfg', '_business_deadline',
         'handle_ticket_send_email', '_ticket_contact_email', '_ticket_autoreply_cfg', '_send_ticket_autoreply',
         '_ticket_imap_cfg', '_ticket_email_text', '_ticket_store_attachment', '_fetch_ticket_replies',
         '_open_ticket_device_ids', '_dashboard_tickets', 'run_ticket_imap_if_due', 'run_ticket_sla_if_due',
@@ -17819,6 +17820,8 @@ def handle_config_get():
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
     safe.setdefault('ticket_csat_enabled',    False)  # W1-31: CSAT survey on resolve
+    safe.setdefault('ticket_business_hours', {'enabled': False, 'tz_offset_min': 0,
+                                              'weekly': {}, 'holidays': []})  # W2-29
     safe.setdefault('ct_watch_domains',       [])     # W1-17: CT-log watch (empty = off)
     safe.setdefault('enrol_rules',            [])     # W1-9: enrolment auto-placement rules
     safe.setdefault('alert_runbooks',         {})     # W1-23: event→KB-article map
@@ -19159,6 +19162,38 @@ def handle_config_save():
         cfg['tickets_enabled'] = bool(body['tickets_enabled'])
     if 'ticket_csat_enabled' in body:   # W1-31: satisfaction survey on resolve
         cfg['ticket_csat_enabled'] = bool(body['ticket_csat_enabled'])
+    # W2-29: business-hours calendar for ticket SLA clocks.
+    if 'ticket_business_hours' in body:
+        bh = body.get('ticket_business_hours')
+        if not isinstance(bh, dict):
+            respond(400, {'error': 'ticket_business_hours must be an object'})
+        try:
+            tzoff = max(-720, min(840, int(bh.get('tz_offset_min', 0))))
+        except (TypeError, ValueError):
+            tzoff = 0
+        weekly = {}
+        for wd in range(7):
+            wins = (bh.get('weekly') or {}).get(str(wd)) or []
+            clean = []
+            for w in wins[:6]:
+                try:
+                    s, e = int(w[0]), int(w[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                s = max(0, min(1440, s)); e = max(0, min(1440, e))
+                if e > s:
+                    clean.append([s, e])
+            if clean:
+                weekly[str(wd)] = clean
+        holidays = []
+        for h in (bh.get('holidays') or [])[:200]:
+            h = re.sub(r'[^0-9\-]', '', str(h))[:10]
+            if re.match(r'^\d{4}-\d{2}-\d{2}$', h):
+                holidays.append(h)
+        cfg['ticket_business_hours'] = {
+            'enabled': bool(bh.get('enabled')),
+            'tz_offset_min': tzoff, 'weekly': weekly, 'holidays': holidays,
+        }
     # W1-9: enrolment auto-placement rules. A rule matches a NEW device by
     # hostname regex or source-IP CIDR and stamps group/site/tags at enrolment
     # (token defaults win). Regex is length-capped + compile-validated here.

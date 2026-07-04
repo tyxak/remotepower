@@ -100,9 +100,16 @@ async function loadTickets() {
   const tks = data.tickets || [];
   const nowS = Math.floor(Date.now() / 1000);
   tks.forEach(t => {
-    const hrs = parseFloat(slaPol[String(_coercePrio(t.priority))] || 0);
-    t._slaDue = hrs > 0 ? (t.created_at || 0) + hrs * 3600 : 0;
-    t._slaBreached = _tkIsOpen(t) && !!t._slaDue && t._slaDue < nowS;
+    // W2-29: prefer the server-computed due (honours the business-hours
+    // calendar); fall back to the wall-clock estimate for older payloads.
+    if (t.sla_due != null) {
+      t._slaDue = t.sla_due;
+      t._slaBreached = _tkIsOpen(t) && !!t.sla_breached;
+    } else {
+      const hrs = parseFloat(slaPol[String(_coercePrio(t.priority))] || 0);
+      t._slaDue = hrs > 0 ? (t.created_at || 0) + hrs * 3600 : 0;
+      t._slaBreached = _tkIsOpen(t) && !!t._slaDue && t._slaDue < nowS;
+    }
   });
   // Known groups (for the detail "Assign to group" dropdown) = existing ticket groups.
   window._ticketGroups = [...new Set(tks.map(t => (t.group || '').trim()).filter(Boolean))].sort();
@@ -793,6 +800,47 @@ function deleteTicketSchedule(i) {
   if (isNaN(idx) || idx < 0 || idx >= _tkSchedules.length) return;
   const scheds = [..._tkSchedules]; scheds.splice(idx, 1);
   _tkPostSchedules(scheds, 'Schedule deleted');
+}
+// W2-29: business-hours SLA calendar.
+const _BH_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+function _minToHHMM(m) { if (m == null) return ''; const h = Math.floor(m / 60), mm = m % 60; return String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); }
+function _hhmmToMin(s) { const m = /^(\d{1,2}):(\d{2})$/.exec((s || '').trim()); if (!m) return null; return parseInt(m[1], 10) * 60 + parseInt(m[2], 10); }
+async function loadBusinessHours() {
+  const box = document.getElementById('bh-days');
+  if (!box) return;
+  let bh = {};
+  try { const c = await api('GET', '/config'); bh = (c && c.ticket_business_hours) || {}; } catch (e) { bh = {}; }
+  const en = document.getElementById('bh-enabled'); if (en) en.checked = !!bh.enabled;
+  const tz = document.getElementById('bh-tz'); if (tz) tz.value = bh.tz_offset_min || 0;
+  const ho = document.getElementById('bh-holidays'); if (ho) ho.value = (bh.holidays || []).join('\n');
+  const weekly = bh.weekly || {};
+  box.innerHTML = _BH_DAYS.map((name, i) => {
+    const win = (weekly[String(i)] || [])[0] || [];
+    return `<div class="row-6-center mb-4"><span class="fs-13 bh-day">${name}</span>`
+      + `<input type="time" class="form-input" data-bh-start="${i}" value="${_minToHHMM(win[0])}" aria-label="${name} start">`
+      + `<span class="meta-sm-nm">to</span>`
+      + `<input type="time" class="form-input" data-bh-end="${i}" value="${_minToHHMM(win[1])}" aria-label="${name} end"></div>`;
+  }).join('');
+}
+async function saveBusinessHours() {
+  const weekly = {};
+  for (let i = 0; i < 7; i++) {
+    const s = _hhmmToMin(document.querySelector(`[data-bh-start="${i}"]`)?.value);
+    const e = _hhmmToMin(document.querySelector(`[data-bh-end="${i}"]`)?.value);
+    if (s != null && e != null && e > s) weekly[String(i)] = [[s, e]];
+  }
+  const holidays = (document.getElementById('bh-holidays')?.value || '').split('\n').map(x => x.trim()).filter(Boolean);
+  const body = {
+    ticket_business_hours: {
+      enabled: !!document.getElementById('bh-enabled')?.checked,
+      tz_offset_min: parseInt(document.getElementById('bh-tz')?.value || '0', 10) || 0,
+      weekly, holidays,
+    },
+  };
+  const r = await api('POST', '/config', body);
+  const res = document.getElementById('bh-result');
+  if (r && !r.error) { toast('Business hours saved', 'success'); if (res) res.textContent = ''; }
+  else { toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed'; }
 }
 // W1-31: CSAT toggle lives in main config (ticket_csat_enabled).
 async function loadTicketCsat() {

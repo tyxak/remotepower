@@ -2333,6 +2333,15 @@
             <div class="meta-sm-nm mt-4">When a ticket is resolved, email the contact a one-click <strong>Good / Okay / Bad</strong> rating link (no login — the link is signed and single-use). Ratings show on the ticket and as a rolling average. Requires SMTP + a contact email on the ticket.</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ticket-csat" data-change="saveTicketCsat"> Send a satisfaction survey on resolve</label></div>
 
+            <div class="section-title mt-16">Business hours (SLA calendar)</div>
+            <div class="meta-sm-nm mt-4">Count ticket SLA targets in <strong>business hours only</strong> — the SLA clock pauses overnight, on weekends, and on holidays. Off = 24/7 wall-clock (unchanged). One open window per weekday; blank = closed.</div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="bh-enabled"> Enable business-hours SLA</label></div>
+            <div class="settings-row"><label class="form-label" for="bh-tz">UTC offset (minutes, e.g. 60 = UTC+1, -300 = UTC-5)</label><input type="number" id="bh-tz" class="form-input" min="-720" max="840" value="0"></div>
+            <div id="bh-days" class="mt-8"></div>
+            <div class="settings-row"><label class="form-label" for="bh-holidays">Holidays (YYYY-MM-DD, one per line)</label><textarea id="bh-holidays" class="form-input ff-mono" rows="3" placeholder="2026-12-25"></textarea></div>
+            <div class="row-6"><button class="btn-primary" data-action="saveBusinessHours">Save business hours</button></div>
+            <div id="bh-result" class="hint mt-6" role="status" aria-live="polite"></div>
+
             <div class="section-title mt-16">Ticket SLA targets</div>
             <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
             <div class="form-row mt-8">
