@@ -706,5 +706,93 @@ class TestInvoiceEmail(_HandlerBase):
         self.assertEqual(self.sent, [])   # paid excluded, recent not yet due
 
 
+class TestTicketCsat(_HandlerBase):
+    """W1-31: CSAT survey signing, public rating endpoint, resolve dispatch."""
+
+    def setUp(self):
+        super().setUp()
+        self._tf = api.TICKETS_FILE
+        api.TICKETS_FILE = self.d / 'tickets.json'
+        api.save(api.CONFIG_FILE, {'tickets_enabled': True, 'ticket_csat_enabled': True,
+                                   'smtp_host': 'smtp.test'})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        # capture the rendered CSAT page instead of exiting the process
+        self.pages = []
+        self._real_page = api.tickets_handlers_mod._csat_page
+
+        def _fake_page(title, msg):
+            self.pages.append((title, msg))
+            raise api.HTTPError(200, None)   # unwind like respond() does
+        api.tickets_handlers_mod._csat_page = _fake_page
+
+    def tearDown(self):
+        api.tickets_handlers_mod._csat_page = self._real_page
+        api.TICKETS_FILE = self._tf
+        super().tearDown()
+
+    def _ticket(self, **extra):
+        t = {'id': 'tk_1', 'number': 900001, 'subject': 'S', 'status': 'ongoing',
+             'to_email': 'user@example.com', 'messages': []}
+        t.update(extra)
+        api.save(api.TICKETS_FILE, {'tickets': [t]})
+
+    def test_sig_binds_ticket_and_rating(self):
+        s_good = api._csat_sig('tk_1', 'good')
+        s_bad = api._csat_sig('tk_1', 'bad')
+        self.assertNotEqual(s_good, s_bad)
+        self.assertEqual(s_good, api._csat_sig('tk_1', 'good'))     # deterministic
+        self.assertNotEqual(s_good, api._csat_sig('tk_2', 'good'))  # per-ticket
+
+    def _hit_csat(self, tid, rating, sig):
+        import os as _os
+        _os.environ['QUERY_STRING'] = f't={tid}&r={rating}&s={sig}'
+        api.method = lambda: 'GET'
+        self.call(api.handle_ticket_csat)
+
+    def test_valid_click_stores_rating_once(self):
+        self._ticket()
+        self._hit_csat('tk_1', 'good', api._csat_sig('tk_1', 'good'))
+        t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
+        self.assertEqual(t['csat']['rating'], 'good')
+        self.assertEqual(t['csat']['score'], 5)
+        self.assertIn('Thank you', self.pages[-1][0])
+        # second click → already recorded, rating unchanged
+        self._hit_csat('tk_1', 'bad', api._csat_sig('tk_1', 'bad'))
+        t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
+        self.assertEqual(t['csat']['rating'], 'good')
+        self.assertIn('Already', self.pages[-1][0])
+
+    def test_bad_signature_rejected(self):
+        self._ticket()
+        self._hit_csat('tk_1', 'good', 'deadbeef')
+        t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
+        self.assertNotIn('csat', t)
+        self.assertIn('Invalid', self.pages[-1][0])
+
+    def test_resolve_sends_survey_once(self):
+        self._ticket()
+        sent = []
+        api.smtp_notifier.send_email = lambda cfg, r, s, b, **k: sent.append((r, s, b))
+        api._request_base_url = lambda env: 'https://rp.test'
+        api.require_write_role = lambda *a, **k: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'status': 'resolved'}
+        try:
+            self.call(api.handle_ticket_update, 'tk_1')
+        except Exception:
+            pass
+        self.assertEqual(len(sent), 1)
+        # the email carries the three signed rating links
+        body = sent[0][2]
+        self.assertIn('r=good', body)
+        self.assertIn('r=bad', body)
+        self.assertIn(api._csat_sig('tk_1', 'good'), body)
+        t = (api.load(api.TICKETS_FILE) or {}).get('tickets')[0]
+        self.assertTrue(t.get('csat_sent'))
+
+    def test_csat_exempt_from_ip_allowlist(self):
+        self.assertIn('/api/tickets/csat', api._IP_ALLOWLIST_EXEMPT_PATHS)
+
+
 if __name__ == '__main__':
     unittest.main()

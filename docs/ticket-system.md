@@ -110,6 +110,16 @@ Placeholders substitute at insert time:
 The inserted text is normal composer text — edit it freely before sending.
 `GET/POST /api/tickets/templates`.
 
+## Satisfaction survey (CSAT)
+
+Turn on **Settings → Tickets → Satisfaction survey** to email the contact a
+one-click rating link when a ticket is resolved. The email offers **Good /
+Okay / Bad** — each a signed, single-use URL (`GET /api/tickets/csat`), so the
+customer rates with one click and no login. The rating is stored on the ticket
+and shown as a badge in the list; a second click just acknowledges the existing
+rating. Requires SMTP and a contact email on the ticket; it's sent once, on the
+first resolve, and is loop-safe (never to automated senders).
+
 ## Recurring tickets
 
 For chores that must happen on a cadence — a quarterly restore drill, a monthly

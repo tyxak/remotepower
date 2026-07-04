@@ -748,6 +748,7 @@ for _tk_name in (
         'handle_ticket_autoreply', 'handle_ticket_imap_get', 'handle_ticket_imap_save', 'handle_ticket_imap_test',
         'handle_ticket_templates', 'handle_ticket_schedules',
         'run_ticket_schedules_if_due', '_create_scheduled_ticket',
+        'handle_ticket_csat', '_csat_enabled', '_csat_sig', '_send_ticket_csat',
         'handle_ticket_send_email', '_ticket_contact_email', '_ticket_autoreply_cfg', '_send_ticket_autoreply',
         '_ticket_imap_cfg', '_ticket_email_text', '_ticket_store_attachment', '_fetch_ticket_replies',
         '_open_ticket_device_ids', '_dashboard_tickets', 'run_ticket_imap_if_due', 'run_ticket_sla_if_due',
@@ -3960,6 +3961,9 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     # v3.4.2: agents POST OpenSCAP results here (self-authenticated by device
     # token); exempt so a host on a dynamic IP can still report.
     '/api/scap/report',
+    # W1-31: customers click the CSAT survey link from arbitrary IPs; the HMAC
+    # signature is the capability, so exempt it from the operator IP allowlist.
+    '/api/tickets/csat',
 )
 
 
@@ -17671,6 +17675,7 @@ def handle_config_get():
     safe['approval_kinds_all'] = list(_APPROVAL_KINDS_ALL)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
+    safe.setdefault('ticket_csat_enabled',    False)  # W1-31: CSAT survey on resolve
     safe.setdefault('ct_watch_domains',       [])     # W1-17: CT-log watch (empty = off)
     safe.setdefault('enrol_rules',            [])     # W1-9: enrolment auto-placement rules
     safe.setdefault('alert_runbooks',         {})     # W1-23: event→KB-article map
@@ -18995,6 +19000,8 @@ def handle_config_save():
     # OFF resolves the open backlog for those events in one action.
     if 'tickets_enabled' in body:
         cfg['tickets_enabled'] = bool(body['tickets_enabled'])
+    if 'ticket_csat_enabled' in body:   # W1-31: satisfaction survey on resolve
+        cfg['ticket_csat_enabled'] = bool(body['ticket_csat_enabled'])
     # W1-9: enrolment auto-placement rules. A rule matches a NEW device by
     # hostname regex or source-IP CIDR and stamps group/site/tags at enrolment
     # (token defaults win). Regex is length-capped + compile-validated here.
@@ -50210,6 +50217,7 @@ def _build_exact_routes():
         ('POST', '/api/tickets/templates'): handle_ticket_templates,
         ('GET', '/api/tickets/schedules'): handle_ticket_schedules,
         ('POST', '/api/tickets/schedules'): handle_ticket_schedules,
+        ('GET', '/api/tickets/csat'): handle_ticket_csat,   # W1-31 PUBLIC (HMAC-signed)
         # v5.4.0 RackMatters: time-tracking + billing
         ('GET', '/api/time-entries'): handle_time_entries,
         ('POST', '/api/time-entries'): handle_time_entries,

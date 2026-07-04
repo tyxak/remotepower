@@ -91,7 +91,7 @@ def _ticket_sla(t, policy=None):
 def _ticket_public(t):
     return {k: t.get(k) for k in ('id', 'number', 'subject', 'type', 'status',
             'device_id', 'device_name', 'alertid', 'to_email', 'parent', 'priority',
-            'assignee', 'group', 'affected_devices', 'new_reply', 'created_by', 'created_at', 'updated_at')}
+            'assignee', 'group', 'affected_devices', 'new_reply', 'created_by', 'created_at', 'updated_at', 'csat')}
 
 
 def handle_tickets():
@@ -467,6 +467,7 @@ def handle_ticket_update(tid):
     ok = False
     resolve_alert_id = None     # set inside the lock; resolved AFTER it (no nested locks)
     resolve_ticket_no = None
+    csat_target = None          # (to_email, ticket_snapshot) — CSAT sent AFTER the lock
     with A._LockedUpdate(A.TICKETS_FILE) as store:
         t = next((x for x in (store.get('tickets') or []) if x.get('id') == tid), None)
         if t:
@@ -493,6 +494,15 @@ def handle_ticket_update(tid):
                         and A._may_touch_alert_state()):
                     resolve_alert_id = t.get('alert_id')
                     resolve_ticket_no = t.get('number')
+                # W1-31: one-time CSAT survey on the FIRST resolve, opt-in.
+                if (t['status'] in ('resolved', 'closed')
+                        and _prev_status not in ('resolved', 'closed')
+                        and _csat_enabled() and not t.get('csat_sent')):
+                    _to = (t.get('to_email') or ''
+                           or _ticket_contact_email(t.get('device_id')))
+                    if _to and '@' in _to:
+                        t['csat_sent'] = True
+                        csat_target = (_to, {'id': t.get('id'), 'number': t.get('number')})
             if 'type' in body and str(body['type']).strip().lower() in A.TICKET_TYPES:
                 t['type'] = str(body['type']).strip().lower()
             if 'device_id' in body:
@@ -564,6 +574,13 @@ def handle_ticket_update(tid):
                         break
         except Exception:
             pass
+    # W1-31: send the CSAT survey AFTER the tickets lock (SMTP + no nested lock).
+    if csat_target:
+        try:
+            _base = A._request_base_url(A.os.environ)
+            _send_ticket_csat(csat_target[0], csat_target[1], _base)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] CSAT dispatch failed: {e}\n')
     A.audit_log(actor, 'ticket_update', f'id={tid}')
     if alert_resolved:
         A.audit_log(actor, 'alert_resolve', f'id={resolve_alert_id} via ticket {tid}')
@@ -924,6 +941,114 @@ def _send_ticket_autoreply(to_email, number, subject):
             'Auto-Submitted': 'auto-replied', 'X-RP-Ticket': str(number)})
     except Exception as e:
         sys.stderr.write(f'[remotepower] ticket autoreply send failed: {e}\n')
+
+
+_CSAT_SCORES = {'good': 5, 'ok': 3, 'bad': 1}
+_CSAT_LABELS = {'good': 'Good', 'ok': 'Okay', 'bad': 'Bad'}
+
+
+def _csat_enabled():
+    return bool((A.load(A.CONFIG_FILE) or {}).get('ticket_csat_enabled'))
+
+
+def _csat_sig(tid, rating):
+    """HMAC tag binding a (ticket, rating) into an unguessable one-click link.
+    Namespaced with a 'csat:' prefix so a tag can never be replayed as another
+    signed artefact (export sig, etc.). Reuses the per-install export key."""
+    msg = f'csat:{tid}:{rating}'.encode()
+    return A.hmac.new(A._export_signing_key(), msg, A.hashlib.sha256).hexdigest()[:32]
+
+
+def _send_ticket_csat(to_email, ticket, base_url):
+    """Best-effort: email a one-click satisfaction survey when a ticket resolves.
+    Loop-safe like the autoreply (skips automated senders). Returns quietly on
+    any gate miss."""
+    to = (to_email or '').strip()
+    if '@' not in to or A._AUTOREPLY_SKIP_RE.search(to):
+        return
+    cfg = A.load(A.CONFIG_FILE) or {}
+    if not cfg.get('smtp_host'):
+        return
+    tid = ticket.get('id')
+    number = ticket.get('number')
+    links = []
+    for r in ('good', 'ok', 'bad'):
+        url = (f'{base_url}/api/tickets/csat?t={urllib.parse.quote(str(tid))}'
+               f'&r={r}&s={_csat_sig(tid, r)}')
+        links.append(f'{_CSAT_LABELS[r]}: {url}')
+    subject = f"#RP{int(number or 0):06d} How did we do?"[:200]
+    body = ('Your ticket has been resolved. How was our support? '
+            'Click the option that fits — it takes one click:\n\n'
+            + '\n\n'.join(links)
+            + '\n\nThank you.')
+    try:
+        A.smtp_notifier.send_email(cfg, [to], subject, body, extra_headers={
+            'Auto-Submitted': 'auto-generated', 'X-RP-Ticket': str(number)},
+            html_body=A.smtp_notifier.brand_html(cfg, subject, body))
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] ticket CSAT send failed: {e}\n')
+
+
+def _csat_page(title, message):
+    """Emit a tiny self-contained HTML page for the public CSAT endpoint."""
+    import html as _h
+    doc = (
+        '<!doctype html><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>' + _h.escape(title) + '</title>'
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+        'max-width:480px;margin:12vh auto;padding:24px;text-align:center;color:#16181d">'
+        '<div style="font-size:20px;font-weight:700;margin-bottom:10px">'
+        + _h.escape(title) + '</div>'
+        '<div style="font-size:15px;line-height:1.6;color:#41474f">'
+        + _h.escape(message) + '</div></div>'
+    ).encode('utf-8')
+    print("Status: 200 OK")
+    print("Content-Type: text/html; charset=utf-8")
+    print(f"Content-Length: {len(doc)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox;")
+    print("X-Frame-Options: DENY")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(doc)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_ticket_csat():
+    """GET /api/tickets/csat?t=&r=&s= — PUBLIC one-click satisfaction rating from
+    a resolved-ticket email. No login; the HMAC signature is the capability.
+    Single-use: the first valid click records the rating, later clicks just
+    acknowledge it. Renders a tiny HTML page (never JSON — it's opened in a
+    browser)."""
+    if A.method() != 'GET':
+        A.respond(405, {'error': 'Method not allowed'})
+    qs = urllib.parse.parse_qs(A._env('QUERY_STRING', '') or '')
+    tid = (qs.get('t') or [''])[0]
+    rating = (qs.get('r') or [''])[0]
+    sig = (qs.get('s') or [''])[0]
+    if rating not in _CSAT_SCORES or not tid:
+        _csat_page('Invalid link', 'This survey link is not valid.')
+    if not A.hmac.compare_digest(sig, _csat_sig(tid, rating)):
+        _csat_page('Invalid link', 'This survey link is not valid or has expired.')
+    now = int(time.time())
+    already = False
+    found = False
+    with A._LockedUpdate(A.TICKETS_FILE) as store:
+        t = next((x for x in (store.get('tickets') or []) if x.get('id') == tid), None)
+        if t:
+            found = True
+            if t.get('csat'):
+                already = True
+            else:
+                t['csat'] = {'rating': rating, 'score': _CSAT_SCORES[rating], 'at': now}
+    if not found:
+        _csat_page('Not found', 'That ticket no longer exists.')
+    if already:
+        _csat_page('Already recorded', 'Thanks — we already have your feedback for this ticket.')
+    _csat_page('Thank you!', f'Your rating ({_CSAT_LABELS[rating]}) has been recorded. We appreciate it.')
 
 
 def _ticket_imap_cfg():

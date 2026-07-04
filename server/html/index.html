@@ -2313,6 +2313,10 @@
             <div class="row-6"><button class="btn-primary" data-action="saveTicketAutoreply">Save auto-reply</button></div>
             <div id="tkar-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
+            <div class="section-title mt-16">Satisfaction survey (CSAT)</div>
+            <div class="meta-sm-nm mt-4">When a ticket is resolved, email the contact a one-click <strong>Good / Okay / Bad</strong> rating link (no login — the link is signed and single-use). Ratings show on the ticket and as a rolling average. Requires SMTP + a contact email on the ticket.</div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-ticket-csat" data-change="saveTicketCsat"> Send a satisfaction survey on resolve</label></div>
+
             <div class="section-title mt-16">Ticket SLA targets</div>
             <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
             <div class="form-row mt-8">

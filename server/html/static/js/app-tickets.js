@@ -32,6 +32,14 @@ function _tkArrange(rows) {
   rows.forEach(r => { if (!placed.has(r.id)) { out.push(r); placed.add(r.id); } });
   return out;
 }
+// W1-31: CSAT rating badge from t.csat = {rating, score, at}.
+const _TK_CSAT = { good: ['Good', 'ok'], ok: ['Okay', 'warn'], bad: ['Bad', 'crit'] };
+function _tkCsatBadge(t) {
+  const c = t.csat;
+  if (!c || !c.rating || !_TK_CSAT[c.rating]) return '';
+  const [label, cls] = _TK_CSAT[c.rating];
+  return ` <span class="patch-badge ${cls === 'crit' ? '' : cls} fs-11" title="Customer satisfaction">CSAT: ${label}</span>`;
+}
 function _tkRowHtml(t, byId, childrenOf) {
   const pr = _coercePrio(t.priority);
   const isMaster = (childrenOf[t.id] || []).length > 0;
@@ -42,6 +50,7 @@ function _tkRowHtml(t, byId, childrenOf) {
   const subjCell = `${isChild ? '<span class="c-muted" title="Sub-ticket">↳ </span>' : ''}${escHtml(t.subject || '')}`
     + (isChild && parentNo ? ` <span class="patch-badge fs-11" title="Sub-ticket of ${escAttr(parentNo)}">child of ${escHtml(parentNo)}</span>` : '')
     + (t.new_reply ? ' <span class="patch-badge warn fs-11" title="New reply from customer">● new reply</span>' : '')
+    + _tkCsatBadge(t)
     + (t.group ? ` <span class="meta-sm-nm" title="Group">${escHtml(t.group)}</span>` : '');
   const open = _tkIsOpen(t);
   const slaLeft = (open && t._slaDue) ? (t._slaDue - Math.floor(Date.now() / 1000)) : null;
@@ -784,6 +793,20 @@ function deleteTicketSchedule(i) {
   if (isNaN(idx) || idx < 0 || idx >= _tkSchedules.length) return;
   const scheds = [..._tkSchedules]; scheds.splice(idx, 1);
   _tkPostSchedules(scheds, 'Schedule deleted');
+}
+// W1-31: CSAT toggle lives in main config (ticket_csat_enabled).
+async function loadTicketCsat() {
+  const el = document.getElementById('cfg-ticket-csat');
+  if (!el) return;
+  try { const c = await api('GET', '/config'); el.checked = !!(c && c.ticket_csat_enabled); }
+  catch (e) { /* non-admin */ }
+}
+async function saveTicketCsat() {
+  const el = document.getElementById('cfg-ticket-csat');
+  if (!el) return;
+  const r = await api('POST', '/config', { ticket_csat_enabled: !!el.checked });
+  if (r && !r.error) toast(el.checked ? 'CSAT survey on' : 'CSAT survey off', 'success');
+  else toast(r?.error || 'Failed', 'error');
 }
 async function loadTicketSla() {
   const r = await api('GET', '/tickets/sla');
