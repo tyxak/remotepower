@@ -980,24 +980,25 @@ class TestStatusIncidents(_HandlerBase):
         api.get_json_body = lambda: body
         return self.call(api.handle_incidents)
 
-    def test_create_and_list(self):
+    def _seed(self):
         r = self._post(title='API latency', impact='major', status='investigating',
                        body='looking into it')
-        self.assertEqual(self.cap['s'] if 's' in self.cap else 200, 200)
-        iid = r['id']
+        return r['id']
+
+    def test_create_and_list(self):
+        self._seed()
         api.method = lambda: 'GET'
         lst = self.call(api.handle_incidents)
         self.assertEqual(len(lst['incidents']), 1)
         self.assertEqual(lst['incidents'][0]['title'], 'API latency')
         self.assertEqual(lst['incidents'][0]['updates'][0]['body'], 'looking into it')
-        return iid
 
     def test_title_required(self):
         self._post(title='   ')
         self.assertEqual(self.cap['s'], 400)
 
     def test_update_and_status_change(self):
-        iid = self.test_create_and_list()
+        iid = self._seed()
         api.method = lambda: 'PATCH'
         api.get_json_body = lambda: {'status': 'resolved', 'body': 'fixed'}
         self.call(api.handle_incident_update, iid)
@@ -1006,14 +1007,14 @@ class TestStatusIncidents(_HandlerBase):
         self.assertEqual(inc['updates'][-1]['body'], 'fixed')
 
     def test_invalid_status_rejected(self):
-        iid = self.test_create_and_list()
+        iid = self._seed()
         api.method = lambda: 'PATCH'
         api.get_json_body = lambda: {'status': 'bogus'}
         self.call(api.handle_incident_update, iid)
         self.assertEqual(self.cap['s'], 400)
 
     def test_delete(self):
-        iid = self.test_create_and_list()
+        iid = self._seed()
         api.method = lambda: 'DELETE'
         self.call(api.handle_incident_update, iid)
         self.assertEqual((api.load(api.INCIDENTS_FILE) or {}).get('incidents'), [])
@@ -1203,6 +1204,99 @@ class TestBusinessHoursSla(_HandlerBase):
         t = {'priority': 3, 'created_at': 1_000_000, 'status': 'ongoing'}
         due, _ = api._ticket_sla(t, {3: 5})
         self.assertEqual(due, 1_000_000 + 5 * 3600)
+
+
+class TestCveCampaigns(_HandlerBase):
+    """W2-35: CVE remediation campaigns + burn-down sweep."""
+
+    def setUp(self):
+        super().setUp()
+        self._cf = api.CVE_CAMPAIGNS_FILE
+        self._ff = api.CVE_FINDINGS_FILE
+        self._if2 = api.CVE_IGNORE_FILE
+        api.CVE_CAMPAIGNS_FILE = self.d / 'cve_campaigns.json'
+        api.CVE_FINDINGS_FILE = self.d / 'cve_findings.json'
+        api.CVE_IGNORE_FILE = self.d / 'cve_ignore.json'
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h1'}, 'd2': {'name': 'h2'}})
+        api.save(api.CVE_FINDINGS_FILE, {
+            'd1': {'findings': [{'cve_id': 'CVE-2026-1', 'severity': 'critical'},
+                                {'cve_id': 'CVE-2026-2', 'severity': 'high'}]},
+            'd2': {'findings': [{'cve_id': 'CVE-2026-9', 'severity': 'low'}]}})
+        self.fired = []
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
+
+    def tearDown(self):
+        api.CVE_CAMPAIGNS_FILE = self._cf
+        api.CVE_FINDINGS_FILE = self._ff
+        api.CVE_IGNORE_FILE = self._if2
+        super().tearDown()
+
+    def _create(self, **body):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: body
+        return self.call(api.handle_cve_campaigns)
+
+    def _list(self):
+        api.method = lambda: 'GET'
+        return self.call(api.handle_cve_campaigns)
+
+    def test_severity_scoped_affected_count(self):
+        self._create(name='crit cleanup', severities=['critical'])
+        rows = self._list()['campaigns']
+        self.assertEqual(len(rows), 1)
+        # only d1 has a critical finding
+        self.assertEqual(rows[0]['affected_hosts'], 1)
+        self.assertEqual(rows[0]['finding_count'], 1)
+
+    def test_explicit_cve_ids_override(self):
+        self._create(name='two', cve_ids=['CVE-2026-2', 'CVE-2026-9'])
+        rows = self._list()['campaigns']
+        self.assertEqual(rows[0]['affected_hosts'], 2)   # d1 (high) + d2 (low)
+
+    def test_name_required(self):
+        self._create(name='')
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_delete(self):
+        self._create(name='x', severities=['critical'])
+        cid = (api.load(api.CVE_CAMPAIGNS_FILE) or {}).get('campaigns')[0]['id']
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_cve_campaign, cid)
+        self.assertEqual((api.load(api.CVE_CAMPAIGNS_FILE) or {}).get('campaigns'), [])
+
+    def test_sweep_samples_and_completes(self):
+        self._create(name='crit', severities=['critical'])
+        _real = api.time.time
+        api.time.time = lambda: 1_000_000
+        try:
+            api.run_cve_campaign_sample_if_due()
+            camp = (api.load(api.CVE_CAMPAIGNS_FILE) or {}).get('campaigns')[0]
+            self.assertEqual(camp['samples'][-1]['affected'], 1)
+            self.assertIsNone(camp['completed_at'])
+            # remediate d1's critical → next daily sample completes it
+            api.save(api.CVE_FINDINGS_FILE, {
+                'd1': {'findings': [{'cve_id': 'CVE-2026-2', 'severity': 'high'}]},
+                'd2': {'findings': []}})
+            api.time.time = lambda: 1_000_000 + 25 * 3600
+            api.run_cve_campaign_sample_if_due()
+            camp = (api.load(api.CVE_CAMPAIGNS_FILE) or {}).get('campaigns')[0]
+            self.assertTrue(camp['completed_at'])
+            self.assertTrue(any(e == 'campaign_completed' for e, _ in self.fired))
+        finally:
+            api.time.time = _real
+
+    def test_sweep_cadence_gate(self):
+        self._create(name='crit', severities=['critical'])
+        api.save(api.CVE_CAMPAIGNS_FILE, dict(
+            api.load(api.CVE_CAMPAIGNS_FILE), _last_sample=10 ** 12))
+        _real = api.time.time
+        api.time.time = lambda: 10 ** 12 + 60   # < 24h since last
+        try:
+            api.run_cve_campaign_sample_if_due()
+            camp = (api.load(api.CVE_CAMPAIGNS_FILE) or {}).get('campaigns')[0]
+            self.assertEqual(camp.get('samples', []), [])   # not due → no sample
+        finally:
+            api.time.time = _real
 
 
 if __name__ == '__main__':

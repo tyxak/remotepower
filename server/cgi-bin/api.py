@@ -222,6 +222,8 @@ COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs', 'upd
 PACKAGES_FILE       = DATA_DIR / 'packages.json'
 CVE_FINDINGS_FILE   = DATA_DIR / 'cve_findings.json'
 CVE_IGNORE_FILE     = DATA_DIR / 'cve_ignore.json'
+CVE_CAMPAIGNS_FILE  = DATA_DIR / 'cve_campaigns.json'   # W2-35 remediation campaigns
+CVE_CAMPAIGN_SAMPLE_INTERVAL = 24 * 3600               # W2-35 daily burn-down sample
 # v3.14.0: CVE prioritization feeds — CISA Known-Exploited (KEV) + FIRST EPSS.
 KEV_EPSS_FILE       = DATA_DIR / 'kev_epss.json'
 KEV_FEED_URL        = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
@@ -1032,6 +1034,9 @@ EVENT_REGISTRY = {
     'cve_found': dict(
         label='New CVEs detected on a device', kind='cve', title='New CVEs Detected',
         severity=None, priority=5, tags='rotating_light,shield'),
+    'campaign_completed': dict(
+        label='CVE remediation campaign reached zero affected hosts', kind='cve',
+        title='CVE Campaign Completed', severity='low', tags='shield,white_check_mark'),
     'service_down': dict(
         label='Watched systemd unit went down', kind='service', title='Service Down',
         severity='high', priority=4, tags='red_circle,gear', symptom=True),
@@ -6003,6 +6008,7 @@ def _record_fleet_event(event, payload):
                     'repo', 'title', 'url', 'label',
                     # W1-17: ct_new_certificate feed items name the domain/issuer.
                     'domain', 'issuer', 'cn',
+                    'campaign',       # W2-35 campaign_completed
                     # v5.8.0: feed-detail fields read by the activity-feed row
                     # renderer (app.js _homeActivityAttrs / detail line). Dropped
                     # here they rendered as blank/undefined detail text even though
@@ -7219,6 +7225,7 @@ def _record_alert(event, payload):
                     # W1-17: ct_new_certificate — domain+serial identify the
                     # issuance; issuer/cn/not_before make the alert readable.
                     'domain', 'issuer', 'cn', 'not_before', 'serial',
+                    'campaign',       # W2-35: campaign_completed name
                     # v5.8.0: github_new_issue — repo + number identify the
                     # issue; title/url make the alert self-describing and let
                     # the UI link straight to it.
@@ -45839,6 +45846,159 @@ def _enrich_cve_findings(findings, kev, epss):
     return kev_count, round(epss_max, 4)
 
 
+def _campaign_matches_finding(camp, f):
+    """W2-35: does a CVE finding fall within a campaign's scope?"""
+    cid = str(f.get('cve_id') or f.get('id') or '')
+    ids = camp.get('cve_ids') or []
+    if ids:
+        return cid in ids
+    sevs = camp.get('severities') or []
+    if sevs and str(f.get('severity', '')).lower() not in sevs:
+        return False
+    if camp.get('kev_only') and not (f.get('kev') or f.get('known_exploited')):
+        return False
+    return True
+
+
+def _campaign_affected(camp, cve_all, cve_ignore, devices):
+    """Return (affected_host_ids set, matching_finding_count) for a campaign over
+    the current CVE state (ignored findings + stale hosts excluded)."""
+    hosts, count = set(), 0
+    for did, rec in (cve_all or {}).items():
+        if did not in devices:
+            continue
+        for f in cve_scanner.apply_ignore_list((rec or {}).get('findings') or [],
+                                               cve_ignore, did):
+            if f.get('ignored'):
+                continue
+            if _campaign_matches_finding(camp, f):
+                count += 1
+                hosts.add(did)
+    return hosts, count
+
+
+def _campaign_public(camp, cve_all, cve_ignore, devices):
+    hosts, count = _campaign_affected(camp, cve_all, cve_ignore, devices)
+    return {
+        'id': camp.get('id'), 'name': camp.get('name', ''),
+        'owner': camp.get('owner', ''), 'cve_ids': camp.get('cve_ids') or [],
+        'severities': camp.get('severities') or [], 'kev_only': bool(camp.get('kev_only')),
+        'target_date': camp.get('target_date', ''), 'created_at': camp.get('created_at'),
+        'completed_at': camp.get('completed_at'),
+        'affected_hosts': len(hosts), 'finding_count': count,
+        'samples': [{'ts': s.get('ts'), 'affected': s.get('affected')}
+                    for s in (camp.get('samples') or [])][-60:],
+    }
+
+
+def handle_cve_campaigns():
+    """GET /api/cve/campaigns — remediation campaigns with live affected counts.
+    POST — create one (admin). A campaign scopes a set of CVEs (explicit ids OR a
+    severity/KEV filter) with an owner + target date; the server tracks its
+    affected-host burn-down."""
+    if method() == 'GET':
+        require_auth()
+        cve_all = load(CVE_FINDINGS_FILE) or {}
+        cve_ignore = load(CVE_IGNORE_FILE) or {}
+        devices = load(DEVICES_FILE) or {}
+        camps = (load(CVE_CAMPAIGNS_FILE) or {}).get('campaigns') or []
+        rows = [_campaign_public(c, cve_all, cve_ignore, devices) for c in camps]
+        rows.sort(key=lambda r: (r['completed_at'] is not None, -(r.get('created_at') or 0)))
+        respond(200, {'ok': True, 'campaigns': rows})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    name = _sanitize_str(str(body.get('name', '')), 120).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    cve_ids = [re.sub(r'[^A-Za-z0-9\-]', '', str(x))[:32]
+               for x in (body.get('cve_ids') or [])[:500]]
+    cve_ids = [c for c in cve_ids if c]
+    sevs = [s for s in (str(x).lower() for x in (body.get('severities') or []))
+            if s in ('critical', 'high', 'medium', 'low')]
+    now = int(time.time())
+    camp = {'id': 'camp_' + secrets.token_hex(5), 'name': name,
+            'owner': _sanitize_str(str(body.get('owner') or actor), 64),
+            'cve_ids': cve_ids, 'severities': sevs,
+            'kev_only': bool(body.get('kev_only')),
+            'target_date': re.sub(r'[^0-9\-]', '', str(body.get('target_date', '')))[:10],
+            'created_at': now, 'completed_at': None, 'samples': []}
+    with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
+        camps = store.setdefault('campaigns', [])
+        if len(camps) >= 200:
+            respond(400, {'error': 'campaign limit reached'})
+        camps.append(camp)
+    audit_log(actor, 'cve_campaign_create', f'id={camp["id"]} {name}')
+    respond(200, {'ok': True, 'id': camp['id']})
+
+
+def handle_cve_campaign(cid):
+    """PATCH /api/cve/campaigns/{id} — edit (admin). DELETE — remove (admin)."""
+    if method() == 'DELETE':
+        actor = require_admin_auth()
+        removed = False
+        with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
+            before = store.get('campaigns') or []
+            after = [c for c in before if c.get('id') != cid]
+            removed = len(after) != len(before)
+            store['campaigns'] = after
+        if not removed:
+            respond(404, {'error': 'campaign not found'})
+        audit_log(actor, 'cve_campaign_delete', f'id={cid}')
+        respond(200, {'ok': True})
+    if method() not in ('PATCH', 'POST'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    found = False
+    with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
+        camp = next((c for c in (store.get('campaigns') or []) if c.get('id') == cid), None)
+        if camp:
+            found = True
+            if 'name' in body:
+                camp['name'] = _sanitize_str(str(body['name']), 120) or camp['name']
+            if 'owner' in body:
+                camp['owner'] = _sanitize_str(str(body['owner']), 64)
+            if 'target_date' in body:
+                camp['target_date'] = re.sub(r'[^0-9\-]', '', str(body['target_date']))[:10]
+    if not found:
+        respond(404, {'error': 'campaign not found'})
+    audit_log(actor, 'cve_campaign_update', f'id={cid}')
+    respond(200, {'ok': True})
+
+
+def run_cve_campaign_sample_if_due():
+    """W2-35: once a day, append an affected-host sample to each open campaign
+    (the burn-down) and fire campaign_completed when one first reaches zero.
+    Cheap when there are no campaigns; webhooks fire AFTER the store save."""
+    store0 = load(CVE_CAMPAIGNS_FILE) or {}
+    camps0 = store0.get('campaigns') or []
+    if not camps0:
+        return
+    now = int(time.time())
+    if now - int(store0.get('_last_sample', 0) or 0) < CVE_CAMPAIGN_SAMPLE_INTERVAL:
+        return
+    cve_all = load(CVE_FINDINGS_FILE) or {}
+    cve_ignore = load(CVE_IGNORE_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    pending = []
+    with _LockedUpdate(CVE_CAMPAIGNS_FILE) as store:
+        store['_last_sample'] = now
+        for camp in (store.get('campaigns') or []):
+            hosts, _ = _campaign_affected(camp, cve_all, cve_ignore, devices)
+            n = len(hosts)
+            camp.setdefault('samples', []).append({'ts': now, 'affected': n})
+            camp['samples'] = camp['samples'][-120:]
+            if n == 0 and not camp.get('completed_at'):
+                camp['completed_at'] = now
+                pending.append({'campaign': camp.get('name', ''), 'id': camp.get('id')})
+            elif n > 0 and camp.get('completed_at'):
+                camp['completed_at'] = None   # regressed — reopen
+    for p in pending:
+        fire_webhook('campaign_completed', p)
+
+
 def handle_cve_findings():
     """GET /api/cve/findings — aggregate CVE report across all devices."""
     require_auth()
@@ -50692,6 +50852,8 @@ def _build_exact_routes():
         ('GET', '/api/patch-sla'): handle_patch_sla,    # W1-33
         ('GET', '/api/incidents'): handle_incidents,    # W2-25
         ('POST', '/api/incidents'): handle_incidents,
+        ('GET', '/api/cve/campaigns'): handle_cve_campaigns,   # W2-35
+        ('POST', '/api/cve/campaigns'): handle_cve_campaigns,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
@@ -51368,6 +51530,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/timesheet/watchers/', '', 'handle_timesheet_watcher_delete', "pi.startswith('/api/timesheet/watchers/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/invoices/', '/send', 'handle_invoice_send', "pi.startswith('/api/invoices/') and pi.endswith('/send') and m == 'POST'"),
     ('pat', ('PATCH', 'POST', 'DELETE'), '/api/incidents/', '', 'handle_incident_update', "pi.startswith('/api/incidents/') and m in ('PATCH', 'POST', 'DELETE')"),
+    ('pat', ('PATCH', 'POST', 'DELETE'), '/api/cve/campaigns/', '', 'handle_cve_campaign', "pi.startswith('/api/cve/campaigns/') and m in ('PATCH', 'POST', 'DELETE')"),
     ('pat', ('GET',), '/api/invoices/', '', 'handle_invoice_get', "pi.startswith('/api/invoices/') and m == 'GET'"),
     ('pat', ('PATCH', 'POST'), '/api/invoices/', '', 'handle_invoice_update', "pi.startswith('/api/invoices/') and m in ('PATCH', 'POST')"),
     ('pat', ('POST',), '/api/tickets/', '/email', 'handle_ticket_send_email', "pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST'"),
@@ -51756,6 +51919,7 @@ def main():
     _safe(run_invoice_reminders_if_due, 'run_invoice_reminders_if_due')  # W1-30 overdue reminders
     _safe(run_patch_sla_if_due, 'run_patch_sla_if_due')                  # W1-33 patch-compliance SLA
     _safe(run_webhook_digests_if_due, 'run_webhook_digests_if_due')      # W2-22 notification digest flush
+    _safe(run_cve_campaign_sample_if_due, 'run_cve_campaign_sample_if_due')  # W2-35 campaign burn-down
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).

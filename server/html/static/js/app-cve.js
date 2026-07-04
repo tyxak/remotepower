@@ -25,6 +25,59 @@ async function loadCVEReport() {
   document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
   _renderKevFeedStatus(data.kev_feed);
   tableCtl.render('cves', data.devices || []);
+  loadCveCampaigns();
+}
+
+// W2-35: CVE remediation campaigns.
+async function loadCveCampaigns() {
+  const box = document.getElementById('cve-campaigns-list');
+  if (!box) return;
+  const r = await api('GET', '/cve/campaigns');
+  if (!r || !r.ok) return;
+  const camps = r.campaigns || [];
+  if (!camps.length) { box.innerHTML = '<div class="meta-sm-nm">No campaigns yet.</div>'; return; }
+  box.innerHTML = camps.map(c => {
+    const scope = (c.cve_ids && c.cve_ids.length) ? `${c.cve_ids.length} CVEs`
+      : [(c.severities || []).join('/'), c.kev_only ? 'KEV' : ''].filter(Boolean).join(' · ') || 'all';
+    const spark = renderSparkline((c.samples || []).map(s => s.affected), { width: 80, height: 18 });
+    const done = c.completed_at ? ' <span class="patch-badge ok fs-11">completed</span>' : '';
+    const tgt = c.target_date ? ` · due ${escHtml(c.target_date)}` : '';
+    return `<div class="dash-card mb-8"><div class="row-6-center">`
+      + `<span class="fw-500 fs-13 ellipsis flex-1">${escHtml(c.name)}${done} <span class="meta-sm-nm">${escHtml(c.owner || '')}${tgt}</span></span>`
+      + `<span class="fs-13" title="Affected hosts / matching findings">${c.affected_hosts} host(s), ${c.finding_count} findings</span>`
+      + `<span title="Affected-host burn-down">${spark}</span>`
+      + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteCveCampaign" data-arg="${escAttr(c.id)}">Delete</button>`
+      + `</div><div class="meta-sm-nm mt-4">Scope: ${escHtml(scope)}</div></div>`;
+  }).join('');
+}
+async function createCveCampaign() {
+  const name = (document.getElementById('camp-name')?.value || '').trim();
+  if (!name) { toast('Campaign name required', 'error'); return; }
+  const sevs = [];
+  if (document.getElementById('camp-sev-critical')?.checked) sevs.push('critical');
+  if (document.getElementById('camp-sev-high')?.checked) sevs.push('high');
+  const cveIds = (document.getElementById('camp-cves')?.value || '')
+    .split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  const body = {
+    name,
+    owner: (document.getElementById('camp-owner')?.value || '').trim(),
+    target_date: document.getElementById('camp-target')?.value || '',
+    severities: sevs,
+    kev_only: !!document.getElementById('camp-kev')?.checked,
+    cve_ids: cveIds,
+  };
+  const r = await api('POST', '/cve/campaigns', body);
+  if (r && r.ok) {
+    toast('Campaign created', 'success');
+    ['camp-name', 'camp-owner', 'camp-cves'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    loadCveCampaigns();
+  } else toast(r?.error || 'Failed', 'error');
+}
+async function deleteCveCampaign(cid) {
+  if (!confirm('Delete this campaign?')) return;
+  const r = await api('DELETE', '/cve/campaigns/' + encodeURIComponent(cid));
+  if (r && r.ok) { toast('Campaign deleted', 'success'); loadCveCampaigns(); }
+  else toast(r?.error || 'Failed', 'error');
 }
 
 function _renderKevFeedStatus(f) {

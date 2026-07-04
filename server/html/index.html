@@ -5022,6 +5022,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon cell-sm ml-8" data-action="refreshCveFeeds">Refresh KEV/EPSS feeds</button>
         </div>
         <div class="table-card"><table><thead id="cve-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="ecosystem">Ecosystem</th><th scope="col" data-col="kev" class="ta-center" title="Known-Exploited Vulnerabilities — actively exploited in the wild (CISA KEV)">KEV</th><th scope="col" data-col="critical" class="ta-center">Critical</th><th scope="col" data-col="high" class="ta-center">High</th><th scope="col" data-col="medium" class="ta-center">Medium</th><th scope="col" data-col="low" class="ta-center">Low</th><th scope="col" data-col="last_scan">Last scan</th><th scope="col"></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="10" class="empty-state">Click Refresh to load findings. </td></tr></tbody></table></div>
+
+        <!-- W2-35: CVE remediation campaigns -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Remediation campaigns</div>
+          <p class="hint">Group CVEs into an owned, deadlined effort and track the affected-host burn-down. Scope by severity/KEV or an explicit CVE list. A campaign completes (and fires <code>campaign_completed</code>) when zero hosts remain affected. Burn-down is sampled daily.</p>
+          <div id="cve-campaigns-list" class="mt-8"></div>
+          <div class="form-row mt-8">
+            <div class="form-group flex-1"><label class="form-label" for="camp-name">Campaign name</label><input type="text" id="camp-name" class="form-input" maxlength="120" placeholder="Q3 critical KEV cleanup"></div>
+            <div class="form-group"><label class="form-label" for="camp-owner">Owner</label><input type="text" id="camp-owner" class="form-input" maxlength="64" placeholder="(you)"></div>
+            <div class="form-group"><label class="form-label" for="camp-target">Target date</label><input type="date" id="camp-target" class="form-input"></div>
+          </div>
+          <div class="row-8-center mb-8">
+            <label class="form-label"><input type="checkbox" id="camp-sev-critical" checked> Critical</label>
+            <label class="form-label"><input type="checkbox" id="camp-sev-high"> High</label>
+            <label class="form-label"><input type="checkbox" id="camp-kev"> KEV only (known-exploited)</label>
+          </div>
+          <div class="form-group"><label class="form-label" for="camp-cves">Or explicit CVE IDs (comma/space separated — overrides the severity filter)</label><input type="text" id="camp-cves" class="form-input ff-mono" placeholder="CVE-2026-1234 CVE-2026-5678"></div>
+          <div class="row-6"><button class="btn-primary" data-action="createCveCampaign">Create campaign</button></div>
+          <div id="camp-result" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
       </div>
 
       <!-- ── v4.2.0 (B5): Security Scans page ─────────────────────────────────── -->

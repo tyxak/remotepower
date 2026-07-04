@@ -52,6 +52,7 @@ CADENCE = (
     'run_invoice_reminders_if_due',      # W1-30 overdue-invoice reminders
     'run_patch_sla_if_due',              # W1-33 patch-compliance SLA
     'run_webhook_digests_if_due',        # W2-22 notification digest flush
+    'run_cve_campaign_sample_if_due',    # W2-35 CVE campaign burn-down sample
     'run_reputation_scan_if_due',
     'run_resolver_health_if_due',
     'run_tls_scan_if_due',

@@ -44,6 +44,8 @@
     'Patch SLA':             { zh: '补丁 SLA', hi: 'पैच SLA', es: 'SLA de parches', ar: 'اتفاقية مستوى خدمة التصحيح' },
     'Add SLA rule':          { zh: '添加 SLA 规则', hi: 'SLA नियम जोड़ें', es: 'Añadir regla de SLA', ar: 'إضافة قاعدة SLA' },
     'Incidents':             { zh: '事件', hi: 'घटनाएँ', es: 'Incidencias', ar: 'الحوادث' },
+    'Remediation campaigns': { zh: '修复行动', hi: 'उपचार अभियान', es: 'Campañas de remediación', ar: 'حملات المعالجة' },
+    'Create campaign':       { zh: '创建行动', hi: 'अभियान बनाएँ', es: 'Crear campaña', ar: 'إنشاء حملة' },
     'Post incident':         { zh: '发布事件', hi: 'घटना पोस्ट करें', es: 'Publicar incidencia', ar: 'نشر حادث' },
     'Save subscribers':      { zh: '保存订阅者', hi: 'सब्सक्राइबर सहेजें', es: 'Guardar suscriptores', ar: 'حفظ المشتركين' },
     'CT watch':              { zh: 'CT 证书监视', hi: 'CT निगरानी', es: 'Vigilancia CT', ar: 'مراقبة CT' },

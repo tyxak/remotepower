@@ -253,6 +253,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'agent_stopped', 'agent_started',
             'monitor_down', 'monitor_up',
             'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
+            'campaign_completed',                    # W2-35 CVE campaigns
             'service_down', 'service_up',
             'log_alert',
             # v1.11.4: container alerts

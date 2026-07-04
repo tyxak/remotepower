@@ -12295,7 +12295,7 @@ const EVENT_CLASS = {
   'agent_stopped': 'critical', 'agent_started': 'ok',
   'monitor_down': 'critical', 'monitor_up': 'ok',
   'service_down': 'critical', 'service_up': 'ok',
-  'cve_found': 'warn', 'patch_alert': 'warn', 'patch_sla_violation': 'crit', 'patch_sla_ok': 'ok',
+  'cve_found': 'warn', 'patch_alert': 'warn', 'patch_sla_violation': 'crit', 'patch_sla_ok': 'ok', 'campaign_completed': 'ok',
   'drift_detected': 'warn',
   'metric_warning': 'warn', 'metric_critical': 'critical',
   'metric_recovered': 'ok',
@@ -13731,7 +13731,7 @@ function _renderHomeActivity(fleetEvents) {
   const FLEET_EVENTS = new Set([
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
     'monitor_down', 'monitor_up',
-    'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
+    'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found', 'campaign_completed',
     'service_down', 'service_up',
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current',
@@ -13921,6 +13921,7 @@ function _homeActivityAttrs(event, p) {
     case 'patch_alert':    return `${base} data-home-act="patches"`;
     case 'patch_sla_violation': return `${base} data-home-act="patches"`;
     case 'patch_sla_ok':   return `${base} data-home-act="patches"`;
+    case 'campaign_completed': return `${base} data-home-act="cve"`;
     case 'monitor_down':   case 'monitor_up':
     case 'metric_warning': case 'metric_critical': case 'metric_recovered':
     case 'custom_script_fail': case 'custom_script_recover':
