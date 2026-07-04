@@ -103,6 +103,14 @@ When set, only those events fire to this destination. Empty list = all events (s
 
 The two filters compose with AND: an event must pass both the priority floor and the allowlist (if present) to fire.
 
+**Digest window** — set **Digest window (min)** on a destination to batch its
+non-critical notifications into a single summary message every N minutes
+(0 = send immediately, the default). Held events are flushed as one delivery
+titled "N notifications" listing each event. Critical / urgent events
+(priority ≥ 4) always bypass the digest and page immediately, so a digest never
+delays a real emergency. Useful for a chatty Discord/Slack channel where you
+want a periodic roll-up instead of a stream.
+
 ## Verifying deliveries (HMAC signature)
 
 A **generic**-format destination can carry an optional **HMAC signing secret**

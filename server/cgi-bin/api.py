@@ -99,6 +99,8 @@ MAX_SLOW_HANDLERS  = 100
 # Severity, ack_by, ack_at, resolved_by, resolved_at land here.
 ALERTS_FILE = DATA_DIR / 'alerts.json'
 INCIDENTS_FILE = DATA_DIR / 'incidents.json'   # W2-25 operator-posted status-page incidents
+WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
+_DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
 # asset (inbox + webhook + needs-attention). fleet_events keeps recording so the
 # Monitoring → Tuning page can still surface and lift noisy sources.
@@ -8233,8 +8235,15 @@ def _webhook_rate_limit_ok():
         return True
 
 
-def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
-    """Build the right body+headers for `dest`'s format, POST, log."""
+def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority,
+                          allow_digest=True):
+    """Build the right body+headers for `dest`'s format, POST, log.
+
+    W2-22: when the destination has a `digest_minutes` window and this is a
+    non-critical event, queue it instead of sending and let the digest sweep
+    flush a single summary later. `allow_digest=False` (used by the sweep's own
+    flush send) and the synthetic 'notification_digest' event bypass this so the
+    digest itself always goes out."""
     url = dest['url']
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ('http', 'https'):
@@ -8253,17 +8262,28 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
             _log_webhook(event, url, 'error',
                          'blocked: target resolves to a metadata or local address')
             return
-    # Per-destination event filter (if specified)
+    # Per-destination event filter (if specified). The synthetic digest event
+    # (W2-22) is exempt — it's the flush of already-filtered events.
     allowed_events = dest.get('events')
-    if isinstance(allowed_events, list) and allowed_events and event not in allowed_events:
+    if isinstance(allowed_events, list) and allowed_events \
+            and event not in allowed_events and event != 'notification_digest':
         return
     # Per-destination priority filter
     min_prio = dest.get('min_priority')
     try:
-        if min_prio is not None and int(min_prio) > priority:
+        if min_prio is not None and int(min_prio) > priority \
+                and event != 'notification_digest':
             return
     except (TypeError, ValueError):
         pass
+    # W2-22: per-destination digest window. A non-critical event queues for a
+    # later single-summary flush instead of sending now; critical events
+    # (priority >= _DIGEST_BYPASS_PRIORITY) always bypass and page immediately.
+    if allow_digest and dest.get('digest_minutes') and priority < _DIGEST_BYPASS_PRIORITY:
+        _enqueue_webhook_digest(dest.get('id', 'legacy'), event, title, message, priority)
+        _log_webhook(event, url, 'digest',
+                     f'queued for {int(dest["digest_minutes"])}m digest')
+        return
     # v5.4.1 (E6): notification sandbox/test mode. Per-destination `dry_run` (test a
     # single new destination) OR the global `notifications_test_mode` (a whole sandbox
     # instance). The would-be delivery is LOGGED — so an integrator can confirm the
@@ -8404,6 +8424,63 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
                      f'{type(e).__name__} [{fmt}]: {str(e)[:200]}')
         _dlq_record(event, dest, safe_payload, message, title, priority,
                     f'{type(e).__name__}: {str(e)[:120]}')
+
+
+def _enqueue_webhook_digest(dest_id, event, title, message, priority):
+    """W2-22: append one held notification to the per-destination digest queue."""
+    now = int(time.time())
+    with _LockedUpdate(WEBHOOK_DIGEST_FILE) as store:
+        q = store.setdefault(str(dest_id), {'first_ts': now, 'items': []})
+        if not q.get('items'):
+            q['first_ts'] = now
+        q['items'].append({'event': event, 'title': title,
+                            'message': message, 'priority': priority, 'ts': now})
+        # bound the queue so a storm can't grow it unbounded
+        q['items'] = q['items'][-200:]
+
+
+def run_webhook_digests_if_due():
+    """W2-22: flush any destination whose oldest held notification is older than
+    its digest window, as a single combined summary. Cheap when the queue is
+    empty. The flush send bypasses digesting (allow_digest=False) so it can't
+    re-queue itself."""
+    store = load(WEBHOOK_DIGEST_FILE)
+    if not isinstance(store, dict) or not store:
+        return
+    now = int(time.time())
+    cfg = load(CONFIG_FILE) or {}
+    dests = {}
+    for d in (cfg.get('webhook_urls') or []):
+        if isinstance(d, dict) and d.get('id'):
+            dests[str(d['id'])] = d
+    if cfg.get('webhook_url'):
+        dests['legacy'] = {'id': 'legacy', 'url': cfg.get('webhook_url'),
+                           'format': _auto_detect_format(cfg.get('webhook_url'))}
+    to_send, remaining = [], {}
+    for dest_id, q in store.items():
+        items = q.get('items') or []
+        dest = dests.get(dest_id)
+        window = int((dest or {}).get('digest_minutes', 0) or 0) * 60
+        if not items or not dest or window <= 0:
+            continue      # destination removed or digest turned off → drop quietly
+        if now - int(q.get('first_ts', now)) < window:
+            remaining[dest_id] = q      # not due yet
+            continue
+        to_send.append((dest, items))
+    # persist the not-yet-due remainder BEFORE sending (sends are slow/after lock)
+    save(WEBHOOK_DIGEST_FILE, remaining)
+    for dest, items in to_send:
+        title = f'{len(items)} notifications'
+        lines = [f'- {it.get("title") or it.get("event")}: {it.get("message", "")}'
+                 for it in items[:100]]
+        summary = (f'{len(items)} notifications held over the last '
+                   f'{int(dest.get("digest_minutes"))} min:\n\n' + '\n'.join(lines))
+        try:
+            _dispatch_one_webhook('notification_digest', dest, {}, summary, title, 3,
+                                  allow_digest=False)
+        except Exception as e:
+            _log_webhook('notification_digest', dest.get('url', '?'), 'error',
+                         f'digest flush failed: {type(e).__name__}: {str(e)[:120]}')
 
 
 # ── Notification-channel payload builders now live in notify.py ────────────
@@ -17995,6 +18072,15 @@ def handle_config_save():
                     mp = int(entry['min_priority'])
                     if 0 <= mp <= 2:
                         clean_entry['min_priority'] = mp
+                except (TypeError, ValueError):
+                    pass
+            # W2-22: per-destination digest window (minutes). Non-critical events
+            # queue and flush as one summary; 0/absent = immediate (unchanged).
+            if 'digest_minutes' in entry:
+                try:
+                    dm = int(entry['digest_minutes'])
+                    if dm > 0:
+                        clean_entry['digest_minutes'] = max(1, min(1440, dm))
                 except (TypeError, ValueError):
                     pass
             # Pushover-specific creds. Empty/missing == "leave unchanged"
@@ -51634,6 +51720,7 @@ def main():
     _safe(run_ticket_schedules_if_due, 'run_ticket_schedules_if_due')  # W1-27 recurring
     _safe(run_invoice_reminders_if_due, 'run_invoice_reminders_if_due')  # W1-30 overdue reminders
     _safe(run_patch_sla_if_due, 'run_patch_sla_if_due')                  # W1-33 patch-compliance SLA
+    _safe(run_webhook_digests_if_due, 'run_webhook_digests_if_due')      # W2-22 notification digest flush
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).

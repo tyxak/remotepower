@@ -21947,6 +21947,11 @@ function renderWebhookDests() {
                 <option value="2" ${d.min_priority === 2 ? 'selected' : ''}>critical only</option>
               </select>
             </label>
+            <label class="isl-746">
+              Digest window (min):
+              <input type="number" data-field="digest_minutes" class="form-input isl-747" min="0" max="1440" placeholder="0 = off" value="${d.digest_minutes || ''}">
+            </label>
+            <div class="meta-sm-nm">Batch non-critical notifications into one summary every N minutes (0 = send immediately). Critical/urgent events always page right away.</div>
             <div class="meta-sm-nm">Or specify exact event names (one per line):</div>
             <textarea data-field="events" class="form-input isl-748" rows="3" placeholder="device_offline&#10;cve_found&#10;monitor_down">${escHtml((d.events || []).join('\n'))}</textarea>
           </div>
@@ -21968,6 +21973,7 @@ function _readWebhookDestCard(idx, card) {
     const f = el.dataset.field;
     if (el.type === 'checkbox') d[f] = el.checked;
     else if (f === 'min_priority') d[f] = el.value === '' ? null : parseInt(el.value, 10);
+    else if (f === 'digest_minutes') d[f] = el.value === '' ? 0 : parseInt(el.value, 10);
     else if (f === 'events') d[f] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
     else if (f === 'pushover_token' || f === 'pushover_user' || f === 'itsm_secret' || f === 'matrix_token' || f === 'hmac_secret') {
       // Don't overwrite the placeholder unless the user typed something

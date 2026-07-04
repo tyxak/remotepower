@@ -1053,5 +1053,92 @@ class TestStatusIncidents(_HandlerBase):
             api.smtp_notifier.send_email = _real
 
 
+class TestNotificationDigest(_HandlerBase):
+    """W2-22: per-destination digest window queue + flush."""
+
+    def setUp(self):
+        super().setUp()
+        self._df = api.WEBHOOK_DIGEST_FILE
+        api.WEBHOOK_DIGEST_FILE = self.d / 'webhook_digest.json'
+        self.sent = []
+        self._real_dispatch = api._dispatch_one_webhook
+        # record only the actual (flush) sends — non-digest path
+        def _wrap(event, dest, payload, message, title, priority, allow_digest=True):
+            if not allow_digest:
+                self.sent.append({'event': event, 'title': title, 'message': message})
+            else:
+                return self._real_dispatch(event, dest, payload, message, title,
+                                           priority, allow_digest=allow_digest)
+        api._dispatch_one_webhook = _wrap
+
+    def tearDown(self):
+        api._dispatch_one_webhook = self._real_dispatch
+        api.WEBHOOK_DIGEST_FILE = self._df
+        super().tearDown()
+
+    def _queue(self):
+        return api.load(api.WEBHOOK_DIGEST_FILE) or {}
+
+    def test_noncritical_queues_not_sends(self):
+        dest = {'id': 'wh1', 'url': 'https://x.test', 'format': 'generic',
+                'digest_minutes': 30}
+        # priority 3 (non-critical) → queued
+        api._dispatch_one_webhook('device_online', dest, {}, 'is up', 'Up', 3)
+        self.assertEqual(self.sent, [])
+        q = self._queue()
+        self.assertEqual(len(q['wh1']['items']), 1)
+
+    def test_critical_bypasses_digest(self):
+        dest = {'id': 'wh1', 'url': 'https://x.test', 'format': 'generic',
+                'digest_minutes': 30}
+        # priority 5 (>= bypass) must NOT queue — goes through the real path
+        # (which will try to send; we don't assert delivery, only that it wasn't queued)
+        try:
+            self._real_dispatch('device_offline', dest, {}, 'down', 'Down', 5)
+        except Exception:
+            pass
+        self.assertNotIn('wh1', self._queue())
+
+    def test_flush_when_window_elapsed(self):
+        api.save(api.CONFIG_FILE, {'webhook_urls': [
+            {'id': 'wh1', 'url': 'https://x.test', 'format': 'generic',
+             'enabled': True, 'digest_minutes': 30}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        # seed a queue whose first_ts is 31 min old
+        now = int(__import__('time').time())
+        api.save(api.WEBHOOK_DIGEST_FILE, {'wh1': {
+            'first_ts': now - 31 * 60,
+            'items': [{'event': 'device_online', 'title': 'A up', 'message': 'x', 'priority': 3},
+                      {'event': 'monitor_up', 'title': 'B up', 'message': 'y', 'priority': 3}]}})
+        api.run_webhook_digests_if_due()
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0]['event'], 'notification_digest')
+        self.assertIn('2 notifications', self.sent[0]['title'])
+        self.assertIn('A up', self.sent[0]['message'])
+        self.assertEqual(self._queue(), {})   # flushed
+
+    def test_flush_holds_when_not_due(self):
+        api.save(api.CONFIG_FILE, {'webhook_urls': [
+            {'id': 'wh1', 'url': 'https://x.test', 'format': 'generic',
+             'enabled': True, 'digest_minutes': 30}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        now = int(__import__('time').time())
+        api.save(api.WEBHOOK_DIGEST_FILE, {'wh1': {
+            'first_ts': now - 60, 'items': [{'event': 'x', 'title': 't', 'message': '', 'priority': 3}]}})
+        api.run_webhook_digests_if_due()
+        self.assertEqual(self.sent, [])
+        self.assertIn('wh1', self._queue())   # still held
+
+    def test_config_save_validates_digest_minutes(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'webhook_urls': [
+            {'url': 'https://x.test', 'format': 'generic', 'digest_minutes': 60},
+            {'url': 'https://y.test', 'format': 'generic', 'digest_minutes': 0}]}
+        self.call(api.handle_config_save)
+        urls = (api.load(api.CONFIG_FILE) or {}).get('webhook_urls')
+        self.assertEqual(urls[0]['digest_minutes'], 60)
+        self.assertNotIn('digest_minutes', urls[1])   # 0 = off, not stored
+
+
 if __name__ == '__main__':
     unittest.main()
