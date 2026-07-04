@@ -21,6 +21,64 @@ async function loadKb() {
   }
   _kbArticles = d.articles || [];
   _renderKbList();
+  _loadKbRunbooks();
+}
+
+// W1-23: alert→KB runbook mapping (config.alert_runbooks). Admin-only card.
+let _kbRunbookMap = {};
+let _kbEventLabels = {};
+async function _loadKbRunbooks() {
+  if (!document.getElementById('kb-runbook-list')) return;
+  try {
+    const cfg = await api('GET', '/config');
+    _kbRunbookMap = (cfg && cfg.alert_runbooks && typeof cfg.alert_runbooks === 'object') ? cfg.alert_runbooks : {};
+    _kbEventLabels = (cfg && cfg._meta && cfg._meta.webhook_event_descriptions) || {};
+    _renderKbRunbooks(Object.keys(cfg?.webhook_events || _kbEventLabels));
+  } catch (e) { /* non-admin can't read config — card stays inert */ }
+}
+function _renderKbRunbooks(eventNames) {
+  const list = document.getElementById('kb-runbook-list');
+  const evSel = document.getElementById('kb-runbook-event');
+  const arSel = document.getElementById('kb-runbook-article');
+  if (!list) return;
+  const artTitle = id => (_kbArticles.find(a => a.id === id) || {}).title || id;
+  const entries = Object.entries(_kbRunbookMap);
+  list.innerHTML = entries.length
+    ? entries.map(([ev, aid]) =>
+        `<div class="row-6-center mb-4"><code class="fs-12">${escHtml(_kbEventLabels[ev] || ev)}</code>`
+        + `<span class="meta-sm-nm ellipsis flex-1">→ ${escHtml(artTitle(aid))}</span>`
+        + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteKbRunbookLink" data-arg="${escAttr(ev)}">Unlink</button></div>`).join('')
+    : '<div class="meta-sm-nm">No runbook links yet.</div>';
+  if (evSel && eventNames) {
+    evSel.innerHTML = eventNames.sort().map(ev =>
+      `<option value="${escAttr(ev)}">${escHtml(_kbEventLabels[ev] || ev)}</option>`).join('');
+  }
+  if (arSel) {
+    arSel.innerHTML = _kbArticles.length
+      ? _kbArticles.map(a => `<option value="${escAttr(a.id)}">${escHtml(a.title || a.id)}</option>`).join('')
+      : '<option value="">(no articles yet)</option>';
+  }
+}
+async function _saveKbRunbooks(map, okMsg) {
+  const r = await api('POST', '/config', { alert_runbooks: map });
+  const res = document.getElementById('kb-runbook-result');
+  if (r && !r.error) {
+    _kbRunbookMap = map; _renderKbRunbooks();
+    toast(okMsg, 'success'); if (res) res.textContent = '';
+  } else {
+    toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed';
+  }
+}
+function addKbRunbookLink() {
+  const ev = document.getElementById('kb-runbook-event')?.value;
+  const aid = document.getElementById('kb-runbook-article')?.value;
+  if (!ev || !aid) { toast('Pick an alert type and an article', 'error'); return; }
+  _saveKbRunbooks({ ..._kbRunbookMap, [ev]: aid }, 'Runbook linked');
+}
+function deleteKbRunbookLink(ev) {
+  const map = { ..._kbRunbookMap };
+  delete map[ev];
+  _saveKbRunbooks(map, 'Runbook unlinked');
 }
 
 function filterKb() { _renderKbList(); }
@@ -63,6 +121,12 @@ function _renderKbList() {
   list.innerHTML = html;
 }
 
+// W1-23: open a KB article from OUTSIDE the KB page (e.g. an alert's Runbook
+// link) — switch to the KB page first, then select the article.
+function openKbFromAlert(id) {
+  showPage('kb', document.querySelector('.nav-btn[data-page="kb"]') || undefined);
+  openKbArticle(id);
+}
 async function openKbArticle(id) {
   _kbSelId = id;
   _renderKbList();

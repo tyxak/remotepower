@@ -39,6 +39,8 @@
     'CT watch':              { zh: 'CT 证书监视', hi: 'CT निगरानी', es: 'Vigilancia CT', ar: 'مراقبة CT' },
     'Save CT watch':         { zh: '保存 CT 监视', hi: 'CT निगरानी सहेजें', es: 'Guardar vigilancia CT', ar: 'حفظ مراقبة CT' },
     'Auto-placement rules':  { zh: '自动归置规则', hi: 'स्वतः-नियोजन नियम', es: 'Reglas de ubicación automática', ar: 'قواعد التوزيع التلقائي' },
+    'Runbook links':         { zh: '运行手册链接', hi: 'रनबुक लिंक', es: 'Enlaces de runbook', ar: 'روابط دليل التشغيل' },
+    'Link runbook':          { zh: '链接运行手册', hi: 'रनबुक लिंक करें', es: 'Enlazar runbook', ar: 'ربط دليل التشغيل' },
     // ── v5.4.0 "RackMatters": time-tracking + billing chrome ──
     'Timesheet':              { zh: '工时表', hi: 'टाइमशीट', es: 'Hoja de horas', ar: 'سجل الساعات' },
     'Billing':                { zh: '账单', hi: 'बिलिंग', es: 'Facturación', ar: 'الفوترة' },

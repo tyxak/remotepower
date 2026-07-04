@@ -28,6 +28,17 @@ ground its answers in *your own* documentation — ask "how do we rotate the VPN
 keys?" and it can answer from the runbook you wrote, with a citation. Toggle the
 source under **Settings → AI → Knowledge sources**.
 
+## Runbook links on alerts
+
+The KB page's **Runbook links** card maps an **alert type** (any webhook event,
+or a specific custom check via `check:<id>`) to a KB article. When an alert of
+that type appears in the Alerts inbox, operators get a one-click **Runbook**
+link on the alert row, straight to your response procedure — so the fix
+instructions live next to the alarm. The mapping is stored in config
+(`alert_runbooks`) and resolved at read time (nothing is copied onto the alert),
+so editing an article always shows the current version. Links only render while
+the KB is enabled.
+
 ## API
 
 | Method & path | Purpose |

@@ -463,5 +463,67 @@ class TestEnrolPlacementRules(_HandlerBase):
         self.assertEqual(rules[0]['tags'], ['a', 'b'])
 
 
+class TestAlertKbRunbookLink(_HandlerBase):
+    """W1-23: _annotate_alert_kb + config-save validation."""
+
+    def setUp(self):
+        super().setUp()
+        self._kbf = api.KB_FILE
+        api.KB_FILE = self.d / 'kb.json'
+        api.save(api.KB_FILE, {'articles': [
+            {'id': 'kb_a', 'title': 'Disk full runbook'},
+            {'id': 'kb_b', 'title': 'Service down runbook'}]})
+
+    def tearDown(self):
+        api.KB_FILE = self._kbf
+        super().tearDown()
+
+    def _cfg(self, mapping, kb_on=True):
+        api.save(api.CONFIG_FILE, {'kb_enabled': kb_on, 'alert_runbooks': mapping})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def test_maps_event_to_article(self):
+        self._cfg({'metric_critical': 'kb_a'})
+        alerts = [{'id': '1', 'event': 'metric_critical', 'payload': {}}]
+        api._annotate_alert_kb(alerts)
+        self.assertEqual(alerts[0]['kb_link'], {'id': 'kb_a', 'title': 'Disk full runbook'})
+
+    def test_maps_custom_check_by_id(self):
+        self._cfg({'check:cid9': 'kb_b'})
+        alerts = [{'id': '1', 'event': 'custom_check_failed',
+                   'payload': {'check_id': 'cid9'}}]
+        api._annotate_alert_kb(alerts)
+        self.assertEqual(alerts[0]['kb_link']['id'], 'kb_b')
+
+    def test_no_map_no_link(self):
+        self._cfg({})
+        alerts = [{'id': '1', 'event': 'metric_critical', 'payload': {}}]
+        api._annotate_alert_kb(alerts)
+        self.assertNotIn('kb_link', alerts[0])
+
+    def test_disabled_kb_no_link(self):
+        self._cfg({'metric_critical': 'kb_a'}, kb_on=False)
+        alerts = [{'id': '1', 'event': 'metric_critical', 'payload': {}}]
+        api._annotate_alert_kb(alerts)
+        self.assertNotIn('kb_link', alerts[0])
+
+    def test_stale_article_id_ignored(self):
+        self._cfg({'metric_critical': 'kb_gone'})
+        alerts = [{'id': '1', 'event': 'metric_critical', 'payload': {}}]
+        api._annotate_alert_kb(alerts)
+        self.assertNotIn('kb_link', alerts[0])
+
+    def test_config_save_validates_and_cleans(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'alert_runbooks': 'nope'}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+        api.get_json_body = lambda: {'alert_runbooks': {
+            'metric_critical': 'kb_a', 'blank': '', '': 'kb_b'}}
+        self.call(api.handle_config_save)
+        saved = (api.load(api.CONFIG_FILE) or {}).get('alert_runbooks')
+        self.assertEqual(saved, {'metric_critical': 'kb_a'})
+
+
 if __name__ == '__main__':
     unittest.main()

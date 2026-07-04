@@ -118,11 +118,15 @@ function _alertRowHtml(a, role) {
         ? ` <a href="${_safeHttpHref(a.ticket_url)}" target="_blank" rel="noopener" class="patch-badge ok fs-10" title="Open the linked ticket">Ticket ${_escapeHtml(a.ticket_ref)} ↗</a>`
         : ` <span class="patch-badge ok fs-10" title="Linked ticket">Ticket ${_escapeHtml(a.ticket_ref)}</span>`)
     : '';
+  // W1-23: linked KB runbook for this event, if an admin mapped one.
+  const kbLink = (a.kb_link && a.kb_link.id)
+    ? ` <a href="#" data-action="openKbFromAlert" data-arg="${_escapeHtml(a.kb_link.id)}" data-prevent-default class="patch-badge fs-10" title="Open the runbook for this alert">${_icon('bookOpen',11)} ${_escapeHtml(a.kb_link.title || 'Runbook')}</a>`
+    : '';
   return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}">
     <td>${cb}</td>
     <td>${sevPill}</td>
     <td class="nowrap">${ts}</td>
-    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
+    <td${titleCls}>${_escapeHtml(a.title || a.event || '')}${badge}${ticketLink}${kbLink}${a.rp_ticket ? ` <span class="patch-badge ok fs-10" title="Built-in ticket">${_escapeHtml(_tkNo(a.rp_ticket))}</span>` : ''}${a.alertid ? `<div class="hint">${_escapeHtml(_rpNo(a.alertid))}</div>` : ''}</td>
     <td>${_escapeHtml(dev)}</td>
     <td>${ackBy}</td>
     <td class="nowrap">${actions}</td>

@@ -17534,6 +17534,7 @@ def handle_config_get():
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
     safe.setdefault('ct_watch_domains',       [])     # W1-17: CT-log watch (empty = off)
     safe.setdefault('enrol_rules',            [])     # W1-9: enrolment auto-placement rules
+    safe.setdefault('alert_runbooks',         {})     # W1-23: event→KB-article map
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -18891,6 +18892,18 @@ def handle_config_save():
                 rule['tags'] = [t for t in (_sanitize_str(str(x), 32) for x in _rt[:20]) if t]
             rules.append(rule)
         cfg['enrol_rules'] = rules
+    # W1-23: alert→KB runbook map {event|'check:<id>' : kb_article_id}.
+    if 'alert_runbooks' in body:
+        raw = body.get('alert_runbooks')
+        if not isinstance(raw, dict):
+            respond(400, {'error': 'alert_runbooks must be an object'})
+        m = {}
+        for k, v in list(raw.items())[:500]:
+            key = _sanitize_str(str(k), 80).strip()
+            aid = _sanitize_str(str(v), 64).strip()
+            if key and aid:
+                m[key] = aid
+        cfg['alert_runbooks'] = m
     # W1-17: certificate-transparency watch — plain domain list; empty = off.
     if 'ct_watch_domains' in body:
         raw = body.get('ct_watch_domains')
@@ -38750,6 +38763,36 @@ def _annotate_alert_mitigation(alerts):
             a['mitigation_target'] = tgt
 
 
+def _alert_kb_map():
+    """W1-23: config `alert_runbooks` maps an event name (or 'check:<check_id>'
+    for a custom check) → a KB article id. Returns {} fast when unset / KB off."""
+    m = _config_ro().get('alert_runbooks') or {}
+    return m if isinstance(m, dict) else {}
+
+
+def _annotate_alert_kb(alerts):
+    """Tag each alert with `kb_link` {id, title} when its event (or its custom
+    check) is mapped to a knowledge-base article in `alert_runbooks`. Read-time
+    only — nothing is stored on the alert; the frontend renders a 'Runbook'
+    link when present. No-op unless KB is enabled and a mapping exists."""
+    mapping = _alert_kb_map()
+    if not mapping or not _kb_enabled():
+        return
+    titles = {a.get('id'): (a.get('title') or '')
+              for a in ((load(KB_FILE) or {}).get('articles') or [])}
+    for a in alerts:
+        if not isinstance(a, dict):
+            continue
+        event = a.get('event') or ''
+        aid = mapping.get(event)
+        if not aid:
+            cid = (a.get('payload') or {}).get('check_id')
+            if cid:
+                aid = mapping.get('check:' + str(cid))
+        if aid and aid in titles:
+            a['kb_link'] = {'id': aid, 'title': titles[aid]}
+
+
 def handle_alerts_list():
     """GET /api/alerts?status=open|ack|resolved|all&limit=N
 
@@ -38793,6 +38836,7 @@ def handle_alerts_list():
     page = filtered[:limit]
     _annotate_alert_correlation(page)   # v4.1.0: host root-cause folding
     _annotate_alert_mitigation(page)    # v5.8.0 (B1.2): Fix-button tagging
+    _annotate_alert_kb(page)            # W1-23: KB-runbook link tagging
     respond(200, {
         'alerts': page,
         'total':  len(filtered),

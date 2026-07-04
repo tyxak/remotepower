@@ -5184,6 +5184,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="dash-card"><div id="kb-list" class="scroll-cap"><div class="empty-state">Loading…</div></div></div>
           <div class="dash-card"><div id="kb-view" class="scroll-cap-lg"><div class="empty-state"><div class="empty-title">No article selected</div><div class="empty-text">Pick an article on the left to read it, or click <b>New article</b>.</div></div></div></div>
         </div>
+
+        <!-- W1-23: link an alert event to a runbook article -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Runbook links</div>
+          <p class="hint">Attach a KB article to an alert type. When an alert of that type fires, operators see a one-click <strong>Runbook</strong> link on it in the Alerts inbox — straight to your response procedure.</p>
+          <div id="kb-runbook-list" class="scroll-cap mt-8"></div>
+          <div class="form-row mt-8">
+            <div class="form-group flex-1"><label class="form-label" for="kb-runbook-event">Alert type</label><select id="kb-runbook-event" class="form-input" aria-label="Alert type"></select></div>
+            <div class="form-group flex-1"><label class="form-label" for="kb-runbook-article">Runbook article</label><select id="kb-runbook-article" class="form-input" aria-label="Runbook article"></select></div>
+          </div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="addKbRunbookLink">Link runbook</button></div>
+          <div id="kb-runbook-result" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
       </div>
 
       <!-- ── v5.6.0: Alert tuning ────────────────────────────────────────── -->
