@@ -3051,6 +3051,9 @@ async function loadSettings() {
     const sp = document.getElementById('cfg-secrets-scan-paths');
     if (sp) sp.value = (data.secrets_scan_paths || []).join('\n');
   }
+  // W3-38: canary files
+  { const cf = document.getElementById('cfg-canary-paths');
+    if (cf) cf.value = (data.canary_files || []).map(c => c.path).join('\n'); }
   const _cae = document.getElementById('cfg-change-approval-enabled');
   if (_cae) {
     _cae.checked = !!data.change_approval_enabled;
@@ -12372,7 +12375,7 @@ const EVENT_CLASS = {
   'mailbox_threshold': 'warn',
   'command_queued': 'info', 'command_executed': 'info',
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
-  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'crit',
+  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'crit', 'canary_accessed': 'crit',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
@@ -13834,7 +13837,7 @@ function _renderHomeActivity(fleetEvents) {
     // v3.14.0 #36: watched-process CPU/memory threshold alert + recover
     'process_alert', 'process_recovered',
     // v3.14.0 #35: exposed-secret finding
-    'secret_exposed',
+    'secret_exposed', 'canary_accessed',
     // v4.2.0 (B5): authorized scan high/critical finding
     'scan_finding',
     // v4.7.0: homelab software integration health
@@ -14052,6 +14055,7 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v3.14.0 #35: exposed secret → open the affected host's drawer.
     case 'secret_exposed':
+    case 'canary_accessed':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     // v4.2.0 (B5): scan findings route to the Security Scans page
     case 'scan_finding':
@@ -16113,6 +16117,16 @@ function _icon(name, size) {
 // v5.0.0 (#U3): time-based alert snooze — creates a one-shot maintenance window
 // for this device (which the alert pipeline already suppresses), so noisy alerts
 // can be muted for an hour during active debugging.
+// W3-38: save canary/honeytoken file paths.
+async function saveCanaryFiles() {
+  const paths = (document.getElementById('cfg-canary-paths')?.value || '')
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const canary_files = paths.map(p => ({ path: p }));
+  const r = await api('POST', '/config', { canary_files });
+  if (r && !r.error) toast(paths.length ? `${paths.length} canary file(s) armed` : 'Canary files off', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
 // W3-40: load a device's sudo audit trail into the drawer.
 async function loadSudoLog(id) {
   const box = document.getElementById('ds-sudo-log');

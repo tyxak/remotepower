@@ -653,6 +653,91 @@ def collect_net_io():
     out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
     return out[:20]
 
+# W3-38: canary / honeytoken files. Plant a decoy at each configured path (never
+# over an existing file), then watch for access: atime advancing past plant time
+# (a read), or mtime/size change / deletion (tampering). Each event is reported
+# once (edge-triggered via _canary_reported).
+_CANARY_DEFAULT = ('# AWS credentials — do not share\n'
+                   '[default]\naws_access_key_id = AKIA' + 'IOSFODNN7EXAMPLE\n'
+                   'aws_secret_access_key = wJalrXUtnFEMI/EXAMPLEKEY\n')
+_canary_planted = {}       # path -> {mtime, size, plant_ts}
+_canary_reported = set()   # paths already reported this run
+
+
+def _plant_canaries(canary_cfg):
+    """Create any not-yet-planted canary files. Returns nothing; updates the
+    in-memory baseline. Never overwrites an existing file."""
+    for c in (canary_cfg or [])[:50]:
+        p = c.get('path') if isinstance(c, dict) else c
+        if not p or not str(p).startswith('/'):
+            continue
+        hp = host_path(p)
+        if p in _canary_planted:
+            continue
+        try:
+            if os.path.exists(hp):
+                # pre-existing file — track its baseline but never clobber it
+                st = os.stat(hp)
+                _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
+                                      'plant_ts': int(time.time()), 'ours': False}
+                continue
+            content = (c.get('content') if isinstance(c, dict) else '') or _CANARY_DEFAULT
+            d = os.path.dirname(hp)
+            if d and not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+            fd = os.open(hp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, content.encode())
+            finally:
+                os.close(fd)
+            st = os.stat(hp)
+            _canary_planted[p] = {'mtime': int(st.st_mtime), 'size': st.st_size,
+                                  'plant_ts': int(time.time()), 'ours': True}
+        except OSError as e:
+            log.debug(f'canary plant {p}: {e}')
+
+
+def _check_canaries(canary_cfg):
+    """Return [{path, reason, ts}] for canaries that were accessed/tampered since
+    plant, each reported only once."""
+    events = []
+    wanted = {(c.get('path') if isinstance(c, dict) else c) for c in (canary_cfg or [])}
+    for p, base in list(_canary_planted.items()):
+        if p not in wanted:
+            continue
+        if p in _canary_reported:
+            continue
+        hp = host_path(p)
+        reason = None
+        try:
+            st = os.stat(hp)
+            if int(st.st_mtime) != base['mtime'] or st.st_size != base['size']:
+                reason = 'modified'
+            elif int(st.st_atime) > base['plant_ts'] + 2:
+                reason = 'read'
+        except FileNotFoundError:
+            reason = 'deleted'
+        except OSError:
+            reason = None
+        if reason:
+            _canary_reported.add(p)
+            events.append({'path': p, 'reason': reason, 'ts': int(time.time())})
+    return events
+
+
+def _remove_canaries():
+    """Uninstall hook: remove only the decoys WE created (never a pre-existing
+    file we merely baselined)."""
+    for p, base in list(_canary_planted.items()):
+        if base.get('ours'):
+            try:
+                os.unlink(host_path(p))
+            except OSError:
+                pass
+    _canary_planted.clear()
+    _canary_reported.clear()
+
+
 def _is_private_ip(ip):
     """RFC-1918 / link-local / CGNAT — the addresses worth suggesting a fleet
     dependency for (a world-bound peer is noise + a privacy leak)."""
@@ -5762,6 +5847,11 @@ def _execute_uninstall():
     tempfile, exec's, and then deletes the binary + sleeps + kills
     its parent so the running agent exits cleanly.
     """
+    # W3-38: remove any decoy canary files we planted before tearing down.
+    try:
+        _remove_canaries()
+    except Exception:
+        pass
     import tempfile as _tf
     # 1. Disable the systemd unit (so it doesn't auto-start at boot
     #    and so a future reinstall starts from a clean slate). Done
@@ -7421,6 +7511,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # before the first heartbeat completes — first heartbeat brings them
     # in, second heartbeat sends the first drift report.
     watched_files = []
+    _canary_cfg = []           # W3-38: canary/honeytoken file config from the server
     # v2.4.3: server pushes mailbox directory paths whose file count we
     # report (Maildir-style unread-message monitoring).
     mailbox_paths = []
@@ -7898,6 +7989,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['sudo_events'] = _sudo
             except Exception as e:
                 log.debug(f'sudo events error: {e}')
+            # W3-38: report any canary-file access (edge-triggered).
+            try:
+                _cev = _check_canaries(_canary_cfg)
+                if _cev:
+                    payload['canary_events'] = _cev
+            except Exception as e:
+                log.debug(f'canary check error: {e}')
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
 
         # v4.2.0 (B5 P3): report a finished host scan (lynis) to the server.
@@ -7960,6 +8058,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 if new_wf != watched_files:
                     log.info(f'Config updated: watched_files = {len(new_wf)} file(s)')
                 watched_files = new_wf
+            # W3-38: canary/honeytoken files — plant any new ones on receipt.
+            if 'canary_files' in resp:
+                _canary_cfg = resp.get('canary_files') or []
+                try:
+                    _plant_canaries(_canary_cfg)
+                except Exception as e:
+                    log.debug(f'canary plant error: {e}')
+                # forget the reported flag for canaries no longer configured so a
+                # re-added path can alert again
+                _wanted = {(c.get('path') if isinstance(c, dict) else c) for c in _canary_cfg}
+                for _gone in [p for p in list(_canary_reported) if p not in _wanted]:
+                    _canary_reported.discard(_gone)
             # v2.4.3: mailbox-count monitor — the server pushes a list of
             # directory paths whose regular-file count we should report
             # (e.g. a Maildir 'new' folder → unread message count). Empty

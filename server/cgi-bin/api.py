@@ -1147,6 +1147,9 @@ EVENT_REGISTRY = {
     'backup_size_anomaly': dict(
         label='Backup shrank sharply vs its recent size', kind='backup',
         title='Backup Size Anomaly', severity='high', priority=4, tags='warning,floppy_disk'),
+    'canary_accessed': dict(
+        label='A canary (decoy) file was accessed or tampered with', kind='exposure',
+        title='Canary File Accessed', severity='critical', priority=5, tags='rotating_light,lock'),
     'backup_verify_failed': dict(
         label='Backup integrity check failed', kind='backup',
         title='Backup Integrity Check Failed', severity='high'),
@@ -14959,6 +14962,21 @@ def handle_heartbeat():
         except Exception:
             pass
 
+    # W3-38: canary-file access reports → high-severity alert (edge-triggered
+    # by the agent, which only reports each access once).
+    _canary_in = body.get('canary_events')
+    if isinstance(_canary_in, list) and _canary_in:
+        for ce in _canary_in[:50]:
+            if not isinstance(ce, dict) or not ce.get('path'):
+                continue
+            try:
+                fire_webhook('canary_accessed', {
+                    'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                    'path': _sanitize_str(str(ce.get('path')), 512),
+                    'output': _sanitize_str(str(ce.get('reason', '')), 64)})
+            except Exception:
+                pass
+
     # W3-8: record observed outbound peers for dependency auto-suggestion.
     _peers_in = body.get('peer_conns')
     if isinstance(_peers_in, list):
@@ -15125,6 +15143,8 @@ def handle_heartbeat():
         'mailbox_paths':    mailbox_paths,
         # v2.5.0: push assigned scripts so the agent runs them every 5 min
         'custom_scripts':   custom_scripts_for_device,
+        # W3-38: canary/honeytoken files the agent plants + watches (fleet-wide).
+        'canary_files':     _config_ro().get('canary_files') or [],
     }
     # v5.0.1 perf: the response-build only READS config (backup_monitors,
     # secrets flags, custom_checks) — use the shared cached view once instead
@@ -18061,6 +18081,7 @@ def handle_config_get():
     safe.setdefault('alert_runbooks',         {})     # W1-23: event→KB-article map
     safe.setdefault('patch_sla',              [])     # W1-33: patch-compliance SLA rules
     safe.setdefault('backup_size_anomaly_pct', 0)     # W3-42: shrink alert % of median (0=off)
+    safe.setdefault('canary_files',           [])     # W3-38: decoy/honeytoken file paths
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -19477,6 +19498,22 @@ def handle_config_save():
             if key and aid:
                 m[key] = aid
         cfg['alert_runbooks'] = m
+    # W3-38: canary/honeytoken files the agent plants + watches. Each entry
+    # {path, content?}; path must be absolute. Empty list = off.
+    if 'canary_files' in body:
+        raw = body.get('canary_files')
+        if not isinstance(raw, list):
+            respond(400, {'error': 'canary_files must be a list'})
+        out = []
+        for c in raw[:50]:
+            if not isinstance(c, dict):
+                continue
+            p = _sanitize_str(str(c.get('path', '')), 512).strip()
+            if not p.startswith('/') or '..' in p.split('/'):
+                continue
+            out.append({'path': p,
+                        'content': _sanitize_str(str(c.get('content', '')), 4000)})
+        cfg['canary_files'] = out
     # W3-42: backup shrink-anomaly threshold (% of trailing median; 0 = off).
     if 'backup_size_anomaly_pct' in body:
         try:

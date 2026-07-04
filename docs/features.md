@@ -229,6 +229,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Exposure (attack surface) | Listening sockets classified local/lan/world; `port_exposed_world`; Exposure page *(v3.11.0)* |
 | Secrets-on-disk scanning | Opt-in agent scan (~6h, configurable paths) for keys/cloud-keys/tokens; masked findings + dedup fingerprint on the Exposure page; `secret_exposed`; off by default *(v4.0.0)* |
+| Canary files (honeytokens) | Agent plants decoy files (fake credentials) at configured paths — never over an existing file — and watches them; any read/change/deletion raises a critical `canary_accessed` alert; removed on agent uninstall *(v5.8.0)* |
 | Firewall + fail2ban | Fleet page to view + edit host firewalls (nftables/iptables/ufw/firewalld) and fail2ban jails/bans; edits via the audited command queue, server-validated *(v4.10.0)* |
 | Host firewall drift | Stable ruleset fingerprint → `firewall_changed` *(v3.11.0)* |
 | Host configuration | Declare desired state per device — repos, netplan, nmcli, resolv.conf, /etc/hosts, enabled services, users + SSH keys, groups, sudoers, MOTD; agent applies on heartbeat (~60s), reports current state every 15 min; audit-only, never auto-remediates *(v2.6.0)* |

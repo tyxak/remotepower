@@ -1999,6 +1999,12 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
+
+            <div class="section-title mt-16">Canary files (honeytokens)</div>
+            <p class="hint">Agents plant a decoy file at each absolute path below (never over an existing file) with realistic-but-fake credentials, then watch it. Any access — a read, a change, or deletion — raises a <strong>critical</strong> <code>canary_accessed</code> alert. A tripwire on your own hosts; decoys are removed when the agent uninstalls. One path per line; blank = off.</p>
+            <div class="settings-row"><label class="form-label" for="cfg-canary-paths">Canary file paths (one absolute path per line)</label>
+              <textarea id="cfg-canary-paths" class="form-input ff-mono" rows="3" placeholder="/root/.aws/credentials.bak&#10;/home/deploy/.ssh/id_rsa.old"></textarea></div>
+            <div class="row-6"><button class="btn-primary" data-action="saveCanaryFiles">Save canary files</button></div>
           </div>
 
           <!-- v4.2.0 follow-up: the account-guardrail keys the posture self-check

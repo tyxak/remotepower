@@ -302,7 +302,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'disk_predict_fail', 'ups_on_battery', 'ups_on_line',
             'cert_file_expiring', 'rogue_uid0',
             'process_alert', 'process_recovered',   # v3.14.0 #36
-            'secret_exposed',                        # v3.14.0 #35
+            'secret_exposed', 'canary_accessed',    # v3.14.0 #35 / W3-38
             'scan_finding',                          # v4.2.0 (B5)
             'integration_down', 'integration_recovered',  # v4.7.0 integrations
             'github_new_issue',                      # v5.8.0 GitHub issue monitor

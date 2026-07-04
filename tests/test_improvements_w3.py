@@ -319,5 +319,66 @@ class TestDependencySuggestions(_HandlerBase):
         self.assertFalse(agent._is_private_ip('172.32.0.1'))
 
 
+class TestCanaryFiles(_HandlerBase):
+    """W3-38: canary config validation + agent plant/detect."""
+
+    def test_config_save_validates_paths(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'canary_files': [
+            {'path': '/root/.aws/credentials.bak', 'content': 'fake'},
+            {'path': 'relative/nope'},          # not absolute → dropped
+            {'path': '/etc/../evil'}]}           # traversal → dropped
+        try:
+            api.handle_config_save()
+        except api.HTTPError:
+            pass
+        cf = (api.load(api.CONFIG_FILE) or {}).get('canary_files')
+        self.assertEqual(len(cf), 1)
+        self.assertEqual(cf[0]['path'], '/root/.aws/credentials.bak')
+
+    def test_event_registered_critical(self):
+        self.assertIn('canary_accessed', api.EVENT_REGISTRY)
+        self.assertEqual(api.EVENT_REGISTRY['canary_accessed']['severity'], 'critical')
+
+    def test_agent_plant_and_detect(self):
+        import os as _os
+        import tempfile as _tf
+        agent = _load_agent()
+        agent._canary_planted.clear()
+        agent._canary_reported.clear()
+        d = _tf.mkdtemp()
+        path = _os.path.join(d, 'secret.creds')
+        cfg = [{'path': path, 'content': 'AKIAFAKE'}]
+        agent._plant_canaries(cfg)
+        self.assertTrue(_os.path.exists(path))
+        self.assertEqual(agent._check_canaries(cfg), [])   # untouched
+        # modify → detected as 'modified', reported once
+        with open(path, 'a') as fh:
+            fh.write('x')
+        ev = agent._check_canaries(cfg)
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0]['reason'], 'modified')
+        self.assertEqual(agent._check_canaries(cfg), [])   # not re-reported
+        # uninstall removes the decoy we planted
+        agent._remove_canaries()
+        self.assertFalse(_os.path.exists(path))
+
+    def test_agent_never_overwrites_existing(self):
+        import os as _os
+        import tempfile as _tf
+        agent = _load_agent()
+        agent._canary_planted.clear()
+        f = _tf.NamedTemporaryFile(mode='w', delete=False)
+        f.write('REAL DATA')
+        f.close()
+        agent._plant_canaries([{'path': f.name}])
+        with open(f.name) as fh:
+            self.assertEqual(fh.read(), 'REAL DATA')   # untouched
+        # a pre-existing file is not removed on uninstall (ours=False)
+        agent._remove_canaries()
+        self.assertTrue(_os.path.exists(f.name))
+        _os.unlink(f.name)
+
+
 if __name__ == '__main__':
     unittest.main()
