@@ -74,7 +74,7 @@ async function createCveCampaign() {
   } else toast(r?.error || 'Failed', 'error');
 }
 async function deleteCveCampaign(cid) {
-  if (!confirm('Delete this campaign?')) return;
+  if (!await uiConfirm('Delete this campaign?')) return;
   const r = await api('DELETE', '/cve/campaigns/' + encodeURIComponent(cid));
   if (r && r.ok) { toast('Campaign deleted', 'success'); loadCveCampaigns(); }
   else toast(r?.error || 'Failed', 'error');

@@ -15261,7 +15261,7 @@ async function updateIncident(iid) {
   else toast(r?.error || 'Failed', 'error');
 }
 async function deleteIncident(iid) {
-  if (!confirm('Delete this incident?')) return;
+  if (!await uiConfirm('Delete this incident?')) return;
   const r = await api('DELETE', '/incidents/' + encodeURIComponent(iid));
   if (r && r.ok) { toast('Incident deleted', 'success'); loadIncidents(); }
   else toast(r?.error || 'Failed', 'error');

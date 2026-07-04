@@ -638,7 +638,7 @@ async function invoiceVoid(iid) {
 }
 // W1-30: email the invoice to the customer's billing contact.
 async function invoiceEmail(iid) {
-  if (!confirm("Email this invoice to the customer's billing contact?")) return;
+  if (!await uiConfirm("Email this invoice to the customer's billing contact?")) return;
   const r = await api('POST', '/invoices/' + encodeURIComponent(iid) + '/send', {});
   if (r && r.ok) { toast('Invoice emailed', 'success'); _billingInvoices(); }
   else toast((r && r.error) || 'Failed to send', 'error');
