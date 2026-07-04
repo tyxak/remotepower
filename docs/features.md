@@ -58,7 +58,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Per-mount disk | Each non-pseudo mount tracked individually *(v1.11.10)* |
 | Network-mount trends | NFS/SMB/CIFS shares flow into daily history + disk-fill forecast *(v3.13.0)* |
 | Resource forecasting | Per-mount least-squares trend → days-to-full + projected fill date; **Monitoring → Forecast** page *(v3.4.0)* |
-| Statistical anomalies | Per-host mean/stdev baselines flag ≥2.5σ memory/swap/disk deviations *(v3.4.2)* |
+| Statistical anomalies | Per-host mean/stdev baselines flag ≥2.5σ memory/swap/disk deviations *(v3.4.2)*; optional **seasonal** mode scores each host against its matching day-of-week × 4-hour-block baseline (falls back to the flat baseline until ~2 weeks of data), so a recurring Monday-morning spike isn't a false alarm — `GET /api/fleet/anomalies?seasonal=1` *(v5.8.0)* |
 | What changed (drift over time) | Diff oldest vs latest snapshot — package/port/unit/reboot/disk deltas *(v3.4.0)* |
 | Trends charts | Zero-dep multi-series SVG — fleet health, compliance %, per-device resources, CPU-load saturation % *(v3.4.2)* |
 | Prometheus metrics | `/api/metrics` exposition (Grafana); status-token auth; health/needs-attention/CVE gauges *(v3.4.1)*; metrics push *(v4.0.0)* |

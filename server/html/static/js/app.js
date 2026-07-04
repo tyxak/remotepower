@@ -18703,7 +18703,8 @@ async function saveMetering() {
 async function loadReportsAnomalies() {
   const out = document.getElementById('reports-anomalies');
   if (!out) return;
-  const r = await api('GET', '/fleet/anomalies').catch(() => null);
+  const seasonal = document.getElementById('anomalies-seasonal')?.checked;
+  const r = await api('GET', '/fleet/anomalies' + (seasonal ? '?seasonal=1' : '')).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load anomalies.</div>'; return; }
   const a = r.anomalies || [];
   if (!a.length) { out.innerHTML = '<div class="c-muted fs-13">No resource anomalies detected.</div>'; return; }
@@ -18713,9 +18714,12 @@ async function loadReportsAnomalies() {
   const rows = sorted.map(x => {
     const arrow = x.direction === 'high' ? '▲' : '▼';
     const cls = x.direction === 'high' ? 'c-red' : 'c-amber';
+    const base = x.seasonal
+      ? `${x.mean} ±${x.stdev} <span class="c-muted">(${escHtml(x.bucket || '')})</span>`
+      : `${x.mean} ±${x.stdev}`;
     return `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.label)}</td>`
       + `<td class="${cls} fw-500">${arrow} ${x.value}</td>`
-      + `<td class="mono-12">${x.mean} ±${x.stdev}</td>`
+      + `<td class="mono-12">${base}</td>`
       + `<td class="mono-12">z=${x.z}</td></tr>`;
   }).join('');
   out.innerHTML = `<div class="table-card"><table><thead id="reports-anomalies-thead"><tr><th data-col="device">Device</th><th data-col="metric">Metric</th><th data-col="latest">Latest</th><th data-col="baseline">Baseline</th><th data-col="deviation">Deviation</th></tr></thead><tbody>${rows}</tbody></table></div>`;

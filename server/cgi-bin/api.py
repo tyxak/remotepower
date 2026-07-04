@@ -23353,22 +23353,26 @@ def handle_fleet_anomalies():
     except ValueError:
         z = 2.5
     z = max(1.5, min(6.0, z))
+    # W4-18: seasonal=1 scores against the matching day-of-week × 4-hour bucket
+    # instead of a flat all-week baseline (falls back to flat until warmed up).
+    seasonal = (qs.get('seasonal') or ['0'])[0] in ('1', 'true', 'yes')
     hist = load(METRICS_HIST_FILE) or {}
     devices = load(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     out = []
+    _detect = anomaly_stats.detect_device_seasonal if seasonal else anomaly_stats.detect_device
     for dev_id, rec in hist.items():
         dev = devices.get(dev_id)
         if not isinstance(dev, dict) or dev.get('monitored') is False:
             continue
-        for a in anomaly_stats.detect_device((rec or {}).get('samples') or [], z=z):
+        for a in _detect((rec or {}).get('samples') or [], z=z):
             a = dict(a)
             a['device_id'] = dev_id
             a['device_name'] = dev.get('name', dev_id)
             out.append(a)
     out.sort(key=lambda a: -abs(a['z']))
-    respond(200, {'threshold_z': z, 'generated_ts': int(time.time()),
-                  'anomalies': out})
+    respond(200, {'threshold_z': z, 'seasonal': seasonal,
+                  'generated_ts': int(time.time()), 'anomalies': out})
 
 
 def _day_status_from_events(events, day_start, day_end):

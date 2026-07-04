@@ -4516,6 +4516,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <div class="section-title">Resource anomalies</div>
           <div class="page-subtitle mb-12">Hosts whose latest memory / swap / disk reading deviates sharply from their own recent baseline (statistical, model-free).</div>
+          <label class="form-row mb-12"><input type="checkbox" id="anomalies-seasonal" data-change="loadReportsAnomalies"> <span class="form-label">Seasonal baselines — score each host against its matching day-of-week × 4-hour window (falls back to the flat baseline until ~2 weeks of data)</span></label>
           <div id="reports-anomalies"><div class="c-muted">Loading…</div></div>
         </div>
 

@@ -280,5 +280,62 @@ class TestMailflowMonitor(_HandlerBase):
         self.assertEqual(cfg['imap_password'], 'first')
 
 
+class TestSeasonalAnomalies(unittest.TestCase):
+    """W4-18: day-of-week × 4-hour bucketed anomaly baselines (pure module)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(_CGI_BIN))
+        import anomaly_stats
+        self.an = anomaly_stats
+
+    def _mk(self, ts, mem):
+        return {'ts': ts, 'mem_percent': mem}
+
+    def test_bucket_of_and_label(self):
+        # 2026-07-06 is a Monday; pick 09:00 local → block 2 (08–12)
+        import time
+        ts = int(time.mktime((2026, 7, 6, 9, 0, 0, 0, 0, -1)))
+        b = self.an._bucket_of(ts)
+        self.assertEqual(b[1], 2)
+        self.assertIn('08–12', self.an._bucket_label(b))
+
+    def test_falls_back_to_flat_before_warmup(self):
+        # < SEASONAL_WARMUP samples → seasonal=False, uses flat detection
+        base = 1_700_000_000
+        samples = [self._mk(base + i * 86400, 20) for i in range(8)]
+        samples.append(self._mk(base + 8 * 86400, 90))   # spike
+        out = self.an.detect_device_seasonal(samples)
+        self.assertTrue(out)
+        self.assertFalse(out[0]['seasonal'])
+
+    def test_seasonal_bucket_scoring(self):
+        # Build >=14 days of hourly-aligned weekly data: every Monday-morning
+        # sample runs hot (80), every other day cool (20). A hot Monday should
+        # NOT flag against the Monday bucket, but a cool Monday should.
+        import time
+        out_samples = []
+        # 6 Mondays at 09:00 all = 80 (the seasonal norm for that bucket)
+        base_mon = int(time.mktime((2026, 6, 1, 9, 0, 0, 0, 0, -1)))  # a Monday
+        for wk in range(6):
+            out_samples.append(self._mk(base_mon + wk * 7 * 86400, 80))
+        # interleave cool weekday samples so total >= warmup
+        base_wed = int(time.mktime((2026, 6, 3, 9, 0, 0, 0, 0, -1)))
+        for wk in range(10):
+            out_samples.append(self._mk(base_wed + wk * 86400, 20))
+        out_samples.sort(key=lambda s: s['ts'])
+        # latest = a hot Monday (80) → matches the Monday-bucket norm → no flag
+        hot_mon = dict(self._mk(base_mon + 6 * 7 * 86400, 80))
+        res = self.an.detect_device_seasonal(out_samples + [hot_mon], z=2.0)
+        mem = [a for a in res if a['metric'] == 'mem_percent' and a.get('seasonal')]
+        self.assertEqual(mem, [], 'hot Monday should be normal for its bucket')
+        # latest = a COOL Monday (20) → far below the Monday norm → flags
+        cool_mon = dict(self._mk(base_mon + 6 * 7 * 86400, 20))
+        res2 = self.an.detect_device_seasonal(out_samples + [cool_mon], z=2.0)
+        mem2 = [a for a in res2 if a['metric'] == 'mem_percent' and a.get('seasonal')]
+        self.assertTrue(mem2, 'cool Monday should deviate from its bucket')
+        self.assertEqual(mem2[0]['direction'], 'low')
+        self.assertIn('Mon', mem2[0]['bucket'])
+
+
 if __name__ == '__main__':
     unittest.main()
