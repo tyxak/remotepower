@@ -1282,6 +1282,7 @@
     "Save profile": { "zh": "保存配置", "hi": "profile सहेजें", "es": "Guardar perfil", "ar": "حفظ الملف" },
     "Device profiles": { "zh": "设备配置", "hi": "डिवाइस profiles", "es": "Perfiles de dispositivo", "ar": "ملفات تعريف الأجهزة" },
     "Smart groups": { "zh": "智能分组", "hi": "स्मार्ट समूह", "es": "Grupos inteligentes", "ar": "مجموعات ذكية" },
+    "Site map": { "zh": "站点地图", "hi": "साइट मानचित्र", "es": "Mapa de sitios", "ar": "خريطة المواقع" },
     "New smart group": { "zh": "新建智能分组", "hi": "नया स्मार्ट समूह", "es": "Nuevo grupo inteligente", "ar": "مجموعة ذكية جديدة" },
     "Save group": { "zh": "保存分组", "hi": "समूह सहेजें", "es": "Guardar grupo", "ar": "حفظ المجموعة" },
     "New rollout": { "zh": "新建发布", "hi": "नया rollout", "es": "Nuevo despliegue", "ar": "طرح جديد" },

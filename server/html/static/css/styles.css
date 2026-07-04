@@ -7155,3 +7155,15 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rota
   .settings-tab-group + .settings-tab-group { margin-left: 0; padding-left: 0;
     border-left: 0; }
 }
+
+/* W5-5: geographic site map (NOC world view) */
+.site-map-wrap { width: 100%; max-width: 720px; margin: 8px auto 0; }
+#site-map-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
+.site-map-bg { fill: var(--bg-elev, #0d1117); }
+.site-map-land path { fill: var(--surface-2, #1e2530); stroke: var(--border, #2b3543); stroke-width: 0.5; }
+.site-map-grat line { stroke: var(--border, #2b3543); stroke-width: 0.4; stroke-dasharray: 2 2; }
+.site-map-dot { cursor: pointer; stroke: #0d1117; stroke-width: 0.6; }
+.site-map-dot.ok { fill: var(--c-green, #3fb950); }
+.site-map-dot.degraded { fill: var(--c-amber, #d29922); }
+.site-map-dot.down { fill: var(--c-red, #f85149); }
+.site-map-dot:hover { stroke: var(--accent, #58a6ff); stroke-width: 1; }

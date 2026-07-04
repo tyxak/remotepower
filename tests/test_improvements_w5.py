@@ -23,7 +23,7 @@ class _HandlerBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
-                     'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE'):
+                     'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE', 'SITES_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -195,6 +195,58 @@ class TestSmartGroups(_HandlerBase):
         api.method = lambda: 'DELETE'
         self.call(api.handle_smart_group, 'g')
         self.assertNotIn('g', api.load(api.SMART_GROUPS_FILE) or {})
+
+
+class TestSiteMap(_HandlerBase):
+    """W5-5: geographic site map — lat/lng + rolled-up health."""
+
+    def test_create_stores_coords(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'HQ', 'lat': 55.6, 'lng': 12.6}
+        out = self.call(api.handle_site_create)
+        sid = out['id']
+        s = (api.load(api.SITES_FILE) or {})[sid]
+        self.assertEqual(s['lat'], 55.6)
+        self.assertEqual(s['lng'], 12.6)
+
+    def test_bad_coords_rejected(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'X', 'lat': 200, 'lng': 0}
+        out = self.call(api.handle_site_create)
+        self.assertIn('lat', str(out))
+
+    def test_map_tallies_health(self):
+        api.save(api.SITES_FILE, {
+            's1': {'name': 'A', 'lat': 10, 'lng': 20},
+            's2': {'name': 'B', 'lat': 30, 'lng': 40},
+            's3': {'name': 'NoCoords'}})
+        now = int(__import__('time').time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'site': 's1', 'last_seen': now},          # online
+            'd2': {'site': 's1', 'last_seen': now - 999999}, # offline
+            'd3': {'site': 's2', 'last_seen': now - 999999}, # all offline
+        })
+        api._invalidate_load_cache(api.SITES_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        saved = api._scope_filter_devices
+        api._scope_filter_devices = lambda d: d
+        try:
+            out = self.call(api.handle_sites_map)
+        finally:
+            api._scope_filter_devices = saved
+        by = {s['id']: s for s in out['sites']}
+        self.assertNotIn('s3', by)                # no coords → excluded
+        self.assertEqual(by['s1']['health'], 'degraded')  # 1 of 2 offline
+        self.assertEqual(by['s2']['health'], 'down')      # all offline
+
+    def test_update_clears_coords(self):
+        api.save(api.SITES_FILE, {'s1': {'name': 'A', 'lat': 10, 'lng': 20}})
+        api._invalidate_load_cache(api.SITES_FILE)
+        api.method = lambda: 'PUT'
+        api.get_json_obj = lambda: {'name': 'A', 'lat': '', 'lng': ''}
+        self.call(api.handle_site_update, 's1')
+        s = (api.load(api.SITES_FILE) or {})['s1']
+        self.assertNotIn('lat', s)
 
 
 if __name__ == '__main__':

@@ -11420,9 +11420,66 @@ def handle_sites_list():
         out.append({'id': sid, 'name': s.get('name', sid), 'slug': s.get('slug', ''),
                     'created': s.get('created', 0), 'created_by': s.get('created_by', ''),
                     'note': s.get('note', ''),
+                    'lat': s.get('lat'), 'lng': s.get('lng'),   # W5-5
                     'device_count': counts.get(sid, 0)})
     out.sort(key=lambda x: x['name'].lower())
     respond(200, {'ok': True, 'sites': out, 'unassigned': counts.get('', 0)})
+
+
+def _coerce_latlng(body):
+    """W5-5: pull optional lat/lng from a site payload. Returns (lat, lng, present)
+    where present marks whether the caller sent either. Empty string clears."""
+    lat = lng = None
+    present = False
+    if 'lat' in body or 'lng' in body:
+        present = True
+        for key, lo, hi in (('lat', -90, 90), ('lng', -180, 180)):
+            v = body.get(key)
+            if v in (None, ''):
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{key} must be a number'})
+            if not (lo <= fv <= hi):
+                respond(400, {'error': f'{key} must be between {lo} and {hi}'})
+            if key == 'lat':
+                lat = fv
+            else:
+                lng = fv
+    return lat, lng, present
+
+
+def handle_sites_map():
+    """GET /api/sites/map — sites that have coordinates, each with a rolled-up
+    device health tally for the NOC world-map view. Auth: require_auth (scoped)."""
+    require_auth()
+    sites = load(SITES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    ttl = get_online_ttl()
+    now = int(time.time())
+    tally = {}
+    for d in devices.values():
+        sid = d.get('site') or ''
+        t = tally.setdefault(sid, {'total': 0, 'offline': 0})
+        t['total'] += 1
+        if d.get('agentless'):
+            online = _agentless_online(d)
+        else:
+            online = bool(d.get('last_seen')) and (now - d.get('last_seen', 0)) < ttl
+        if not online:
+            t['offline'] += 1
+    out = []
+    for sid, s in sites.items():
+        if s.get('lat') is None or s.get('lng') is None:
+            continue
+        t = tally.get(sid, {'total': 0, 'offline': 0})
+        out.append({'id': sid, 'name': s.get('name', sid),
+                    'lat': s['lat'], 'lng': s['lng'],
+                    'device_count': t['total'], 'offline_count': t['offline'],
+                    'health': 'down' if (t['total'] and t['offline'] == t['total'])
+                              else 'degraded' if t['offline'] else 'ok'})
+    respond(200, {'sites': out})
 
 
 def handle_site_create():
@@ -11440,8 +11497,12 @@ def handle_site_create():
     if any((s.get('name', '').lower() == name.lower()) for s in sites.values()):
         respond(409, {'error': 'a site with that name already exists'})
     site_id = secrets.token_urlsafe(8)
+    lat, lng, _ = _coerce_latlng(get_json_obj())   # W5-5
     sites[site_id] = {'name': name, 'slug': _site_slugify(name),
                       'created': int(time.time()), 'created_by': actor}
+    if lat is not None and lng is not None:
+        sites[site_id]['lat'] = lat
+        sites[site_id]['lng'] = lng
     save(SITES_FILE, sites)
     audit_log(actor, 'site_create', detail=f'site={site_id} name={name}')
     respond(200, {'ok': True, 'id': site_id, 'name': name})
@@ -11463,6 +11524,15 @@ def handle_site_update(site_id):
     sites[site_id]['slug'] = _site_slugify(name)
     if 'note' in _body:
         sites[site_id]['note'] = _sanitize_str(str(_body.get('note') or ''), 1024)
+    # W5-5: set/clear coordinates (empty string clears; both must be present to set).
+    lat, lng, present = _coerce_latlng(_body)
+    if present:
+        if lat is not None and lng is not None:
+            sites[site_id]['lat'] = lat
+            sites[site_id]['lng'] = lng
+        else:
+            sites[site_id].pop('lat', None)
+            sites[site_id].pop('lng', None)
     save(SITES_FILE, sites)
     audit_log(actor, 'site_update', detail=f'site={site_id} name={name}')
     respond(200, {'ok': True, 'id': site_id, 'name': name})
@@ -52876,6 +52946,7 @@ def _build_exact_routes():
         ('GET', '/api/sbom'): handle_sbom_fleet,
         # v3.5.0: sites/teams registry
         ('GET', '/api/sites'): handle_sites_list,
+        ('GET', '/api/sites/map'): handle_sites_map,   # W5-5 (exact → before /{id})
         ('POST', '/api/sites'): handle_site_create,
         # W5-7: device profiles (named config bundles, admin-gated).
         ('GET', '/api/device-profiles'): handle_device_profiles,

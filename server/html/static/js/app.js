@@ -6807,6 +6807,7 @@ async function loadSites() {
   loadEnrolRules();
   loadDeviceProfiles();
   loadSmartGroups();
+  loadSiteMap();
 }
 
 // ── W5-7: device profiles ────────────────────────────────────────────────────
@@ -7042,6 +7043,8 @@ function openSiteCreate() {
   document.getElementById('site-edit-id').value = '';
   document.getElementById('site-name-input').value = '';
   document.getElementById('site-note-input').value = '';
+  document.getElementById('site-lat-input').value = '';
+  document.getElementById('site-lng-input').value = '';
   document.getElementById('site-create-title').textContent = 'New site';
   document.getElementById('site-save-btn').textContent = 'Create';
   openModal('site-create-modal');
@@ -7049,8 +7052,10 @@ function openSiteCreate() {
 function _editSiteBtn(btn) {
   document.getElementById('site-edit-id').value = btn.dataset.siteId;
   document.getElementById('site-name-input').value = btn.dataset.siteName || '';
-  document.getElementById('site-note-input').value =
-    (_sitesCache.find(s => String(s.id) === String(btn.dataset.siteId))?.note) || '';
+  const s = _sitesCache.find(x => String(x.id) === String(btn.dataset.siteId)) || {};
+  document.getElementById('site-note-input').value = s.note || '';
+  document.getElementById('site-lat-input').value = s.lat ?? '';
+  document.getElementById('site-lng-input').value = s.lng ?? '';
   document.getElementById('site-create-title').textContent = 'Edit site';
   document.getElementById('site-save-btn').textContent = 'Save';
   openModal('site-create-modal');
@@ -7060,11 +7065,35 @@ async function saveSite() {
   const name = document.getElementById('site-name-input').value.trim();
   if (!name) { toast('Name required', 'error'); return; }
   const note = document.getElementById('site-note-input').value;
+  const lat = document.getElementById('site-lat-input').value.trim();
+  const lng = document.getElementById('site-lng-input').value.trim();
+  const body = {name, note, lat, lng};
   const data = id
-    ? await api('PUT', '/sites/' + encodeURIComponent(id), {name, note})
-    : await api('POST', '/sites', {name});
-  if (data?.ok) { toast(id ? 'Site renamed' : 'Site created', 'success'); closeModal('site-create-modal'); loadSites(); }
+    ? await api('PUT', '/sites/' + encodeURIComponent(id), body)
+    : await api('POST', '/sites', body);
+  if (data?.ok) { toast(id ? 'Site saved' : 'Site created', 'success'); closeModal('site-create-modal'); loadSites(); }
   else toast(data?.error || 'Failed', 'error');
+}
+
+// W5-5: NOC world map — plot sites with coordinates (equirectangular projection).
+async function loadSiteMap() {
+  const dots = document.getElementById('site-map-dots');
+  if (!dots) return;
+  const r = await api('GET', '/sites/map').catch(() => null);
+  const sites = (r && r.sites) || [];
+  const empty = document.getElementById('site-map-empty');
+  if (empty) empty.classList.toggle('hidden', sites.length > 0);
+  dots.innerHTML = sites.map(s => {
+    const x = (s.lng + 180) / 360 * 360;         // viewBox is 0..360 in x
+    const y = (90 - s.lat) / 180 * 180;          // 0..180 in y
+    const title = `${s.name} — ${s.device_count} device(s), ${s.offline_count} offline`;
+    return `<circle class="site-map-dot ${s.health}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" data-action="siteMapClick" data-arg="${escAttr(s.id)}"><title>${escHtml(title)}</title></circle>`;
+  }).join('');
+}
+function siteMapClick(siteId) {
+  const s = (_sitesCache || []).find(x => String(x.id) === String(siteId));
+  const filter = document.getElementById('sites-filter');
+  if (filter && s) { filter.value = s.name; filter.dispatchEvent(new Event('input', {bubbles: true})); }
 }
 async function deleteSite(id, name) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
   if (!await uiConfirm(`Delete site "${name}"? Devices in it become unassigned.`)) return;
