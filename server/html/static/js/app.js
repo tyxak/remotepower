@@ -7259,7 +7259,65 @@ function _renderInventoryResults() {
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); _fleetTargetsCache = null; onInstallTargetChange(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = _skeletonRows(9); const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); loadPatchSla(); _fleetTargetsCache = null; onInstallTargetChange(); }
+
+// W1-33: patch-compliance SLA rules + per-device status.
+let _patchSlaRules = [];
+async function loadPatchSla() {
+  if (!document.getElementById('patch-sla-rules')) return;
+  const r = await api('GET', '/patch-sla');
+  if (!r || !r.ok) return;
+  _patchSlaRules = r.rules || [];
+  _renderPatchSlaRules();
+  _renderPatchSlaStatus(r.rows || []);
+}
+function _renderPatchSlaRules() {
+  const box = document.getElementById('patch-sla-rules');
+  if (!box) return;
+  if (!_patchSlaRules.length) { box.innerHTML = '<div class="meta-sm-nm">No SLA rules — patch aging isn\'t enforced.</div>'; return; }
+  box.innerHTML = _patchSlaRules.map((r, i) => {
+    const scope = r.match_type === 'all' ? 'whole fleet' : `${r.match_type} ${r.pattern}`;
+    const days = [r.sec_days && `security ${r.sec_days}d`, r.all_days && `all ${r.all_days}d`].filter(Boolean).join(', ');
+    return `<div class="row-6-center mb-4"><span class="fw-500 fs-13">${escHtml(scope)}</span>`
+      + `<span class="meta-sm-nm ellipsis flex-1">${escHtml(days)}</span>`
+      + `<button class="btn-icon c-danger-outline cell-sm" data-action="deletePatchSlaRule" data-arg="${i}">Delete</button></div>`;
+  }).join('');
+}
+function _renderPatchSlaStatus(rows) {
+  const box = document.getElementById('patch-sla-status');
+  if (!box) return;
+  const bad = rows.filter(r => r.breached);
+  if (!rows.length) { box.innerHTML = ''; return; }
+  if (!bad.length) { box.innerHTML = `<div class="meta-sm-nm">${rows.length} host(s) in scope — all within SLA.</div>`; return; }
+  box.innerHTML = `<div class="fw-500 mb-6 c-red">${bad.length} host(s) breaching patch SLA</div>`
+    + '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Device</th><th>Group</th><th>Detail</th></tr></thead><tbody>'
+    + bad.map(r => `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.group || '—')}</td><td class="fs-12">${escHtml(r.detail || '')}</td></tr>`).join('')
+    + '</tbody></table></div>';
+}
+async function _savePatchSla(rules, okMsg) {
+  const r = await api('POST', '/config', { patch_sla: rules });
+  if (r && !r.error) { _patchSlaRules = rules; _renderPatchSlaRules(); toast(okMsg, 'success'); loadPatchSla(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+function addPatchSlaRule() {
+  const mt = document.getElementById('psla-mtype')?.value || 'all';
+  const pattern = (document.getElementById('psla-pattern')?.value || '').trim();
+  if (mt !== 'all' && !pattern) { toast('Enter a group or tag name', 'error'); return; }
+  const sec = parseInt(document.getElementById('psla-sec')?.value || '', 10);
+  const all = parseInt(document.getElementById('psla-all')?.value || '', 10);
+  if (!(sec > 0) && !(all > 0)) { toast('Set a security or all-updates day limit', 'error'); return; }
+  const rule = { match_type: mt, pattern: mt === 'all' ? '' : pattern };
+  if (sec > 0) rule.sec_days = sec;
+  if (all > 0) rule.all_days = all;
+  _savePatchSla([..._patchSlaRules, rule], 'SLA rule added');
+  ['psla-pattern', 'psla-sec', 'psla-all'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+}
+function deletePatchSlaRule(i) {
+  const idx = parseInt(i, 10);
+  if (isNaN(idx) || idx < 0 || idx >= _patchSlaRules.length) return;
+  const rules = [..._patchSlaRules]; rules.splice(idx, 1);
+  _savePatchSla(rules, 'SLA rule deleted');
+}
 
 // v3.4.2: fleet-wide patch catalog (pending updates aggregated by package).
 async function loadPatchCatalog() {
@@ -12237,7 +12295,7 @@ const EVENT_CLASS = {
   'agent_stopped': 'critical', 'agent_started': 'ok',
   'monitor_down': 'critical', 'monitor_up': 'ok',
   'service_down': 'critical', 'service_up': 'ok',
-  'cve_found': 'warn', 'patch_alert': 'warn',
+  'cve_found': 'warn', 'patch_alert': 'warn', 'patch_sla_violation': 'crit', 'patch_sla_ok': 'ok',
   'drift_detected': 'warn',
   'metric_warning': 'warn', 'metric_critical': 'critical',
   'metric_recovered': 'ok',
@@ -13673,7 +13731,7 @@ function _renderHomeActivity(fleetEvents) {
   const FLEET_EVENTS = new Set([
     'device_offline', 'device_online', 'agent_stopped', 'agent_started',
     'monitor_down', 'monitor_up',
-    'patch_alert', 'cve_found',
+    'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
     'service_down', 'service_up',
     'log_alert',
     'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current',
@@ -13861,6 +13919,8 @@ function _homeActivityAttrs(event, p) {
     case 'rollout_halted': return `${base} data-home-act="rollouts"`;
     case 'cve_found':      return `${base} data-home-act="cve"`;
     case 'patch_alert':    return `${base} data-home-act="patches"`;
+    case 'patch_sla_violation': return `${base} data-home-act="patches"`;
+    case 'patch_sla_ok':   return `${base} data-home-act="patches"`;
     case 'monitor_down':   case 'monitor_up':
     case 'metric_warning': case 'metric_critical': case 'metric_recovered':
     case 'custom_script_fail': case 'custom_script_recover':

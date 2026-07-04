@@ -4904,6 +4904,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
         <div class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
 
+        <!-- W1-33: patch-compliance SLA -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Patch SLA</div>
+          <p class="hint">Flag hosts whose pending updates have gone unpatched too long. Set a maximum age (days) for <strong>security</strong> and/or <strong>all</strong> updates, scoped to a group, tag, or the whole fleet — first matching rule wins. Breaches raise a <code>patch_sla_violation</code> alert. Reporting only; nothing is auto-installed.</p>
+          <div id="patch-sla-rules" class="scroll-cap-sm mt-8"></div>
+          <div class="form-row mt-8">
+            <div class="form-group"><label class="form-label" for="psla-mtype">Scope</label><select id="psla-mtype" class="form-input" aria-label="SLA scope"><option value="all">Whole fleet</option><option value="group">Group</option><option value="tag">Tag</option></select></div>
+            <div class="form-group flex-1"><label class="form-label" for="psla-pattern">Group / tag name</label><input type="text" id="psla-pattern" class="form-input" maxlength="64" placeholder="(blank for whole fleet)"></div>
+            <div class="form-group"><label class="form-label" for="psla-sec">Security max days</label><input type="number" id="psla-sec" class="form-input" min="1" max="3650" placeholder="7"></div>
+            <div class="form-group"><label class="form-label" for="psla-all">All max days</label><input type="number" id="psla-all" class="form-input" min="1" max="3650" placeholder="30"></div>
+          </div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="addPatchSlaRule">Add SLA rule</button></div>
+          <div id="patch-sla-status" class="mt-12"></div>
+        </div>
+
         <!-- v3.4.1: software inventory search -->
         <div class="dash-card mt-16">
           <div class="section-title">Software inventory search</div>

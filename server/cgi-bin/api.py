@@ -892,6 +892,8 @@ MAX_CMD_OUT_BYTES = 32768   # per-entry output cap enforced at ingestion (v5.0.0
 MAX_METRICS       = 1440
 MAX_SCHEDULE_JOBS = 200     # cap on total schedule entries
 PATCH_ALERT_KEY   = 'patch_alert_threshold'
+PATCH_AGE_FILE    = DATA_DIR / 'patch_age.json'   # W1-33 first-seen pending-update timestamps
+PATCH_SLA_INTERVAL = 3600         # W1-33: patch-SLA sweep cadence (s)
 MAX_AUDIT_LOG     = 500
 MAX_WEBHOOK_LOG   = 500    # v3.2.0: was 100 — too tight for the 24h-window
                            # rate calc on fleets with frequent
@@ -1017,6 +1019,12 @@ EVENT_REGISTRY = {
     'patch_alert': dict(
         label='Pending updates exceed threshold', kind='patches', title='Patch Alert',
         severity='medium', priority=4, tags='warning,package'),
+    'patch_sla_violation': dict(
+        label='Pending updates past their patch-SLA deadline', kind='patches',
+        title='Patch SLA Breached', severity='high', priority=4, tags='warning,package'),
+    'patch_sla_ok': dict(
+        label='Patch SLA back in compliance (recovered)', kind='patches',
+        title='Patch SLA Recovered', resolves=('patch_sla_violation',)),
     'cve_found': dict(
         label='New CVEs detected on a device', kind='cve', title='New CVEs Detected',
         severity=None, priority=5, tags='rotating_light,shield'),
@@ -5977,7 +5985,7 @@ def _record_fleet_event(event, payload):
         for key in ('device_id', 'device_name', 'name', 'host',
                     'path', 'unit', 'metric', 'cve_id',
                     'severity', 'critical', 'high',
-                    'upgradable', 'pattern', 'level',
+                    'upgradable', 'pattern', 'level', 'detail',   # W1-33 patch_sla detail
                     # v2.3.0: Proxmox action discriminators
                     'guest_type', 'vmid', 'action',
                     # v3.4.0: port discriminators so the compliance report
@@ -7172,6 +7180,7 @@ def _record_alert(event, payload):
         for key in ('device_id', 'device_name', 'name', 'host', 'path',
                     'unit', 'metric', 'cve_id', 'severity', 'critical',
                     'high', 'upgradable', 'pattern', 'level', 'days',
+                    'detail',        # W1-33: patch_sla_violation breach summary
                     'container', 'script_name', 'value', 'source',
                     # B2: inbound webhooks set these
                     'inbound_token_id', 'inbound_source',
@@ -17734,6 +17743,7 @@ def handle_config_get():
     safe.setdefault('ct_watch_domains',       [])     # W1-17: CT-log watch (empty = off)
     safe.setdefault('enrol_rules',            [])     # W1-9: enrolment auto-placement rules
     safe.setdefault('alert_runbooks',         {})     # W1-23: event→KB-article map
+    safe.setdefault('patch_sla',              [])     # W1-33: patch-compliance SLA rules
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -19105,6 +19115,32 @@ def handle_config_save():
             if key and aid:
                 m[key] = aid
         cfg['alert_runbooks'] = m
+    # W1-33: patch-compliance SLA rules [{match_type, pattern, sec_days, all_days}].
+    if 'patch_sla' in body:
+        raw = body.get('patch_sla')
+        if not isinstance(raw, list):
+            respond(400, {'error': 'patch_sla must be a list'})
+        rules = []
+        for r in raw[:100]:
+            if not isinstance(r, dict):
+                continue
+            mt = r.get('match_type')
+            if mt not in ('all', 'group', 'tag'):
+                continue
+            pat = _sanitize_str(str(r.get('pattern', '')), 64) if mt != 'all' else ''
+            if mt != 'all' and not pat:
+                continue
+            rule = {'match_type': mt, 'pattern': pat}
+            for k in ('sec_days', 'all_days'):
+                try:
+                    v = int(r.get(k))
+                    if v > 0:
+                        rule[k] = max(1, min(3650, v))
+                except (TypeError, ValueError):
+                    pass
+            if 'sec_days' in rule or 'all_days' in rule:
+                rules.append(rule)
+        cfg['patch_sla'] = rules
     # W1-17: certificate-transparency watch — plain domain list; empty = off.
     if 'ct_watch_domains' in body:
         raw = body.get('ct_watch_domains')
@@ -25718,6 +25754,124 @@ def handle_resolver_health_scan() -> None:
         fire_webhook(ev, payload)
     audit_log(actor, 'resolver_health_scan', detail=f'targets={scanned} alerts={len(pending)}')
     respond(200, {'ok': True, 'scanned': scanned, 'total': len(targets)})
+
+
+def _patch_sla_rule_for(dev, rules):
+    """W1-33: first matching patch-SLA rule for a device (by group/tag/all),
+    or None. Rule: {match_type:'group'|'tag'|'all', pattern, sec_days, all_days}."""
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        mt = r.get('match_type')
+        if mt == 'all':
+            return r
+        if mt == 'group' and (dev.get('group') or '') == r.get('pattern'):
+            return r
+        if mt == 'tag' and r.get('pattern') in (dev.get('tags') or []):
+            return r
+    return None
+
+
+def _eval_patch_sla(devices, cfg, age, now):
+    """W1-33 core: for each device, stamp/clear first-seen timestamps for pending
+    (all) and security updates in `age`, then evaluate the matching SLA rule.
+    Returns (rows, violations) where rows is per-device compliance for the UI and
+    violations is the set of currently-breaching device ids. Pure over its args
+    (mutates `age` in place); the caller persists + fires."""
+    rules = cfg.get('patch_sla') or []
+    rows, breaching = [], set()
+    for dev_id, dev in devices.items():
+        if dev.get('agentless') or not dev.get('monitored', True):
+            continue
+        pkgs = (dev.get('sysinfo') or {}).get('packages') or {}
+        allc = pkgs.get('upgradable')
+        secc = pkgs.get('security_updates')
+        allc = allc if isinstance(allc, int) else None
+        secc = secc if isinstance(secc, int) else None
+        st = age.setdefault(dev_id, {})
+        # stamp first-seen when a class becomes pending; clear when it hits 0
+        if allc and allc > 0:
+            st.setdefault('all_first', now)
+        else:
+            st.pop('all_first', None)
+        if secc and secc > 0:
+            st.setdefault('sec_first', now)
+        else:
+            st.pop('sec_first', None)
+        rule = _patch_sla_rule_for(dev, rules)
+        if not rule:
+            continue
+        sec_days = rule.get('sec_days')
+        all_days = rule.get('all_days')
+        breaches = []
+        if isinstance(sec_days, int) and sec_days > 0 and st.get('sec_first') \
+                and now - st['sec_first'] > sec_days * 86400 and (secc or 0) > 0:
+            breaches.append(f'{secc} security update(s) > {sec_days}d')
+        if isinstance(all_days, int) and all_days > 0 and st.get('all_first') \
+                and now - st['all_first'] > all_days * 86400 and (allc or 0) > 0:
+            breaches.append(f'{allc} update(s) > {all_days}d')
+        row = {'device_id': dev_id, 'name': dev.get('name', dev_id),
+               'group': dev.get('group', ''), 'upgradable': allc,
+               'security_updates': secc,
+               'sec_age_days': ((now - st['sec_first']) // 86400) if st.get('sec_first') else None,
+               'all_age_days': ((now - st['all_first']) // 86400) if st.get('all_first') else None,
+               'sec_days': sec_days, 'all_days': all_days,
+               'breached': bool(breaches), 'detail': '; '.join(breaches)}
+        rows.append(row)
+        if breaches:
+            breaching.add(dev_id)
+    # prune age entries for devices that no longer exist (keep '_' meta keys)
+    for gone in [d for d in age if not d.startswith('_') and d not in devices]:
+        age.pop(gone, None)
+    return rows, breaching
+
+
+def run_patch_sla_if_due():
+    """W1-33: patch-compliance SLA sweep. Updates the first-seen aging store and
+    fires edge-triggered patch_sla_violation / patch_sla_ok per host. Cheap when
+    no rules are configured; _config_ro gate on the not-due path. Webhooks fire
+    AFTER the store save (collect-then-fire)."""
+    if not (_config_ro().get('patch_sla') or []):
+        return
+    now = int(time.time())
+    age = load(PATCH_AGE_FILE) or {}
+    if now - int(age.get('_last_run', 0) or 0) < PATCH_SLA_INTERVAL:
+        return
+    devices = load(DEVICES_FILE) or {}
+    cfg = _config_ro()
+    prev = set(age.get('_breaching') or [])      # read BEFORE eval mutates age
+    rows, breaching = _eval_patch_sla(devices, cfg, age, now)
+    age['_breaching'] = sorted(breaching)
+    age['_last_run'] = now
+    save(PATCH_AGE_FILE, age)
+    # edge-triggered fires
+    row_by_id = {r['device_id']: r for r in rows}
+    pending = []
+    for dev_id in breaching - prev:
+        r = row_by_id.get(dev_id, {})
+        pending.append(('patch_sla_violation', {
+            'device_id': dev_id, 'name': r.get('name', dev_id),
+            'upgradable': r.get('upgradable'), 'detail': r.get('detail', '')}))
+    for dev_id in prev - breaching:
+        r = row_by_id.get(dev_id, {})
+        pending.append(('patch_sla_ok', {
+            'device_id': dev_id, 'name': r.get('name', dev_id)}))
+    for ev, payload in pending:
+        fire_webhook(ev, payload)
+
+
+def handle_patch_sla():
+    """GET /api/patch-sla — per-device patch-SLA compliance (any authed user).
+    Reads the aging store + current device state; does not mutate."""
+    require_auth()
+    now = int(time.time())
+    devices = load(DEVICES_FILE) or {}
+    age = load(PATCH_AGE_FILE) or {}
+    # read-only eval over a COPY so the GET never writes the store
+    rows, _ = _eval_patch_sla(devices, _config_ro(), dict(age), now)
+    respond(200, {'ok': True, 'rows': rows,
+                  'rules': _config_ro().get('patch_sla') or [],
+                  'violations': sum(1 for r in rows if r['breached'])})
 
 
 def run_resolver_health_if_due() -> None:
@@ -37772,7 +37926,11 @@ def _build_fleet_report(site_id=None):
                            'offline': len(devices) - online},
         'sla':            {'days': 30, 'fleet_uptime_pct': fleet_uptime},
         'patches':        {'devices_with_patches': with_patches,
-                           'total_pending': total_pending},
+                           'total_pending': total_pending,
+                           # W1-33: hosts currently past a patch-SLA deadline
+                           'sla_violations': len(_eval_patch_sla(
+                               devices, _config_ro(), dict(load(PATCH_AGE_FILE) or {}),
+                               now)[1])},
         'cve':            cve,
         'health':         {'score': health['score'], 'grade': health['grade'],
                            'worst': health['devices'][:10]},
@@ -50256,6 +50414,7 @@ def _build_exact_routes():
         ('DELETE', '/api/alerts'): handle_alerts_clear,
         ('GET', '/api/alerts'): handle_alerts_list,
         ('GET', '/api/alerts/act'): handle_alert_act,   # W1-21 PUBLIC (HMAC-signed email link)
+        ('GET', '/api/patch-sla'): handle_patch_sla,    # W1-33
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
@@ -51317,6 +51476,7 @@ def main():
     _safe(run_ticket_sla_if_due, 'run_ticket_sla_if_due')   # v5.3.0 SLA breach sweep
     _safe(run_ticket_schedules_if_due, 'run_ticket_schedules_if_due')  # W1-27 recurring
     _safe(run_invoice_reminders_if_due, 'run_invoice_reminders_if_due')  # W1-30 overdue reminders
+    _safe(run_patch_sla_if_due, 'run_patch_sla_if_due')                  # W1-33 patch-compliance SLA
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).

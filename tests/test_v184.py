@@ -252,7 +252,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'device_offline', 'device_online',
             'agent_stopped', 'agent_started',
             'monitor_down', 'monitor_up',
-            'patch_alert', 'cve_found',
+            'patch_alert', 'patch_sla_violation', 'patch_sla_ok', 'cve_found',
             'service_down', 'service_up',
             'log_alert',
             # v1.11.4: container alerts

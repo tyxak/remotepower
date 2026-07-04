@@ -868,5 +868,94 @@ class TestAlertEmailAckLinks(_HandlerBase):
         self.assertIn('/api/alerts/act', api._IP_ALLOWLIST_EXEMPT_PATHS)
 
 
+class TestPatchSla(_HandlerBase):
+    """W1-33: patch-compliance SLA eval + sweep + config validation."""
+
+    def setUp(self):
+        super().setUp()
+        self._paf = api.PATCH_AGE_FILE
+        api.PATCH_AGE_FILE = self.d / 'patch_age.json'
+        self.fired = []
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
+
+    def tearDown(self):
+        api.PATCH_AGE_FILE = self._paf
+        super().tearDown()
+
+    def _dev(self, upgradable=0, security=0, group='', tags=None):
+        return {'name': 'h', 'group': group, 'tags': tags or [], 'monitored': True,
+                'sysinfo': {'packages': {'upgradable': upgradable,
+                                         'security_updates': security}}}
+
+    def test_first_seen_stamped_and_cleared(self):
+        devices = {'d1': self._dev(upgradable=5)}
+        cfg = {'patch_sla': [{'match_type': 'all', 'all_days': 30}]}
+        age = {}
+        api._eval_patch_sla(devices, cfg, age, 1000)
+        self.assertEqual(age['d1']['all_first'], 1000)
+        # later, still pending → first_seen unchanged
+        api._eval_patch_sla(devices, cfg, age, 5000)
+        self.assertEqual(age['d1']['all_first'], 1000)
+        # dropped to 0 → cleared
+        devices['d1'] = self._dev(upgradable=0)
+        api._eval_patch_sla(devices, cfg, age, 6000)
+        self.assertNotIn('all_first', age['d1'])
+
+    def test_breach_after_deadline(self):
+        devices = {'d1': self._dev(security=2)}
+        cfg = {'patch_sla': [{'match_type': 'all', 'sec_days': 7}]}
+        age = {}
+        now = 1_000_000
+        rows, viol = api._eval_patch_sla(devices, cfg, age, now)
+        self.assertEqual(viol, set())          # just seen, not overdue
+        # 8 days later
+        rows, viol = api._eval_patch_sla(devices, cfg, age, now + 8 * 86400)
+        self.assertEqual(viol, {'d1'})
+        self.assertTrue(rows[0]['breached'])
+        self.assertIn('security', rows[0]['detail'])
+
+    def test_group_and_tag_scoping(self):
+        devices = {'d1': self._dev(upgradable=3, group='prod'),
+                   'd2': self._dev(upgradable=3, group='dev')}
+        cfg = {'patch_sla': [{'match_type': 'group', 'pattern': 'prod', 'all_days': 1}]}
+        age = {'d1': {'all_first': 1}, 'd2': {'all_first': 1}}
+        rows, viol = api._eval_patch_sla(devices, cfg, age, 10 * 86400)
+        self.assertEqual(viol, {'d1'})         # only prod is in scope
+
+    def test_sweep_edge_fires(self):
+        api.save(api.DEVICES_FILE, {'d1': self._dev(security=1)})
+        api.save(api.CONFIG_FILE, {'patch_sla': [{'match_type': 'all', 'sec_days': 1}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        # seed an old first-seen so it's already overdue
+        api.save(api.PATCH_AGE_FILE, {'d1': {'sec_first': 1}, '_last_run': 0})
+        _real = api.time.time
+        api.time.time = lambda: 10 * 86400
+        try:
+            api.run_patch_sla_if_due()
+            self.assertTrue(any(e == 'patch_sla_violation' for e, _ in self.fired))
+            # back in compliance → recover fires
+            self.fired.clear()
+            api.save(api.DEVICES_FILE, {'d1': self._dev(security=0)})
+            api.save(api.PATCH_AGE_FILE, {'d1': {}, '_breaching': ['d1'], '_last_run': 0})
+            api.run_patch_sla_if_due()
+            self.assertTrue(any(e == 'patch_sla_ok' for e, _ in self.fired))
+        finally:
+            api.time.time = _real
+
+    def test_config_validation(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'patch_sla': 'nope'}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+        api.get_json_body = lambda: {'patch_sla': [
+            {'match_type': 'all', 'sec_days': 7, 'all_days': 30},
+            {'match_type': 'group', 'pattern': 'p', 'all_days': 5},
+            {'match_type': 'all'},          # no days → dropped
+            {'match_type': 'bogus', 'sec_days': 1}]}  # bad type → dropped
+        self.call(api.handle_config_save)
+        saved = (api.load(api.CONFIG_FILE) or {}).get('patch_sla')
+        self.assertEqual(len(saved), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
