@@ -48,9 +48,13 @@ CADENCE = (
     'run_dmarc_imap_if_due',
     'run_ticket_imap_if_due',
     'run_ticket_sla_if_due',
+    'run_ticket_schedules_if_due',       # W1-27 recurring tickets
+    'run_invoice_reminders_if_due',      # W1-30 overdue-invoice reminders
+    'run_patch_sla_if_due',              # W1-33 patch-compliance SLA
     'run_reputation_scan_if_due',
     'run_resolver_health_if_due',
     'run_tls_scan_if_due',
+    'run_ct_watch_if_due',               # W1-17 certificate-transparency watch
     'run_snmp_polls_if_due',
     'run_agentless_reachability_if_due',
     'run_routeros_update_check_if_due',

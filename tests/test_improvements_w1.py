@@ -719,6 +719,9 @@ class TestTicketCsat(_HandlerBase):
         # capture the rendered CSAT page instead of exiting the process
         self.pages = []
         self._real_page = api.tickets_handlers_mod._csat_page
+        self._real_send = api.smtp_notifier.send_email
+        self._real_base = api._request_base_url
+        self._real_wr = api.require_write_role
 
         def _fake_page(title, msg):
             self.pages.append((title, msg))
@@ -727,6 +730,9 @@ class TestTicketCsat(_HandlerBase):
 
     def tearDown(self):
         api.tickets_handlers_mod._csat_page = self._real_page
+        api.smtp_notifier.send_email = self._real_send
+        api._request_base_url = self._real_base
+        api.require_write_role = self._real_wr
         api.TICKETS_FILE = self._tf
         super().tearDown()
 
