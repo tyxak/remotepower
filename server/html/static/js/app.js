@@ -10372,6 +10372,10 @@ async function fetchContainerLogs(devId, name, runtime) {
   const title = document.getElementById('container-logs-title');
   if (title) title.textContent = `Logs — ${name}`;
   if (body) body.textContent = 'Requesting logs from the host…';
+  // v5.8.0: stash context for the AI "Explain logs" button; hide it until logs land.
+  window._ctrLogsCtx = { name, runtime: runtime || 'docker' };
+  const _logsAi = document.getElementById('container-logs-ai');
+  if (_logsAi) _logsAi.innerHTML = '';
   openModal('container-logs-modal');
   const r = await api('POST', `/devices/${devId}/containers/action`,
                       { action: 'logs', container_id: name, runtime: runtime || 'docker' });
@@ -10394,10 +10398,20 @@ async function fetchContainerLogs(devId, name, runtime) {
     if (hit) {
       clearInterval(_ctrLogsPoll); _ctrLogsPoll = null;
       if (body) body.textContent = hit.output || '(no output)';
+      const ai = document.getElementById('container-logs-ai');
+      if (ai && hit.output && hit.output.trim())
+        ai.innerHTML = `<button class="btn-secondary btn-xs" data-action="aiExplainContainerLogsBtn" title="AI: explain these container logs">${_icon('sparkles', 14)} Explain logs</button>`;
     } else if (body) {
       body.textContent = `Requesting logs from the host… (waiting for the agent, ${tries}0s)`;
     }
   }, 10000);
+}
+// v5.8.0: AI "Explain logs" button handler — reads the fetched logs from the DOM
+// (they can be large) + the stashed container name.
+function aiExplainContainerLogsBtn() {
+  const ctx = window._ctrLogsCtx || {};
+  const logs = document.getElementById('container-logs-body')?.textContent || '';
+  aiExplainContainerLogs(ctx.name || '', ctx.image || '', logs);
 }
 // v3.13.0: generic Enter-to-action for inputs marked data-enter="<globalFn>".
 document.addEventListener('keydown', e => {

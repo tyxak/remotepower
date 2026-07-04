@@ -26,6 +26,8 @@
   // every page (nav, groups, common actions). Extend freely; missing entries
   // fall back to English.
   var DICT = {
+    'Explain output':        { zh: '解释输出', hi: 'आउटपुट समझाएँ', es: 'Explicar salida', ar: 'شرح المخرجات' },
+    'Explain logs':          { zh: '解释日志', hi: 'लॉग समझाएँ', es: 'Explicar registros', ar: 'شرح السجلات' },
     'Compliance exports':    { zh: '合规导出', hi: 'अनुपालन निर्यात', es: 'Exportaciones de cumplimiento', ar: 'تصدير الامتثال' },
     'Config as code':        { zh: '配置即代码', hi: 'कोड के रूप में कॉन्फ़िगरेशन', es: 'Configuración como código', ar: 'التكوين ككود' },
     'Password policy':       { zh: '密码策略', hi: 'पासवर्ड नीति', es: 'Política de contraseñas', ar: 'سياسة كلمة المرور' },

@@ -233,7 +233,20 @@ function renderCustomScriptsPage() {
 function openCsOutput(scriptName, deviceName, output) {
   document.getElementById('cs-output-title').textContent = `${scriptName} — ${deviceName}`;
   document.getElementById('cs-output-body').textContent = output || '(no output)';
+  // v5.8.0: offer an AI "Explain output" button when there's real output. The
+  // output can be large, so we stash the context + read the text from the DOM at
+  // click time rather than stuffing KB into a data-arg. CSP-safe (data-action).
+  window._csOutputCtx = { scriptName, deviceName };
+  const ai = document.getElementById('cs-output-ai');
+  if (ai) ai.innerHTML = (output && output.trim())
+    ? `<button class="btn-secondary btn-xs" data-action="aiExplainOutputBtn" title="AI: explain this command output">${_icon('sparkles', 14)} Explain output</button>`
+    : '';
   openModal('cs-output-modal');
+}
+function aiExplainOutputBtn() {
+  const ctx = window._csOutputCtx || {};
+  const output = document.getElementById('cs-output-body')?.textContent || '';
+  aiExplainOutput(ctx.deviceName || '', ctx.scriptName || 'command', output);
 }
 
 // ── Script create / edit modal ─────────────────────────────────────────────
