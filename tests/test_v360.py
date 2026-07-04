@@ -124,7 +124,7 @@ class TestV360FileManager(unittest.TestCase):
     def test_daemon_sftp_mode(self):
         self.assertIn('async def _run_sftp(', self.DAEMON)
         self.assertIn("if mode == 'sftp':", self.DAEMON)
-        self.assertIn("('pty', 'vnc', 'sftp')", self.DAEMON)
+        self.assertIn("('pty', 'vnc', 'sftp', 'rdp')", self.DAEMON)   # W6-49 added rdp
         self.assertIn('start_sftp_client()', self.DAEMON)
 
     def test_frontend(self):
