@@ -325,6 +325,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | API keys | Named keys (`X-Token`); default expiry window *(v4.2.0)*; per-key rate limits *(v5.0.0)*; editable, secret immutable *(v5.0.1)*; **hashed at rest** (SHA-256, shown once) *(v5.5.0)*; optional **per-key device scope** (scoped service account — confines visibility+actions to groups/tags/sites, binds even an admin key) + **source-IP allowlist** (`ip_allow` CIDRs — key rejected from any other IP) *(v5.5.0)* |
 | Device tokens hashed | Agent auth tokens stored as SHA-256 `token_hash` (not plaintext); agent unchanged; legacy tokens migrate on next heartbeat *(v5.5.0)* |
 | Enrolment tokens | One-time tokens for Ansible/cloud-init/golden images; default group+tags at enrolment *(v1.11.10)*; **hashed at rest** (keyed by SHA-256, display prefix kept) *(v5.5.0)* |
+| Enrolment auto-placement | Rules (Settings → Sites & teams) stamp group / site / tags on a **new** device by hostname regex or source-IP CIDR — first match wins, token defaults still win over a rule; never touches already-enrolled devices *(v5.8.0)* |
 | PIN enrolment | 6-digit, single-use, 10-min expiry |
 | Session caps | Limit concurrent sessions per user; oldest evicted *(v4.2.0)* |
 | Idle session timeout | Opt-in sliding-window expiry — a session unused for N minutes dies before its absolute TTL *(v5.5.0)* |

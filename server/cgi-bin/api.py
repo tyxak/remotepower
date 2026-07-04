@@ -12824,6 +12824,50 @@ def handle_webterm_session_audit():
     respond(200, {'ok': True})
 
 
+def _apply_enrol_rules(hostname, ip, group, tags):
+    """W1-9: auto-placement rules. A rule is
+    {match_type: 'hostname'|'cidr', pattern, group?, site?, tags?[]}. The FIRST
+    matching rule fills placement — but token defaults WIN: a group/tags already
+    set from the enrolment token are never overwritten (rule group/tags only
+    fill an empty group / merge extra tags). Site has no token source, so a
+    rule freely sets it. No-match → inputs unchanged. Never raises (a bad rule
+    is skipped) so enrolment can't break on a malformed config."""
+    import ipaddress
+    site = ''
+    try:
+        rules = _config_ro().get('enrol_rules') or []
+    except Exception:
+        return group, tags, site
+    tags = list(tags or [])
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        mtype = r.get('match_type')
+        pat = str(r.get('pattern', ''))
+        try:
+            if mtype == 'cidr' and ip:
+                if ipaddress.ip_address(ip) not in ipaddress.ip_network(pat, strict=False):
+                    continue
+            elif mtype == 'hostname' and hostname:
+                if not re.search(pat, hostname):
+                    continue
+            else:
+                continue
+        except (ValueError, re.error):
+            continue
+        # matched — apply, respecting token-default precedence
+        if not group and r.get('group'):
+            group = _sanitize_str(str(r['group']), MAX_GROUP_LEN)
+        if r.get('site'):
+            site = _sanitize_str(str(r['site']), 64)
+        for t in (r.get('tags') or [])[:20]:
+            t = _sanitize_str(str(t), 32)
+            if t and t not in tags:
+                tags.append(t)
+        break        # first match wins
+    return group, tags, site
+
+
 def handle_enroll_register():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -12950,13 +12994,20 @@ def handle_enroll_register():
             else:
                 dev_id = secrets.token_urlsafe(12)
                 new_token = secrets.token_urlsafe(32)
-                devices[dev_id] = {
+                # W1-9: auto-placement rules fill group/site/tags (token
+                # defaults win; see _apply_enrol_rules). No-op when unconfigured.
+                _grp, _tags, _site = _apply_enrol_rules(
+                    hostname, ip, default_group, list(default_tags))
+                dev_rec = {
                     'name': name, 'hostname': hostname, 'os': os_str,
                     'ip': ip, 'mac': mac, 'version': version,
-                    'tags': list(default_tags), 'group': default_group, 'notes': '',
+                    'tags': _tags, 'group': _grp, 'notes': '',
                     'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
                     'token_hash': _hash_device_token(new_token),   # v5.4.1: hashed at rest
                 }
+                if _site:
+                    dev_rec['site'] = _site
+                devices[dev_id] = dev_rec
                 outcome = ('new', dev_id, new_token)
 
     if pending_audit:
@@ -17482,6 +17533,7 @@ def handle_config_get():
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('tickets_enabled',        False)  # built-in ticket system, opt-in (Advanced)
     safe.setdefault('ct_watch_domains',       [])     # W1-17: CT-log watch (empty = off)
+    safe.setdefault('enrol_rules',            [])     # W1-9: enrolment auto-placement rules
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -18803,6 +18855,42 @@ def handle_config_save():
     # OFF resolves the open backlog for those events in one action.
     if 'tickets_enabled' in body:
         cfg['tickets_enabled'] = bool(body['tickets_enabled'])
+    # W1-9: enrolment auto-placement rules. A rule matches a NEW device by
+    # hostname regex or source-IP CIDR and stamps group/site/tags at enrolment
+    # (token defaults win). Regex is length-capped + compile-validated here.
+    if 'enrol_rules' in body:
+        raw = body.get('enrol_rules')
+        if not isinstance(raw, list):
+            respond(400, {'error': 'enrol_rules must be a list'})
+        rules = []
+        for r in raw[:100]:
+            if not isinstance(r, dict):
+                continue
+            mtype = r.get('match_type')
+            pat = str(r.get('pattern', '')).strip()[:200]
+            if mtype not in ('hostname', 'cidr') or not pat:
+                continue
+            if mtype == 'hostname':
+                try:
+                    re.compile(pat)
+                except re.error:
+                    respond(400, {'error': f'enrol_rules: invalid hostname regex "{pat[:40]}"'})
+            else:
+                try:
+                    import ipaddress
+                    ipaddress.ip_network(pat, strict=False)
+                except ValueError:
+                    respond(400, {'error': f'enrol_rules: invalid CIDR "{pat[:40]}"'})
+            rule = {'match_type': mtype, 'pattern': pat}
+            if r.get('group'):
+                rule['group'] = _sanitize_str(str(r['group']), MAX_GROUP_LEN)
+            if r.get('site'):
+                rule['site'] = _sanitize_str(str(r['site']), 64)
+            _rt = r.get('tags') or []
+            if isinstance(_rt, list):
+                rule['tags'] = [t for t in (_sanitize_str(str(x), 32) for x in _rt[:20]) if t]
+            rules.append(rule)
+        cfg['enrol_rules'] = rules
     # W1-17: certificate-transparency watch — plain domain list; empty = off.
     if 'ct_watch_domains' in body:
         raw = body.get('ct_watch_domains')

@@ -388,5 +388,80 @@ class TestCtWatch(_HandlerBase):
         self.assertIn("case 'ct_new_certificate'", appjs)
 
 
+class TestEnrolPlacementRules(_HandlerBase):
+    """W1-9: _apply_enrol_rules + config-save validation."""
+
+    def _rules(self, rules):
+        api.save(api.CONFIG_FILE, {'enrol_rules': rules})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def test_no_rules_is_noop(self):
+        self._rules([])
+        self.assertEqual(api._apply_enrol_rules('web-1', '10.0.0.5', '', []),
+                         ('', [], ''))
+
+    def test_hostname_regex_match(self):
+        self._rules([{'match_type': 'hostname', 'pattern': '^web-',
+                      'group': 'frontend', 'site': 'dc1', 'tags': ['nginx']}])
+        g, t, s = api._apply_enrol_rules('web-01', '', '', [])
+        self.assertEqual((g, s), ('frontend', 'dc1'))
+        self.assertEqual(t, ['nginx'])
+        # non-match leaves inputs untouched
+        self.assertEqual(api._apply_enrol_rules('db-01', '', '', []), ('', [], ''))
+
+    def test_cidr_match(self):
+        self._rules([{'match_type': 'cidr', 'pattern': '10.20.0.0/16',
+                      'group': 'branch'}])
+        g, t, s = api._apply_enrol_rules('anything', '10.20.5.9', '', [])
+        self.assertEqual(g, 'branch')
+        self.assertEqual(api._apply_enrol_rules('x', '192.168.1.1', '', [])[0], '')
+
+    def test_token_defaults_win(self):
+        self._rules([{'match_type': 'hostname', 'pattern': '.', 'group': 'ruleg',
+                      'tags': ['ruletag']}])
+        # token already set group=tokeng, tags=[tokentag]: rule must NOT override
+        # the group, but DOES merge its tag
+        g, t, s = api._apply_enrol_rules('h', '', 'tokeng', ['tokentag'])
+        self.assertEqual(g, 'tokeng')
+        self.assertEqual(sorted(t), ['ruletag', 'tokentag'])
+
+    def test_first_match_wins(self):
+        self._rules([
+            {'match_type': 'hostname', 'pattern': 'prod', 'group': 'first'},
+            {'match_type': 'hostname', 'pattern': 'prod', 'group': 'second'}])
+        self.assertEqual(api._apply_enrol_rules('prod-1', '', '', [])[0], 'first')
+
+    def test_malformed_rule_skipped_not_raised(self):
+        # a bad stored regex must never break enrolment
+        api.save(api.CONFIG_FILE, {'enrol_rules': [
+            {'match_type': 'hostname', 'pattern': '(unclosed', 'group': 'g'},
+            {'match_type': 'hostname', 'pattern': 'ok', 'group': 'good'}]})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        self.assertEqual(api._apply_enrol_rules('ok-host', '', '', [])[0], 'good')
+
+    def test_config_save_validates_regex_and_cidr(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'enrol_rules': [
+            {'match_type': 'hostname', 'pattern': '(bad'}]}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+        api.get_json_body = lambda: {'enrol_rules': [
+            {'match_type': 'cidr', 'pattern': 'not-a-cidr'}]}
+        self.call(api.handle_config_save)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_config_save_keeps_valid_rules(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'enrol_rules': [
+            {'match_type': 'hostname', 'pattern': '^web', 'group': 'g', 'tags': ['a', 'b']},
+            {'match_type': 'cidr', 'pattern': '10.0.0.0/8', 'site': 's'},
+            'garbage-dropped',
+            {'match_type': 'bogus', 'pattern': 'x'}]}
+        self.call(api.handle_config_save)
+        rules = (api.load(api.CONFIG_FILE) or {}).get('enrol_rules')
+        self.assertEqual(len(rules), 2)
+        self.assertEqual(rules[0]['tags'], ['a', 'b'])
+
+
 if __name__ == '__main__':
     unittest.main()

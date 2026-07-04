@@ -6639,6 +6639,64 @@ async function loadSites() {
   _siteNameById = {};
   _sitesCache.forEach(s => { _siteNameById[s.id] = s.name; });
   tableCtl.render('sites', _sitesCache);
+  loadEnrolRules();
+}
+
+// W1-9: enrolment auto-placement rules live in config.enrol_rules.
+let _enrolRules = [];
+async function loadEnrolRules() {
+  const box = document.getElementById('enrol-rules-list');
+  if (!box) return;
+  try {
+    const cfg = await api('GET', '/config');
+    _enrolRules = Array.isArray(cfg?.enrol_rules) ? cfg.enrol_rules : [];
+  } catch (e) { _enrolRules = []; }
+  _renderEnrolRules();
+}
+function _renderEnrolRules() {
+  const box = document.getElementById('enrol-rules-list');
+  if (!box) return;
+  if (!_enrolRules.length) { box.innerHTML = '<div class="meta-sm-nm">No rules — new devices keep their token defaults.</div>'; return; }
+  box.innerHTML = _enrolRules.map((r, i) => {
+    const dest = [r.group && `group ${r.group}`, r.site && `site ${r.site}`,
+      (r.tags && r.tags.length) && `tags ${r.tags.join(', ')}`].filter(Boolean).join(' · ') || '(no placement)';
+    const label = r.match_type === 'cidr' ? 'IP∈' : 'host~';
+    return `<div class="row-6-center mb-4"><code class="fs-12">${label} ${escHtml(r.pattern || '')}</code>`
+      + `<span class="meta-sm-nm ellipsis flex-1">→ ${escHtml(dest)}</span>`
+      + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteEnrolRule" data-arg="${i}">Delete</button></div>`;
+  }).join('');
+}
+async function _postEnrolRules(rules, okMsg) {
+  const r = await api('POST', '/config', { enrol_rules: rules });
+  const res = document.getElementById('enrol-rules-result');
+  if (r && !r.error) {
+    _enrolRules = rules; _renderEnrolRules();
+    toast(okMsg, 'success'); if (res) res.textContent = '';
+  } else {
+    toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed';
+  }
+}
+function addEnrolRule() {
+  const mtype = document.getElementById('enrol-rule-mtype')?.value || 'hostname';
+  const pattern = (document.getElementById('enrol-rule-pattern')?.value || '').trim();
+  if (!pattern) { toast('A pattern is required', 'error'); return; }
+  const rule = { match_type: mtype, pattern };
+  const g = (document.getElementById('enrol-rule-group')?.value || '').trim();
+  const s = (document.getElementById('enrol-rule-site')?.value || '').trim();
+  const tags = (document.getElementById('enrol-rule-tags')?.value || '').split(',').map(t => t.trim()).filter(Boolean);
+  if (g) rule.group = g;
+  if (s) rule.site = s;
+  if (tags.length) rule.tags = tags;
+  _postEnrolRules([..._enrolRules, rule], 'Rule added').then(() => {
+    ['enrol-rule-pattern', 'enrol-rule-group', 'enrol-rule-site', 'enrol-rule-tags']
+      .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  });
+}
+function deleteEnrolRule(i) {
+  const idx = parseInt(i, 10);
+  if (isNaN(idx) || idx < 0 || idx >= _enrolRules.length) return;
+  const rules = [..._enrolRules]; rules.splice(idx, 1);
+  _postEnrolRules(rules, 'Rule deleted');
 }
 function openSiteCreate() {
   document.getElementById('site-edit-id').value = '';

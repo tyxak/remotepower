@@ -74,6 +74,25 @@ power actions gated on the `reboot` permission and (for `require_confirmation`
 devices) queued for human approval. Wake-on-LAN sends a magic packet to the
 device's recorded MAC.
 
+## Enrolment auto-placement rules
+
+New agents don't have to land ungrouped. Under **Settings → Sites & teams →
+Auto-placement rules**, define rules that stamp a device's **group**, **site**
+and **tags** the moment it enrols, matched by either:
+
+- **Hostname** — a regex tested against the reported hostname (`^web-`,
+  `\.dc1\.` …).
+- **Source IP** — a CIDR the enrolling agent's address must fall in
+  (`10.20.0.0/16`).
+
+The **first** matching rule applies. Precedence is deliberate: an enrolment
+**token**'s `default_group` / `default_tags` always win — a rule only fills a
+group that would otherwise be empty and *adds* tags, and freely sets the site
+(tokens have no site). Rules run **only at first enrolment**; they never
+re-place an already-known device (re-enrolment preserves its group/site/tags).
+Stored in config (`enrol_rules`); hostname regexes and CIDRs are validated when
+you save.
+
 ## Quarantine
 
 A per-device switch that disables exec / reboot / all actions, enforced

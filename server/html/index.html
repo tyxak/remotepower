@@ -4830,6 +4830,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-header"><div class="section-title">Sites</div><button class="enroll-btn" data-action="openSiteCreate" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New site</button></div>
         <div class="mb-16"><input type="text" id="sites-filter" class="form-input input-wide-sm" placeholder="Filter by name…" aria-label="Filter by name"></div>
         <div class="table-card"><table><thead id="sites-thead"><tr><th scope="col" data-col="name">Name</th><th scope="col" data-col="slug">Slug</th><th scope="col" data-col="device_count">Devices</th><th scope="col" data-col="created">Created</th><th scope="col"></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
+
+        <!-- W1-9: enrolment auto-placement rules -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Auto-placement rules</div>
+          <p class="hint">When a <strong>new</strong> device enrols, the first matching rule stamps its group / site / tags automatically — by hostname (regex) or source-IP range (CIDR). Enrolment-token defaults always win: a rule only fills a group left empty and merges extra tags. Rules never touch already-enrolled devices.</p>
+          <div id="enrol-rules-list" class="scroll-cap mt-8"></div>
+          <div class="form-row mt-8">
+            <div class="form-group"><label class="form-label" for="enrol-rule-mtype">Match</label><select id="enrol-rule-mtype" class="form-input" aria-label="Match type"><option value="hostname">Hostname (regex)</option><option value="cidr">Source IP (CIDR)</option></select></div>
+            <div class="form-group flex-1"><label class="form-label" for="enrol-rule-pattern">Pattern</label><input type="text" id="enrol-rule-pattern" class="form-input ff-mono" maxlength="200" placeholder="^web-  /  10.20.0.0/16"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label" for="enrol-rule-group">Group</label><input type="text" id="enrol-rule-group" class="form-input" maxlength="64" placeholder="(optional)"></div>
+            <div class="form-group"><label class="form-label" for="enrol-rule-site">Site</label><input type="text" id="enrol-rule-site" class="form-input" maxlength="64" placeholder="(optional)"></div>
+            <div class="form-group flex-1"><label class="form-label" for="enrol-rule-tags">Tags</label><input type="text" id="enrol-rule-tags" class="form-input" maxlength="200" placeholder="comma,separated"></div>
+          </div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="addEnrolRule">Add rule</button></div>
+          <div id="enrol-rules-result" class="hint mt-6" role="status" aria-live="polite"></div>
+        </div>
       </div>
 
       <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->
