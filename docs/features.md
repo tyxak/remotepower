@@ -231,7 +231,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Firewall + fail2ban | Fleet page to view + edit host firewalls (nftables/iptables/ufw/firewalld) and fail2ban jails/bans; edits via the audited command queue, server-validated *(v4.10.0)* |
 | Host firewall drift | Stable ruleset fingerprint → `firewall_changed` *(v3.11.0)* |
 | Host configuration | Declare desired state per device — repos, netplan, nmcli, resolv.conf, /etc/hosts, enabled services, users + SSH keys, groups, sudoers, MOTD; agent applies on heartbeat (~60s), reports current state every 15 min; audit-only, never auto-remediates *(v2.6.0)* |
-| Configuration drift | Hash a watch-list of config files (sshd_config/sudoers/…), diff vs baseline; `config_drift` edge-triggered *(v2.2.0)*; named reusable profiles *(v3.13.0)* |
+| Configuration drift | Hash a watch-list of config files (sshd_config/sudoers/…), diff vs baseline; `config_drift` edge-triggered *(v2.2.0)*; named reusable profiles *(v3.13.0)*; **near-real-time** — a cheap per-poll mtime scan forces an immediate re-hash on change, so drift surfaces within ~one heartbeat instead of the hourly cadence *(v5.8.0)* |
 | Desired-state enforcement | Correct-on-drift mode *(v3.7.0)* |
 | Host-config collect & export | Drift page: collect all host configs fleet-wide + export one JSON bundle of desired/current/drift *(v3.13.0)* |
 | SSH-key audit | Fleet-wide authorized_keys audit — fingerprints, weak-type flags, reuse counts *(v4.0.0)* |

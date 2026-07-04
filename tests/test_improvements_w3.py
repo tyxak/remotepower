@@ -23,6 +23,15 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 
+def _load_agent():
+    """Import the agent module (functions only; main() is __main__-gated)."""
+    s = importlib.util.spec_from_file_location(
+        "rpagent_w3", ROOT / "client" / "remotepower-agent.py")
+    m = importlib.util.module_from_spec(s)
+    s.loader.exec_module(m)
+    return m
+
+
 class _HandlerBase(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
@@ -164,6 +173,43 @@ class TestSudoAuditTrail(_HandlerBase):
         src = (ROOT / 'client' / 'remotepower-agent.py').read_text()
         self.assertIn('def collect_sudo_events', src)
         self.assertIn("payload['sudo_events']", src)
+
+
+class TestRealtimeFim(unittest.TestCase):
+    """W3-37: near-real-time drift — cheap per-poll change detector."""
+
+    def test_change_detector(self):
+        import os as _os
+        import tempfile as _tf
+        import time as _t
+        agent = _load_agent()
+        f = _tf.NamedTemporaryFile(delete=False)
+        f.write(b'a')
+        f.close()
+        wf = [{'path': f.name}]
+        try:
+            self.assertFalse(agent._watched_files_changed(wf))   # first seeds
+            self.assertFalse(agent._watched_files_changed(wf))   # no change
+            _t.sleep(1.1)
+            with open(f.name, 'w') as fh:
+                fh.write('bb')
+            _os.utime(f.name, (_t.time(), _t.time()))
+            self.assertTrue(agent._watched_files_changed(wf))    # changed
+            self.assertFalse(agent._watched_files_changed(wf))   # settled
+        finally:
+            _os.unlink(f.name)
+
+    def test_deleted_file_forgotten(self):
+        import os as _os
+        import tempfile as _tf
+        agent = _load_agent()
+        f = _tf.NamedTemporaryFile(delete=False)
+        f.close()
+        wf = [{'path': f.name}]
+        agent._watched_files_changed(wf)     # seed
+        _os.unlink(f.name)
+        # deletion is a change (mtime sig → None differs from cached)
+        self.assertTrue(agent._watched_files_changed(wf))
 
 
 if __name__ == '__main__':

@@ -233,6 +233,35 @@ MAX_DRIFT_FILES    = 200          # matches server-side cap; defends
                                   # against an over-eager watched list
 MAX_FILE_SIZE_HASH = 5 * 1024 * 1024   # don't try to hash files >5MB
 
+# W3-37: cheap per-poll change detector for near-real-time drift. Remembers each
+# watched file's (mtime, size); a difference on any file returns True so the
+# heartbeat re-hashes now instead of waiting the full DRIFT_EVERY cadence.
+_drift_mtime_cache = {}
+
+
+def _watched_files_changed(watched_files):
+    changed = False
+    seen = set()
+    for f in (watched_files or [])[:MAX_DRIFT_FILES]:
+        p = f.get('path') if isinstance(f, dict) else f
+        if not p:
+            continue
+        seen.add(p)
+        try:
+            st = os.stat(host_path(p))
+            sig = (int(st.st_mtime), st.st_size)
+        except OSError:
+            sig = None
+        if _drift_mtime_cache.get(p) != sig:
+            # First observation seeds the cache silently (no spurious "change").
+            if p in _drift_mtime_cache:
+                changed = True
+            _drift_mtime_cache[p] = sig
+    # forget files no longer watched
+    for gone in [k for k in _drift_mtime_cache if k not in seen]:
+        _drift_mtime_cache.pop(gone, None)
+    return changed
+
 # v2.4.3: mailbox-count monitor. Counting files in a directory is very
 # cheap, but a directory with a huge backlog could be slow to scandir,
 # so report every few polls rather than every poll.
@@ -7527,9 +7556,19 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # on any reasonable hardware. Skipped on poll 1 because we
         # haven't yet received the watched_files list from the server;
         # poll 2 (about 60s in) ships the first report.
-        if watched_files and poll_count > 1 and (
-            poll_count == 2 or poll_count % DRIFT_EVERY == 0
-        ):
+        # W3-37 (near-real-time FIM): a cheap per-poll mtime scan of the watched
+        # list forces an immediate drift re-hash when a file changed, so drift
+        # surfaces within ~one heartbeat (~60s) instead of the ~1h DRIFT_EVERY
+        # cadence — no inotify/threading, works everywhere stat() does.
+        _drift_due = watched_files and poll_count > 1 and (
+            poll_count == 2 or poll_count % DRIFT_EVERY == 0)
+        if watched_files and poll_count > 1 and not _drift_due:
+            try:
+                if _watched_files_changed(watched_files):
+                    _drift_due = True
+            except Exception:
+                pass
+        if _drift_due:
             try:
                 payload['drift'] = compute_drift_report(watched_files)
                 log.debug(f'Drift report: hashed {len(payload["drift"])} files')
