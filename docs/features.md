@@ -291,6 +291,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Per-device backups | Watched-path age + fresh/stale state in the drawer *(v3.4.2)* |
 | Backup orchestration | Define a backup command per device (restic/borg/rsync); on-demand or cron *(v3.6.0)* |
 | Backup integrity verification | Agent runs the tool's own check (`tar -tf` / `restic check` / `borg check`); `backup_verify_failed` *(v4.10.0)* |
+| Backup size trending | Agent reports each watched backup's size; server keeps a rolling history and fires `backup_size_anomaly` when a fresh backup drops below a configurable % of its trailing median — catches a truncated/half-written backup that's still recent *(v5.8.0)* |
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |
 | Encrypted config secrets | Opt-in `RP_CONFIG_KEY` → AES-256-GCM at rest for every secret-bearing config value at any depth (SMTP/OIDC/LDAP/SIEM, ACME DNS credentials, webhook tokens/URL, AI api_key, integration secrets) *(v5.6.x: full-tree coverage)*; transparent at load/save, fail-graceful *(v5.5.0)* |

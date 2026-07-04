@@ -1140,6 +1140,9 @@ EVENT_REGISTRY = {
     'backup_recovered': dict(
         label='Stale backup is fresh again', kind='backup', title='Backup Recovered',
         resolves=('backup_stale',)),
+    'backup_size_anomaly': dict(
+        label='Backup shrank sharply vs its recent size', kind='backup',
+        title='Backup Size Anomaly', severity='high', priority=4, tags='warning,floppy_disk'),
     'backup_verify_failed': dict(
         label='Backup integrity check failed', kind='backup',
         title='Backup Integrity Check Failed', severity='high'),
@@ -7228,6 +7231,8 @@ def _record_alert(event, payload):
                     # issuance; issuer/cn/not_before make the alert readable.
                     'domain', 'issuer', 'cn', 'not_before', 'serial',
                     'campaign',       # W2-35: campaign_completed name
+                    'median',         # W3-42: backup_size_anomaly (size already whitelisted? add)
+                    'size',
                     # v5.8.0: github_new_issue — repo + number identify the
                     # issue; title/url make the alert self-describing and let
                     # the UI link straight to it.
@@ -14827,6 +14832,32 @@ def handle_heartbeat():
                         pass
                 _v = _bak_state.get(_state_key) or {}
                 _v.update({'ok': _is_ok, 'age_h': _age_h})
+                # W3-42: size trending + shrink anomaly. Keep a rolling size
+                # history; when the newest fresh backup is far below the trailing
+                # median, page once (opt-in via backup_size_anomaly_pct).
+                _size = entry.get('size')
+                if isinstance(_size, int) and _size > 0 and _is_ok:
+                    _hist = _v.get('size_hist') or []
+                    try:
+                        _pct = int(_config_ro().get('backup_size_anomaly_pct') or 0)
+                    except (TypeError, ValueError):
+                        _pct = 0
+                    _shrunk, _median = _backup_is_shrunk(_size, _hist, _pct)
+                    if _shrunk and not _v.get('size_anom', False):
+                        _v['size_anom'] = True
+                        try:
+                            fire_webhook('backup_size_anomaly', {
+                                'device_id': dev_id,
+                                'name': saved_dev.get('name', dev_id),
+                                'path': _path, 'label': _label,
+                                'size': _size, 'median': _median})
+                        except Exception:
+                            pass
+                    elif not _shrunk and _median:
+                        _v['size_anom'] = False
+                    _hist.append(_size)
+                    _v['size_hist'] = _hist[-30:]
+                    _v['size'] = _size
                 _bak_state[_state_key] = _v
                 _bak_changed = True
         except Exception:
@@ -17923,6 +17954,7 @@ def handle_config_get():
     safe.setdefault('enrol_rules',            [])     # W1-9: enrolment auto-placement rules
     safe.setdefault('alert_runbooks',         {})     # W1-23: event→KB-article map
     safe.setdefault('patch_sla',              [])     # W1-33: patch-compliance SLA rules
+    safe.setdefault('backup_size_anomaly_pct', 0)     # W3-42: shrink alert % of median (0=off)
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -19339,6 +19371,12 @@ def handle_config_save():
             if key and aid:
                 m[key] = aid
         cfg['alert_runbooks'] = m
+    # W3-42: backup shrink-anomaly threshold (% of trailing median; 0 = off).
+    if 'backup_size_anomaly_pct' in body:
+        try:
+            cfg['backup_size_anomaly_pct'] = max(0, min(100, int(body['backup_size_anomaly_pct'])))
+        except (TypeError, ValueError):
+            pass
     # W1-33: patch-compliance SLA rules [{match_type, pattern, sec_days, all_days}].
     if 'patch_sla' in body:
         raw = body.get('patch_sla')
@@ -26315,6 +26353,16 @@ def handle_reboot_plan():
                         for d in w],
         })
     respond(200, {'ok': True, 'rings': rings, 'device_count': len(ids)})
+
+
+def _backup_is_shrunk(size, hist, pct):
+    """W3-42: (is_anomaly, median) — True when `size` is below `pct`% of the
+    trailing-median of `hist` (needs ≥3 samples and pct>0, else never fires)."""
+    if not pct or len(hist or []) < 3:
+        return False, 0
+    prev = sorted(hist)
+    median = prev[len(prev) // 2]
+    return (size < median * pct / 100.0), median
 
 
 def _upstream_down(dev_id, devices, now, ttl):

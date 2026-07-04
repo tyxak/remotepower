@@ -3135,10 +3135,29 @@ def collect_backup_status(backup_monitors):
         try:
             fp = Path(host_path(p))   # v5.0.0: containerized agent reads host fs
             exists = fp.exists()
-            mtime  = fp.stat().st_mtime if exists else 0
+            st = fp.stat() if exists else None
+            mtime  = st.st_mtime if st else 0
+            # W3-42: size drives the anomaly check server-side. A directory
+            # target sums its immediate file children (one level, bounded) so a
+            # borg/restic repo dir still trends; a plain file uses its own size.
+            if st and fp.is_dir():
+                size = 0
+                try:
+                    for i, child in enumerate(fp.iterdir()):
+                        if i >= 5000:
+                            break
+                        try:
+                            size += child.stat().st_size
+                        except OSError:
+                            pass
+                except OSError:
+                    size = 0
+            else:
+                size = st.st_size if st else 0
         except Exception:
-            exists, mtime = False, 0
-        results.append({'path': p, 'exists': exists, 'mtime': int(mtime)})
+            exists, mtime, size = False, 0, 0
+        results.append({'path': p, 'exists': exists, 'mtime': int(mtime),
+                        'size': int(size)})
     return results
 
 

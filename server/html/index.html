@@ -2938,6 +2938,7 @@
         <div class="settings-section">
           <div class="section-title">Backup file monitoring</div>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
+          <div class="settings-row"><label class="form-label" for="cfg-backup-anomaly-pct">Shrink alert threshold (% of recent median size, 0 = off)</label><input type="number" id="cfg-backup-anomaly-pct" class="form-input" min="0" max="100" value="0" data-change="saveBackupAnomalyPct"><span class="hint">Fire <code>backup_size_anomaly</code> when a fresh backup drops below this fraction of its trailing median size — catches a truncated/half-written backup that's still recent.</span></div>
           <div id="backup-monitors-list" class="mb-12 scroll-cap-sm"></div>
           <div class="settings-row isl-82">
             <div class="form-group isl-83">

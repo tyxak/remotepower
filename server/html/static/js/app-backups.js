@@ -136,6 +136,13 @@ async function saveProxmoxBackupThreshold() {
   else toast(d?.error || 'Failed', 'error');
 }
 
+// W3-42: backup shrink-anomaly threshold.
+async function saveBackupAnomalyPct() {
+  const v = parseInt(document.getElementById('cfg-backup-anomaly-pct')?.value || '0', 10) || 0;
+  const r = await api('POST', '/config', { backup_size_anomaly_pct: v });
+  if (r && !r.error) toast(v ? `Shrink alert at ${v}% of median` : 'Shrink alert off', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
 function renderBackupMonitors(monitors) {
   _backupMonitors = monitors || [];
   const el = document.getElementById('backup-monitors-list');

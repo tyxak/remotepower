@@ -12372,7 +12372,7 @@ const EVENT_CLASS = {
   'mailbox_threshold': 'warn',
   'command_queued': 'info', 'command_executed': 'info',
   'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
-  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok',
+  'new_port_detected': 'warn', 'backup_stale': 'warn', 'backup_recovered': 'ok', 'backup_size_anomaly': 'crit',
   'backup_verify_failed': 'critical', 'backup_verified': 'ok', 'rollout_halted': 'critical',
   'tls_expiry': 'warn', 'ct_new_certificate': 'warn', 'snapshot_old': 'warn',
   'reboot_required': 'warn', 'custom_script_fail': 'critical',
@@ -13809,7 +13809,7 @@ function _renderHomeActivity(fleetEvents) {
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
     'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old',
-    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
+    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
     // v5.0.0 (#R1): server self disk-space watchdog
@@ -13927,6 +13927,8 @@ function _renderHomeActivity(fleetEvents) {
         detail = `${p.proto||'tcp'}/${p.port}${p.process ? ` (${p.process})` : ''}`; break;
       case 'backup_stale':
         detail = `"${p.label||p.path}" ${p.age_hours ? `${p.age_hours}h old` : 'missing'}`; break;
+      case 'backup_size_anomaly':
+        detail = `"${p.label||p.path}" shrank to ${_fmtBytes(p.size||0)} (median ${_fmtBytes(p.median||0)})`; break;
       case 'tls_expiry':
         detail = `${p.host}: ${p.days_left}d left`; break;
       case 'ct_new_certificate':
@@ -13975,6 +13977,7 @@ function _homeActivityAttrs(event, p) {
     case 'agent_stopped': case 'agent_started':
     case 'mailbox_threshold': case 'reboot_required': case 'reboot_cleared':
     case 'new_port_detected': case 'ssh_key_added':
+    case 'backup_size_anomaly':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
@@ -15619,6 +15622,7 @@ async function loadDashboardSettings() {
 
   // Backup monitors
   renderBackupMonitors(cfg.backup_monitors || []);
+  { const e = document.getElementById('cfg-backup-anomaly-pct'); if (e) e.value = cfg.backup_size_anomaly_pct || 0; }  // W3-42
   renderProcessWatches(cfg.process_watches || []);
 }
 
