@@ -15460,7 +15460,7 @@ def handle_process_kill(dev_id):
     _queue_command(dev_id, f'kill:{sig}:{pid}', actor)   # responds 200 + exits
 
 
-def _queue_command(dev_id, command, actor):
+def _queue_command(dev_id, command, actor, force_approval=False):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
@@ -15477,8 +15477,14 @@ def _queue_command(dev_id, command, actor):
                                'are disabled. Remove /etc/remotepower/audit-mode on the host '
                                'to re-enable.'})
     # v3.14.0: 4-eyes — park risky actions for a second admin when enabled.
+    # W2-39: `force_approval` makes a caller (guided CIS remediation) REQUIRE
+    # a second admin whenever change-approval is on at all — even for a kind
+    # not in the gated set — since a fix mutates a host's hardened state.
     _kind = _command_kind(command)
-    if _needs_approval(_kind):
+    _cfg_appr = load(CONFIG_FILE) or {}
+    _gate = _needs_approval(_kind, _cfg_appr) or (
+        force_approval and bool(_cfg_appr.get('change_approval_enabled')))
+    if _gate:
         cid = _park_for_approval(dev_id, command, actor, _kind)
         respond(202, {'ok': True, 'approval_required': True, 'confirmation_id': cid,
                       'detail': 'Parked — a second admin must approve it.'})
@@ -37414,7 +37420,10 @@ def handle_compliance_remediate():
         respond(400, {'error': 'No automatic remediation is available for this check.'})
     audit_log(actor, 'compliance_remediate',
               f'dev={dev_id} check={check_id} cmd={rem["command"]}')
-    _queue_command(dev_id, rem['command'], actor)   # responds + exits (gates inside)
+    # W2-39: a remediation always requires 4-eyes when change-approval is on —
+    # a fix mutates a host's hardened state, so it shouldn't slip through just
+    # because its command kind isn't in the gated set.
+    _queue_command(dev_id, rem['command'], actor, force_approval=True)   # responds + exits
 
 
 def _compute_compliance(devices=None):

@@ -1462,5 +1462,73 @@ class TestRollingReboot(_HandlerBase):
             api.ROLLOUTS_FILE = self._rf
 
 
+class TestGuidedCisRemediation(_HandlerBase):
+    """W2-39: guided CIS remediation — force maker-checker enhancement + gates."""
+
+    def setUp(self):
+        super().setUp()
+        self._cf = api.CMDS_FILE
+        api.CMDS_FILE = self.d / 'commands.json'
+        self._parked = []
+        # stub the approval-park so we can observe force_approval without the
+        # full confirmations subsystem
+        self._real_needs = api._needs_approval
+        self._real_park = api._park_for_approval
+        api._park_for_approval = lambda dev_id, command, actor, kind: (
+            self._parked.append((dev_id, command)) or 'cid123')
+
+    def tearDown(self):
+        api.CMDS_FILE = self._cf
+        api._needs_approval = self._real_needs
+        api._park_for_approval = self._real_park
+        super().tearDown()
+
+    def _dev(self, **extra):
+        d = {'name': 'h', 'remediation_enabled': True,
+             'sysinfo': {'packages': {'manager': 'apt'}}}
+        d.update(extra)
+        return d
+
+    def test_remediation_available_for_supported_checks(self):
+        dev = self._dev()
+        self.assertIsNotNone(api._cis_remediation('cis-reboot', dev))
+        self.assertIsNotNone(api._cis_remediation('cis-patches', dev))
+        # disk/swap are not safely auto-remediable
+        self.assertIsNone(api._cis_remediation('cis-disk', dev))
+
+    def test_force_approval_when_change_approval_on(self):
+        api.save(api.DEVICES_FILE, {'d1': self._dev()})
+        api.save(api.CONFIG_FILE, {'change_approval_enabled': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-patches'}
+        r = self.call(api.handle_compliance_remediate)
+        # patches is an exec kind (not in the default gated set) yet remediation
+        # forces approval → parked, not queued
+        self.assertTrue(r.get('approval_required'))
+        self.assertTrue(self._parked)
+
+    def test_no_approval_when_change_approval_off(self):
+        api.save(api.DEVICES_FILE, {'d1': self._dev()})
+        api.save(api.CONFIG_FILE, {'change_approval_enabled': False})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-patches'}
+        r = self.call(api.handle_compliance_remediate)
+        self.assertFalse(self._parked)
+        # queued straight to the device
+        cmds = api.load(api.CMDS_FILE) or {}
+        self.assertIn('d1', cmds)
+
+    def test_requires_per_host_optin(self):
+        api.save(api.DEVICES_FILE, {'d1': self._dev(remediation_enabled=False)})
+        api.save(api.CONFIG_FILE, {})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'd1', 'check_id': 'cis-patches'}
+        self.call(api.handle_compliance_remediate)
+        self.assertEqual(self.cap['s'], 403)
+
+
 if __name__ == '__main__':
     unittest.main()
