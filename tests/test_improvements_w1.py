@@ -963,5 +963,95 @@ class TestPatchSla(_HandlerBase):
         self.assertEqual(len(saved), 2)
 
 
+class TestStatusIncidents(_HandlerBase):
+    """W2-25: operator-posted status-page incidents."""
+
+    def setUp(self):
+        super().setUp()
+        self._if = api.INCIDENTS_FILE
+        api.INCIDENTS_FILE = self.d / 'incidents.json'
+
+    def tearDown(self):
+        api.INCIDENTS_FILE = self._if
+        super().tearDown()
+
+    def _post(self, **body):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: body
+        return self.call(api.handle_incidents)
+
+    def test_create_and_list(self):
+        r = self._post(title='API latency', impact='major', status='investigating',
+                       body='looking into it')
+        self.assertEqual(self.cap['s'] if 's' in self.cap else 200, 200)
+        iid = r['id']
+        api.method = lambda: 'GET'
+        lst = self.call(api.handle_incidents)
+        self.assertEqual(len(lst['incidents']), 1)
+        self.assertEqual(lst['incidents'][0]['title'], 'API latency')
+        self.assertEqual(lst['incidents'][0]['updates'][0]['body'], 'looking into it')
+        return iid
+
+    def test_title_required(self):
+        self._post(title='   ')
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_update_and_status_change(self):
+        iid = self.test_create_and_list()
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'status': 'resolved', 'body': 'fixed'}
+        self.call(api.handle_incident_update, iid)
+        inc = (api.load(api.INCIDENTS_FILE) or {}).get('incidents')[0]
+        self.assertEqual(inc['status'], 'resolved')
+        self.assertEqual(inc['updates'][-1]['body'], 'fixed')
+
+    def test_invalid_status_rejected(self):
+        iid = self.test_create_and_list()
+        api.method = lambda: 'PATCH'
+        api.get_json_body = lambda: {'status': 'bogus'}
+        self.call(api.handle_incident_update, iid)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_delete(self):
+        iid = self.test_create_and_list()
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_incident_update, iid)
+        self.assertEqual((api.load(api.INCIDENTS_FILE) or {}).get('incidents'), [])
+
+    def test_public_projection_includes_open_incident(self):
+        self._post(title='Down', impact='major', status='investigating', body='x')
+        cfg = {'status_page': {'enabled': True, 'components': [], 'incident_days': 30}}
+        now = int(__import__('time').time())
+        proj = api._status_page_projection(cfg, {}, now, 60)
+        self.assertTrue(proj)
+        self.assertEqual(len(proj['posted_incidents']), 1)
+        # an open major incident darkens the overall banner
+        self.assertEqual(proj['overall'], 'major_outage')
+
+    def test_public_projection_hides_old_resolved(self):
+        now = int(__import__('time').time())
+        api.save(api.INCIDENTS_FILE, {'incidents': [{
+            'id': 'inc_x', 'title': 'old', 'impact': 'minor', 'status': 'resolved',
+            'created_at': now - 90 * 86400, 'updated_at': now - 90 * 86400,
+            'updates': []}]})
+        cfg = {'status_page': {'enabled': True, 'components': [], 'incident_days': 30}}
+        proj = api._status_page_projection(cfg, {}, now, 60)
+        self.assertEqual(proj['posted_incidents'], [])
+
+    def test_subscriber_notify_on_create(self):
+        sent = []
+        _real = api.smtp_notifier.send_email
+        api.smtp_notifier.send_email = lambda cfg, r, s, b, **k: sent.append((r, s))
+        try:
+            api.save(api.CONFIG_FILE, {'smtp_host': 'smtp.test',
+                                       'status_incident_recipients': 'a@b.co, c@d.co'})
+            api._invalidate_load_cache(api.CONFIG_FILE)
+            self._post(title='Boom', status='investigating', body='y')
+            self.assertEqual(len(sent), 1)
+            self.assertEqual(sorted(sent[0][0]), ['a@b.co', 'c@d.co'])
+        finally:
+            api.smtp_notifier.send_email = _real
+
+
 if __name__ == '__main__':
     unittest.main()

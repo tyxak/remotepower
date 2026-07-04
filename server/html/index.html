@@ -1765,6 +1765,21 @@
               <button class="btn-primary" data-action="saveStatusPage">Save status page</button>
             </div>
             <div id="sp-share" class="hint-mb6"></div>
+
+            <!-- W2-25: operator-posted incidents -->
+            <div class="section-title mt-16">Incidents</div>
+            <p class="hint">Post an incident (or planned maintenance) that shows on the public page above the component list — with a running update log. Optionally email subscribers when one opens or resolves.</p>
+            <div class="form-group"><label class="form-label" for="cfg-incident-recipients">Subscriber emails (comma-separated)</label><input type="text" id="cfg-incident-recipients" class="form-input" maxlength="1000" placeholder="status@example.com, ops@example.com"></div>
+            <div class="row-6 mb-8"><button class="btn-secondary" data-action="saveIncidentRecipients">Save subscribers</button></div>
+            <div id="incidents-list" class="scroll-cap mt-8"></div>
+            <div class="form-row mt-8">
+              <div class="form-group flex-1"><label class="form-label" for="incident-title">New incident title</label><input type="text" id="incident-title" class="form-input" maxlength="160" placeholder="Elevated API latency"></div>
+              <div class="form-group"><label class="form-label" for="incident-impact">Impact</label><select id="incident-impact" class="form-input"><option value="minor">Minor</option><option value="major">Major</option><option value="maintenance">Maintenance</option></select></div>
+              <div class="form-group"><label class="form-label" for="incident-status">Status</label><select id="incident-status" class="form-input"><option value="investigating">Investigating</option><option value="identified">Identified</option><option value="monitoring">Monitoring</option><option value="resolved">Resolved</option></select></div>
+            </div>
+            <div class="form-group"><label class="form-label" for="incident-body">Message</label><textarea id="incident-body" class="form-input" rows="2" maxlength="4000" placeholder="We're investigating reports of…"></textarea></div>
+            <div class="row-6"><button class="btn-primary" data-action="postIncident">Post incident</button></div>
+            <div id="incident-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
           <div class="settings-section">
             <div class="section-title">Inbound webhooks &amp; syslog</div>

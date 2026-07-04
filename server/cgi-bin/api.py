@@ -98,6 +98,7 @@ MAX_SLOW_HANDLERS  = 100
 # carries only events the operator needs to *act* on, with state attached.
 # Severity, ack_by, ack_at, resolved_by, resolved_at land here.
 ALERTS_FILE = DATA_DIR / 'alerts.json'
+INCIDENTS_FILE = DATA_DIR / 'incidents.json'   # W2-25 operator-posted status-page incidents
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
 # asset (inbox + webhook + needs-attention). fleet_events keeps recording so the
 # Monitoring → Tuning page can still surface and lift noisy sources.
@@ -17669,6 +17670,7 @@ def handle_config_get():
     safe.setdefault('status_page', {'enabled': False, 'title': '',
                                     'show_incidents': True, 'incident_days': 30,
                                     'components': []})
+    safe.setdefault('status_incident_recipients', '')   # W2-25
     # v5.1.0: web file manager (opt-in, powerful) — surface a stable shape so the
     # Settings UI renders. No secret here; the allowlisted roots are operator data.
     safe.setdefault('file_manager', {'enabled': False,
@@ -18804,6 +18806,10 @@ def handle_config_save():
             'incident_days':  max(1, min(90, _idays)),
             'components':     _sp_comps,
         }
+    # W2-25: email recipients for operator-posted status-page incidents.
+    if 'status_incident_recipients' in body:
+        cfg['status_incident_recipients'] = _sanitize_str(
+            str(body.get('status_incident_recipients') or ''), 1000)
 
     # v5.1.0: web file manager — opt-in enable + allowlisted root prefixes. The
     # agent re-enforces the allowlist symlink-resolved; this is defence in depth.
@@ -33898,10 +33904,158 @@ def _status_page_projection(cfg, devices, now, ttl):
         overall = 'degraded'
     else:
         overall = 'operational'
+    # W2-25: operator-posted incidents (independent of the auto-derived downtime
+    # above). Unresolved ones also darken the overall banner.
+    posted = []
+    for inc in ((load(INCIDENTS_FILE) or {}).get('incidents') or []):
+        if int(inc.get('updated_at') or inc.get('created_at') or 0) < now - window_s \
+                and inc.get('status') == 'resolved':
+            continue     # keep resolved ones only within the window
+        posted.append(_incident_public(inc, admin=False))
+    posted.sort(key=lambda i: i.get('created_at', 0), reverse=True)
+    posted = posted[:50]
+    open_posted = [p for p in posted if p['status'] != 'resolved']
+    if open_posted and overall == 'operational':
+        overall = 'major_outage' if any(
+            p['impact'] == 'major' for p in open_posted) else 'degraded'
     return {'title': _sanitize_str(str(sp.get('title') or ''), 128) or get_server_name(),
             'overall': overall, 'window_days': window_days,
             'components': out_comps, 'incidents': incidents,
+            'posted_incidents': posted,
             'status_page_enabled': True}
+
+
+_INCIDENT_STATUSES = ('investigating', 'identified', 'monitoring', 'resolved')
+_INCIDENT_IMPACTS = ('minor', 'major', 'maintenance')
+
+
+def _incident_public(inc, *, admin):
+    """Sanitized incident for the public status page (operator-authored text is
+    safe to show; escaping happens client-side via textContent). Admin view adds
+    the id."""
+    out = {
+        'title':   inc.get('title', ''),
+        'impact':  inc.get('impact', 'minor'),
+        'status':  inc.get('status', 'investigating'),
+        'created_at': inc.get('created_at'),
+        'updated_at': inc.get('updated_at'),
+        'updates': [{'ts': u.get('ts'), 'status': u.get('status', ''),
+                     'body': u.get('body', '')}
+                    for u in (inc.get('updates') or [])],
+    }
+    if admin:
+        out['id'] = inc.get('id')
+    return out
+
+
+def _notify_incident_subscribers(inc, cfg, *, event):
+    """Email status-page subscribers on incident open / resolve. Best-effort."""
+    raw = (cfg.get('status_incident_recipients') or '').strip()
+    if not raw or not (cfg.get('smtp_host') or '').strip():
+        return
+    recips = [p.strip() for p in re.split(r'[,;\s]+', raw) if p and '@' in p]
+    if not recips:
+        return
+    title = inc.get('title', 'Status update')
+    verb = 'Resolved' if event == 'resolved' else 'New incident'
+    subject = f'[{get_server_name()} status] {verb}: {title}'[:200]
+    latest = (inc.get('updates') or [{}])[-1]
+    body = (f'{verb}: {title}\n\nStatus: {inc.get("status", "")}\n'
+            f'Impact: {inc.get("impact", "")}\n\n{latest.get("body", "")}')
+    try:
+        smtp_notifier.send_email(cfg, recips, subject, body,
+                                 html_body=smtp_notifier.brand_html(cfg, subject, body),
+                                 extra_headers={'Auto-Submitted': 'auto-generated'})
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] incident subscriber notify failed: {e}\n')
+
+
+def handle_incidents():
+    """GET /api/incidents — operator-posted status-page incidents (admin). POST —
+    create one (admin). An incident is {title, impact, status, body} with a
+    running update log; it renders on the public status page independently of the
+    auto-derived downtime history."""
+    if method() == 'GET':
+        require_admin_auth()
+        incs = (load(INCIDENTS_FILE) or {}).get('incidents') or []
+        incs = sorted(incs, key=lambda i: i.get('created_at', 0), reverse=True)
+        respond(200, {'ok': True,
+                      'incidents': [_incident_public(i, admin=True) for i in incs]})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    title = _sanitize_str(str(body.get('title', '')), 160).strip()
+    if not title:
+        respond(400, {'error': 'title required'})
+    impact = str(body.get('impact', 'minor')).strip().lower()
+    if impact not in _INCIDENT_IMPACTS:
+        impact = 'minor'
+    status = str(body.get('status', 'investigating')).strip().lower()
+    if status not in _INCIDENT_STATUSES:
+        status = 'investigating'
+    now = int(time.time())
+    msg = _sanitize_str(str(body.get('body', '')), 4000)
+    iid = 'inc_' + secrets.token_hex(5)
+    rec = {'id': iid, 'title': title, 'impact': impact, 'status': status,
+           'created_at': now, 'updated_at': now,
+           'updates': [{'ts': now, 'status': status, 'body': msg}] if msg or status else []}
+    with _LockedUpdate(INCIDENTS_FILE) as store:
+        incs = store.setdefault('incidents', [])
+        if len(incs) >= 500:
+            respond(400, {'error': 'incident limit reached'})
+        incs.append(rec)
+    audit_log(actor, 'incident_create', f'id={iid} {title}')
+    _notify_incident_subscribers(rec, load(CONFIG_FILE) or {}, event='created')
+    respond(200, {'ok': True, 'id': iid})
+
+
+def handle_incident_update(iid):
+    """PATCH /api/incidents/{id} — post an update / change status (admin).
+    DELETE — remove the incident (admin)."""
+    if method() == 'DELETE':
+        actor = require_admin_auth()
+        removed = False
+        with _LockedUpdate(INCIDENTS_FILE) as store:
+            before = store.get('incidents') or []
+            after = [i for i in before if i.get('id') != iid]
+            removed = len(after) != len(before)
+            store['incidents'] = after
+        if not removed:
+            respond(404, {'error': 'incident not found'})
+        audit_log(actor, 'incident_delete', f'id={iid}')
+        respond(200, {'ok': True})
+    if method() not in ('PATCH', 'POST'):
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    now = int(time.time())
+    new_status = str(body.get('status', '')).strip().lower()
+    if new_status and new_status not in _INCIDENT_STATUSES:
+        respond(400, {'error': f'status must be one of {", ".join(_INCIDENT_STATUSES)}'})
+    msg = _sanitize_str(str(body.get('body', '')), 4000)
+    resolved_now = False
+    snapshot = None
+    found = False
+    with _LockedUpdate(INCIDENTS_FILE) as store:
+        inc = next((i for i in (store.get('incidents') or []) if i.get('id') == iid), None)
+        if inc:
+            found = True
+            was = inc.get('status')
+            if new_status:
+                inc['status'] = new_status
+            if msg or new_status:
+                inc.setdefault('updates', []).append(
+                    {'ts': now, 'status': inc.get('status', ''), 'body': msg})
+            inc['updated_at'] = now
+            resolved_now = (new_status == 'resolved' and was != 'resolved')
+            snapshot = dict(inc)
+    if not found:
+        respond(404, {'error': 'incident not found'})
+    audit_log(actor, 'incident_update', f'id={iid} status={new_status or "-"}')
+    if resolved_now and snapshot:
+        _notify_incident_subscribers(snapshot, load(CONFIG_FILE) or {}, event='resolved')
+    respond(200, {'ok': True})
 
 
 def handle_public_status():
@@ -50415,6 +50569,8 @@ def _build_exact_routes():
         ('GET', '/api/alerts'): handle_alerts_list,
         ('GET', '/api/alerts/act'): handle_alert_act,   # W1-21 PUBLIC (HMAC-signed email link)
         ('GET', '/api/patch-sla'): handle_patch_sla,    # W1-33
+        ('GET', '/api/incidents'): handle_incidents,    # W2-25
+        ('POST', '/api/incidents'): handle_incidents,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
@@ -51090,6 +51246,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('PATCH', 'POST', 'DELETE'), '/api/time-entries/', '', 'handle_time_entry_update', "pi.startswith('/api/time-entries/') and m in ('PATCH', 'POST', 'DELETE')"),
     ('pat', ('DELETE',), '/api/timesheet/watchers/', '', 'handle_timesheet_watcher_delete', "pi.startswith('/api/timesheet/watchers/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/invoices/', '/send', 'handle_invoice_send', "pi.startswith('/api/invoices/') and pi.endswith('/send') and m == 'POST'"),
+    ('pat', ('PATCH', 'POST', 'DELETE'), '/api/incidents/', '', 'handle_incident_update', "pi.startswith('/api/incidents/') and m in ('PATCH', 'POST', 'DELETE')"),
     ('pat', ('GET',), '/api/invoices/', '', 'handle_invoice_get', "pi.startswith('/api/invoices/') and m == 'GET'"),
     ('pat', ('PATCH', 'POST'), '/api/invoices/', '', 'handle_invoice_update', "pi.startswith('/api/invoices/') and m in ('PATCH', 'POST')"),
     ('pat', ('POST',), '/api/tickets/', '/email', 'handle_ticket_send_email', "pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST'"),

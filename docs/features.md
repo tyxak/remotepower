@@ -365,7 +365,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Per-site (customer) reports | Same report scoped to one site; RBAC-scoped *(v4.10.0)* |
 | SLA / uptime reporting | Per-device + per-group uptime % over 7/30/90d *(v3.4.1)* |
 | Print / Save as PDF | Self-contained posture report for native print/PDF *(v3.4.2)* |
-| Public status page | Standalone `status.html` (no login) via status token *(v3.4.1)* |
+| Public status page | Standalone `status.html` (no login) via status token *(v3.4.1)*; **operator-posted incidents** (title / impact / status with a running update log, above the component list) + optional subscriber emails on open/resolve. `GET/POST /api/incidents` *(v5.8.0)* |
 | Status endpoint | `/api/status` machine-readable fleet summary (status token) *(v2.4.7)* |
 | iCal feed | `/api/schedule.ics` — scheduled jobs + maintenance windows, recurring as RRULEs *(v3.4.1)* |
 

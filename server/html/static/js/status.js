@@ -99,6 +99,11 @@
       case 'major_outage':
       case 'down':
       case 'offline': return 'sp-down';
+      // W2-25 operator-posted incident states
+      case 'resolved': return 'sp-ok';
+      case 'monitoring': return 'sp-degraded';
+      case 'investigating':
+      case 'identified': return 'sp-down';
       default: return '';
     }
   }
@@ -257,6 +262,32 @@
     return section;
   }
 
+  // ---- operator-posted incidents -------------------------------------------
+  function renderPostedIncidents(posted) {
+    var section = el('section', 'status-section');
+    section.appendChild(el('h2', 'status-section-title', 'Incidents'));
+    var wrap = el('div', 'status-incidents');
+    for (var i = 0; i < posted.length; i++) {
+      var inc = posted[i] || {};
+      var row = el('div', 'status-incident');
+      var main = el('div', 'status-incident-main');
+      main.appendChild(el('div', 'status-incident-name', inc.title || 'Incident'));
+      var when = fmtAbs(inc.created_at);
+      main.appendChild(el('div', 'status-incident-meta',
+        (when ? when : '') + (inc.impact ? ' · ' + inc.impact : '')));
+      // latest update body (textContent — never innerHTML)
+      var ups = Array.isArray(inc.updates) ? inc.updates : [];
+      if (ups.length && ups[ups.length - 1].body) {
+        main.appendChild(el('div', 'status-incident-body', ups[ups.length - 1].body));
+      }
+      row.appendChild(main);
+      row.appendChild(pillEl(inc.status));
+      wrap.appendChild(row);
+    }
+    section.appendChild(wrap);
+    return section;
+  }
+
   // ---- whole-page render ---------------------------------------------------
   function render(data) {
     data = data || {};
@@ -269,6 +300,10 @@
     renderBanner(data.overall);
 
     clear(bodyEl);
+    var posted = Array.isArray(data.posted_incidents) ? data.posted_incidents : [];
+    if (posted.length) {
+      bodyEl.appendChild(renderPostedIncidents(posted));
+    }
     var components = Array.isArray(data.components) ? data.components : [];
     if (components.length) {
       bodyEl.appendChild(renderComponents(components));

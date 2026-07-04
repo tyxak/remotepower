@@ -15147,6 +15147,62 @@ function _loadStatusPageInto(data) {
   if (!_spDevCache) { _scanDeviceList().then(l => { _spDevCache = l; _renderSpComponents(); }).catch(() => {}); }
   _renderSpComponents();
   _renderSpShare(data);
+  const ir = document.getElementById('cfg-incident-recipients');
+  if (ir) ir.value = (data && data.status_incident_recipients) || '';
+  loadIncidents();
+}
+
+// W2-25: operator-posted status-page incidents.
+async function loadIncidents() {
+  const box = document.getElementById('incidents-list');
+  if (!box) return;
+  const r = await api('GET', '/incidents');
+  if (!r || !r.ok) return;
+  const incs = r.incidents || [];
+  if (!incs.length) { box.innerHTML = '<div class="meta-sm-nm">No incidents posted.</div>'; return; }
+  box.innerHTML = incs.map(i => {
+    const opts = ['investigating', 'identified', 'monitoring', 'resolved']
+      .map(s => `<option value="${s}" ${i.status === s ? 'selected' : ''}>${s}</option>`).join('');
+    return `<div class="dash-card mb-8"><div class="row-6-center"><span class="fw-500 fs-13 ellipsis flex-1">${escHtml(i.title)} <span class="meta-sm-nm">${escHtml(i.impact)}</span></span>`
+      + `<select class="form-input" data-inc-status="${escAttr(i.id)}" aria-label="Incident status">${opts}</select>`
+      + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteIncident" data-arg="${escAttr(i.id)}">Delete</button></div>`
+      + `<div class="row-6-center mt-6"><input type="text" class="form-input flex-1" data-inc-update="${escAttr(i.id)}" maxlength="4000" placeholder="Post an update…"><button class="btn-secondary cell-sm" data-action="updateIncident" data-arg="${escAttr(i.id)}">Update</button></div></div>`;
+  }).join('');
+}
+async function postIncident() {
+  const title = (document.getElementById('incident-title')?.value || '').trim();
+  if (!title) { toast('Title required', 'error'); return; }
+  const body = {
+    title,
+    impact: document.getElementById('incident-impact')?.value || 'minor',
+    status: document.getElementById('incident-status')?.value || 'investigating',
+    body: document.getElementById('incident-body')?.value || '',
+  };
+  const r = await api('POST', '/incidents', body);
+  if (r && r.ok) {
+    toast('Incident posted', 'success');
+    ['incident-title', 'incident-body'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    loadIncidents();
+  } else toast(r?.error || 'Failed', 'error');
+}
+async function updateIncident(iid) {
+  const status = document.querySelector(`[data-inc-status="${CSS.escape(iid)}"]`)?.value || '';
+  const body = document.querySelector(`[data-inc-update="${CSS.escape(iid)}"]`)?.value || '';
+  const r = await api('PATCH', '/incidents/' + encodeURIComponent(iid), { status, body });
+  if (r && r.ok) { toast('Incident updated', 'success'); loadIncidents(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function deleteIncident(iid) {
+  if (!confirm('Delete this incident?')) return;
+  const r = await api('DELETE', '/incidents/' + encodeURIComponent(iid));
+  if (r && r.ok) { toast('Incident deleted', 'success'); loadIncidents(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+async function saveIncidentRecipients() {
+  const v = document.getElementById('cfg-incident-recipients')?.value || '';
+  const r = await api('POST', '/config', { status_incident_recipients: v });
+  if (r && !r.error) toast('Subscribers saved', 'success');
+  else toast(r?.error || 'Failed', 'error');
 }
 
 function _renderSpShare(data) {

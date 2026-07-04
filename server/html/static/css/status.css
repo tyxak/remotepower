@@ -161,6 +161,7 @@ body.status-page {
 .status-incident-main { min-width: 0; }
 .status-incident-name { font-weight: 500; }
 .status-incident-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.status-incident-body { font-size: 13px; margin-top: 4px; white-space: pre-wrap; }
 
 /* Footer + misc ------------------------------------------------------------ */
 .status-foot {
