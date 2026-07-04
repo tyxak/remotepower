@@ -274,6 +274,62 @@ function _loadNoVncOnce() {
   return _vncRfbLoaded;
 }
 
+// W6-49: RDP tunnel — mint a session, then bridge it to a local port.
+function openRdp(id, name) {
+  const dev = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === id);
+  document.getElementById('rdp-device-id').value = id;
+  document.getElementById('rdp-host').value = dev?.ip || '';
+  document.getElementById('rdp-user').value = '';
+  document.getElementById('rdp-port').value = 22;
+  document.getElementById('rdp-target-port').value = 3389;
+  document.getElementById('rdp-local-port').value = 3389;
+  document.getElementById('rdp-ssh-pw').value = '';
+  document.getElementById('rdp-admin-pw').value = '';
+  ['rdp-error', 'rdp-result'].forEach(x => document.getElementById(x)?.classList.add('hidden'));
+  document.querySelector('#rdp-modal .modal-title').textContent = `RDP tunnel — ${name}`;
+  openModal('rdp-modal');
+}
+async function rdpConnect() {
+  const id = document.getElementById('rdp-device-id').value;
+  const host = document.getElementById('rdp-host').value.trim();
+  const user = document.getElementById('rdp-user').value.trim();
+  const sshPort = parseInt(document.getElementById('rdp-port').value) || 22;
+  const rdpPort = parseInt(document.getElementById('rdp-target-port').value) || 3389;
+  const localPort = parseInt(document.getElementById('rdp-local-port').value) || 3389;
+  const sshPw = document.getElementById('rdp-ssh-pw').value;
+  const adminPw = document.getElementById('rdp-admin-pw').value;
+  const errEl = document.getElementById('rdp-error');
+  const resEl = document.getElementById('rdp-result');
+  errEl.classList.add('hidden');
+  if (!host || !user || !sshPw || !adminPw) {
+    errEl.textContent = 'All fields are required.'; errEl.classList.remove('hidden'); return;
+  }
+  const btn = document.getElementById('rdp-connect-btn');
+  btn.disabled = true; btn.textContent = 'Authenticating…';
+  let r;
+  try {
+    r = await api('POST', '/webterm/auth', { device_id: id, admin_password: adminPw, intent: 'rdp' });
+  } catch (e) { r = null; }
+  btn.disabled = false; btn.textContent = 'Start tunnel';
+  if (!r || !r.ticket) {
+    errEl.textContent = (r && r.error) || 'Could not mint a session ticket.'; errEl.classList.remove('hidden'); return;
+  }
+  // The daemon endpoint + the ticket + the SSH/RDP params are what a local
+  // bridge needs to expose localhost:<localPort>. We can't open a port on your
+  // machine from the browser, so show the exact bridge invocation + next step.
+  const daemon = r.daemon_url || '/api/webterm/connect';
+  const wsUrl = daemon.startsWith('/') ? `${location.origin.replace(/^http/, 'ws')}${daemon}` : daemon;
+  const bridge = `remotepower-rdp-bridge --url '${wsUrl}' --ticket '${r.ticket}' \\\n`
+    + `  --ssh-host '${host}' --ssh-port ${sshPort} --ssh-user '${user}' \\\n`
+    + `  --rdp-port ${rdpPort} --local-port ${localPort}`;
+  resEl.innerHTML = `<div class="c-green fs-13 mb-6">Session ready (expires shortly). Do these two steps on your own machine:</div>`
+    + `<ol class="fs-13 pl-16"><li>Run the bridge (it opens <code>localhost:${localPort}</code> and pumps it over the authenticated SSH tunnel):`
+    + `<pre class="ff-mono fs-12 code-block mt-4">${escHtml(bridge)}</pre></li>`
+    + `<li>Point your RDP client at it: <code>mstsc /v:localhost:${localPort}</code> (Windows) or Remmina → <code>localhost:${localPort}</code>. Enter the Windows host's own credentials in the RDP client.</li></ol>`
+    + `<div class="hint mt-4">The RDP port stays loopback-only on the host; the SSH tunnel is the sole path. The session ticket is single-use and short-lived.</div>`;
+  resEl.classList.remove('hidden');
+}
+
 function openVnc(id, name) {
   const dev = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === id);
   document.getElementById('vnc-device-id').value = id;

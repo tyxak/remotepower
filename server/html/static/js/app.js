@@ -3137,6 +3137,8 @@ async function loadSettings() {
   // v3.14.0 #35: secrets-on-disk scanning
   const _imgEn = document.getElementById('cfg-image-scan-enabled');   // W6-34
   if (_imgEn) _imgEn.checked = !!data.image_scan_enabled;
+  const _rdpEn = document.getElementById('cfg-rdp-enabled');          // W6-49
+  if (_rdpEn) _rdpEn.checked = !!data.rdp_enabled;
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
     _secEn.checked = !!data.secrets_scan_enabled;
@@ -3628,6 +3630,9 @@ async function saveSettings(btn) {
   // W6-34: container-image CVE scanning (trivy)
   const _imgSaveEn = document.getElementById('cfg-image-scan-enabled');
   if (_imgSaveEn) payload.image_scan_enabled = _imgSaveEn.checked;
+  // W6-49: RDP tunnelling
+  const _rdpSaveEn = document.getElementById('cfg-rdp-enabled');
+  if (_rdpSaveEn) payload.rdp_enabled = _rdpSaveEn.checked;
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {
@@ -16825,6 +16830,7 @@ function _renderDrawerActions() {
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
     ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
     ['tv',        'Remote desktop',  () => { closeDeviceDrawer(); openVnc(id, name); },                                                                                           false, false],
+    ['monitor',   'RDP (Windows)',   () => { closeDeviceDrawer(); openRdp(id, name); },                                                                                           false, false],
     ['hardDrive', 'Files',           () => { closeDeviceDrawer(); openFiles(id, name); },                                                                                         false, false],
     ['users',     'Users & keys',    () => { closeDeviceDrawer(); openUserMgmt(id, name); },                                                                                      false, agentless],
     ['shield',    'Firewall',        () => { closeDeviceDrawer(); openFirewall(id, name); },                                                                                      false, agentless],

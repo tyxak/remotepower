@@ -13965,6 +13965,13 @@ def handle_webterm_auth():
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
 
+    # W6-49: RDP-tunnel intent is gated behind an explicit opt-in — it exposes a
+    # native-RDP bridge (mstsc/Remmina to localhost:PORT), not an in-browser
+    # client, and is off by default.
+    _intent = str(body.get('intent', '')).strip().lower()
+    if _intent == 'rdp' and not load(CONFIG_FILE).get('rdp_enabled'):
+        respond(403, {'error': 'RDP tunnelling is disabled. Enable it in Settings → Security.'})
+
     # Re-verify the admin's password
     users = load(USERS_FILE)
     user = users.get(actor)
@@ -19356,6 +19363,7 @@ def handle_config_get():
     # v3.14.0 #35: secrets scanning — opt-in, default off.
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
+    safe.setdefault('rdp_enabled', False)          # W6-49
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
@@ -20317,6 +20325,8 @@ def handle_config_save():
         cfg['secrets_scan_enabled'] = bool(body['secrets_scan_enabled'])
     if 'image_scan_enabled' in body:      # W6-34: opt-in trivy image CVE scan
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
+    if 'rdp_enabled' in body:             # W6-49: opt-in RDP tunnelling
+        cfg['rdp_enabled'] = bool(body['rdp_enabled'])
     if 'secrets_scan_paths' in body:
         raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
         paths = []

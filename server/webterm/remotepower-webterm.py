@@ -394,11 +394,15 @@ class WebtermSession:
         # 'vnc' → tunnel an RFB stream from the host's loopback VNC server
         # over the same SSH connection (no extra inbound firewall rules).
         mode = (creds.get('mode') or 'pty').strip().lower()
-        if mode not in ('pty', 'vnc', 'sftp'):
+        if mode not in ('pty', 'vnc', 'sftp', 'rdp'):
             mode = 'pty'
         vnc_port = creds.get('vnc_port', 5900)
         if not isinstance(vnc_port, int) or not (1 <= vnc_port <= 65535):
             vnc_port = 5900
+        # W6-49: RDP tunnel — same loopback-over-SSH bridge as VNC, to 3389.
+        rdp_port = creds.get('rdp_port', 3389)
+        if not isinstance(rdp_port, int) or not (1 <= rdp_port <= 65535):
+            rdp_port = 3389
 
         await self._send_json(websocket, {'type': 'connecting'})
 
@@ -447,6 +451,21 @@ class WebtermSession:
             self.reason = 'vnc'
             try:
                 await self._run_vnc(websocket, ssh_conn, vnc_port)
+            finally:
+                try:
+                    ssh_conn.close()
+                except Exception:
+                    pass
+            return
+
+        # W6-49: RDP mode — bridge the host's loopback 3389 over this SSH
+        # connection as a raw byte stream (same mechanism as VNC). A local
+        # operator-side bridge exposes it as localhost:<port> for mstsc/Remmina;
+        # there is deliberately no in-browser RDP client.
+        if mode == 'rdp':
+            self.reason = 'rdp'
+            try:
+                await self._run_raw_tunnel(websocket, ssh_conn, rdp_port, 'RDP')
             finally:
                 try:
                     ssh_conn.close()
@@ -571,7 +590,15 @@ class WebtermSession:
                 pass
 
     async def _run_vnc(self, websocket, ssh_conn, vnc_port):
-        """v3.5.0: bridge a host-loopback VNC server to the browser over SSH.
+        """v3.5.0: bridge a host-loopback VNC server to the browser over SSH."""
+        await self._run_raw_tunnel(websocket, ssh_conn, vnc_port, 'VNC')
+
+    async def _run_raw_tunnel(self, websocket, ssh_conn, vnc_port, _label='VNC'):
+        """v3.5.0 / W6-49: bridge a host-loopback TCP service to the WebSocket
+        over SSH — a dumb bidirectional byte pump. Used for VNC (noVNC in the
+        browser) and RDP (an operator-side bridge exposes localhost:PORT for a
+        native RDP client). The service listens on loopback only; the SSH tunnel
+        is the sole access path, inheriting SSH's auth + encryption.
 
         Opens a direct-TCP channel through the existing SSH connection to
         ``127.0.0.1:<vnc_port>`` on the remote host, then pumps raw RFB bytes
@@ -588,15 +615,15 @@ class WebtermSession:
                 timeout=SSH_CONNECT_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            self.reason = 'vnc connect timeout'
+            self.reason = f'{_label.lower()} connect timeout'
             await self._send_json(websocket, {'type': 'error',
-                'message': f'Timed out opening VNC tunnel to 127.0.0.1:{vnc_port}'})
+                'message': f'Timed out opening {_label} tunnel to 127.0.0.1:{vnc_port}'})
             return
         except (asyncssh.Error, OSError) as e:
-            self.reason = f'vnc tunnel fail: {type(e).__name__}'
+            self.reason = f'{_label.lower()} tunnel fail: {type(e).__name__}'
             await self._send_json(websocket, {'type': 'error',
-                'message': f'No VNC server reachable on the host at 127.0.0.1:{vnc_port} '
-                           f'({str(e)[:120]}). Start a loopback-bound VNC server first.'})
+                'message': f'No {_label} service reachable on the host at 127.0.0.1:{vnc_port} '
+                           f'({str(e)[:120]}). Start a loopback-bound {_label} service first.'})
             return
 
         # Signal readiness so the browser can attach noVNC's RFB to this socket.

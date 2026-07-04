@@ -1285,6 +1285,7 @@
     "Smart groups": { "zh": "智能分组", "hi": "स्मार्ट समूह", "es": "Grupos inteligentes", "ar": "مجموعات ذكية" },
     "Site map": { "zh": "站点地图", "hi": "साइट मानचित्र", "es": "Mapa de sitios", "ar": "خريطة المواقع" },
     "Container image CVEs (trivy)": { "zh": "容器镜像 CVE (trivy)", "hi": "कंटेनर image CVEs (trivy)", "es": "CVE de imágenes de contenedor (trivy)", "ar": "ثغرات صور الحاويات (trivy)" },
+    "Start tunnel": { "zh": "启动隧道", "hi": "tunnel शुरू करें", "es": "Iniciar túnel", "ar": "بدء النفق" },
     "Racks": { "zh": "机架", "hi": "रैक", "es": "Racks", "ar": "الرفوف" },
     "IP address management": { "zh": "IP 地址管理", "hi": "IP पता प्रबंधन", "es": "Gestión de direcciones IP", "ar": "إدارة عناوين IP" },
     "Suggested physical links (LLDP)": { "zh": "建议的物理链路 (LLDP)", "hi": "सुझाए गए भौतिक लिंक (LLDP)", "es": "Enlaces físicos sugeridos (LLDP)", "ar": "الروابط المادية المقترحة (LLDP)" },

@@ -2012,6 +2012,7 @@
             <p class="hint">When enabled, agents scan the paths below for exposed secrets (private keys, API tokens, passwords) and raise a <em>secret_exposed</em> alert when a new one appears. <strong>Off by default</strong> — it reads files and is heavier than other checks. The scan is <strong>redacting by design</strong>: the agent never sends a secret's value, only its type, location, a masked preview and a fingerprint. Findings appear on the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page, where you can mute false positives.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only; feature-invisible on hosts without trivy)</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-rdp-enabled"> Allow RDP tunnelling (device drawer → RDP): mints a session that bridges the host's loopback 3389 over SSH to a local port for mstsc/Remmina — no in-browser client. Off by default.</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
@@ -7117,6 +7118,38 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="modal-actions">
       <button class="btn-secondary" data-action="closeModal" data-arg="vnc-modal" >Cancel</button>
       <button class="btn-primary" id="vnc-connect-btn" data-action="vncConnect" >Connect</button>
+    </div>
+  </div>
+</div>
+<!-- W6-49: RDP tunnel (mints a ticket; operator bridges to localhost:PORT) -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="rdp-modal-title" id="rdp-modal">
+  <div class="modal">
+    <div class="modal-title" id="rdp-modal-title">RDP tunnel</div>
+    <div class="modal-subtitle">Tunnels the host's loopback RDP (3389) over the authenticated SSH tunnel — the RDP port is never network-exposed. There is no in-browser RDP client: this mints a session, then you bridge it to a local port and connect mstsc / Remmina to <code>localhost:PORT</code>. Credentials are not stored.</div>
+    <input type="hidden" id="rdp-device-id">
+    <div class="form-group"><label for="rdp-host" class="form-label">SSH host</label>
+      <input type="text" id="rdp-host" class="form-input" placeholder="10.0.0.4"></div>
+    <div class="row-8">
+      <div class="form-group"><label for="rdp-user" class="form-label">SSH user</label>
+        <input type="text" id="rdp-user" class="form-input" placeholder="root" autocomplete="username"></div>
+      <div class="form-group flex-1"><label for="rdp-port" class="form-label">SSH port</label>
+        <input type="number" id="rdp-port" class="form-input" value="22" min="1" max="65535"></div>
+      <div class="form-group flex-1"><label for="rdp-target-port" class="form-label">RDP port</label>
+        <input type="number" id="rdp-target-port" class="form-input" value="3389" min="1" max="65535"></div>
+      <div class="form-group flex-1"><label for="rdp-local-port" class="form-label">Local port</label>
+        <input type="number" id="rdp-local-port" class="form-input" value="3389" min="1" max="65535"></div>
+    </div>
+    <div class="form-group"><label for="rdp-ssh-pw" class="form-label">SSH password</label>
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="rdp-ssh-pw" class="form-input" autocomplete="new-password"></form></div>
+    <div class="form-group">
+      <label for="rdp-admin-pw" class="form-label">Your RemotePower admin password</label>
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="rdp-admin-pw" class="form-input" autocomplete="current-password"></form>
+    </div>
+    <div id="rdp-error" class="hidden c-red fs-13 mb-8"></div>
+    <div id="rdp-result" class="hidden"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-action="closeModal" data-arg="rdp-modal">Cancel</button>
+      <button class="btn-primary" id="rdp-connect-btn" data-action="rdpConnect">Start tunnel</button>
     </div>
   </div>
 </div>
