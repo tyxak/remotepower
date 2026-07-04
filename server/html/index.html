@@ -1688,7 +1688,7 @@
           <!-- v3.14.0: push fleet metrics to a Prometheus Pushgateway / remote target. -->
           <div class="settings-section">
             <div class="section-title">Metrics push (Prometheus)</div>
-            <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher.</p>
+            <p class="hint">Periodically POST the fleet's Prometheus metrics (the same exposition served at <code>/api/metrics</code>) to a <strong>Pushgateway</strong> or compatible remote target — for stacks that pull from a gateway rather than scraping. Off by default. Sent through the SSRF-safe fetcher. A ready-made Grafana dashboard for this exposition ships in <a href="https://github.com/tyxak/remotepower/blob/main/contrib/grafana/remotepower-fleet.json" target="_blank" rel="noopener">contrib/grafana</a>.</p>
             <label class="click-row-6 mb-8"><input type="checkbox" id="cfg-metrics-push-enabled"> <span class="fs-14">Enable metrics push</span></label>
             <div class="settings-row">
               <div class="form-group flex-1">

@@ -222,4 +222,7 @@ Older release notes (v5.0.1 and earlier) live in
  in sync with the product (for contributors).
 - **[prometheus-metrics-sample.txt](prometheus-metrics-sample.txt)** —
  Example `/api/metrics` output for Grafana scrape config.
+- **[../contrib/grafana/](../contrib/grafana/)** — Ready-made Grafana
+ dashboard JSON for the `/api/metrics` exposition (import → pick your
+ Prometheus datasource).
 - **screenshots/** — UI screenshots referenced from the main README.
