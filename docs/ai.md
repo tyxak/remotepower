@@ -290,11 +290,19 @@ triage_cve — CVE id + package context
 investigate_device — device snapshot
 explain_alert — webhook payload
 free_form — generic, used by the AI page
-diagnose_service — failed systemd unit + logs (v2.1.5)
-explain_tls — certificate expiry / renewal (v2.1.5)
-prioritise_patches — pending updates list (v2.1.5)
-explain_container_logs — docker / podman logs (v2.1.5)
+diagnose_service — failed systemd unit + logs
+explain_tls — certificate expiry / renewal
+prioritise_patches — pending updates list
+explain_container_logs — docker / podman logs
+… and many more
 ```
+
+The registry has grown well past those originals — it now backs
+dozens of advisor cards across the proactive, incident, planning,
+natural-language-config and advisors categories (see the **AI Insights
+hub** section above, and `features.md` for the full, current set). Each
+card in the AI Insights grid maps to one `SYSTEM_PROMPTS` key, and every
+key is editable under **Settings → AI → Prompts**.
 
 ## Storage
 

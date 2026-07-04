@@ -760,25 +760,6 @@ def _tlsa_matches_cert(rec: dict, der: bytes) -> bool:
     return digest == expected_bytes
 
 
-def _flatten_dn(dn: Any) -> str:
-    """Flatten a Python ssl-style DN (tuple of tuples) to a string.
-
-    Kept for backward compatibility with older callers that may still
-    pass ssl-dict-style DNs. The current probe path uses
-    :func:`_parse_cert_der` which produces RFC 4514 strings directly.
-    """
-    if not dn:
-        return ""
-    parts = []
-    try:
-        for rdn in dn:
-            for k, v in rdn:
-                parts.append(f"{k}={v}")
-    except (TypeError, ValueError):
-        return ""
-    return ", ".join(parts)
-
-
 def status_for(result: dict, warn_days: int, crit_days: int) -> str:
     """Return 'critical' / 'warning' / 'ok' / 'error' for a probe result.
 

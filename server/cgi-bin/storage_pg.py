@@ -571,12 +571,6 @@ class _Tx:
         return False
 
 
-def _lock_key(name):
-    """Stable 64-bit advisory-lock key for a logical file name."""
-    # hashtext() is int4; advisory locks take bigint. Compute in SQL for parity.
-    return name
-
-
 def _acquire(conn, name, non_blocking, shared=False):
     """Take the per-file advisory lock inside the current transaction. In
     non_blocking mode, raise LockBusyError instead of waiting.

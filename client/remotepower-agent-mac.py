@@ -64,6 +64,15 @@ def _make_ssl_context():
 _SSL_CTX = _make_ssl_context()
 MAX_OUTPUT = 32 * 1024
 
+# No-redirect opener (parity with the Linux agent): a 3xx must never replay the
+# token-bearing POST body to a redirect host or downgrade https→http in cleartext.
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+_OPENER = urllib.request.build_opener(_NoRedirect,
+                                      urllib.request.HTTPSHandler(context=_SSL_CTX))
+
 
 def _data_dir():
     # launchd daemons run as root; fall back to the user dir for a manual run.
@@ -549,7 +558,7 @@ def _post_json(url, payload, timeout=HTTP_TIMEOUT):
     req = urllib.request.Request(url, data=data, method='POST',
                                  headers={'Content-Type': 'application/json',
                                           'User-Agent': f'RemotePower-Mac/{VERSION}'})
-    with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
+    with _OPENER.open(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
 

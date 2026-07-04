@@ -115,7 +115,7 @@ function _alertRowHtml(a, role) {
   // v5.0.0: ITSM ticket opened on ack — link straight to it.
   const ticketLink = a.ticket_ref
     ? (a.ticket_url
-        ? ` <a href="${escAttr(a.ticket_url)}" target="_blank" rel="noopener" class="patch-badge ok fs-10" title="Open the linked ticket">Ticket ${_escapeHtml(a.ticket_ref)} ↗</a>`
+        ? ` <a href="${_safeHttpHref(a.ticket_url)}" target="_blank" rel="noopener" class="patch-badge ok fs-10" title="Open the linked ticket">Ticket ${_escapeHtml(a.ticket_ref)} ↗</a>`
         : ` <span class="patch-badge ok fs-10" title="Linked ticket">Ticket ${_escapeHtml(a.ticket_ref)}</span>`)
     : '';
   return `<tr class="alerts-row${isResolved ? ' resolved' : ''}${role ? ' alert-' + role : ''}">
@@ -269,19 +269,6 @@ function mitigateAlert(id) {
                     a.device_name || a.device_id);
 }
 
-async function ackAlert(id) {
-  const body = {};
-  // v4.1.0 (#56): optional comment on ack (can be turned off in Settings).
-  if (_alertsAckCommentEnabled) {
-    const note = await uiPrompt({message: 'Add a comment to this acknowledgement (optional):', value: ''});
-    if (note === null) return;   // cancelled
-    if (note.trim()) body.note = note.trim();
-  }
-  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ack`, body);
-  if (r && r.ok) { toast('Alert acknowledged', 'success'); loadAlerts(); refreshAlertsBadge(); }
-  else toast((r && r.error) || 'Failed', 'error');
-}
-
 // v4.1.0 (#53): acknowledge every selected open alert in one call.
 async function bulkAckAlerts() {
   const ids = Array.from(document.querySelectorAll('.alerts-row-cb:checked'))
@@ -295,12 +282,6 @@ async function bulkAckAlerts() {
   }
   const r = await api('POST', '/alerts/bulk-ack', body);
   if (r && r.ok) { toast(`Acknowledged ${r.acked}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
-  else toast((r && r.error) || 'Failed', 'error');
-}
-
-async function unackAlert(id) {
-  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {});
-  if (r && r.ok) { loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
 

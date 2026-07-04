@@ -900,7 +900,7 @@ function _renderLinkCard(l) {
     // No anchor — clicks go through stopPropagation on edit buttons above.
     return cardInner;
   }
-  return `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" class="isl-501">${cardInner}</a>`;
+  return `<a href="${_safeHttpHref(l.url)}" target="_blank" rel="noopener noreferrer" class="isl-501">${cardInner}</a>`;
 }
 
 function linksToggleEditMode() {

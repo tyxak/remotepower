@@ -66,10 +66,12 @@ class TestI18nCatalog(unittest.TestCase):
     def test_sample_static_strings_translated_all_langs(self):
         region, _ = self._dict_keys()
         for src in ("Accounts", "ACME certificates"):
-            m = re.search(r'"%s":\s*\{([^}]*)\}' % re.escape(src), region)
+            # v5.8.0: keys/lang-keys may be single- OR double-quoted (the catalog
+            # mixes both styles; the dedup pass can keep either) — match agnostically.
+            m = re.search(r'''['"]%s['"]\s*:\s*\{([^}]*)\}''' % re.escape(src), region)
             self.assertIsNotNone(m, f"{src!r} not in catalog")
             for lang in ("zh", "hi", "es", "ar"):
-                self.assertRegex(m.group(1), r'"%s":\s*"[^"]+"' % lang,
+                self.assertRegex(m.group(1), r'''["']?%s["']?\s*:\s*["'][^"']+["']''' % lang,
                                  f"{src!r} missing {lang}")
 
     def test_selectors_broadened(self):

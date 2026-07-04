@@ -52,18 +52,44 @@ glance which are which.
 - **Audit log** — creation, deletion, credential operations are
   all logged.
 
-## What doesn't work
+## Reachability and health
 
-- **Sysinfo, services, packages, CVE scanning, update logs,
-  patches, monitoring graphs, custom exec, container listing,
-  agent self-update.** All of these require an agent posting
-  data, and there isn't one.
-- **Online/offline detection.** There's no probing in v1.11.0 —
-  status is whatever you set in the `manual_status` field
-  (defaults to True). If a device's status is wrong, edit it.
-- **Wake-on-LAN.** Could in theory work for devices on the same
-  L2 segment as a host that's running an agent, but isn't wired
-  up in v1.11.0. Use the host's WoL feature if you have it.
+Agentless devices don't run an agent, but RemotePower can still tell
+whether they're up and read a handful of basic facts about them —
+without anything installed on the device.
+
+- **ICMP reachability (default).** Every agentless device with an IP or
+  hostname is pinged on a cadence (roughly once a minute). When a device
+  stops responding it flips to offline and fires **`device_offline`**;
+  when it comes back it fires **`device_online`**. The transition is
+  debounced (a couple of consecutive misses) so a single dropped packet
+  doesn't page you. Set a device's reachability mode to **manual** for
+  hosts that block ping — then status is whatever you set in the Up/Down
+  control (`manual_status`, defaults to up) and RemotePower won't probe.
+- **SNMP polling (opt-in).** Point a device at an SNMP endpoint and
+  RemotePower polls it on a schedule for reachability plus a set of basic
+  facts. Losing contact fires **`snmp_unreachable`**; recovering fires
+  **`snmp_recover`**. Both **SNMPv2c** (community string) and, as of
+  v5.8.0, **SNMPv3 / USM** (per-user auth + AES privacy) are supported.
+  A poll reads the standard system group and host-resource OIDs, so you
+  get **sysName / sysDescr / sysUpTime / sysContact**, CPU load across
+  processors, memory usage, filesystem-like storage entries, and some
+  vendor extras (e.g. MikroTik board/CPU temperatures) surfaced on the
+  device card. See the [SNMP walkthrough](cookbook.md#watch-an-agentless-device-with-snmp)
+  for setup.
+
+Unmonitored agentless devices are still probed and polled (so you keep
+rolling status and uptime history), but they stay silent — no webhooks.
+
+## What still doesn't work
+
+- **Full sysinfo, services, packages, CVE scanning, update logs,
+  patches, resource graphs, custom exec, container listing, agent
+  self-update.** These need an agent posting rich telemetry, and there
+  isn't one — SNMP polling only covers the basic facts listed above.
+- **Wake-on-LAN.** Could in theory work for devices on the same L2
+  segment as a host that's running an agent, but isn't wired up here.
+  Use the host's WoL feature if you have it.
 
 ---
 
@@ -126,20 +152,26 @@ to `AGENTLESS_DEVICE_TYPES` in `server/cgi-bin/api.py`.
 
 ---
 
-## Future ideas (not in v1.11.0)
+## Already shipped since v1.11.0
 
-These keep coming up and aren't shipped:
+Several things this page once listed as "future ideas" are now live:
 
-- **HTTP/ICMP probing** for agentless devices to set
-  `manual_status` automatically. Decided against for v1.11.0
-  because probing means cron jobs and outbound network
-  permissions, and the user said no probing. May come back as
-  opt-in.
-- **Auto-import from your switch** via SNMP / LLDP / CDP.
-  Real-network-monitoring territory; out of scope.
-- **Bulk-add** from a CSV. Useful if you have 50 IoT devices to
-  enrol at once. Possible v1.12.0 candidate.
-- **HTTP launch** button alongside SSH link, for things like
-  Unifi controllers and printer admin pages. Reasonable to add
-  later — the data is there (`hypervisor_url` works for any
-  HTTP admin URL), just no UI affordance for it yet.
+- **ICMP reachability + SNMP polling** — agentless devices are pinged on
+  a cadence and can be polled over SNMP (v2c or SNMPv3/USM) for status
+  and basic facts, instead of relying solely on the manual Up/Down flag.
+  See **Reachability and health** above.
+- **Watch with ping/HTTP monitors** — any agentless device can also be
+  targeted by a standard ping or HTTP monitor from the Monitors page, on
+  top of the built-in reachability sweep.
+
+## Still on the wish list
+
+- **Auto-import from your switch** via SNMP walk / LLDP / CDP topology
+  discovery. Manual SNMP polling of a known device is supported;
+  auto-discovering neighbours from it is not.
+- **Bulk-add** from a CSV. Useful if you have 50 IoT devices to enrol at
+  once.
+- **HTTP launch** button alongside SSH link, for things like UniFi
+  controllers and printer admin pages. The data is there
+  (`hypervisor_url` works for any HTTP admin URL); it just doesn't have a
+  dedicated one-click affordance yet.

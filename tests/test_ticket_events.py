@@ -63,6 +63,7 @@ class TestLifecycle(unittest.TestCase):
         self.cap = {}
         self._respond = api.respond
         self._auth = api.require_auth
+        self._wrole = api.require_write_role
 
         def fake_respond(status, body):
             self.cap['s'] = status
@@ -70,10 +71,14 @@ class TestLifecycle(unittest.TestCase):
             raise SystemExit(0)
         api.respond = fake_respond
         api.require_auth = lambda *a, **k: 'tester'
+        # v5.8.0: ticket create/update/hours now gate on require_write_role
+        # (read-only roles must not mutate helpdesk/billing state) — stub it too.
+        api.require_write_role = lambda *a, **k: 'tester'
 
     def tearDown(self):
         api.respond = self._respond
         api.require_auth = self._auth
+        api.require_write_role = self._wrole
 
     def _create_ticket(self, subject='disk broken'):
         api.method = lambda: 'POST'

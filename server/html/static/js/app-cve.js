@@ -164,12 +164,6 @@ function aiTriageCve(cveId, packageName, version, deviceName, description) {
   });
 }
 
-function _cveBtn(event, fn) {
-  event.stopPropagation();
-  event.preventDefault();
-  fn();
-}
-
 async function unignoreCVE(vulnId) {
   if (!await uiConfirm(`Stop ignoring ${vulnId}? It will count as a finding again.`)) return;
   const r = await api('DELETE', '/cve/ignore/' + encodeURIComponent(vulnId)).catch(() => null);

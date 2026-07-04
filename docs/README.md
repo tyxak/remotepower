@@ -43,7 +43,13 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-5.6.0.md](security-review-5.6.0.md)** — Latest review:
+- **[security-review-5.8.0.md](security-review-5.8.0.md)** — Latest review:
+ the v5.8.0 "WatchMatters" line plus a whole-project, eight-stream manual audit,
+ the full SAST stack (CodeQL 0, Bandit/gitleaks clean) and a live authenticated
+ penetration test — no Critical/High/Medium ships; two Medium read-only-role write
+ gates plus Low/defense-in-depth fixes (agent no-redirect, file-manager resolved
+ path, `javascript:` link scheme, scrub/arg-terminator hardening).
+- **[security-review-5.6.0.md](security-review-5.6.0.md)** — A prior review:
  the v5.6.0 "HeapMatters" line (knowledge base, automation actions, check
  catalog + `systemd_unit`, recover events) plus a 5-dimension manual pentest and
  the full SAST stack (CodeQL 0, Bandit/gitleaks/njsscan/pip-audit clean) — no
@@ -56,10 +62,6 @@ holds long-form docs that don't fit there.
  (CodeQL + Bandit + semgrep + gitleaks, all clean) and a live authenticated
  penetration test — no Critical/High/Medium ships; a High drift-authz fix, two Medium
  fixes (DMARC entity-guard window, AI-provider HTTP SSRF) and a Low secret-URL fix.
-- **[security-review-5.3.0.md](security-review-5.3.0.md)** — A prior review:
- the built-in ticket system + Contacts directory plus a whole-project audit and a
- live authenticated penetration test — a Medium strict-mode alert-permission fix
- and a Low email-header-injection hardening.
 
 ## Release notes
 

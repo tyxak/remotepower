@@ -1498,10 +1498,10 @@ def run_agentless_reachability_if_due():
     agentless devices, so this is the only place agentless up/down is
     decided — no double-firing.
     """
-    cfg = load(CONFIG_FILE)
+    _ro = _config_ro()   # v5.8.0 (PERF): no-deepcopy not-due gate
     now = int(time.time())
-    last = int(cfg.get('last_agentless_ping', 0))
-    interval = max(30, int(cfg.get('agentless_ping_interval', AGENTLESS_PING_INTERVAL)))
+    last = int(_ro.get('last_agentless_ping', 0))
+    interval = max(30, int(_ro.get('agentless_ping_interval', AGENTLESS_PING_INTERVAL)))
     if (now - last) < interval:
         return
     devs = load(DEVICES_FILE)
@@ -1510,6 +1510,7 @@ def run_agentless_reachability_if_due():
                and (d.get('ip') or d.get('hostname') or d.get('host'))]
     if not targets:
         return
+    cfg = load(CONFIG_FILE)
     cfg['last_agentless_ping'] = now
     save(CONFIG_FILE, cfg)
 
@@ -1566,10 +1567,10 @@ def run_routeros_update_check_if_due():
     routeros-enabled devices, so the Patches page shows it without a live
     fetch. Cheap-when-not-due; bounded per run. check-for-updates is safe
     (no reboot)."""
-    cfg = load(CONFIG_FILE)
+    _ro = _config_ro()   # v5.8.0 (PERF): no-deepcopy not-due gate
     now = int(time.time())
-    last = int(cfg.get('last_routeros_update_check', 0))
-    interval = max(3600, int(cfg.get('routeros_update_interval', ROUTEROS_UPDATE_INTERVAL)))
+    last = int(_ro.get('last_routeros_update_check', 0))
+    interval = max(3600, int(_ro.get('routeros_update_interval', ROUTEROS_UPDATE_INTERVAL)))
     if (now - last) < interval:
         return
     devs = load(DEVICES_FILE)
@@ -1577,6 +1578,7 @@ def run_routeros_update_check_if_due():
                if (d.get('routeros') or {}).get('enabled')]
     if not targets:
         return
+    cfg = load(CONFIG_FILE)
     cfg['last_routeros_update_check'] = now
     save(CONFIG_FILE, cfg)
     import routeros as routeros_mod
@@ -5905,7 +5907,21 @@ def _record_fleet_event(event, payload):
                     'number', 'subject', 'ticket_id', 'source', 'status',
                     'priority', 'assignee', 'resolved_by',
                     # v5.8.0: github_new_issue feed items name the repo/issue.
-                    'repo', 'title', 'url', 'label'):
+                    'repo', 'title', 'url', 'label',
+                    # v5.8.0: feed-detail fields read by the activity-feed row
+                    # renderer (app.js _homeActivityAttrs / detail line). Dropped
+                    # here they rendered as blank/undefined detail text even though
+                    # the fire sites send them. (Arrays like drift `sections` /
+                    # log-alert `sample` are deliberately left out to keep the feed
+                    # log compact; the renderer already falls back for those.)
+                    'user', 'fingerprint',              # ssh_key_added
+                    'source_ip', 'count',               # brute_force_detected / log_alert
+                    'vm_name', 'snap_name', 'days_old',  # snapshot_old
+                    'days_left',                        # tls_expiry
+                    'age_hours',                        # backup_stale
+                    'process',                          # new_port_detected
+                    'ip', 'blocklists',                 # ip_blacklisted / cleared
+                    'rtype', 'target'):                 # resolver_unhealthy / recovered
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -11490,7 +11506,7 @@ def handle_device_fail2ban_action(dev_id):
     jail = str(body.get('jail', '')).strip()
     if action not in ('ban', 'unban', 'enable', 'disable'):
         respond(400, {'error': 'action must be ban, unban, enable or disable'})
-    if not _FW_JAIL_RE.match(jail) or len(jail) > 64:
+    if not _FW_JAIL_RE.fullmatch(jail) or len(jail) > 64:
         respond(400, {'error': 'invalid jail name'})
     if action in ('ban', 'unban'):
         import ipaddress
@@ -16454,19 +16470,23 @@ def _poll_one_integration(inst):
 
 def run_integrations_if_due():
     """Poll all enabled integrations when the cadence is due. Cheap when not."""
-    cfg = load(CONFIG_FILE)
+    # v5.8.0 (PERF): gate the common not-due path on the shared cached config
+    # (_config_ro, no per-hit deepcopy). This runs from main() on every request;
+    # only re-load a mutable copy once we've decided to actually poll + save.
+    _ro = _config_ro()
     # "Show Homelab software" off (enterprise declutter) disables the feature
     # WHOLESALE — no polling, so no integration_down alerts either, not just a
     # hidden UI. Turning it back on resumes polling on the next cycle.
-    if cfg.get('show_homelab', True) is False:
+    if _ro.get('show_homelab', True) is False:
         return
-    insts = [i for i in _get_integrations(cfg) if isinstance(i, dict) and i.get('enabled')]
-    if not insts:
-        return
-    interval = max(60, int(cfg.get('integrations_interval', 300) or 300))
-    last_run = int(cfg.get('last_integrations_run', 0) or 0)
+    interval = max(60, int(_ro.get('integrations_interval', 300) or 300))
+    last_run = int(_ro.get('last_integrations_run', 0) or 0)
     now = int(time.time())
     if (now - last_run) < interval:
+        return
+    cfg = load(CONFIG_FILE)   # due: mutable copy for the slot claim + save
+    insts = [i for i in _get_integrations(cfg) if isinstance(i, dict) and i.get('enabled')]
+    if not insts:
         return
     # Claim the slot before the (slow) network work so concurrent requests skip.
     cfg['last_integrations_run'] = now
@@ -16963,8 +16983,11 @@ def _get_ssl_context():
 # whole-word suffixes so non-secret siblings survive — `proxmox_token_id`,
 # `oidc_client_id`, and every `*_set` / `*_from_env` indicator do NOT match.
 _SECRET_KEY_RE = re.compile(
-    r'(?:^|_)(?:password|passwd|secret|apikey|api_key|access_token|'
-    r'refresh_token|private_key|credentials|token)$', re.I)
+    # v5.8.0 (SECURITY): keep this backstop in step with the encrypt-walk set
+    # (_CONFIG_SECRET_NAME_RE) — it gained passphrase/community/bearer so a future
+    # global config key ending in one of those can't slip past the recursive scrub.
+    r'(?:^|_)(?:password|passwd|passphrase|secret|apikey|api_key|access_token|'
+    r'refresh_token|private_key|credentials|community|bearer|token)$', re.I)
 
 
 def _scrub_config_secrets(obj, stripped=None):
@@ -28746,7 +28769,11 @@ def handle_runbook_get(dev_id):
 def handle_runbook_generate(dev_id):
     """Generate a fresh runbook for the device. Sync — model round-trip
     happens during the request, can take 15-90 s. Saves on success."""
-    actor = require_auth()
+    # v5.8.0 (SECURITY): generating a runbook overwrites the shared per-device
+    # RUNBOOKS_FILE entry AND spends AI/cost budget (a 15-90s paid LLM call), so it
+    # must be gated on a write-capable role — bare require_auth() admitted the
+    # read-only roles (viewer/mcp/auditor/finance). Matches handle_runbook_delete.
+    actor = require_write_role('generate a runbook')
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
 
@@ -32323,6 +32350,15 @@ def _maybe_sample_health(now=None):
     now = int(now or time.time())
     import datetime as _dt
     day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
+    # v5.8.0 (PERF): cheap read-only pre-gate BEFORE taking the write lock. This
+    # runs from main() on every request; health_history.json is a cold blob, so
+    # entering _LockedUpdate unconditionally did a BEGIN IMMEDIATE + full-blob
+    # rewrite on every heartbeat/poll just to re-confirm "already sampled today".
+    # The in-lock check below still guards the race (two requests racing the gate).
+    _hh = load(HEALTH_HIST_FILE) or {}
+    _hf = _hh.get('fleet') or []
+    if _hf and _hf[-1].get('date') == day:
+        return
     try:
         with _LockedUpdate(HEALTH_HIST_FILE) as store:
             fleet = store.setdefault('fleet', [])
@@ -36195,7 +36231,8 @@ def handle_patch_catalog():
     third_party = {}   # manager -> {'hosts': set, 'packages': {pkg: set(host)}}
     for dev_id, dev in devices.items():
         # Patch INVENTORY — include unmonitored hosts (the device-level Patches
-        # table already shows them with a 'silent' badge); only alerting is gated.
+        # table flags them with a 'silent' badge off the row's `monitored` field);
+        # only alerting is gated.
         if not isinstance(dev, dict):
             continue
         pkg = (dev.get('sysinfo') or {}).get('packages') or {}
@@ -36479,6 +36516,12 @@ def _maybe_sample_compliance(now=None):
     now = int(now or time.time())
     import datetime as _dt
     day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
+    # v5.8.0 (PERF): read-only pre-gate before the write lock (see
+    # _maybe_sample_health) — avoids a cold-blob rewrite on every request.
+    _ch = load(COMPLIANCE_HIST_FILE) or {}
+    _cf = _ch.get('fleet') or []
+    if _cf and _cf[-1].get('date') == day:
+        return
     try:
         with _LockedUpdate(COMPLIANCE_HIST_FILE) as store:
             fleet = store.setdefault('fleet', [])
@@ -36912,6 +36955,10 @@ def handle_patch_report():
             'tags': dev.get('tags', []),
             'os': dev.get('os', ''),
             'online': is_online,
+            # v5.8.0: unmonitored-data-visibility principle — the Patches view
+            # SHOWS unmonitored hosts but must FLAG them (the row renderer paints a
+            # "silent" badge off this, like the metrics/SNMP/exposure tables).
+            'monitored': dev.get('monitored') is not False,
             'last_seen': dev.get('last_seen', 0),
             'pkg_manager': pkg_manager,
             'upgradable': upgradable,
@@ -41414,9 +41461,8 @@ def run_snmp_polls_if_due():
     pattern as run_monitors_if_due. The next-due timestamp lives in
     CONFIG_FILE under `last_snmp_poll`.
     """
-    cfg = load(CONFIG_FILE)
     now = int(time.time())
-    last = int(cfg.get('last_snmp_poll', 0))
+    last = int(_config_ro().get('last_snmp_poll', 0))   # v5.8.0 (PERF): no-deepcopy gate
     if (now - last) < SNMP_POLL_INTERVAL:
         return
     devs = load(DEVICES_FILE)
@@ -41431,6 +41477,7 @@ def run_snmp_polls_if_due():
     if not targets:
         return
     # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire
+    cfg = load(CONFIG_FILE)
     cfg['last_snmp_poll'] = now
     save(CONFIG_FILE, cfg)
     for dev_id, dev in targets:
@@ -41491,12 +41538,12 @@ def run_image_scan_if_due():
     wall-time budget + short per-call timeout) so a heartbeat is never held
     hostage to a slow or rate-limited registry.
     """
-    cfg = load(CONFIG_FILE)
-    if not _image_scan_enabled(cfg):
+    _ro = _config_ro()   # v5.8.0 (PERF): no-deepcopy not-due gate
+    if not _image_scan_enabled(_ro):
         return
-    interval = max(3600, int(cfg.get('image_scan_interval', IMAGE_SCAN_INTERVAL)))
+    interval = max(3600, int(_ro.get('image_scan_interval', IMAGE_SCAN_INTERVAL)))
     now = int(time.time())
-    last = int(cfg.get('last_image_scan', 0))
+    last = int(_ro.get('last_image_scan', 0))
     if (now - last) < interval:
         return
     fleet = _collect_fleet_images()
@@ -41504,6 +41551,7 @@ def run_image_scan_if_due():
         return
     # Bump the marker BEFORE the network work so a parallel CGI doesn't
     # double-sweep (mirrors run_snmp_polls_if_due).
+    cfg = load(CONFIG_FILE)
     cfg['last_image_scan'] = now
     save(CONFIG_FILE, cfg)
     _scan_images(list(fleet.keys()), fleet, cfg, force=False)
@@ -49127,14 +49175,15 @@ def run_vpn_stats_if_due():
     events, and reap expired clients + tunnels. Integrations-style cadence (cheap
     when not due). Tunnel expiry is audit-log only (no event, per design);
     client transitions fire the registered events AFTER the lock."""
-    cfg = load(CONFIG_FILE) or {}
     if not backend_exists(VPN_FILE):
         return
-    interval = max(60, int(cfg.get('vpn_stats_interval', 120) or 120))
-    last = int(cfg.get('last_vpn_stats_run', 0) or 0)
+    _ro = _config_ro()   # v5.8.0 (PERF): not-due gate without the load() deepcopy
+    interval = max(60, int(_ro.get('vpn_stats_interval', 120) or 120))
+    last = int(_ro.get('last_vpn_stats_run', 0) or 0)
     now = int(time.time())
     if (now - last) < interval:
         return
+    cfg = load(CONFIG_FILE) or {}
     cfg['last_vpn_stats_run'] = now
     save(CONFIG_FILE, cfg)
     store = _vpn_load()

@@ -366,6 +366,18 @@ def _make_ssl_context():
 
 _SSL_CTX = _make_ssl_context()
 
+# No-redirect opener: the agent posts its device token + full host telemetry to the
+# server. A 3xx from the server (open-redirect, misconfig, or a downgrade to http://)
+# must NOT be followed — 307/308 would replay the credential-bearing POST body to the
+# redirect host, and an https→http hop would leak the token in cleartext. We refuse
+# every redirect (urlopen then raises HTTPError on any 3xx). Mirrors the server-side
+# no-redirect hardening on its own outbound calls (Proxmox / AI provider).
+class _NoRedirect(request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+_OPENER = request.build_opener(_NoRedirect, request.HTTPSHandler(context=_SSL_CTX))
+
 def _strip_url_scheme(url: str) -> str:
     """Remove a leading http:// or https:// scheme from a URL.
 
@@ -390,21 +402,21 @@ def http_post(url, data, timeout=10):
     req = request.Request(url, data=body,
         headers={'Content-Type': 'application/json',
                  'User-Agent': f'RemotePower-Agent/{VERSION}'})
-    with request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
+    with _OPENER.open(req, timeout=timeout) as resp:
         return json.loads(resp.read(1024 * 1024))  # cap at 1 MB
 
 def http_get(url, timeout=10):
     if not url.startswith('https://'):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     req = request.Request(url, headers={'User-Agent': f'RemotePower-Agent/{VERSION}'})
-    with request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
+    with _OPENER.open(req, timeout=timeout) as resp:
         return json.loads(resp.read(1024 * 1024))
 
 def http_get_binary(url, timeout=30):
     if not url.startswith('https://'):
         raise ValueError(f"Server URL must use HTTPS, got: {url[:32]}")
     req = request.Request(url, headers={'User-Agent': f'RemotePower-Agent/{VERSION}'})
-    with request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
+    with _OPENER.open(req, timeout=timeout) as resp:
         return resp.read(64 * 1024 * 1024)  # cap at 64 MB
 
 # ─── Credentials ───────────────────────────────────────────────────────────────
@@ -5966,7 +5978,13 @@ def _handle_file_op(cmd):
         elif op == 'write':
             content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
                        if len(bits) > 3 else '')
-            tmp = fs.with_name(fs.name + '.rp-tmp')
+            # v5.8.0 (SECURITY): mutate the REALPATH-verified target, not the raw
+            # `fs` — matching the read/list hardening. Basing the tmp on `real`
+            # means the parent dir is the already-resolved, already-allowlisted one,
+            # closing the parent-symlink TOCTOU on world-writable roots (e.g. /tmp):
+            # swapping a parent component after the realpath check can no longer
+            # redirect the root-owned write outside the allowlist.
+            tmp = real_fs.with_name(real_fs.name + '.rp-tmp')
             # O_NOFOLLOW: never follow a pre-placed symlink at the tmp path
             # (symlink-TOCTOU guard). O_TRUNC (not O_EXCL) so a stale .rp-tmp left
             # by an earlier crashed write is overwritten rather than wedging every
@@ -5976,16 +5994,19 @@ def _handle_file_op(cmd):
                 os.write(_fd, content.encode('utf-8', 'replace'))
             finally:
                 os.close(_fd)
-            os.replace(str(tmp), str(fs))   # atomic same-dir replace
+            os.replace(str(tmp), real)      # atomic same-dir replace
             res = {'path': logical, 'written': len(content)}
         elif op == 'mkdir':
-            fs.mkdir(parents=True, exist_ok=True)
+            # v5.8.0 (SECURITY): create the realpath-verified target so the parent
+            # is the allowlist-checked resolved dir, not a swappable symlink chain.
+            real_fs.mkdir(parents=True, exist_ok=True)
             res = {'path': logical, 'created': True}
         elif op == 'delete':
-            if fs.is_dir():
-                fs.rmdir()                  # only empty dirs
+            # v5.8.0 (SECURITY): delete via the realpath-verified target.
+            if real_fs.is_dir():
+                real_fs.rmdir()             # only empty dirs
             else:
-                fs.unlink()
+                real_fs.unlink()
             res = {'path': logical, 'deleted': True}
         else:
             rc, res = 1, {'error': f'unknown file op: {op}'}

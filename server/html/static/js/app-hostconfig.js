@@ -230,8 +230,6 @@ function renderCustomScriptsPage() {
   }).join('');
 }
 
-function renderCsDefinitions() { /* cards removed — table is the only view */ }
-
 function openCsOutput(scriptName, deviceName, output) {
   document.getElementById('cs-output-title').textContent = `${scriptName} — ${deviceName}`;
   document.getElementById('cs-output-body').textContent = output || '(no output)';
@@ -671,10 +669,6 @@ function hcRemoveUser(idx) {
     const btn = c.querySelector('button[data-action="hcRemoveUser"]');
     if (btn) btn.dataset.arg = i;
   });
-}
-
-function hcUserField(idx, el) {
-  // Live update handled at save time — no-op here, just for symmetry
 }
 
 function _hcCollectUsers() {

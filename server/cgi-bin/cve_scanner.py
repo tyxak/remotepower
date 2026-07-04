@@ -681,8 +681,10 @@ def _dpkg_ge(installed: str, fixed: str) -> bool:
         # No dpkg on this box — signal "can't tell" to the caller
         raise RuntimeError('dpkg not available for version comparison')
     # `dpkg --compare-versions A ge B` exits 0 if A >= B, 1 otherwise.
+    # v5.8.0: `--` terminates option parsing so a version string beginning with
+    # '-' can't be mistaken for a dpkg flag and skew the comparison (integrity).
     rc = subprocess.run(
-        [exe, '--compare-versions', installed, 'ge', fixed],
+        [exe, '--compare-versions', '--', installed, 'ge', fixed],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         timeout=5,
     ).returncode

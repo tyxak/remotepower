@@ -14,12 +14,6 @@ let calSelectedColor = 'blue';
 const CAL_COLORS = ['blue', 'green', 'amber', 'red', 'purple', 'teal', 'slate'];
 function calSafeColor(c) { return CAL_COLORS.includes(c) ? c : 'blue'; }
 
-function calMonthBounds(d) {
-  const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0);
-  const end   = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
-  return [start, end];
-}
-
 function calFmtMonthTitle(d) {
   return d.toLocaleString(undefined, {month: 'long', year: 'numeric'});
 }

@@ -239,8 +239,10 @@ class TestEventWiring(unittest.TestCase):
         src = (_CGI / 'api.py').read_text()
         # _record_alert + _record_fleet_event summaries must keep repo/title/url
         # or the inbox/feed rows render empty (whitelists are silent when missed).
+        # v5.8.0: the fleet-event whitelist was extended past 'label' with more
+        # feed-detail fields, so it no longer closes on 'label'):.
         self.assertIn("'repo', 'title', 'url'):", src)
-        self.assertIn("'repo', 'title', 'url', 'label'):", src)
+        self.assertIn("'repo', 'title', 'url', 'label',", src)
 
 
 if __name__ == '__main__':

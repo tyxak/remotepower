@@ -29,12 +29,14 @@ class _Resp(Exception):
 class TicketResolvesAlert(unittest.TestCase):
     def setUp(self):
         self._orig = (api.respond, api.method, api.require_auth,
-                      api.get_json_obj, api._tickets_enabled)
+                      api.get_json_obj, api._tickets_enabled, api.require_write_role)
 
         def _respond(code, body=None):
             raise _Resp(code, body)
         api.respond = _respond
         api.require_auth = lambda *a, **k: 'tester'
+        # v5.8.0: ticket create/update/hours gate on require_write_role now.
+        api.require_write_role = lambda *a, **k: 'tester'
         api._tickets_enabled = lambda: True
         # clean stores
         api.save(api.ALERTS_FILE, {'alerts': []})
@@ -42,7 +44,7 @@ class TicketResolvesAlert(unittest.TestCase):
 
     def tearDown(self):
         (api.respond, api.method, api.require_auth,
-         api.get_json_obj, api._tickets_enabled) = self._orig
+         api.get_json_obj, api._tickets_enabled, api.require_write_role) = self._orig
 
     def _seed(self, ticket, alerts):
         api.save(api.ALERTS_FILE, {'alerts': alerts})

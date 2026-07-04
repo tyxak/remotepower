@@ -314,7 +314,7 @@ function cmdbRenderTable(rows) {
   }
   tbody.innerHTML = rows.map(r => {
     const hyp = r.hypervisor_url
-      ? `<a href="${_cmdbEsc(r.hypervisor_url)}" target="_blank" rel="noopener" class="c-accent-12">open ↗</a>`
+      ? `<a href="${_safeHttpHref(r.hypervisor_url)}" target="_blank" rel="noopener" class="c-accent-12">open ↗</a>`
       : '<span class="hint">—</span>';
     const envColor = { prod: 'var(--red)', staging: 'var(--amber)', dev: 'var(--muted)', test: 'var(--muted)' };
     const envPill = r.environment

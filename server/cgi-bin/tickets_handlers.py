@@ -120,7 +120,10 @@ def handle_tickets():
         A.respond(200, {'ok': True, 'tickets': out[:1000]})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    actor = A.require_auth()
+    # v5.8.0 (SECURITY): creating a ticket mutates shared helpdesk state, so it
+    # must be gated on a write-capable role — bare require_auth() admitted the
+    # read-only roles (viewer/mcp/auditor/finance). Same fix as ticket email/delete.
+    actor = A.require_write_role('open a ticket')
     body = A.get_json_obj()
     subject = A._sanitize_str(str(body.get('subject', '')), 200).strip()
     ttype = str(body.get('type', 'incident')).strip().lower()
@@ -292,7 +295,9 @@ def handle_ticket_update(tid):
         A.respond(404, {'error': 'ticket system is disabled'})
     if A.method() not in ('PATCH', 'POST'):
         A.respond(405, {'error': 'Method not allowed'})
-    actor = A.require_auth()
+    # v5.8.0 (SECURITY): updating a ticket (status/assignee/priority/messages/
+    # re-parent) mutates shared state → write-capable role, not bare require_auth().
+    actor = A.require_write_role('update a ticket')
     body = A.get_json_obj()
     now = int(time.time())
     ok = False
@@ -439,7 +444,10 @@ def handle_ticket_hours(tid):
                       'billable_hours': round(sum(r['hours'] for r in rows if r['billable']), 2)})
     if A.method() != 'POST':
         A.respond(405, {'error': 'Method not allowed'})
-    actor = A.require_auth()
+    # v5.8.0 (SECURITY): logging billable hours feeds invoices → write-capable
+    # role, not bare require_auth() (billing-integrity: read-only roles must not
+    # append time entries).
+    actor = A.require_write_role('log ticket hours')
     body = A.get_json_obj()
     if 'billable' not in body:
         body['billable'] = True   # ticket work bills by default

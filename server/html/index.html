@@ -25,9 +25,9 @@
 <link rel="preload" href="static/vendor/fonts/files/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="static/vendor/fonts/files/space-grotesk-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-11">
-<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-11">
-<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-11">
+<link rel="stylesheet" href="static/vendor/fonts/inter-jetbrains.css?v=5.8.0-12">
+<link rel="stylesheet" href="static/vendor/fonts/industrial.css?v=5.8.0-12">
+<link rel="stylesheet" href="static/css/styles.css?v=5.8.0-12">
 
 </head>
 <body>
@@ -1155,7 +1155,7 @@
         <!-- v3.14.0 (#26): interface language. i18n.js builds the <option>s and
              wires the change handler; selection persists to the user record. -->
         <div class="settings-section">
-          <h3 data-i18n="Language">Language</h3>
+          <div class="section-title" data-i18n="Language">Language</div>
           <p class="hint" data-i18n="Choose the interface language. Saved to your account and synced across devices.">Choose the interface language. Saved to your account and synced across devices.</p>
           <select id="acct-lang" class="form-input input-auto" aria-label="Interface language"></select>
         </div>
@@ -1973,7 +1973,7 @@
             <div class="settings-row"><label class="form-label" for="cfg-idle-timeout">Idle session timeout in minutes (0 = off — expire a session after this long with no activity)</label>
               <input type="number" id="cfg-idle-timeout" class="form-input mw-160" min="0" max="43200" placeholder="0"></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-sso-only"> SSO-only — refuse local-password logins when an IdP (OIDC/SAML) is configured. Flag an emergency admin with break-glass <code>local_login</code> first, or you can lock yourself out.</label></div>
-            <h3 class="mt-16">Password policy</h3>
+            <div class="section-title mt-16">Password policy</div>
             <p class="hint">Applied to new users and password changes (existing passwords are never invalidated). Opt-in — leave length at 0 to keep the current behaviour.</p>
             <div class="settings-row"><label class="form-label" for="cfg-pw-min-length">Minimum length (0 = off; 12+ recommended)</label>
               <input type="number" id="cfg-pw-min-length" class="form-input mw-160" min="0" max="256" placeholder="0"></div>
@@ -1983,7 +1983,7 @@
               <input type="number" id="cfg-max-devices" class="form-input mw-160" min="1" max="10000000" placeholder="50000"></div>
             <div class="settings-row"><label class="form-label" for="cfg-slo-target">Availability SLO target % (monitor availability + error budget, at <code>GET /api/slo</code> and as Prometheus gauges)</label>
               <input type="number" id="cfg-slo-target" class="form-input mw-160" min="50" max="99.999" step="0.01" placeholder="99.9"></div>
-            <h3 class="mt-16">Config as code</h3>
+            <div class="section-title mt-16">Config as code</div>
             <p class="hint">Download your operator-authored configuration — monitors, checks, alert/automation rules, integrations, webhook destinations, maintenance windows, backup monitors, TLS/DMARC/resolver targets and more — as one versioned JSON document. Secrets are shown as <code>(redacted)</code> and webhook URLs are collapsed to host-only, so the file is safe to commit to git for review, diffing and off-box backup.</p>
             <div class="row-6"><button class="btn-secondary" data-action="exportDeclarativeConfig">Download config-as-code (JSON)</button></div>
             <div class="settings-row mt-8">
@@ -1994,7 +1994,7 @@
             <div id="declarative-import-result" class="hint mt-6" role="status" aria-live="polite"></div>
             <p class="hint">Import previews the changes first (a per-collection add/change/remove count) — nothing is written until you confirm Apply. Redacted secrets are kept from the current config by id; webhook destinations are re-entered manually.</p>
 
-            <h3 class="mt-16">Compliance exports</h3>
+            <div class="section-title mt-16">Compliance exports</div>
             <p class="hint">The compliance evidence pack and the audit-log archive download are signed (HMAC-SHA256) with a per-install key so a tampered export is detectable. Rotate the key if it may be compromised — new exports use the new key; already-issued exports keep their original signature.</p>
             <div class="row-6"><button class="btn-secondary" data-action="rotateExportKey">Rotate export-signing key</button></div>
             <div id="export-key-result" class="hint mt-6" role="status" aria-live="polite"></div>
@@ -2305,7 +2305,7 @@
             <div class="row-6"><button class="btn-primary" data-action="saveTicketImap">Save ticket mailbox</button><button class="btn-secondary" data-action="testTicketImap">Test IMAP</button><button class="btn-secondary" data-action="sendTestTicketEmail">Send test email</button></div>
             <div id="tkimap-test-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
-            <h3 class="mt-16">Ticket auto-reply</h3>
+            <div class="section-title mt-16">Ticket auto-reply</div>
             <div class="meta-sm-nm mt-4">Send a one-time acknowledgement ("Thank you for contacting support…") when a NEW ticket is auto-created from an inbound email. Loop-safe: stamped <code>Auto-Submitted</code>, sent once per ticket, and never to no-reply / mailer-daemon / bounce senders. Requires SMTP (Notifications).</div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="tkar-enabled"> Auto-reply to new email tickets</label></div>
             <div class="settings-row"><label class="form-label" for="tkar-subject">Subject (the <code>#RP&lt;number&gt;</code> is prefixed automatically)</label><input type="text" id="tkar-subject" class="form-input" placeholder="Re: your support request" maxlength="200"></div>
@@ -2313,7 +2313,7 @@
             <div class="row-6"><button class="btn-primary" data-action="saveTicketAutoreply">Save auto-reply</button></div>
             <div id="tkar-result" class="hint mt-6" role="status" aria-live="polite"></div>
 
-            <h3 class="mt-16">Ticket SLA targets</h3>
+            <div class="section-title mt-16">Ticket SLA targets</div>
             <div class="meta-sm-nm mt-4">Response-time target per priority (hours, from ticket creation). Open tickets past their target are flagged "SLA breached".</div>
             <div class="form-row mt-8">
               <div class="form-group"><label class="form-label" for="tksla-1">P1 Major (hours)</label><input type="number" id="tksla-1" class="form-input" min="0.1" step="0.5" value="1"></div>
@@ -3097,7 +3097,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v5.8.0 tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
+          <details class="doc-card" open data-keywords="release notes changelog v5.8.0 watchmatters tls dane certificate expiry schedule scheduled scan probe cron six hours watchlist warn critical days github issues issue monitor repository repo owner watch new issue alert token private rate limit enterprise api root integration connector baseline pull request pr github_new_issue snmp snmpv3 v3 usm user auth priv authpriv md5 sha sha256 aes privacy context engine discovery agentless">
             <summary><strong>What's new — v5.8.0</strong> — TLS/DANE expiry checks now run on the server's own built-in ~6h schedule (previously cron-only), agentless devices can be polled over SNMPv3 (USM auth + AES privacy), and a new GitHub Issues connector raises an alert when a new issue is opened on a repository you watch (no breaking changes)</summary>
             <div class="doc-body">
               <p>v5.8.0 fixes a silent monitoring gap and adds SNMPv3 + a developer-facing integration. Hard-reload once after upgrading (cache <code>remotepower-shell-v5.8.0</code>).</p>
@@ -4646,7 +4646,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
 
         <div id="automation-editor" class="dash-card d-none">
-          <h3 id="automation-editor-title">New rule</h3>
+          <div class="section-title" id="automation-editor-title">New rule</div>
           <input type="hidden" id="auto-rule-id">
           <div class="mb-12"><label for="auto-name" class="form-label">Name</label>
             <input type="text" id="auto-name" class="form-input input-wide-sm" placeholder="e.g. Restart nginx on failure" autocomplete="off"></div>
@@ -4856,7 +4856,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
       <div id="page-patches" class="page">
         <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data</div>
-        <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch device filter"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
+        <div class="toolbar"><div class="isl-132"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs"><use href="#ic-99336aa6"/></svg><input type="text" id="patch-search-input" class="form-input input-search" placeholder="Search patches…" data-input="renderPatchTable" data-input-debounce="180" aria-label="Search patches"></div><select id="patch-group-filter" class="form-input input-auto" data-change="renderPatchTable" aria-label="Patch group filter"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input isl-133 device-combo" data-change="renderPatchTable" aria-label="Patch device filter"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
         <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button></div>
         <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-db2610fe"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-b2898196"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-03f870e4"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><use href="#ic-6ccc3e4e"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
         <div class="table-card"><table><thead id="patch-thead"><tr><th scope="col" data-col="name">Device</th><th scope="col" data-col="group">Group</th><th scope="col" data-col="os">OS</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="pkg_manager">Pkg Manager</th><th scope="col" data-col="upgradable">Pending</th><th scope="col" data-col="patch_status">Patch Status</th><th scope="col">Recent Patch Cmds</th><th scope="col"></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
@@ -5497,7 +5497,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <span id="drift-summary" class="isl-100"></span>
         </div>
         <!-- v3.13.0: named, reusable drift profiles (watched-file sets) -->
-        <div class="table-card card-padded" id="drift-profiles-card">
+        <div class="dash-card" id="drift-profiles-card">
           <div class="drift-prof-head">
             <div class="section-title">Drift profiles</div>
             <button class="btn-secondary fs-12" data-action="openDriftProfileModal">
@@ -5509,7 +5509,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="drift-profiles-body" class="scroll-cap"><div class="c-muted">Loading…</div></div>
         </div>
         <!-- v3.14.0: fleet drift-enforcement policy by tag/group -->
-        <div class="table-card card-padded" id="drift-policy-card">
+        <div class="dash-card" id="drift-policy-card">
           <div class="drift-prof-head">
             <div class="section-title">Enforcement policy</div>
           </div>
@@ -5858,7 +5858,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">UPS status and measured power draw across the fleet. Hosts on battery are listed first. Set your electricity price to estimate energy cost from the live total. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="toolbar">
           <button class="btn-icon" data-action="loadPower" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
-          <label class="hint">Cost <input type="number" id="power-cost-kwh" class="form-input input-cost-kwh" min="0" step="0.01" value="0.30" data-input="renderPowerCost" data-input-value="1"> /kWh</label>
+          <label class="hint">Cost <input type="number" id="power-cost-kwh" class="form-input input-cost-kwh" min="0" step="0.01" value="0.30" data-input="renderPowerCost" data-input-value="1" data-input-debounce="180"> /kWh</label>
           <span id="power-summary" class="isl-100"></span>
         </div>
         <div class="table-card">
@@ -5926,8 +5926,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="loadSoftwarePolicy" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button>
           <span id="swpol-summary" class="isl-100"></span>
         </div>
-        <div class="table-card card-padded">
-          <div class="page-subtitle fw-600">Policy rules</div>
+        <div class="dash-card">
+          <div class="section-title">Policy rules</div>
           <div id="swpol-rules" class="scroll-cap"></div>
           <div class="form-row-wrap">
             <select id="swpol-type" class="form-input" aria-label="Swpol type">
@@ -5941,24 +5941,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-secondary" data-action="swPolAddRule">Add rule</button>
           </div>
         </div>
-        <div class="table-card card-padded">
-          <div class="page-subtitle fw-600">Current violations</div>
+        <div class="dash-card">
+          <div class="section-title">Current violations</div>
           <input type="text" class="form-input page-filter mb-8" placeholder="Filter device / package…" data-input="filterRows" data-input-el="1" data-filter-target="#swpol-viol-tbody tr" aria-label="Filter device / package">
-          <table class="data-table w-full">
-            <thead id="swpol-viol-thead"><tr>
-              <th scope="col" data-col="device">Device</th><th scope="col" data-col="type">Rule</th><th scope="col" data-col="package">Package</th>
-              <th scope="col" data-col="expected">Expected</th><th scope="col" data-col="found">Found</th>
-            </tr></thead>
-            <tbody id="swpol-viol-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
-          </table>
+          <div class="scrollable-table-wrap audit-scroll">
+            <table class="data-table w-full">
+              <thead id="swpol-viol-thead"><tr>
+                <th scope="col" data-col="device">Device</th><th scope="col" data-col="type">Rule</th><th scope="col" data-col="package">Package</th>
+                <th scope="col" data-col="expected">Expected</th><th scope="col" data-col="found">Found</th>
+              </tr></thead>
+              <tbody id="swpol-viol-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
         <!-- v3.13.0: software center — every installed package + its versions -->
-        <div class="table-card card-padded">
-          <div class="page-subtitle fw-600">Software center — installed packages</div>
+        <div class="dash-card">
+          <div class="section-title">Software center</div>
           <p class="hint">Every package installed across the fleet, with the versions in use and how many hosts run each. Type to filter; click a row to see which hosts (and versions) on the Patches → inventory search.</p>
-          <input type="text" id="swcatalog-q" class="form-input page-filter mb-8" placeholder="Filter package name (e.g. openssl)…" data-input="_swCatalogFilter" aria-label="Filter package name (e.g. openssl)">
+          <input type="text" id="swcatalog-q" class="form-input page-filter mb-8" placeholder="Filter package name (e.g. openssl)…" data-input="_swCatalogFilter" data-input-debounce="180" aria-label="Filter package name (e.g. openssl)">
           <span id="swcatalog-summary" class="isl-100"></span>
-          <div id="swcatalog-body"><div class="c-muted fs-13">Loading…</div></div>
+          <div id="swcatalog-body" class="scroll-cap"><div class="c-muted fs-13">Loading…</div></div>
         </div>
       </div>
 
@@ -6193,7 +6195,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="isl-181">
               <div class="isl-14">
                 <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><use href="#ic-99336aa6"/></svg>
-                <input type="text" id="acme-filter" class="form-input isl-15" placeholder="Filter domain, device…" data-input="_acmeRenderTable" aria-label="Filter domain, device">
+                <input type="text" id="acme-filter" class="form-input isl-15" placeholder="Filter domain, device…" data-input="_acmeRenderTable" data-input-debounce="180" aria-label="Filter domain, device">
               </div>
               <button class="btn-icon isl-182" data-action="acmeOpenIssue">+ Issue new cert</button>
               <button class="btn-icon" data-action="openAcmeDnsCreds">DNS provider credentials</button>
@@ -6231,7 +6233,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Links</div>
         <div class="page-subtitle">Shared bookmark dashboard. Card grid grouped by category. Click any card to open the link in a new tab. <strong>Internal</strong> links (LAN-only, behind VPN, etc.) are amber-bordered; <strong>external</strong> links are accent-bordered.</div>
         <div class="toolbar">
-          <input type="text" id="links-search" class="form-input isl-170" placeholder="Filter by title, URL, or description…" data-input="renderLinks" aria-label="Filter by title, URL, or description">
+          <input type="text" id="links-search" class="form-input isl-170" placeholder="Filter by title, URL, or description…" data-input="renderLinks" data-input-debounce="180" aria-label="Filter by title, URL, or description">
           <select id="links-scope-filter" class="form-input mw-160" data-change="renderLinks" aria-label="Links scope filter">
             <option value="">All scopes</option>
             <option value="internal">Internal only</option>
@@ -6439,7 +6441,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-title">Saved scripts</div>
           <button class="enroll-btn" data-action="openScriptAdd" ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><use href="#ic-8a2aac00"/></svg> New script</button>
         </div>
-        <div class="mb-16"><input type="text" id="scripts-filter" class="form-input input-wide-sm" placeholder="Filter by name or description…" data-input="renderScriptsList" aria-label="Filter by name or description"></div>
+        <div class="mb-16"><input type="text" id="scripts-filter" class="form-input input-wide-sm" placeholder="Filter by name or description…" data-input="renderScriptsList" data-input-debounce="180" aria-label="Filter by name or description"></div>
         <div class="table-card"><table>
           <thead id="scripts-thead"><tr>
             <th scope="col" data-col="name" class="isl-187">Name</th>
@@ -7352,7 +7354,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      for several releases but the element itself was missing from the HTML,
      so clicking Detail on the Patches page threw "can't access property
      textContent, document.getElementById(...) is null". Restored here. -->
-<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-patch-title" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="device-patch-title" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" class="isl-192 scroll-cap"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
 
 <!-- v5.0.0: one-click ZFS/Btrfs maintenance. Each button queues a server-built,
      validated command on the host via the audited command queue; output appears
@@ -8597,46 +8599,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <!-- v3.14.0: i18n layer (#26) — loads before app.js so window.RPi18n exists
      when app.js hydrates /api/me. Translate-by-source-text; CSP-safe. -->
-<script defer src="static/js/i18n.js?v=5.8.0-11"></script>
-<script defer src="static/js/app.js?v=5.8.0-11"></script>
+<script defer src="static/js/i18n.js?v=5.8.0-12"></script>
+<script defer src="static/js/app.js?v=5.8.0-12"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script defer src="static/js/app-calendar.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-cmdb.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-containers.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-network.js?v=5.8.0-11"></script>
+<script defer src="static/js/app-calendar.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-cmdb.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-containers.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-network.js?v=5.8.0-12"></script>
 <!-- v3.13.0: further app.js split (classic scripts, shared global scope, after app.js) -->
-<script defer src="static/js/app-hostconfig.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-compliance.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-integrations.js?v=5.8.0-11"></script>
+<script defer src="static/js/app-hostconfig.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-compliance.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-integrations.js?v=5.8.0-12"></script>
 <!-- v5.1.0: page modules split out of app.js (classic scripts, shared global
      scope, loaded after app.js; renderers are called at runtime via showPage /
      the data-action dispatcher, so declaration order among these is irrelevant). -->
-<script defer src="static/js/app-ai.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-dns.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-drift.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-dmarc.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-cve.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-firewall.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-backups.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-iac.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-provisioning.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-tuning.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-kb.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-rollouts.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-power.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-gpu.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-proxmox.js?v=5.8.0-11"></script>
-<script defer src="static/js/wg-access.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-billing.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-virt.js?v=5.8.0-11"></script>
+<script defer src="static/js/app-ai.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-dns.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-drift.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-dmarc.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-cve.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-firewall.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-backups.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-iac.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-provisioning.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-tuning.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-kb.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-rollouts.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-power.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-gpu.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-proxmox.js?v=5.8.0-12"></script>
+<script defer src="static/js/wg-access.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-billing.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-virt.js?v=5.8.0-12"></script>
 <!-- v5.6.0: further page modules split out of app.js (same pattern) -->
-<script defer src="static/js/app-alerts.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-checks.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-logs.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-remote.js?v=5.8.0-11"></script>
-<script defer src="static/js/app-tickets.js?v=5.8.0-11"></script>
+<script defer src="static/js/app-alerts.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-checks.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-logs.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-remote.js?v=5.8.0-12"></script>
+<script defer src="static/js/app-tickets.js?v=5.8.0-12"></script>
 
-<script defer src="static/js/sw-register.js?v=5.8.0-11"></script>
+<script defer src="static/js/sw-register.js?v=5.8.0-12"></script>
 </body>
 </html>

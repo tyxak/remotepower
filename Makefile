@@ -260,6 +260,13 @@ dist: clean
 	  --exclude='*.tar.gz.asc' \
 	  --exclude='*.tar.xz' \
 	  --exclude='*.pkg.tar.zst' \
+	  --exclude='*.env' \
+	  --exclude='.env' \
+	  --exclude='*.pem' \
+	  --exclude='*.key' \
+	  --exclude='*.enc' \
+	  --exclude='.ssh' \
+	  --exclude='scan-*' \
 	  .
 	@# Leak gate (v5.8.0): the tarball packs the WORKING TREE, so untracked/
 	@# gitignored local files ship unless the exclude list above names them —

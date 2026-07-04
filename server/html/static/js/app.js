@@ -2771,7 +2771,7 @@ async function loadUpdatePanel() {
       v.update_available
         ? '<span class="patch-badge warn">update available</span>'
         : '<span class="patch-badge ok">up to date</span>'}</td></tr>
-  </table>` + (v.release_url ? `<div class="mt-6"><a href="${escAttr(v.release_url)}" target="_blank" rel="noopener" class="c-accent">Release notes ↗</a></div>` : '');
+  </table>` + (_safeHttpHref(v.release_url) ? `<div class="mt-6"><a href="${_safeHttpHref(v.release_url)}" target="_blank" rel="noopener" class="c-accent">Release notes ↗</a></div>` : '');
   // upgrade commands by install method (shown when an update is available)
   const cmds = document.getElementById('update-commands');
   if (cmds) {
@@ -3993,6 +3993,17 @@ document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener(
 // `onclick="foo('${escAttr(x)}')"` site. Use escAttr() for values that are
 // interpolated into JS string literals inside an HTML attribute.
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// v5.8.0 (SECURITY, defence-in-depth): an operator-authored URL going into an
+// href must be reduced to http/https only — escHtml/escAttr stop quote-breakout
+// but NOT a `javascript:`/`data:` scheme. The production CSP already blocks
+// javascript: navigation, so this is belt-and-braces (one CSP regression away
+// from click-to-fire XSS). Returns the escaped-safe href, or '' if not http(s).
+// Mirrors the inline pattern in app-cve.js (refs allowlist).
+function _safeHttpHref(u) {
+  try { const p = new URL(u, window.location.origin).protocol;
+        return (p === 'http:' || p === 'https:') ? escHtml(String(u)) : ''; }
+  catch (e) { return ''; }
+}
 // Operator-facing 6-digit ticket/alert number: 'alertid_00042' -> '#RP000042'.
 function _rpNo(alertid) { const m = /(\d+)/.exec(String(alertid || '')); return m ? '#RP' + m[1].padStart(6, '0') : (alertid || ''); }
 
@@ -7127,10 +7138,15 @@ function _registerPatchTable() {
                      pending: ['', 'verifying…', 'Waiting for the host to re-report its package count so we can confirm the pending updates dropped. Click Re-check to force a scan now.'] };
       const v = vmap[d.upgrade_verify];
       const verifyBadge = v ? ` <span class="patch-badge ${v[0]}" title="${escAttr(v[2])}">${v[1]}</span>` : '';
+      // v5.8.0: unmonitored hosts are SHOWN here but flagged "silent" (data
+      // collected, no alerts) — same badge the metrics/SNMP/exposure tables use.
+      const silentBadge = d.monitored === false
+        ? ' <span class="patch-badge fs-10 c-muted" title="Unmonitored — data collected, no alerts">silent</span>'
+        : '';
       const recheckBtn = (d.upgrade_verify === 'pending' || d.upgrade_verify === 'stalled')
         ? `<button class="btn-icon cell-sm" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Force a fresh package scan now — re-runs the post-upgrade verification instead of waiting for the periodic scan">Re-check</button>`
         : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(_pkgMgrLabel(d.pkg_manager))}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}${d.security_updates > 0 ? ` <span class="patch-badge warn" title="${d.security_updates} of these are distro-flagged SECURITY updates">${d.security_updates} sec</span>` : ''}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(d.name)}${silentBadge}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(_pkgMgrLabel(d.pkg_manager))}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}${d.security_updates > 0 ? ` <span class="patch-badge warn" title="${d.security_updates} of these are distro-flagged SECURITY updates">${d.security_updates} sec</span>` : ''}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
@@ -8530,22 +8546,29 @@ async function loadBatchJobs() {
   if (!out) return;
   const r = await api('GET', '/exec/batch').catch(() => null);
   if (!r || !Array.isArray(r.jobs)) { out.innerHTML = '<div class="c-red">Failed to load jobs.</div>'; return; }
-  if (!r.jobs.length) { out.innerHTML = '<div class="empty-state">No recent jobs. Queue a one-time install above and follow it here.</div>'; clearTimeout(_batchPollTimer); return; }
-  out.innerHTML = r.jobs.map(j => {
-    const badge = j.failed
-      ? `<span class="ro-badge rs-failed">${j.done}/${j.total} ok · ${j.failed} failed</span>`
-      : j.pending === 0 ? `<span class="ro-badge rs-done">${j.done}/${j.total} done</span>`
-      : `<span class="ro-badge rs-running">${j.done}/${j.total} · ${j.pending} pending</span>`;
-    const det = _batchExpanded.has(j.id) ? `<div class="batch-detail mt-8" id="batch-detail-${escAttr(j.id)}"><div class="c-muted fs-12">Loading…</div></div>` : '';
-    return `<div class="dash-card mb-8">
-      <div class="row-8-center">
-        <strong>${escHtml(j.label || j.kind)}</strong>
-        <span class="c-muted fs-12">${escHtml(timeAgo(j.created))}${j.actor ? ' · ' + escHtml(j.actor) : ''}</span>
-        ${badge}
-        <button class="btn-icon fs-12" data-action="toggleJobDetail" data-arg="${escAttr(j.id)}">${_batchExpanded.has(j.id) ? 'Hide hosts' : 'Hosts'}</button>
-      </div>${det}
-    </div>`;
-  }).join('');
+  if (!r.jobs.length) { out.innerHTML = '<div class="empty-state">No recent jobs. Queue a one-time install above and follow it here.</div>'; clearTimeout(_batchPollTimer); window._batchJobsPrev = ''; return; }
+  // v5.8.0 (PERF): this polls every 5s; skip the full innerHTML rebuild when the
+  // job set is byte-identical (mirrors loadDevices' _devicesRawPrev guard). The
+  // expanded-detail render + poll re-arm below still run every tick.
+  const _raw = JSON.stringify(r.jobs);
+  if (window._batchJobsPrev !== _raw) {
+    window._batchJobsPrev = _raw;
+    out.innerHTML = r.jobs.map(j => {
+      const badge = j.failed
+        ? `<span class="ro-badge rs-failed">${j.done}/${j.total} ok · ${j.failed} failed</span>`
+        : j.pending === 0 ? `<span class="ro-badge rs-done">${j.done}/${j.total} done</span>`
+        : `<span class="ro-badge rs-running">${j.done}/${j.total} · ${j.pending} pending</span>`;
+      const det = _batchExpanded.has(j.id) ? `<div class="batch-detail mt-8" id="batch-detail-${escAttr(j.id)}"><div class="c-muted fs-12">Loading…</div></div>` : '';
+      return `<div class="dash-card mb-8">
+        <div class="row-8-center">
+          <strong>${escHtml(j.label || j.kind)}</strong>
+          <span class="c-muted fs-12">${escHtml(timeAgo(j.created))}${j.actor ? ' · ' + escHtml(j.actor) : ''}</span>
+          ${badge}
+          <button class="btn-icon fs-12" data-action="toggleJobDetail" data-arg="${escAttr(j.id)}">${_batchExpanded.has(j.id) ? 'Hide hosts' : 'Hosts'}</button>
+        </div>${det}
+      </div>`;
+    }).join('');
+  }
   for (const id of _batchExpanded) _renderJobDetail(id);
   clearTimeout(_batchPollTimer);
   const active = (document.getElementById('page-rollouts') || {}).classList;
@@ -13239,7 +13262,7 @@ function _renderHomeLinks(links) {
       const borderStyle = isInternal ? 'dashed' : 'solid';
       let displayHost = l.url;
       try { displayHost = new URL(l.url).hostname; } catch (e) { /* keep full url */ }
-      return `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" class="isl-763">
+      return `<a href="${_safeHttpHref(l.url)}" target="_blank" rel="noopener noreferrer" class="isl-763">
         <div class="isl-764" data-bd-style="${borderStyle}" data-bd-color="${borderColor}" title="${escHtml(l.description || l.url)}">
           <div class="isl-765">${escHtml(l.title)}</div>
           <div class="isl-766">${escHtml(displayHost)}</div>

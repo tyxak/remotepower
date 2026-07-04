@@ -164,6 +164,59 @@ All notable changes to RemotePower. Newest first.
   per sweep, edge-triggered `tls_expiry` webhooks honouring per-target
   warn/crit days) on the same maintenance cycle as every other monitor; the
   standalone `remotepower-tls-check` runner is now optional and backend-aware.
+- **Patches view flags unmonitored hosts.** The per-device Patches table now
+  shows a "silent" badge on unmonitored hosts (data collected, no alerts) — the
+  same treatment the metrics/SNMP/exposure tables already use, so the row is no
+  longer indistinguishable from a monitored one.
+- **Dashboard activity-feed rows show their detail again.** Several fleet-event
+  feed rows (added SSH key, brute-force, old snapshot, TLS expiry, stale backup,
+  new listening port, blocklist changes, resolver health) were dropping their
+  detail text because the fields weren't carried into the feed store. They're
+  preserved now.
+
+### Security & hardening
+
+A whole-project security review accompanied this release (SAST + an eight-stream
+manual audit + a live authenticated pentest of the maintainer's own instance).
+Full write-up in `docs/security-review-5.8.0.md`. No Critical/High/Medium issues
+ship. Fixed:
+
+- **Read-only roles can no longer mutate shared state.** Creating/updating a
+  ticket, logging billable ticket hours, and generating a device runbook now
+  require a write-capable role (they previously accepted any authenticated token,
+  including read-only `viewer`/`mcp`/`auditor`/`finance` roles) — completing the
+  permission-checked-write pattern used everywhere else.
+- **The agent refuses HTTP redirects.** The Linux/Windows/macOS agents no longer
+  follow `3xx` responses on their token-bearing calls, so a redirect can't replay
+  the credential-bearing request body to another host or downgrade to cleartext —
+  matching the server's own no-redirect posture.
+- **Agent file-manager writes act on the resolved path**, closing a narrow
+  parent-symlink race on world-writable roots (parity with the read-path fix).
+- **`javascript:`/`data:` schemes are stripped from operator-authored link
+  targets** (CMDB, network map, alert ticket links, release-notes links) — the
+  CSP already blocks them, so this is defense-in-depth.
+- **The config secret-scrub backstop and a couple of argument-terminator guards
+  were tightened** (`passphrase`/`community`/`bearer` added to the scrub; `--`
+  added to the `dpkg` version compare; fail2ban jail-name match anchored).
+- **Release-tarball leak gate widened** to exclude and hard-fail on `*.env` /
+  `*.pem` / `*.key` / `*.enc` / `.ssh` / scan bundles.
+
+### Performance
+
+- **Health and compliance history samplers no longer take a write lock on every
+  request.** The "already sampled today" check now runs as a cheap read before
+  the lock, so the once-a-day append is the only time the store is rewritten.
+- **Cadence gates read config copy-free.** The per-request "is it due yet?" checks
+  for integrations, SNMP polling, agentless reachability, RouterOS update checks,
+  image scanning and VPN stats now read the shared cached config instead of
+  deep-copying the whole config on the (common) not-due path.
+- **The rollouts job list skips its rebuild when unchanged**, and six list filters
+  (patches, scripts, links, ACME, software center, power cost) now debounce.
+
+### Housekeeping
+
+- Removed dead front-end and server helpers; refreshed the docs to match current
+  behavior (agentless devices are now SNMP-pollable and ping-probed).
 
 ## v5.7.0 — "F4ct0rMatters" — 2026-07-03
 
