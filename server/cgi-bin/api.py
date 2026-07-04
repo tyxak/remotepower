@@ -35,6 +35,7 @@ SCAP_FILE        = DATA_DIR / 'scap.json'          # v3.4.2: OpenSCAP scan resul
 SCAP_REPORTS_DIR = DATA_DIR / 'scap_reports'       # v3.4.2: full HTML reports per device (gzip)
 DEVICES_FILE     = DATA_DIR / 'devices.json'
 DEVICE_PROFILES_FILE = DATA_DIR / 'device_profiles.json'   # W5-7 named config bundles
+SMART_GROUPS_FILE = DATA_DIR / 'smart_groups.json'         # W5-6 saved-query dynamic groups
 PINS_FILE        = DATA_DIR / 'pins.json'
 # v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
 # Created via POST /api/enrollment-tokens (admin-only). Same shape as
@@ -4657,6 +4658,62 @@ def _resolve_role(role_name):
     return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
 
 
+def _smart_group_match(dev, rules):
+    """W5-6: pure predicate — does device `dev` satisfy a smart-group rule set?
+    Rules are ANDed. Operates over the device record + its embedded sysinfo only
+    (no external stores) so it can drive BOTH cadence materialization AND scope
+    membership tests cheaply. Supported facets:
+      group / group_in, tag / tags_any / tags_all, site, os_contains,
+      agent_version_contains, monitored, agentless, reboot_required, drift,
+      mem_gt, disk_gt, cpu_gt, swap_gt (percent, from sysinfo)."""
+    r = rules or {}
+    si = dev.get('sysinfo') or {}
+    if r.get('group') and (dev.get('group') or '') != r['group']:
+        return False
+    if r.get('group_in') and (dev.get('group') or '') not in r['group_in']:
+        return False
+    if r.get('site') and (dev.get('site') or '') != r['site']:
+        return False
+    tags = set(dev.get('tags') or [])
+    if r.get('tag') and r['tag'] not in tags:
+        return False
+    if r.get('tags_any') and not (tags & set(r['tags_any'])):
+        return False
+    if r.get('tags_all') and not (set(r['tags_all']) <= tags):
+        return False
+    if r.get('os_contains') and r['os_contains'].lower() not in str(dev.get('os', '')).lower():
+        return False
+    if r.get('agent_version_contains') and r['agent_version_contains'].lower() \
+            not in str(dev.get('version', '')).lower():
+        return False
+    if 'monitored' in r and bool(dev.get('monitored', True)) != bool(r['monitored']):
+        return False
+    if 'agentless' in r and bool(dev.get('agentless', False)) != bool(r['agentless']):
+        return False
+    if r.get('reboot_required') and not si.get('reboot_required'):
+        return False
+    if r.get('drift') and not (dev.get('drift_state') or dev.get('drift_files')):
+        return False
+    for facet, key in (('mem_gt', 'mem_percent'), ('swap_gt', 'swap_percent'),
+                       ('cpu_gt', 'cpu_percent')):
+        if r.get(facet) is not None:
+            v = si.get(key)
+            if not isinstance(v, (int, float)) or v <= r[facet]:
+                return False
+    if r.get('disk_gt') is not None:
+        mounts = [m.get('percent') for m in (si.get('mounts') or [])
+                  if isinstance(m.get('percent'), (int, float))]
+        if not mounts or max(mounts) <= r['disk_gt']:
+            return False
+    return True
+
+
+def _smart_group_rules(name):
+    """Stored rules for a smart group by name, or None."""
+    g = (load(SMART_GROUPS_FILE) or {}).get(name)
+    return g.get('rules') if isinstance(g, dict) else None
+
+
 def _device_in_scope(scope, dev):
     """True if device `dev` falls within a role scope dict."""
     t = (scope or {}).get('type', 'all')
@@ -4666,6 +4723,13 @@ def _device_in_scope(scope, dev):
         return all(_device_in_scope(s, dev) for s in (scope.get('scopes') or []))
     vals = (scope or {}).get('values') or []
     if t == 'groups':
+        # W5-6: a `smart:<name>` value resolves to the smart group's live
+        # predicate (re-evaluated on the device), so it targets like a group.
+        for v in vals:
+            if isinstance(v, str) and v.startswith('smart:'):
+                rules = _smart_group_rules(v[6:])
+                if rules is not None and _smart_group_match(dev, rules):
+                    return True
         return (dev.get('group') or '') in vals
     if t == 'tags':
         return bool(set(dev.get('tags') or []) & set(vals))
@@ -10315,6 +10379,143 @@ def handle_device_profile_apply(pid):
     audit_log(actor, 'device_profile_apply',
               detail=f"id={pid} name={profile.get('name', '')} devices={applied}")
     respond(200, {'ok': True, 'applied': applied})
+
+
+# ── W5-6: smart groups (saved-query dynamic groups) ─────────────────────────
+# A smart group = a named rule set (a subset of the fleet-query facets) whose
+# membership is MATERIALIZED on a cadence into the store, then consumed as a
+# targeting scope via the `smart:<name>` group value (see _device_in_scope).
+# It is NOT a device's real `group` field — it's a scope for routing/patching/
+# reports/baselines. Namespaced so it can't collide with a real group.
+SMART_GROUP_INTERVAL = 60
+_SMART_GROUP_FACETS = ('group', 'group_in', 'tag', 'tags_any', 'tags_all', 'site',
+                       'os_contains', 'agent_version_contains', 'monitored',
+                       'agentless', 'reboot_required', 'drift',
+                       'mem_gt', 'disk_gt', 'cpu_gt', 'swap_gt')
+
+
+def _validate_smart_rules(raw):
+    """Normalise a smart-group rule payload → a clean rules dict (only supported
+    facets, bounded types)."""
+    if not isinstance(raw, dict):
+        respond(400, {'error': 'rules must be an object'})
+    out = {}
+    for k in ('group', 'site', 'os_contains', 'agent_version_contains', 'tag'):
+        if raw.get(k):
+            out[k] = _sanitize_str(str(raw[k]), 128)
+    for k in ('group_in', 'tags_any', 'tags_all'):
+        if isinstance(raw.get(k), list):
+            vals = [_sanitize_str(str(x), 128) for x in raw[k][:50] if str(x).strip()]
+            if vals:
+                out[k] = vals
+    for k in ('monitored', 'agentless', 'reboot_required', 'drift'):
+        if k in raw:
+            out[k] = bool(raw[k])
+    for k in ('mem_gt', 'disk_gt', 'cpu_gt', 'swap_gt'):
+        if raw.get(k) is not None:
+            try:
+                v = float(raw[k])
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{k} must be a number'})
+            if 0 <= v <= 100:
+                out[k] = v
+    return out
+
+
+def _materialize_smart_group(rules, devices):
+    """Member dev_ids for a rule set over a devices dict. Pure."""
+    return sorted(did for did, dev in (devices or {}).items()
+                  if isinstance(dev, dict) and _smart_group_match(dev, rules))
+
+
+def run_smart_groups_if_due():
+    """W5-6 cadence: re-materialize every smart group's membership. Cheap when no
+    smart groups exist; ~60s cadence keyed off the store's own _meta."""
+    groups = load(SMART_GROUPS_FILE) or {}
+    real = {k: v for k, v in groups.items() if k != '_meta' and isinstance(v, dict)}
+    if not real:
+        return
+    now = int(time.time())
+    meta = groups.get('_meta') if isinstance(groups.get('_meta'), dict) else {}
+    if now - int(meta.get('last_run', 0) or 0) < SMART_GROUP_INTERVAL:
+        return
+    devices = load(DEVICES_FILE) or {}
+    with _LockedUpdate(SMART_GROUPS_FILE) as store:
+        for name, g in list(store.items()):
+            if name == '_meta' or not isinstance(g, dict):
+                continue
+            g['members'] = _materialize_smart_group(g.get('rules') or {}, devices)
+            g['evaluated_ts'] = now
+        store['_meta'] = {'last_run': now}
+
+
+def handle_smart_groups():
+    """GET /api/smart-groups — list (with member counts); POST — create. Admin."""
+    actor = require_admin_auth()
+    if method() == 'GET':
+        groups = load(SMART_GROUPS_FILE) or {}
+        out = [{'name': k, 'rules': v.get('rules') or {},
+                'member_count': len(v.get('members') or []),
+                'evaluated_ts': v.get('evaluated_ts')}
+               for k, v in groups.items() if k != '_meta' and isinstance(v, dict)]
+        respond(200, {'smart_groups': sorted(out, key=lambda g: g['name'])})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = re.sub(r'[^a-z0-9_-]', '', str(body.get('name', '')).lower())[:48]
+    if not name:
+        respond(400, {'error': 'name required (lowercase letters/digits/-/_)'})
+    rules = _validate_smart_rules(body.get('rules') or {})
+    if not rules:
+        respond(400, {'error': 'at least one rule is required'})
+    devices = load(DEVICES_FILE) or {}
+    with _LockedUpdate(SMART_GROUPS_FILE) as store:
+        real = [k for k in store if k != '_meta']
+        if name in store:
+            respond(400, {'error': 'a smart group with that name already exists'})
+        if len(real) >= 100:
+            respond(400, {'error': 'smart group limit reached (max 100)'})
+        store[name] = {'rules': rules, 'members': _materialize_smart_group(rules, devices),
+                       'evaluated_ts': int(time.time()), 'created': int(time.time())}
+    audit_log(actor, 'smart_group_create', detail=f'name={name}')
+    respond(201, {'ok': True, 'name': name, 'scope_value': f'smart:{name}'})
+
+
+def handle_smart_group(name):
+    """GET /api/smart-groups/{name}/members — current members; PATCH — update
+    rules; DELETE — remove. Admin."""
+    actor = require_admin_auth()
+    name = re.sub(r'[^a-z0-9_-]', '', str(name).lower())[:48]
+    if method() == 'DELETE':
+        with _LockedUpdate(SMART_GROUPS_FILE) as store:
+            existed = store.pop(name, None) is not None
+        if not existed:
+            respond(404, {'error': 'smart group not found'})
+        audit_log(actor, 'smart_group_delete', detail=f'name={name}')
+        respond(200, {'ok': True})
+    if method() == 'PATCH':
+        rules = _validate_smart_rules(get_json_obj().get('rules') or {})
+        if not rules:
+            respond(400, {'error': 'at least one rule is required'})
+        devices = load(DEVICES_FILE) or {}
+        with _LockedUpdate(SMART_GROUPS_FILE) as store:
+            g = store.get(name)
+            if not isinstance(g, dict):
+                respond(404, {'error': 'smart group not found'})
+            g['rules'] = rules
+            g['members'] = _materialize_smart_group(rules, devices)
+            g['evaluated_ts'] = int(time.time())
+        audit_log(actor, 'smart_group_update', detail=f'name={name}')
+        respond(200, {'ok': True})
+    # GET members
+    g = (load(SMART_GROUPS_FILE) or {}).get(name)
+    if not isinstance(g, dict):
+        respond(404, {'error': 'smart group not found'})
+    devices = load(DEVICES_FILE) or {}
+    members = g.get('members') or []
+    respond(200, {'name': name, 'evaluated_ts': g.get('evaluated_ts'),
+                  'members': [{'id': did, 'name': (devices.get(did) or {}).get('name', did)}
+                              for did in members]})
 
 
 # ── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -52679,6 +52880,9 @@ def _build_exact_routes():
         # W5-7: device profiles (named config bundles, admin-gated).
         ('GET', '/api/device-profiles'): handle_device_profiles,
         ('POST', '/api/device-profiles'): handle_device_profiles,
+        # W5-6: smart groups (saved-query dynamic groups, admin-gated).
+        ('GET', '/api/smart-groups'): handle_smart_groups,
+        ('POST', '/api/smart-groups'): handle_smart_groups,
         # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
         ('GET', '/api/tenants'): handle_tenants_list,
         ('POST', '/api/tenants'): handle_tenant_create,
@@ -53011,6 +53215,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/scans/', '', 'handle_scan_detail', "pi.startswith('/api/scans/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/device-profiles/', '/apply', 'handle_device_profile_apply', "pi.startswith('/api/device-profiles/') and pi.endswith('/apply') and m == 'POST'"),
+    ('pat', ('GET',), '/api/smart-groups/', '/members', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and pi.endswith('/members') and m == 'GET'"),
+    ('pat', ('PATCH',), '/api/smart-groups/', '', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and m == 'PATCH'"),
+    ('pat', ('DELETE',), '/api/smart-groups/', '', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and m == 'DELETE'"),
     ('pat', ('PATCH',), '/api/device-profiles/', '', 'handle_device_profile', "pi.startswith('/api/device-profiles/') and m == 'PATCH'"),
     ('pat', ('DELETE',), '/api/device-profiles/', '', 'handle_device_profile', "pi.startswith('/api/device-profiles/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/scan-targets/', '/verify', 'handle_scan_target_verify', "pi.startswith('/api/scan-targets/') and pi.endswith('/verify') and m == 'POST'"),
@@ -53589,6 +53796,8 @@ def main():
     _safe(_maybe_push_metrics, '_maybe_push_metrics')
     # W4-10: fold raw metric samples into hourly/daily roll-ups (hourly cadence).
     _safe(run_metric_rollup_if_due, 'run_metric_rollup_if_due')
+    # W5-6: re-materialize smart-group membership (~60s cadence).
+    _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
     _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies

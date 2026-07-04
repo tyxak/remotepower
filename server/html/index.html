@@ -4934,6 +4934,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="device-profiles-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
           <div class="row-6 mt-8"><button class="btn-primary" data-action="openDeviceProfileCreate">New profile</button></div>
         </div>
+
+        <!-- W5-6: smart groups -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Smart groups</div>
+          <p class="hint">A saved fleet query whose membership is re-evaluated every ~60s. Use it as a targeting scope — reference it as <code>smart:&lt;name&gt;</code> in alert-routing, auto-patch, report and service-baseline scopes. It doesn't change a device's real group.</p>
+          <div id="smart-groups-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="openSmartGroupCreate">New smart group</button></div>
+        </div>
       </div>
 
       <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->
@@ -8624,6 +8632,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="dp-apply-list" class="scroll-cap"><div class="empty-state">Loading…</div></div>
   <div class="row-8-center mt-8"><span id="dp-apply-count" class="hint">0 selected</span></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyDeviceProfile">Apply</button></div>
+</div></div>
+
+<!-- W5-6: smart group create / edit modal -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="smart-group-modal-title" id="smart-group-modal"><div class="modal">
+  <div class="modal-title" id="smart-group-modal-title">New smart group</div>
+  <div class="modal-subtitle">All rules are ANDed. Leave a field blank to ignore it. At least one rule is required.</div>
+  <div class="form-group"><label class="form-label" for="sg-name">Name (lowercase, a–z 0–9 - _)</label><input type="text" id="sg-name" class="form-input ff-mono" placeholder="hot-web" maxlength="48"></div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label" for="sg-group">Group equals</label><input type="text" id="sg-group" class="form-input" maxlength="64" placeholder="(any)"></div>
+    <div class="form-group"><label class="form-label" for="sg-tag">Has tag</label><input type="text" id="sg-tag" class="form-input" maxlength="64" placeholder="(any)"></div>
+  </div>
+  <div class="form-group"><label class="form-label" for="sg-os">OS contains</label><input type="text" id="sg-os" class="form-input" maxlength="64" placeholder="(any)"></div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label" for="sg-mem">Memory % greater than</label><input type="number" id="sg-mem" class="form-input" min="0" max="100"></div>
+    <div class="form-group"><label class="form-label" for="sg-disk">Disk % greater than</label><input type="number" id="sg-disk" class="form-input" min="0" max="100"></div>
+    <div class="form-group"><label class="form-label" for="sg-cpu">CPU % greater than</label><input type="number" id="sg-cpu" class="form-input" min="0" max="100"></div>
+  </div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-drift"> <span class="form-label">Has configuration drift</span></label></div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="sg-reboot"> <span class="form-label">Reboot required</span></label></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="smart-group-modal">Cancel</button><button class="btn-primary" data-action="saveSmartGroup">Save group</button></div>
 </div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->

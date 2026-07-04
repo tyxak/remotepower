@@ -66,6 +66,7 @@ CADENCE = (
     '_maybe_check_disk_predictions',
     '_maybe_push_metrics',
     'run_metric_rollup_if_due',          # W4-10 long-term metric roll-ups
+    'run_smart_groups_if_due',           # W5-6 smart-group materialization
     '_maybe_gitops_sync',
     'process_schedule',
     'process_backup_jobs',

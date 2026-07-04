@@ -6806,6 +6806,7 @@ async function loadSites() {
   tableCtl.render('sites', _sitesCache);
   loadEnrolRules();
   loadDeviceProfiles();
+  loadSmartGroups();
 }
 
 // ── W5-7: device profiles ────────────────────────────────────────────────────
@@ -6913,6 +6914,72 @@ async function applyDeviceProfile() {
   const r = await api('POST', `/device-profiles/${encodeURIComponent(_profileApplyId)}/apply`, { device_ids: [..._profileApplySel] });
   if (r && r.ok) { toast(`Applied to ${r.applied} device(s)`, 'success'); closeModal('device-profile-apply-modal'); }
   else toast((r && r.error) || 'Apply failed', 'error');
+}
+
+// ── W5-6: smart groups ───────────────────────────────────────────────────────
+let _smartGroups = [];
+let _smartGroupEdit = null;
+async function loadSmartGroups() {
+  const box = document.getElementById('smart-groups-list');
+  if (!box) return;
+  const data = await api('GET', '/smart-groups').catch(() => null);
+  _smartGroups = (data && data.smart_groups) || [];
+  if (!_smartGroups.length) { box.innerHTML = '<div class="meta-sm-nm">No smart groups yet.</div>'; return; }
+  box.innerHTML = _smartGroups.map((g, i) => {
+    const ago = g.evaluated_ts ? timeAgo(g.evaluated_ts) : 'never';
+    return `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500 ff-mono">smart:${escHtml(g.name)}</span> <span class="hint">${g.member_count} member(s) · evaluated ${ago}</span></div>`
+      + `<button class="btn-icon fs-12" data-action="viewSmartGroupMembers" data-arg="${escAttr(g.name)}">Members</button>`
+      + `<button class="btn-icon fs-12" data-action="editSmartGroup" data-arg="${i}">Edit</button>`
+      + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteSmartGroup" data-arg="${escAttr(g.name)}">Delete</button></div>`;
+  }).join('');
+}
+function openSmartGroupCreate() { _smartGroupEdit = null; _fillSmartGroupForm({ name: '', rules: {} }); document.getElementById('sg-name').disabled = false; document.getElementById('smart-group-modal-title').textContent = 'New smart group'; openModal('smart-group-modal'); }
+function editSmartGroup(i) {
+  const g = _smartGroups[i]; if (!g) return;
+  _smartGroupEdit = g.name;
+  _fillSmartGroupForm(g);
+  document.getElementById('sg-name').disabled = true;   // name is the id — immutable
+  document.getElementById('smart-group-modal-title').textContent = 'Edit smart group';
+  openModal('smart-group-modal');
+}
+function _fillSmartGroupForm(g) {
+  const r = g.rules || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+  const chk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+  set('sg-name', g.name || ''); set('sg-group', r.group); set('sg-tag', r.tag); set('sg-os', r.os_contains);
+  set('sg-mem', r.mem_gt); set('sg-disk', r.disk_gt); set('sg-cpu', r.cpu_gt);
+  chk('sg-drift', r.drift); chk('sg-reboot', r.reboot_required);
+}
+async function saveSmartGroup() {
+  const val = id => (document.getElementById(id)?.value || '').trim();
+  const num = id => { const v = parseFloat(val(id)); return isNaN(v) ? null : v; };
+  const rules = {};
+  if (val('sg-group')) rules.group = val('sg-group');
+  if (val('sg-tag')) rules.tag = val('sg-tag');
+  if (val('sg-os')) rules.os_contains = val('sg-os');
+  if (num('sg-mem') !== null) rules.mem_gt = num('sg-mem');
+  if (num('sg-disk') !== null) rules.disk_gt = num('sg-disk');
+  if (num('sg-cpu') !== null) rules.cpu_gt = num('sg-cpu');
+  if (document.getElementById('sg-drift')?.checked) rules.drift = true;
+  if (document.getElementById('sg-reboot')?.checked) rules.reboot_required = true;
+  if (!Object.keys(rules).length) { toast('Add at least one rule', 'error'); return; }
+  const r = _smartGroupEdit
+    ? await api('PATCH', `/smart-groups/${encodeURIComponent(_smartGroupEdit)}`, { rules })
+    : await api('POST', '/smart-groups', { name: val('sg-name'), rules });
+  if (r && (r.ok || r.name)) { toast('Smart group saved', 'success'); closeModal('smart-group-modal'); loadSmartGroups(); }
+  else toast((r && r.error) || 'Save failed', 'error');
+}
+async function deleteSmartGroup(name) {
+  if (!await uiConfirm({ title: 'Delete smart group', message: `Delete smart:${name}? Scopes referencing it will no longer match.`, confirmText: 'Delete', danger: true })) return;
+  const r = await api('DELETE', `/smart-groups/${encodeURIComponent(name)}`);
+  if (r && r.ok) { toast('Deleted', 'info'); loadSmartGroups(); } else toast((r && r.error) || 'Failed', 'error');
+}
+async function viewSmartGroupMembers(name) {
+  const r = await api('GET', `/smart-groups/${encodeURIComponent(name)}/members`).catch(() => null);
+  if (!r) { toast('Failed to load members', 'error'); return; }
+  const names = (r.members || []).map(m => m.name);
+  const list = names.length ? names.join(', ') : 'no devices currently match';
+  toast(`smart:${name} — ${names.length} member(s): ${list}`, 'info');
 }
 
 // W1-9: enrolment auto-placement rules live in config.enrol_rules.

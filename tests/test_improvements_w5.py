@@ -23,7 +23,7 @@ class _HandlerBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
-                     'DEVICE_PROFILES_FILE'):
+                     'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -128,6 +128,73 @@ class TestDeviceProfiles(_HandlerBase):
         api.method = lambda: 'DELETE'
         self.call(api.handle_device_profile, pid)
         self.assertNotIn(pid, api.load(api.DEVICE_PROFILES_FILE) or {})
+
+
+class TestSmartGroups(_HandlerBase):
+    """W5-6: saved-query dynamic groups."""
+
+    def _devs(self):
+        return {
+            'd1': {'name': 'web1', 'group': 'web', 'tags': ['prod'],
+                   'sysinfo': {'mem_percent': 92}},
+            'd2': {'name': 'web2', 'group': 'web', 'tags': ['prod'],
+                   'sysinfo': {'mem_percent': 40}},
+            'd3': {'name': 'db1', 'group': 'db', 'tags': ['prod'],
+                   'sysinfo': {'mem_percent': 95}},
+        }
+
+    def test_predicate_group_and_mem(self):
+        devs = self._devs()
+        self.assertTrue(api._smart_group_match(devs['d1'], {'group': 'web', 'mem_gt': 90}))
+        self.assertFalse(api._smart_group_match(devs['d2'], {'group': 'web', 'mem_gt': 90}))
+        self.assertFalse(api._smart_group_match(devs['d3'], {'group': 'web', 'mem_gt': 90}))
+
+    def test_materialize(self):
+        members = api._materialize_smart_group({'mem_gt': 90}, self._devs())
+        self.assertEqual(members, ['d1', 'd3'])
+
+    def test_create_and_members(self):
+        api.save(api.DEVICES_FILE, self._devs())
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'Hot-Web!', 'rules': {'group': 'web', 'mem_gt': 90}}
+        out = self.call(api.handle_smart_groups)
+        self.assertEqual(out['name'], 'hot-web')
+        self.assertEqual(out['scope_value'], 'smart:hot-web')
+        st = api.load(api.SMART_GROUPS_FILE) or {}
+        self.assertEqual(st['hot-web']['members'], ['d1'])
+
+    def test_create_requires_a_rule(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'x', 'rules': {}}
+        out = self.call(api.handle_smart_groups)
+        self.assertIn('rule', str(out))
+
+    def test_scope_resolves_smart_value(self):
+        api.save(api.SMART_GROUPS_FILE, {'hot': {'rules': {'mem_gt': 90}, 'members': []}})
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        scope = {'type': 'groups', 'values': ['smart:hot']}
+        self.assertTrue(api._device_in_scope(scope, {'sysinfo': {'mem_percent': 95}}))
+        self.assertFalse(api._device_in_scope(scope, {'sysinfo': {'mem_percent': 10}}))
+        # static group value still works alongside
+        scope2 = {'type': 'groups', 'values': ['web', 'smart:hot']}
+        self.assertTrue(api._device_in_scope(scope2, {'group': 'web'}))
+
+    def test_cadence_rematerializes(self):
+        api.save(api.SMART_GROUPS_FILE, {'g': {'rules': {'group': 'web'}, 'members': []}})
+        api.save(api.DEVICES_FILE, self._devs())
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        api._invalidate_load_cache(api.DEVICES_FILE)
+        api.run_smart_groups_if_due()
+        st = api.load(api.SMART_GROUPS_FILE) or {}
+        self.assertEqual(st['g']['members'], ['d1', 'd2'])
+
+    def test_delete(self):
+        api.save(api.SMART_GROUPS_FILE, {'g': {'rules': {'group': 'web'}, 'members': []}})
+        api._invalidate_load_cache(api.SMART_GROUPS_FILE)
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_smart_group, 'g')
+        self.assertNotIn('g', api.load(api.SMART_GROUPS_FILE) or {})
 
 
 if __name__ == '__main__':
