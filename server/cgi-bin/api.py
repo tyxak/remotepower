@@ -22220,7 +22220,7 @@ def handle_favorites_set():
 # v3.14.0 (#26): interface language. UI-only i18n — the server just stores the
 # user's choice so it follows them across devices. Allowlist is the set the
 # front-end ships translations for; anything else (incl. missing) means English.
-SUPPORTED_LANGS = ('en', 'zh', 'hi', 'es', 'ar')
+SUPPORTED_LANGS = ('en', 'zh', 'hi', 'es', 'ar', 'de')
 
 
 def handle_me_lang():

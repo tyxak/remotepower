@@ -981,7 +981,7 @@ class TestI18nWiring(unittest.TestCase):
     JS = client_js()
 
     def test_supported_langs(self):
-        self.assertEqual(api.SUPPORTED_LANGS, ('en', 'zh', 'hi', 'es', 'ar'))
+        self.assertEqual(api.SUPPORTED_LANGS, ('en', 'zh', 'hi', 'es', 'ar', 'de'))
 
     def test_i18n_loads_before_app(self):
         i = self.HTML.index('static/js/i18n.js')
@@ -1006,8 +1006,10 @@ class TestI18nWiring(unittest.TestCase):
         self.assertEqual(js_langs, api.SUPPORTED_LANGS)
 
     def test_every_translation_row_is_complete(self):
-        # each '{ zh: …, hi: …, es: …, ar: … }' row must carry all 4 languages
-        rows = re.findall(r"\{\s*zh:.*?\}", self.I18N, re.S)
+        # each translation-value object must carry all 4 base languages. (v5.8.0:
+        # German `de` may precede `zh`, so match any object containing `zh:`, not
+        # only ones that start with it. de is partial — not required on every row.)
+        rows = re.findall(r"\{[^{}]*?zh:[^{}]*?\}", self.I18N, re.S)
         self.assertGreater(len(rows), 40)
         for r in rows:
             for lang in ('zh', 'hi', 'es', 'ar'):
