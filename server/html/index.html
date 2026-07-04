@@ -1699,18 +1699,22 @@
           </div>
           <!-- v3.14.0 #32: cloud inventory import (AWS EC2) -->
           <div class="settings-section">
-            <div class="section-title">Cloud import (AWS EC2)</div>
-            <p class="hint">Pull EC2 instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / <code>aws</code> / region). Read-only — uses an IAM access key with <code>ec2:DescribeInstances</code>. Re-running updates in place. Other providers come later.</p>
+            <div class="section-title">Cloud import (AWS EC2 · Hetzner · DigitalOcean)</div>
+            <p class="hint">Pull cloud instances into the fleet as <strong>agentless</strong> device records (tagged <code>cloud</code> / provider / region). Read-only — AWS uses an IAM access key with <code>ec2:DescribeInstances</code>; Hetzner Cloud and DigitalOcean use a read API token (paste it in the token field). Re-running updates in place.</p>
             <div id="cloud-accounts-list" class="mb-12 scroll-cap-sm"></div>
             <div class="settings-row isl-82">
-              <div class="form-group"><label for="cloud-region" class="form-label">Region</label>
+              <div class="form-group"><label for="cloud-provider" class="form-label">Provider</label>
+                <select id="cloud-provider" class="form-input" data-change="cloudProviderChanged"><option value="aws">AWS EC2</option><option value="hetzner">Hetzner Cloud</option><option value="digitalocean">DigitalOcean</option></select></div>
+              <div class="form-group" id="cloud-region-grp"><label for="cloud-region" class="form-label">Region</label>
                 <input type="text" id="cloud-region" class="form-input mw-160" placeholder="eu-west-1"></div>
-              <div class="form-group isl-83"><label for="cloud-akid" class="form-label">Access key ID</label>
+              <div class="form-group isl-83" id="cloud-akid-grp"><label for="cloud-akid" class="form-label">Access key ID</label>
                 <input type="text" id="cloud-akid" class="form-input" placeholder="AKIA…"></div>
-              <div class="form-group isl-83"><label for="cloud-secret" class="form-label">Secret access key</label>
-                <form autocomplete="off" data-csp-pw-form><input type="password" id="cloud-secret" class="form-input" placeholder="secret" autocomplete="off"></form></div>
+              <div class="form-group isl-83"><label for="cloud-secret" class="form-label" id="cloud-secret-label">Secret access key</label>
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="cloud-secret" class="form-input" placeholder="secret / API token" autocomplete="off"></form></div>
               <button class="btn-secondary" data-action="addCloudAccount">Add</button>
             </div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-cloud-autosync-enabled"> Auto re-sync on a schedule (re-imports all accounts; instances that vanish are marked decommissioned, never deleted)</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-cloud-autosync-interval">Auto-sync interval (seconds, min 3600)</label><input type="number" id="cfg-cloud-autosync-interval" class="form-input mw-160" min="3600" max="604800" value="21600"></div>
             <div class="settings-row mt-12"><button class="btn-primary" data-action="runCloudImport">Import now</button><span id="cloud-import-status" class="hint ml-8"></span></div>
           </div>
 

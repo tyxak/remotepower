@@ -110,6 +110,7 @@ DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency s
 LLDP_NEIGHBORS_FILE = DATA_DIR / 'lldp_neighbors.json'  # W5-1 LLDP neighbors per device
 LLDP_DISMISS_FILE = DATA_DIR / 'lldp_dismissed.json'    # W5-1 dismissed topology edges
 GEO_LOGIN_STATE_FILE = DATA_DIR / 'geo_login_state.json'  # W6-41 per-user last login country/ts
+CLOUD_SYNC_STATE_FILE = DATA_DIR / 'cloud_sync_state.json'  # W6-44 scheduled cloud re-sync gate
 CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
 MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
 MAILFLOW_STATE_FILE = DATA_DIR / 'mailflow_state.json'   # W4-16 mail round-trip probe state
@@ -19853,6 +19854,14 @@ def handle_config_save():
         cfg['geoip_asn_db_path'] = _sanitize_str(str(body.get('geoip_asn_db_path') or ''), 512)
     if 'geo_anomaly_enabled' in body:
         cfg['geo_anomaly_enabled'] = bool(body['geo_anomaly_enabled'])
+    # W6-44: scheduled cloud inventory re-sync
+    if 'cloud_autosync_enabled' in body:
+        cfg['cloud_autosync_enabled'] = bool(body['cloud_autosync_enabled'])
+    if 'cloud_autosync_interval' in body:
+        try:
+            cfg['cloud_autosync_interval'] = max(3600, min(604800, int(body['cloud_autosync_interval'])))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'cloud_autosync_interval must be an integer'})
     if 'geo_anomaly_hours' in body:
         try:
             cfg['geo_anomaly_hours'] = max(1, min(72, int(body['geo_anomaly_hours'])))
@@ -25025,38 +25034,102 @@ def handle_cloud_import():
                and (not want_r or a.get('region') == want_r)]
     if not targets:
         respond(400, {'error': 'No matching cloud account is configured.'})
+    result = _cloud_import_run(targets, actor, mark_gone=False)
+    respond(200, {'ok': True, **result})
+
+
+def _cloud_fetch_instances(a):
+    """W6-44: fetch instances for one cloud account, dispatching by provider.
+    Returns (device_fragments_dict, error_str_or_None). Read-only; SSRF-safe."""
     import cloud_import
-    new_devs, errors = {}, []
+    provider = str(a.get('provider', '')).lower()
+    region = a.get('region', '')
+    opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True).open
+    try:
+        if provider == 'aws':
+            if not (a.get('access_key_id') and a.get('secret_key')):
+                return {}, 'no AWS credentials set'
+            insts = cloud_import.import_aws(region, a['access_key_id'], a['secret_key'],
+                                            _opener=opener)
+        elif provider == 'hetzner':
+            if not a.get('secret_key'):
+                return {}, 'no Hetzner API token set'
+            insts = cloud_import.import_hetzner(a['secret_key'], _opener=opener)
+        elif provider in ('digitalocean', 'do'):
+            if not a.get('secret_key'):
+                return {}, 'no DigitalOcean API token set'
+            insts = cloud_import.import_digitalocean(a['secret_key'], _opener=opener)
+        else:
+            return {}, f'unsupported provider {provider!r}'
+    except Exception as e:
+        return {}, str(e)[:200]
+    out = {}
+    for inst in insts:
+        did, frag = cloud_import.instance_to_device(provider, region, inst)
+        out[did] = frag
+    return out, None
+
+
+def _cloud_import_run(targets, actor, mark_gone=False):
+    """Shared import: fetch every target account, upsert device records. When
+    mark_gone is True, cloud devices from these providers that vanished are
+    marked decommissioned (never hard-deleted). Returns a summary dict."""
+    new_devs, errors, seen_providers = {}, [], set()
     for a in targets:
-        if not a.get('secret_key'):
-            errors.append(f"{a.get('provider')}/{a.get('region')}: no secret key set")
+        if not isinstance(a, dict):
             continue
-        try:
-            # SSRF-safe: block local/meta peers + refuse redirects (the EC2
-            # host is public). cloud_import also pins region to the AWS shape.
-            _aws_opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True).open
-            insts = cloud_import.import_aws(a['region'], a['access_key_id'],
-                                            a['secret_key'], _opener=_aws_opener)
-        except Exception as e:
-            errors.append(f"{a.get('provider')}/{a.get('region')}: {str(e)[:200]}")
+        frags, err = _cloud_fetch_instances(a)
+        tag = f"{a.get('provider')}/{a.get('region') or '-'}"
+        if err:
+            errors.append(f'{tag}: {err}')
             continue
-        for inst in insts:
-            did, frag = cloud_import.instance_to_device(a['provider'], a['region'], inst)
-            new_devs[did] = frag
-    imported = updated = 0
-    if new_devs:
-        with _LockedUpdate(DEVICES_FILE) as devs:
-            for did, frag in new_devs.items():
-                if did in devs and isinstance(devs[did], dict):
-                    devs[did].update(frag)
-                    updated += 1
-                else:
-                    frag['enrolled'] = int(time.time())
-                    devs[did] = frag
-                    imported += 1
+        seen_providers.add(str(a.get('provider', '')).lower())
+        new_devs.update(frags)
+    imported = updated = decommissioned = 0
+    now = int(time.time())
+    with _LockedUpdate(DEVICES_FILE) as devs:
+        for did, frag in new_devs.items():
+            if did in devs and isinstance(devs[did], dict):
+                devs[did].update(frag)
+                devs[did].pop('decommissioned', None)   # re-appeared
+                updated += 1
+            else:
+                frag['enrolled'] = now
+                devs[did] = frag
+                imported += 1
+        if mark_gone and not errors:
+            # Only reconcile providers we successfully polled this run.
+            for did, dev in devs.items():
+                if not isinstance(dev, dict):
+                    continue
+                prov = (dev.get('cloud') or {}).get('provider')
+                if (dev.get('source', '').startswith('cloud:') and prov in seen_providers
+                        and did not in new_devs and not dev.get('decommissioned')):
+                    dev['decommissioned'] = True
+                    decommissioned += 1
     audit_log(actor, 'cloud_import',
-              f'imported={imported} updated={updated} errors={len(errors)}')
-    respond(200, {'ok': True, 'imported': imported, 'updated': updated, 'errors': errors})
+              f'imported={imported} updated={updated} gone={decommissioned} errors={len(errors)}')
+    return {'imported': imported, 'updated': updated,
+            'decommissioned': decommissioned, 'errors': errors}
+
+
+def run_cloud_sync_if_due():
+    """W6-44: scheduled cloud re-sync (opt-in cloud_autosync_enabled). Re-imports
+    every configured account on a slow cadence and marks vanished instances
+    decommissioned. Cheap when off / not due."""
+    cfg = _config_ro()
+    if not cfg.get('cloud_autosync_enabled'):
+        return
+    accounts = [a for a in (cfg.get('cloud_accounts') or []) if isinstance(a, dict)]
+    if not accounts:
+        return
+    interval = max(3600, int(cfg.get('cloud_autosync_interval', 21600) or 21600))
+    state = load(CLOUD_SYNC_STATE_FILE) or {}
+    now = int(time.time())
+    if now - int(state.get('last_run', 0) or 0) < interval:
+        return
+    save(CLOUD_SYNC_STATE_FILE, {'last_run': now})
+    _cloud_import_run(accounts, 'schedule:cloud_sync', mark_gone=True)
 
 
 def _ssh_preflight(dev_id):
@@ -54438,6 +54511,8 @@ def main():
     _safe(run_smart_groups_if_due, 'run_smart_groups_if_due')
     # W5-2: detect duplicate IPs within defined subnets (edge-triggered).
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
+    # W6-44: scheduled cloud inventory re-sync (opt-in; slow cadence).
+    _safe(run_cloud_sync_if_due, 'run_cloud_sync_if_due')
     _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies

@@ -3171,6 +3171,11 @@ async function loadSettings() {
   if (_gae) _gae.checked = !!data.geo_anomaly_enabled;
   const _gah = document.getElementById('cfg-geo-anomaly-hours');
   if (_gah) _gah.value = data.geo_anomaly_hours || 2;
+  // W6-44: cloud auto-sync
+  const _cas = document.getElementById('cfg-cloud-autosync-enabled');
+  if (_cas) _cas.checked = !!data.cloud_autosync_enabled;
+  const _casi = document.getElementById('cfg-cloud-autosync-interval');
+  if (_casi) _casi.value = data.cloud_autosync_interval || 21600;
   const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
   const _tke = document.getElementById('cfg-tickets-enabled');
@@ -3639,6 +3644,11 @@ async function saveSettings(btn) {
   if (_gaeEl) payload.geo_anomaly_enabled = _gaeEl.checked;
   const _gahEl = document.getElementById('cfg-geo-anomaly-hours');
   if (_gahEl) payload.geo_anomaly_hours = parseInt(_gahEl.value, 10) || 2;
+  // W6-44: cloud auto-sync
+  const _casEl = document.getElementById('cfg-cloud-autosync-enabled');
+  if (_casEl) payload.cloud_autosync_enabled = _casEl.checked;
+  const _casiEl = document.getElementById('cfg-cloud-autosync-interval');
+  if (_casiEl) payload.cloud_autosync_interval = parseInt(_casiEl.value, 10) || 21600;
   const _tkEn = document.getElementById('cfg-tickets-enabled');
   if (_tkEn) payload.tickets_enabled = _tkEn.checked;
   const _blEn = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
@@ -16384,12 +16394,25 @@ async function _saveCloudAccounts() {
     ...(a.secret_key ? { secret_key: a.secret_key } : {}) }));
   return api('POST', '/config', { cloud_accounts: payload });
 }
+// W6-44: AWS needs region + access key; Hetzner/DO need only an API token.
+function cloudProviderChanged() {
+  const p = document.getElementById('cloud-provider')?.value || 'aws';
+  const isAws = p === 'aws';
+  document.getElementById('cloud-region-grp')?.classList.toggle('hidden', !isAws);
+  document.getElementById('cloud-akid-grp')?.classList.toggle('hidden', !isAws);
+  const lbl = document.getElementById('cloud-secret-label');
+  if (lbl) lbl.textContent = isAws ? 'Secret access key' : 'API token';
+}
 async function addCloudAccount() {
+  const provider = document.getElementById('cloud-provider')?.value || 'aws';
   const region = (document.getElementById('cloud-region')?.value || '').trim();
   const akid = (document.getElementById('cloud-akid')?.value || '').trim();
   const secret = document.getElementById('cloud-secret')?.value || '';
-  if (!region || !akid) { toast('Region and access key ID required', 'error'); return; }
-  _cloudAccounts.push({ provider: 'aws', region, access_key_id: akid, secret_key: secret, secret_key_set: !!secret });
+  if (provider === 'aws') {
+    if (!region || !akid) { toast('Region and access key ID required', 'error'); return; }
+  } else if (!secret) { toast('API token required', 'error'); return; }
+  _cloudAccounts.push({ provider, region: provider === 'aws' ? region : '',
+    access_key_id: provider === 'aws' ? akid : '', secret_key: secret, secret_key_set: !!secret });
   const r = await _saveCloudAccounts();
   if (r?.ok) {
     toast('Cloud account added', 'success');

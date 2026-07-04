@@ -330,7 +330,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Break-glass reveals | Two-person rule for sensitive secrets; `vault_break_glass` *(v5.0.0)* |
 | Credential rotation reminders | Vault entries flagged for rotation *(v3.7.0)* |
 | Agentless devices | Switches/APs/printers/IPMI/cameras — same CMDB/vault/SSH-link *(v1.11.0)* |
-| Cloud inventory import | Pull running AWS EC2 instances into the fleet as agentless devices (`POST /api/cloud/import`, stdlib SigV4 — no SDK); read-only, credentials write-only *(v4.0.0)* |
+| Cloud inventory import | Pull running instances into the fleet as agentless devices (`POST /api/cloud/import`); **AWS EC2** (stdlib SigV4, no SDK), plus **Hetzner Cloud** and **DigitalOcean** (read API token) *(providers v5.8.0)*; read-only, credentials write-only. Optional scheduled auto re-sync marks vanished instances decommissioned (never deleted) *(v5.8.0)* |
 | In-app docs | Curated documentation page with substring search *(v2.0)* |
 | Knowledge base | Operator-authored markdown articles (SOPs / how-tos / runbooks) in a category folder tree; searchable; opt-in `kb_enabled`; fed to the AI as a RAG source. `GET/POST /api/kb`, `…/{id}` *(v5.6.0)* |
 | Runbook links on alerts | Map an alert type (or a custom check) to a KB article (`alert_runbooks`) → a one-click **Runbook** link on the matching alert in the inbox; resolved at read time so it always shows the current article *(v5.8.0)* |

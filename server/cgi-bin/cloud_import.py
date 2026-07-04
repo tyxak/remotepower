@@ -160,6 +160,66 @@ def import_aws(region, access_key, secret_key, timeout=15, _opener=None):
     return parse_ec2_instances(body)
 
 
+def _bearer_get_json(url, token, timeout, _opener):
+    """GET a JSON API with a bearer token. Returns the parsed object; raises
+    RuntimeError on failure. Host is FIXED by the caller (no SSRF from input)."""
+    import json as _json
+    req = urllib.request.Request(url, headers={
+        'Authorization': f'Bearer {token}', 'Accept': 'application/json',
+        'User-Agent': 'RemotePower'}, method='GET')
+    try:
+        opener = _opener or urllib.request.urlopen
+        with opener(req, timeout=timeout) as resp:
+            return _json.loads(resp.read().decode('utf-8', 'replace'))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode('utf-8', 'replace')[:300] if hasattr(e, 'read') else ''
+        raise RuntimeError(f'API error (HTTP {e.code}): {detail}') from None
+    except Exception as e:
+        raise RuntimeError(f'Could not reach API: {e}') from None
+
+
+def import_hetzner(token, timeout=15, _opener=None):
+    """W6-44: Hetzner Cloud servers → flat instance dicts (same shape as EC2)."""
+    data = _bearer_get_json('https://api.hetzner.cloud/v1/servers', token, timeout, _opener)
+    out = []
+    for s in (data.get('servers') or []):
+        pub = (((s.get('public_net') or {}).get('ipv4') or {}).get('ip')) or ''
+        priv = ''
+        for pn in (s.get('private_net') or []):
+            if pn.get('ip'):
+                priv = pn['ip']
+                break
+        out.append({
+            'instance_id': str(s.get('id', '')),
+            'name': s.get('name', ''),
+            'state': s.get('status', ''),
+            'type': ((s.get('server_type') or {}).get('name')) or '',
+            'public_ip': pub, 'private_ip': priv,
+            'az': (((s.get('datacenter') or {}).get('location') or {}).get('name')) or '',
+        })
+    return out
+
+
+def import_digitalocean(token, timeout=15, _opener=None):
+    """W6-44: DigitalOcean droplets → flat instance dicts (same shape as EC2)."""
+    data = _bearer_get_json('https://api.digitalocean.com/v2/droplets?per_page=200',
+                            token, timeout, _opener)
+    out = []
+    for d in (data.get('droplets') or []):
+        v4 = ((d.get('networks') or {}).get('v4')) or []
+        pub = next((n.get('ip_address') for n in v4 if n.get('type') == 'public'), '')
+        priv = next((n.get('ip_address') for n in v4 if n.get('type') == 'private'), '')
+        out.append({
+            'instance_id': str(d.get('id', '')),
+            'name': d.get('name', ''),
+            'state': d.get('status', ''),
+            'type': d.get('size_slug', ''),
+            'public_ip': pub or '', 'private_ip': priv or '',
+            'az': ((d.get('region') or {}).get('slug')) or '',
+        })
+    return out
+
+
 def instance_to_device(provider, region, inst):
     """Map one cloud instance to an agentless device record fragment. The server
     merges this into DEVICES_FILE (stable id, agentless flag, tags)."""

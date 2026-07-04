@@ -937,6 +937,7 @@
     "Client Secret": { "zh": "Client Secret", "hi": "क्लाइंट सीक्रेट", "es": "Secreto de cliente", "ar": "سرّ العميل" },
     "Close menu": { "zh": "关闭菜单", "hi": "मेनू बंद करें", "es": "Cerrar menú", "ar": "إغلاق القائمة" },
     "Cloud import (AWS EC2)": { "zh": "云导入（AWS EC2）", "hi": "क्लाउड आयात (AWS EC2)", "es": "Importación de la nube (AWS EC2)", "ar": "استيراد سحابي (AWS EC2)" },
+    "Cloud import (AWS EC2 · Hetzner · DigitalOcean)": { "zh": "云导入（AWS EC2 · Hetzner · DigitalOcean）", "hi": "क्लाउड आयात (AWS EC2 · Hetzner · DigitalOcean)", "es": "Importación de la nube (AWS EC2 · Hetzner · DigitalOcean)", "ar": "استيراد سحابي (AWS EC2 · Hetzner · DigitalOcean)" },
     "Collapse": { "zh": "折叠", "hi": "संकुचित करें", "es": "Contraer", "ar": "طيّ" },
     "Collapse/expand sidebar": { "zh": "折叠/展开侧边栏", "hi": "Sidebar संकुचित/विस्तृत करें", "es": "Contraer/expandir barra lateral", "ar": "طيّ/توسيع الشريط الجانبي" },
     "Collect all current": { "zh": "收集所有当前配置", "hi": "सभी वर्तमान एकत्र करें", "es": "Recopilar todo lo actual", "ar": "جمع كل الحالي" },
