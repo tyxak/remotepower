@@ -104,6 +104,8 @@ SUDO_LOG_FILE = DATA_DIR / 'sudo_log.json'         # W3-40 per-device privileged
 MAX_SUDO_PER_DEVICE = 500                           # W3-40 rolling cap per device
 PEER_CONNS_FILE = DATA_DIR / 'peer_conns.json'     # W3-8 observed outbound peers per device
 DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency suggestions
+CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
+MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
 WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
 _DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
@@ -1150,6 +1152,12 @@ EVENT_REGISTRY = {
     'canary_accessed': dict(
         label='A canary (decoy) file was accessed or tampered with', kind='exposure',
         title='Canary File Accessed', severity='critical', priority=5, tags='rotating_light,lock'),
+    'custom_metric_alert': dict(
+        label='A custom metric crossed its threshold', kind='metric',
+        title='Custom Metric Threshold', severity=None, priority=4, tags='warning,chart_with_upwards_trend'),
+    'custom_metric_recover': dict(
+        label='A custom metric returned within threshold (recovered)', kind='metric',
+        resolves=('custom_metric_alert',)),
     'backup_verify_failed': dict(
         label='Backup integrity check failed', kind='backup',
         title='Backup Integrity Check Failed', severity='high'),
@@ -7329,6 +7337,9 @@ def _auto_resolve_alerts(event, payload):
         # for memory/swap/cpu, which compares cleanly against the stored '').
         sub_match['metric'] = p.get('metric')
         sub_match['target'] = p.get('target')
+    elif event == 'custom_metric_recover':
+        # W3-11: per (host, metric name) — clear only this metric's open alert.
+        sub_match['metric'] = p.get('metric')
     elif event == 'mount_recovered':
         # Per-path: a recovered /mnt/a must not clear the open alert for /mnt/b
         # on the same host. Match the mount path.
@@ -13790,6 +13801,17 @@ def handle_heartbeat():
             cc = si.get('cpu_count')
             if isinstance(cc, int) and 1 <= cc <= 1024:
                 safe_si['cpu_count'] = cc
+            # W3-11: operator-supplied custom metrics ({name: number}, capped +
+            # name-validated). Persist so history + thresholds + UI can read them.
+            _cm = si.get('custom_metrics')
+            if isinstance(_cm, dict) and _cm:
+                _cm_safe = {}
+                for k, v in list(_cm.items())[:32]:
+                    k = str(k).lower()
+                    if re.match(r'^[a-z][a-z0-9_]{0,63}$', k) and isinstance(v, (int, float)):
+                        _cm_safe[k] = round(float(v), 4)
+                if _cm_safe:
+                    safe_si['custom_metrics'] = _cm_safe
             # v4.2.0 sweep: mail-queue depth. _host_checks and the drawer pill
             # both read si['mailq'], but the sanitizer never persisted it
             # (it can exceed 100, so the 0–100 metric loop skips it) — the
@@ -14421,6 +14443,16 @@ def handle_heartbeat():
     if isinstance(_bf, list) and _bf:
         try:
             _backfill_metrics(dev_id, _bf, now)
+        except Exception:
+            pass
+
+    # W3-11: custom metrics → history + threshold alerts (fire after the lock).
+    _cm_si = (saved_dev.get('sysinfo') or {}).get('custom_metrics')
+    if isinstance(_cm_si, dict) and _cm_si:
+        try:
+            for _ev, _pay in _ingest_custom_metrics(
+                    dev_id, _cm_si, saved_dev.get('name', dev_id), now):
+                fire_webhook(_ev, _pay)
         except Exception:
             pass
 
@@ -15284,6 +15316,51 @@ def handle_heartbeat():
         respond(200, {'command': dispatch_cmd, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
+
+
+def _custom_metric_thresholds():
+    """W3-11: config custom_metric_thresholds — {name: {op:'gt'|'lt', value,
+    severity}}. Returns {} fast when unset."""
+    t = _config_ro().get('custom_metric_thresholds') or {}
+    return t if isinstance(t, dict) else {}
+
+
+def _ingest_custom_metrics(dev_id, custom_metrics, dev_name, now):
+    """W3-11: append each metric to the rolling history and evaluate its
+    threshold, returning edge-triggered (event, payload) webhooks to fire AFTER
+    the caller's locks. Alert state lives in the history store per (dev, metric)."""
+    if not isinstance(custom_metrics, dict) or not custom_metrics:
+        return []
+    thresholds = _custom_metric_thresholds()
+    pending = []
+    with _LockedUpdate(CUSTOM_METRICS_HIST_FILE) as store:
+        dev_hist = store.setdefault(dev_id, {})
+        for name, val in custom_metrics.items():
+            if not isinstance(val, (int, float)):
+                continue
+            entry = dev_hist.setdefault(name, {'samples': [], 'alerted': False})
+            entry['samples'].append({'ts': now, 'val': round(float(val), 4)})
+            entry['samples'] = entry['samples'][-MAX_CUSTOM_METRIC_SAMPLES:]
+            th = thresholds.get(name)
+            if isinstance(th, dict):
+                try:
+                    limit = float(th.get('value'))
+                except (TypeError, ValueError):
+                    continue
+                op = th.get('op', 'gt')
+                breached = (val > limit) if op == 'gt' else (val < limit)
+                if breached and not entry.get('alerted'):
+                    entry['alerted'] = True
+                    pending.append(('custom_metric_alert', {
+                        'device_id': dev_id, 'name': dev_name,
+                        'metric': name, 'value': val,
+                        'severity': th.get('severity', 'medium'),
+                        'output': f'{name}={val} {op} {limit}'}))
+                elif not breached and entry.get('alerted'):
+                    entry['alerted'] = False
+                    pending.append(('custom_metric_recover', {
+                        'device_id': dev_id, 'name': dev_name, 'metric': name}))
+    return pending
 
 
 def _backfill_metrics(dev_id, samples, now):
@@ -18096,6 +18173,7 @@ def handle_config_get():
     safe.setdefault('patch_sla',              [])     # W1-33: patch-compliance SLA rules
     safe.setdefault('backup_size_anomaly_pct', 0)     # W3-42: shrink alert % of median (0=off)
     safe.setdefault('canary_files',           [])     # W3-38: decoy/honeytoken file paths
+    safe.setdefault('custom_metric_thresholds', {})   # W3-11: {name:{op,value,severity}}
     safe.setdefault('billing_enabled',        False)  # v5.4.1: Billing page, opt-in (Advanced)
     safe.setdefault('kb_enabled',             False)  # v5.6.0: Knowledge base, opt-in (Advanced)
     safe.setdefault('password_min_length',    0)      # v5.4.1 (D1): 0 = off
@@ -19512,6 +19590,24 @@ def handle_config_save():
             if key and aid:
                 m[key] = aid
         cfg['alert_runbooks'] = m
+    # W3-11: custom-metric thresholds {name: {op:'gt'|'lt', value, severity}}.
+    if 'custom_metric_thresholds' in body:
+        raw = body.get('custom_metric_thresholds')
+        if not isinstance(raw, dict):
+            respond(400, {'error': 'custom_metric_thresholds must be an object'})
+        out = {}
+        for k, v in list(raw.items())[:64]:
+            name = re.sub(r'[^a-z0-9_]', '', str(k).lower())[:64]
+            if not name or not isinstance(v, dict):
+                continue
+            try:
+                val = float(v.get('value'))
+            except (TypeError, ValueError):
+                continue
+            op = v.get('op') if v.get('op') in ('gt', 'lt') else 'gt'
+            sev = v.get('severity') if v.get('severity') in ('critical', 'high', 'medium', 'low') else 'medium'
+            out[name] = {'op': op, 'value': val, 'severity': sev}
+        cfg['custom_metric_thresholds'] = out
     # W3-38: canary/honeytoken files the agent plants + watches. Each entry
     # {path, content?}; path must be absolute. Empty list = off.
     if 'canary_files' in body:
@@ -26526,6 +26622,29 @@ def _redact_sudo_command(cmd):
     # bite the `-p` inside an already-handled `--password=…`.
     out = re.sub(r'(?<![\w-])-p[^\s=]{3,}', '-p***', out)
     return out
+
+
+def handle_device_custom_metrics(dev_id):
+    """GET /api/devices/{id}/custom-metrics — current values + recent history
+    for a device's operator-supplied custom metrics (any authed user)."""
+    require_auth()
+    if _caller_scope() is not None:
+        devs = load(DEVICES_FILE) or {}
+        if dev_id not in _scope_filter_devices(devs):
+            respond(403, {'error': 'out of scope'})
+    hist = (load(CUSTOM_METRICS_HIST_FILE) or {}).get(dev_id) or {}
+    thresholds = _custom_metric_thresholds()
+    out = []
+    for name, rec in sorted(hist.items()):
+        samples = rec.get('samples') or []
+        out.append({
+            'name': name,
+            'current': samples[-1]['val'] if samples else None,
+            'alerted': bool(rec.get('alerted')),
+            'threshold': thresholds.get(name),
+            'samples': [{'ts': s['ts'], 'val': s['val']} for s in samples[-120:]],
+        })
+    respond(200, {'ok': True, 'metrics': out})
 
 
 def handle_device_sudo_log(dev_id):
@@ -51861,6 +51980,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('DELETE',), '/api/devices/', '/command-queue', 'handle_command_queue_clear', "pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/devices/', '/checks', 'handle_device_checks', "pi.startswith('/api/devices/') and pi.endswith('/checks') and m == 'GET'"),
     ('pat', ('GET',), '/api/devices/', '/sudo-log', 'handle_device_sudo_log', "pi.startswith('/api/devices/') and pi.endswith('/sudo-log') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/custom-metrics', 'handle_device_custom_metrics', "pi.startswith('/api/devices/') and pi.endswith('/custom-metrics') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
     ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep',\n                                     '/decommissioned'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),

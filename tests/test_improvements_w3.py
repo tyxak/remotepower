@@ -416,6 +416,81 @@ class TestFileManagerUpload(unittest.TestCase):
         self.assertIn("res['content_b64']", src)
 
 
+class TestCustomMetrics(_HandlerBase):
+    """W3-11: custom-metric ingestion, thresholds, history, config."""
+
+    def setUp(self):
+        super().setUp()
+        self._hf = api.CUSTOM_METRICS_HIST_FILE
+        api.CUSTOM_METRICS_HIST_FILE = self.d / 'cm_hist.json'
+        self.fired = []
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
+
+    def tearDown(self):
+        api.CUSTOM_METRICS_HIST_FILE = self._hf
+        super().tearDown()
+
+    def test_history_appended(self):
+        now = 1000
+        api._ingest_custom_metrics('d1', {'queue_depth': 5}, 'h', now)
+        api._ingest_custom_metrics('d1', {'queue_depth': 7}, 'h', now + 60)
+        hist = (api.load(api.CUSTOM_METRICS_HIST_FILE) or {})['d1']['queue_depth']
+        self.assertEqual([s['val'] for s in hist['samples']], [5.0, 7.0])
+
+    def test_threshold_alert_and_recover(self):
+        api.save(api.CONFIG_FILE, {'custom_metric_thresholds': {
+            'queue_depth': {'op': 'gt', 'value': 100, 'severity': 'high'}}})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        # below → no alert
+        p = api._ingest_custom_metrics('d1', {'queue_depth': 50}, 'h', 1000)
+        self.assertEqual(p, [])
+        # above → alert (edge)
+        p = api._ingest_custom_metrics('d1', {'queue_depth': 500}, 'h', 1060)
+        self.assertEqual(p[0][0], 'custom_metric_alert')
+        self.assertEqual(p[0][1]['metric'], 'queue_depth')
+        # still above → no re-alert
+        p = api._ingest_custom_metrics('d1', {'queue_depth': 600}, 'h', 1120)
+        self.assertEqual(p, [])
+        # back below → recover
+        p = api._ingest_custom_metrics('d1', {'queue_depth': 10}, 'h', 1180)
+        self.assertEqual(p[0][0], 'custom_metric_recover')
+
+    def test_lt_operator(self):
+        api.save(api.CONFIG_FILE, {'custom_metric_thresholds': {
+            'free_slots': {'op': 'lt', 'value': 5, 'severity': 'medium'}}})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        p = api._ingest_custom_metrics('d1', {'free_slots': 2}, 'h', 1000)
+        self.assertEqual(p[0][0], 'custom_metric_alert')
+
+    def test_config_save_validates(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'custom_metric_thresholds': {
+            'Good_Name': {'op': 'gt', 'value': 10},
+            'bad name!': {'op': 'gt', 'value': 1},   # sanitized name
+            'no_val': {'op': 'gt'}}}                  # dropped (no value)
+        try:
+            api.handle_config_save()
+        except api.HTTPError:
+            pass
+        saved = (api.load(api.CONFIG_FILE) or {}).get('custom_metric_thresholds')
+        self.assertIn('good_name', saved)
+        self.assertNotIn('no_val', saved)
+
+    def test_agent_collector_parses(self):
+        import os as _os
+        import tempfile as _tf
+        agent = _load_agent()
+        d = _tf.mkdtemp()
+        with open(_os.path.join(d, 'app.prom'), 'w') as f:
+            f.write('# a comment\nqueue_depth 42\nBAD-NAME 1\nlatency_ms 3.14\nnotanumber x\n')
+        agent.CUSTOM_METRICS_DIR = d
+        # host_path is identity when HOST_ROOT unset
+        m = agent.collect_custom_metrics()
+        self.assertEqual(m.get('queue_depth'), 42.0)
+        self.assertEqual(m.get('latency_ms'), 3.14)
+        self.assertNotIn('bad-name', m)      # invalid name skipped
+
+
 import json  # noqa: E402  (used by the file-manager test above)
 
 if __name__ == '__main__':

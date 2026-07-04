@@ -13855,7 +13855,7 @@ function _renderHomeActivity(fleetEvents) {
     'container_stopped', 'container_recovered', 'container_restarting', 'containers_stale', 'containers_current',
     // v3.2.x: container image update tracking
     'image_update_available', 'image_updated',
-    'metric_warning', 'metric_critical', 'metric_recovered',
+    'metric_warning', 'metric_critical', 'metric_recovered', 'custom_metric_alert', 'custom_metric_recover',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
@@ -14045,6 +14045,7 @@ function _homeActivityAttrs(event, p) {
     case 'campaign_completed': return `${base} data-home-act="cve"`;
     case 'monitor_down':   case 'monitor_up':
     case 'metric_warning': case 'metric_critical': case 'metric_recovered':
+    case 'custom_metric_alert': case 'custom_metric_recover':
     case 'custom_script_fail': case 'custom_script_recover':
       return `${base} data-home-act="monitor"`;
     // v5.6.0: custom Check-catalog failures → the host drawer (or Checks fleet-wide)
@@ -16957,6 +16958,14 @@ async function _loadAuditSection(key) {
                    <td class="fs-11">${rec.srcs.length ? rec.srcs.map(s=>`<span class="cmd-badge fs-11">${escHtml(s)}</span>`).join(' ') : '<span class="c-muted">—</span>'}</td>
                    <td class="fs-11">${rec.lastTs ? escHtml(new Date(rec.lastTs*1000).toLocaleString()) : '<span class="c-muted">—</span>'}</td></tr>`
             ).join('') + `</tbody></table></div>`;
+        }
+        // W3-11: operator-supplied custom metrics (if any).
+        if (si.custom_metrics && Object.keys(si.custom_metrics).length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Custom metrics</div>`
+            + `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627"><thead><tr class="c-muted"><th>Metric</th><th>Value</th></tr></thead><tbody>`
+            + Object.entries(si.custom_metrics).map(([k, v]) =>
+                `<tr><td class="fs-12"><code>${escHtml(k)}</code></td><td class="fs-12">${escHtml(String(v))}</td></tr>`).join('')
+            + `</tbody></table></div>`;
         }
         // W3-40: privileged-command (sudo) audit trail — loaded on demand.
         h += `<div class="mt-16 mb-8 fw-500 fs-13">Privileged commands (sudo)</div>

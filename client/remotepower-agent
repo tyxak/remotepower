@@ -738,6 +738,46 @@ def _remove_canaries():
     _canary_reported.clear()
 
 
+CUSTOM_METRICS_DIR = '/etc/remotepower/metrics.d'   # W3-11 textfile collector dir
+_CM_NAME_RE = re.compile(r'^[a-z][a-z0-9_]{0,63}$')
+
+
+def collect_custom_metrics():
+    """W3-11: read a Prometheus-textfile-collector-style dir — `name value`
+    lines in *.prom files — into {name: float}. Bounded (32 metrics, numeric
+    only, [a-z][a-z0-9_]* names). Best-effort; empty on any error."""
+    out = {}
+    try:
+        d = host_path(CUSTOM_METRICS_DIR)
+        names = sorted(os.listdir(d))[:50]
+    except OSError:
+        return {}
+    for fn in names:
+        if not fn.endswith('.prom'):
+            continue
+        try:
+            body = _safe_read(os.path.join(d, fn), 64_000) or ''
+        except Exception:
+            continue
+        for line in body.splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            name = parts[0].lower()
+            if not _CM_NAME_RE.match(name):
+                continue
+            try:
+                out[name] = float(parts[1])
+            except ValueError:
+                continue
+            if len(out) >= 32:
+                return out
+    return out
+
+
 def _is_private_ip(ip):
     """RFC-1918 / link-local / CGNAT — the addresses worth suggesting a fleet
     dependency for (a world-bound peer is noise + a privacy leak)."""
@@ -7992,6 +8032,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     sysinfo['custom_check_results'] = eval_agent_checks(agent_checks)
                 except Exception as e:
                     log.debug(f'agent checks error: {e}')
+            # W3-11: operator-supplied custom metrics (textfile collector).
+            try:
+                _cm = collect_custom_metrics()
+                if _cm:
+                    sysinfo['custom_metrics'] = _cm
+            except Exception as e:
+                log.debug(f'custom metrics error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             # W3-8: sample outbound peer connections every ~15 polls so the

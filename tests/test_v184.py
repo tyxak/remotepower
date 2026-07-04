@@ -262,6 +262,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'image_update_available', 'image_updated',
             # v1.11.10: metric thresholds
             'metric_warning', 'metric_critical', 'metric_recovered',
+            'custom_metric_alert', 'custom_metric_recover',    # W3-11
             'command_queued', 'command_executed',
             # v2.2.0: configuration drift detection
             'drift_detected',
