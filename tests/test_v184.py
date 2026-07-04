@@ -299,7 +299,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # health, access watch, host firewall, scheduled-job failure
             'port_exposed_world', 'software_policy_violation',
             'storage_degraded', 'scrub_overdue', 'storage_recovered',
-            'login_new_source', 'firewall_changed', 'timer_failed',
+            'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
             'db_integrity_failed', 'mount_issue',
             'disk_predict_fail', 'ups_on_battery', 'ups_on_line',
             'cert_file_expiring', 'rogue_uid0',

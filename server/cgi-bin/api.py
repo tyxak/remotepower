@@ -109,6 +109,7 @@ PEER_CONNS_FILE = DATA_DIR / 'peer_conns.json'     # W3-8 observed outbound peer
 DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency suggestions
 LLDP_NEIGHBORS_FILE = DATA_DIR / 'lldp_neighbors.json'  # W5-1 LLDP neighbors per device
 LLDP_DISMISS_FILE = DATA_DIR / 'lldp_dismissed.json'    # W5-1 dismissed topology edges
+GEO_LOGIN_STATE_FILE = DATA_DIR / 'geo_login_state.json'  # W6-41 per-user last login country/ts
 CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
 MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
 MAILFLOW_STATE_FILE = DATA_DIR / 'mailflow_state.json'   # W4-16 mail round-trip probe state
@@ -707,6 +708,7 @@ WEBTERM_MAX_SESSION_LOG_BYTES = 10 * 1024 * 1024   # 10 MiB cap per recording
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
 import importers
+import geoip as geoip_mod   # W6-41: offline MMDB reader (GeoIP enrichment)
 import prometheus_export
 # v1.8.6: SMTP + LDAP. ldap3 is optional — the module imports it lazily so
 # servers that don't enable LDAP don't need the dependency installed.
@@ -1253,6 +1255,10 @@ EVENT_REGISTRY = {
     'login_new_source': dict(
         label='Login from a new source address', kind='access', title='Login From New Source',
         severity='medium', tags='warning,bust_in_silhouette'),
+    'login_geo_anomaly': dict(
+        label='Impossible travel — one account logged in from two countries in a short window (GeoIP)',
+        kind='access', title='Impossible-Travel Login', severity='high',
+        tags='warning,airplane'),
     'firewall_changed': dict(
         label='Host firewall ruleset changed from baseline', kind='firewall',
         title='Host Firewall Changed', severity='medium', tags='warning,fire'),
@@ -19840,6 +19846,19 @@ def handle_config_save():
         elif isinstance(new_secret, str):
             cfg['proxmox_token_secret'] = new_secret[:1024]
 
+    # ── W6-41: GeoIP (offline MMDB) settings ───────────────────────────────────
+    if 'geoip_db_path' in body:
+        cfg['geoip_db_path'] = _sanitize_str(str(body.get('geoip_db_path') or ''), 512)
+    if 'geoip_asn_db_path' in body:
+        cfg['geoip_asn_db_path'] = _sanitize_str(str(body.get('geoip_asn_db_path') or ''), 512)
+    if 'geo_anomaly_enabled' in body:
+        cfg['geo_anomaly_enabled'] = bool(body['geo_anomaly_enabled'])
+    if 'geo_anomaly_hours' in body:
+        try:
+            cfg['geo_anomaly_hours'] = max(1, min(72, int(body['geo_anomaly_hours'])))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'geo_anomaly_hours must be an integer'})
+
     # ── v1.8.6: LDAP settings ──────────────────────────────────────────────────
     if 'ldap_enabled' in body:
         cfg['ldap_enabled'] = bool(body['ldap_enabled'])
@@ -25369,6 +25388,51 @@ def _audit_listening_ports(dev_id, dev_name, ports):
             pass
 
 
+# ── W6-41: GeoIP enrichment (offline, operator-supplied MMDB) ────────────────
+_GEOIP_CACHE = {'country': (None, None, 0), 'asn': (None, None, 0)}   # kind→(path,reader,mtime)
+
+
+def _geoip_reader(kind):
+    """Cached MMDB reader for `kind` ('country'|'asn'). Re-opens when the
+    configured path or the file's mtime changes; None when not configured."""
+    cfg = _config_ro()
+    path = (cfg.get('geoip_db_path') if kind == 'country'
+            else cfg.get('geoip_asn_db_path')) or ''
+    if not path:
+        return None
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    cpath, reader, cmtime = _GEOIP_CACHE.get(kind, (None, None, 0))
+    if reader is not None and cpath == path and cmtime == mtime:
+        return reader
+    reader = geoip_mod.open_reader(path)
+    _GEOIP_CACHE[kind] = (path, reader, mtime)
+    return reader
+
+
+def geo_enrich(ip):
+    """{'country','country_code','asn','org'} for an IP from the configured
+    GeoLite2 files. Empty when GeoIP isn't configured or the IP is unknown."""
+    out = {}
+    out.update(geoip_mod.geo_of(_geoip_reader('country'), ip))
+    out.update(geoip_mod.geo_of(_geoip_reader('asn'), ip))
+    return out
+
+
+def _geo_anomaly(prev, country, now, hours):
+    """Pure: True when `prev` (a {country,ts} record) shows a DIFFERENT country
+    within `hours` of `now` — an impossible-travel signal."""
+    if not prev or not country:
+        return False
+    pc = prev.get('country')
+    pts = int(prev.get('ts') or 0)
+    if not pc or pc == country:
+        return False
+    return (now - pts) <= hours * 3600
+
+
 def _ingest_posture_v3110(dev_id, dev_name, si):
     """v3.11.0: edge-triggered detections over the heartbeat's posture
     fields. State per device is kept in POSTURE_STATE_FILE so each
@@ -25466,12 +25530,40 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
     srcs = [s for s in (auth.get('sources') or []) if s]
     if srcs:
         seen = set(prev.get('login_sources') or [])
+        _geo_cfg = _config_ro()
+        _geo_on = bool(_geo_cfg.get('geo_anomaly_enabled'))
+        _geo_hours = int(_geo_cfg.get('geo_anomaly_hours') or 2)
+        _geo_updates = {}     # W6-41: collected per-user state to persist after
+        _geo_fires = []
         for s in srcs:
             if s not in seen and not first_seen:
                 usr = next((e.get('user') for e in (auth.get('recent_logins') or [])
                             if e.get('source') == s), '')
-                _fire('login_new_source', {'source': s, 'user': usr})
+                # W6-41: enrich the new-source payload with GeoIP (empty when off).
+                geo = geo_enrich(s)
+                payload = {'source': s, 'user': usr}
+                payload.update(geo)
+                _fire('login_new_source', payload)
+                # Impossible-travel: same user, different country, short window.
+                if _geo_on and usr and geo.get('country_code'):
+                    _geo_updates[usr] = {'country': geo['country_code'], 'ts': int(time.time())}
+                    _geo_fires.append((usr, s, geo))
         new['login_sources'] = sorted(seen | set(srcs))[:200]
+        if _geo_updates:
+            now_ts = int(time.time())
+            anomalies = []
+            with _locked_update(GEO_LOGIN_STATE_FILE) as gstate:
+                for usr, s, geo in _geo_fires:
+                    if _geo_anomaly(gstate.get(usr), geo['country_code'], now_ts, _geo_hours):
+                        anomalies.append({'user': usr, 'source': s,
+                                          'country_code': geo.get('country_code'),
+                                          'country': geo.get('country', ''),
+                                          'prev_country': gstate[usr].get('country'),
+                                          'detail': f"{gstate[usr].get('country')} → "
+                                                    f"{geo.get('country_code')} within {_geo_hours}h"})
+                    gstate[usr] = _geo_updates[usr]
+            for a in anomalies:
+                fire_webhook('login_geo_anomaly', a)
 
     # ── mount-point issues (v3.12.0) ───────────────────────────────
     mi = si.get('mount_issues')

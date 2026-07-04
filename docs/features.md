@@ -256,6 +256,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Guided CIS remediation | One-click fix for a failed baseline check (pending updates / reboot / clear failed units / patch CVEs) queued through the audited command channel — per-host opt-in (`remediation_enabled`), quarantine + audit-mode enforced, and **maker-checker required** when change-approval is on. `POST /api/compliance/remediate` *(v3.14.0; 4-eyes-required v5.8.0)* |
 | Compliance frameworks | PCI DSS / HIPAA / SOC 2 controls mapped to collected data with evidence + remediation *(v3.4.0)* |
 | Access watch | First-seen login source → `login_new_source`; brute force → `brute_force_detected` *(v3.11.0)* |
+| GeoIP enrichment | Point RemotePower at an operator-supplied offline GeoLite2 Country/ASN `.mmdb` file (pure-python reader, no external dependency, no egress) — login sources get country/ASN; optional impossible-travel detection fires `login_geo_anomaly` when one account logs in from two countries within a window. Degrades to no-op with no DB configured. *(v5.8.0)* |
 | Sudo audit trail | Agent tails sudo invocations (journal / `auth.log`) → a per-device privileged-command log (who/tty/pwd/command, secrets redacted); drawer table + fleet search `GET /api/sudo-search`; admin/auditor-only *(v5.8.0)* |
 | Lifecycle expiry | Warranty / license / support end dates per asset → attention items *(v3.5.0)* |
 | Container restart tracking | Real restart count/age via batched `docker inspect`, fleet-wide *(v3.10.0)* |

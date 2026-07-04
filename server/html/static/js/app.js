@@ -3162,6 +3162,15 @@ async function loadSettings() {
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
   if (_pae) _pae.checked = !!data.port_audit_enabled;
+  // W6-41: GeoIP settings
+  const _gdb = document.getElementById('cfg-geoip-db-path');
+  if (_gdb) _gdb.value = data.geoip_db_path || '';
+  const _gadb = document.getElementById('cfg-geoip-asn-db-path');
+  if (_gadb) _gadb.value = data.geoip_asn_db_path || '';
+  const _gae = document.getElementById('cfg-geo-anomaly-enabled');
+  if (_gae) _gae.checked = !!data.geo_anomaly_enabled;
+  const _gah = document.getElementById('cfg-geo-anomaly-hours');
+  if (_gah) _gah.value = data.geo_anomaly_hours || 2;
   const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
   const _tke = document.getElementById('cfg-tickets-enabled');
@@ -3621,6 +3630,15 @@ async function saveSettings(btn) {
   // v3.12.0: listening-port audit toggle.
   const _paEn = document.getElementById('cfg-port-audit-enabled');
   if (_paEn) payload.port_audit_enabled = _paEn.checked;
+  // W6-41: GeoIP settings
+  const _gdbEl = document.getElementById('cfg-geoip-db-path');
+  if (_gdbEl) payload.geoip_db_path = _gdbEl.value.trim();
+  const _gadbEl = document.getElementById('cfg-geoip-asn-db-path');
+  if (_gadbEl) payload.geoip_asn_db_path = _gadbEl.value.trim();
+  const _gaeEl = document.getElementById('cfg-geo-anomaly-enabled');
+  if (_gaeEl) payload.geo_anomaly_enabled = _gaeEl.checked;
+  const _gahEl = document.getElementById('cfg-geo-anomaly-hours');
+  if (_gahEl) payload.geo_anomaly_hours = parseInt(_gahEl.value, 10) || 2;
   const _tkEn = document.getElementById('cfg-tickets-enabled');
   if (_tkEn) payload.tickets_enabled = _tkEn.checked;
   const _blEn = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
@@ -14348,7 +14366,7 @@ function _renderHomeActivity(fleetEvents) {
     // v3.11.0: exposure / software-policy / storage / access / firewall / timer
     'port_exposed_world', 'port_unexposed', 'software_policy_violation',
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
-    'login_new_source', 'firewall_changed', 'timer_failed',
+    'login_new_source', 'login_geo_anomaly', 'firewall_changed', 'timer_failed',
     // v3.12.0: SQLite storage integrity failure + mount-point health
     'db_integrity_failed', 'mount_issue', 'mount_recovered',
     'disk_predict_fail', 'ups_on_battery', 'ups_on_line', 'temp_high', 'temp_normal',
@@ -14559,6 +14577,7 @@ function _homeActivityAttrs(event, p) {
     case 'storage_degraded': case 'scrub_overdue': case 'storage_recovered':
       return `${base} data-home-act="${devId ? 'detail' : 'storage'}"`;
     case 'login_new_source':
+    case 'login_geo_anomaly':
     case 'firewall_changed':
     case 'timer_failed':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
