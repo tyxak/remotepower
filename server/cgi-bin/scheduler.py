@@ -69,6 +69,7 @@ CADENCE = (
     'run_smart_groups_if_due',           # W5-6 smart-group materialization
     'run_ipam_conflicts_if_due',         # W5-2 IPAM duplicate-IP detection
     'run_cloud_sync_if_due',             # W6-44 scheduled cloud inventory re-sync
+    'run_warranty_lookup_if_due',        # W6-4 warranty auto-lookup → CMDB
     '_maybe_gitops_sync',
     'process_schedule',
     'process_backup_jobs',

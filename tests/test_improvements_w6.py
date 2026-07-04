@@ -22,7 +22,8 @@ class _HandlerBase(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
-        for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE'):
+        for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
+                     'CMDB_FILE', 'WARRANTY_CACHE_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -265,6 +266,64 @@ class TestImageCves(_HandlerBase):
         except api.HTTPError:
             pass
         self.assertTrue((api.load(api.CONFIG_FILE) or {}).get('image_scan_enabled'))
+
+
+class TestWarrantyLookup(_HandlerBase):
+    """W6-4: warranty auto-lookup framework."""
+
+    def test_parse_lenovo(self):
+        data = {'Warranty': [{'End': '2024-01-01'}, {'End': '2026-05-15T00:00:00'}]}
+        self.assertEqual(api._parse_lenovo_warranty(data), '2026-05-15')
+        self.assertEqual(api._parse_lenovo_warranty({}), '')
+
+    def test_device_hw_system(self):
+        dev = {'hardware': {'system': {'serial': 'PF0ABC', 'manufacturer': 'LENOVO'}}}
+        serial, manuf = api._device_hw_system(dev)
+        self.assertEqual(serial, 'PF0ABC')
+        self.assertEqual(manuf, 'lenovo')
+
+    def test_lookup_autofills_only_empty_or_auto(self):
+        api.save(api.CONFIG_FILE, {'warranty_lookup_enabled': True, 'warranty_provider': 'lenovo',
+                                   'warranty_lenovo_client_id': 'cid'})
+        api.save(api.DEVICES_FILE, {
+            'd1': {'hardware': {'system': {'serial': 'S1', 'manufacturer': 'Lenovo'}}},
+            'd2': {'hardware': {'system': {'serial': 'S2', 'manufacturer': 'Lenovo'}}},
+            'd3': {'hardware': {'system': {'serial': 'S3', 'manufacturer': 'Lenovo'}}}})
+        # d2 has an OPERATOR-set date (no warranty_auto) → must NOT be clobbered.
+        # d3 was previously auto-filled → may be refreshed.
+        api.save(api.CMDB_FILE, {
+            'd2': dict(api._cmdb_record_default(), warranty_expiry='2030-01-01'),
+            'd3': dict(api._cmdb_record_default(), warranty_expiry='2020-01-01',
+                       warranty_auto=True)})
+        for f in (api.CONFIG_FILE, api.DEVICES_FILE, api.CMDB_FILE, api.WARRANTY_CACHE_FILE):
+            api._invalidate_load_cache(f)
+        saved = api._warranty_lookup_serial
+        api._warranty_lookup_serial = lambda serial, cfg: '2027-12-31'
+        try:
+            api.run_warranty_lookup_if_due()
+        finally:
+            api._warranty_lookup_serial = saved
+        cmdb = api._cmdb_load()
+        self.assertEqual(cmdb['d1']['warranty_expiry'], '2027-12-31')   # was empty → filled
+        self.assertTrue(cmdb['d1']['warranty_auto'])
+        self.assertEqual(cmdb['d2']['warranty_expiry'], '2030-01-01')   # operator date kept
+        self.assertEqual(cmdb['d3']['warranty_expiry'], '2027-12-31')   # auto → refreshed
+
+    def test_noop_without_client_id(self):
+        api.save(api.CONFIG_FILE, {'warranty_lookup_enabled': True, 'warranty_provider': 'lenovo'})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        # should return without touching anything (no credential)
+        api.run_warranty_lookup_if_due()
+        self.assertEqual(api.load(api.WARRANTY_CACHE_FILE) or {}, {})
+
+    def test_config_get_withholds_client_id(self):
+        api.save(api.CONFIG_FILE, {'warranty_lenovo_client_id': 'secret-cid'})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.verify_token = lambda t: ('jakob', 'admin')
+        api.get_token_from_request = lambda: 't'
+        out = self.call(api.handle_config_get)
+        self.assertNotIn('warranty_lenovo_client_id', out)
+        self.assertTrue(out['warranty_lenovo_configured'])
 
 
 class TestRestoreDrills(_HandlerBase):

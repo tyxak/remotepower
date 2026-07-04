@@ -111,6 +111,7 @@ LLDP_NEIGHBORS_FILE = DATA_DIR / 'lldp_neighbors.json'  # W5-1 LLDP neighbors pe
 LLDP_DISMISS_FILE = DATA_DIR / 'lldp_dismissed.json'    # W5-1 dismissed topology edges
 GEO_LOGIN_STATE_FILE = DATA_DIR / 'geo_login_state.json'  # W6-41 per-user last login country/ts
 CLOUD_SYNC_STATE_FILE = DATA_DIR / 'cloud_sync_state.json'  # W6-44 scheduled cloud re-sync gate
+WARRANTY_CACHE_FILE = DATA_DIR / 'warranty_cache.json'   # W6-4 per-serial warranty lookup cache
 CUSTOM_METRICS_HIST_FILE = DATA_DIR / 'custom_metrics_hist.json'  # W3-11 per-device metric history
 MAX_CUSTOM_METRIC_SAMPLES = 720                    # W3-11 rolling samples per metric
 MAILFLOW_STATE_FILE = DATA_DIR / 'mailflow_state.json'   # W4-16 mail round-trip probe state
@@ -19539,6 +19540,10 @@ def handle_config_get():
     # ai.api_key is surfaced as ai_configured. (Before v5.0.0 it was returned
     # raw to admin tokens, putting a reusable secret in a GET response body.)
     safe.pop('webhook_url', None)
+    # W6-4: the Lenovo warranty ClientID is an API credential — withhold it,
+    # expose only a boolean (re-enter to change), like other secret config.
+    safe['warranty_lenovo_configured'] = bool((cfg.get('warranty_lenovo_client_id') or '').strip())
+    safe.pop('warranty_lenovo_client_id', None)
     # v5.5.0 (L1): the Healthchecks.io ping URL has a secret UUID in its path — a
     # reusable credential. The Settings form round-trips it on save, so admins keep
     # seeing it (like webhook_urls[].url), but a non-admin (viewer/MCP) token must
@@ -19929,6 +19934,19 @@ def handle_config_save():
             cfg['cloud_autosync_interval'] = max(3600, min(604800, int(body['cloud_autosync_interval'])))
         except (ValueError, TypeError):
             respond(400, {'error': 'cloud_autosync_interval must be an integer'})
+    # W6-4: warranty auto-lookup
+    if 'warranty_lookup_enabled' in body:
+        cfg['warranty_lookup_enabled'] = bool(body['warranty_lookup_enabled'])
+    if 'warranty_provider' in body:
+        _wp = str(body.get('warranty_provider', 'lenovo')).lower()
+        cfg['warranty_provider'] = _wp if _wp in ('lenovo', 'dell') else 'lenovo'
+    if 'warranty_lenovo_client_id' in body:
+        # A Lenovo ClientID is an API credential — '' clears, omitted preserves.
+        _wc = body['warranty_lenovo_client_id']
+        if _wc == '':
+            cfg.pop('warranty_lenovo_client_id', None)
+        elif isinstance(_wc, str):
+            cfg['warranty_lenovo_client_id'] = _wc[:256]
     if 'geo_anomaly_hours' in body:
         try:
             cfg['geo_anomaly_hours'] = max(1, min(72, int(body['geo_anomaly_hours'])))
@@ -25203,6 +25221,110 @@ def run_cloud_sync_if_due():
         return
     save(CLOUD_SYNC_STATE_FILE, {'last_run': now})
     _cloud_import_run(accounts, 'schedule:cloud_sync', mark_gone=True)
+
+
+# ── W6-4: warranty auto-lookup (Lenovo / Dell) ───────────────────────────────
+# A cadence job maps each device's inventoried serial → a vendor warranty API →
+# the CMDB `warranty_expiry` lifecycle field. It NEVER clobbers an operator-set
+# date: it fills only when the field is empty OR was previously auto-filled
+# (tracked by a `warranty_auto` marker on the CMDB record). Cached 30d/serial
+# (these APIs rate-limit). No-op without an API credential configured.
+WARRANTY_CACHE_DAYS = 30
+WARRANTY_INTERVAL   = 21600      # re-run the sweep at most every 6h
+
+
+def _device_hw_system(dev):
+    hw = (dev.get('hardware') or {}).get('system') or {}
+    return (str(hw.get('serial', '') or '').strip(),
+            str(hw.get('manufacturer', '') or '').strip().lower())
+
+
+def _parse_lenovo_warranty(data):
+    """Pure: extract the latest warranty END date (ISO YYYY-MM-DD) from a Lenovo
+    warranty API response, or '' if none. Defensive about the response shape."""
+    if not isinstance(data, dict):
+        return ''
+    ends = []
+    warr = data.get('Warranty')
+    if isinstance(warr, list):
+        for w in warr:
+            if isinstance(w, dict) and w.get('End'):
+                ends.append(str(w['End'])[:10])
+    # some payloads expose a top-level End date on the product
+    for k in ('EndDate', 'End'):
+        if data.get(k):
+            ends.append(str(data[k])[:10])
+    ends = [e for e in ends if re.match(r'^\d{4}-\d{2}-\d{2}$', e)]
+    return max(ends) if ends else ''
+
+
+def _warranty_lookup_serial(serial, cfg):
+    """Fetch the warranty end date for one serial via the configured provider.
+    Returns '' on any failure. SSRF-safe (fixed vendor host, no redirects)."""
+    provider = str(cfg.get('warranty_provider', 'lenovo')).lower()
+    opener = _ssrf_safe_opener(allow_loopback=False, no_redirect=True).open
+    import json as _json
+    if provider == 'lenovo':
+        client_id = cfg.get('warranty_lenovo_client_id') or ''
+        if not client_id:
+            return ''
+        url = 'https://supportapi.lenovo.com/v2.5/warranty?Serial=' + urllib.parse.quote(serial)
+        req = urllib.request.Request(url, headers={'ClientID': client_id,
+                                                   'Accept': 'application/json'}, method='GET')
+        try:
+            with opener(req, timeout=15) as resp:
+                return _parse_lenovo_warranty(_json.loads(resp.read().decode('utf-8', 'replace')))
+        except Exception:
+            return ''
+    return ''     # Dell (TechDirect OAuth) — wired when creds are provided
+
+
+def run_warranty_lookup_if_due():
+    """W6-4 cadence: resolve inventoried serials → CMDB warranty_expiry. Opt-in
+    (warranty_lookup_enabled + a provider credential). Cheap when off / not due;
+    per-serial results cached 30d."""
+    cfg = _config_ro()
+    if not cfg.get('warranty_lookup_enabled'):
+        return
+    provider = str(cfg.get('warranty_provider', 'lenovo')).lower()
+    if provider == 'lenovo' and not cfg.get('warranty_lenovo_client_id'):
+        return
+    now = int(time.time())
+    cache = load(WARRANTY_CACHE_FILE) or {}
+    if now - int((cache.get('_meta') or {}).get('last_run', 0) or 0) < WARRANTY_INTERVAL:
+        return
+    devices = load(DEVICES_FILE) or {}
+    cmdb = _cmdb_load()
+    updates = {}        # dev_id → iso end date to auto-fill
+    checked = 0
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or checked >= 100:
+            continue
+        serial, manuf = _device_hw_system(dev)
+        if not serial or (provider == 'lenovo' and 'lenovo' not in manuf):
+            continue
+        ent = cache.get(serial)
+        if isinstance(ent, dict) and now - int(ent.get('ts', 0) or 0) < WARRANTY_CACHE_DAYS * 86400:
+            end = ent.get('end', '')
+        else:
+            checked += 1
+            end = _warranty_lookup_serial(serial, cfg)
+            cache[serial] = {'end': end, 'ts': now}
+        if end:
+            rec = cmdb.get(dev_id) or {}
+            cur = str(rec.get('warranty_expiry', '') or '')
+            if not cur or rec.get('warranty_auto'):
+                if cur != end:
+                    updates[dev_id] = end
+    cache['_meta'] = {'last_run': now}
+    save(WARRANTY_CACHE_FILE, cache)
+    if updates:
+        with _LockedUpdate(CMDB_FILE) as store:
+            for dev_id, end in updates.items():
+                rec = store.get(dev_id) or _cmdb_record_default()
+                rec['warranty_expiry'] = end
+                rec['warranty_auto'] = True
+                store[dev_id] = rec
 
 
 def _ssh_preflight(dev_id):
@@ -54647,6 +54769,8 @@ def main():
     _safe(run_ipam_conflicts_if_due, 'run_ipam_conflicts_if_due')
     # W6-44: scheduled cloud inventory re-sync (opt-in; slow cadence).
     _safe(run_cloud_sync_if_due, 'run_cloud_sync_if_due')
+    # W6-4: warranty auto-lookup → CMDB expiry (opt-in; cached per serial).
+    _safe(run_warranty_lookup_if_due, 'run_warranty_lookup_if_due')
     _safe(_maybe_gitops_sync, '_maybe_gitops_sync')   # v3.14.0 (#27)
     _safe(process_schedule,    'process_schedule')
     # v3.6.0: cron-driven backup jobs + auto-patch policies

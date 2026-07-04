@@ -3178,6 +3178,13 @@ async function loadSettings() {
   if (_cas) _cas.checked = !!data.cloud_autosync_enabled;
   const _casi = document.getElementById('cfg-cloud-autosync-interval');
   if (_casi) _casi.value = data.cloud_autosync_interval || 21600;
+  // W6-4: warranty auto-lookup
+  const _wen = document.getElementById('cfg-warranty-enabled');
+  if (_wen) _wen.checked = !!data.warranty_lookup_enabled;
+  const _wpr = document.getElementById('cfg-warranty-provider');
+  if (_wpr) _wpr.value = data.warranty_provider || 'lenovo';
+  const _wid = document.getElementById('cfg-warranty-lenovo-id');
+  if (_wid) { _wid.value = ''; _wid.placeholder = data.warranty_lenovo_configured ? 'ClientID (stored — leave blank to keep)' : 'ClientID'; }
   const _cea = document.getElementById('cfg-cert-expiry-alerts-enabled');
   if (_cea) _cea.checked = !!data.cert_expiry_alerts_enabled;
   const _tke = document.getElementById('cfg-tickets-enabled');
@@ -3654,6 +3661,13 @@ async function saveSettings(btn) {
   if (_casEl) payload.cloud_autosync_enabled = _casEl.checked;
   const _casiEl = document.getElementById('cfg-cloud-autosync-interval');
   if (_casiEl) payload.cloud_autosync_interval = parseInt(_casiEl.value, 10) || 21600;
+  // W6-4: warranty auto-lookup
+  const _wenEl = document.getElementById('cfg-warranty-enabled');
+  if (_wenEl) payload.warranty_lookup_enabled = _wenEl.checked;
+  const _wprEl = document.getElementById('cfg-warranty-provider');
+  if (_wprEl) payload.warranty_provider = _wprEl.value;
+  const _widEl = document.getElementById('cfg-warranty-lenovo-id');
+  if (_widEl && _widEl.value) payload.warranty_lenovo_client_id = _widEl.value;
   const _tkEn = document.getElementById('cfg-tickets-enabled');
   if (_tkEn) payload.tickets_enabled = _tkEn.checked;
   const _blEn = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in

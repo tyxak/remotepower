@@ -260,6 +260,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | GeoIP enrichment | Point RemotePower at an operator-supplied offline GeoLite2 Country/ASN `.mmdb` file (pure-python reader, no external dependency, no egress) — login sources get country/ASN; optional impossible-travel detection fires `login_geo_anomaly` when one account logs in from two countries within a window. Degrades to no-op with no DB configured. *(v5.8.0)* |
 | Sudo audit trail | Agent tails sudo invocations (journal / `auth.log`) → a per-device privileged-command log (who/tty/pwd/command, secrets redacted); drawer table + fleet search `GET /api/sudo-search`; admin/auditor-only *(v5.8.0)* |
 | Lifecycle expiry | Warranty / license / support end dates per asset → attention items *(v3.5.0)* |
+| Warranty auto-lookup | Opt-in: a cadence job maps each device's inventoried serial → a vendor warranty API (**Lenovo** via ClientID; Dell behind TechDirect creds) → auto-fills the CMDB warranty-expiry field — only when it's empty or was previously auto-filled (never clobbers an operator-set date). Cached ~30 days/serial; credential write-only; no-op without a key. *(v5.8.0)* |
 | Container restart tracking | Real restart count/age via batched `docker inspect`, fleet-wide *(v3.10.0)* |
 
 ## Containers & virtualization
