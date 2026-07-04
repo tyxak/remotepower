@@ -740,6 +740,61 @@ def get_journal(lines=100):
     except Exception:
         return []
 
+# W3-40: sudo / privileged-command audit trail. Tail sudo invocations from the
+# journal (or /var/log/auth.log when journald is absent) and ship the NEW ones
+# since the last report. Cursor is an epoch so we never re-send the same line.
+_sudo_cursor = [0]
+_SUDO_LINE_RE = re.compile(
+    r'sudo(?:\[\d+\])?:\s*(?P<user>[\w.\-]+)\s*:.*?'
+    r'(?:TTY=(?P<tty>[\w/\-]+))?.*?(?:PWD=(?P<pwd>\S+))?.*?'
+    r'USER=(?P<target>[\w.\-]+)\s*;\s*COMMAND=(?P<cmd>.+)$')
+
+
+def collect_sudo_events(limit=100):
+    """Return newly-seen sudo invocations as
+    [{ts, user, tty, pwd, target, command}], oldest-first, capped. Bounded +
+    best-effort — any failure yields an empty list."""
+    events = []
+    try:
+        if _which('journalctl'):
+            out = subprocess.check_output(
+                ['journalctl', '_COMM=sudo', '-n', '400', '--no-pager',
+                 '--output=short-unix', '--no-hostname'],
+                text=True, stderr=subprocess.DEVNULL, timeout=10)
+            lines = out.strip().splitlines()
+            parse_epoch = lambda ln: int(float(ln.split(None, 1)[0])) if ln[:1].isdigit() else 0
+        else:
+            raw = _safe_read(host_path('/var/log/auth.log'), 400_000) or ''
+            lines = raw.splitlines()[-800:]
+            parse_epoch = lambda ln: 0
+    except Exception:
+        return []
+    last = _sudo_cursor[0]
+    baseline = (last == 0)     # first run: mark seen, don't flood the server
+    newest = last
+    for ln in lines:
+        if 'COMMAND=' not in ln:
+            continue
+        m = _SUDO_LINE_RE.search(ln)
+        if not m:
+            continue
+        ts = parse_epoch(ln) or int(time.time())
+        newest = max(newest, ts)
+        if baseline or ts <= last:
+            continue
+        events.append({
+            'ts': ts,
+            'user': (m.group('user') or '')[:64],
+            'tty': (m.group('tty') or '')[:32],
+            'pwd': (m.group('pwd') or '')[:256],
+            'target': (m.group('target') or '')[:64],
+            'command': (m.group('cmd') or '').strip()[:512],
+        })
+    if newest > _sudo_cursor[0]:
+        _sudo_cursor[0] = newest
+    return [] if baseline else events[-limit:]
+
+
 _MAX_UPGRADABLE_NAMES = 300
 def _parse_upgradable_names(manager, text):
     """v3.4.2: extract upgradable package names so the server can build a
@@ -7698,6 +7753,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     log.debug(f'agent checks error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
+            # W3-40: newly-seen sudo invocations (privileged-command audit trail).
+            try:
+                _sudo = collect_sudo_events(100)
+                if _sudo:
+                    payload['sudo_events'] = _sudo
+            except Exception as e:
+                log.debug(f'sudo events error: {e}')
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
 
         # v4.2.0 (B5 P3): report a finished host scan (lynis) to the server.

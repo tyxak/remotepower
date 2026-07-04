@@ -100,6 +100,8 @@ MAX_SLOW_HANDLERS  = 100
 ALERTS_FILE = DATA_DIR / 'alerts.json'
 INCIDENTS_FILE = DATA_DIR / 'incidents.json'   # W2-25 operator-posted status-page incidents
 USER_NOTIFY_FILE = DATA_DIR / 'user_notify.json'   # W2-20 per-user notification subscriptions
+SUDO_LOG_FILE = DATA_DIR / 'sudo_log.json'         # W3-40 per-device privileged-command trail
+MAX_SUDO_PER_DEVICE = 500                           # W3-40 rolling cap per device
 WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
 _DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
@@ -14917,6 +14919,34 @@ def handle_heartbeat():
         except Exception:
             pass
 
+    # W3-40: privileged-command (sudo) audit trail — append newly-seen events to
+    # a per-device rolling store, secret-redacting each command. Best-effort.
+    _sudo_in = body.get('sudo_events')
+    if isinstance(_sudo_in, list) and _sudo_in:
+        try:
+            with _LockedUpdate(SUDO_LOG_FILE) as _slog:
+                _lst = _slog.get(dev_id) or []
+                _seen = {(e.get('ts'), e.get('command')) for e in _lst[-200:]}
+                for ev in _sudo_in[:100]:
+                    if not isinstance(ev, dict):
+                        continue
+                    cmd = _redact_sudo_command(_sanitize_str(str(ev.get('command', '')), 512))
+                    key = (int(ev.get('ts') or 0), cmd)
+                    if key in _seen:
+                        continue
+                    _seen.add(key)
+                    _lst.append({
+                        'ts': int(ev.get('ts') or now),
+                        'user': _sanitize_str(str(ev.get('user', '')), 64),
+                        'tty': _sanitize_str(str(ev.get('tty', '')), 32),
+                        'pwd': _sanitize_str(str(ev.get('pwd', '')), 256),
+                        'target': _sanitize_str(str(ev.get('target', '')), 64),
+                        'command': cmd,
+                    })
+                _slog[dev_id] = _lst[-MAX_SUDO_PER_DEVICE:]
+        except Exception:
+            pass
+
     # v2.8.0: port audit and SSH key audit (best-effort — never fail heartbeat)
     _si = saved_dev.get('sysinfo') or {}
     if _si.get('listening_ports'):
@@ -26353,6 +26383,73 @@ def handle_reboot_plan():
                         for d in w],
         })
     respond(200, {'ok': True, 'rings': rings, 'device_count': len(ids)})
+
+
+_SUDO_SECRET_RE = re.compile(
+    r'(--?(?:password|pass|token|secret|api[-_]?key|passphrase)[=\s]+)(\S+)', re.I)
+
+
+def _redact_sudo_command(cmd):
+    """W3-40: mask a secret that rode a sudo command line (e.g. `mysql
+    -pSECRET`, `--token=X`) before it is persisted or shown."""
+    if not cmd:
+        return cmd
+    out = _SUDO_SECRET_RE.sub(lambda m: m.group(1) + '***', cmd)
+    # bare `-pSECRET` (mysql-style, no space). Negative lookbehind so it doesn't
+    # bite the `-p` inside an already-handled `--password=…`.
+    out = re.sub(r'(?<![\w-])-p[^\s=]{3,}', '-p***', out)
+    return out
+
+
+def handle_device_sudo_log(dev_id):
+    """GET /api/devices/{id}/sudo-log — the device's privileged-command trail
+    (admin or auditor; read-only)."""
+    role = require_auth()
+    _, _role = verify_token(get_token_from_request())
+    rd = _resolve_role(_role)
+    if not (rd.get('admin') or _role == 'auditor'):
+        respond(403, {'error': 'admin or auditor role required'})
+    if _caller_scope() is not None:
+        devs = load(DEVICES_FILE) or {}
+        if dev_id not in _scope_filter_devices(devs):
+            respond(403, {'error': 'out of scope'})
+    events = (load(SUDO_LOG_FILE) or {}).get(dev_id) or []
+    respond(200, {'ok': True, 'events': list(reversed(events))[:500]})
+
+
+def handle_sudo_search():
+    """GET /api/sudo-search?q=&user=&limit= — fleet-wide privileged-command
+    search (admin or auditor). Matches command substring + user."""
+    _ = require_auth()
+    _, _role = verify_token(get_token_from_request())
+    rd = _resolve_role(_role)
+    if not (rd.get('admin') or _role == 'auditor'):
+        respond(403, {'error': 'admin or auditor role required'})
+    qs = urllib.parse.parse_qs(_env('QUERY_STRING', '') or '')
+    q = (qs.get('q') or [''])[0].lower().strip()
+    user_f = (qs.get('user') or [''])[0].lower().strip()
+    try:
+        limit = max(1, min(1000, int((qs.get('limit') or ['200'])[0])))
+    except ValueError:
+        limit = 200
+    store = load(SUDO_LOG_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    scope = _caller_scope()
+    rows = []
+    for did, events in store.items():
+        if did not in devices:
+            continue
+        if scope is not None and not _device_in_scope(scope, devices.get(did, {})):
+            continue
+        dname = (devices.get(did) or {}).get('name', did)
+        for e in events:
+            if q and q not in str(e.get('command', '')).lower():
+                continue
+            if user_f and user_f != str(e.get('user', '')).lower():
+                continue
+            rows.append({**e, 'device_id': did, 'device_name': dname})
+    rows.sort(key=lambda r: r.get('ts', 0), reverse=True)
+    respond(200, {'ok': True, 'events': rows[:limit], 'total': len(rows)})
 
 
 def _backup_is_shrunk(size, hist, pct):
@@ -51165,6 +51262,7 @@ def _build_exact_routes():
         ('POST', '/api/rollouts/reboot-plan'): handle_reboot_plan,  # W2-36
         ('GET', '/api/my/notify-prefs'): handle_my_notify_prefs,    # W2-20
         ('POST', '/api/my/notify-prefs'): handle_my_notify_prefs,
+        ('GET', '/api/sudo-search'): handle_sudo_search,            # W3-40
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
@@ -51547,6 +51645,7 @@ _PATTERN_ROUTE_DEFS = (
     ('eq', ('GET',), '/api/devices', '', 'handle_devices_list', "pi == '/api/devices' and m == 'GET'"),
     ('pat', ('DELETE',), '/api/devices/', '/command-queue', 'handle_command_queue_clear', "pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/devices/', '/checks', 'handle_device_checks', "pi.startswith('/api/devices/') and pi.endswith('/checks') and m == 'GET'"),
+    ('pat', ('GET',), '/api/devices/', '/sudo-log', 'handle_device_sudo_log', "pi.startswith('/api/devices/') and pi.endswith('/sudo-log') and m == 'GET'"),
     ('pat', ('GET',), '/api/scap/', '/report', 'handle_scap_report_download', "pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET'"),
     ('code', None, None, None, '_route_code_5', "pi.startswith('/api/devices/') and m == 'DELETE' and not any(\n            pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',\n                                     '/output','/metrics','/allowlist','/poll_interval',\n                                     '/icon','/monitored','/cve','/services',\n                                     '/services/config','/logs','/update-logs',\n                                     '/containers','/connected-to','/command-queue',\n                                     # v1.11.10\n                                     '/metric-thresholds',\n                                     # v3.2.0 (B5)\n                                     '/snmp', '/snmp/poll', '/snmp/deep',\n                                     '/decommissioned'))"),
     ('code', None, None, None, '_route_code_6', "pi.startswith('/api/devices/') and m == 'POST'\n            and '/' not in pi[len('/api/devices/'):]\n            and pi != '/api/devices/agentless'"),

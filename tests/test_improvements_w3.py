@@ -107,5 +107,64 @@ class TestBackupSizeTrending(_HandlerBase):
         self.assertIn("'size': int(size)", agent_src)
 
 
+class TestSudoAuditTrail(_HandlerBase):
+    """W3-40: sudo command redaction + per-device/fleet search handlers."""
+
+    def setUp(self):
+        super().setUp()
+        self._sf = api.SUDO_LOG_FILE
+        api.SUDO_LOG_FILE = self.d / 'sudo_log.json'
+
+    def tearDown(self):
+        api.SUDO_LOG_FILE = self._sf
+        super().tearDown()
+
+    def test_redaction(self):
+        self.assertEqual(api._redact_sudo_command('mysql --password=hunter2 db'),
+                         'mysql --password=*** db')
+        self.assertEqual(api._redact_sudo_command('curl --token=abc123 url'),
+                         'curl --token=*** url')
+        self.assertEqual(api._redact_sudo_command('mysql -pS3cretPass -e x'),
+                         'mysql -p*** -e x')
+        self.assertEqual(api._redact_sudo_command('systemctl restart nginx'),
+                         'systemctl restart nginx')   # nothing to redact
+
+    def test_device_sudo_log_admin_only(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h'}})
+        api.save(api.SUDO_LOG_FILE, {'d1': [
+            {'ts': 100, 'user': 'bob', 'command': 'systemctl restart x'}]})
+        api._caller_scope = lambda: None
+        r = self.call(api.handle_device_sudo_log, 'd1')
+        self.assertEqual(len(r['events']), 1)
+        # non-admin/auditor rejected
+        api.verify_token = lambda t: ('viewer', 'viewer')
+        api._resolve_role = lambda role: {'admin': False}
+        self.call(api.handle_device_sudo_log, 'd1')
+        self.assertEqual(self.cap['s'], 403)
+
+    def test_fleet_search(self):
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'web'}, 'd2': {'name': 'db'}})
+        api.save(api.SUDO_LOG_FILE, {
+            'd1': [{'ts': 200, 'user': 'alice', 'command': 'systemctl restart nginx'}],
+            'd2': [{'ts': 300, 'user': 'bob', 'command': 'apt-get upgrade'}]})
+        api._caller_scope = lambda: None
+        api.verify_token = lambda t: ('jakob', 'admin')
+        api._resolve_role = lambda role: {'admin': True}
+        import os as _os
+        _os.environ['QUERY_STRING'] = 'q=systemctl'
+        r = self.call(api.handle_sudo_search)
+        self.assertEqual(len(r['events']), 1)
+        self.assertEqual(r['events'][0]['device_name'], 'web')
+        _os.environ['QUERY_STRING'] = 'user=bob'
+        r = self.call(api.handle_sudo_search)
+        self.assertEqual(len(r['events']), 1)
+        self.assertEqual(r['events'][0]['command'], 'apt-get upgrade')
+
+    def test_agent_has_collector(self):
+        src = (ROOT / 'client' / 'remotepower-agent.py').read_text()
+        self.assertIn('def collect_sudo_events', src)
+        self.assertIn("payload['sudo_events']", src)
+
+
 if __name__ == '__main__':
     unittest.main()

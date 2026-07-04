@@ -16113,6 +16113,23 @@ function _icon(name, size) {
 // v5.0.0 (#U3): time-based alert snooze — creates a one-shot maintenance window
 // for this device (which the alert pipeline already suppresses), so noisy alerts
 // can be muted for an hour during active debugging.
+// W3-40: load a device's sudo audit trail into the drawer.
+async function loadSudoLog(id) {
+  const box = document.getElementById('ds-sudo-log');
+  if (!box) return;
+  box.innerHTML = '<div class="meta-sm-nm">Loading…</div>';
+  const r = await api('GET', '/devices/' + encodeURIComponent(id) + '/sudo-log');
+  if (!r || !r.ok) { box.innerHTML = '<div class="meta-sm-nm">Not available (admin/auditor only).</div>'; return; }
+  const ev = r.events || [];
+  if (!ev.length) { box.innerHTML = '<div class="meta-sm-nm">No sudo activity recorded.</div>'; return; }
+  box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">'
+    + '<thead><tr class="c-muted"><th>When</th><th>User</th><th>Command</th></tr></thead><tbody>'
+    + ev.map(e => `<tr><td class="fs-11">${escHtml(new Date((e.ts||0)*1000).toLocaleString())}</td>`
+        + `<td class="fs-11"><code>${escHtml(e.user||'')}</code></td>`
+        + `<td class="fs-11 ff-mono">${escHtml(e.command||'')}</td></tr>`).join('')
+    + '</tbody></table></div>';
+}
+
 async function snoozeDeviceAlerts(devId, name) {
   // seconds-precision ISO (no millis) so _parse_iso is happy on every Python.
   const iso = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -16879,6 +16896,9 @@ async function _loadAuditSection(key) {
                    <td class="fs-11">${rec.lastTs ? escHtml(new Date(rec.lastTs*1000).toLocaleString()) : '<span class="c-muted">—</span>'}</td></tr>`
             ).join('') + `</tbody></table></div>`;
         }
+        // W3-40: privileged-command (sudo) audit trail — loaded on demand.
+        h += `<div class="mt-16 mb-8 fw-500 fs-13">Privileged commands (sudo)</div>
+              <div id="ds-sudo-log"><button class="btn-icon cell-sm" data-action="loadSudoLog" data-arg="${escAttr(id)}">Load sudo history</button></div>`;
         if (jrnl.length) {
           h += `<div class="isl-631">Journal — last ${jrnl.length} lines</div>
                 <div class="journal-wrap isl-632">${escHtml(jrnl.join('\n'))}</div>`;
