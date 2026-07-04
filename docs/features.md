@@ -309,6 +309,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Per-device backups | Watched-path age + fresh/stale state in the drawer *(v3.4.2)* |
 | Backup orchestration | Define a backup command per device (restic/borg/rsync); on-demand or cron *(v3.6.0)* |
 | Backup integrity verification | Agent runs the tool's own check (`tar -tf` / `restic check` / `borg check`); `backup_verify_failed` *(v4.10.0)* |
+| Scheduled restore drills | Opt-in per backup monitor: the agent actually restores a configured sample path from the latest archive (`restic`/`borg`/`tar`) into a throwaway sandbox (never over live paths), verifies it's non-empty + hashes it, then deletes it. Rate-gated + time-bounded; a failure fires `restore_drill_failed` (`restore_drill_ok` on recovery). Result shown in the device drawer *(v5.8.0)* |
 | Backup size trending | Agent reports each watched backup's size; server keeps a rolling history and fires `backup_size_anomaly` when a fresh backup drops below a configurable % of its trailing median — catches a truncated/half-written backup that's still recent *(v5.8.0)* |
 | Controller backup & restore | Full DR tar.gz of the data dir (incl. encrypted vault) + restore with pre-restore safety snapshot *(v3.13.0)* |
 | Encrypted DR backups | AES-256-GCM at rest, key from `RP_BACKUP_PASSPHRASE` (never on disk); web-UI "Encrypt existing backups" *(v5.0.0)* |

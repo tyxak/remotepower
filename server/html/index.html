@@ -2974,9 +2974,17 @@
               <label for="bm-verify" class="form-label">Verify integrity</label>
               <label class="click-row"><input type="checkbox" id="bm-verify"> run the tool's own check (restic/borg/tar)</label>
             </div>
+            <div class="form-group">
+              <label for="bm-drill" class="form-label">Restore drill</label>
+              <label class="click-row"><input type="checkbox" id="bm-drill"> restore + verify a sample into a sandbox</label>
+            </div>
+            <div class="form-group">
+              <label for="bm-drill-sample" class="form-label">Drill sample path</label>
+              <input type="text" id="bm-drill-sample" class="form-input ff-mono" placeholder="etc/hostname">
+            </div>
             <button class="btn-secondary" data-action="addBackupMonitor" >Add</button>
           </div>
-          <p class="hint mt-8">Verification runs the backup tool's <strong>own integrity check</strong> (<code>tar -tf</code>, <code>restic check</code>, <code>borg check</code>) at most weekly, time-bounded. <code>tar</code> needs nothing; <code>restic</code>/<code>borg</code> need their passphrase in the agent's environment (e.g. <code>RESTIC_PASSWORD_FILE</code> / <code>BORG_PASSPHRASE</code> in the agent unit). A failed check fires <code>backup_verify_failed</code>.</p>
+          <p class="hint mt-8">Verification runs the backup tool's <strong>own integrity check</strong> (<code>tar -tf</code>, <code>restic check</code>, <code>borg check</code>) at most weekly, time-bounded. <code>tar</code> needs nothing; <code>restic</code>/<code>borg</code> need their passphrase in the agent's environment (e.g. <code>RESTIC_PASSWORD_FILE</code> / <code>BORG_PASSPHRASE</code> in the agent unit). A failed check fires <code>backup_verify_failed</code>. A <strong>restore drill</strong> goes further — it actually restores the given sample path from the latest archive into a throwaway sandbox (never over live paths), checks it's non-empty, then deletes it; a failure fires <code>restore_drill_failed</code>.</p>
         </div>
 
         <div class="settings-section">

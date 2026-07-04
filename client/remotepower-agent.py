@@ -3651,6 +3651,125 @@ def collect_backup_verify(backup_monitors):
     return out
 
 
+_RESTORE_DRILL_STATE = 'restore_drill_state.json'
+
+
+def _verify_restored_tree(root):
+    """W6-43: (bytes, sha256, file_count) for a restored sandbox — sha256 of the
+    single largest restored regular file, so an empty restore is caught. Pure."""
+    import hashlib
+    biggest, biggest_size, count = None, -1, 0
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            fp = os.path.join(dirpath, f)
+            try:
+                sz = os.path.getsize(fp)
+            except OSError:
+                continue
+            count += 1
+            if sz > biggest_size:
+                biggest, biggest_size = fp, sz
+    if biggest is None or biggest_size <= 0:
+        return 0, '', count
+    h = hashlib.sha256()
+    try:
+        with open(biggest, 'rb') as fh:
+            for chunk in iter(lambda: fh.read(65536), b''):
+                h.update(chunk)
+    except OSError:
+        return biggest_size, '', count
+    return biggest_size, h.hexdigest(), count
+
+
+def run_restore_drills(backup_monitors, now=None):
+    """W6-43: for monitors with `restore_drill_enabled`, restore ONE configured
+    sample path from the LATEST archive into a fresh sandbox under the agent
+    state dir, verify it's non-empty (+ sha256), then delete the sandbox. NEVER
+    touches live paths. Rate-gated (restore_drill_max_age_hours, default weekly),
+    time-bounded. Returns [{path, tool, drill_status, restored_bytes, sha256,
+    files, drill_output, drill_at}]."""
+    import shutil
+    import tempfile
+    now = int(now if now is not None else time.time())
+    mons = [m for m in (backup_monitors or [])
+            if isinstance(m, dict) and m.get('restore_drill_enabled')]
+    if not mons:
+        return []
+    try:
+        state = json.loads(_safe_state_read(_RESTORE_DRILL_STATE) or '{}')
+        if not isinstance(state, dict):
+            state = {}
+    except Exception:
+        state = {}
+    out, budget = [], 90
+    for mon in mons:
+        p = mon.get('path', '')
+        sample = str(mon.get('restore_sample_path', '') or '').strip()
+        if not p or not sample:
+            continue
+        interval = max(1, int(mon.get('restore_drill_max_age_hours', 168) or 168)) * 3600
+        if now - int(state.get(p, 0)) < interval or budget <= 0:
+            continue
+        tool = _detect_backup_tool(p, mon.get('tool', 'auto'))
+        if not tool or not _which(tool):
+            out.append({'path': p, 'tool': tool or 'unknown', 'drill_status': 'tool_missing',
+                        'restored_bytes': 0, 'sha256': '', 'files': 0,
+                        'drill_output': f'{tool or "backup tool"} not installed', 'drill_at': now})
+            state[p] = now
+            continue
+        hp = host_path(p)
+        sandbox = tempfile.mkdtemp(prefix='rp-restore-', dir=str(STATE_DIR))
+        t0 = time.time()
+        try:
+            if tool == 'restic':
+                cmd = ['restic', '-r', hp, 'restore', 'latest',
+                       '--include', sample, '--target', sandbox]
+            elif tool == 'borg':
+                # resolve the latest archive name, then extract just the sample
+                try:
+                    lr = subprocess.run(['borg', 'list', '--last', '1', '--format', '{archive}',
+                                         hp], capture_output=True, text=True, timeout=min(20, budget))
+                    archive = (lr.stdout or '').strip().splitlines()[-1] if lr.returncode == 0 and lr.stdout.strip() else ''
+                except Exception:
+                    archive = ''
+                if not archive:
+                    raise RuntimeError('could not resolve latest borg archive')
+                cmd = ['borg', 'extract', f'{hp}::{archive}', sample.lstrip('/')]
+            else:   # tar — extract one member
+                cmd = ['tar', '-xf', hp, '-C', sandbox, sample.lstrip('/')]
+            kw = {'capture_output': True, 'text': True, 'timeout': min(60, budget)}
+            if tool == 'borg':
+                kw['cwd'] = sandbox
+            r = subprocess.run(cmd, **kw)
+            if r.returncode != 0:
+                status = 'failed'
+                output = ((r.stdout or '') + (r.stderr or '')).strip()[-200:] or 'restore command failed'
+                nbytes = sha = files = 0
+                sha = ''
+            else:
+                nbytes, sha, files = _verify_restored_tree(sandbox)
+                if nbytes > 0:
+                    status, output = 'ok', f'restored {files} file(s), {nbytes} bytes'
+                else:
+                    status, output = 'failed', 'restore produced no non-empty files'
+        except subprocess.TimeoutExpired:
+            status, output, nbytes, sha, files = 'timeout', 'restore exceeded time limit', 0, '', 0
+        except Exception as e:
+            status, output, nbytes, sha, files = 'error', str(e)[:200], 0, '', 0
+        finally:
+            shutil.rmtree(sandbox, ignore_errors=True)   # never leave a sandbox behind
+        budget -= int(time.time() - t0)
+        state[p] = now
+        out.append({'path': p, 'tool': tool, 'drill_status': status,
+                    'restored_bytes': int(nbytes), 'sha256': sha, 'files': int(files),
+                    'drill_output': output, 'drill_at': now})
+    try:
+        _safe_state_write(_RESTORE_DRILL_STATE, json.dumps(state))
+    except Exception:
+        pass
+    return out
+
+
 def detect_auto_watch_units():
     """v2.7.0: return AUTO_WATCH_UNITS that actually exist on this host."""
     present = []
@@ -7859,6 +7978,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             _bv = collect_backup_verify(_backup_monitors)   # v4.10.0: integrity checks
             if _bv:
                 payload['backup_verify'] = _bv
+            # W6-43: sandboxed restore drills (opt-in per monitor; rate-gated).
+            try:
+                _rd = run_restore_drills(_backup_monitors)
+                if _rd:
+                    payload['restore_drills'] = _rd
+            except Exception as e:
+                log.debug(f'restore drill error: {e}')
 
         # v1.11.7: pick up any cmd_output that couldn't be sent in its
         # follow-up heartbeat last cycle. Piggybacks on this heartbeat.

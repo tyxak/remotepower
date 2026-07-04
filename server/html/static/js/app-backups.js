@@ -172,6 +172,8 @@ function editBackupMonitor(idx) {
   document.getElementById('bm-label').value = m.label || '';
   document.getElementById('bm-hours').value = String(m.max_age_hours || 24);
   const _bv = document.getElementById('bm-verify'); if (_bv) _bv.checked = !!m.verify_enabled;
+  const _bd = document.getElementById('bm-drill'); if (_bd) _bd.checked = !!m.restore_drill_enabled;
+  const _bds = document.getElementById('bm-drill-sample'); if (_bds) _bds.value = m.restore_sample_path || '';
   _backupEditIdx = idx;
   renderBackupMonitors(_backupMonitors);  // re-render so the button flips to "Save"
   document.getElementById('bm-path').focus();
@@ -183,7 +185,11 @@ async function addBackupMonitor() {
   const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
   if (!path) { toast('Path required', 'error'); return; }
   const verify = !!document.getElementById('bm-verify')?.checked;
-  const entry = {path, label: label || path, max_age_hours: hours, tool: 'auto', verify_enabled: verify};
+  const drill = !!document.getElementById('bm-drill')?.checked;
+  const drillSample = (document.getElementById('bm-drill-sample')?.value || '').trim();
+  if (drill && !drillSample) { toast('A restore drill needs a sample path', 'error'); return; }
+  const entry = {path, label: label || path, max_age_hours: hours, tool: 'auto',
+    verify_enabled: verify, restore_drill_enabled: drill, restore_sample_path: drillSample};
   if (_backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length) {
     _backupMonitors[_backupEditIdx] = entry;
   } else {
@@ -196,6 +202,8 @@ async function addBackupMonitor() {
     document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
     document.getElementById('bm-hours').value = '24';
     const _bvr = document.getElementById('bm-verify'); if (_bvr) _bvr.checked = false;
+    const _bdr = document.getElementById('bm-drill'); if (_bdr) _bdr.checked = false;
+    const _bdsr = document.getElementById('bm-drill-sample'); if (_bdsr) _bdsr.value = '';
     _backupEditIdx = -1;
     renderBackupMonitors(_backupMonitors);
   } else toast(r?.error || 'Failed', 'error');

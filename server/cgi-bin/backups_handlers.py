@@ -767,6 +767,12 @@ def handle_device_backups(dev_id):
             'verify_output':  st.get('verify_output', ''),
             'verify_at':      st.get('verify_at', 0),
             'verify_tool':    st.get('verify_tool', mon.get('tool', '')),
+            # W6-43: restore-drill status (when a drill is enabled for this path)
+            'restore_drill_enabled': bool(mon.get('restore_drill_enabled')),
+            'drill_status':   st.get('drill_status', 'unknown'),
+            'drill_output':   st.get('drill_output', ''),
+            'drill_at':       st.get('drill_at', 0),
+            'drill_bytes':    st.get('drill_bytes', 0),
         })
     # Stale first, then by label, so the actionable rows are at the top.
     items.sort(key=lambda x: (x['ok'], str(x['label']).lower()))

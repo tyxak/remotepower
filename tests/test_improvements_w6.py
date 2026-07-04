@@ -267,5 +267,79 @@ class TestImageCves(_HandlerBase):
         self.assertTrue((api.load(api.CONFIG_FILE) or {}).get('image_scan_enabled'))
 
 
+class TestRestoreDrills(_HandlerBase):
+    """W6-43: sandboxed restore drills (agent runner + server ingest)."""
+
+    def test_verify_restored_tree(self):
+        agent = _load_agent()
+        d = Path(tempfile.mkdtemp())
+        (d / 'sub').mkdir()
+        (d / 'sub' / 'file.txt').write_text('hello world')
+        (d / 'empty').write_text('')
+        nbytes, sha, count = agent._verify_restored_tree(str(d))
+        self.assertEqual(nbytes, 11)      # the non-empty file wins
+        self.assertEqual(len(sha), 64)
+        self.assertEqual(count, 2)
+
+    def test_verify_empty_tree(self):
+        agent = _load_agent()
+        d = Path(tempfile.mkdtemp())
+        nbytes, sha, count = agent._verify_restored_tree(str(d))
+        self.assertEqual(nbytes, 0)
+        self.assertEqual(sha, '')
+
+    def _agent_sandboxed(self):
+        agent = _load_agent()
+        agent.STATE_DIR = Path(tempfile.mkdtemp())
+        agent._safe_state_read = lambda name: '{}'
+        agent._safe_state_write = lambda name, data: None
+        return agent
+
+    def test_drill_tool_missing(self):
+        agent = self._agent_sandboxed()
+        orig = agent._which
+        agent._which = lambda prog, _cache={}: None
+        try:
+            rows = agent.run_restore_drills([{
+                'path': '/backups/x.tar', 'tool': 'tar', 'restore_drill_enabled': True,
+                'restore_sample_path': 'etc/hostname', 'restore_drill_max_age_hours': 168}])
+        finally:
+            agent._which = orig
+        self.assertEqual(rows[0]['drill_status'], 'tool_missing')
+
+    def test_drill_ok(self):
+        agent = self._agent_sandboxed()
+        import subprocess
+        orig_run, orig_which = subprocess.run, agent._which
+        agent._which = lambda prog, _cache={}: '/bin/tar'
+
+        class _P:
+            returncode = 0
+            stdout = stderr = ''
+
+        def _fake_run(cmd, **kw):
+            # tar -xf <archive> -C <sandbox> <member> — write a file into -C dir
+            if '-C' in cmd:
+                sandbox = cmd[cmd.index('-C') + 1]
+                (Path(sandbox) / 'restored.bin').write_bytes(b'x' * 500)
+            return _P()
+        subprocess.run = _fake_run
+        try:
+            rows = agent.run_restore_drills([{
+                'path': '/backups/x.tar', 'tool': 'tar', 'restore_drill_enabled': True,
+                'restore_sample_path': 'etc/hostname', 'restore_drill_max_age_hours': 168}])
+        finally:
+            subprocess.run = orig_run
+            agent._which = orig_which
+        self.assertEqual(rows[0]['drill_status'], 'ok')
+        self.assertEqual(rows[0]['restored_bytes'], 500)
+        self.assertTrue(rows[0]['sha256'])
+
+    def test_event_registered(self):
+        self.assertIn('restore_drill_failed', api.EVENT_REGISTRY)
+        self.assertIn('restore_drill_failed',
+                      api.EVENT_REGISTRY['restore_drill_ok'].get('resolves', ()))
+
+
 if __name__ == '__main__':
     unittest.main()

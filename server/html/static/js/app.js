@@ -14365,7 +14365,7 @@ function _renderHomeActivity(fleetEvents) {
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'custom_check_failed', 'custom_check_recovered',
     'config_drift', 'tls_expiry', 'ct_new_certificate', 'reboot_required', 'reboot_cleared', 'snapshot_old',
-    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'rollout_halted',
+    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale', 'backup_recovered', 'backup_size_anomaly', 'backup_verify_failed', 'backup_verified', 'restore_drill_failed', 'restore_drill_ok', 'rollout_halted',
     // v5.0.0 (#C3): break-glass credential reveal requested
     'vault_break_glass',
     // v5.0.0 (#R1): server self disk-space watchdog
@@ -14536,6 +14536,7 @@ function _homeActivityAttrs(event, p) {
     case 'backup_size_anomaly':
     case 'brute_force_detected': case 'backup_stale': case 'backup_recovered':
     case 'backup_verify_failed': case 'backup_verified':
+    case 'restore_drill_failed': case 'restore_drill_ok':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'drift_detected':
       return `${base} data-home-act="drift"`;
@@ -18315,7 +18316,7 @@ async function _loadAuditSection(key) {
           <thead id="device-backups-thead"><tr>
             <th data-col="label">Backup</th><th data-col="age">Age</th>
             <th data-col="threshold">Threshold</th><th data-col="status">Status</th>
-            <th data-col="verify">Verify</th></tr></thead>
+            <th data-col="verify">Verify</th><th data-col="drill">Restore drill</th></tr></thead>
           <tbody>` + sorted.map(b => {
             let vcell = '<td class="fs-11 c-muted">—</td>';
             if (b.verify_enabled) {
@@ -18324,11 +18325,18 @@ async function _loadAuditSection(key) {
               const vlbl = vs === 'ok' ? 'verified' : vs;
               vcell = `<td class="${vcls}" title="${escAttr(((b.verify_tool || '') + ' ' + (b.verify_output || '')).trim())}">${escHtml(vlbl)}</td>`;
             }
+            let dcell = '<td class="fs-11 c-muted">—</td>';
+            if (b.restore_drill_enabled) {
+              const ds = b.drill_status || 'unknown';
+              const dcls = ds === 'ok' ? 'c-green' : (ds === 'failed' || ds === 'timeout' || ds === 'error') ? 'c-red' : (ds === 'tool_missing' ? 'c-amber' : 'c-muted');
+              const dlbl = ds === 'ok' ? `restored (${_fmtBytes ? _fmtBytes(b.drill_bytes) : b.drill_bytes + 'B'})` : ds;
+              dcell = `<td class="${dcls}" title="${escAttr(b.drill_output || '')}">${escHtml(dlbl)}</td>`;
+            }
             return `<tr>
               <td><code>${escHtml(b.label)}</code>${b.label !== b.path ? `<div class="fs-11 c-muted">${escHtml(b.path)}</div>` : ''}</td>
               <td class="${b.ok ? '' : 'c-red'}">${escHtml(_fmtAge(b.age_h))}</td>
               <td class="fs-11 c-muted">≤ ${escHtml(_fmtAge(b.max_age_hours))}</td>
-              <td class="${b.ok ? 'c-green' : 'c-red'}">${b.ok ? 'fresh' : 'stale'}</td>${vcell}</tr>`;
+              <td class="${b.ok ? 'c-green' : 'c-red'}">${b.ok ? 'fresh' : 'stale'}</td>${vcell}${dcell}</tr>`;
           }).join('')
           + `</tbody></table></div>`;
         tableCtl.wireSortOnly('device-backups-thead', 'device_backups', () => _loadAuditSectionForce('backups'));

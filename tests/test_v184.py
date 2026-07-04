@@ -284,6 +284,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'vault_break_glass',  # v5.0.0 #C3
             'backup_stale', 'backup_recovered', 'backup_size_anomaly',
             'backup_verify_failed', 'backup_verified',
+            'restore_drill_failed', 'restore_drill_ok',  # W6-43
             'rollout_halted',
             'server_disk_low', 'server_disk_ok',  # v5.0.0 #R1
             # v3.2.0 (B5): SNMP polling state transitions

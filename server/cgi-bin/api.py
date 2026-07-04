@@ -1191,6 +1191,14 @@ EVENT_REGISTRY = {
     'backup_verified': dict(
         label='Backup integrity check passed (recovered)', kind='backup',
         title='Backup Integrity Restored', resolves=('backup_verify_failed',)),
+    'restore_drill_failed': dict(
+        label='A scheduled restore drill could not restore + verify a sample from a backup',
+        kind='backup', title='Restore Drill Failed', severity='high',
+        tags='warning,package'),
+    'restore_drill_ok': dict(
+        label='A restore drill restored + verified a sample again (recovered)',
+        kind='backup', title='Restore Drill Recovered',
+        resolves=('restore_drill_failed',)),
     'rollout_halted': dict(
         label='Rollout auto-halted (health gate / verify)', kind='rollout',
         title='Rollout Halted', severity='high'),
@@ -7446,6 +7454,9 @@ def _auto_resolve_alerts(event, payload):
     elif event == 'mount_recovered':
         # Per-path: a recovered /mnt/a must not clear the open alert for /mnt/b
         # on the same host. Match the mount path.
+        sub_match['path'] = p.get('path')
+    elif event == 'restore_drill_ok':
+        # W6-43: per backup path — clear only this monitor's open drill alert.
         sub_match['path'] = p.get('path')
     elif event == 'integration_recovered':
         # v4.7.0: integrations aren't devices (no device_id), so the open
@@ -15786,6 +15797,49 @@ def handle_heartbeat():
         except Exception:
             pass
 
+    # W6-43: restore-drill results. Edge-trigger restore_drill_failed on a bad
+    # drill and restore_drill_ok on recovery; store the latest result per path in
+    # the same backup-state store the UI reads.
+    _drills = body.get('restore_drills')
+    if isinstance(_drills, list) and _drills:
+        try:
+            _rd_state = _bak_state if _bak_state is not None else {}
+            _rd_mons = _config_ro().get('backup_monitors') or []
+            _rd_label = {}
+            for _m in _rd_mons:
+                if isinstance(_m, dict):
+                    _rd_label.setdefault(str(_m.get('path', '')), _m.get('label'))
+            for entry in _drills:
+                if not isinstance(entry, dict):
+                    continue
+                _path = str(entry.get('path', ''))
+                _dstatus = str(entry.get('drill_status', 'unknown'))
+                _doutput = str(entry.get('drill_output', ''))[:200]
+                _state_key = f'{dev_id}:{_path}'
+                _prev = _rd_state.get(_state_key) or {}
+                _was_bad = _prev.get('drill_status') in ('failed', 'timeout', 'error', 'tool_missing')
+                _is_bad = _dstatus in ('failed', 'timeout', 'error')
+                _label = _rd_label.get(_path) or _path
+                if _is_bad and not _was_bad:
+                    fire_webhook('restore_drill_failed', {
+                        'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                        'path': _path, 'label': _label, 'tool': entry.get('tool', ''),
+                        'drill_status': _dstatus, 'detail': _doutput})
+                elif _dstatus == 'ok' and _was_bad:
+                    fire_webhook('restore_drill_ok', {
+                        'device_id': dev_id, 'name': saved_dev.get('name', dev_id),
+                        'path': _path, 'label': _label})
+                _prev.update({'drill_status': _dstatus, 'drill_output': _doutput,
+                              'drill_at': int(entry.get('drill_at', now) or now),
+                              'drill_tool': entry.get('tool', ''),
+                              'drill_bytes': int(entry.get('restored_bytes', 0) or 0),
+                              'drill_sha256': str(entry.get('sha256', ''))[:64],
+                              'drill_files': int(entry.get('files', 0) or 0)})
+                _rd_state[_state_key] = _prev
+                _bak_changed = True
+        except Exception:
+            pass
+
     # v5.0.0 perf: single write after both backup blocks (see note above).
     if _bak_changed and _bak_state is not None:
         try:
@@ -20449,6 +20503,10 @@ def handle_config_save():
                 'tool':           _tool,
                 'verify_enabled': bool(bm.get('verify_enabled', False)),
                 'verify_max_age_hours': max(1, min(8760, int(bm.get('verify_max_age_hours', 168) or 168))),
+                # W6-43: optional sandboxed restore drill (restore one sample path).
+                'restore_drill_enabled': bool(bm.get('restore_drill_enabled', False)),
+                'restore_sample_path': _sanitize_str(str(bm.get('restore_sample_path', '') or ''), 512),
+                'restore_drill_max_age_hours': max(1, min(8760, int(bm.get('restore_drill_max_age_hours', 168) or 168))),
             })
         cfg['backup_monitors'] = clean_bm
 
