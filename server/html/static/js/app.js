@@ -3139,6 +3139,8 @@ async function loadSettings() {
   if (_imgEn) _imgEn.checked = !!data.image_scan_enabled;
   const _rdpEn = document.getElementById('cfg-rdp-enabled');          // W6-49
   if (_rdpEn) _rdpEn.checked = !!data.rdp_enabled;
+  const _portEn = document.getElementById('cfg-portal-enabled');      // W6-28
+  if (_portEn) _portEn.checked = !!data.portal_enabled;
   const _secEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secEn) {
     _secEn.checked = !!data.secrets_scan_enabled;
@@ -3633,6 +3635,9 @@ async function saveSettings(btn) {
   // W6-49: RDP tunnelling
   const _rdpSaveEn = document.getElementById('cfg-rdp-enabled');
   if (_rdpSaveEn) payload.rdp_enabled = _rdpSaveEn.checked;
+  // W6-28: customer portal
+  const _portSaveEn = document.getElementById('cfg-portal-enabled');
+  if (_portSaveEn) payload.portal_enabled = _portSaveEn.checked;
   // v3.14.0 #35: secrets-on-disk scanning
   const _secSaveEn = document.getElementById('cfg-secrets-scan-enabled');
   if (_secSaveEn) {

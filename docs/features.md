@@ -519,7 +519,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Multi-select | Batch actions on cards or minimal table; selection survives density switch *(v1.12.1)* |
 | Post-it widget | A per-account freeform sticky note on the dashboard (composable widget, persists in `ui_prefs`) |
 | Scoped notes | Free-text notes at device (tooltip), **site** (on the site record) and **fleet-wide** (shown as a dashboard card) scope |
-| Contacts directory | Internal team phonebook (name/role/company/email/phone/notes) — searchable, sortable, admin-maintained; separate from the ticket system |
+| Contacts directory | Internal team phonebook (name/role/company/email/phone/notes) — searchable, sortable, admin-maintained; separate from the ticket system; a contact can be given a **site** + **portal access** for the customer portal *(v5.8.0)* |
+| Customer portal | Opt-in (`portal_enabled`, default off): a separate `/portal` page where a site's contacts sign in by **magic link** (no password, no operator account, HttpOnly session cookie scoped to `/api/portal`) to view & submit tickets for **their own site only**. Closed `/api/portal/*` allowlist; every handler resolves the cookie → contact → site and filters server-side; operator/portal tokens never interchange; per-IP+email rate limits; internal notes never cross to the portal; separate CSP report bucket. `POST /api/portal/magic-link`, `/session`, `GET/POST /api/portal/tickets` *(v5.8.0)* |
 | Saved Devices views | Save + share named fleet filter views via URL *(v4.0.0)* |
 | Edit everywhere | Edit on every operator-managed list — alert rules, monitors, TLS/backup targets, snippets, scheduled jobs, inbound tokens, users, ignore patterns *(v3.3.0)* |
 | Did-you-know tips | About page surfaces lesser-known features |

@@ -450,10 +450,20 @@ async function loadContacts() {
   </tr>`).join('');
   window._contactsCache = cs;
 }
+async function _ctFillSites(selected) {
+  const sel = document.getElementById('ct-site');
+  if (!sel) return;
+  const data = await api('GET', '/sites').catch(() => null);
+  const sites = (data && data.sites) || [];
+  sel.innerHTML = '<option value="">(none)</option>' + sites.map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('');
+  if (selected) sel.value = selected;
+}
 function _ctFill(c) {
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
   set('ct-name', c.name); set('ct-role', c.role); set('ct-company', c.company);
   set('ct-email', c.email); set('ct-phone', c.phone); set('ct-notes', c.notes);
+  const pe = document.getElementById('ct-portal-enabled'); if (pe) pe.checked = !!c.portal_enabled;  // W6-28
+  _ctFillSites(c.site || '');
 }
 function openContactCreate() {
   _ctEditId = null;
@@ -473,7 +483,8 @@ async function saveContact() {
   const v = id => document.getElementById(id)?.value.trim() || '';
   const name = v('ct-name');
   if (!name) { toast('Name required', 'warning'); return; }
-  const body = { name, role: v('ct-role'), company: v('ct-company'), email: v('ct-email'), phone: v('ct-phone'), notes: v('ct-notes') };
+  const body = { name, role: v('ct-role'), company: v('ct-company'), email: v('ct-email'), phone: v('ct-phone'), notes: v('ct-notes'),
+    site: v('ct-site'), portal_enabled: !!document.getElementById('ct-portal-enabled')?.checked };  // W6-28
   const r = _ctEditId
     ? await api('PATCH', '/contacts/' + encodeURIComponent(_ctEditId), body)
     : await api('POST', '/contacts', body);

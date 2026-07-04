@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Support portal — RemotePower</title>
+  <link rel="stylesheet" href="static/css/portal.css">
+</head>
+<body>
+  <main class="portal">
+    <h1 class="portal-title">Support portal</h1>
+
+    <!-- Sign-in (magic link) -->
+    <section id="portal-signin" class="card">
+      <p class="hint">Enter your email and we'll send you a one-time sign-in link. No password needed.</p>
+      <form id="magic-form" autocomplete="off">
+        <label class="field"><span>Email</span>
+          <input type="email" id="magic-email" required placeholder="you@example.com" maxlength="200"></label>
+        <button type="submit" class="btn-primary">Send sign-in link</button>
+      </form>
+      <div id="magic-status" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <!-- Signed in -->
+    <section id="portal-app" class="hidden">
+      <div class="portal-topbar">
+        <span id="portal-who" class="hint"></span>
+        <button id="portal-logout" class="btn-link">Sign out</button>
+      </div>
+
+      <div class="card">
+        <div class="row-between">
+          <h2 class="card-title">Your tickets</h2>
+          <button id="new-ticket-btn" class="btn-primary">New ticket</button>
+        </div>
+        <div id="ticket-list"><div class="hint">Loading…</div></div>
+      </div>
+
+      <div id="new-ticket" class="card hidden">
+        <h2 class="card-title">Open a ticket</h2>
+        <form id="ticket-form">
+          <label class="field"><span>Subject</span>
+            <input type="text" id="nt-subject" required maxlength="200"></label>
+          <label class="field"><span>Message</span>
+            <textarea id="nt-message" rows="4" maxlength="8000"></textarea></label>
+          <div class="row-8">
+            <button type="submit" class="btn-primary">Submit</button>
+            <button type="button" id="nt-cancel" class="btn-link">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="ticket-detail" class="card hidden">
+        <button id="td-back" class="btn-link">← Back to tickets</button>
+        <h2 id="td-subject" class="card-title"></h2>
+        <div id="td-meta" class="hint"></div>
+        <div id="td-thread" class="thread"></div>
+        <form id="reply-form">
+          <label class="field"><span>Reply</span>
+            <textarea id="td-reply" rows="3" maxlength="8000"></textarea></label>
+          <button type="submit" class="btn-primary">Send reply</button>
+        </form>
+      </div>
+    </section>
+  </main>
+  <script src="static/js/portal.js"></script>
+</body>
+</html>

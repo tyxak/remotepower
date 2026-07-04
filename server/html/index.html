@@ -2013,6 +2013,7 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-secrets-scan-enabled"> Enable secrets-on-disk scanning (~6h cadence)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-image-scan-enabled"> Scan container images for CVEs with <code>trivy</code> (~24h cadence; running-container images only; feature-invisible on hosts without trivy)</label></div>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-rdp-enabled"> Allow RDP tunnelling (device drawer → RDP): mints a session that bridges the host's loopback 3389 over SSH to a local port for mstsc/Remmina — no in-browser client. Off by default.</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-portal-enabled"> Customer portal (<code>/portal</code>): let site contacts sign in via a magic link to view &amp; submit tickets for <strong>their own site only</strong> — no operator account, separate session. Enable a contact for the portal (and set its site) from the Contacts directory. Off by default.</label></div>
             <div class="settings-row"><label class="form-label" for="cfg-secrets-scan-paths">Scan paths (one per line; blank = agent defaults)</label>
               <textarea id="cfg-secrets-scan-paths" class="form-input" rows="3" placeholder="/etc&#10;/home&#10;/opt&#10;/srv"></textarea></div>
 
@@ -7459,6 +7460,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label" for="ct-email">Email</label><input type="text" id="ct-email" class="form-input" maxlength="200" placeholder="name@example.com"></div>
   <div class="form-group"><label class="form-label" for="ct-phone">Phone</label><input type="text" id="ct-phone" class="form-input" maxlength="60" placeholder="+45 …"></div>
   <div class="form-group"><label class="form-label" for="ct-notes">Notes</label><textarea id="ct-notes" class="form-input" rows="3" maxlength="2000" placeholder="Optional notes"></textarea></div>
+  <!-- W6-28: customer portal access -->
+  <div class="form-group"><label class="form-label" for="ct-site">Portal site</label><select id="ct-site" class="form-input"><option value="">(none)</option></select><div class="meta-sm">The site this contact represents. Portal tickets are scoped to this site only.</div></div>
+  <div class="form-group"><label class="form-row"><input type="checkbox" id="ct-portal-enabled"> <span class="form-label">Allow customer-portal sign-in (magic link to their email)</span></label></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="contact-modal">Cancel</button><button class="btn-primary" data-action="saveContact">Save contact</button></div>
 </div></div>
 

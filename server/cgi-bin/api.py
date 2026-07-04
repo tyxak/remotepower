@@ -185,6 +185,7 @@ ATTACH_INLINE_TYPES = frozenset({
     'application/pdf', 'text/plain',
 })
 CONTACTS_FILE = DATA_DIR / 'contacts.json'   # internal contact directory (team phonebook)
+PORTAL_STATE_FILE = DATA_DIR / 'portal_state.json'  # W6-28 magic-link nonces + portal sessions
 MAX_CONTACTS = 2000
 
 # ── v5.6.0: Knowledge base — structured IT documentation (opt-in) ───────────
@@ -4306,10 +4307,13 @@ class HTTPError(Exception):
     process still terminates after rendering the response.
     """
 
-    def __init__(self, status: int, body):
+    def __init__(self, status: int, body, headers=None):
         super().__init__(f"HTTP {status}")
         self.status = status
         self.body = body
+        # W6-28: optional extra response headers (e.g. Set-Cookie for the portal
+        # session). A list of (name, value) tuples, emitted by _render_response.
+        self.headers = headers or []
 
 
 _HTTP_STATUS_REASONS = {
@@ -4477,7 +4481,7 @@ def log_json(level, msg, **fields):
         pass
 
 
-def _render_response(status: int, data) -> None:
+def _render_response(status: int, data, headers=None) -> None:
     """Render an HTTP response to stdout. Used by main() — handlers should
     use respond()/HTTPError instead so the response is uniformly handled."""
     body = json.dumps(data)
@@ -4486,6 +4490,10 @@ def _render_response(status: int, data) -> None:
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
     print(f"X-Request-Id: {_request_id()}")   # v5.4.1 (F1): correlation id
+    for _hn, _hv in (headers or []):           # W6-28: extra headers (Set-Cookie)
+        # CR/LF stripped defensively — header values are server-built but never
+        # let a value inject a second header line.
+        print(f"{_hn}: {str(_hv).replace(chr(13), '').replace(chr(10), '')}")
     raw = body.encode('utf-8')
     if _gzip_response_wanted(len(raw)):
         print("Content-Encoding: gzip")
@@ -6894,7 +6902,7 @@ TICKET_SLA_DEFAULT_HOURS = {1: 1, 2: 4, 3: 24, 4: 72}   # P1..P4 response target
 # ── Internal contact directory (team phonebook; unrelated to the ticket system) ──
 def _contact_public(c):
     return {k: c.get(k) for k in ('id', 'name', 'role', 'company', 'email', 'phone',
-            'notes', 'created_at', 'updated_at')}
+            'notes', 'site', 'portal_enabled', 'created_at', 'updated_at')}
 
 
 def handle_contacts():
@@ -6930,6 +6938,10 @@ def handle_contacts():
         'email': _sanitize_str(str(body.get('email', '')), 200),
         'phone': _sanitize_str(str(body.get('phone', '')), 60),
         'notes': _sanitize_str(str(body.get('notes', '')), 2000),
+        # W6-28: customer-portal fields — which site this contact represents, and
+        # whether they may sign in to the portal (both admin-controlled).
+        'site': _sanitize_str(str(body.get('site', '')), 32),
+        'portal_enabled': bool(body.get('portal_enabled')),
         'created_at': now, 'updated_at': now,
     }
     with _LockedUpdate(CONTACTS_FILE) as store:
@@ -6970,14 +6982,292 @@ def handle_contact_update(cid):
                 if nm:
                     c['name'] = nm
             for fld, mx in (('role', 120), ('company', 120), ('email', 200),
-                            ('phone', 60), ('notes', 2000)):
+                            ('phone', 60), ('notes', 2000), ('site', 32)):
                 if fld in body:
                     c[fld] = _sanitize_str(str(body[fld]), mx)
+            if 'portal_enabled' in body:   # W6-28
+                c['portal_enabled'] = bool(body['portal_enabled'])
             c['updated_at'] = now
     if not ok:
         respond(404, {'error': 'contact not found'})
     audit_log(actor, 'contact_update', f'id={cid}')
     respond(200, {'ok': True})
+
+
+# ── W6-28: customer portal ──────────────────────────────────────────────────
+# A NARROW, separate surface (portal.html + a closed /api/portal/* allowlist)
+# that lets a site's CONTACTS see and submit THEIR OWN site's tickets — with no
+# operator account, no password, and NO session overlap with the operator app.
+# Default OFF (portal_enabled). Auth = per-contact magic link → a short-lived,
+# hashed, HttpOnly portal session cookie scoped to /api/portal. Every handler
+# resolves the cookie → contact → site and filters by that site SERVER-SIDE; a
+# ticket is visible only when its `site` equals the contact's. The operator
+# require_auth()/verify_token() never accepts a portal cookie and vice-versa.
+PORTAL_NONCE_TTL   = 1800      # magic-link nonce: 30 min to establish a session
+PORTAL_SESSION_TTL = 3600      # portal session cookie: 1 hour, single active/contact
+PORTAL_COOKIE      = 'rp_portal'
+
+
+def _portal_enabled():
+    return bool(_config_ro().get('portal_enabled'))
+
+
+def _portal_gate():
+    """404 (feature-invisible) when the portal is disabled fleet-wide."""
+    if not _portal_enabled():
+        respond(404, {'error': 'Not found'})
+
+
+def _portal_hash(tok):
+    return hashlib.sha256(('rp-portal:' + str(tok)).encode()).hexdigest()
+
+
+def _read_cookie(name):
+    """Value of a request cookie, or ''. Own tiny parser — no session overlap
+    with the operator X-Token header path."""
+    raw = _env('HTTP_COOKIE', '') or ''
+    for part in raw.split(';'):
+        k, _, v = part.strip().partition('=')
+        if k == name:
+            return v.strip()
+    return ''
+
+
+def _portal_enrolled_contact(email):
+    """The portal-enabled contact whose email matches (case-insensitive), or
+    None. Used only server-side — never leaks whether an email is enrolled."""
+    email = (email or '').strip().lower()
+    if not email:
+        return None
+    for c in ((load(CONTACTS_FILE) or {}).get('contacts') or []):
+        if isinstance(c, dict) and c.get('portal_enabled') \
+                and str(c.get('email', '')).strip().lower() == email:
+            return c
+    return None
+
+
+def _portal_session():
+    """Resolve the portal cookie → (contact_dict, site_id). 401s on a missing/
+    expired/unknown session, or if the contact was since portal-disabled. This is
+    the SOLE trust anchor for /api/portal/* — the operator token path is never
+    consulted here."""
+    tok = _read_cookie(PORTAL_COOKIE)
+    if not tok:
+        respond(401, {'error': 'Not signed in'})
+    h = _portal_hash(tok)
+    state = load(PORTAL_STATE_FILE) or {}
+    sess = (state.get('sessions') or {}).get(h)
+    now = int(time.time())
+    if not isinstance(sess, dict) or int(sess.get('expires', 0)) < now:
+        respond(401, {'error': 'Session expired'})
+    contact = next((c for c in ((load(CONTACTS_FILE) or {}).get('contacts') or [])
+                    if isinstance(c, dict) and c.get('id') == sess.get('contact_id')), None)
+    if not contact or not contact.get('portal_enabled'):
+        respond(401, {'error': 'Access revoked'})
+    return contact, str(contact.get('site', ''))
+
+
+def _portal_ticket_view(t):
+    """Contact-safe subset of a ticket — NO internal notes, assignee, hours,
+    device internals. Only what the requester submitted / needs to follow up."""
+    msgs = []
+    for m in (t.get('messages') or [])[-50:]:
+        if not isinstance(m, dict) or m.get('internal'):
+            continue      # internal operator notes never cross to the portal
+        msgs.append({'from': 'you' if str(m.get('author', '')).startswith('portal:')
+                     else 'support',
+                     'body': m.get('body', ''), 'at': m.get('at')})
+    return {'number': t.get('number'), 'subject': t.get('subject', ''),
+            'status': t.get('status', ''), 'created_at': t.get('created_at'),
+            'updated_at': t.get('updated_at'), 'messages': msgs}
+
+
+def handle_portal_magic_link():
+    """POST /api/portal/magic-link {email} — email a one-time sign-in link to a
+    portal-enabled contact. ALWAYS returns the same 200 (no account-enumeration
+    oracle). Rate-limited per IP + per email."""
+    _portal_gate()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    email = _sanitize_str(str(body.get('email', '')), 200).strip()
+    ip = _get_client_ip()
+    # Constant response regardless of validity; throttle to blunt spraying.
+    if not _ip_ratelimit('portal_magic', ip, max_per_window=5, window=300):
+        respond(429, {'ok': True, 'message': 'If that email is registered, a link is on its way.'})
+    contact = _portal_enrolled_contact(email)
+    if contact:
+        nonce = secrets.token_urlsafe(32)
+        with _LockedUpdate(PORTAL_STATE_FILE) as st:
+            nonces = st.setdefault('nonces', {})
+            # prune expired + cap
+            now = int(time.time())
+            for k in [k for k, v in list(nonces.items())
+                      if not isinstance(v, dict) or int(v.get('expires', 0)) < now]:
+                nonces.pop(k, None)
+            nonces[_portal_hash(nonce)] = {'contact_id': contact['id'],
+                                           'expires': now + PORTAL_NONCE_TTL}
+        try:
+            base = _request_base_url(os.environ)
+            link = f'{base}/portal#token={nonce}'
+            smtp_notifier.send_email(load(CONFIG_FILE) or {}, [contact['email']],
+                                     'Your RemotePower portal sign-in link',
+                                     f'Click to sign in to the support portal (valid 30 minutes):\n\n{link}\n',
+                                     extra_headers={'Auto-Submitted': 'auto-generated'})
+        except Exception:
+            pass      # never reveal delivery success/failure to the caller
+    respond(200, {'ok': True, 'message': 'If that email is registered, a link is on its way.'})
+
+
+def handle_portal_session():
+    """POST /api/portal/session {token} — exchange a magic-link nonce for a
+    scoped, HttpOnly portal session cookie (single active session per contact)."""
+    _portal_gate()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    nonce = str(get_json_obj().get('token', '')).strip()
+    if not nonce:
+        respond(400, {'error': 'token required'})
+    h = _portal_hash(nonce)
+    now = int(time.time())
+    contact_id = None
+    with _LockedUpdate(PORTAL_STATE_FILE) as st:
+        rec = (st.get('nonces') or {}).pop(h, None)     # single-use: burn it
+        if isinstance(rec, dict) and int(rec.get('expires', 0)) >= now:
+            contact_id = rec.get('contact_id')
+    if not contact_id:
+        respond(401, {'error': 'Invalid or expired link'})
+    contact = next((c for c in ((load(CONTACTS_FILE) or {}).get('contacts') or [])
+                    if isinstance(c, dict) and c.get('id') == contact_id
+                    and c.get('portal_enabled')), None)
+    if not contact:
+        respond(401, {'error': 'Access revoked'})
+    session_tok = secrets.token_urlsafe(32)
+    with _LockedUpdate(PORTAL_STATE_FILE) as st:
+        sessions = st.setdefault('sessions', {})
+        # one active session per contact: drop this contact's prior sessions +
+        # any expired ones.
+        for k in [k for k, v in list(sessions.items())
+                  if not isinstance(v, dict) or int(v.get('expires', 0)) < now
+                  or v.get('contact_id') == contact_id]:
+            sessions.pop(k, None)
+        sessions[_portal_hash(session_tok)] = {'contact_id': contact_id,
+                                               'expires': now + PORTAL_SESSION_TTL}
+    cookie = (f'{PORTAL_COOKIE}={session_tok}; Max-Age={PORTAL_SESSION_TTL}; '
+              'Path=/api/portal; HttpOnly; Secure; SameSite=Strict')
+    raise HTTPError(200, {'ok': True, 'name': contact.get('name', ''),
+                          'site': contact.get('site', '')}, headers=[('Set-Cookie', cookie)])
+
+
+def handle_portal_logout():
+    """POST /api/portal/logout — burn the current session + clear the cookie."""
+    _portal_gate()
+    tok = _read_cookie(PORTAL_COOKIE)
+    if tok:
+        with _LockedUpdate(PORTAL_STATE_FILE) as st:
+            (st.get('sessions') or {}).pop(_portal_hash(tok), None)
+    cookie = f'{PORTAL_COOKIE}=; Max-Age=0; Path=/api/portal; HttpOnly; Secure; SameSite=Strict'
+    raise HTTPError(200, {'ok': True}, headers=[('Set-Cookie', cookie)])
+
+
+def handle_portal_tickets():
+    """GET /api/portal/tickets — the caller's OWN site's portal tickets; POST —
+    open a new one for that site."""
+    _portal_gate()
+    contact, site = _portal_session()
+    if method() == 'GET':
+        tickets = (load(TICKETS_FILE) or {}).get('tickets') or []
+        out = [_portal_ticket_view(t) for t in tickets
+               if str(t.get('site', '')) == site and site]
+        out.sort(key=lambda t: t.get('updated_at') or 0, reverse=True)
+        respond(200, {'ok': True, 'tickets': out, 'site': site})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not site:
+        respond(400, {'error': 'Your contact is not linked to a site.'})
+    body = get_json_obj()
+    subject = _sanitize_str(str(body.get('subject', '')), 200).strip()
+    message = _sanitize_str(str(body.get('message', '')), 8000).strip()
+    if not subject:
+        respond(400, {'error': 'subject required'})
+    if not _ip_ratelimit('portal_create', _get_client_ip(), max_per_window=10, window=3600):
+        respond(429, {'error': 'Too many tickets — please try again later.'})
+    now = int(time.time())
+    tid = 'tk_' + secrets.token_hex(5)
+    with _LockedUpdate(TICKETS_FILE) as store:
+        tickets = store.setdefault('tickets', [])
+        if len(tickets) >= MAX_TICKETS:
+            respond(400, {'error': 'ticket limit reached'})
+        seq = int(store.get('ticket_seq') or 0) + 1
+        store['ticket_seq'] = seq
+        number = TICKET_STANDALONE_BASE + seq
+        msgs = [{'author': f'portal:{contact["id"]}', 'body': message, 'at': now}] if message else []
+        tickets.append({
+            'id': tid, 'number': number, 'subject': subject, 'type': 'request',
+            'status': 'ongoing', 'device_id': '', 'device_name': '',
+            'site': site, 'portal_contact': contact['id'],
+            'priority': 4, 'assignee': '', 'group': '',
+            'created_by': f'portal:{contact["id"]}', 'created_at': now,
+            'updated_at': now, 'messages': msgs,
+        })
+    audit_log(f'portal:{contact["id"]}', 'portal_ticket_create', f'#{number} site={site}')
+    fire_webhook('ticket_opened', {'number': number, 'ticket_id': tid, 'subject': subject,
+                                   'priority': 4, 'type': 'request', 'source': 'portal'})
+    respond(200, {'ok': True, 'number': number})
+
+
+def handle_portal_ticket(number):
+    """GET /api/portal/tickets/{number} — one ticket (ownership re-checked);
+    POST /api/portal/tickets/{number}/reply — append a contact reply."""
+    _portal_gate()
+    contact, site = _portal_session()
+    try:
+        num = int(re.sub(r'\D', '', str(number)) or 0)
+    except ValueError:
+        respond(404, {'error': 'ticket not found'})
+    is_reply = str(number).endswith('/reply') or _env('PATH_INFO', '').endswith('/reply')
+    # Ownership: the ticket must carry THIS contact's site. No site → no match.
+    def _find(store):
+        return next((t for t in (store.get('tickets') or [])
+                     if int(t.get('number') or 0) == num
+                     and str(t.get('site', '')) == site and site), None)
+    if is_reply:
+        if method() != 'POST':
+            respond(405, {'error': 'Method not allowed'})
+        message = _sanitize_str(str(get_json_obj().get('message', '')), 8000).strip()
+        if not message:
+            respond(400, {'error': 'message required'})
+        now = int(time.time())
+        found = False
+        with _LockedUpdate(TICKETS_FILE) as store:
+            t = _find(store)
+            if t is not None:
+                found = True
+                t.setdefault('messages', []).append(
+                    {'author': f'portal:{contact["id"]}', 'body': message, 'at': now})
+                t['updated_at'] = now
+                if t.get('status') in ('resolved', 'closed'):
+                    t['status'] = 'ongoing'      # a customer reply reopens
+        if not found:
+            respond(404, {'error': 'ticket not found'})
+        audit_log(f'portal:{contact["id"]}', 'portal_ticket_reply', f'#{num}')
+        respond(200, {'ok': True})
+    # GET one
+    t = _find(load(TICKETS_FILE) or {})
+    if t is None:
+        respond(404, {'error': 'ticket not found'})
+    respond(200, {'ok': True, 'ticket': _portal_ticket_view(t)})
+
+
+def handle_portal_csp_report():
+    """POST /api/portal/csp-report — a SEPARATE CSP report bucket for the portal
+    page, kept apart from the operator app's /api/csp-report."""
+    try:
+        raw = sys.stdin.read(8192)
+        sys.stderr.write(f'[remotepower] portal-csp-report: {raw[:1000]}\n')
+    except Exception:
+        pass
+    respond(204, {})
 
 
 # ── v5.6.0: Knowledge base (structured IT documentation) ────────────────────
@@ -19364,6 +19654,7 @@ def handle_config_get():
     safe.setdefault('secrets_scan_enabled', False)
     safe.setdefault('image_scan_enabled', False)   # W6-34
     safe.setdefault('rdp_enabled', False)          # W6-49
+    safe.setdefault('portal_enabled', False)       # W6-28 customer portal
     safe.setdefault('secrets_scan_paths', [])
     safe.setdefault('secrets_mutes', [])
     safe.setdefault('secrets_host_mutes', [])   # v4.1.0 (#55): whole-host mutes
@@ -20327,6 +20618,8 @@ def handle_config_save():
         cfg['image_scan_enabled'] = bool(body['image_scan_enabled'])
     if 'rdp_enabled' in body:             # W6-49: opt-in RDP tunnelling
         cfg['rdp_enabled'] = bool(body['rdp_enabled'])
+    if 'portal_enabled' in body:          # W6-28: opt-in customer portal
+        cfg['portal_enabled'] = bool(body['portal_enabled'])
     if 'secrets_scan_paths' in body:
         raw_sp = body['secrets_scan_paths'] if isinstance(body['secrets_scan_paths'], list) else []
         paths = []
@@ -53640,6 +53933,13 @@ def _build_exact_routes():
         ('GET', '/api/lldp-suggestions'): handle_lldp_suggestions,   # W5-1
         ('POST', '/api/lldp-suggestions'): handle_lldp_suggestions,
         ('GET', '/api/image-cves'): handle_image_cves,   # W6-34
+        # W6-28: customer portal (closed allowlist; token-cookie auth, not X-Token).
+        ('POST', '/api/portal/magic-link'): handle_portal_magic_link,
+        ('POST', '/api/portal/session'): handle_portal_session,
+        ('POST', '/api/portal/logout'): handle_portal_logout,
+        ('GET', '/api/portal/tickets'): handle_portal_tickets,
+        ('POST', '/api/portal/tickets'): handle_portal_tickets,
+        ('POST', '/api/portal/csp-report'): handle_portal_csp_report,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,
@@ -54185,6 +54485,8 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('POST',), '/api/scans/', '/results', 'handle_scan_results', "pi.startswith('/api/scans/') and pi.endswith('/results') and m == 'POST'"),
     ('pat', ('GET',), '/api/scans/', '', 'handle_scan_detail', "pi.startswith('/api/scans/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/portal/tickets/', '/reply', 'handle_portal_ticket', "pi.startswith('/api/portal/tickets/') and pi.endswith('/reply') and m == 'POST'"),
+    ('pat', ('GET',), '/api/portal/tickets/', '', 'handle_portal_ticket', "pi.startswith('/api/portal/tickets/') and m == 'GET'"),
     ('pat', ('POST',), '/api/device-profiles/', '/apply', 'handle_device_profile_apply', "pi.startswith('/api/device-profiles/') and pi.endswith('/apply') and m == 'POST'"),
     ('pat', ('GET',), '/api/ipam/subnets/', '/occupancy', 'handle_ipam_occupancy', "pi.startswith('/api/ipam/subnets/') and pi.endswith('/occupancy') and m == 'GET'"),
     ('pat', ('PATCH',), '/api/ipam/subnets/', '', 'handle_ipam_subnet', "pi.startswith('/api/ipam/subnets/') and m == 'PATCH'"),
@@ -58087,7 +58389,7 @@ if __name__ == '__main__':
         main()
     except HTTPError as e:
         # Normal short-circuit from a handler — render the planned response.
-        _render_response(e.status, e.body)
+        _render_response(e.status, e.body, getattr(e, 'headers', None))
     except SystemExit:
         # Some legacy code paths still use sys.exit() during initialisation.
         # Honour them rather than swallowing.
