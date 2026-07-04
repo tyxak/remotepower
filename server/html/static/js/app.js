@@ -2439,6 +2439,7 @@ function _monClearFields() {
   set('mon-status', ''); set('mon-latency', ''); set('mon-loss', '');
   set('mon-failures-before-alert', '1');
   set('mon-body-mode', ''); set('mon-body-value', '');
+  set('mon-json-path', ''); set('mon-json-value', '');
 }
 function openMonitorAdd() {
   _monitorEditIdx = -1;
@@ -2469,6 +2470,8 @@ function editMonitor(idx) {
   set('mon-failures-before-alert', m.failures_before_alert || 1);
   set('mon-body-mode', (m.body_match && m.body_match.mode) || '');
   set('mon-body-value', (m.body_match && m.body_match.value) || '');
+  set('mon-json-path', (m.expect_json && m.expect_json.path) || '');
+  set('mon-json-value', (m.expect_json && m.expect_json.value) || '');
   monTypeChanged();
   openModal('monitor-add-modal');
 }
@@ -2486,6 +2489,7 @@ function monTypeChanged() {
   show('mon-latency-grp', type === 'http' || type === 'icmp');
   show('mon-loss-grp', type === 'icmp');
   show('mon-body-grp', type === 'http');
+  show('mon-json-grp', type === 'http');
 }
 async function addMonitor() {
   const label  = document.getElementById('mon-label').value.trim();
@@ -2501,6 +2505,12 @@ async function addMonitor() {
   const bMode = document.getElementById('mon-body-mode')?.value || '';
   const bVal  = (document.getElementById('mon-body-value')?.value || '').trim();
   if (type === 'http' && bMode && bVal) entry.body_match = {mode: bMode, value: bVal};
+  const jPath = (document.getElementById('mon-json-path')?.value || '').trim();
+  if (type === 'http' && jPath) {
+    entry.expect_json = {path: jPath};
+    const jVal = (document.getElementById('mon-json-value')?.value || '').trim();
+    if (jVal) entry.expect_json.value = jVal;
+  }
   const numOf = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? null : v; };
   if (type === 'tcp' && kind !== 'host') { const p = numOf('mon-port'); if (p !== null) entry.port = p; }
   if (type === 'db') { entry.db_kind = document.getElementById('mon-dbkind')?.value || 'postgres'; }

@@ -15987,6 +15987,22 @@ def _db_health_probe(host, port, kind, timeout=3):
         return False, 'unreachable'
 
 
+def _monitor_json_path(doc, path):
+    """W1-12: walk a dot-path ('status.healthy', 'items.0.state') through a
+    parsed JSON document — dict keys by name, list indexes by digit segment.
+    Returns (found, value); found is False on any miss so callers can tell
+    "field absent" from "field is null"."""
+    cur = doc
+    for seg in str(path).split('.'):
+        if isinstance(cur, list) and seg.isdigit() and int(seg) < len(cur):
+            cur = cur[int(seg)]
+        elif isinstance(cur, dict) and seg in cur:
+            cur = cur[seg]
+        else:
+            return False, None
+    return True, cur
+
+
 def _run_one_monitor_check(mtype, target, label, m):
     """Run a single resolved monitor check (target already sanitised) and return
     a result dict. Shared by host-targeted and tag/group-expanded checks."""
@@ -16071,11 +16087,12 @@ def _run_one_monitor_check(mtype, target, label, m):
             detail = 'resolution failed'
     elif mtype == 'http':
         bm = m.get('body_match') if isinstance(m.get('body_match'), dict) else None
+        ej = m.get('expect_json') if isinstance(m.get('expect_json'), dict) else None
         want_status = m.get('expect_status')
         max_lat = m.get('max_latency_ms')
-        # GET when we need the body (content match), else HEAD.
+        # GET when we need the body (content/JSON match), else HEAD.
         try:
-            req = urllib.request.Request(target, method='GET' if bm else 'HEAD')
+            req = urllib.request.Request(target, method='GET' if (bm or ej) else 'HEAD')
             ctx = _get_ssl_context()
             _allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
             _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
@@ -16086,15 +16103,43 @@ def _run_one_monitor_check(mtype, target, label, m):
                 status = resp.status
                 ok = status < 400
                 detail = f'{status} · {lat}ms'
+                body_txt = ''
+                if ok and (bm or ej):
+                    body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
                 if ok and bm:
                     val = bm.get('value', '')
-                    body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
-                    if bm.get('mode') == 'not_contains':
+                    mode = bm.get('mode')
+                    if mode == 'not_contains':
                         if val and val in body_txt:
                             ok = False; detail = f'{status} · matched "{val[:40]}"'
+                    elif mode == 'regex':
+                        # W1-12: regex assertion (compile-validated at save; guard anyway).
+                        try:
+                            if val and not re.search(val, body_txt):
+                                ok = False; detail = f'{status} · regex "{val[:40]}" not matched'
+                        except re.error:
+                            ok = False; detail = 'invalid body regex'
                     else:
                         if val and val not in body_txt:
                             ok = False; detail = f'{status} · "{val[:40]}" not found'
+                # W1-12: JSON-field assertion — parse body, walk the dot-path.
+                if ok and ej:
+                    try:
+                        doc = json.loads(body_txt)
+                    except ValueError:
+                        ok = False; detail = f'{status} · body is not JSON'
+                    else:
+                        jpath = str(ej.get('path', ''))
+                        found, jv = _monitor_json_path(doc, jpath)
+                        want = ej.get('value')
+                        if not found:
+                            ok = False
+                            detail = f'{status} · json "{jpath[:60]}" missing'
+                        elif want is not None and str(jv) != want \
+                                and json.dumps(jv) != want:
+                            ok = False
+                            detail = (f'{status} · json {jpath[:40]}='
+                                      f'{str(jv)[:40]} (expected {str(want)[:40]})')
                 # v4.1.0: explicit status + latency-SLA assertions.
                 if ok and isinstance(want_status, int) and status != want_status:
                     ok = False; detail = f'{status} (expected {want_status})'
@@ -18030,10 +18075,28 @@ def handle_config_save():
             bm = m.get('body_match')
             if mtype == 'http' and isinstance(bm, dict) and bm.get('value'):
                 mode = bm.get('mode')
-                entry['body_match'] = {
-                    'mode':  'not_contains' if mode == 'not_contains' else 'contains',
-                    'value': _sanitize_str(str(bm.get('value', '')), 200),
-                }
+                if mode == 'regex':
+                    # W1-12: regex assertion — must compile NOW, not at probe time.
+                    val = _sanitize_str(str(bm.get('value', '')), 200)
+                    try:
+                        re.compile(val)
+                    except re.error:
+                        respond(400, {'error': f'invalid body_match regex on "{entry["label"]}"'})
+                    entry['body_match'] = {'mode': 'regex', 'value': val}
+                else:
+                    entry['body_match'] = {
+                        'mode':  'not_contains' if mode == 'not_contains' else 'contains',
+                        'value': _sanitize_str(str(bm.get('value', '')), 200),
+                    }
+            # W1-12: optional JSON-field assertion (dot-path into the response).
+            ej = m.get('expect_json')
+            if mtype == 'http' and isinstance(ej, dict) and str(ej.get('path', '')).strip():
+                jpath = re.sub(r'[^A-Za-z0-9_.\-]', '', str(ej.get('path')))[:128].strip('.')
+                if jpath:
+                    entry['expect_json'] = {'path': jpath}
+                    jval = ej.get('value')
+                    if jval is not None and str(jval) != '':
+                        entry['expect_json']['value'] = _sanitize_str(str(jval), 200)
             # v4.1.0: DB liveness kind (credential-less protocol probe).
             if mtype == 'db':
                 dk = m.get('db_kind', 'postgres')

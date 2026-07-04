@@ -80,6 +80,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Ping / TCP / HTTP probes | ICMP, TCP, HTTP HEAD from the server; runs when dashboard closed *(v1.11.8)*; HTTP SSRF-guarded with connect-time recheck |
 | DNS / ICMP / HTTP / DB monitors | DNS resolution with expected-address; ICMP latency + loss; HTTP status + latency-SLA; credential-less DB-liveness (PostgreSQL/MySQL/Redis); tag/group fan-out *(v4.1.0)* |
+| HTTP content assertions | Body contains / not-contains *(v3.12.0)*, regex match, and JSON dot-path field assertions (`status.healthy` = expected value, or just "must exist") — catches a 200 OK that's actually an error page *(regex/JSON v5.8.0)* |
 | Monitor history | Uptime %, sparkline, last 50 results per target |
 | Service monitoring | Agent watches systemd units; matrix view; webhooks on transitions; shows resolved alias *(v3.9.0)* |
 | Service baselines | Fleet-wide default sets of watched units (e.g. `sshd.service`, `remotepower-agent.service`) scoped by all/group/tag/site and merged into each covered device's watch list — set once, no per-host editing. `GET/POST /api/service-baselines` *(v5.5.0)* |
