@@ -87,6 +87,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Log tail + alerts | journalctl per watched unit; rolling 6-hour buffer; regex search; pattern-match alerts; per-rule template / exclude / snooze; matched line shown in NA card / inbox / webhook + Open-in-Logs deep link *(v3.3.0)* |
 | Inbound syslog | HTTP receiver — point rsyslog `omhttp`/fluent-bit/`curl` at `POST /api/syslog/in/<token>`; parses RFC 3164/5424 into the device log buffer for `log_alert` rules *(v3.2.0)* |
 | SNMP trap receiver | HTTP receiver — an `snmptrapd` handler POSTs decoded traps as JSON to `POST /api/snmp/trap/<token>`; traps attach to the pinned device's SNMP view and raise a coalesced `snmp_trap_received` alert |
+| Inbound alert webhook | Generic receiver — external systems (Grafana, Alertmanager, Authentik, n8n, Home Assistant, …) POST JSON `{severity, title, …}` to `POST /api/webhook/in/<token>`; lands in the Alerts inbox *(v3.2.0)* |
 | TLS / DNS expiry | Server-side probes against a watchlist; warn 14d / crit 3d; auto re-probed ~6h by the built-in schedule — no cron needed *(v5.8.0)* |
 | Resolver health monitor | Re-resolves a name across public resolvers; tracks latency + NXDOMAIN; `resolver_unhealthy`/`resolver_recovered` *(v4.9.0)* |
 | Healthchecks.io watchdog | Server pings a URL on a cadence so an external monitor flips red if RemotePower stops |
@@ -112,7 +113,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Device dependency map | Declare device→upstream deps; downstream alerts held while upstream offline *(v3.4.2)* |
 | Patch alerts | Webhook when pending updates exceed a threshold |
 | Admin-only alert mutation | Optionally require admin role to ack / unack / resolve (`viewers_can_ack_alerts`) *(v3.3.0)* |
-| Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
+| Ticket system | Opt-in built-in helpdesk (Advanced → `tickets_enabled`, default off): tickets typed Incident / Request / Change (alerts → Incident, reusing the alert id as `#RP000042`), statuses ongoing/pending-customer/pending-internal/resolved/closed; **priority P1 Major / P2 Critical / P3 Warning / P4 Low** (alert-derived tickets inherit the alert severity, Major manual-only); per-priority SLA response-time targets (`ticket_sla`) with breach events; **assignee + take-ownership**; **multiple affected devices**; **master/sub parent-child links**; sortable list defaulting to unhandled → your own → ongoing; attach to alerts + devices; search; outbound email (existing SMTP) + dedicated-IMAP reply ingestion with a mail-loop guard; recipient parsed from CMDB contacts/notes; per-device + CMDB ticket indicators |
 | Ticket attachments | Inbound email attachments stored + downloadable/previewable; attach files to an outbound reply (≤15 MB each, ≤10/msg); access bound to the ticket, served `nosniff`. `GET …/tickets/{id}/attachments/{aid}[?inline=1]` *(v5.5.0)* |
 | Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.5.0)* |
 | Email thread view | One-click printable window of a ticket's full correspondence *(v5.5.0)* |
@@ -126,7 +127,8 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 
 | Feature | Notes |
 |---|---|
-| Webhooks | Generic JSON, Discord, ntfy, Slack, Gotify, Microsoft Teams, Pushover; auto-format detection |
+| Webhooks | Generic JSON, Discord, ntfy, Slack, Gotify, Microsoft Teams, Pushover, Telegram, Matrix *(Telegram/Matrix v5.3.0)*; auto-format detection |
+| Browser push | Web Push (VAPID) notifications straight to subscribed browsers / the PWA — no third-party service; admin-enabled, per-browser opt-in *(v4.0.0)* |
 | GitHub issues | `github` destination opens an issue with labels *(v3.3.0)* |
 | PagerDuty / Opsgenie | PagerDuty Events v2 (trigger + auto-resolve), Opsgenie Alerts v2 *(v3.4.1)* |
 | ITSM (Jira / ServiceNow / Zendesk) | Ready-made ticket formats; "fire on ACK" opens a ticket, link shown on the alert *(v5.0.0)* |
@@ -251,6 +253,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Live resolve / dig + propagation | Authoritative-NS vs public-resolver answers; per-record propagation check *(v4.9.0)* |
 | Central ACME DNS-01 creds | Server-stored provider tokens injected into `acme.sh --issue`; redacted in audit/UI *(v3.3.0)* |
 | RouterOS integration | MikroTik via REST (SSRF-guarded) — DHCP lease table, firewall filter/NAT counts, routes, interfaces, wireless clients; read-only *(v4.7.0)* |
+| OPNsense integration | View / add / enable-disable / delete filter + outbound-NAT rules over the OPNsense REST API from an agentless device's drawer; API secret write-only; full guide [opnsense.md](opnsense.md) *(v3.4.0)* |
 | IP reputation (DNSBL) | Mail-sending IPs vs Spamhaus/SpamCop/Barracuda/SORBS/UCEPROTECT/PSBL; `ip_blacklisted`/`ip_blacklist_cleared`; partial state on unreachable *(v4.8.0)* |
 | DMARC / SPF / DKIM | Published-record grading + aggregate (RUA) report ingestion over IMAP; per-source pass/fail tallies + mailbox health *(v4.8.0)* |
 
