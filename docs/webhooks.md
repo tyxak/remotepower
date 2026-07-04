@@ -103,6 +103,38 @@ When set, only those events fire to this destination. Empty list = all events (s
 
 The two filters compose with AND: an event must pass both the priority floor and the allowlist (if present) to fire.
 
+## Verifying deliveries (HMAC signature)
+
+A **generic**-format destination can carry an optional **HMAC signing secret**
+(Settings → Notifications → the destination's *HMAC signing secret* field —
+write-only; leave blank on later edits to keep it). When set, every delivery is
+signed over the exact bytes sent:
+
+```
+X-RemotePower-Signature: sha256=<hex HMAC-SHA256 of the raw body>
+X-RemotePower-Timestamp: <unix seconds>
+```
+
+Verify on the receiver (constant-time compare, and bound the timestamp to
+reject replays):
+
+```python
+import hashlib, hmac, time
+
+def verify(raw_body: bytes, headers, secret: str, max_age=300) -> bool:
+    sig = headers.get('X-RemotePower-Signature', '')
+    ts = int(headers.get('X-RemotePower-Timestamp', 0))
+    if abs(time.time() - ts) > max_age:
+        return False
+    want = 'sha256=' + hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, sig)
+```
+
+Hosted-service formats (Discord/Slack/Telegram/Matrix/…) are never signed —
+you don't control those receivers, so the header would be meaningless. Each
+destination has its own secret; rotating one is just pasting a new value (and
+updating the receiver).
+
 ## Backward compatibility
 
 The legacy `webhook_url` field still works. On every fire, the dispatcher builds a destination list from both sources:
