@@ -40,6 +40,28 @@ function _netmapFillScope(sel, values, active) {
   el.value = active || '';
 }
 
+// W3-8: dependency auto-suggestions from observed traffic.
+async function loadDepSuggestions() {
+  const box = document.getElementById('dep-suggestions');
+  if (!box) return;
+  const r = await api('GET', '/dependency-suggestions');
+  if (!r || !r.ok) { box.innerHTML = '<div class="c-muted">Not available.</div>'; return; }
+  const s = r.suggestions || [];
+  if (!s.length) { box.innerHTML = '<div class="c-muted">No new dependency suggestions.</div>'; return; }
+  box.innerHTML = '<div class="scrollable-table-wrap audit-scroll"><table class="data-table">'
+    + '<thead><tr><th>Device</th><th>→ Upstream</th><th>Evidence</th><th></th></tr></thead><tbody>'
+    + s.map(x => `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.upstream_name)}</td>`
+        + `<td class="fs-12">${escHtml(x.evidence)}</td>`
+        + `<td class="nowrap"><button class="btn-icon cell-sm c-success" data-action="depSuggestAct" data-arg="${escAttr(x.device_id)}" data-arg2="${escAttr(x.upstream_id)}" data-arg3="accept">Accept</button> `
+        + `<button class="btn-icon cell-sm" data-action="depSuggestAct" data-arg="${escAttr(x.device_id)}" data-arg2="${escAttr(x.upstream_id)}" data-arg3="dismiss">Dismiss</button></td></tr>`).join('')
+    + '</tbody></table></div>';
+}
+async function depSuggestAct(deviceId, upstreamId, action) {
+  const r = await api('POST', '/dependency-suggestions', { device_id: deviceId, upstream_id: upstreamId, action });
+  if (r && r.ok) { toast(action === 'accept' ? 'Dependency added' : 'Dismissed', 'success'); loadDepSuggestions(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
 async function loadNetmap() {
   const data = await api('GET', '/network-map' + _netmapScopeQuery());
   if (!data) return;

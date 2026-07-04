@@ -116,6 +116,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | On-call & escalation | Escalation tiers re-notify unacked alerts; on-call rotation names the contact *(v3.4.2)*; **per-tier target** routes a tier to one webhook destination *(v5.5.0)*; **calendar rotation** — anchored "who's on call this week" schedule + dated overrides/handoffs + upcoming-handoffs view *(v5.8.0)* |
 | Automation rules engine | Event (at severity) on matching devices → run saved script, notify, **open a ticket**, **add a tag** or **mute the alert** *(actions extended v5.6.0)*; per-rule cooldown, admin-only, audited *(v3.4.2)* |
 | Device dependency map | Declare device→upstream deps; downstream alerts held while upstream offline *(v3.4.2)* |
+| Dependency auto-suggestion | Agent samples established outbound peers (private IPs only); server correlates them to known device IPs → suggested `depends_on` edges with evidence on the Network map — accept adds the link, dismiss hides it. `GET/POST /api/dependency-suggestions` *(v5.8.0)* |
 | Patch alerts | Webhook when pending updates exceed a threshold |
 | Patch-compliance SLA | Per group/tag/fleet max-age (days) for security and/or all pending updates; first-seen aging → `patch_sla_violation`/`patch_sla_ok`, a breach list on the Patches page and a count in the posture report. `GET /api/patch-sla` *(v5.8.0)* |
 | Admin-only alert mutation | Optionally require admin role to ack / unack / resolve (`viewers_can_ack_alerts`) *(v3.3.0)* |

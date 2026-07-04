@@ -264,5 +264,60 @@ class TestStoreAndForward(_HandlerBase):
         self.assertEqual(len(agent._read_metrics_spool()), 2)
 
 
+class TestDependencySuggestions(_HandlerBase):
+    """W3-8: observed-traffic dependency correlation + accept/dismiss."""
+
+    def setUp(self):
+        super().setUp()
+        self._pf = api.PEER_CONNS_FILE
+        self._df = api.DEP_DISMISS_FILE
+        api.PEER_CONNS_FILE = self.d / 'peer_conns.json'
+        api.DEP_DISMISS_FILE = self.d / 'dep_dismissed.json'
+        api.save(api.DEVICES_FILE, {
+            'web': {'name': 'web', 'ip': '10.0.0.1'},
+            'db': {'name': 'db', 'ip': '10.0.0.2'}})
+        api.save(api.PEER_CONNS_FILE, {
+            'web': {'ts': 1, 'peers': [{'ip': '10.0.0.2', 'port': 5432, 'count': 3}]}})
+
+    def tearDown(self):
+        api.PEER_CONNS_FILE = self._pf
+        api.DEP_DISMISS_FILE = self._df
+        super().tearDown()
+
+    def test_suggestion_correlates_peer_to_device(self):
+        s = api._dependency_suggestions()
+        self.assertEqual(len(s), 1)
+        self.assertEqual(s[0]['device_id'], 'web')
+        self.assertEqual(s[0]['upstream_id'], 'db')
+        self.assertIn('5432', s[0]['evidence'])
+
+    def test_declared_dep_not_suggested(self):
+        api.save(api.DEVICES_FILE, {
+            'web': {'name': 'web', 'ip': '10.0.0.1', 'depends_on': ['db']},
+            'db': {'name': 'db', 'ip': '10.0.0.2'}})
+        self.assertEqual(api._dependency_suggestions(), [])
+
+    def test_accept_adds_dependency(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'web', 'upstream_id': 'db', 'action': 'accept'}
+        self.call(api.handle_dependency_suggestions)
+        self.assertIn('db', (api.load(api.DEVICES_FILE) or {})['web'].get('depends_on'))
+        self.assertEqual(api._dependency_suggestions(), [])   # now declared
+
+    def test_dismiss_hides_suggestion(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'device_id': 'web', 'upstream_id': 'db', 'action': 'dismiss'}
+        self.call(api.handle_dependency_suggestions)
+        self.assertEqual(api._dependency_suggestions(), [])
+
+    def test_agent_private_ip_filter(self):
+        agent = _load_agent()
+        self.assertTrue(agent._is_private_ip('10.1.2.3'))
+        self.assertTrue(agent._is_private_ip('192.168.1.1'))
+        self.assertTrue(agent._is_private_ip('172.16.0.1'))
+        self.assertFalse(agent._is_private_ip('8.8.8.8'))
+        self.assertFalse(agent._is_private_ip('172.32.0.1'))
+
+
 if __name__ == '__main__':
     unittest.main()

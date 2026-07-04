@@ -102,6 +102,8 @@ INCIDENTS_FILE = DATA_DIR / 'incidents.json'   # W2-25 operator-posted status-pa
 USER_NOTIFY_FILE = DATA_DIR / 'user_notify.json'   # W2-20 per-user notification subscriptions
 SUDO_LOG_FILE = DATA_DIR / 'sudo_log.json'         # W3-40 per-device privileged-command trail
 MAX_SUDO_PER_DEVICE = 500                           # W3-40 rolling cap per device
+PEER_CONNS_FILE = DATA_DIR / 'peer_conns.json'     # W3-8 observed outbound peers per device
+DEP_DISMISS_FILE = DATA_DIR / 'dep_dismissed.json' # W3-8 dismissed dependency suggestions
 WEBHOOK_DIGEST_FILE = DATA_DIR / 'webhook_digest.json'   # W2-22 per-destination digest queue
 _DIGEST_BYPASS_PRIORITY = 4     # W2-22: priority >= this (high/urgent) bypasses the digest
 # v5.6.0: per-(host, event) alert mutes — silence one exact alert type from one
@@ -14957,6 +14959,21 @@ def handle_heartbeat():
         except Exception:
             pass
 
+    # W3-8: record observed outbound peers for dependency auto-suggestion.
+    _peers_in = body.get('peer_conns')
+    if isinstance(_peers_in, list):
+        try:
+            clean = []
+            for p in _peers_in[:50]:
+                if isinstance(p, dict) and p.get('ip'):
+                    clean.append({'ip': _sanitize_str(str(p.get('ip')), 45),
+                                  'port': int(p.get('port') or 0),
+                                  'count': int(p.get('count') or 1)})
+            with _LockedUpdate(PEER_CONNS_FILE) as _pc:
+                _pc[dev_id] = {'ts': now, 'peers': clean}
+        except Exception:
+            pass
+
     # v2.8.0: port audit and SSH key audit (best-effort — never fail heartbeat)
     _si = saved_dev.get('sysinfo') or {}
     if _si.get('listening_ports'):
@@ -26509,6 +26526,92 @@ def handle_sudo_search():
             rows.append({**e, 'device_id': did, 'device_name': dname})
     rows.sort(key=lambda r: r.get('ts', 0), reverse=True)
     respond(200, {'ok': True, 'events': rows[:limit], 'total': len(rows)})
+
+
+def _dependency_suggestions():
+    """W3-8: correlate each device's observed outbound peers against known device
+    IPs → suggested `device → upstream` dependency edges with evidence. Skips
+    edges already declared (depends_on / connected_to) or dismissed."""
+    devices = load(DEVICES_FILE) or {}
+    peers = load(PEER_CONNS_FILE) or {}
+    dismissed = set((load(DEP_DISMISS_FILE) or {}).get('pairs') or [])
+    # index known device IPs → device id (agentless included; they're upstreams)
+    ip_to_dev = {}
+    for did, dev in devices.items():
+        if not isinstance(dev, dict):
+            continue
+        for f in ('ip', 'hostname'):
+            v = str(dev.get(f) or '').strip()
+            if v:
+                ip_to_dev.setdefault(v, did)
+        for nic in (dev.get('interfaces') or []):
+            if isinstance(nic, dict) and nic.get('ip'):
+                ip_to_dev.setdefault(str(nic['ip']), did)
+    out = []
+    for did, rec in peers.items():
+        if did not in devices:
+            continue
+        dev = devices[did]
+        declared = set(dev.get('depends_on') or [])
+        if dev.get('connected_to'):
+            declared.add(dev['connected_to'])
+        by_up = {}
+        for p in (rec.get('peers') or []):
+            up = ip_to_dev.get(p.get('ip'))
+            if not up or up == did or up in declared:
+                continue
+            if f'{did}:{up}' in dismissed:
+                continue
+            e = by_up.setdefault(up, {'count': 0, 'ports': set()})
+            e['count'] += int(p.get('count') or 1)
+            e['ports'].add(int(p.get('port') or 0))
+        for up, e in by_up.items():
+            out.append({
+                'device_id': did, 'device_name': dev.get('name', did),
+                'upstream_id': up, 'upstream_name': devices[up].get('name', up),
+                'connections': e['count'],
+                'ports': sorted(p for p in e['ports'] if p)[:8],
+                'evidence': f'{e["count"]} conn(s) to ' +
+                            ', '.join(f':{p}' for p in sorted(e['ports'])[:4] if p),
+            })
+    out.sort(key=lambda r: r['connections'], reverse=True)
+    return out
+
+
+def handle_dependency_suggestions():
+    """GET /api/dependency-suggestions — observed-traffic dependency edges to
+    review (admin). POST {device_id, upstream_id, action: accept|dismiss}."""
+    if method() == 'GET':
+        require_auth()
+        respond(200, {'ok': True, 'suggestions': _dependency_suggestions()})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    did = str(body.get('device_id') or '').strip()
+    up = str(body.get('upstream_id') or '').strip()
+    action = str(body.get('action') or '').strip()
+    devices = load(DEVICES_FILE) or {}
+    if did not in devices or up not in devices or did == up:
+        respond(400, {'error': 'valid device_id and upstream_id required'})
+    if action == 'accept':
+        with _LockedUpdate(DEVICES_FILE) as devs:
+            dev = devs.get(did)
+            if dev is not None:
+                deps = dev.get('depends_on') or []
+                if up not in deps:
+                    deps.append(up)
+                dev['depends_on'] = deps
+        audit_log(actor, 'dependency_accept', f'{did} -> {up}')
+        respond(200, {'ok': True})
+    elif action == 'dismiss':
+        with _LockedUpdate(DEP_DISMISS_FILE) as store:
+            pairs = set(store.get('pairs') or [])
+            pairs.add(f'{did}:{up}')
+            store['pairs'] = sorted(pairs)
+        respond(200, {'ok': True})
+    else:
+        respond(400, {'error': 'action must be accept or dismiss'})
 
 
 def _backup_is_shrunk(size, hist, pct):
@@ -51322,6 +51425,8 @@ def _build_exact_routes():
         ('GET', '/api/my/notify-prefs'): handle_my_notify_prefs,    # W2-20
         ('POST', '/api/my/notify-prefs'): handle_my_notify_prefs,
         ('GET', '/api/sudo-search'): handle_sudo_search,            # W3-40
+        ('GET', '/api/dependency-suggestions'): handle_dependency_suggestions,  # W3-8
+        ('POST', '/api/dependency-suggestions'): handle_dependency_suggestions,
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

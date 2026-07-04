@@ -653,6 +653,58 @@ def collect_net_io():
     out.sort(key=lambda x: x['rx_bps'] + x['tx_bps'], reverse=True)
     return out[:20]
 
+def _is_private_ip(ip):
+    """RFC-1918 / link-local / CGNAT — the addresses worth suggesting a fleet
+    dependency for (a world-bound peer is noise + a privacy leak)."""
+    try:
+        parts = [int(x) for x in ip.split('.')]
+        if len(parts) != 4:
+            return False
+    except ValueError:
+        return False
+    a, b = parts[0], parts[1]
+    return (a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
+            or (a == 169 and b == 254) or (a == 100 and 64 <= b <= 127))
+
+
+def collect_peer_connections(limit=50):
+    """W3-8: sample established outbound TCP peers (private IPs only) so the
+    server can suggest fleet dependency edges. Best-effort + bounded; returns
+    [{ip, port, count}] sorted by connection count."""
+    peers = {}
+    try:
+        if _PSUTIL:
+            for c in _psutil.net_connections(kind='tcp'):
+                if c.status != 'ESTABLISHED' or not c.raddr:
+                    continue
+                ip = getattr(c.raddr, 'ip', '')
+                port = getattr(c.raddr, 'port', 0)
+                if _is_private_ip(ip):
+                    peers[(ip, port)] = peers.get((ip, port), 0) + 1
+        else:
+            out = subprocess.check_output(
+                ['ss', '-tn', 'state', 'established'],
+                text=True, stderr=subprocess.DEVNULL, timeout=8)
+            for line in out.splitlines()[1:]:
+                cols = line.split()
+                if len(cols) < 4:
+                    continue
+                peer = cols[-1]
+                ip, _, port = peer.rpartition(':')
+                ip = ip.strip('[]')
+                if _is_private_ip(ip):
+                    try:
+                        p = int(port)
+                    except ValueError:
+                        continue
+                    peers[(ip, p)] = peers.get((ip, p), 0) + 1
+    except Exception:
+        return []
+    rows = [{'ip': ip, 'port': port, 'count': n} for (ip, port), n in peers.items()]
+    rows.sort(key=lambda r: r['count'], reverse=True)
+    return rows[:limit]
+
+
 # v3.14.0 #35: secrets-on-disk scanner. READ-ONLY + REDACTING by construction —
 # it never transmits a secret's value, only the rule, the file:line location, a
 # masked preview, and a sha256 fingerprint (so the server can dedupe/mute a
@@ -7830,6 +7882,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     log.debug(f'agent checks error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
+            # W3-8: sample outbound peer connections every ~15 polls so the
+            # server can suggest dependency edges. Cheap, private-IPs only.
+            if poll_count == 2 or poll_count % 15 == 0:
+                try:
+                    _peers = collect_peer_connections(50)
+                    if _peers:
+                        payload['peer_conns'] = _peers
+                except Exception as e:
+                    log.debug(f'peer conns error: {e}')
             # W3-40: newly-seen sudo invocations (privileged-command audit trail).
             try:
                 _sudo = collect_sudo_events(100)

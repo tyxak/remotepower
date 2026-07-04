@@ -5611,6 +5611,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <svg id="netmap-svg" width="100%" height="600" class="isl-176"></svg>
         </div>
 
+        <!-- W3-8: dependency auto-suggestions from observed traffic -->
+        <div class="dash-card mt-16">
+          <div class="section-header"><div class="section-title">Suggested dependencies</div><button class="btn-icon" data-action="loadDepSuggestions"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><use href="#ic-ce8e1447"/></svg> Refresh</button></div>
+          <p class="hint">Edges inferred from actual outbound connections between your devices (private IPs only). Accept adds a real <code>depends_on</code> link (used for downstream alert suppression); dismiss hides it.</p>
+          <div id="dep-suggestions"><div class="c-muted">Click Refresh.</div></div>
+        </div>
+
         <!-- v3.4.0: LAN discovery — unmanaged hosts agents found on their subnet -->
         <div class="section-header mt-16">
           <div class="section-title">Unmanaged hosts on the LAN</div>
