@@ -1,0 +1,145 @@
+"""Wave-4 improvement-program guardrails (monitors & metrics depth)."""
+import http.server
+import os
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+
+os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
+
+import importlib.util
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+_CGI_BIN = ROOT / "server" / "cgi-bin"
+sys.path.insert(0, str(_CGI_BIN))
+
+_spec = importlib.util.spec_from_file_location("api_w4", _CGI_BIN / "api.py")
+api = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(api)
+
+
+class _HandlerBase(unittest.TestCase):
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._files = {}
+        for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        self.cap = {}
+        self._orig = {n: getattr(api, n) for n in
+                      ('require_auth', 'require_admin_auth', 'verify_token',
+                       'get_token_from_request', 'audit_log', 'fire_webhook',
+                       'respond', 'method', 'get_json_body')}
+        api.require_auth = lambda require_admin=False: 'jakob'
+        api.require_admin_auth = lambda: 'jakob'
+        api.verify_token = lambda t: ('jakob', 'admin')
+        api.get_token_from_request = lambda: 't'
+        api.audit_log = lambda *a, **k: None
+        api.fire_webhook = lambda *a, **k: None
+
+        def _resp(s, b=None):
+            self.cap['s'] = s
+            self.cap['b'] = b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(api, n, v)
+        for attr, v in self._files.items():
+            setattr(api, attr, v)
+
+    def call(self, fn, *a):
+        try:
+            fn(*a)
+        except api.HTTPError:
+            pass
+        return self.cap.get('b')
+
+
+class TestHttpFlowMonitor(_HandlerBase):
+    """W4-13: multi-step HTTP flow monitor."""
+
+    def _serve(self):
+        state = {}
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def _send(self, code, body=b'', extra=None):
+                self.send_response(code)
+                self.send_header('Content-Length', str(len(body)))
+                for k, v in (extra or {}).items():
+                    self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                # "login" sets a cookie + returns a token in the body
+                self._send(200, b'session token=abc123 ok',
+                           {'Set-Cookie': 'sid=xyz', 'Content-Type': 'text/plain'})
+
+            def do_GET(self):
+                # "dashboard" requires the cookie
+                if 'sid=xyz' in (self.headers.get('Cookie') or ''):
+                    self._send(200, b'Welcome back')
+                else:
+                    self._send(403, b'no session')
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(('127.0.0.1', 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        return f'http://127.0.0.1:{srv.server_port}'
+
+    def _run(self, steps):
+        api.save(api.CONFIG_FILE, {'allow_internal_monitors': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        return api._run_http_flow({'steps': steps})
+
+    def test_flow_with_cookie_and_extract(self):
+        base = self._serve()
+        ok, detail = self._run([
+            {'method': 'POST', 'url': base + '/login', 'expect_status': 200,
+             'extract': {'name': 'tok', 'regex': r'token=([a-z0-9]+)'}},
+            {'method': 'GET', 'url': base + '/dash?t=${tok}',
+             'expect_contains': 'Welcome'}])
+        self.assertTrue(ok, detail)
+        self.assertIn('2 steps ok', detail)
+
+    def test_flow_fails_on_wrong_status(self):
+        base = self._serve()
+        ok, detail = self._run([
+            {'method': 'GET', 'url': base + '/dash'}])   # no cookie → 403
+        self.assertFalse(ok)
+        self.assertIn('403', detail)
+
+    def test_flow_fails_on_missing_content(self):
+        base = self._serve()
+        ok, detail = self._run([
+            {'method': 'POST', 'url': base + '/login',
+             'expect_contains': 'NOT PRESENT'}])
+        self.assertFalse(ok)
+        self.assertIn('not found', detail)
+
+    def test_no_steps(self):
+        ok, detail = api._run_http_flow({'steps': []})
+        self.assertFalse(ok)
+
+    def test_config_save_validates_steps(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'monitors': [
+            {'type': 'http_flow', 'label': 'login flow', 'steps': [
+                {'method': 'GET', 'url': 'https://app.test/x', 'expect_status': 200}]}]}
+        try:
+            api.handle_config_save()
+        except api.HTTPError:
+            pass
+        mons = (api.load(api.CONFIG_FILE) or {}).get('monitors')
+        self.assertEqual(mons[0]['type'], 'http_flow')
+        self.assertEqual(len(mons[0]['steps']), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

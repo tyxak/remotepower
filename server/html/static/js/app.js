@@ -2440,6 +2440,7 @@ function _monClearFields() {
   set('mon-failures-before-alert', '1');
   set('mon-body-mode', ''); set('mon-body-value', '');
   set('mon-json-path', ''); set('mon-json-value', '');
+  set('mon-flow-steps', '');   // W4-13
 }
 function openMonitorAdd() {
   _monitorEditIdx = -1;
@@ -2472,6 +2473,7 @@ function editMonitor(idx) {
   set('mon-body-value', (m.body_match && m.body_match.value) || '');
   set('mon-json-path', (m.expect_json && m.expect_json.path) || '');
   set('mon-json-value', (m.expect_json && m.expect_json.value) || '');
+  set('mon-flow-steps', Array.isArray(m.steps) ? m.steps.map(s => JSON.stringify(s)).join('\n') : '');  // W4-13
   monTypeChanged();
   openModal('monitor-add-modal');
 }
@@ -2490,6 +2492,9 @@ function monTypeChanged() {
   show('mon-loss-grp', type === 'icmp');
   show('mon-body-grp', type === 'http');
   show('mon-json-grp', type === 'http');
+  show('mon-flow-grp', type === 'http_flow');   // W4-13
+  // the plain target field is meaningless for a multi-step flow
+  document.getElementById('mon-target')?.closest('.form-group')?.classList.toggle('hidden', type === 'http_flow');
 }
 // W2-45: import monitors from a Nagios / Uptime Kuma / Zabbix export.
 async function _importMonitors(apply) {
@@ -2517,10 +2522,34 @@ async function _importMonitors(apply) {
 }
 function previewImportMonitors() { _importMonitors(false); }
 function applyImportMonitors() { _importMonitors(true); }
+// W4-13: parse the flow-steps textarea (one JSON object per line) + save.
+async function _addHttpFlowMonitor(label) {
+  const raw = (document.getElementById('mon-flow-steps')?.value || '').trim();
+  const steps = [];
+  for (const line of raw.split('\n')) {
+    const s = line.trim();
+    if (!s) continue;
+    try { steps.push(JSON.parse(s)); }
+    catch (e) { toast('Invalid JSON step: ' + s.slice(0, 40), 'error'); return; }
+  }
+  if (!steps.length) { toast('Add at least one flow step', 'error'); return; }
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const monitors = [...(cfg.monitors || [])];
+  const entry = { label: label || (steps[0].url || 'flow'), type: 'http_flow', steps };
+  if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) monitors[_monitorEditIdx] = entry;
+  else monitors.push(entry);
+  const wasEdit = _monitorEditIdx >= 0;
+  const res = await api('POST', '/config', { monitors });
+  if (res?.ok) { toast(wasEdit ? 'Flow updated' : 'Flow added', 'success'); _monitorEditIdx = -1; closeModal('monitor-add-modal'); runMonitor(); }
+  else toast(res?.error || 'Failed', 'error');
+}
 async function addMonitor() {
   const label  = document.getElementById('mon-label').value.trim();
   const type   = document.getElementById('mon-type').value;
   const target = document.getElementById('mon-target').value.trim();
+  // W4-13: http_flow builds from steps, not a single target.
+  if (type === 'http_flow') { return _addHttpFlowMonitor(label); }
   if (!target) { toast('Target is required', 'error'); return; }
   const tagOk = (type === 'ping' || type === 'icmp' || type === 'tcp');
   const kind  = tagOk ? (document.getElementById('mon-kind')?.value || 'host') : 'host';

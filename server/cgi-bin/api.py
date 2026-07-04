@@ -8291,7 +8291,7 @@ class _SSRFGuardHTTPSConnection(_httpclient.HTTPSConnection):
 
 
 def _ssrf_safe_opener(allow_loopback=True, ssl_ctx=None, no_redirect=False,
-                      enforce_ip=True):
+                      enforce_ip=True, cookiejar=None):
     """Build a urllib opener whose HTTP(S) connections re-validate the peer
     IP at connect time (anti-rebinding). Pass no_redirect=True to also refuse
     3xx redirects (a redirect to a blocked address would otherwise bypass the
@@ -8321,6 +8321,8 @@ def _ssrf_safe_opener(allow_loopback=True, ssl_ctx=None, no_redirect=False,
     handlers = [_HTTPHandler(), _HTTPSHandler()]
     if no_redirect:
         handlers.append(_NoRedirect())
+    if cookiejar is not None:   # W4-13: multi-step flows share a cookie jar
+        handlers.append(urllib.request.HTTPCookieProcessor(cookiejar))
     return urllib.request.build_opener(*handlers)
 
 
@@ -16868,8 +16870,80 @@ def _run_one_monitor_check(mtype, target, label, m):
             detail = str(e.code)
         except Exception:
             detail = 'error'
+    elif mtype == 'http_flow':
+        # W4-13: multi-step HTTP transaction — run ordered steps sharing one
+        # cookie jar; a step can `extract` a regex capture into a variable for
+        # later steps' url/body. DOWN on the first failing step.
+        ok, detail = _run_http_flow(m)
     return {'label': label, 'type': mtype, 'target': target,
             'ok': ok, 'detail': detail, 'checked': int(time.time())}
+
+
+def _run_http_flow(m):
+    """W4-13 core: execute an http_flow monitor's steps. Returns (ok, detail).
+    Each step: {method, url, body?, expect_status?, expect_contains?,
+    extract?:{name, regex}}. Cookies persist across steps; ${var} in url/body is
+    substituted from earlier extracts. Every step is SSRF-guarded + no-redirect."""
+    import http.cookiejar as _cj
+    steps = m.get('steps') or []
+    if not steps:
+        return False, 'no steps configured'
+    ctx = _get_ssl_context()
+    allow_internal = bool(_config_ro().get('allow_internal_monitors', False))
+    jar = _cj.CookieJar()
+    opener = _ssrf_safe_opener(allow_loopback=allow_internal, ssl_ctx=ctx,
+                               no_redirect=True, cookiejar=jar)
+    variables = {}
+    total_lat = 0
+
+    def _subst(s):
+        for k, v in variables.items():
+            s = s.replace('${' + k + '}', str(v))
+        return s
+
+    for i, step in enumerate(steps[:5], 1):
+        if not isinstance(step, dict):
+            continue
+        url = _subst(str(step.get('url') or ''))
+        if not url.startswith(('http://', 'https://')):
+            return False, f'step {i}: invalid url'
+        method = str(step.get('method') or 'GET').upper()
+        data = None
+        if step.get('body'):
+            data = _subst(str(step['body'])).encode('utf-8', 'replace')
+        try:
+            req = urllib.request.Request(url, data=data, method=method)
+            if data is not None and not any(h.lower() == 'content-type'
+                                            for h in req.headers):
+                req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+            t0 = time.monotonic()
+            with opener.open(req, timeout=8) as resp:
+                total_lat += int((time.monotonic() - t0) * 1000)
+                status = resp.status
+                body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
+        except urllib.error.HTTPError as e:
+            status = e.code
+            body_txt = ''
+        except Exception as e:
+            return False, f'step {i}: {type(e).__name__}'
+        want = step.get('expect_status')
+        if isinstance(want, int):
+            if status != want:
+                return False, f'step {i}: {status} (expected {want})'
+        elif status >= 400:
+            return False, f'step {i}: {status}'
+        needle = step.get('expect_contains')
+        if needle and str(needle) not in body_txt:
+            return False, f'step {i}: "{str(needle)[:30]}" not found'
+        ex = step.get('extract')
+        if isinstance(ex, dict) and ex.get('name') and ex.get('regex'):
+            try:
+                mo = re.search(str(ex['regex']), body_txt)
+                if mo:
+                    variables[str(ex['name'])] = mo.group(mo.lastindex or 0)
+            except re.error:
+                pass
+    return True, f'{len(steps)} steps ok · {total_lat}ms'
 
 
 # v5.6.x: tag/group monitors fan out to one history entry per matched device,
@@ -18776,7 +18850,46 @@ def handle_config_save():
             if not isinstance(m, dict):
                 continue
             mtype = m.get('type', '')
-            if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp', 'db'):  # v4.1.0: + dns/icmp/db
+            if mtype not in ('ping', 'tcp', 'http', 'dns', 'icmp', 'db',
+                             'http_flow', 'path', 'mailflow'):   # W4-13/15/16
+                continue
+            # W4-13: http_flow carries `steps`, not a single target. Validate the
+            # steps and use the first step's URL as the display target.
+            if mtype == 'http_flow':
+                raw_steps = m.get('steps') if isinstance(m.get('steps'), list) else []
+                steps = []
+                for s in raw_steps[:5]:
+                    if not isinstance(s, dict):
+                        continue
+                    url = str(s.get('url') or '').strip()
+                    if not url.startswith(('http://', 'https://')):
+                        continue
+                    st = {'url': url[:512],
+                          'method': str(s.get('method') or 'GET').upper()[:8]}
+                    if s.get('body'):
+                        st['body'] = _sanitize_str(str(s['body']), 4000)
+                    try:
+                        if s.get('expect_status') is not None:
+                            st['expect_status'] = int(s['expect_status'])
+                    except (TypeError, ValueError):
+                        pass
+                    if s.get('expect_contains'):
+                        st['expect_contains'] = _sanitize_str(str(s['expect_contains']), 200)
+                    ex = s.get('extract')
+                    if isinstance(ex, dict) and ex.get('name') and ex.get('regex'):
+                        try:
+                            re.compile(str(ex['regex']))
+                            st['extract'] = {'name': re.sub(r'[^A-Za-z0-9_]', '', str(ex['name']))[:32],
+                                             'regex': str(ex['regex'])[:200]}
+                        except re.error:
+                            respond(400, {'error': 'invalid extract regex in http_flow'})
+                    steps.append(st)
+                if not steps:
+                    respond(400, {'error': 'http_flow needs at least one valid step (url)'})
+                validated.append({
+                    'label': _sanitize_str(m.get('label', steps[0]['url']), 128),
+                    'type': 'http_flow', 'target': steps[0]['url'][:255],
+                    'target_kind': 'host', 'steps': steps})
                 continue
             raw_target = str(m.get('target', ''))
             # v4.1.0: tag/group targeting — target is a tag/group NAME (expanded
