@@ -44,7 +44,7 @@ from storage import (
     json_inventory, read_marker, write_marker, _read_json, _write_json_atomic, _norm,
 )
 
-SCHEMA_VERSION = 5  # v5.8.0: fleet_events cold-blob -> wrapped-list rows;
+SCHEMA_VERSION = 6  # v5.8.0: audit_log cold-blob -> wrapped-list rows;
 #                      v5.6.0: posture_state/port_baseline/av_status/ssh_key_baseline -> entity
 # NB: this is Postgres's OWN schema counter (starts at 1); the SQLite backend
 # (storage.SCHEMA_VERSION) counts separately. What matters is that BOTH split the
@@ -473,6 +473,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity_pg(conn, storage._COLD_TO_ENTITY_V5)
     if _dbv is None or _dbv < 5:
         _migrate_cold_to_wrapped_pg(conn, storage._COLD_TO_WRAPPED_V6)   # v5.8.0
+    if _dbv is None or _dbv < 6:
+        _migrate_cold_to_wrapped_pg(conn, storage._COLD_TO_WRAPPED_V7)   # v5.8.0
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', %s) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -1162,11 +1164,24 @@ def entity_set(path, key, value):
 
 
 def list_append(path, entry, cap=None):
+    return list_append_chained(path, lambda _prev: entry, cap=cap)
+
+
+def list_append_chained(path, build_entry, cap=None):
+    """Postgres twin of storage.list_append_chained: build the entry from the
+    current tail atomically (tail read + insert in one transaction) so a
+    hash-chained log stays consistent under concurrent writers. `build_entry`
+    is pure (runs inside the row lock)."""
     conn = _connect(_dir(path))
     name = _name(path)
     overflow = []
     with _Tx(conn) as c:
         _acquire(c, name, False)
+        last = c.execute(
+            'SELECT doc FROM listrow WHERE file=%s ORDER BY id DESC LIMIT 1',
+            (name,)).fetchone()
+        prev = json.loads(last['doc']) if last else None
+        entry = build_entry(prev)
         c.execute('INSERT INTO listrow(file, doc) VALUES(%s,%s)', (name, _dumps(entry)))
         if cap is not None:
             n = c.execute('SELECT COUNT(*) AS ct FROM listrow WHERE file=%s',

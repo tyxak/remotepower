@@ -49,7 +49,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 6  # v5.8.0: fleet_events.json cold-blob -> wrapped-list rows
+SCHEMA_VERSION = 7  # v5.8.0: audit_log.json cold-blob -> wrapped-list rows (chained)
 
 
 def configure(data_dir):
@@ -137,6 +137,8 @@ WRAPPED_LIST_FILES = {
     'slow_handlers.json': 'entries',
     # v5.8.0: fleet event log — capped ring, appended on every event.
     'fleet_events.json': 'events',
+    # v5.8.0: audit log — hash-chained ring, appended via list_append_chained.
+    'audit_log.json': 'entries',
 }
 
 DEVICES_FILE_NAME = 'devices.json'
@@ -378,6 +380,8 @@ def _ensure_schema(conn):
         _migrate_cold_to_entity(conn, _COLD_TO_ENTITY_V5)
     if db_ver is None or db_ver < 6:
         _migrate_cold_to_wrapped(conn, _COLD_TO_WRAPPED_V6)   # v5.8.0
+    if db_ver is None or db_ver < 7:
+        _migrate_cold_to_wrapped(conn, _COLD_TO_WRAPPED_V7)   # v5.8.0
     conn.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -385,6 +389,7 @@ def _ensure_schema(conn):
 
 
 _COLD_TO_WRAPPED_V6 = ('fleet_events.json',)   # v5.8.0
+_COLD_TO_WRAPPED_V7 = ('audit_log.json',)      # v5.8.0
 
 
 def _migrate_cold_to_wrapped(conn, files):
@@ -930,10 +935,26 @@ def list_append(path, entry, cap=None):
     """Append one element to a wrapped-list file and optionally prune to the
     newest `cap` elements — O(1)/O(overflow), not O(list). Returns the list of
     evicted (overflow) elements so the caller can archive them."""
+    return list_append_chained(path, lambda _prev: entry, cap=cap)
+
+
+def list_append_chained(path, build_entry, cap=None):
+    """Like list_append, but the entry is BUILT from the current tail, atomically:
+    ``build_entry(prev)`` receives the newest existing element (or None) and
+    returns the element to insert. This keeps a hash-chained log (each entry
+    references its predecessor's hash) consistent even under concurrent writers,
+    because the tail read + insert happen in one BEGIN IMMEDIATE transaction.
+    ``build_entry`` must be pure (no DB access) — it runs inside the write lock.
+    O(1) + O(overflow). Returns the evicted overflow elements."""
     conn = _connect(_dir(path))
     name = _name(path)
     overflow = []
     with _Tx(conn, immediate=True):
+        last = conn.execute(
+            'SELECT doc FROM listrow WHERE file=? ORDER BY id DESC LIMIT 1',
+            (name,)).fetchone()
+        prev = json.loads(last['doc']) if last else None
+        entry = build_entry(prev)
         conn.execute('INSERT INTO listrow(file, doc) VALUES(?,?)',
                     (name, _dumps(entry)))
         if cap is not None:

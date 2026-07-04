@@ -148,6 +148,83 @@ class TestImport(unittest.TestCase):
         self.assertEqual(len((api.load(api.RULES_FILE) or {}).get('rules')), 2)
 
 
+class TestDiffDetail(unittest.TestCase):
+    """v5.8.0: the dry-run diff names which ids move and which fields change."""
+    def test_list_diff_names_ids_and_fields(self):
+        cur = [{'id': 'm1', 'target': 'a'}, {'id': 'm2', 'target': 'b'}]
+        inc = [{'id': 'm1', 'target': 'A'}, {'id': 'm3', 'target': 'c'}]
+        d = api._declarative_diff(cur, inc, 'id')
+        self.assertEqual((d['added'], d['changed'], d['removed']), (1, 1, 1))
+        self.assertEqual(d['detail']['added'], ['m3'])
+        self.assertEqual(d['detail']['removed'], ['m2'])
+        self.assertEqual(d['detail']['changed'], [{'id': 'm1', 'fields': ['target']}])
+
+    def test_dict_diff_names_keys(self):
+        cur = {'a': {'x': 1}, 'b': {'y': 2}}
+        inc = {'a': {'x': 9}, 'c': {'z': 3}}
+        d = api._declarative_diff(cur, inc, None)
+        self.assertEqual(d['detail']['added'], ['c'])
+        self.assertEqual(d['detail']['removed'], ['b'])
+        self.assertEqual(d['detail']['changed'], [{'id': 'a', 'fields': ['x']}])
+
+    def test_replace_note_when_no_stable_id(self):
+        d = api._declarative_diff([1, 2], [1, 2, 3], None)
+        self.assertTrue(d.get('replace'))
+        self.assertIn('note', d['detail'])
+
+    def test_no_change_has_empty_detail(self):
+        d = api._declarative_diff([{'id': 'm1'}], [{'id': 'm1'}], 'id')
+        self.assertEqual((d['added'], d['changed'], d['removed']), (0, 0, 0))
+        self.assertEqual(d['detail'], {'added': [], 'removed': [], 'changed': []})
+
+
+class TestWebhookEncryptedRoundTrip(unittest.TestCase):
+    """v5.8.0: with a config master key armed, webhook_destinations exports as an
+    enc:v… ciphertext (git-safe) and round-trips losslessly on import — the URL is
+    restored by the name-agnostic config-secret decrypt on the next load."""
+    def setUp(self):
+        self._had = os.environ.get('RP_CONFIG_KEY')
+        os.environ['RP_CONFIG_KEY'] = 'unit-test-master-key-8f2b1c9de4a6'
+        api._CFG_DK_CACHE.clear()
+        api.save(api.CONFIG_FILE, {'webhook_urls': [
+            {'label': 'slack', 'url': 'https://hooks.slack.com/services/T/B/XYZ'}]})
+
+    def tearDown(self):
+        if self._had is None:
+            os.environ.pop('RP_CONFIG_KEY', None)
+        else:
+            os.environ['RP_CONFIG_KEY'] = self._had
+        api._CFG_DK_CACHE.clear()
+
+    def test_export_encrypts_and_is_importable(self):
+        if not api.backup_crypto.available():
+            self.skipTest('cryptography lib not available')
+        r = api._build_declarative_config()['resources']
+        url = r['webhook_destinations'][0]['url']
+        self.assertTrue(url.startswith(('enc:v1:', 'enc:v2:')), url)
+        self.assertNotIn('slack.com', url)  # no plaintext host leaks
+        self.assertTrue(api._declarative_meta()['webhook_destinations'].get('importable'))
+
+    def test_import_restores_plaintext_url(self):
+        if not api.backup_crypto.available():
+            self.skipTest('cryptography lib not available')
+        import copy
+        doc = api._build_declarative_config()
+        api.save(api.CONFIG_FILE, {'webhook_urls': []})   # wipe, then re-import
+        res = api._declarative_apply(copy.deepcopy(doc), 'tester', dry_run=False)
+        self.assertNotIn('skipped', res['report']['webhook_destinations'])
+        cfg = api.load(api.CONFIG_FILE)   # inbound decrypt runs on load
+        self.assertEqual(cfg['webhook_urls'][0]['url'],
+                         'https://hooks.slack.com/services/T/B/XYZ')
+
+    def test_without_key_stays_lossy(self):
+        os.environ.pop('RP_CONFIG_KEY', None)
+        api._CFG_DK_CACHE.clear()
+        r = api._build_declarative_config()['resources']
+        self.assertEqual(r['webhook_destinations'][0]['url'], 'https://hooks.slack.com')
+        self.assertFalse(api._declarative_meta()['webhook_destinations'].get('importable'))
+
+
 class TestWiring(unittest.TestCase):
     def test_route_registered(self):
         routes = api._build_exact_routes()

@@ -78,10 +78,16 @@ All notable changes to RemotePower. Newest first.
 - **Config-as-code import.** `POST /api/config/declarative` reconciles a
   declarative document back into the live config — **dry-run by default**
   (returns a per-collection add/change/remove diff), applied only with
-  `?apply=1`. Redacted secrets are rehydrated from the current config by id, so
-  a round-trip doesn't wipe unchanged secrets; collections absent from the
-  document are left untouched; lossy collections (webhook destinations) are
-  skipped. Settings → Security has a picker that previews then applies.
+  `?apply=1`. The dry-run preview now shows **field-level detail** — exactly
+  which item ids are added/removed and, for each changed item, which fields
+  differ — not just the counts. Redacted secrets are rehydrated from the current
+  config by id, so a round-trip doesn't wipe unchanged secrets; collections
+  absent from the document are left untouched. **Webhook destinations now
+  round-trip losslessly when a config master key (`RP_CONFIG_KEY`) is armed** —
+  the URL is exported as an `enc:v2:` ciphertext (git-safe, no plaintext token)
+  and restored on import; without a key the URL is still redacted to host-only
+  and that collection stays import-skipped. Settings → Security has a picker that
+  previews then applies.
 - **Connector plugins.** Drop a `*.py` file into `server/cgi-bin/connectors.d/`
   to add your own homelab integration connector via the same `@_register`
   decorator the built-ins use — no source patch. Root-owned and filesystem-only
@@ -96,6 +102,15 @@ All notable changes to RemotePower. Newest first.
   event ring — a real saving on busy fleets where events fire constantly. A
   one-time migration decomposes the existing blob on upgrade (SQLite schema v6,
   Postgres v5). The JSON backend is unchanged.
+- **Audit log is faster on the SQLite/Postgres backends.** `audit_log.json` is
+  now a wrapped-list file too, appended with a single chained-insert primitive
+  (`list_append_chained`) that reads the tail hash and inserts the new
+  hash-chained entry in one transaction — O(1) instead of rewriting the whole
+  capped log every time an admin action is recorded, while keeping the
+  tamper-evident chain intact. Age-based pruning (default 90 days, configurable
+  via `audit_log_retention_days`) moved to the retention sweep, and pruned
+  entries are archived to a gzipped `audit_log_archive.jsonl.gz` rather than
+  discarded. One-time migration on upgrade (SQLite schema v7, Postgres v6).
 - **Fixed: log-alert / SSH-key Needs-Attention cards were silently missing.**
   The Needs-Attention builder read the fleet-event log as a bare list when it's
   actually stored `{events: […]}`, so it iterated the wrapper's keys and

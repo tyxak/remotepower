@@ -3936,6 +3936,10 @@ body.no-anim * { transition: none !important; }
 .meta-sm-nm { font-size: 11px; color: var(--muted); }
 .meta-amber { font-size: 11px; color: var(--amber); }
 .hint { font-size: 12px; color: var(--muted); }
+.decl-detail { font-size: 12px; color: var(--muted); margin-left: 16px; }
+.decl-detail .decl-add { color: var(--ok, #2ecc71); font-weight: 600; }
+.decl-detail .decl-rm { color: var(--danger, #e74c3c); font-weight: 600; }
+.decl-detail .decl-chg { color: var(--warn, #e0a800); font-weight: 600; }
 .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; }
 .empty-state { color: var(--muted); text-align: center; padding: 40px; }
 .empty-state-sm { color: var(--muted); text-align: center; padding: 24px; }

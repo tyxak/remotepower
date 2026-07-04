@@ -18829,6 +18829,25 @@ function exportDeclarativeConfig() {
 
 // v5.8.0 (B3.5 import): read the picked JSON, dry-run it, and show the diff with
 // an Apply button. Nothing is written until Apply is clicked.
+// v5.8.0: render the per-item detail the dry-run diff returns (which ids are
+// added/removed, and for each changed item which fields differ) as an indented
+// breakdown under the collection's summary line.
+function _declImportDetail(det) {
+  if (!det || typeof det !== 'object') return '';
+  if (det.note) return `<div class="hint decl-detail">${escHtml(det.note)}</div>`;
+  const bits = [];
+  const idList = (ids) => ids.map(escHtml).join(', ');
+  if (det.added && det.added.length)
+    bits.push(`<div class="decl-detail"><span class="decl-add">added</span> ${idList(det.added)}</div>`);
+  if (det.removed && det.removed.length)
+    bits.push(`<div class="decl-detail"><span class="decl-rm">removed</span> ${idList(det.removed)}</div>`);
+  (det.changed || []).forEach(c => {
+    const flds = (c.fields && c.fields.length) ? ` <span class="hint">(${c.fields.map(escHtml).join(', ')})</span>` : '';
+    bits.push(`<div class="decl-detail"><span class="decl-chg">changed</span> ${escHtml(String(c.id))}${flds}</div>`);
+  });
+  return bits.join('');
+}
+
 let _declarativeImportDoc = null;
 async function previewDeclarativeImport() {
   const el = document.getElementById('declarative-import-result');
@@ -18847,7 +18866,8 @@ async function previewDeclarativeImport() {
     if (d.changed) parts.push(`~${d.changed}`);
     if (d.removed) parts.push(`−${d.removed}`);
     if (d.replace) parts.push('replace');
-    return `<div>• <strong>${escHtml(name)}</strong>: ${parts.length ? parts.join(' ') : 'no change'}</div>`;
+    const head = `<div>• <strong>${escHtml(name)}</strong>: ${parts.length ? parts.join(' ') : 'no change'}</div>`;
+    return head + _declImportDetail(d.detail);
   }).join('');
   if (el) el.innerHTML = `<div class="mb-6">Preview (nothing applied yet):</div>${rows}`
     + `<div class="row-6 mt-8"><button class="btn-primary btn-xs" data-action="applyDeclarativeImport">Apply these changes</button></div>`;

@@ -225,11 +225,16 @@ class TestAuditRetention(_ApiTestBase):
             {'ts': old, 'actor': 'a', 'action': 'old', 'detail': '', 'source_ip': '', 'user_agent': ''},
             {'ts': now, 'actor': 'b', 'action': 'new', 'detail': '', 'source_ip': '', 'user_agent': ''},
         ]})
-        # Append one more — that triggers retention sweep on append
+        # v5.8.0: age-pruning moved OFF the append hot path (which is now an O(1)
+        # chained insert) and onto the retention sweep. Appending does NOT evict.
         self.api.audit_log('c', 'newer')
+        actions = [e['action'] for e in self.api.load(self.api.AUDIT_LOG_FILE).get('entries', [])]
+        self.assertIn('old', actions, 'append must not age-prune (that is the sweep\'s job now)')
+        # The retention sweep evicts + archives the aged-out entry.
+        self.api._purge_old_data(self.api.load(self.api.CONFIG_FILE) or {})
         al = self.api.load(self.api.AUDIT_LOG_FILE)
         actions = [e['action'] for e in al.get('entries', [])]
-        self.assertNotIn('old', actions, 'old entries should have been evicted')
+        self.assertNotIn('old', actions, 'old entries should have been evicted by the sweep')
         self.assertIn('new', actions)
         self.assertIn('newer', actions)
         # Archive file should exist now with the old entry

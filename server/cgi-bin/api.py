@@ -2125,6 +2125,9 @@ _RETENTION_LOGS = (
     ('fleet_events_retention_days',  'FLEET_EVENTS_FILE',        'events'),
     ('webhook_log_retention_days',   'WEBHOOK_LOG_FILE',         'entries'),
     ('webhook_log_retention_days',   'INBOUND_WEBHOOK_LOG_FILE', 'entries'),
+    # v5.8.0: audit age-pruning moved here from the per-append path (the append is
+    # O(1) now). Default 90d when unset — see _retention_cutoff's caller below.
+    ('audit_log_retention_days',     'AUDIT_LOG_FILE',           'entries'),
 )
 _RETENTION_KEYS = ('history_retention_days', 'fleet_events_retention_days',
                    'webhook_log_retention_days', 'monitor_history_retention_days',
@@ -2147,8 +2150,19 @@ def _purge_old_data(cfg=None):
     if cfg is None:
         cfg = load(CONFIG_FILE) or {}
     removed = {}
+    _audit_dropped = []   # v5.8.0: archived after the lock (compliance)
     for ckey, pathattr, wrapkey in _RETENTION_LOGS:
-        cutoff = _retention_cutoff(cfg, ckey)
+        _is_audit = (pathattr == 'AUDIT_LOG_FILE')
+        if _is_audit:
+            # v5.8.0: audit retention defaults to 90d when unset (preserves the
+            # pre-v5.8.0 inline behaviour now that age-pruning lives here).
+            try:
+                _ad = int(cfg.get(ckey) or 90)
+            except (TypeError, ValueError):
+                _ad = 90
+            cutoff = (int(time.time()) - _ad * 86400) if _ad > 0 else None
+        else:
+            cutoff = _retention_cutoff(cfg, ckey)
         if cutoff is None:
             continue
         path = globals()[pathattr]
@@ -2161,9 +2175,14 @@ def _purge_old_data(cfg=None):
                         or int(e.get('ts', 0) or 0) >= cutoff]
                 if len(kept) != len(items):
                     removed[path.name] = removed.get(path.name, 0) + (len(items) - len(kept))
+                    if _is_audit:
+                        _audit_dropped += [e for e in items if isinstance(e, dict)
+                                           and int(e.get('ts', 0) or 0) < cutoff]
                     store[wrapkey] = kept
         except Exception:
             pass
+    # Archive age-evicted audit entries AFTER the lock (gzip I/O out of the lock).
+    _archive_audit_entries(_audit_dropped)
     # resolved alerts older than retention (open/acked alerts are never purged).
     cutoff = _retention_cutoff(cfg, 'alerts_retention_days')
     if cutoff is not None:
@@ -5035,6 +5054,21 @@ def _export_sign(raw):
     return hmac.new(_export_signing_key(), raw, hashlib.sha256).hexdigest()
 
 
+def _archive_audit_entries(entries):
+    """Append evicted audit entries to the gzipped JSONL archive (compliance
+    dives into pruned records). Best-effort; a failure never breaks auditing."""
+    if not entries:
+        return
+    try:
+        import gzip
+        arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
+        with gzip.open(str(arch), 'at') as f:
+            for e in entries:
+                f.write(json.dumps(e) + '\n')
+    except Exception as _arch_err:
+        sys.stderr.write(f'[remotepower] audit archive write failed: {_arch_err}\n')
+
+
 def audit_log(actor, action, detail='', source_ip=None,
               ai_host=None, ai_prompt=None):
     """Log action with actor, IP, and detail for security auditing.
@@ -5082,39 +5116,42 @@ def audit_log(actor, action, detail='', source_ip=None,
     if ai_prompt is not None:
         entry['ai_prompt'] = _sanitize_str(ai_prompt, 2048)
     cfg = load(CONFIG_FILE) or {}
-    retention_days = int(cfg.get('audit_log_retention_days') or 90)
-    # v4.2.0 sweep: the whole read-hash-append-save must be one atomic unit.
-    # Two concurrent CGI requests doing unlocked load/save would both chain
-    # against the same prev_hash and the later save would silently drop the
-    # earlier entry — a lost audit record. NOTE: never call audit_log() while
-    # holding another _LockedUpdate (nested SQLite transactions abort).
-    with _LockedUpdate(AUDIT_LOG_FILE) as al:
-        entries = al.get('entries', [])
-        # v4.2.0 (A2): chain this entry to the previous one's hash for tamper-evidence.
-        try:
-            prev_hash = entries[-1].get('_hash', '') if entries else ''
-            entry['_hash'] = _audit_entry_hash(prev_hash, entry)
-        except Exception as _he:
-            sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
-        entries.append(entry)
-        # Age-bound: drop entries older than retention_days
-        if retention_days > 0:
-            cutoff = int(time.time()) - retention_days * 86400
-            archive_me = [e for e in entries if e.get('ts', 0) < cutoff]
-            entries = [e for e in entries if e.get('ts', 0) >= cutoff]
-            if archive_me:
-                try:
-                    import gzip
-                    arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
-                    with gzip.open(str(arch), 'at') as f:
-                        for e in archive_me:
-                            f.write(json.dumps(e) + '\n')
-                except Exception as _arch_err:
-                    sys.stderr.write(
-                        f'[remotepower] audit archive write failed: {_arch_err}\n')
-        # Count-bound (legacy safety net so a misconfigured retention_days=0
-        # doesn't let the file grow without limit)
-        al['entries'] = entries[-MAX_AUDIT_LOG:]
+    # v5.8.0: audit_log.json is a WRAPPED_LIST_FILE now, so the DB backend does an
+    # O(1) chained row insert (list_append_chained atomically reads the tail hash
+    # and inserts) instead of rewriting the whole capped log every audited action.
+    # Age-based retention moved to the periodic sweep (_purge_old_data) — the
+    # append path only enforces the count cap. The hash-chain read+append is one
+    # transaction, so concurrent writers can't fork the chain (the invariant the
+    # old whole-doc _LockedUpdate provided). NOTE: never call audit_log() while
+    # holding another _LockedUpdate (nested transactions abort) — self-deferred above.
+    overflow = []
+    _m = _dbmod()
+    if _m is not None:
+        def _build(prev):
+            try:
+                prev_hash = (prev or {}).get('_hash', '') if prev else ''
+                entry['_hash'] = _audit_entry_hash(prev_hash, entry)
+            except Exception as _he:
+                sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
+            return entry
+        overflow = _m.list_append_chained(AUDIT_LOG_FILE, _build, cap=MAX_AUDIT_LOG)
+        _invalidate_load_cache(AUDIT_LOG_FILE)
+    else:
+        with _LockedUpdate(AUDIT_LOG_FILE) as al:
+            entries = al.get('entries', [])
+            try:
+                prev_hash = entries[-1].get('_hash', '') if entries else ''
+                entry['_hash'] = _audit_entry_hash(prev_hash, entry)
+            except Exception as _he:
+                sys.stderr.write(f'[remotepower] audit hash-chain failed: {_he}\n')
+            entries.append(entry)
+            if len(entries) > MAX_AUDIT_LOG:
+                overflow = entries[:-MAX_AUDIT_LOG]
+            al['entries'] = entries[-MAX_AUDIT_LOG:]
+    # Archive count-evicted entries (was previously dropped silently on the count
+    # cap; only age-evicted were archived). Done AFTER the lock — the gzip append
+    # must not serialise concurrent audit writes behind it.
+    _archive_audit_entries(overflow)
     # v5.4.1 (WORM): also append the hash-chained entry to an append-only sink the
     # app NEVER rotates or prunes — the operator makes it immutable (chattr +a, or
     # a WORM / S3-Object-Lock-backed mount), giving a tamper-resistant audit copy
@@ -17024,12 +17061,17 @@ def _build_declarative_config():
         red = _copy.deepcopy(data)
         _redact_config_secrets_inplace(red)
         # A webhook/inbound URL embeds its token in the PATH, so the secret-NAME
-        # redactor misses it — collapse those URLs to host-only (same posture as
-        # the webhook-DLQ view) so the exported doc is truly git-safe.
+        # redactor misses it. When a config master key is armed, webhook_destinations
+        # (stored under CONFIG_FILE) is exported as an `enc:v2:` ciphertext so it
+        # round-trips losslessly AND stays git-safe (ciphertext, not plaintext);
+        # otherwise (and always for the own-file inbound_webhooks) collapse the URL
+        # to host-only, same posture as the webhook-DLQ view.
+        _armed = bool(_config_master_key())
         if name in ('webhook_destinations', 'inbound_webhooks') and isinstance(red, list):
+            enc_ok = _armed and name == 'webhook_destinations'
             for item in red:
                 if isinstance(item, dict) and item.get('url'):
-                    item['url'] = _redact_url_to_host(item['url'])
+                    item['url'] = _cfg_enc(item['url']) if enc_ok else _redact_url_to_host(item['url'])
         resources[name] = red
     return {
         'schema':         DECLARATIVE_SCHEMA,
@@ -17068,8 +17110,14 @@ def _declarative_meta():
         'dmarc_targets':         {'kind': 'file_raw', 'file': DMARC_TARGETS_FILE},
         'resolver_targets':      {'kind': 'file_raw', 'file': RESOLVER_HEALTH_TARGETS_FILE},
         'ip_reputation_targets': {'kind': 'file_raw', 'file': IP_REP_TARGETS_FILE},
-        # lossy exports — not importable (URL redacted to host / token stripped)
-        'webhook_destinations':  {'kind': 'cfg_list', 'key': 'webhook_urls', 'importable': False},
+        # webhook_destinations lives under CONFIG_FILE's `webhook_urls` key, so when
+        # a config master key is armed we can export the full URL as an `enc:v2:`
+        # ciphertext (name-agnostic config-secret decrypt restores it on load) →
+        # lossless round-trip. Without a key the URL is redacted to host-only and
+        # the import is lossy, so it stays non-importable. inbound_webhooks is its
+        # OWN file (no config-secret decrypt path) so it's always lossy.
+        'webhook_destinations':  {'kind': 'cfg_list', 'key': 'webhook_urls',
+                                  'importable': bool(_config_master_key())},
         'inbound_webhooks':      {'kind': 'file_raw', 'file': INBOUND_WEBHOOKS_FILE, 'importable': False},
     }
 
@@ -17107,24 +17155,44 @@ def _rehydrate_secrets(incoming, current, id_field):
     return incoming
 
 
+def _changed_fields(a, b):
+    """Field names that differ between two dicts (added/removed/changed keys)."""
+    if not (isinstance(a, dict) and isinstance(b, dict)):
+        return []
+    return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+
+
 def _declarative_diff(current, incoming, id_field):
-    """A coarse (added, changed, removed) count between two collections."""
+    """(added, changed, removed) counts PLUS per-item detail between two
+    collections. `detail` names the added/removed ids and, for each changed
+    item, which fields differ — so the import preview shows exactly what an
+    apply would do, not just how many rows move."""
     if isinstance(current, dict) and isinstance(incoming, dict) and not id_field:
         # file_raw / cfg_dict: compare by top-level key
         cur_k, inc_k = set(current), set(incoming)
-        changed = sum(1 for k in cur_k & inc_k if current.get(k) != incoming.get(k))
-        return {'added': len(inc_k - cur_k), 'changed': changed,
-                'removed': len(cur_k - inc_k)}
+        chg = [{'id': k, 'fields': _changed_fields(current.get(k), incoming.get(k))}
+               for k in sorted(cur_k & inc_k) if current.get(k) != incoming.get(k)]
+        return {'added': len(inc_k - cur_k), 'changed': len(chg),
+                'removed': len(cur_k - inc_k),
+                'detail': {'added': sorted(inc_k - cur_k),
+                           'removed': sorted(cur_k - inc_k), 'changed': chg}}
     if isinstance(current, list) and isinstance(incoming, list) and id_field:
         cur = {c.get(id_field): c for c in current if isinstance(c, dict)}
         inc = {i.get(id_field): i for i in incoming if isinstance(i, dict)}
-        changed = sum(1 for k in set(cur) & set(inc) if cur[k] != inc[k])
-        return {'added': len(set(inc) - set(cur)), 'changed': changed,
-                'removed': len(set(cur) - set(inc))}
+        chg = [{'id': k, 'fields': _changed_fields(cur[k], inc[k])}
+               for k in sorted(set(cur) & set(inc), key=lambda x: str(x))
+               if cur[k] != inc[k]]
+        return {'added': len(set(inc) - set(cur)), 'changed': len(chg),
+                'removed': len(set(cur) - set(inc)),
+                'detail': {'added': sorted(set(inc) - set(cur), key=lambda x: str(x)),
+                           'removed': sorted(set(cur) - set(inc), key=lambda x: str(x)),
+                           'changed': chg}}
     # id-less list or shape mismatch: whole-collection replace
     same = current == incoming
     return {'added': 0 if same else len(incoming) if isinstance(incoming, list) else 1,
-            'changed': 0, 'removed': 0, 'replace': not same}
+            'changed': 0, 'removed': 0, 'replace': not same,
+            'detail': {'note': 'whole-collection replace (no stable id to diff by)'}
+                       if not same else {}}
 
 
 def _declarative_apply(doc, actor, dry_run=True):
