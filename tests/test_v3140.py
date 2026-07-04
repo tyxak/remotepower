@@ -981,7 +981,7 @@ class TestI18nWiring(unittest.TestCase):
     JS = client_js()
 
     def test_supported_langs(self):
-        self.assertEqual(api.SUPPORTED_LANGS, ('en', 'zh', 'hi', 'es', 'ar', 'de'))
+        self.assertEqual(api.SUPPORTED_LANGS, ('en', 'zh', 'hi', 'es', 'ar', 'de', 'fr'))
 
     def test_i18n_loads_before_app(self):
         i = self.HTML.index('static/js/i18n.js')
