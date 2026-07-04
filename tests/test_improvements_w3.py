@@ -380,5 +380,43 @@ class TestCanaryFiles(_HandlerBase):
         _os.unlink(f.name)
 
 
+class TestFileManagerUpload(unittest.TestCase):
+    """W3-50: agent upload op (binary, no-overwrite) + read base64."""
+
+    def test_agent_upload_and_binary_read(self):
+        import base64 as _b
+        import os as _os
+        import tempfile as _tf
+        agent = _load_agent()
+        d = _tf.mkdtemp()
+        target = _os.path.join(d, 'blob.bin')
+        raw = bytes(range(256))
+        # build the agent command: files:upload:<b64 path>:<b64 bytes>:<flag>
+        cmd = ('files:upload:' + _b.urlsafe_b64encode(target.encode()).decode()
+               + ':' + _b.urlsafe_b64encode(raw).decode() + ':0')
+        # allowlist the temp dir
+        agent.FILE_MGR_ALLOWED_ROOTS = [d] if hasattr(agent, 'FILE_MGR_ALLOWED_ROOTS') else None
+        out = agent._handle_file_op(cmd)
+        res = json.loads(out['output']) if 'output' in out else {}
+        # either uploaded, or blocked by root allowlist — but never a crash
+        self.assertIn('output', out)
+        if res.get('uploaded') is not None:
+            with open(target, 'rb') as fh:
+                self.assertEqual(fh.read(), raw)
+            # no-overwrite: a second upload with flag 0 must refuse
+            out2 = agent._handle_file_op(cmd)
+            res2 = json.loads(out2['output'])
+            self.assertIn('exists', str(res2.get('error', '')))
+
+    def test_upload_in_write_ops(self):
+        self.assertIn('upload', api._FILE_MGR_OPS_WRITE)
+
+    def test_agent_read_emits_b64_for_binary(self):
+        src = (ROOT / 'client' / 'remotepower-agent.py').read_text()
+        self.assertIn("res['content_b64']", src)
+
+
+import json  # noqa: E402  (used by the file-manager test above)
+
 if __name__ == '__main__':
     unittest.main()

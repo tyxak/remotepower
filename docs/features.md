@@ -181,7 +181,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 |---|---|
 | Web terminal | Real xterm.js SSH in the browser via a hardened daemon; asciinema v2 recordings (output-only default, opt-in keystroke) *(v1.11.11)* |
 | Graphical remote desktop | noVNC over the web-terminal daemon's SSH tunnel to loopback VNC; never network-exposed; Linux only *(v3.5.0)* |
-| Remote file manager | Browse/view/edit files through the agent — no SSH/SFTP; allowlisted roots, exec-gated, audited; reads survive quarantine; opt-in per server *(v3.6.0)* |
+| Remote file manager | Browse/view/edit files through the agent — no SSH/SFTP; allowlisted roots, exec-gated, audited; reads survive quarantine; opt-in per server *(v3.6.0)*; **binary-safe download + upload** (base64, ≤8 MB, no-overwrite unless forced) *(v5.8.0)* |
 | Host user/key/firewall mgmt | Add/lock/unlock/delete users, add/revoke SSH keys, allow/deny ufw/firewalld ports from the drawer; exec-gated *(v3.6.0)* |
 | SSH links | Per-credential `ssh://user@host:port` + copy button; default SSH username *(v2.4.2)* |
 

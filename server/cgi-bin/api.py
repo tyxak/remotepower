@@ -11645,8 +11645,9 @@ _FILE_MGR_DEFAULT_ROOTS = ('/etc', '/var/log', '/var/lib', '/home', '/opt',
                            '/srv', '/tmp', '/usr/local')  # nosec B108 - allowlisted browse ROOT, not a temp-file path
 _FILE_MGR_DENY = ('/proc', '/sys', '/dev')   # never browsable, even if configured
 _FILE_MGR_MAX_WRITE = 512 * 1024
+_FILE_MGR_MAX_UPLOAD = 8 * 1024 * 1024      # W3-50: binary upload cap (raw bytes)
 _FILE_MGR_OPS_READ  = ('list', 'read')
-_FILE_MGR_OPS_WRITE = ('write', 'mkdir', 'delete')
+_FILE_MGR_OPS_WRITE = ('write', 'mkdir', 'delete', 'upload')   # W3-50: + upload
 
 
 def _file_mgr_cfg():
@@ -11704,8 +11705,9 @@ def handle_device_files(dev_id):
         op = str(body.get('op', '')).strip().lower()
         path = str(body.get('path', '')).strip()
         content = body.get('content')
+        _fm_overwrite = bool(body.get('overwrite'))   # W3-50: upload overwrite flag
         if op not in _FILE_MGR_OPS_WRITE:
-            respond(400, {'error': "POST op must be 'write', 'mkdir' or 'delete'"})
+            respond(400, {'error': "POST op must be 'write', 'mkdir', 'delete' or 'upload'"})
     else:
         respond(405, {'error': 'Method not allowed'})
     if not _valid_abs_path(path):
@@ -11726,6 +11728,18 @@ def handle_device_files(dev_id):
         if len(c.encode('utf-8', 'replace')) > _FILE_MGR_MAX_WRITE:
             respond(413, {'error': f'content exceeds {_FILE_MGR_MAX_WRITE} bytes'})
         parts.append(_base64.urlsafe_b64encode(c.encode('utf-8', 'replace')).decode())
+    elif op == 'upload':
+        # W3-50: content is base64 of the raw bytes (from the client's file
+        # picker). Re-encode to the agent's url-safe alphabet after decoding +
+        # size-checking; no-overwrite unless the caller sets overwrite=true.
+        try:
+            raw = _base64.b64decode(str(content or ''), validate=False)
+        except Exception:
+            respond(400, {'error': 'content must be base64'})
+        if len(raw) > _FILE_MGR_MAX_UPLOAD:
+            respond(413, {'error': f'upload exceeds {_FILE_MGR_MAX_UPLOAD} bytes'})
+        parts.append(_base64.urlsafe_b64encode(raw).decode())
+        parts.append('1' if _fm_overwrite else '0')
     command = ':'.join(parts)
     audit_log(actor, 'file_manager', detail=f'device={dev_id} op={op} path={path}'[:200])
     lp = load(LONGPOLL_FILE)

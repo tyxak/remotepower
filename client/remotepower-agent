@@ -6258,6 +6258,10 @@ def _handle_file_op(cmd):
                 text, binary = '', True
             res = {'path': logical, 'binary': binary, 'truncated': truncated,
                    'size': _rsize, 'content': text}
+            # W3-50: base64 the bytes for binary files so they can be downloaded
+            # intact (text files keep the plain `content` for the editor).
+            if binary:
+                res['content_b64'] = _b64.b64encode(data).decode('ascii')
         elif op == 'write':
             content = (_b64.urlsafe_b64decode(bits[3]).decode('utf-8', 'replace')
                        if len(bits) > 3 else '')
@@ -6279,6 +6283,23 @@ def _handle_file_op(cmd):
                 os.close(_fd)
             os.replace(str(tmp), real)      # atomic same-dir replace
             res = {'path': logical, 'written': len(content)}
+        elif op == 'upload':
+            # W3-50: binary-safe upload. bits[3]=base64 bytes, bits[4]='1' to
+            # allow overwrite. Same realpath-verified target + tmp-then-rename
+            # atomicity as write; O_EXCL on the final target when not overwriting.
+            raw = _b64.urlsafe_b64decode(bits[3]) if len(bits) > 3 else b''
+            allow_overwrite = len(bits) > 4 and bits[4] == '1'
+            if not allow_overwrite and os.path.exists(real):
+                rc, res = 1, {'error': 'file exists (overwrite not permitted)'}
+            else:
+                tmp = real_fs.with_name(real_fs.name + '.rp-tmp')
+                _fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+                try:
+                    os.write(_fd, raw)
+                finally:
+                    os.close(_fd)
+                os.replace(str(tmp), real)
+                res = {'path': logical, 'uploaded': len(raw)}
         elif op == 'mkdir':
             # v5.8.0 (SECURITY): create the realpath-verified target so the parent
             # is the allowlist-checked resolved dir, not a swappable symlink chain.

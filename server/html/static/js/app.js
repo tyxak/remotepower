@@ -7836,7 +7836,8 @@ function _renderFm() {
     const child = base + r.name;
     const act = isDir
       ? `<button class="btn-icon" data-action="fmListPath" data-arg="${escAttr(child)}">Open</button>`
-      : `<button class="btn-icon" data-action="fmOpen" data-arg="${escAttr(child)}">View / edit</button>`;
+      : `<button class="btn-icon" data-action="fmOpen" data-arg="${escAttr(child)}">View / edit</button> `
+        + `<button class="btn-icon" data-action="fmDownload" data-arg="${escAttr(child)}" data-arg2="${escAttr(r.name)}">Download</button>`;
     return `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.type)}</td><td>${isDir ? '' : _fmtBytes(r.size || 0)}</td><td>${escHtml(_fmtTs(r.mtime))}</td><td><span class="hint">${escHtml(r.mode || '')}</span></td><td>${act}</td></tr>`;
   }).join('');
 }
@@ -7856,6 +7857,53 @@ async function fmOpen(path) {
     ta.value = res.content || '';
     ta.readOnly = !!res.truncated;
   } catch (e) { toast(String(e), 'error'); }
+}
+
+// W3-50: download a file (binary-safe via content_b64) as a browser save.
+async function fmDownload(path, name) {
+  try {
+    const r = await api('GET', `/devices/${_fmDev.id}/files?op=read&path=${encodeURIComponent(path)}`);
+    if (!r.ok) { toast((r.result && r.result.error) || 'Download failed', 'error'); return; }
+    const res = r.result || {};
+    if (res.truncated) { toast('File too large to download through the agent channel (first 256 KiB only)', 'warning'); }
+    let blob;
+    if (res.binary && res.content_b64) {
+      const bin = atob(res.content_b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      blob = new Blob([arr], { type: 'application/octet-stream' });
+    } else {
+      blob = new Blob([res.content || ''], { type: 'text/plain' });
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name || 'download';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) { toast(String(e), 'error'); }
+}
+
+// W3-50: upload a picked file (base64) into the current directory.
+function fmUpload() {
+  if (!_fmDev) { toast('Pick a host first', 'error'); return; }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.onchange = () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { toast('File exceeds the 8 MB upload limit', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const b64 = String(reader.result).split(',')[1] || '';
+      const base = _fmCwd.endsWith('/') ? _fmCwd : _fmCwd + '/';
+      const dest = base + file.name;
+      const r = await api('POST', `/devices/${_fmDev.id}/files`, { op: 'upload', path: dest, content: b64 });
+      if (r.ok && !(r.result && r.result.error)) { toast('Uploaded ' + file.name, 'success'); fmListPath(_fmCwd); }
+      else toast((r.result && r.result.error) || r.error || 'Upload failed', 'error');
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
 }
 
 async function fmSave() {

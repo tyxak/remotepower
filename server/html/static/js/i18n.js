@@ -1271,6 +1271,7 @@
     "Netplan": { "zh": "Netplan", "hi": "Netplan", "es": "Netplan", "ar": "Netplan" },
     "New event": { "zh": "新建事件", "hi": "नया event", "es": "Nuevo evento", "ar": "حدث جديد" },
     "New folder": { "zh": "新建文件夹", "hi": "नया फ़ोल्डर", "es": "Nueva carpeta", "ar": "مجلد جديد" },
+    "Upload file": { "zh": "上传文件", "hi": "फ़ाइल अपलोड करें", "es": "Subir archivo", "ar": "رفع ملف" },
     "New job": { "zh": "新建任务", "hi": "नया job", "es": "Nuevo trabajo", "ar": "مهمة جديدة" },
     "New key": { "zh": "新建密钥", "hi": "नई key", "es": "Nueva clave", "ar": "مفتاح جديد" },
     "New passphrase": { "zh": "新口令", "hi": "नया passphrase", "es": "Nueva frase de contraseña", "ar": "عبارة مرور جديدة" },
