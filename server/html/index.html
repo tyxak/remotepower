@@ -892,6 +892,19 @@
         <div class="mb-16"><input type="text" id="monitor-filter" class="form-input input-wide" placeholder="Filter by label, type, target, status…" aria-label="Filter by label, type, target, status"></div>
         <div class="table-card"><table><thead id="monitor-thead"><tr><th scope="col" data-col="label">Label</th><th scope="col" data-col="type">Type</th><th scope="col" data-col="target">Target</th><th scope="col" data-col="status">Status</th><th scope="col" data-col="detail">Detail</th><th scope="col" data-col="checked">Checked</th><th scope="col"></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" class="empty-state">No monitors configured.</td></tr></tbody></table></div>
 
+        <!-- W2-45: import monitors from Nagios / Uptime Kuma / Zabbix -->
+        <details class="dash-card mt-16">
+          <summary class="section-title">Import from Nagios / Uptime Kuma / Zabbix</summary>
+          <p class="hint mt-8">Paste an existing monitoring config and RemotePower proposes equivalent monitors. <strong>Preview first</strong> (dry-run) to see what maps and what doesn't, then apply. Accepts an Uptime Kuma backup JSON, Nagios/Icinga object config (<code>define host/service</code>), or a Zabbix XML export. Duplicates (same type + target) are skipped.</p>
+          <textarea id="import-content" class="form-input ff-mono" rows="6" placeholder="Paste your Nagios .cfg, Uptime Kuma backup JSON, or Zabbix export XML…" aria-label="Monitoring config to import"></textarea>
+          <div class="row-6-center mt-8">
+            <select id="import-format" class="form-input input-auto" aria-label="Import format"><option value="">Auto-detect</option><option value="kuma">Uptime Kuma (JSON)</option><option value="nagios">Nagios / Icinga</option><option value="zabbix">Zabbix (XML)</option></select>
+            <button class="btn-secondary" data-action="previewImportMonitors">Preview</button>
+            <button class="btn-primary" data-action="applyImportMonitors">Apply</button>
+          </div>
+          <div id="import-result" class="mt-8"></div>
+        </details>
+
         </div><!-- /mon-panel-targets -->
         <div id="mon-panel-metrics" class="dash-card">
         <!-- v1.12.0: live device metrics. The Monitor page used to only

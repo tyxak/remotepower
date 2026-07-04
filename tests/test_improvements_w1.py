@@ -1299,5 +1299,95 @@ class TestCveCampaigns(_HandlerBase):
             api.time.time = _real
 
 
+class TestMonitorImporters(_HandlerBase):
+    """W2-45: Nagios / Uptime Kuma / Zabbix monitor importers."""
+
+    def setUp(self):
+        super().setUp()
+        import importers
+        self.importers = importers
+
+    def test_detect_format(self):
+        self.assertEqual(self.importers.detect_format('{"monitorList": []}'), 'kuma')
+        self.assertEqual(self.importers.detect_format('define host { }'), 'nagios')
+        self.assertEqual(self.importers.detect_format('<zabbix_export><hosts/></zabbix_export>'), 'zabbix')
+        self.assertIsNone(self.importers.detect_format('hello'))
+
+    def test_kuma_parse(self):
+        doc = ('{"monitorList": {"1": {"name": "site", "type": "http", "url": "https://a.test"},'
+               '"2": {"name": "db", "type": "port", "hostname": "db.test", "port": 5432},'
+               '"3": {"name": "gw", "type": "ping", "hostname": "10.0.0.1"},'
+               '"4": {"name": "kw", "type": "keyword", "url": "https://b.test", "keyword": "OK"},'
+               '"5": {"name": "weird", "type": "steam"}}}')
+        r = self.importers.parse(doc)
+        self.assertEqual(r['format'], 'kuma')
+        by_label = {m['label']: m for m in r['monitors']}
+        self.assertEqual(by_label['site']['target'], 'https://a.test')
+        self.assertEqual(by_label['site']['type'], 'http')
+        self.assertEqual(by_label['db']['target'], 'db.test:5432')
+        self.assertEqual(by_label['db']['type'], 'tcp')
+        self.assertEqual(by_label['gw']['target'], '10.0.0.1')
+        # keyword → body_match
+        self.assertEqual(by_label['kw']['body_match'], {'mode': 'contains', 'value': 'OK'})
+        self.assertTrue(any('steam' in u['reason'] for u in r['unmapped']))
+
+    def test_nagios_parse(self):
+        cfg = ('define host { host_name web1\n address 10.0.0.5\n }\n'
+               'define service { host_name web1\n check_command check_http\n service_description HTTP\n }\n'
+               'define service { host_name web1\n check_command check_tcp!443\n service_description HTTPS\n }\n'
+               'define service { host_name web1\n check_command check_frobnicate\n service_description X\n }\n')
+        r = self.importers.parse(cfg)
+        tgts = {(m['type'], m['target']) for m in r['monitors']}
+        self.assertIn(('http', 'http://10.0.0.5'), tgts)
+        self.assertIn(('tcp', '10.0.0.5:443'), tgts)
+        self.assertIn(('ping', '10.0.0.5'), tgts)   # host reachability
+        self.assertTrue(any('frobnicate' in u['reason'] for u in r['unmapped']))
+
+    def test_zabbix_parse(self):
+        xml = ('<zabbix_export><hosts><host><name>router</name>'
+               '<interfaces><interface><ip>192.168.1.1</ip></interface></interfaces>'
+               '</host></hosts></zabbix_export>')
+        r = self.importers.parse(xml)
+        self.assertEqual(r['monitors'][0], {'label': 'router', 'type': 'ping',
+                                            'target': '192.168.1.1', 'target_kind': 'host'})
+
+    def test_dedup_by_type_target(self):
+        doc = '{"monitorList": [{"name":"a","type":"ping","hostname":"1.1.1.1"},{"name":"b","type":"ping","hostname":"1.1.1.1"}]}'
+        r = self.importers.parse(doc)
+        self.assertEqual(len(r['monitors']), 1)
+
+    def test_bad_format_raises(self):
+        with self.assertRaises(ValueError):
+            self.importers.parse('not a config')
+
+    # -- endpoint (dry-run + apply) ---------------------------------------
+    def _post(self, **body):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: body
+        return self.call(api.handle_import_monitors)
+
+    def test_endpoint_dry_run_then_apply(self):
+        cfg = ('define host { host_name web1\n address 10.0.0.5\n }\n'
+               'define service { host_name web1\n check_command check_http\n service_description HTTP\n }\n')
+        r = self._post(content=cfg)
+        self.assertTrue(r['dry_run'])
+        self.assertTrue(len(r['monitors']) >= 2)
+        # nothing written yet
+        self.assertEqual((api.load(api.CONFIG_FILE) or {}).get('monitors'), None)
+        # apply
+        r = self._post(content=cfg, apply=True)
+        self.assertTrue(r['applied'])
+        self.assertGreaterEqual(r['added'], 2)
+        mons = (api.load(api.CONFIG_FILE) or {}).get('monitors')
+        self.assertTrue(any(m['type'] == 'http' for m in mons))
+        # re-apply dedups → adds 0
+        r = self._post(content=cfg, apply=True)
+        self.assertEqual(r['added'], 0)
+
+    def test_endpoint_empty_content_400(self):
+        self._post(content='   ')
+        self.assertEqual(self.cap['s'], 400)
+
+
 if __name__ == '__main__':
     unittest.main()

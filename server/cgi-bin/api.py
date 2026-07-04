@@ -685,6 +685,7 @@ WEBTERM_MAX_SESSION_LOG_BYTES = 10 * 1024 * 1024   # 10 MiB cap per recording
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
+import importers
 import prometheus_export
 # v1.8.6: SMTP + LDAP. ldap3 is optional — the module imports it lazily so
 # servers that don't enable LDAP don't need the dependency installed.
@@ -45999,6 +46000,58 @@ def run_cve_campaign_sample_if_due():
         fire_webhook('campaign_completed', p)
 
 
+def handle_import_monitors():
+    """POST /api/import/monitors — parse a Nagios / Uptime Kuma / Zabbix export
+    into RemotePower monitors (admin). Dry-run by default (returns the proposal);
+    with `apply: true`, validates + merges the proposed monitors into
+    `config.monitors`, deduped by (type, target) against existing ones."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    body = get_json_obj()
+    content = str(body.get('content') or '')
+    if not content.strip():
+        respond(400, {'error': 'content is required'})
+    if len(content) > 5 * 1024 * 1024:
+        respond(400, {'error': 'content too large (max 5 MB)'})
+    fmt = str(body.get('format') or '').lower() or None
+    try:
+        result = importers.parse(content, fmt)
+    except ValueError as e:
+        respond(400, {'error': str(e)})
+    # Validate each proposed monitor's target the same way config-save does.
+    valid = []
+    for m in result['monitors']:
+        tgt = _sanitize_monitor_target(m['type'], m['target'])
+        if tgt is None:
+            result['unmapped'].append({'name': m['label'],
+                                       'reason': f'invalid target for {m["type"]}: {m["target"][:60]}'})
+            continue
+        m = dict(m, target=tgt)
+        valid.append(m)
+    if not body.get('apply'):
+        respond(200, {'ok': True, 'dry_run': True, 'format': result['format'],
+                      'monitors': valid, 'unmapped': result['unmapped']})
+    # Apply: merge into config.monitors, dedup by (type, target).
+    added = 0
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        existing = cfg.get('monitors') or []
+        have = {(str(e.get('type')), str(e.get('target'))) for e in existing
+                if isinstance(e, dict)}
+        for m in valid:
+            key = (m['type'], m['target'])
+            if key in have:
+                continue
+            have.add(key)
+            existing.append(m)
+            added += 1
+        cfg['monitors'] = existing
+    audit_log(actor, 'import_monitors',
+              f'format={result["format"]} added={added} unmapped={len(result["unmapped"])}')
+    respond(200, {'ok': True, 'applied': True, 'format': result['format'],
+                  'added': added, 'unmapped': result['unmapped']})
+
+
 def handle_cve_findings():
     """GET /api/cve/findings — aggregate CVE report across all devices."""
     require_auth()
@@ -50854,6 +50907,7 @@ def _build_exact_routes():
         ('POST', '/api/incidents'): handle_incidents,
         ('GET', '/api/cve/campaigns'): handle_cve_campaigns,   # W2-35
         ('POST', '/api/cve/campaigns'): handle_cve_campaigns,
+        ('POST', '/api/import/monitors'): handle_import_monitors,   # W2-45
         # v5.6.0: alert mutes + tuning
         ('GET', '/api/alert-mutes'): handle_alert_mutes,
         ('POST', '/api/alert-mutes'): handle_alert_mutes,

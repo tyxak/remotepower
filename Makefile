@@ -41,7 +41,8 @@ TYPECHECK_SRC := server/cgi-bin/cmdb_vault.py \
                  server/cgi-bin/wg_access.py \
                  server/cgi-bin/billing.py \
                  server/cgi-bin/notify.py \
-                 server/cgi-bin/checks.py
+                 server/cgi-bin/checks.py \
+                 server/cgi-bin/importers.py
 PIP_FLAGS ?= --break-system-packages
 
 # v2.1.0: extract the canonical version from api.py so `make dist` and the

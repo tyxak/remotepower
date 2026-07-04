@@ -2491,6 +2491,32 @@ function monTypeChanged() {
   show('mon-body-grp', type === 'http');
   show('mon-json-grp', type === 'http');
 }
+// W2-45: import monitors from a Nagios / Uptime Kuma / Zabbix export.
+async function _importMonitors(apply) {
+  const content = document.getElementById('import-content')?.value || '';
+  if (!content.trim()) { toast('Paste a config to import', 'error'); return; }
+  const format = document.getElementById('import-format')?.value || '';
+  const box = document.getElementById('import-result');
+  const r = await api('POST', '/import/monitors', { content, format: format || undefined, apply });
+  if (!r || r.error) { toast((r && r.error) || 'Import failed', 'error'); if (box) box.textContent = (r && r.error) || 'Import failed'; return; }
+  if (apply) {
+    toast(`Imported ${r.added} monitor(s)`, 'success');
+    if (box) box.innerHTML = `<div class="c-green">Added ${r.added} monitor(s) from ${escHtml(r.format)}.</div>`
+      + (r.unmapped && r.unmapped.length ? `<div class="meta-sm-nm mt-4">${r.unmapped.length} entr(y/ies) could not be mapped.</div>` : '');
+    if (typeof runMonitor === 'function') runMonitor();
+  } else {
+    const mons = r.monitors || [];
+    const un = r.unmapped || [];
+    if (box) box.innerHTML = `<div class="fw-500 mb-6">${escHtml(r.format)} → ${mons.length} monitor(s) to import`
+      + (un.length ? `, ${un.length} unmapped` : '') + '</div>'
+      + (mons.length ? '<div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Label</th><th>Type</th><th>Target</th></tr></thead><tbody>'
+        + mons.map(m => `<tr><td>${escHtml(m.label)}</td><td>${escHtml(m.type)}</td><td class="ff-mono fs-12">${escHtml(m.target)}</td></tr>`).join('')
+        + '</tbody></table></div>' : '')
+      + (un.length ? '<div class="meta-sm-nm mt-6">Unmapped: ' + un.map(u => escHtml((u.name || '?') + ' — ' + u.reason)).join('; ') + '</div>' : '');
+  }
+}
+function previewImportMonitors() { _importMonitors(false); }
+function applyImportMonitors() { _importMonitors(true); }
 async function addMonitor() {
   const label  = document.getElementById('mon-label').value.trim();
   const type   = document.getElementById('mon-type').value;

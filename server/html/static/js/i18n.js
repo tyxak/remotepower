@@ -45,6 +45,7 @@
     'Add SLA rule':          { zh: '添加 SLA 规则', hi: 'SLA नियम जोड़ें', es: 'Añadir regla de SLA', ar: 'إضافة قاعدة SLA' },
     'Incidents':             { zh: '事件', hi: 'घटनाएँ', es: 'Incidencias', ar: 'الحوادث' },
     'Remediation campaigns': { zh: '修复行动', hi: 'उपचार अभियान', es: 'Campañas de remediación', ar: 'حملات المعالجة' },
+    'Import from Nagios / Uptime Kuma / Zabbix': { zh: '从 Nagios / Uptime Kuma / Zabbix 导入', hi: 'Nagios / Uptime Kuma / Zabbix से आयात करें', es: 'Importar desde Nagios / Uptime Kuma / Zabbix', ar: 'استيراد من Nagios / Uptime Kuma / Zabbix' },
     'Create campaign':       { zh: '创建行动', hi: 'अभियान बनाएँ', es: 'Crear campaña', ar: 'إنشاء حملة' },
     'Post incident':         { zh: '发布事件', hi: 'घटना पोस्ट करें', es: 'Publicar incidencia', ar: 'نشر حادث' },
     'Save subscribers':      { zh: '保存订阅者', hi: 'सब्सक्राइबर सहेजें', es: 'Guardar suscriptores', ar: 'حفظ المشتركين' },
