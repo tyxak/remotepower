@@ -44,7 +44,20 @@ Under **Admin → Billing**:
    recurring fees → subtotal / VAT / total. **Export CSV**, or **Generate
    invoice**.
 3. **Invoices** — issued invoices with **draft → sent → paid** (and **void**).
-   View / **print to PDF**, **export CSV**.
+   View / **print to PDF**, **export CSV**, or **email** to the customer.
+
+### Emailing invoices
+
+Click the **mail** button on a draft or sent invoice to send it to that
+customer's **billing contact** (set per site under Rates & Fees) over the same
+SMTP you use for notifications. The email carries a plain-text invoice plus a
+branded HTML alternative; sending a draft promotes it to **sent**.
+
+Turn on **Email overdue-invoice reminders** (Rates & Fees) to have the server
+send **one** reminder for any invoice still in *sent* status more than *N* days
+after it was last emailed (default 14). Reminders ride the maintenance cadence,
+are bounded per run, and never re-send for the same invoice — marking it
+**paid** or **void** stops them.
 
 ### Locking
 

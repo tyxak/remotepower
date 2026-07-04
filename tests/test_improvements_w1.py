@@ -609,5 +609,102 @@ class TestRecurringTickets(_HandlerBase):
             api.time.time = _real
 
 
+class TestInvoiceEmail(_HandlerBase):
+    """W1-30: invoice send handler + overdue reminder sweep."""
+
+    def setUp(self):
+        super().setUp()
+        self._inv = api.INVOICES_FILE
+        self._bill = api.BILLING_FILE
+        self._sites = api.SITES_FILE
+        self._remstate = api.INVOICE_REMINDER_STATE_FILE
+        api.INVOICES_FILE = self.d / 'invoices.json'
+        api.BILLING_FILE = self.d / 'billing.json'
+        api.SITES_FILE = self.d / 'sites.json'
+        api.INVOICE_REMINDER_STATE_FILE = self.d / 'inv_rem.json'
+        api.save(api.CONFIG_FILE, {'billing_enabled': True, 'smtp_host': 'smtp.test'})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+        api.save(api.SITES_FILE, {'site1': {'name': 'ACME Inc'}})
+        api.save(api.BILLING_FILE, {'sites': {'site1': {
+            'billing_contact': 'ap@acme.example'}}})
+        api.save(api.INVOICES_FILE, {'invoices': [{
+            'id': 'inv_1', 'number': 'INV-00001', 'site_id': 'site1',
+            'status': 'draft', 'currency': 'USD', 'vat_rate': 0,
+            'subtotal': 100, 'vat_amount': 0, 'total': 100,
+            'line_items': [{'label': 'Consulting', 'amount': 100}],
+            'period': {'from': '2026-06-01', 'to': '2026-06-30'}}]})
+        # capture sends
+        self.sent = []
+        self._real_send = api.smtp_notifier.send_email
+        api.smtp_notifier.send_email = lambda cfg, rcpts, subj, body, **kw: (
+            self.sent.append({'to': rcpts, 'subject': subj, 'body': body}) or {'ok': True})
+
+    def tearDown(self):
+        api.smtp_notifier.send_email = self._real_send
+        api.INVOICES_FILE = self._inv
+        api.BILLING_FILE = self._bill
+        api.SITES_FILE = self._sites
+        api.INVOICE_REMINDER_STATE_FILE = self._remstate
+        super().tearDown()
+
+    def _invoice(self):
+        return (api.load(api.INVOICES_FILE) or {}).get('invoices')[0]
+
+    def test_send_emails_contact_and_marks_sent(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        self.call(api.handle_invoice_send, 'inv_1')
+        self.assertEqual(self.cap['s'] if 's' in self.cap else 200, 200)
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0]['to'], ['ap@acme.example'])
+        self.assertIn('INV-00001', self.sent[0]['subject'])
+        self.assertEqual(self._invoice()['status'], 'sent')
+        self.assertTrue(self._invoice().get('last_emailed_at'))
+
+    def test_send_no_contact_400(self):
+        api.save(api.BILLING_FILE, {'sites': {'site1': {}}})
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {}
+        self.call(api.handle_invoice_send, 'inv_1')
+        self.assertEqual(self.cap['s'], 400)
+        self.assertEqual(self.sent, [])
+
+    def test_reminder_sweep_opt_in_and_bounded(self):
+        # reminders off → nothing
+        now = int(__import__('time').time())
+        api.save(api.INVOICES_FILE, {'invoices': [{
+            'id': 'inv_1', 'number': 'INV-1', 'site_id': 'site1', 'status': 'sent',
+            'currency': 'USD', 'subtotal': 10, 'total': 10, 'line_items': [],
+            'last_emailed_at': now - 40 * 86400}]})
+        api.save(api.BILLING_FILE, {'sites': {'site1': {'billing_contact': 'ap@acme.example'}},
+                                    'reminders_enabled': False})
+        api.run_invoice_reminders_if_due()
+        self.assertEqual(self.sent, [])
+        # turn on → one reminder, and it doesn't re-send next sweep
+        api.save(api.BILLING_FILE, {'sites': {'site1': {'billing_contact': 'ap@acme.example'}},
+                                    'reminders_enabled': True, 'reminder_days': 14})
+        api.save(api.INVOICE_REMINDER_STATE_FILE, {'last_run': 0})
+        api.run_invoice_reminders_if_due()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Reminder', self.sent[0]['subject'])
+        self.assertTrue(self._invoice().get('reminder_sent'))
+        # sweep again immediately — cadence gate blocks, still 1
+        api.run_invoice_reminders_if_due()
+        self.assertEqual(len(self.sent), 1)
+
+    def test_reminder_skips_paid_and_recent(self):
+        now = int(__import__('time').time())
+        api.save(api.INVOICES_FILE, {'invoices': [
+            {'id': 'p', 'site_id': 'site1', 'status': 'paid', 'total': 5,
+             'line_items': [], 'last_emailed_at': now - 90 * 86400},
+            {'id': 'r', 'site_id': 'site1', 'status': 'sent', 'total': 5,
+             'line_items': [], 'last_emailed_at': now - 2 * 86400}]})
+        api.save(api.BILLING_FILE, {'sites': {'site1': {'billing_contact': 'ap@acme.example'}},
+                                    'reminders_enabled': True, 'reminder_days': 14})
+        api.save(api.INVOICE_REMINDER_STATE_FILE, {'last_run': 0})
+        api.run_invoice_reminders_if_due()
+        self.assertEqual(self.sent, [])   # paid excluded, recent not yet due
+
+
 if __name__ == '__main__':
     unittest.main()

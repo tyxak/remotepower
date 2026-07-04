@@ -567,6 +567,8 @@ async function _billingInvoices() {
   };
   const rows = invs.length ? invs.map(inv => {
     const per = (inv.period && (inv.period.from || inv.period.to)) ? (escHtml(inv.period.from || '') + ' → ' + escHtml(inv.period.to || '')) : '—';
+    const emailAct = (_bIsAdmin() && inv.status !== 'void' && inv.status !== 'paid') ? `
+      <button class="btn-icon cell-sm" data-action="invoiceEmail" data-arg="${escAttr(inv.id)}" title="Email this invoice to the customer's billing contact">${_bIcon('mail', 13)}</button>` : '';
     const adminActs = _bIsAdmin() ? `
       <button class="btn-icon cell-sm" data-action="invoiceSetStatus" data-arg="${escAttr(inv.id)}" data-arg2="sent" title="Mark sent">Sent</button>
       <button class="btn-icon cell-sm" data-action="invoiceSetStatus" data-arg="${escAttr(inv.id)}" data-arg2="paid" title="Mark paid">Paid</button>
@@ -580,6 +582,7 @@ async function _billingInvoices() {
       <td><div class="row-6">
         <button class="btn-icon cell-sm" data-action="invoiceView" data-arg="${escAttr(inv.id)}" title="View / print">${_bIcon('eye', 13)}</button>
         <button class="btn-icon cell-sm" data-action="invoiceExportCsv" data-arg="${escAttr(inv.id)}" title="CSV">${_bIcon('download', 13)}</button>
+        ${emailAct}
         ${adminActs}
       </div></td></tr>`;
   }).join('') : '<tr><td colspan="6" class="empty-state-sm">No invoices yet — generate one from the Worksheet tab.</td></tr>';
@@ -633,6 +636,13 @@ async function invoiceVoid(iid) {
   if (!confirm('Void this invoice? Its hours are freed so they can be re-billed.')) return;
   await invoiceSetStatus(iid, 'void');
 }
+// W1-30: email the invoice to the customer's billing contact.
+async function invoiceEmail(iid) {
+  if (!confirm("Email this invoice to the customer's billing contact?")) return;
+  const r = await api('POST', '/invoices/' + encodeURIComponent(iid) + '/send', {});
+  if (r && r.ok) { toast('Invoice emailed', 'success'); _billingInvoices(); }
+  else toast((r && r.error) || 'Failed to send', 'error');
+}
 
 async function _billingRates() {
   const host = document.getElementById('billing-host');
@@ -657,6 +667,8 @@ async function _billingRates() {
         <div class="form-group"><label class="form-label">Default VAT %</label><input id="bc-vat" type="number" step="0.1" class="form-input" value="${escAttr(String(r.default_vat || 0))}" ${readonly ? 'disabled' : ''}></div>
         <div class="form-group"><label class="form-label">Invoice prefix</label><input id="bc-prefix" class="form-input" value="${escAttr(r.invoice_prefix || '')}" placeholder="e.g. 2026-" ${readonly ? 'disabled' : ''}></div>
       </div>
+      <div class="settings-row mt-8"><label class="form-label"><input type="checkbox" id="bc-reminders" ${r.reminders_enabled ? 'checked' : ''} ${readonly ? 'disabled' : ''}> Email overdue-invoice reminders</label></div>
+      <div class="form-group"><label class="form-label" for="bc-reminder-days">Remind after N days unpaid</label><input id="bc-reminder-days" type="number" min="1" max="365" class="form-input" value="${escAttr(String(r.reminder_days || 14))}" ${readonly ? 'disabled' : ''}><span class="hint">One reminder per invoice that stays in <em>sent</em> status this many days after it was last emailed. Uses the same SMTP as notifications.</span></div>
       <div class="section-title mt-12">Rate card</div>
       <div class="scrollable-table-wrap audit-scroll"><table class="data-table"><thead><tr><th>Name</th><th>Rate / h</th><th></th></tr></thead><tbody id="rate-card-body">${cardRows}</tbody></table></div>
       ${readonly ? '' : `<div class="row-6 mt-6"><button class="btn-secondary" data-action="rateCardAdd">+ Rate</button><button class="btn-primary" data-action="saveBillingGlobals">Save global + rate card</button></div>`}
@@ -694,6 +706,8 @@ async function saveBillingGlobals() {
     default_rate: parseFloat(document.getElementById('bc-rate')?.value || '0') || 0,
     default_vat: parseFloat(document.getElementById('bc-vat')?.value || '0') || 0,
     invoice_prefix: document.getElementById('bc-prefix')?.value || '',
+    reminders_enabled: !!document.getElementById('bc-reminders')?.checked,
+    reminder_days: parseInt(document.getElementById('bc-reminder-days')?.value || '14', 10) || 14,
     rate_card: card,
   };
   const r = await api('POST', '/billing/config', body);

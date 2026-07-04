@@ -185,6 +185,8 @@ MAX_TS_WATCH_GRANTS = 5000
 _TS_WATCH_SCOPES = ('user', 'team')
 BILLING_FILE = DATA_DIR / 'billing.json'   # rate card, currency, per-site rates/VAT/recurring fees
 INVOICES_FILE = DATA_DIR / 'invoices.json'   # {invoices:[...], invoice_seq:int}
+INVOICE_REMINDER_STATE_FILE = DATA_DIR / 'invoice_reminder_state.json'  # W1-30 sweep gate
+INVOICE_REMINDER_INTERVAL = 6 * 3600         # W1-30: overdue-reminder sweep cadence
 MAX_INVOICES = 100000
 INVOICE_STATUSES = ('draft', 'sent', 'paid', 'void')
 
@@ -9915,6 +9917,8 @@ def _billing_defaults():
         'invoice_prefix': '',
         'rate_card': [dict(r) for r in billing_mod.DEFAULT_RATE_CARD],
         'sites': {},
+        'reminders_enabled': False,   # W1-30: overdue-invoice email reminders
+        'reminder_days': 14,          # W1-30: days-since-last-email before a reminder
     }
 
 
@@ -10335,6 +10339,8 @@ def handle_billing_config():
                       'default_rate': cfg.get('default_rate'),
                       'default_vat': cfg.get('default_vat'),
                       'invoice_prefix': cfg.get('invoice_prefix', ''),
+                      'reminders_enabled': bool(cfg.get('reminders_enabled')),
+                      'reminder_days': cfg.get('reminder_days', 14),
                       'rate_card': cfg.get('rate_card') or [], 'sites': rows,
                       'fee_kinds': list(billing_mod.FEE_KINDS)})
     if method() != 'POST':
@@ -10350,6 +10356,13 @@ def handle_billing_config():
         cfg['default_vat'] = max(0.0, min(100.0, billing_mod._num(body.get('default_vat'))))
     if 'invoice_prefix' in body:
         cfg['invoice_prefix'] = _sanitize_str(str(body.get('invoice_prefix') or ''), 16)
+    if 'reminders_enabled' in body:   # W1-30
+        cfg['reminders_enabled'] = bool(body.get('reminders_enabled'))
+    if 'reminder_days' in body:
+        try:
+            cfg['reminder_days'] = max(1, min(365, int(body.get('reminder_days'))))
+        except (TypeError, ValueError):
+            pass
     if 'rate_card' in body and isinstance(body['rate_card'], list):
         card = []
         for r in body['rate_card'][:50]:
@@ -10578,6 +10591,130 @@ def handle_invoice_update(iid):
                     unlocked += 1
     audit_log(actor, 'invoice_update', f'id={iid} status={new_status} unlocked={unlocked}')
     respond(200, {'ok': True, 'status': new_status, 'unlocked_entries': unlocked})
+
+
+def _invoice_email_text(inv, site_name):
+    """W1-30: render an invoice as a plain-text email body (branded HTML wraps it
+    for the alternative part). Money-only — no secrets."""
+    cur = inv.get('currency') or ''
+    lines = [f'Invoice {inv.get("number", "")}', '']
+    per = inv.get('period') or {}
+    if per.get('from') or per.get('to'):
+        lines.append(f'Period: {per.get("from", "")} → {per.get("to", "")}')
+    lines.append(f'Customer: {site_name}')
+    lines.append('')
+    for li in (inv.get('line_items') or []):
+        lbl = str(li.get('label') or li.get('kind') or '')
+        amt = li.get('amount')
+        lines.append(f'  {lbl:<40} {cur} {amt}')
+    lines.append('')
+    lines.append(f'Subtotal: {cur} {inv.get("subtotal")}')
+    if inv.get('vat_amount'):
+        lines.append(f'VAT ({inv.get("vat_rate")}%): {cur} {inv.get("vat_amount")}')
+    lines.append(f'Total: {cur} {inv.get("total")}')
+    if inv.get('notes'):
+        lines += ['', str(inv.get('notes'))]
+    return '\n'.join(lines)
+
+
+def _send_invoice_email(inv, cfg, *, reminder=False):
+    """Email an invoice to its site's billing contact over the existing SMTP.
+    Returns (ok, detail). Never raises. Used by the manual send action AND the
+    overdue-reminder sweep."""
+    site_id = inv.get('site_id')
+    sb = (_billing_cfg().get('sites') or {}).get(site_id) or {}
+    contact = (sb.get('billing_contact') or '').strip()
+    if not contact or '@' not in contact:
+        return False, 'no billing contact for this customer'
+    site_name = (load(SITES_FILE) or {}).get(site_id, {}).get('name', site_id)
+    subj_kind = 'Reminder' if reminder else 'Invoice'
+    subject = f'{subj_kind}: {inv.get("number", "")} — {site_name}'
+    body = _invoice_email_text(inv, site_name)
+    if reminder:
+        body = 'This invoice is still outstanding — please arrange payment.\n\n' + body
+    try:
+        smtp_notifier.send_email(cfg, [contact], subject, body,
+                                 html_body=smtp_notifier.brand_html(cfg, subject, body))
+        _log_email('invoice_sent', [contact], 'ok', inv.get('number', ''))
+        return True, 'sent'
+    except smtp_notifier.SmtpError as e:
+        _log_email('invoice_sent', [contact], 'error', str(e))
+        return False, str(e)
+    except Exception as e:
+        _log_email('invoice_sent', [contact], 'error', f'{type(e).__name__}: {e}')
+        return False, f'{type(e).__name__}: {e}'
+
+
+def handle_invoice_send(iid):
+    """POST /api/invoices/{id}/send — email the invoice to the customer's billing
+    contact (admin only). Marks the invoice 'sent' if it was still a draft."""
+    if not _billing_enabled():
+        respond(404, {'error': 'billing is disabled'})
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    actor = require_admin_auth()
+    inv = next((x for x in ((load(INVOICES_FILE) or {}).get('invoices') or [])
+                if x.get('id') == iid), None)
+    if not inv:
+        respond(404, {'error': 'invoice not found'})
+    cfg = load(CONFIG_FILE) or {}
+    if not (cfg.get('smtp_host') or '').strip():
+        respond(400, {'error': 'SMTP is not configured (Settings → Notifications)'})
+    ok, detail = _send_invoice_email(inv, cfg)
+    if not ok:
+        respond(400, {'error': f'send failed: {detail}'})
+    # promote draft → sent + stamp when we last emailed it (drives reminders)
+    now = int(time.time())
+    with _LockedUpdate(INVOICES_FILE) as store:
+        row = next((x for x in (store.get('invoices') or []) if x.get('id') == iid), None)
+        if row:
+            if row.get('status') == 'draft':
+                row['status'] = 'sent'
+            row['last_emailed_at'] = now
+            row['reminder_sent'] = False
+    audit_log(actor, 'invoice_send', f'id={iid} number={inv.get("number", "")}')
+    respond(200, {'ok': True, 'detail': detail})
+
+
+def run_invoice_reminders_if_due():
+    """W1-30: opt-in overdue-reminder sweep. When billing.reminders_enabled is on,
+    email ONE reminder for a 'sent' invoice whose last email is older than
+    billing.reminder_days (default 14). Cheap-when-off; _config_ro gate on the
+    cadence; sends AFTER the lock (collect-then-fire)."""
+    if not _billing_enabled():
+        return
+    # reminder settings live in the billing config store (BILLING_FILE)
+    b = _billing_cfg()
+    if not b.get('reminders_enabled'):
+        return
+    now = int(time.time())
+    st = load(INVOICE_REMINDER_STATE_FILE) or {}
+    if now - int(st.get('last_run', 0) or 0) < INVOICE_REMINDER_INTERVAL:
+        return
+    try:
+        days = max(1, int(b.get('reminder_days') or 14))
+    except (TypeError, ValueError):
+        days = 14
+    cutoff = now - days * 86400
+    cfg = load(CONFIG_FILE) or {}
+    if not (cfg.get('smtp_host') or '').strip():
+        return
+    invs = (load(INVOICES_FILE) or {}).get('invoices') or []
+    to_remind = [inv for inv in invs
+                 if inv.get('status') == 'sent' and not inv.get('reminder_sent')
+                 and int(inv.get('last_emailed_at', 0) or 0) and int(inv.get('last_emailed_at', 0)) < cutoff]
+    sent_ids = []
+    for inv in to_remind[:20]:      # bounded per run
+        ok, _ = _send_invoice_email(inv, cfg, reminder=True)
+        if ok:
+            sent_ids.append(inv.get('id'))
+    if sent_ids:
+        with _LockedUpdate(INVOICES_FILE) as store:
+            for row in (store.get('invoices') or []):
+                if row.get('id') in sent_ids:
+                    row['reminder_sent'] = True
+                    row['last_emailed_at'] = now
+    save(INVOICE_REMINDER_STATE_FILE, {'last_run': now})
 
 
 def _csv_emit(filename, header, rows):
@@ -50647,6 +50784,7 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET', 'POST'), '/api/tickets/', '/hours', 'handle_ticket_hours', "pi.startswith('/api/tickets/') and pi.endswith('/hours') and m in ('GET', 'POST')"),
     ('pat', ('PATCH', 'POST', 'DELETE'), '/api/time-entries/', '', 'handle_time_entry_update', "pi.startswith('/api/time-entries/') and m in ('PATCH', 'POST', 'DELETE')"),
     ('pat', ('DELETE',), '/api/timesheet/watchers/', '', 'handle_timesheet_watcher_delete', "pi.startswith('/api/timesheet/watchers/') and m == 'DELETE'"),
+    ('pat', ('POST',), '/api/invoices/', '/send', 'handle_invoice_send', "pi.startswith('/api/invoices/') and pi.endswith('/send') and m == 'POST'"),
     ('pat', ('GET',), '/api/invoices/', '', 'handle_invoice_get', "pi.startswith('/api/invoices/') and m == 'GET'"),
     ('pat', ('PATCH', 'POST'), '/api/invoices/', '', 'handle_invoice_update', "pi.startswith('/api/invoices/') and m in ('PATCH', 'POST')"),
     ('pat', ('POST',), '/api/tickets/', '/email', 'handle_ticket_send_email', "pi.startswith('/api/tickets/') and pi.endswith('/email') and m == 'POST'"),
@@ -51032,6 +51170,7 @@ def main():
     _safe(run_ticket_imap_if_due, 'run_ticket_imap_if_due')
     _safe(run_ticket_sla_if_due, 'run_ticket_sla_if_due')   # v5.3.0 SLA breach sweep
     _safe(run_ticket_schedules_if_due, 'run_ticket_schedules_if_due')  # W1-27 recurring
+    _safe(run_invoice_reminders_if_due, 'run_invoice_reminders_if_due')  # W1-30 overdue reminders
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).

@@ -385,6 +385,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Billing page (opt-in) | The Billing surface (worksheet / invoices / rates & fees) is gated under Advanced → `billing_enabled` (default off); logging hours + the Timesheet stay on regardless *(v5.5.0)* |
 | Billing worksheet | Per-customer per-month: billable hours × rate + recurring fees → subtotal / VAT / total. `GET /api/billing/worksheet` |
 | Invoices | draft → sent → paid (+ void); issuing **locks** the billed hours (frozen amounts), voiding frees them to re-bill. `GET/POST /api/invoices`, `PATCH /api/invoices/{id}` |
+| Invoice email + reminders | Email an invoice to the customer's billing contact over existing SMTP (branded HTML + plain text; draft→sent); opt-in overdue-reminder sweep sends one reminder after N days unpaid. `POST /api/invoices/{id}/send` *(v5.8.0)* |
 | Rates & fees | Named rate card + global default rate / currency / VAT / invoice prefix; per-customer rate / VAT / billing address / recurring license-operation-service fees. `GET/POST /api/billing/config` |
 | Finance role | Read-only role that views/exports billing without admin; issuing/voiding + rate edits stay admin-only; everyone logs their own hours |
 | Export | CSV (`?format=csv`) on ledger / worksheet / invoice, JSON API on every list, browser-print PDF for invoices |
