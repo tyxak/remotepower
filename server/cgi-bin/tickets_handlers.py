@@ -325,6 +325,135 @@ def handle_ticket_templates():
     A.respond(200, {'ok': True, 'templates': tpls})
 
 
+def handle_ticket_schedules():
+    """GET/POST /api/tickets/schedules — recurring scheduled tickets (W1-27).
+
+    A schedule is {id, subject, body, type, priority, device_id?, assignee?,
+    group?, cron, enabled}. The cadence sweep (run_ticket_schedules_if_due)
+    opens a real ticket when the 5-field cron matches, deduped per (schedule,
+    period). GET any authed user; POST replaces the whole list, admin-only."""
+    if not A._tickets_enabled():
+        A.respond(404, {'error': 'ticket system is disabled'})
+    if A.method() == 'GET':
+        A.require_auth()
+        scheds = (A.load(A.CONFIG_FILE) or {}).get('ticket_schedules') or []
+        A.respond(200, {'ok': True, 'schedules': scheds})
+    if A.method() != 'POST':
+        A.respond(405, {'error': 'Method not allowed'})
+    actor = A.require_admin_auth()
+    body = A.get_json_obj()
+    raw = body.get('schedules')
+    if not isinstance(raw, list):
+        A.respond(400, {'error': 'schedules must be a list'})
+    out = []
+    for s in raw[:100]:
+        if not isinstance(s, dict):
+            continue
+        subject = A._sanitize_str(str(s.get('subject', '')), 200).strip()
+        cron = A._sanitize_str(str(s.get('cron', '')), 120).strip()
+        if not subject or not cron:
+            continue
+        if not A._valid_cron(cron):
+            A.respond(400, {'error': f'invalid cron in schedule "{subject[:40]}"'})
+        ttype = str(s.get('type', 'request')).strip().lower()
+        if ttype not in A.TICKET_TYPES:
+            ttype = 'request'
+        sched = {
+            'id': A._sanitize_str(str(s.get('id') or ('ts_' + secrets.token_hex(4))), 32),
+            'subject': subject, 'cron': cron, 'type': ttype,
+            'priority': A._coerce_priority(s.get('priority', 4)),
+            'body': A._sanitize_str(str(s.get('body', '')), 8000),
+            'device_id': A._sanitize_str(str(s.get('device_id', '')), 64),
+            'assignee': A._sanitize_str(str(s.get('assignee', '')), 64),
+            'group': A._sanitize_str(str(s.get('group', '')), 64),
+            'enabled': bool(s.get('enabled', True)),
+        }
+        out.append(sched)
+    with A._LockedUpdate(A.CONFIG_FILE) as cfg:
+        cfg['ticket_schedules'] = out
+    A.audit_log(actor, 'ticket_schedules_save', detail=f'{len(out)} schedules')
+    A.respond(200, {'ok': True, 'schedules': out})
+
+
+def _create_scheduled_ticket(sched):
+    """Mint a ticket directly from a schedule (no request context). Returns the
+    new ticket dict or None if the store is at capacity. Numbering + record
+    shape mirror the standalone path in handle_tickets."""
+    now = int(time.time())
+    devices = A.load(A.DEVICES_FILE) or {}
+    device_id = sched.get('device_id') or ''
+    dev_name = (devices.get(device_id) or {}).get('name', '') if device_id else ''
+    tid = 'tk_' + secrets.token_hex(5)
+    rec = None
+    with A._LockedUpdate(A.TICKETS_FILE) as store:
+        tickets = store.setdefault('tickets', [])
+        if len(tickets) >= A.MAX_TICKETS:
+            return None
+        seq = int(store.get('ticket_seq') or 0) + 1
+        store['ticket_seq'] = seq
+        number = A.TICKET_STANDALONE_BASE + seq
+        rec = {
+            'id': tid, 'number': number, 'subject': sched.get('subject', ''),
+            'type': sched.get('type', 'request'), 'status': 'ongoing',
+            'device_id': device_id, 'device_name': dev_name,
+            'alert_id': '', 'alertid': '', 'to_email': '',
+            'affected_devices': [device_id] if device_id else [],
+            'parent': '', 'priority': A._coerce_priority(sched.get('priority', 4)),
+            'assignee': sched.get('assignee', ''), 'group': sched.get('group', ''),
+            'created_by': 'schedule', 'created_at': now, 'updated_at': now,
+            'scheduled_by': sched.get('id', ''),
+            'messages': ([{'direction': 'note', 'author': 'schedule',
+                           'ts': now, 'body': sched['body']}]
+                         if sched.get('body') else []),
+        }
+        tickets.append(rec)
+    return rec
+
+
+def run_ticket_schedules_if_due():
+    """W1-27: open recurring tickets when their cron matches. Cheap-when-not-due
+    (_config_ro on the gate); dedups per (schedule id, cron-minute) so a schedule
+    fires at most once per matching minute even across concurrent CGI processes.
+    Ticket creation self-locks TICKETS_FILE; the dedup state has its own lock —
+    neither nests the other."""
+    if not A._tickets_enabled():
+        return
+    scheds = [s for s in (A._config_ro().get('ticket_schedules') or [])
+              if isinstance(s, dict) and s.get('enabled', True) and s.get('cron')]
+    if not scheds:
+        return
+    now = int(time.time())
+    # period key = the matched minute, so a schedule fires once per minute max.
+    minute_key = now // 60
+    due = []
+    for s in scheds:
+        try:
+            if A._cron_matches(s['cron'], now):
+                due.append(s)
+        except Exception:
+            continue
+    if not due:
+        return
+    # Dedup under the schedule-state lock BEFORE creating tickets (collect first).
+    to_create = []
+    with A._LockedUpdate(A.TICKET_SCHED_STATE_FILE) as st:
+        fired = st.setdefault('fired', {})
+        for s in due:
+            if fired.get(s['id']) == minute_key:
+                continue
+            fired[s['id']] = minute_key
+            to_create.append(s)
+        # prune stale dedup markers (older than ~2 minutes) so the map stays small
+        for sid in list(fired):
+            if minute_key - int(fired.get(sid, 0)) > 2:
+                fired.pop(sid, None)
+    for s in to_create:
+        try:
+            _create_scheduled_ticket(s)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] scheduled ticket failed {s.get("id")}: {e}\n')
+
+
 def handle_ticket_update(tid):
     if not A._tickets_enabled():
         A.respond(404, {'error': 'ticket system is disabled'})

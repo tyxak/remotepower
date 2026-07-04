@@ -737,6 +737,54 @@ function deleteTicketTemplate(i) {
   tpls.splice(idx, 1);
   _tkPostTemplates(tpls, 'Canned reply deleted');
 }
+// W1-27: recurring scheduled tickets.
+let _tkSchedules = [];
+async function loadTicketSchedules() {
+  const r = await api('GET', '/tickets/schedules');
+  _tkSchedules = (r && r.schedules) || [];
+  _tkRenderSchedules();
+}
+function _tkRenderSchedules() {
+  const box = document.getElementById('tk-sched-list');
+  if (!box) return;
+  if (!_tkSchedules.length) { box.innerHTML = '<div class="meta-sm-nm">No recurring tickets.</div>'; return; }
+  box.innerHTML = _tkSchedules.map((s, i) =>
+    `<div class="row-6-center mb-4"><code class="fs-12">${escHtml(s.cron || '')}</code>`
+    + `<span class="fw-500 fs-13 ellipsis flex-1">${escHtml(s.subject || '')} <span class="meta-sm-nm">P${escHtml(String(s.priority || 4))}</span></span>`
+    + `<button class="btn-icon c-danger-outline cell-sm" data-action="deleteTicketSchedule" data-arg="${i}">Delete</button></div>`).join('');
+}
+async function _tkPostSchedules(scheds, okMsg) {
+  const r = await api('POST', '/tickets/schedules', { schedules: scheds });
+  const res = document.getElementById('tk-sched-result');
+  if (r?.ok) {
+    _tkSchedules = r.schedules || scheds; _tkRenderSchedules();
+    toast(okMsg, 'success'); if (res) res.textContent = '';
+  } else {
+    toast(r?.error || 'Failed', 'error'); if (res) res.textContent = r?.error || 'Failed';
+  }
+}
+function addTicketSchedule() {
+  const subject = (document.getElementById('tk-sched-subject')?.value || '').trim();
+  const cron = (document.getElementById('tk-sched-cron')?.value || '').trim();
+  if (!subject || !cron) { toast('Subject and cron are required', 'error'); return; }
+  const sched = {
+    subject, cron,
+    body: document.getElementById('tk-sched-body')?.value || '',
+    priority: parseInt(document.getElementById('tk-sched-priority')?.value || '4', 10),
+    type: 'request', enabled: true,
+  };
+  _tkPostSchedules([..._tkSchedules, sched], 'Schedule added').then(() => {
+    ['tk-sched-subject', 'tk-sched-body', 'tk-sched-cron'].forEach(id => {
+      const e = document.getElementById(id); if (e) e.value = '';
+    });
+  });
+}
+function deleteTicketSchedule(i) {
+  const idx = parseInt(i, 10);
+  if (isNaN(idx) || idx < 0 || idx >= _tkSchedules.length) return;
+  const scheds = [..._tkSchedules]; scheds.splice(idx, 1);
+  _tkPostSchedules(scheds, 'Schedule deleted');
+}
 async function loadTicketSla() {
   const r = await api('GET', '/tickets/sla');
   if (!r || !r.sla) return;

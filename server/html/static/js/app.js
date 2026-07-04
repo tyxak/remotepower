@@ -3045,7 +3045,7 @@ async function loadSettings() {
   const _tke = document.getElementById('cfg-tickets-enabled');
   if (_tke) _tke.checked = !!data.tickets_enabled;
   document.getElementById('nav-tickets')?.classList.toggle('d-none', !data.tickets_enabled);
-  if (data.tickets_enabled) { loadTicketImap(); loadTicketSla(); loadTicketAutoreply(); loadTicketTemplates(); }
+  if (data.tickets_enabled) { loadTicketImap(); loadTicketSla(); loadTicketAutoreply(); loadTicketTemplates(); loadTicketSchedules(); }
   const _ble = document.getElementById('cfg-billing-enabled');   // v5.4.1: Billing page opt-in
   if (_ble) _ble.checked = !!data.billing_enabled;
   document.getElementById('nav-billing')?.classList.toggle('d-none', !data.billing_enabled);

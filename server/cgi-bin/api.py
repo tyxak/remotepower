@@ -129,6 +129,7 @@ SNMP_DATA_FILE = DATA_DIR / 'snmp_data.json'
 SNMP_TRAPS_FILE = DATA_DIR / 'snmp_traps.json'   # inbound SNMP traps, per device
 SBOM_BASELINE_FILE = DATA_DIR / 'sbom_baselines.json'   # per-device package baseline for SBOM diffs
 TICKETS_FILE = DATA_DIR / 'tickets.json'   # built-in ticket system (opt-in)
+TICKET_SCHED_STATE_FILE = DATA_DIR / 'ticket_sched_state.json'  # W1-27 recurring-ticket dedup
 TICKET_TYPES = ('incident', 'request', 'change')
 TICKET_STATUSES = ('ongoing', 'pending_customer', 'pending_internal', 'resolved', 'closed')
 TICKET_STANDALONE_BASE = 900000   # standalone ticket numbers live in a reserved band so
@@ -743,7 +744,8 @@ for _tk_name in (
         'handle_tickets', 'handle_ticket_get', 'handle_ticket_sla', 'handle_ticket_update',
         'handle_ticket_delete', 'handle_ticket_hours', 'handle_device_tickets', 'handle_ticket_attachment',
         'handle_ticket_autoreply', 'handle_ticket_imap_get', 'handle_ticket_imap_save', 'handle_ticket_imap_test',
-        'handle_ticket_templates',
+        'handle_ticket_templates', 'handle_ticket_schedules',
+        'run_ticket_schedules_if_due', '_create_scheduled_ticket',
         'handle_ticket_send_email', '_ticket_contact_email', '_ticket_autoreply_cfg', '_send_ticket_autoreply',
         '_ticket_imap_cfg', '_ticket_email_text', '_ticket_store_attachment', '_fetch_ticket_replies',
         '_open_ticket_device_ids', '_dashboard_tickets', 'run_ticket_imap_if_due', 'run_ticket_sla_if_due',
@@ -50069,6 +50071,8 @@ def _build_exact_routes():
         ('POST', '/api/tickets/sla'): handle_ticket_sla,
         ('GET', '/api/tickets/templates'): handle_ticket_templates,
         ('POST', '/api/tickets/templates'): handle_ticket_templates,
+        ('GET', '/api/tickets/schedules'): handle_ticket_schedules,
+        ('POST', '/api/tickets/schedules'): handle_ticket_schedules,
         # v5.4.0 RackMatters: time-tracking + billing
         ('GET', '/api/time-entries'): handle_time_entries,
         ('POST', '/api/time-entries'): handle_time_entries,
@@ -51027,6 +51031,7 @@ def main():
     _safe(run_dmarc_imap_if_due, 'run_dmarc_imap_if_due')
     _safe(run_ticket_imap_if_due, 'run_ticket_imap_if_due')
     _safe(run_ticket_sla_if_due, 'run_ticket_sla_if_due')   # v5.3.0 SLA breach sweep
+    _safe(run_ticket_schedules_if_due, 'run_ticket_schedules_if_due')  # W1-27 recurring
     # v4.8.0: periodic IP-reputation (DNSBL) re-scan.
     _safe(run_reputation_scan_if_due, 'run_reputation_scan_if_due')
     # v4.9.0: periodic resolver-health re-check (latency / NXDOMAIN / failures).

@@ -119,6 +119,7 @@ Version tags (e.g. *v3.4.1*) mark when a feature landed. Complete history is in 
 | Ticket attachments | Inbound email attachments stored + downloadable/previewable; attach files to an outbound reply (≤15 MB each, ≤10/msg); access bound to the ticket, served `nosniff`. `GET …/tickets/{id}/attachments/{aid}[?inline=1]` *(v5.5.0)* |
 | Ticket auto-reply | Opt-in one-time acknowledgement on inbound-created tickets; loop-safe (`Auto-Submitted`, once per ticket, skips no-reply/mailer-daemon). `…/tickets/autoreply` *(v5.5.0)* |
 | Canned ticket replies | Reusable reply snippets with insert-time `{ticket_id}`/`{customer}`/`{assignee}` placeholders — admin-managed, one-click insert in the composer. `GET/POST /api/tickets/templates` *(v5.8.0)* |
+| Recurring scheduled tickets | Cron-scheduled auto-created tickets for recurring chores (restore drills, cert reviews) — subject/body/priority/device/assignee, deduped per matching minute. `GET/POST /api/tickets/schedules` *(v5.8.0)* |
 | Email thread view | One-click printable window of a ticket's full correspondence *(v5.5.0)* |
 | Posture digest | Opt-in daily/weekly email summary over SMTP *(v3.11.0)* |
 | Branded email | Alert / digest / test emails send a branded HTML alternative (white-label name + accent) + plain-text fallback *(v5.5.0)* |

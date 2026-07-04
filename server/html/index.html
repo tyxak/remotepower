@@ -2330,6 +2330,18 @@
             <div class="settings-row"><label class="form-label" for="tk-tpl-body">Reply text</label><textarea id="tk-tpl-body" class="form-input" rows="4" maxlength="4000" placeholder="Hi, we believe {ticket_id} is resolved…"></textarea></div>
             <div class="row-6"><button class="btn-primary" data-action="saveTicketTemplate">Save canned reply</button></div>
             <div id="tk-tpl-result" class="hint mt-6" role="status" aria-live="polite"></div>
+
+            <div class="section-title mt-16">Recurring tickets</div>
+            <div class="meta-sm-nm mt-4">Open a ticket automatically on a schedule — for recurring chores (quarterly restore drill, monthly cert review). Uses a 5-field cron (<code>min hour day month weekday</code>, server-local time).</div>
+            <div id="tk-sched-list" class="scroll-cap mt-8"></div>
+            <div class="settings-row"><label class="form-label" for="tk-sched-subject">Subject</label><input type="text" id="tk-sched-subject" class="form-input" maxlength="200" placeholder="Quarterly restore drill"></div>
+            <div class="settings-row"><label class="form-label" for="tk-sched-body">Body (optional)</label><textarea id="tk-sched-body" class="form-input" rows="2" maxlength="8000" placeholder="Checklist / instructions…"></textarea></div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label" for="tk-sched-cron">Cron</label><input type="text" id="tk-sched-cron" class="form-input ff-mono" maxlength="120" placeholder="0 9 1 * *"></div>
+              <div class="form-group"><label class="form-label" for="tk-sched-priority">Priority</label><select id="tk-sched-priority" class="form-input"><option value="2">P2 Critical</option><option value="3">P3 Warning</option><option value="4" selected>P4 Low</option></select></div>
+            </div>
+            <div class="row-6"><button class="btn-primary" data-action="addTicketSchedule">Add schedule</button></div>
+            <div id="tk-sched-result" class="hint mt-6" role="status" aria-live="polite"></div>
           </div>
           <!-- v3.14.0 (#45): white-label branding (in-app product name + accent). -->
           <div class="settings-section">

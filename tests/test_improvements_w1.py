@@ -525,5 +525,89 @@ class TestAlertKbRunbookLink(_HandlerBase):
         self.assertEqual(saved, {'metric_critical': 'kb_a'})
 
 
+class TestRecurringTickets(_HandlerBase):
+    """W1-27: ticket schedules handler + cadence sweep."""
+
+    def setUp(self):
+        super().setUp()
+        self._tf = api.TICKETS_FILE
+        self._sf = api.TICKET_SCHED_STATE_FILE
+        api.TICKETS_FILE = self.d / 'tickets.json'
+        api.TICKET_SCHED_STATE_FILE = self.d / 'ticket_sched_state.json'
+        api.save(api.CONFIG_FILE, {'tickets_enabled': True})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def tearDown(self):
+        api.TICKETS_FILE = self._tf
+        api.TICKET_SCHED_STATE_FILE = self._sf
+        super().tearDown()
+
+    def _save_scheds(self, scheds):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'schedules': scheds}
+        self.call(api.handle_ticket_schedules)
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def _tickets(self):
+        return (api.load(api.TICKETS_FILE) or {}).get('tickets') or []
+
+    def test_save_validates_cron(self):
+        self._save_scheds([{'subject': 'x', 'cron': 'not a cron'}])
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_save_and_list(self):
+        self._save_scheds([{'subject': 'Restore drill', 'cron': '0 9 1 * *',
+                            'priority': 3, 'body': 'do it'}])
+        api.method = lambda: 'GET'
+        r = self.call(api.handle_ticket_schedules)
+        self.assertEqual(len(r['schedules']), 1)
+        self.assertEqual(r['schedules'][0]['subject'], 'Restore drill')
+        self.assertTrue(r['schedules'][0]['id'])
+
+    def test_sweep_creates_and_dedups(self):
+        # a cron that matches "every minute" so it fires on any timestamp
+        self._save_scheds([{'subject': 'Chore', 'cron': '* * * * *',
+                            'priority': 4}])
+        _real = api.time.time
+        api.time.time = lambda: 1_800_000_000  # fixed minute
+        try:
+            api.run_ticket_schedules_if_due()
+            self.assertEqual(len(self._tickets()), 1)
+            t = self._tickets()[0]
+            self.assertEqual(t['subject'], 'Chore')
+            self.assertEqual(t['created_by'], 'schedule')
+            # same minute again → no duplicate
+            api.run_ticket_schedules_if_due()
+            self.assertEqual(len(self._tickets()), 1)
+            # next minute → fires again
+            api.time.time = lambda: 1_800_000_060
+            api.run_ticket_schedules_if_due()
+            self.assertEqual(len(self._tickets()), 2)
+        finally:
+            api.time.time = _real
+
+    def test_disabled_schedule_skipped(self):
+        self._save_scheds([{'subject': 'Off', 'cron': '* * * * *',
+                            'enabled': False}])
+        _real = api.time.time
+        api.time.time = lambda: 1_800_000_000
+        try:
+            api.run_ticket_schedules_if_due()
+            self.assertEqual(self._tickets(), [])
+        finally:
+            api.time.time = _real
+
+    def test_body_becomes_first_note(self):
+        self._save_scheds([{'subject': 'C', 'cron': '* * * * *', 'body': 'checklist'}])
+        _real = api.time.time
+        api.time.time = lambda: 1_800_000_000
+        try:
+            api.run_ticket_schedules_if_due()
+            msgs = self._tickets()[0]['messages']
+            self.assertEqual(msgs[0]['body'], 'checklist')
+        finally:
+            api.time.time = _real
+
+
 if __name__ == '__main__':
     unittest.main()

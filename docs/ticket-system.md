@@ -110,6 +110,17 @@ Placeholders substitute at insert time:
 The inserted text is normal composer text — edit it freely before sending.
 `GET/POST /api/tickets/templates`.
 
+## Recurring tickets
+
+For chores that must happen on a cadence — a quarterly restore drill, a monthly
+certificate review — define a **recurring ticket** under **Settings → Tickets →
+Recurring tickets**: a subject, optional body, priority and a 5-field cron
+(`min hour day month weekday`, server-local time). When the cron matches, the
+server opens a normal ticket (type *Request*, `created_by: schedule`), deduped
+so a schedule fires at most once per matching minute even across worker
+processes. Disable a schedule to pause it without deleting it.
+`GET/POST /api/tickets/schedules`.
+
 ## A note on privacy
 
 Everything here stays on your server. Ticket contents, email and contacts live in

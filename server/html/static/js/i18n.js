@@ -36,6 +36,8 @@
     'Ticket auto-reply':     { zh: '工单自动回复', hi: 'टिकट स्वतः-उत्तर', es: 'Respuesta automática de tickets', ar: 'الرد التلقائي للتذاكر' },
     'Canned replies':        { zh: '预设回复', hi: 'तैयार उत्तर', es: 'Respuestas predefinidas', ar: 'الردود الجاهزة' },
     'Save canned reply':     { zh: '保存预设回复', hi: 'तैयार उत्तर सहेजें', es: 'Guardar respuesta predefinida', ar: 'حفظ الرد الجاهز' },
+    'Recurring tickets':     { zh: '周期性工单', hi: 'आवर्ती टिकट', es: 'Tickets recurrentes', ar: 'التذاكر المتكررة' },
+    'Add schedule':          { zh: '添加计划', hi: 'शेड्यूल जोड़ें', es: 'Añadir programación', ar: 'إضافة جدول' },
     'CT watch':              { zh: 'CT 证书监视', hi: 'CT निगरानी', es: 'Vigilancia CT', ar: 'مراقبة CT' },
     'Save CT watch':         { zh: '保存 CT 监视', hi: 'CT निगरानी सहेजें', es: 'Guardar vigilancia CT', ar: 'حفظ مراقبة CT' },
     'Auto-placement rules':  { zh: '自动归置规则', hi: 'स्वतः-नियोजन नियम', es: 'Reglas de ubicación automática', ar: 'قواعد التوزيع التلقائي' },
