@@ -283,6 +283,7 @@ TASK_STATES         = ('upcoming', 'ongoing', 'pending', 'closed')
 
 # ── v1.9.0: CMDB (asset metadata + encrypted credentials) ─────────────────────
 CMDB_FILE           = DATA_DIR / 'cmdb.json'
+RACKS_FILE          = DATA_DIR / 'racks.json'   # W5-3 rack registry (per-site)
 CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
 BREAKGLASS_FILE     = DATA_DIR / 'breakglass_requests.json'  # v5.0.0 #C3
 # v3.5.0: sites/teams — a first-class grouping above device `group`, for
@@ -10516,6 +10517,142 @@ def handle_smart_group(name):
     respond(200, {'name': name, 'evaluated_ts': g.get('evaluated_ts'),
                   'members': [{'id': did, 'name': (devices.get(did) or {}).get('name', did)}
                               for did in members]})
+
+
+# ── W5-3: rack registry + elevation view ────────────────────────────────────
+# A rack = {name, site, height_u}. Assets are placed via their CMDB record
+# (rack_id + rack_unit bottom-U + rack_height_u). The elevation endpoint renders
+# occupancy and flags overlapping U spans. Admin-gated writes.
+
+def _rack_elevation(rack, rack_id, cmdb, devices):
+    """Pure: build the elevation model for one rack. Returns
+    {height_u, units:[{u, asset}|None...], assets:[...], conflicts:[u...]}.
+    Assets whose U spans overlap are flagged (conflict=True on each)."""
+    height = int(rack.get('height_u') or 42)
+    placed = []
+    for did, rec in (cmdb or {}).items():
+        if not isinstance(rec, dict) or rec.get('rack_id') != rack_id:
+            continue
+        u = int(rec.get('rack_unit') or 0)
+        if u < 1:
+            continue
+        h = max(1, int(rec.get('rack_height_u') or 1))
+        placed.append({'device_id': did, 'name': (devices.get(did) or {}).get('name', did),
+                       'rack_unit': u, 'rack_height_u': h, 'top_u': u + h - 1,
+                       'conflict': False})
+    # overlap detection
+    conflict_units = set()
+    for i, a in enumerate(placed):
+        for b in placed[i + 1:]:
+            if a['rack_unit'] <= b['top_u'] and b['rack_unit'] <= a['top_u']:
+                a['conflict'] = b['conflict'] = True
+                for uu in range(max(a['rack_unit'], b['rack_unit']),
+                                min(a['top_u'], b['top_u']) + 1):
+                    conflict_units.add(uu)
+    return {'height_u': height, 'assets': sorted(placed, key=lambda x: -x['rack_unit']),
+            'conflicts': sorted(conflict_units)}
+
+
+def handle_racks():
+    """GET /api/racks — list racks (+ placed count); POST — create. Admin write."""
+    if method() == 'GET':
+        require_auth()
+        racks = load(RACKS_FILE) or {}
+        cmdb = _cmdb_load()
+        counts = {}
+        for rec in cmdb.values():
+            rid = isinstance(rec, dict) and rec.get('rack_id')
+            if rid:
+                counts[rid] = counts.get(rid, 0) + 1
+        sites = load(SITES_FILE) or {}
+        out = [{'id': rid, 'name': r.get('name', rid), 'site': r.get('site', ''),
+                'site_name': (sites.get(r.get('site', '')) or {}).get('name', ''),
+                'height_u': r.get('height_u', 42), 'placed': counts.get(rid, 0)}
+               for rid, r in racks.items() if isinstance(r, dict)]
+        respond(200, {'racks': sorted(out, key=lambda x: x['name'].lower())})
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    name = _sanitize_str(str(body.get('name', '')), 64).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    try:
+        height = int(body.get('height_u') or 42)
+    except (TypeError, ValueError):
+        height = 42
+    if not (1 <= height <= 60):
+        respond(400, {'error': 'height_u must be 1–60'})
+    site = _sanitize_str(str(body.get('site', '')), 32)
+    if site and site not in (load(SITES_FILE) or {}):
+        respond(400, {'error': 'unknown site'})
+    rid = secrets.token_hex(8)
+    with _LockedUpdate(RACKS_FILE) as racks:
+        if len(racks) >= 500:
+            respond(400, {'error': 'rack limit reached (max 500)'})
+        racks[rid] = {'name': name, 'site': site, 'height_u': height,
+                      'created': int(time.time())}
+    audit_log(actor, 'rack_create', detail=f'name={name} id={rid}')
+    respond(201, {'ok': True, 'id': rid})
+
+
+def handle_rack(rid):
+    """PATCH /api/racks/{id} — update; DELETE — remove (unplaces its assets).
+    Admin only."""
+    actor = require_admin_auth()
+    rid = _sanitize_str(rid, 32)
+    if method() == 'DELETE':
+        with _LockedUpdate(RACKS_FILE) as racks:
+            existed = racks.pop(rid, None) is not None
+        if not existed:
+            respond(404, {'error': 'rack not found'})
+        # unplace assets that referenced it
+        with _LockedUpdate(CMDB_FILE) as cmdb:
+            for rec in cmdb.values():
+                if isinstance(rec, dict) and rec.get('rack_id') == rid:
+                    rec['rack_id'] = ''
+                    rec['rack_unit'] = 0
+        audit_log(actor, 'rack_delete', detail=f'id={rid}')
+        respond(200, {'ok': True})
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_obj()
+    with _LockedUpdate(RACKS_FILE) as racks:
+        r = racks.get(rid)
+        if not isinstance(r, dict):
+            respond(404, {'error': 'rack not found'})
+        if 'name' in body:
+            nm = _sanitize_str(str(body['name']), 64).strip()
+            if nm:
+                r['name'] = nm
+        if 'height_u' in body:
+            try:
+                h = int(body['height_u'])
+            except (TypeError, ValueError):
+                respond(400, {'error': 'height_u must be an integer'})
+            if not (1 <= h <= 60):
+                respond(400, {'error': 'height_u must be 1–60'})
+            r['height_u'] = h
+        if 'site' in body:
+            site = _sanitize_str(str(body['site']), 32)
+            if site and site not in (load(SITES_FILE) or {}):
+                respond(400, {'error': 'unknown site'})
+            r['site'] = site
+    audit_log(actor, 'rack_update', detail=f'id={rid}')
+    respond(200, {'ok': True})
+
+
+def handle_rack_elevation(rid):
+    """GET /api/racks/{id}/elevation — the rack's occupancy model + conflicts."""
+    require_auth()
+    rid = _sanitize_str(rid, 32)
+    rack = (load(RACKS_FILE) or {}).get(rid)
+    if not isinstance(rack, dict):
+        respond(404, {'error': 'rack not found'})
+    model = _rack_elevation(rack, rid, _cmdb_load(), load(DEVICES_FILE) or {})
+    model['id'] = rid
+    model['name'] = rack.get('name', rid)
+    respond(200, model)
 
 
 # ── v3.5.0: sites/teams ─────────────────────────────────────────────────────
@@ -52954,6 +53091,9 @@ def _build_exact_routes():
         # W5-6: smart groups (saved-query dynamic groups, admin-gated).
         ('GET', '/api/smart-groups'): handle_smart_groups,
         ('POST', '/api/smart-groups'): handle_smart_groups,
+        # W5-3: rack registry + elevation view.
+        ('GET', '/api/racks'): handle_racks,
+        ('POST', '/api/racks'): handle_racks,
         # v3.14.0 (#24): multi-tenancy control plane (foundation; behaviour-neutral)
         ('GET', '/api/tenants'): handle_tenants_list,
         ('POST', '/api/tenants'): handle_tenant_create,
@@ -53286,6 +53426,9 @@ _PATTERN_ROUTE_DEFS = (
     ('pat', ('GET',), '/api/scans/', '', 'handle_scan_detail', "pi.startswith('/api/scans/') and m == 'GET'"),
     ('pat', ('DELETE',), '/api/scans/', '', 'handle_scan_delete', "pi.startswith('/api/scans/') and m == 'DELETE'"),
     ('pat', ('POST',), '/api/device-profiles/', '/apply', 'handle_device_profile_apply', "pi.startswith('/api/device-profiles/') and pi.endswith('/apply') and m == 'POST'"),
+    ('pat', ('GET',), '/api/racks/', '/elevation', 'handle_rack_elevation', "pi.startswith('/api/racks/') and pi.endswith('/elevation') and m == 'GET'"),
+    ('pat', ('PATCH',), '/api/racks/', '', 'handle_rack', "pi.startswith('/api/racks/') and m == 'PATCH'"),
+    ('pat', ('DELETE',), '/api/racks/', '', 'handle_rack', "pi.startswith('/api/racks/') and m == 'DELETE'"),
     ('pat', ('GET',), '/api/smart-groups/', '/members', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and pi.endswith('/members') and m == 'GET'"),
     ('pat', ('PATCH',), '/api/smart-groups/', '', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and m == 'PATCH'"),
     ('pat', ('DELETE',), '/api/smart-groups/', '', 'handle_smart_group', "pi.startswith('/api/smart-groups/') and m == 'DELETE'"),

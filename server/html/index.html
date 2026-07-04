@@ -4968,6 +4968,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="smart-groups-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
           <div class="row-6 mt-8"><button class="btn-primary" data-action="openSmartGroupCreate">New smart group</button></div>
         </div>
+
+        <!-- W5-3: rack elevation -->
+        <div class="dash-card mt-16">
+          <div class="section-title">Racks</div>
+          <p class="hint">Model your racks and place assets in them (set rack, bottom U and height on an asset in the CMDB). Overlapping units are flagged. Front elevation view.</p>
+          <div id="racks-list" class="scroll-cap mt-8"><div class="empty-state">Loading…</div></div>
+          <div class="row-6 mt-8"><button class="btn-primary" data-action="openRackCreate">New rack</button></div>
+          <div id="rack-elevation-wrap" class="hidden mt-12"></div>
+        </div>
       </div>
 
       <!-- ── v5.4.0 RackMatters: Timesheet (personal weekly time log) ─────── -->
@@ -7731,6 +7740,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <input type="text" id="cmdb-asset-vlan" class="form-input" placeholder="10, 20 (trunk), DMZ" maxlength="64">
       <div class="meta-sm">Free text — a single ID, a comma-separated list for trunked, or a descriptive label.</div>
     </div>
+    <div class="form-group">
+      <label for="cmdb-asset-rack" class="form-label">Rack</label>
+      <select id="cmdb-asset-rack" class="form-input"><option value="">(not placed)</option></select>
+      <div class="meta-sm">Place this asset in a rack (managed under Sites → Racks).</div>
+    </div>
+    <div class="form-group">
+      <label for="cmdb-asset-rack-unit" class="form-label">Rack unit (bottom U)</label>
+      <input type="number" id="cmdb-asset-rack-unit" class="form-input" min="0" max="100" placeholder="0 = not placed">
+    </div>
+    <div class="form-group">
+      <label for="cmdb-asset-rack-height" class="form-label">Height (U)</label>
+      <input type="number" id="cmdb-asset-rack-height" class="form-input" min="1" max="60" value="1">
+    </div>
     <div class="form-group cmdb-fullspan">
       <label class="form-label">Network interfaces &amp; NAT</label>
       <div class="meta-sm mb-8">One row per NIC. Attach a NAT&nbsp;/&nbsp;public IP to any interface that's reachable from outside via 1:1 NAT — a host can have several NICs and several NATs. Star the primary interface.</div>
@@ -8658,6 +8680,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="dp-apply-list" class="scroll-cap"><div class="empty-state">Loading…</div></div>
   <div class="row-8-center mt-8"><span id="dp-apply-count" class="hint">0 selected</span></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-profile-apply-modal">Cancel</button><button class="btn-primary" data-action="applyDeviceProfile">Apply</button></div>
+</div></div>
+
+<!-- W5-3: rack create / edit modal -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="rack-modal-title" id="rack-modal"><div class="modal">
+  <div class="modal-title" id="rack-modal-title">New rack</div>
+  <div class="form-group"><label class="form-label" for="rack-name">Rack name</label><input type="text" id="rack-name" class="form-input" placeholder="Rack A1" maxlength="64"></div>
+  <div class="form-group"><label class="form-label" for="rack-height">Height (U)</label><input type="number" id="rack-height" class="form-input" min="1" max="60" value="42"></div>
+  <div class="form-group"><label class="form-label" for="rack-site">Site</label><select id="rack-site" class="form-input" aria-label="Site"><option value="">(none)</option></select></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="rack-modal">Cancel</button><button class="btn-primary" data-action="saveRack">Save rack</button></div>
 </div></div>
 
 <!-- W5-6: smart group create / edit modal -->

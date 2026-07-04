@@ -6808,6 +6808,7 @@ async function loadSites() {
   loadDeviceProfiles();
   loadSmartGroups();
   loadSiteMap();
+  loadRacks();
 }
 
 // ── W5-7: device profiles ────────────────────────────────────────────────────
@@ -6981,6 +6982,111 @@ async function viewSmartGroupMembers(name) {
   const names = (r.members || []).map(m => m.name);
   const list = names.length ? names.join(', ') : 'no devices currently match';
   toast(`smart:${name} — ${names.length} member(s): ${list}`, 'info');
+}
+
+// ── W5-3: racks + elevation ──────────────────────────────────────────────────
+let _racks = [];
+let _rackEditId = null;
+async function loadRacks() {
+  const box = document.getElementById('racks-list');
+  if (!box) return;
+  const data = await api('GET', '/racks').catch(() => null);
+  _racks = (data && data.racks) || [];
+  if (!_racks.length) { box.innerHTML = '<div class="meta-sm-nm">No racks yet.</div>'; return; }
+  box.innerHTML = _racks.map((r, i) =>
+    `<div class="row-8-center pad-6 border-b-subtle"><div class="flex-1"><span class="fw-500">${escHtml(r.name)}</span> <span class="hint">${r.height_u}U · ${r.placed} placed${r.site_name ? ' · ' + escHtml(r.site_name) : ''}</span></div>`
+    + `<button class="btn-icon fs-12" data-action="viewRackElevation" data-arg="${escAttr(r.id)}">Elevation</button>`
+    + `<button class="btn-icon fs-12" data-action="editRack" data-arg="${i}">Edit</button>`
+    + `<button class="btn-icon fs-12 c-danger-outline" data-action="deleteRack" data-arg="${escAttr(r.id)}">Delete</button></div>`).join('');
+}
+async function _fillRackSites(selected) {
+  const sel = document.getElementById('rack-site');
+  if (!sel) return;
+  const data = await api('GET', '/sites').catch(() => null);
+  const sites = (data && data.sites) || [];
+  sel.innerHTML = '<option value="">(none)</option>' + sites.map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('');
+  if (selected) sel.value = selected;
+}
+function openRackCreate() {
+  _rackEditId = null;
+  document.getElementById('rack-name').value = '';
+  document.getElementById('rack-height').value = '42';
+  _fillRackSites('');
+  document.getElementById('rack-modal-title').textContent = 'New rack';
+  openModal('rack-modal');
+}
+function editRack(i) {
+  const r = _racks[i]; if (!r) return;
+  _rackEditId = r.id;
+  document.getElementById('rack-name').value = r.name || '';
+  document.getElementById('rack-height').value = r.height_u || 42;
+  _fillRackSites(r.site || '');
+  document.getElementById('rack-modal-title').textContent = 'Edit rack';
+  openModal('rack-modal');
+}
+async function saveRack() {
+  const name = document.getElementById('rack-name').value.trim();
+  if (!name) { toast('Name required', 'error'); return; }
+  const body = { name, height_u: parseInt(document.getElementById('rack-height').value, 10) || 42,
+                 site: document.getElementById('rack-site').value || '' };
+  const r = _rackEditId
+    ? await api('PATCH', `/racks/${encodeURIComponent(_rackEditId)}`, body)
+    : await api('POST', '/racks', body);
+  if (r && (r.ok || r.id)) { toast('Rack saved', 'success'); closeModal('rack-modal'); loadRacks(); }
+  else toast((r && r.error) || 'Save failed', 'error');
+}
+async function deleteRack(id) {
+  if (!await uiConfirm({ title: 'Delete rack', message: 'Delete this rack? Assets placed in it become unplaced.', confirmText: 'Delete', danger: true })) return;
+  const r = await api('DELETE', `/racks/${encodeURIComponent(id)}`);
+  if (r && r.ok) { toast('Deleted', 'info'); loadRacks(); document.getElementById('rack-elevation-wrap')?.classList.add('hidden'); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+async function viewRackElevation(id) {
+  const wrap = document.getElementById('rack-elevation-wrap');
+  if (!wrap) return;
+  const m = await api('GET', `/racks/${encodeURIComponent(id)}/elevation`).catch(() => null);
+  if (!m) { toast('Failed to load elevation', 'error'); return; }
+  const H = m.height_u || 42;
+  const byUnit = {};
+  (m.assets || []).forEach(a => { byUnit[a.rack_unit] = a; });
+  wrap.classList.remove('hidden');
+  wrap.textContent = '';
+  const head = document.createElement('div');
+  head.className = 'fw-500 mb-6';
+  head.textContent = `${m.name} — ${H}U`;
+  wrap.appendChild(head);
+  if (m.conflicts && m.conflicts.length) {
+    const cn = document.createElement('div');
+    cn.className = 'c-red fs-12 mb-6';
+    cn.textContent = `⚠ Overlapping units: ${m.conflicts.join(', ')}`;
+    wrap.appendChild(cn);
+  }
+  const elev = document.createElement('div');
+  elev.className = 'rack-elev';
+  const col = document.createElement('div');
+  col.className = 'rack-elev-col';
+  for (let u = 1; u <= H; u++) {
+    const cell = document.createElement('div');
+    cell.className = 'rack-u';
+    const num = document.createElement('span');
+    num.className = 'rack-u-num';
+    num.textContent = u;
+    cell.appendChild(num);
+    const a = byUnit[u];
+    if (a) {
+      const h = a.rack_height_u || 1;
+      const block = document.createElement('div');
+      block.className = 'rack-asset' + (a.conflict ? ' conflict' : '');
+      block.style.bottom = '0';
+      block.style.height = (h * 18 - 4) + 'px';
+      block.title = `${a.name} — U${a.rack_unit}${h > 1 ? '-' + a.top_u : ''}${a.conflict ? ' (conflict!)' : ''}`;
+      block.textContent = a.name;
+      cell.appendChild(block);
+    }
+    col.appendChild(cell);
+  }
+  elev.appendChild(col);
+  wrap.appendChild(elev);
 }
 
 // W1-9: enrolment auto-placement rules live in config.enrol_rules.

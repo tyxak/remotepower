@@ -23,7 +23,8 @@ class _HandlerBase(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
         for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'DEVICES_FILE',
-                     'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE', 'SITES_FILE'):
+                     'DEVICE_PROFILES_FILE', 'SMART_GROUPS_FILE', 'SITES_FILE',
+                     'RACKS_FILE', 'CMDB_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.cap = {}
@@ -247,6 +248,55 @@ class TestSiteMap(_HandlerBase):
         self.call(api.handle_site_update, 's1')
         s = (api.load(api.SITES_FILE) or {})['s1']
         self.assertNotIn('lat', s)
+
+
+class TestRackElevation(_HandlerBase):
+    """W5-3: rack registry + elevation view with conflict detection."""
+
+    def test_create_and_list(self):
+        api.method = lambda: 'POST'
+        api.get_json_obj = lambda: {'name': 'R1', 'height_u': 42}
+        out = self.call(api.handle_racks)
+        rid = out['id']
+        self.assertIn(rid, api.load(api.RACKS_FILE) or {})
+
+    def test_elevation_conflict_detection(self):
+        api.save(api.RACKS_FILE, {'r1': {'name': 'R1', 'height_u': 42}})
+        api.save(api.CMDB_FILE, {
+            'd1': {'rack_id': 'r1', 'rack_unit': 1, 'rack_height_u': 2},   # U1-2
+            'd2': {'rack_id': 'r1', 'rack_unit': 2, 'rack_height_u': 1},   # U2 — overlaps d1
+            'd3': {'rack_id': 'r1', 'rack_unit': 10, 'rack_height_u': 1},  # U10 — clear
+            'd4': {'rack_id': 'other', 'rack_unit': 1, 'rack_height_u': 1}})
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'a'}, 'd2': {'name': 'b'},
+                                    'd3': {'name': 'c'}, 'd4': {'name': 'd'}})
+        for f in (api.RACKS_FILE, api.CMDB_FILE, api.DEVICES_FILE):
+            api._invalidate_load_cache(f)
+        out = self.call(api.handle_rack_elevation, 'r1')
+        self.assertEqual(out['height_u'], 42)
+        ids = {a['device_id'] for a in out['assets']}
+        self.assertEqual(ids, {'d1', 'd2', 'd3'})   # d4 is in another rack
+        conflicted = {a['device_id'] for a in out['assets'] if a['conflict']}
+        self.assertEqual(conflicted, {'d1', 'd2'})
+        self.assertIn(2, out['conflicts'])
+
+    def test_pure_elevation(self):
+        rack = {'height_u': 10}
+        cmdb = {'x': {'rack_id': 'r', 'rack_unit': 3, 'rack_height_u': 2}}
+        m = api._rack_elevation(rack, 'r', cmdb, {'x': {'name': 'xn'}})
+        self.assertEqual(m['assets'][0]['top_u'], 4)
+        self.assertEqual(m['conflicts'], [])
+
+    def test_delete_unplaces_assets(self):
+        api.save(api.RACKS_FILE, {'r1': {'name': 'R1', 'height_u': 42}})
+        api.save(api.CMDB_FILE, {'d1': {'rack_id': 'r1', 'rack_unit': 5, 'rack_height_u': 1}})
+        api._invalidate_load_cache(api.RACKS_FILE)
+        api._invalidate_load_cache(api.CMDB_FILE)
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_rack, 'r1')
+        self.assertNotIn('r1', api.load(api.RACKS_FILE) or {})
+        rec = (api.load(api.CMDB_FILE) or {})['d1']
+        self.assertEqual(rec['rack_id'], '')
+        self.assertEqual(rec['rack_unit'], 0)
 
 
 if __name__ == '__main__':

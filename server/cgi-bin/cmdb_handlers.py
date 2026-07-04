@@ -209,6 +209,10 @@ def _cmdb_record_default() -> dict:
         'warranty_expiry':          '',
         'license_expiry':           '',
         'support_contract_expiry':  '',
+        # W5-3: rack placement — which rack, bottom U (1-based), and height in U.
+        'rack_id':         '',
+        'rack_unit':       0,      # 0 = not placed
+        'rack_height_u':   1,
         # v3.12.0: business lists — see _CMDB_LIST_SPECS.
         'contracts':       [],
         'contacts':        [],
@@ -1073,6 +1077,35 @@ def handle_cmdb_update(dev_id: str) -> None:
             A.respond(400, {'error': 'vlan: alphanumerics/spaces/_-/,() , max 64 chars'})
         rec['vlan'] = vlan
         changed.append('vlan')
+
+    # W5-3: rack placement. rack_id references the rack registry (or '' to
+    # unplace). rack_unit is the bottom U (1-based); rack_height_u the size.
+    if 'rack_id' in body:
+        rid = A._sanitize_str(str(body.get('rack_id') or ''), 32)
+        if rid and rid not in (A.load(A.RACKS_FILE) or {}):
+            A.respond(400, {'error': 'rack_id: unknown rack'})
+        rec['rack_id'] = rid
+        if not rid:
+            rec['rack_unit'] = 0
+        changed.append('rack_id')
+    if 'rack_unit' in body:
+        try:
+            ru = int(body.get('rack_unit') or 0)
+        except (TypeError, ValueError):
+            A.respond(400, {'error': 'rack_unit must be an integer'})
+        if not (0 <= ru <= 100):
+            A.respond(400, {'error': 'rack_unit must be 0–100 (0 = not placed)'})
+        rec['rack_unit'] = ru
+        changed.append('rack_unit')
+    if 'rack_height_u' in body:
+        try:
+            rh = int(body.get('rack_height_u') or 1)
+        except (TypeError, ValueError):
+            A.respond(400, {'error': 'rack_height_u must be an integer'})
+        if not (1 <= rh <= 60):
+            A.respond(400, {'error': 'rack_height_u must be 1–60'})
+        rec['rack_height_u'] = rh
+        changed.append('rack_height_u')
 
     # v5.0.0: primary interface name (free-form NIC label).
     if 'primary_interface' in body:

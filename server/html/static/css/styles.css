@@ -7167,3 +7167,17 @@ body[data-ui="industrial"] input[type="checkbox"]:checked::after{ transform:rota
 .site-map-dot.degraded { fill: var(--c-amber, #d29922); }
 .site-map-dot.down { fill: var(--c-red, #f85149); }
 .site-map-dot:hover { stroke: var(--accent, #58a6ff); stroke-width: 1; }
+
+/* W5-3: rack elevation view */
+.rack-elev { display: flex; gap: 16px; flex-wrap: wrap; }
+.rack-elev-col { display: flex; flex-direction: column-reverse; width: 220px;
+  border: 1px solid var(--border, #2b3543); border-radius: 6px; overflow: hidden; }
+.rack-u { position: relative; height: 18px; border-top: 1px solid var(--border, #2b3543);
+  font-size: 10px; color: var(--text-dim, #7d8590); padding-left: 4px; line-height: 18px; }
+.rack-u:first-child { border-top: 0; }
+.rack-asset { position: absolute; left: 22px; right: 2px; border-radius: 3px;
+  background: var(--surface-2, #1e2530); border: 1px solid var(--accent, #58a6ff);
+  color: var(--text, #e6edf3); font-size: 11px; line-height: 1.1; padding: 2px 4px;
+  overflow: hidden; z-index: 1; cursor: default; }
+.rack-asset.conflict { border-color: var(--c-red, #f85149); background: rgba(248,81,73,0.15); }
+.rack-u-num { position: absolute; left: 2px; top: 0; width: 18px; text-align: right; }

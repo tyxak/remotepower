@@ -13,6 +13,17 @@ let _cmdbCurrent    = null;     // {device_id, ...} — asset currently in the m
 let _cmdbSearchTimer = null;
 let _cmdbDecommOrig = false;    // v5.0.0: decommissioned flag as loaded into the modal
 
+// W5-3: fill the rack picker in the CMDB modal, preserving the placement.
+async function _cmdbFillRacks(selected) {
+  const sel = document.getElementById('cmdb-asset-rack');
+  if (!sel) return;
+  const r = await cmdbApi('GET', '/racks');
+  const racks = (r && r.ok && r.data && r.data.racks) || [];
+  sel.innerHTML = '<option value="">(not placed)</option>'
+    + racks.map(x => `<option value="${_cmdbEsc(x.id)}">${_cmdbEsc(x.name)}</option>`).join('');
+  if (selected) sel.value = selected;
+}
+
 // Send the vault key on every CMDB credential request that needs it.
 async function cmdbApi(method, path, body, sendKey) {
   const opts = {method, headers: {'X-Token': getToken()}};
@@ -377,6 +388,10 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-environment').value = res.data.environment || '';
   document.getElementById('cmdb-asset-business-function').value = res.data.business_function || '';
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
+  // W5-3: rack placement.
+  await _cmdbFillRacks(res.data.rack_id || '');
+  document.getElementById('cmdb-asset-rack-unit').value   = res.data.rack_unit || 0;
+  document.getElementById('cmdb-asset-rack-height').value = res.data.rack_height_u || 1;
   // v5.0.0: multi-NIC / multi-NAT editor.
   _cmdbInterfaces = Array.isArray(res.data.interfaces) ? res.data.interfaces.map(x => ({
     iface: x.iface || '', ip: x.ip || '', nat_ip: x.nat_ip || '', primary: !!x.primary,
@@ -925,6 +940,10 @@ async function cmdbAssetSave() {
     warranty_expiry:         document.getElementById('cmdb-asset-warranty').value.trim(),
     license_expiry:          document.getElementById('cmdb-asset-license').value.trim(),
     support_contract_expiry: document.getElementById('cmdb-asset-support').value.trim(),
+    // W5-3: rack placement.
+    rack_id:       document.getElementById('cmdb-asset-rack').value || '',
+    rack_unit:     parseInt(document.getElementById('cmdb-asset-rack-unit').value, 10) || 0,
+    rack_height_u: parseInt(document.getElementById('cmdb-asset-rack-height').value, 10) || 1,
   };
   // v3.12.0: business lists (read the current editor state).
   _cmdbReadLists();
