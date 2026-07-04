@@ -2044,6 +2044,7 @@ SQLITE_MAINT_FILE = DATA_DIR / 'sqlite_maint.json'   # v3.12.0: maint timestamps
 AVATARS_DIR = DATA_DIR / 'avatars'                   # v3.12.0: per-user profile pics
 MAX_AVATAR_BYTES = 512 * 1024
 SATELLITES_FILE = DATA_DIR / 'satellites.json'       # v3.12.0: relay satellites
+SATELLITE_MON_FILE = DATA_DIR / 'satellite_monitors.json'  # W4-14 last satellite-probed monitor results {label: result}
 SCANS_FILE      = DATA_DIR / 'scans.json'            # v4.2.0 (B5): authorized scan jobs + findings
 SCAN_TARGETS_FILE = DATA_DIR / 'scan_targets.json'   # v4.2.0 (B5 P2): ownership-verified non-enrolled targets
 SCAN_SCHEDULES_FILE = DATA_DIR / 'scan_schedules.json'  # v4.2.0 (#4): recurring scan schedules (cron)
@@ -17185,6 +17186,11 @@ def _execute_monitor_checks(monitors):
     results = []
     _devs = None
     for m in monitors:
+        # W4-14: monitors assigned to a relay satellite are probed BY that
+        # satellite (it reaches segmented/private space the server refuses), not
+        # here. Their last-reported result is merged in for display separately.
+        if m.get('via_satellite'):
+            continue
         mtype = m.get('type', 'ping')
         label = _sanitize_str(m.get('label', m.get('target', '')), 128)
         tkind = m.get('target_kind', 'host')
@@ -18024,7 +18030,38 @@ def handle_monitor_run():
     cfg2 = load(CONFIG_FILE)
     cfg2['last_monitor_run'] = int(time.time())
     save(CONFIG_FILE, cfg2)
+    # W4-14: server-run results are tagged 'server'; merge the last
+    # satellite-probed results so the whole monitor set shows on one page.
+    for r in results:
+        r.setdefault('origin', 'server')
+    results = results + _satellite_monitor_display(monitors)
     respond(200, {'monitors': results})
+
+
+def _satellite_monitor_display(monitors):
+    """W4-14: display rows for satellite-assigned monitors — the last result the
+    satellite POSTed (or a 'pending' placeholder until the first probe)."""
+    stored = load(SATELLITE_MON_FILE) or {}
+    out = []
+    for m in monitors:
+        sid = m.get('via_satellite')
+        if not sid:
+            continue
+        label = _sanitize_str(m.get('label', m.get('target', '')), 128)
+        prev = stored.get(label)
+        if isinstance(prev, dict):
+            row = dict(prev)
+            row['label'] = label
+            row.setdefault('type', m.get('type', 'ping'))
+            row.setdefault('target', m.get('target', ''))
+            row['origin'] = f'satellite:{sid}'
+            out.append(row)
+        else:
+            out.append({'label': label, 'type': m.get('type', 'ping'),
+                        'target': m.get('target', ''), 'ok': True,
+                        'detail': 'awaiting first satellite probe',
+                        'checked': 0, 'origin': f'satellite:{sid}'})
+    return out
 
 
 def _get_ssl_context():
@@ -19076,6 +19113,7 @@ def handle_config_save():
 
     if 'monitors' in body and isinstance(body['monitors'], list):
         validated = []
+        _sats_cache = None      # W4-14: lazily loaded satellite registry for via_satellite
         for m in body['monitors'][:50]:  # max 50 monitors
             if not isinstance(m, dict):
                 continue
@@ -19205,6 +19243,17 @@ def handle_config_save():
                 fba = 1
             if fba > 1:
                 entry['failures_before_alert'] = max(2, min(10, fba))
+            # W4-14: optionally probe this monitor from a relay satellite instead
+            # of the server (reaches segmented/private space the server refuses).
+            # Validated against the satellite registry so an unknown id can't be
+            # stored; admin-gated by handle_config_save itself.
+            vs = _sanitize_str(str(m.get('via_satellite', '')), 32)
+            if vs:
+                if _sats_cache is None:
+                    _sats_cache = load(SATELLITES_FILE) or {}
+                if vs not in _sats_cache:
+                    respond(400, {'error': f'via_satellite: unknown satellite id {vs!r}'})
+                entry['via_satellite'] = vs
             validated.append(entry)
         cfg['monitors'] = validated
         # v5.6.x: a deleted/renamed monitor used to strand its per-monitor state
@@ -36635,6 +36684,87 @@ def require_satellite_scanner():
     respond(401, {'error': 'invalid satellite token'})
 
 
+def require_satellite():
+    """W4-14: authenticate ANY relay satellite via its X-RP-Satellite token
+    (no scanner capability required). Returns the satellite id, or 401s."""
+    tok = _env('HTTP_X_RP_SATELLITE', '').strip()
+    if not tok:
+        respond(401, {'error': 'satellite token required'})
+    h = _satellite_token_hash(tok)
+    for sid, s in (load(SATELLITES_FILE) or {}).items():
+        if isinstance(s, dict) and s.get('token_hash') and \
+                hmac.compare_digest(s.get('token_hash', ''), h):
+            return sid
+    respond(401, {'error': 'invalid satellite token'})
+
+
+def handle_satellite_monitor_work():
+    """GET /api/satellite/monitor-work — a relay satellite fetches the monitor
+    specs assigned to it (`via_satellite == <this id>`). It runs the probes on
+    its own side of the network and POSTs results to /monitor-results.
+    Auth: the satellite's X-RP-Satellite token."""
+    sid = require_satellite()
+    cfg = _config_ro()
+    jobs = []
+    for m in (cfg.get('monitors') or []):
+        if not isinstance(m, dict) or m.get('via_satellite') != sid:
+            continue
+        jobs.append({
+            'label':  _sanitize_str(m.get('label', m.get('target', '')), 128),
+            'type':   m.get('type', 'ping'),
+            'target': m.get('target', ''),
+            'port':   m.get('port'),
+            'expect_status': m.get('expect_status'),
+            'expect_contains': m.get('body_value') if m.get('body_mode') == 'contains' else None,
+            'timeout': 10,
+        })
+    respond(200, {'satellite_id': sid, 'monitors': jobs,
+                  'interval': max(60, int(cfg.get('monitor_interval', 300) or 300))})
+
+
+def handle_satellite_monitor_results():
+    """POST /api/satellite/monitor-results — a relay satellite reports the results
+    of the monitors assigned to it. Body {results:[{label,type,target,ok,detail,
+    latency_ms?}]}. Only labels that are actually assigned to THIS satellite are
+    accepted (an authed satellite can't spoof another's monitor). Auth: token."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    sid = require_satellite()
+    body = get_json_obj()
+    raw = body.get('results')
+    if not isinstance(raw, list):
+        respond(400, {'error': 'results must be a list'})
+    cfg = _config_ro()
+    # Labels legitimately owned by THIS satellite.
+    owned = {_sanitize_str(m.get('label', m.get('target', '')), 128)
+             for m in (cfg.get('monitors') or [])
+             if isinstance(m, dict) and m.get('via_satellite') == sid}
+    now = int(time.time())
+    results, store = [], (load(SATELLITE_MON_FILE) or {})
+    for r in raw[:200]:
+        if not isinstance(r, dict):
+            continue
+        label = _sanitize_str(str(r.get('label', '')), 128)
+        if label not in owned:
+            continue
+        res = {
+            'label':  label,
+            'type':   _sanitize_str(str(r.get('type', 'ping')), 16),
+            'target': _sanitize_str(str(r.get('target', '')), 256),
+            'ok':     bool(r.get('ok')),
+            'detail': _sanitize_str(str(r.get('detail', '')), 256),
+            'checked': now,
+        }
+        if isinstance(r.get('latency_ms'), (int, float)):
+            res['latency_ms'] = round(float(r['latency_ms']), 1)
+        results.append(res)
+        store[label] = res
+    if results:
+        _persist_monitor_results(results)     # history + monitor_down/up transitions
+        save(SATELLITE_MON_FILE, store)
+    respond(200, {'ok': True, 'accepted': len(results)})
+
+
 def _scan_sev_counts(findings):
     out = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'info': 0, 'unknown': 0}
     for f in (findings or []):
@@ -52467,6 +52597,9 @@ def _build_exact_routes():
         # v3.12.0: relay satellites
         ('GET', '/api/satellites'): handle_satellites_list,
         ('POST', '/api/satellites'): handle_satellites_create,
+        # W4-14: probe-from-satellite work queue (satellite-token auth).
+        ('GET', '/api/satellite/monitor-work'): handle_satellite_monitor_work,
+        ('POST', '/api/satellite/monitor-results'): handle_satellite_monitor_results,
         # v4.2.0 (B5): authorized scan orchestration. /claim is exact so it
         # matches before the '/api/scans/<id>' prefix routes below.
         ('GET', '/api/scans'): handle_scans_list,

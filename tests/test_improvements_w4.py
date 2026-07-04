@@ -31,7 +31,7 @@ class _HandlerBase(unittest.TestCase):
         self._orig = {n: getattr(api, n) for n in
                       ('require_auth', 'require_admin_auth', 'verify_token',
                        'get_token_from_request', 'audit_log', 'fire_webhook',
-                       'respond', 'method', 'get_json_body')}
+                       'respond', 'method', 'get_json_body', 'get_json_obj')}
         api.require_auth = lambda require_admin=False: 'jakob'
         api.require_admin_auth = lambda: 'jakob'
         api.verify_token = lambda t: ('jakob', 'admin')
@@ -420,6 +420,99 @@ class TestMetricRollups(_HandlerBase):
                 setattr(api, n, v)
         self.assertEqual(out['tier'], 'daily')
         self.assertEqual(out['points'][0]['cpu']['avg'], 12.0)
+
+
+class TestProbeFromSatellite(_HandlerBase):
+    """W4-14: monitors probed by a relay satellite."""
+
+    def setUp(self):
+        super().setUp()
+        self._extra = {}
+        for attr in ('SATELLITES_FILE', 'SATELLITE_MON_FILE', 'MON_HIST_FILE'):
+            self._extra[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        # a registered satellite + its token
+        self.tok = 'sat-token-123'
+        self.sid = 'abcd1234'
+        api.save(api.SATELLITES_FILE, {self.sid: {
+            'name': 'branch', 'token_hash': api._satellite_token_hash(self.tok),
+            'scanner': False}})
+        self._env0 = api._env
+        api._env = lambda k, d='': self.tok if k == 'HTTP_X_RP_SATELLITE' else self._env0(k, d)
+        self.fired = []
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p))
+
+    def tearDown(self):
+        api._env = self._env0
+        for attr, v in self._extra.items():
+            setattr(api, attr, v)
+        super().tearDown()
+
+    def _set_monitors(self, mons):
+        api.save(api.CONFIG_FILE, {'monitors': mons})
+        api._invalidate_load_cache(api.CONFIG_FILE)
+
+    def test_config_save_validates_satellite_id(self):
+        api.method = lambda: 'POST'
+        # unknown satellite id → 400
+        api.get_json_body = lambda: {'monitors': [
+            {'type': 'ping', 'label': 'gw', 'target': '10.0.0.1', 'via_satellite': 'nope'}]}
+        out = self.call(api.handle_config_save)
+        self.assertIn('unknown satellite', str(out))
+        # known id → stored
+        api.get_json_body = lambda: {'monitors': [
+            {'type': 'ping', 'label': 'gw', 'target': '10.0.0.1', 'via_satellite': self.sid}]}
+        self.call(api.handle_config_save)
+        mons = (api.load(api.CONFIG_FILE) or {}).get('monitors')
+        self.assertEqual(mons[0]['via_satellite'], self.sid)
+
+    def test_execute_skips_satellite_monitors(self):
+        res = api._execute_monitor_checks([
+            {'type': 'ping', 'label': 'local', 'target': '127.0.0.1'},
+            {'type': 'ping', 'label': 'remote', 'target': '10.0.0.1', 'via_satellite': self.sid},
+        ])
+        labels = [r['label'] for r in res]
+        self.assertIn('local', labels)
+        self.assertNotIn('remote', labels)
+
+    def test_work_queue_returns_assigned(self):
+        self._set_monitors([
+            {'type': 'tcp', 'label': 'db', 'target': '10.0.0.5', 'port': 5432, 'via_satellite': self.sid},
+            {'type': 'ping', 'label': 'other', 'target': '10.0.0.9', 'via_satellite': 'zzzz'},
+        ])
+        out = self.call(api.handle_satellite_monitor_work)
+        self.assertEqual(out['satellite_id'], self.sid)
+        self.assertEqual([j['label'] for j in out['monitors']], ['db'])
+        self.assertEqual(out['monitors'][0]['port'], 5432)
+
+    def test_results_accepted_only_for_owned(self):
+        self._set_monitors([
+            {'type': 'ping', 'label': 'mine', 'target': '10.0.0.1', 'via_satellite': self.sid}])
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'results': [
+            {'label': 'mine', 'type': 'ping', 'target': '10.0.0.1', 'ok': False, 'detail': 'timeout'},
+            {'label': 'not-mine', 'type': 'ping', 'target': '1.2.3.4', 'ok': True, 'detail': 'x'}]}
+        out = self.call(api.handle_satellite_monitor_results)
+        self.assertEqual(out['accepted'], 1)
+        store = api.load(api.SATELLITE_MON_FILE) or {}
+        self.assertIn('mine', store)
+        self.assertNotIn('not-mine', store)
+        # a down transition fired monitor_down
+        self.assertTrue(any(e == 'monitor_down' for e, _ in self.fired))
+
+    def test_display_merges_stored_and_pending(self):
+        self._set_monitors([
+            {'type': 'ping', 'label': 'has-result', 'target': '10.0.0.1', 'via_satellite': self.sid},
+            {'type': 'ping', 'label': 'no-result', 'target': '10.0.0.2', 'via_satellite': self.sid}])
+        api.save(api.SATELLITE_MON_FILE, {'has-result': {
+            'label': 'has-result', 'type': 'ping', 'target': '10.0.0.1',
+            'ok': True, 'detail': 'up', 'checked': 123}})
+        api._invalidate_load_cache(api.SATELLITE_MON_FILE)
+        rows = api._satellite_monitor_display((api.load(api.CONFIG_FILE) or {}).get('monitors'))
+        by = {r['label']: r for r in rows}
+        self.assertEqual(by['has-result']['origin'], f'satellite:{self.sid}')
+        self.assertEqual(by['has-result']['detail'], 'up')
+        self.assertIn('awaiting', by['no-result']['detail'])
 
 
 if __name__ == '__main__':

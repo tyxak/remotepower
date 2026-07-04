@@ -2408,7 +2408,7 @@ function _registerMonitorTable() {
     }),
     row: (m) => {
       const i = (window.monitorTargets || []).indexOf(m);
-      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}${(m.origin && m.origin.indexOf('satellite:') === 0) ? ' <span class="patch-badge fs-11" title="Probed by a relay satellite">via satellite</span>' : ''}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44 c-danger-outline" title="Delete" data-action="removeMonitor" data-arg="${i}">${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -2487,11 +2487,23 @@ function _monClearFields() {
   set('mon-json-path', ''); set('mon-json-value', '');
   set('mon-flow-steps', '');   // W4-13
 }
+// W4-14: populate the "Probe from" satellite picker (bounded ≤50 → a select is
+// fine, unlike device pickers). Preserves the current selection.
+async function _fillMonitorSatellites(selected) {
+  const sel = document.getElementById('mon-satellite');
+  if (!sel) return;
+  const sats = await api('GET', '/satellites').catch(() => []);
+  sel.innerHTML = '<option value="">Server (this RemotePower host)</option>'
+    + (Array.isArray(sats) ? sats : []).map(s =>
+        `<option value="${escAttr(s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
+  if (selected) sel.value = selected;
+}
 function openMonitorAdd() {
   _monitorEditIdx = -1;
   const t = document.querySelector('#monitor-add-modal .modal-title');
   if (t) t.textContent = 'Add monitor target';
   _monClearFields();
+  _fillMonitorSatellites('');
   monTypeChanged();
   openModal('monitor-add-modal');
 }
@@ -2519,6 +2531,7 @@ function editMonitor(idx) {
   set('mon-json-path', (m.expect_json && m.expect_json.path) || '');
   set('mon-json-value', (m.expect_json && m.expect_json.value) || '');
   set('mon-flow-steps', Array.isArray(m.steps) ? m.steps.map(s => JSON.stringify(s)).join('\n') : '');  // W4-13
+  _fillMonitorSatellites(m.via_satellite || '');   // W4-14
   monTypeChanged();
   openModal('monitor-add-modal');
 }
@@ -2621,6 +2634,9 @@ async function addMonitor() {
   // v4.3.0: flap dampening — alert only after N consecutive failures (1 = default).
   const fba = numOf('mon-failures-before-alert');
   if (fba !== null && Math.round(fba) > 1) entry.failures_before_alert = Math.max(2, Math.min(10, Math.round(fba)));
+  // W4-14: optionally probe from a relay satellite instead of the server.
+  const viaSat = document.getElementById('mon-satellite')?.value || '';
+  if (viaSat) entry.via_satellite = viaSat;
   if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) {
     monitors[_monitorEditIdx] = entry;
   } else {
